@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from magi_plugin_sdk.delivery import DeliveryReceipt
+from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 from magi.agent.task_agents.common.contracts import ExecutionMode, ExecutionResult
 from magi.channels.chat_delivery_dispatcher import ChatDeliveryDispatcher
 from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
@@ -84,7 +84,7 @@ def _request(*, origin_channel: str = "weixin"):
 
 
 @pytest.mark.asyncio
-async def test_orchestration_update_fans_out_to_origin_channel():
+async def test_orchestration_update_fans_out_after_postprocess_persistence():
     weixin = _FakeChannel("weixin")
     chat_sse = _FakeChannel("chat_sse")
     registry = _FakeChannelRegistry({"weixin": weixin, "chat_sse": chat_sse})
@@ -95,9 +95,15 @@ async def test_orchestration_update_fans_out_to_origin_channel():
     )
     coord = _coordinator(result, registry)
 
-    out = await coord.execute(_request(origin_channel="weixin"))
+    request = _request(origin_channel="weixin")
+    out = await coord.execute(request)
 
     assert out is result  # still returns the handler's result unchanged
+    assert not weixin.delivered
+    await coord.deliver_final_chat_response(
+        request.context,
+        content=DeliveryContent(text=result.response_text),
+    )
     assert weixin.delivered, "worker_update result was NOT fanned out to the origin weixin channel"
     assert weixin.delivered[0][1].text == "12 tickets done — 4 bugs, 3 feature requests."
 
@@ -142,7 +148,14 @@ async def test_fanout_strips_sentinel_before_external_channel_delivery():
     )
     coord = _coordinator(result, registry)
 
-    await coord.execute(_request(origin_channel="weixin"))
+    request = _request(origin_channel="weixin")
+    await coord.execute(request)
+
+    assert not weixin.delivered
+    await coord.deliver_final_chat_response(
+        request.context,
+        content=DeliveryContent(text=result.response_text),
+    )
 
     assert weixin.delivered, "no delivery reached the weixin channel"
     assert weixin.delivered[0][1].text == "part one part two"

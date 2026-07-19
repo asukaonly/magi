@@ -16,13 +16,15 @@ from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshLLMConfigCommand
 from ...core.logger import get_logger
 from ...bootstrap import refresh_runtime_llm_config
-from ...memory.embedding.config_coordination import (
+from ...config.embedding_coordination import (
     embedding_execution_signature,
     get_embedding_config_update_lock,
-    get_embedding_rebuild_manager as _resolve_embedding_rebuild_manager,
     pause_rebuilds_for_embedding_config_change,
 )
-from ...memory.embedding.vector_admin import build_embedding_config_preflight
+from ...memory.embedding.vector_admin import (
+    build_embedding_config_preflight,
+    get_embedding_rebuild_manager as _resolve_embedding_rebuild_manager,
+)
 from ..services.config_onboarding import (
     build_onboarding_template as _build_onboarding_template_service,
     load_quick_mode_personality,

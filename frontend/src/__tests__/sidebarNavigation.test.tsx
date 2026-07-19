@@ -2,10 +2,26 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { toast } from 'sonner';
 import { configApi, messagesApi } from '@/api';
 import Sidebar from '@/components/layout/Sidebar';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { useNotificationStore } from '@/stores/notifications';
+import {
+  loadRetryableChatSends,
+  loadRetryableInlineSkillOperations,
+  saveRetryableChatSends,
+  saveRetryableInlineSkillOperations,
+  type RetryableChatSendOperation,
+  type RetryableInlineSkillOperation,
+} from '@/hooks/chatRetryableSendStorage';
+
+vi.mock('sonner', () => ({
+  toast: {
+    error: vi.fn(),
+    warning: vi.fn(),
+  },
+}));
 
 vi.mock('@/api', () => ({
   configApi: {
@@ -70,6 +86,63 @@ vi.mock('@/api/modules/personas', async () => {
 describe('sidebar navigation', () => {
   const storage = new Map<string, string>();
 
+  const buildComposerRetry = (
+    sessionId: string,
+    turnId: string,
+  ): RetryableChatSendOperation => ({
+    sessionId,
+    turnId,
+    createdAtMs: Date.now(),
+    draftIdentity: `identity:${turnId}`,
+    draftSignature: `signature:${turnId}`,
+    draftKind: 'normal',
+    request: {
+      user_id: 'local_user',
+      session_id: sessionId,
+      message: `message:${turnId}`,
+      client_turn_id: turnId,
+    },
+    confirmation: { kind: 'turn', sessionId, turnId },
+    pendingTurn: {
+      sessionId,
+      input: `message:${turnId}`,
+      turnId,
+      timestamp: Date.now(),
+      pendingLabel: 'Pending',
+    },
+  });
+
+  const buildInlineRetry = (
+    sessionId: string,
+    turnId: string,
+  ): RetryableInlineSkillOperation => ({
+    retryKey: JSON.stringify([sessionId, null, 'summarize', [turnId]]),
+    createdAtMs: Date.now(),
+    request: {
+      user_id: 'local_user',
+      session_id: sessionId,
+      message: `/summarize ${turnId}\n\nExpanded prompt`,
+      workspace_path: null,
+      client_turn_id: turnId,
+    },
+    confirmation: { kind: 'turn', sessionId, turnId },
+  });
+
+  const seedSessionRetries = () => {
+    const composerA = buildComposerRetry('session-a', 'turn-a');
+    const composerB = buildComposerRetry('session-b', 'turn-b');
+    const inlineA = buildInlineRetry('session-a', 'skill-turn-a');
+    const inlineB = buildInlineRetry('session-b', 'skill-turn-b');
+    saveRetryableChatSends(new Map([
+      [composerA.sessionId, composerA],
+      [composerB.sessionId, composerB],
+    ]));
+    saveRetryableInlineSkillOperations(new Map([
+      [inlineA.retryKey, inlineA],
+      [inlineB.retryKey, inlineB],
+    ]));
+  };
+
   const LocationProbe = () => {
     const location = useLocation();
     return <div data-testid="location">{location.pathname}</div>;
@@ -78,6 +151,7 @@ describe('sidebar navigation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     storage.clear();
+    window.sessionStorage.clear();
     Object.defineProperty(window, 'localStorage', {
       value: {
         getItem: (key: string) => storage.get(key) ?? null,
@@ -505,7 +579,9 @@ describe('sidebar navigation', () => {
       success: true,
       user_id: 'local_user',
       deleted_session_id: 'session-a',
+      cleanup_pending: true,
     });
+    seedSessionRetries();
 
     useConversationStore.setState({
       currentSessionId: 'session-a',
@@ -555,6 +631,138 @@ describe('sidebar navigation', () => {
       expect(screen.queryByRole('button', { name: '杭州天气' })).not.toBeInTheDocument()
     );
     expect(screen.getByRole('button', { name: '西湖路线' })).toBeInTheDocument();
+    expect(loadRetryableChatSends().has('session-a')).toBe(false);
+    expect(loadRetryableChatSends().has('session-b')).toBe(true);
+    expect([...loadRetryableInlineSkillOperations().values()].some(
+      (operation) => operation.request.session_id === 'session-a',
+    )).toBe(false);
+    expect([...loadRetryableInlineSkillOperations().values()].some(
+      (operation) => operation.request.session_id === 'session-b',
+    )).toBe(true);
+    expect(useConversationStore.getState().currentSessionId).toBe('session-b');
+    expect(window.localStorage.getItem('chat_session_local_user')).toBe('session-b');
+    expect(toast.warning).toHaveBeenCalledWith(
+      'shell.deleteSessionCleanupPending',
+    );
+  });
+
+  it('keeps the current session and retries when session deletion fails', async () => {
+    const user = userEvent.setup();
+    const sessions = [
+      {
+        session_id: 'session-a',
+        title: '杭州天气',
+        last_user_message_preview: '杭州天气',
+        last_message_preview: '今天有点冷',
+        last_timestamp: 10,
+        message_count: 1,
+      },
+      {
+        session_id: 'session-b',
+        title: '西湖路线',
+        last_user_message_preview: '西湖路线',
+        last_message_preview: '沿湖散步',
+        last_timestamp: 9,
+        message_count: 1,
+      },
+    ];
+    vi.mocked(messagesApi.listSessions).mockResolvedValue({
+      sessions,
+      user_id: 'local_user',
+      count: sessions.length,
+    });
+    vi.mocked(messagesApi.deleteSession).mockRejectedValue(new Error('offline'));
+    seedSessionRetries();
+    useConversationStore.setState({
+      currentSessionId: 'session-a',
+      orderedSessionIds: ['session-a', 'session-b'],
+      sessionsById: Object.fromEntries(
+        sessions.map((session) => [session.session_id, session]),
+      ),
+      messagesBySession: {},
+      unreadBySession: {},
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
+    await user.pointer([{
+      target: await screen.findByRole('button', { name: '杭州天气' }),
+      keys: '[MouseRight]',
+    }]);
+    await user.click(await screen.findByRole('button', { name: 'shell.deleteSession' }));
+    await user.click(await screen.findByRole('button', { name: 'shell.confirmDeleteSession' }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('shell.deleteSessionFailed');
+    });
+    expect(loadRetryableChatSends().has('session-a')).toBe(true);
+    expect([...loadRetryableInlineSkillOperations().values()].some(
+      (operation) => operation.request.session_id === 'session-a',
+    )).toBe(true);
+    expect(useConversationStore.getState().currentSessionId).toBe('session-a');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('keeps a confirmed deletion committed when the session list refresh fails', async () => {
+    const user = userEvent.setup();
+    const sessionA = {
+      session_id: 'session-a',
+      title: '杭州天气',
+      last_user_message_preview: '杭州天气',
+      last_message_preview: '今天有点冷',
+      last_timestamp: 10,
+      message_count: 1,
+    };
+    vi.mocked(messagesApi.listSessions)
+      .mockResolvedValueOnce({
+        sessions: [sessionA],
+        user_id: 'local_user',
+        count: 1,
+      })
+      .mockRejectedValueOnce(new Error('refresh failed'));
+    vi.mocked(messagesApi.deleteSession).mockResolvedValue({
+      success: true,
+      user_id: 'local_user',
+      deleted_session_id: 'session-a',
+      cleanup_pending: false,
+    });
+    seedSessionRetries();
+    useConversationStore.setState({
+      currentSessionId: 'session-a',
+      orderedSessionIds: ['session-a'],
+      sessionsById: { 'session-a': sessionA },
+      messagesBySession: {},
+      unreadBySession: {},
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <Sidebar />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
+    await user.pointer([{
+      target: await screen.findByRole('button', { name: '杭州天气' }),
+      keys: '[MouseRight]',
+    }]);
+    await user.click(await screen.findByRole('button', { name: 'shell.deleteSession' }));
+    await user.click(await screen.findByRole('button', { name: 'shell.confirmDeleteSession' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(toast.error).not.toHaveBeenCalledWith('shell.deleteSessionFailed');
+    expect(loadRetryableChatSends().has('session-a')).toBe(false);
+    expect([...loadRetryableInlineSkillOperations().values()].some(
+      (operation) => operation.request.session_id === 'session-a',
+    )).toBe(false);
+    expect(useConversationStore.getState().currentSessionId).toBeNull();
   });
 
   it('refreshes sessions on sync events', async () => {

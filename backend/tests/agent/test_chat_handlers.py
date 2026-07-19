@@ -21,9 +21,13 @@ from magi.agent.task_agents.common import (
     ToolSelection,
     UserMessagePayload,
 )
+from magi.core.chat_assets import paths as asset_paths
+from magi.chat.attachment_storage import LocalChatAttachmentStorage
+from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from magi.i18n import language_context
 from magi.llm.model_context import ModelContextProfile
 from magi.tools.context_routing import RouteDecision
+from magi.utils.runtime import RuntimePaths
 
 
 class _FakeContextService:
@@ -1036,9 +1040,19 @@ async def test_function_calling_handler_adds_photo_workflow_guidance_when_photo_
 @pytest.mark.asyncio
 async def test_direct_llm_handler_builds_multimodal_message_for_image_attachments(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    image_path = tmp_path / "diagram.png"
-    image_path.write_bytes(b"x" * 600_000)
+    runtime_paths = RuntimePaths(base_dir=tmp_path)
+    monkeypatch.setattr(asset_paths, "get_runtime_paths", lambda: runtime_paths)
+    storage = LocalChatAttachmentStorage(runtime_paths=runtime_paths)
+    stored_attachment = await run_chat_asset_mutation(
+        storage.store_image_attachment,
+        session_id="session-1",
+        turn_id="turn-1",
+        original_name="diagram.png",
+        content=b"x" * 600_000,
+        mime_type="image/png",
+    )
 
     prompt_service = _FakePromptService()
     handler = DirectLLMHandler(
@@ -1071,11 +1085,12 @@ async def test_direct_llm_handler_builds_multimodal_message_for_image_attachment
             content="describe this screenshot",
             attachments=[
                 {
-                    "attachment_id": "att-image",
+                    "attachment_id": stored_attachment.attachment_id,
                     "kind": "image",
                     "original_name": "diagram.png",
                     "mime_type": "image/png",
-                    "storage_path": str(image_path),
+                    "storage_path": stored_attachment.storage_path,
+                    "turn_id": "turn-1",
                 }
             ],
             turn_id="turn-1",

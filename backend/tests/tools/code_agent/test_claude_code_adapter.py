@@ -1,10 +1,8 @@
 """Tests for ClaudeCodeAdapter using a fake `claude` binary."""
 from __future__ import annotations
 
-import asyncio
 import json
 import os
-import sys
 from pathlib import Path
 
 import pytest
@@ -58,6 +56,7 @@ def _request(tmp_path: Path) -> DelegateRequest:
     return DelegateRequest(
         delegation_id="a" * 32,
         session_id="s1",
+        turn_id="turn-1",
         adapter="claude_code",
         prompt="add max_retries to connect()",
         files_hint=["src/net.py"],

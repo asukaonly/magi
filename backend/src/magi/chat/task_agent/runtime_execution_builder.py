@@ -11,7 +11,7 @@ from magi.agent.runtime.types import TaskAgentType
 from magi.agent.task_orchestrator import TaskOrchestrator
 from magi.chat.task_agent.planning_service import ChatPlanningService
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
-from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+from magi.agent.response_rhythm import ResponseRhythmPlanner
 from magi.chat.task_agent.run_store import SessionRunStore
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.chat.task_agent.transcript_summarizer import ChatTranscriptSummarizer
@@ -186,9 +186,8 @@ def _build_postprocess_service(
         trace_read_service=_build_chat_trace_read_service(),
         runtime_trace_store=config.runtime_trace_store,
         chat_store=config.chat_store,
-        chat_projector=config.chat_projector,
         chat_read_service_factory=context_parts.chat_read_service_factory,
-        complete_session_run=lambda session_id, run_id, revision: session_run_coordinator.complete_run(
+        complete_session_run=lambda session_id, run_id, revision: session_run_coordinator.complete_run_with_deferred(
             session_id=session_id,
             run_id=run_id,
             revision=revision,
@@ -198,7 +197,7 @@ def _build_postprocess_service(
             run_id=run_id,
             revision=revision,
         ),
-        drain_deferred_turns=callbacks.drain_deferred_turns,
+        release_deferred_turns=callbacks.release_deferred_turns,
         response_rhythm_planner=ResponseRhythmPlanner(),
         transcript_summarizer=transcript_summarizer,
         event_bus=config.message_bus,
@@ -211,12 +210,9 @@ def _build_postprocess_service(
 
 
 def _build_chat_trace_read_service() -> Any:
-    try:
-        from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
+    from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
 
-        return ChatTraceReadService()
-    except Exception:
-        return None
+    return ChatTraceReadService()
 
 
 def _build_function_calling_orchestrator(

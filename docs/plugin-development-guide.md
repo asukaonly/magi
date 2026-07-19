@@ -340,6 +340,18 @@ Guidelines:
 - prefer `magi_plugin_sdk.channels` for `Channel`, `ChannelTarget`, and related DTOs
 - treat the injected session mapper as a host-provided dependency and type it as `ChannelSessionMapperProtocol`
 - treat the injected inbound dispatcher as a host-provided dependency and type it as `ChannelMessageDispatcherProtocol`
+- for inbound messages, pass stable transport identifiers in metadata as `external_chat_id` and `external_message_id`; also pass `account_id` when one channel type can have multiple connected accounts. The host uses these fields to make transport retries idempotent even when the adapter does not provide `client_turn_id`. If the transport has no reliable per-message identifier, omit `external_message_id` rather than inventing one.
+- an adapter-provided `client_turn_id` remains authoritative and must be stable, unique within the adapter's external message scope, and safe for storage (`A-Z`, `a-z`, `0-9`, `_`, `-`, at most 128 characters)
+- stable message identity deduplicates retries that reach the current host
+  conversation state; it is not a remote-history watermark. A full local clear
+  deliberately removes channel mappings and delivery ledgers, so an old
+  platform item delivered to Magi for the first time after that clear is
+  indistinguishable from a new item by stable ID alone
+- polling and backfill channels that can replay old remote history must retain a
+  provider-native cursor, timestamp, or sequence watermark on the plugin side.
+  The current SDK does not yet give that watermark a shared clear-generation
+  contract, so plugins must not claim that local Clear All Memory prevents
+  unseen remote backlog from being imported later
 - keep transport-specific SDKs inside the plugin package so the core SDK stays lightweight
 - route inbound messages through the injected dispatcher instead of importing `magi.api.services.message_dispatch_service` directly
 - legacy imports from `magi.channels.base` and `magi.channels.contracts` still work during the migration window

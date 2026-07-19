@@ -45,6 +45,7 @@ class ForgetOperationRepository:
         selector: ForgetSelector,
         reason: str,
         reuse_completed: bool,
+        execution_ready: bool = True,
     ) -> ForgetOperation:
         normalized_reason = str(reason or "").strip()
         if not normalized_reason:
@@ -70,8 +71,9 @@ class ForgetOperationRepository:
                         """
                         INSERT INTO memory_forget_operations(
                             operation_id, selector_kind, selector_hash,
-                            selector_json, reason, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            selector_json, reason, execution_ready,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             operation_id,
@@ -79,11 +81,162 @@ class ForgetOperationRepository:
                             selector.selector_hash,
                             selector.canonical_json,
                             normalized_reason,
+                            int(bool(execution_ready)),
                             now,
                             now,
                         ),
                     )
                     row = await self._get_row(db, operation_id)
+                elif (
+                    selector.kind == "chat_message"
+                    and (
+                        (
+                            str(row["status"]) != "completed"
+                            and not bool(row["execution_ready"])
+                        )
+                        or (
+                            str(row["status"]) == "completed"
+                            and row["surface_finalized_at"] is None
+                        )
+                    )
+                ):
+                    existing_payload = json.loads(str(row["selector_json"]))
+                    if not isinstance(existing_payload, dict):
+                        raise RuntimeError(
+                            "Persisted chat-message selector must be an object"
+                        )
+                    merged_runtime_turn_ids = sorted(
+                        normalize_source_event_ids(
+                            [
+                                *list(
+                                    existing_payload.get("runtime_turn_ids") or []
+                                ),
+                                *list(
+                                    selector.payload.get("runtime_turn_ids") or []
+                                ),
+                            ]
+                        )
+                    )
+                    merged_runtime_replay_turn_ids = sorted(
+                        normalize_source_event_ids(
+                            [
+                                *list(
+                                    existing_payload.get(
+                                        "runtime_replay_turn_ids"
+                                    )
+                                    or []
+                                ),
+                                *list(
+                                    selector.payload.get(
+                                        "runtime_replay_turn_ids"
+                                    )
+                                    or []
+                                ),
+                            ]
+                        )
+                    )
+                    merged_messages: dict[
+                        tuple[str, str, str],
+                        dict[str, str],
+                    ] = {}
+                    for message in [
+                        *list(existing_payload.get("messages") or []),
+                        *list(selector.payload.get("messages") or []),
+                    ]:
+                        if not isinstance(message, dict):
+                            continue
+                        message_id = str(
+                            message.get("message_id") or ""
+                        ).strip()
+                        source = str(message.get("source") or "").strip()
+                        event_type = str(
+                            message.get("event_type") or ""
+                        ).strip()
+                        if not message_id or not source or not event_type:
+                            continue
+                        merged_messages[(message_id, source, event_type)] = {
+                            "message_id": message_id,
+                            "source": source,
+                            "event_type": event_type,
+                        }
+                    merged_message_list = [
+                        merged_messages[key]
+                        for key in sorted(merged_messages)
+                    ]
+                    merged_surface_message_ids = list(
+                        dict.fromkeys(
+                            normalized
+                            for value in [
+                                *list(
+                                    existing_payload.get(
+                                        "surface_message_ids"
+                                    )
+                                    or []
+                                ),
+                                *list(
+                                    selector.payload.get(
+                                        "surface_message_ids"
+                                    )
+                                    or []
+                                ),
+                            ]
+                            if (
+                                normalized := str(value or "").strip()
+                            )
+                        )
+                    )
+                    if (
+                        merged_runtime_turn_ids
+                        != list(
+                            existing_payload.get("runtime_turn_ids") or []
+                        )
+                        or merged_runtime_replay_turn_ids
+                        != list(
+                            existing_payload.get(
+                                "runtime_replay_turn_ids"
+                            )
+                            or []
+                        )
+                        or merged_message_list
+                        != list(existing_payload.get("messages") or [])
+                        or merged_surface_message_ids
+                        != list(
+                            existing_payload.get("surface_message_ids")
+                            or []
+                        )
+                    ):
+                        existing_payload["runtime_turn_ids"] = (
+                            merged_runtime_turn_ids
+                        )
+                        existing_payload["runtime_replay_turn_ids"] = (
+                            merged_runtime_replay_turn_ids
+                        )
+                        existing_payload["messages"] = merged_message_list
+                        existing_payload["surface_message_ids"] = (
+                            merged_surface_message_ids
+                        )
+                        await db.execute(
+                            """
+                            UPDATE memory_forget_operations
+                            SET selector_json = ?,
+                                updated_at = ?
+                            WHERE operation_id = ?
+                            """,
+                            (
+                                json.dumps(
+                                    existing_payload,
+                                    ensure_ascii=False,
+                                    separators=(",", ":"),
+                                    sort_keys=True,
+                                ),
+                                now,
+                                str(row["operation_id"]),
+                            ),
+                        )
+                        row = await self._get_row(
+                            db,
+                            str(row["operation_id"]),
+                        )
                 await db.commit()
             except BaseException:
                 await db.rollback()
@@ -119,6 +272,9 @@ class ForgetOperationRepository:
                 if row is None or str(row["status"]) == "completed":
                     await db.commit()
                     return self._decode_operation(row) if row is not None else None
+                if not bool(row["execution_ready"]):
+                    await db.commit()
+                    return None
                 lease_owner = str(row["lease_owner"] or "")
                 lease_expires_at = float(row["lease_expires_at"] or 0.0)
                 force_reclaimable = bool(force and lease_owner not in _LIVE_LEASE_OWNERS)
@@ -162,13 +318,13 @@ class ForgetOperationRepository:
     ) -> list[ForgetOperation]:
         now = time.time()
         page_size = max(1, min(int(limit), 1000))
-        condition = "status != 'completed'"
+        condition = "execution_ready = 1 AND status != 'completed'"
         args: list[object] = []
         if not force:
-            condition = """
+            condition = """execution_ready = 1 AND (
                 status IN ('pending', 'failed')
                 OR (status = 'running' AND COALESCE(lease_expires_at, 0) <= ?)
-            """
+            )"""
             args.append(now)
         if after_created_at is not None and after_operation_id is not None:
             condition = f"""({condition}) AND (
@@ -196,6 +352,66 @@ class ForgetOperationRepository:
                 rows = await cursor.fetchall()
         return [self._decode_operation(row) for row in rows]
 
+    async def list_awaiting_chat_barriers(
+        self,
+        *,
+        limit: int = 1000,
+    ) -> list[ForgetOperation]:
+        """List chat intents that cannot run until their runtime barrier exists."""
+
+        page_size = max(1, min(int(limit), 1000))
+        async with sqlite_connection_async(self._db_path) as db:
+            async with db.execute(
+                """
+                SELECT *
+                FROM memory_forget_operations
+                WHERE execution_ready = 0
+                  AND status != 'completed'
+                  AND selector_kind IN (
+                      'chat_session', 'chat_history', 'chat_message'
+                  )
+                ORDER BY created_at, operation_id
+                LIMIT ?
+                """,
+                (page_size,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._decode_operation(row) for row in rows]
+
+    async def activate(self, operation_id: str) -> ForgetOperation:
+        """Allow a chat operation to run after its runtime barrier commits."""
+
+        now = time.time()
+        async with sqlite_connection_async(self._db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                row = await self._get_row(db, operation_id)
+                if row is None:
+                    raise RuntimeError("Forget operation does not exist")
+                if str(row["selector_kind"]) not in {
+                    "chat_session",
+                    "chat_history",
+                    "chat_message",
+                }:
+                    raise RuntimeError("Only chat forget operations require activation")
+                await db.execute(
+                    """
+                    UPDATE memory_forget_operations
+                    SET execution_ready = 1,
+                        updated_at = ?
+                    WHERE operation_id = ?
+                    """,
+                    (now, operation_id),
+                )
+                row = await self._get_row(db, operation_id)
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        if row is None:
+            raise RuntimeError("Forget operation disappeared while activating")
+        return self._decode_operation(row)
+
     async def list_pending_surface_finalizations(
         self,
         *,
@@ -217,6 +433,51 @@ class ForgetOperationRepository:
                 LIMIT ?
                 """,
                 (page_size,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._decode_operation(row) for row in rows]
+
+    async def list_completed_chat_forget_operations(
+        self,
+        *,
+        limit: int = 1000,
+        after_created_at: float | None = None,
+        after_operation_id: str | None = None,
+    ) -> list[ForgetOperation]:
+        """Page durable chat selectors that must remain blocked forever."""
+
+        page_size = max(1, min(int(limit), 1000))
+        cursor_condition = ""
+        args: list[object] = []
+        if after_created_at is not None and after_operation_id is not None:
+            cursor_condition = """
+              AND (
+                    created_at > ?
+                 OR (created_at = ? AND operation_id > ?)
+              )
+            """
+            args.extend(
+                (
+                    float(after_created_at),
+                    float(after_created_at),
+                    str(after_operation_id),
+                )
+            )
+        args.append(page_size)
+        async with sqlite_connection_async(self._db_path) as db:
+            async with db.execute(
+                f"""
+                SELECT *
+                FROM memory_forget_operations
+                WHERE status = 'completed'
+                  AND selector_kind IN (
+                      'chat_session', 'chat_history', 'chat_message'
+                  )
+                  {cursor_condition}
+                ORDER BY created_at, operation_id
+                LIMIT ?
+                """,
+                tuple(args),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [self._decode_operation(row) for row in rows]
@@ -1105,6 +1366,7 @@ class ForgetOperationRepository:
             cursor=str(row["cursor"] or ""),  # type: ignore[index]
             selection_complete=bool(row["selection_complete"]),  # type: ignore[index]
             selector_cleanup_complete=bool(row["selector_cleanup_complete"]),  # type: ignore[index]
+            execution_ready=bool(row["execution_ready"]),  # type: ignore[index]
             total_event_count=int(row["total_event_count"]),  # type: ignore[index]
             active_event_count=int(row["active_event_count"]),  # type: ignore[index]
             cleaned_event_count=int(row["cleaned_event_count"]),  # type: ignore[index]

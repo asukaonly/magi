@@ -15,6 +15,7 @@ from magi.db.runner import MIGRATION_TARGETS, _build_config
 
 V18_REVISION = "v18_persistent_forget_governance"
 V19_REVISION = "v19_claim_evidence_ledger"
+MEMORY_HEAD_REVISION = "v33_chat_forget_activation"
 
 
 def _memory_config(db_path: Path):
@@ -229,7 +230,7 @@ def test_claim_evidence_ledger_backfills_valid_arrays_and_skips_malformed(
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "v31_correction_replacement_slot_index",
+            MEMORY_HEAD_REVISION,
         )
         rows = connection.execute("""
             SELECT target_kind, claim_fingerprint, event_id,
@@ -293,7 +294,7 @@ def test_claim_evidence_ledger_upgrade_rolls_back_and_retries(tmp_path: Path) ->
 def test_claim_evidence_ledger_downgrades_when_empty(tmp_path: Path) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
-    command.upgrade(config, "head")
+    command.upgrade(config, V19_REVISION)
 
     command.downgrade(config, V18_REVISION)
 
@@ -316,7 +317,7 @@ def test_claim_evidence_ledger_downgrades_when_empty(tmp_path: Path) -> None:
 def test_claim_evidence_ledger_refuses_to_drop_retained_data(tmp_path: Path) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
-    command.upgrade(config, "head")
+    command.upgrade(config, V19_REVISION)
     with sqlite3.connect(db_path) as connection:
         connection.execute("""
             INSERT INTO memory_claim_evidence_events(

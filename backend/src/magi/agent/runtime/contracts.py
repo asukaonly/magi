@@ -19,3 +19,5 @@ class FactRecord:
     timestamp: float = field(default_factory=time.time)
     correlation_id: Optional[str] = None
     user_message_generation: Optional[int] = None
+    delivery_attempt_no: Optional[int] = None
+    runtime_command_id: Optional[int] = None

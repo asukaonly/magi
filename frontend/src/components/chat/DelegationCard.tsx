@@ -25,6 +25,7 @@ import { UnifiedDiffViewer } from './UnifiedDiffViewer';
 interface DelegationCardProps {
   sessionId: string;
   delegationId: string;
+  turnId: string;
   workspace: string | null;
 }
 
@@ -34,13 +35,14 @@ interface DelegationCardProps {
 export function DelegationCard({
   sessionId,
   delegationId,
+  turnId,
   workspace,
 }: DelegationCardProps): JSX.Element | null {
   const { t } = useTranslation('app');
   const card = useDelegationsStore(selectDelegationCard(sessionId, delegationId));
   const setApplyOutcome = useDelegationsStore((s) => s.setApplyOutcome);
   const setLifecycle = useDelegationsStore((s) => s.setLifecycle);
-  useDelegationHydration(sessionId, delegationId, workspace);
+  useDelegationHydration(sessionId, delegationId, turnId, workspace);
 
   const [busy, setBusy] = useState<'cancel' | 'apply' | 'discard' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -50,15 +52,6 @@ export function DelegationCard({
   const events = card?.events ?? [];
   const applyOutcome = card?.applyOutcome ?? null;
   const diffText = card?.diffText ?? '';
-
-  // Debug: log when card data changes
-  console.log('[DelegationCard] Render', {
-    delegationId,
-    lifecycle,
-    hasResult: !!result,
-    filesChangedCount: result?.files_changed?.length ?? 0,
-    diffTextLength: diffText?.length ?? 0,
-  });
 
   const eventsTail = useMemo(() => events.slice(-50), [events]);
 

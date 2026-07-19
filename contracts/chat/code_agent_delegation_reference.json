@@ -1,0 +1,11 @@
+{
+  "payload": {
+    "code_agent_delegations": [
+      {
+        "delegation_id": "0123456789abcdef0123456789abcdef",
+        "turn_id": "turn-contract-code-agent",
+        "workspace_path": "/workspace-at-execution"
+      }
+    ]
+  }
+}

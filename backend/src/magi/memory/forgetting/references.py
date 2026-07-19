@@ -97,16 +97,25 @@ class ForgetReferenceBuilder:
 
         if selector.kind == "chat_message":
             payload = selector.payload
-            references = business_source_references(
-                source=str(payload["source"]),
-                event_type=str(payload["event_type"]),
-                source_item_id=str(payload["message_id"]),
-                idempotency_key=str(payload["message_id"]),
-            )
-            references = [
-                ForgetReference("", "barrier", _business_reference_type(value), value)
-                for value in references
-            ]
+            references: list[ForgetReference] = []
+            for message in payload["messages"]:
+                if not isinstance(message, dict):
+                    continue
+                source_message_id = str(message.get("message_id") or "")
+                for value in business_source_references(
+                    source=str(message.get("source") or ""),
+                    event_type=str(message.get("event_type") or ""),
+                    source_item_id=source_message_id,
+                    idempotency_key=source_message_id,
+                ):
+                    references.append(
+                        ForgetReference(
+                            "",
+                            "barrier",
+                            _business_reference_type(value),
+                            value,
+                        )
+                    )
             references.append(
                 ForgetReference(
                     "",

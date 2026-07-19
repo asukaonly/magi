@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from magi.chat.task_agent import rhythm as rhythm_module
-from magi.chat.task_agent.rhythm import (
+from magi.agent import response_rhythm as rhythm_module
+from magi.agent.response_rhythm import (
     ResponseRhythmPlanner,
     _CEIL_MS,
     _FLOOR_MS,
@@ -142,7 +142,7 @@ async def test_response_rhythm_planner_skips_non_visible_surfaces(monkeypatch, s
 
 
 def test_extract_persona_rhythm_from_prompt_context() -> None:
-    from magi.chat.task_agent.rhythm import extract_persona_rhythm
+    from magi.agent.response_rhythm import extract_persona_rhythm
 
     plan = SimpleNamespace(
         register="chat",
@@ -230,7 +230,7 @@ async def test_postprocess_forwards_persona_and_raw_response_to_rhythm_planner()
 
 def test_rhythm_level_multiplies_scene_and_chattiness() -> None:
     from magi.agent.task_agents.common import RhythmPersonaSignal
-    from magi.chat.task_agent.rhythm import _rhythm_level
+    from magi.agent.response_rhythm import _rhythm_level
 
     assert abs(_rhythm_level(None) - 0.25) < 1e-9
     crisis = RhythmPersonaSignal(register="crisis", persona_intensity=0, chattiness=0.9)
@@ -242,7 +242,7 @@ def test_rhythm_level_multiplies_scene_and_chattiness() -> None:
 
 
 def test_rhythm_profile_maps_level_to_speed_and_max_segments() -> None:
-    from magi.chat.task_agent.rhythm import _rhythm_profile
+    from magi.agent.response_rhythm import _rhythm_profile
 
     bias_lo, speed_lo, max_lo = _rhythm_profile(0.1)
     assert "exactly one group" in bias_lo and max_lo == 1 and speed_lo > 1.0

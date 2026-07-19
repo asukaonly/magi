@@ -94,6 +94,199 @@ async def _operation_row(db_path: Path) -> aiosqlite.Row:
     return row
 
 
+def test_chat_message_selector_turn_metadata_keeps_stable_identity() -> None:
+    legacy = ForgetSelector.from_json(
+        kind="chat_message",
+        selector_json=(
+            '{"event_type":"UserMessage","message_id":"message-1",'
+            '"session_id":"session-1","source":"chat","user_id":"u1"}'
+        ),
+    )
+    first = ForgetSelector.chat_message(
+        user_id="u1",
+        session_id="session-1",
+        message_id="message-1",
+        turn_id="turn-original",
+        source="chat",
+        event_type="UserMessage",
+    )
+    retried = ForgetSelector.chat_message(
+        user_id="u1",
+        session_id="session-1",
+        message_id="message-1",
+        turn_id="turn-reloaded",
+        source="chat",
+        event_type="UserMessage",
+    )
+
+    assert legacy.selector_hash == first.selector_hash
+    assert first.selector_hash == retried.selector_hash
+    assert legacy.canonical_json != first.canonical_json
+    assert first.canonical_json != retried.canonical_json
+
+
+@pytest.mark.asyncio
+async def test_inactive_chat_message_intent_merges_runtime_turn_guards(
+    tmp_path: Path,
+) -> None:
+    memory_db_path = tmp_path / "memory.db"
+    await apply_memory_shared_schema(str(memory_db_path))
+    repository = ForgetOperationRepository(str(memory_db_path))
+    first = await repository.create_or_reuse(
+        selector=ForgetSelector.chat_message(
+            user_id="u1",
+            session_id="session-1",
+            message_id="message-1",
+            turn_id="turn-target",
+            source="chat",
+            event_type="AIResponse",
+            runtime_turn_ids=["turn-target"],
+            runtime_replay_turn_ids=["turn-pre-run"],
+        ),
+        reason="user_delete_chat_message",
+        reuse_completed=True,
+        execution_ready=False,
+    )
+    retried = await repository.create_or_reuse(
+        selector=ForgetSelector.chat_message(
+            user_id="u1",
+            session_id="session-1",
+            message_id="message-1",
+            turn_id="turn-target",
+            source="chat",
+            event_type="AIResponse",
+            runtime_turn_ids=["turn-target", "turn-active"],
+            runtime_replay_turn_ids=["turn-later"],
+        ),
+        reason="user_delete_chat_message",
+        reuse_completed=True,
+        execution_ready=False,
+    )
+
+    assert first.selector.payload["runtime_replay_turn_ids"] == [
+        "turn-pre-run",
+    ]
+    assert retried.operation_id == first.operation_id
+    assert retried.selector.payload["runtime_turn_ids"] == [
+        "turn-active",
+        "turn-target",
+    ]
+    assert retried.selector.payload["runtime_replay_turn_ids"] == [
+        "turn-later",
+        "turn-pre-run",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unfinalized_chat_message_forget_merges_runtime_turn_guards(
+    tmp_path: Path,
+) -> None:
+    memory_db_path = tmp_path / "memory.db"
+    await apply_memory_shared_schema(str(memory_db_path))
+    repository = ForgetOperationRepository(str(memory_db_path))
+    first = await repository.create_or_reuse(
+        selector=ForgetSelector.chat_message(
+            user_id="u1",
+            session_id="session-1",
+            message_id="message-1",
+            turn_id="turn-target",
+            source="chat",
+            event_type="AIResponse",
+            runtime_turn_ids=["turn-target"],
+        ),
+        reason="user_delete_chat_message",
+        reuse_completed=True,
+        execution_ready=False,
+    )
+    async with aiosqlite.connect(memory_db_path) as db:
+        await db.execute(
+            """
+            UPDATE memory_forget_operations
+            SET status = 'completed',
+                phase = 'completed',
+                execution_ready = 1,
+                completed_at = ?,
+                surface_finalized_at = NULL
+            WHERE operation_id = ?
+            """,
+            (time.time(), first.operation_id),
+        )
+        await db.commit()
+
+    retried = await repository.create_or_reuse(
+        selector=ForgetSelector.chat_message(
+            user_id="u1",
+            session_id="session-1",
+            message_id="message-1",
+            turn_id="turn-target",
+            source="chat",
+            event_type="AIResponse",
+            runtime_turn_ids=["turn-target", "turn-active"],
+        ),
+        reason="user_delete_chat_message",
+        reuse_completed=True,
+        execution_ready=False,
+    )
+
+    assert retried.operation_id == first.operation_id
+    assert retried.status == "completed"
+    assert retried.surface_finalized_at is None
+    assert retried.selector.payload["runtime_turn_ids"] == [
+        "turn-active",
+        "turn-target",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_inactive_chat_forget_intent_waits_for_runtime_barrier(
+    tmp_path: Path,
+) -> None:
+    """Startup recovery must not forget chat evidence before its runtime block."""
+
+    await apply_memory_shared_schema(str(tmp_path / "memory.db"))
+    memory = _build_memory(tmp_path)
+    await memory.initialize()
+    assert memory.l1 is not None
+    event = _event(
+        "event-chat-intent",
+        session_id="session-chat-intent",
+        turn_id="turn-chat-intent",
+        message_id="message-chat-intent",
+    )
+    await memory.l1.store(event)
+    try:
+        operation = await memory.prepare_chat_message_forget(
+            user_id="u1",
+            session_id="session-chat-intent",
+            message_id="message-chat-intent",
+            source_message_id="message-chat-intent",
+            turn_id="turn-chat-intent",
+            source="chat",
+            event_type="UserMessage",
+            reason="test_chat_runtime_barrier",
+        )
+        assert operation.execution_ready is False
+
+        recovery = await memory.resume_pending_forget_operations(
+            force=True,
+            fail_on_barrier_error=True,
+        )
+        assert recovery == {"found": 0, "completed": 0, "failed": 0}
+        assert (
+            await memory.l1.query_events(event_id=event.event_id, limit=1)
+        )[0]["event_id"] == event.event_id
+
+        activated = await memory.activate_chat_forget_intent(
+            operation.operation_id
+        )
+        assert activated.execution_ready is True
+        outcome = await memory.execute_prepared_forget(operation.operation_id)
+        assert outcome.operation_id == operation.operation_id
+        assert await memory.l1.query_events(event_id=event.event_id, limit=1) == []
+    finally:
+        await memory.shutdown()
+
+
 async def _seed_archive(
     db_path: Path,
     *,
@@ -1031,6 +1224,7 @@ async def test_message_projection_rebuild_failure_resumes_from_remaining_events(
             user_id="u1",
             session_id="session-message",
             message_id="message-delete",
+            turn_id="turn-1",
             source="chat",
             event_type="UserMessage",
         )
@@ -1170,7 +1364,7 @@ async def test_entity_forget_waits_for_active_l2_projection_batch(
                         "SELECT * FROM memory_forget_operations LIMIT 1"
                     ) as cursor:
                         operation = await cursor.fetchone()
-                if operation is not None:
+                if operation is not None and operation["status"] == "running":
                     break
             assert operation is not None
             assert operation["status"] == "running"

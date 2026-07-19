@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Optional
 
 from ...awareness.contracts import SensorEvent
 from ...events.events import EventTypes
 from ...core.logger import get_logger
+from .chat_message_delete import (
+    ChatMessageDeleteCoordinator,
+    ChatMessageDeleteHold,
+)
 from .contracts import FactRecord
 from .task_agent import TaskAgent
 from .types import TaskAgentType, build_task_agent_key, get_task_agent_type_value
@@ -27,6 +32,15 @@ class InstanceMetadata:
     pending_queue_size: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class _UserMessageDeliveryIdentity:
+    """Durable identity for one physical user-message delivery attempt."""
+
+    turn_id: str
+    delivery_attempt_no: int
+    runtime_command_id: int
+
+
 class TaskAgentManager:
     """Manages persistent and dynamic task-agent instances."""
 
@@ -39,6 +53,8 @@ class TaskAgentManager:
         janitor_interval_seconds: float = 60.0,
         user_message_generation_getter: Callable[[], int] | None = None,
         user_message_scope_blocker: Callable[..., Awaitable[bool]] | None = None,
+        user_message_delivery_admitter: Callable[..., Awaitable[bool]] | None = None,
+        runtime_command_acknowledger: Callable[[int], Awaitable[None]] | None = None,
     ) -> None:
         self._create_chat_agent = create_chat_agent
         self._create_default_agent = create_default_agent
@@ -56,12 +72,23 @@ class TaskAgentManager:
         self._user_message_generation_getter = user_message_generation_getter
         self._user_message_scope_blocker = user_message_scope_blocker
         self._blocked_user_message_rejected_count = 0
+        self._user_message_delivery_admitter = user_message_delivery_admitter
+        self._runtime_command_acknowledger = runtime_command_acknowledger
+        self._superseded_user_message_count = 0
         self._sensor_hub = None
         self._chat_clear_lock = asyncio.Lock()
         self._chat_work_resumed = asyncio.Event()
         self._chat_work_resumed.set()
         self._chat_pause_depth = 0
         self._chat_quiesce_task: asyncio.Task[None] | None = None
+        self._chat_session_quiesce_events: dict[str, asyncio.Event] = {}
+        self._chat_message_delete = ChatMessageDeleteCoordinator(
+            chat_clear_lock=self._chat_clear_lock,
+            agents=self._agents,
+            instance_metadata=self._instance_metadata,
+            session_quiesce_events=self._chat_session_quiesce_events,
+            cancel_and_stop=self._cancel_and_stop_chat_agent,
+        )
 
     async def start_all(self, event_emitter, sensor_hub=None) -> None:
         if self._running:
@@ -98,16 +125,26 @@ class TaskAgentManager:
             self._chat_pause_depth += 1
             self._chat_work_resumed.clear()
             if self._chat_pause_depth == 1:
+                quiescing_sessions = set(self._chat_session_quiesce_events)
+                session_quiesce_events = list(
+                    self._chat_session_quiesce_events.values()
+                )
                 chat_keys = [
                     key
                     for key in self._agents
-                    if self._parse_agent_key(key)[0] == TaskAgentType.CHAT.value
+                    if (
+                        self._parse_agent_key(key)[0] == TaskAgentType.CHAT.value
+                        and self._parse_agent_key(key)[1] not in quiescing_sessions
+                    )
                 ]
                 agents = [self._agents.pop(key) for key in chat_keys]
                 for key in chat_keys:
                     self._instance_metadata.pop(key, None)
                 self._chat_quiesce_task = asyncio.create_task(
-                    self._quiesce_chat_agents(agents),
+                    self._quiesce_chat_agents(
+                        agents,
+                        session_quiesce_events=session_quiesce_events,
+                    ),
                     name="task-agent-manager:memory-clear-chat-quiesce",
                 )
             task = self._chat_quiesce_task
@@ -138,12 +175,36 @@ class TaskAgentManager:
                 self._chat_quiesce_task = None
                 self._chat_work_resumed.set()
 
-    async def _quiesce_chat_agents(self, agents: list[TaskAgent]) -> None:
-        results = await asyncio.gather(
+    async def _quiesce_chat_agents(
+        self,
+        agents: list[TaskAgent],
+        *,
+        session_quiesce_events: list[asyncio.Event] | None = None,
+    ) -> None:
+        initial_results = await asyncio.gather(
             *(self._cancel_and_stop_chat_agent(agent) for agent in agents),
             return_exceptions=True,
         )
-        failures = [result for result in results if isinstance(result, BaseException)]
+        if session_quiesce_events:
+            await asyncio.gather(*(event.wait() for event in session_quiesce_events))
+        async with self._chat_clear_lock:
+            extra_keys = [
+                key
+                for key in self._agents
+                if self._parse_agent_key(key)[0] == TaskAgentType.CHAT.value
+            ]
+            extra_agents = [self._agents.pop(key) for key in extra_keys]
+            for key in extra_keys:
+                self._instance_metadata.pop(key, None)
+        extra_results = await asyncio.gather(
+            *(self._cancel_and_stop_chat_agent(agent) for agent in extra_agents),
+            return_exceptions=True,
+        )
+        failures = [
+            result
+            for result in (*initial_results, *extra_results)
+            if isinstance(result, BaseException)
+        ]
         if failures:
             raise RuntimeError(
                 f"Failed to stop {len(failures)} chat agent(s) before memory clear"
@@ -196,31 +257,59 @@ class TaskAgentManager:
         *,
         session_id: str,
         turn_id: str | None = None,
+        expected_run_id: str | None = None,
+        expected_run_revision: int | None = None,
+        require_run_match: bool = False,
+        match_turn_scope: bool = False,
     ) -> bool:
         """Stop any session run that may have consumed a deleted user turn."""
-        normalized_session_id = str(session_id or "").strip()
-        normalized_turn_id = str(turn_id or "").strip()
-        if not normalized_session_id:
-            raise ValueError("Session ID is required")
-        async with self._chat_clear_lock:
-            key = build_task_agent_key(TaskAgentType.CHAT, normalized_session_id)
-            agent = self._agents.pop(key, None)
-            self._instance_metadata.pop(key, None)
-        if agent is None:
-            return False
-        await self._cancel_and_stop_chat_agent(
-            agent,
-            reason="privacy_delete",
-            anchor_turn_id=normalized_turn_id or None,
+        return await self._chat_message_delete.cancel_session_work(
+            session_id=session_id,
+            turn_id=turn_id,
+            expected_run_id=expected_run_id,
+            expected_run_revision=expected_run_revision,
+            require_run_match=require_run_match,
+            match_turn_scope=match_turn_scope,
         )
-        return True
+
+    @asynccontextmanager
+    async def hold_chat_session_for_message_delete(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        expected_run_id: str | None,
+        expected_run_revision: int,
+        match_turn_scope: bool,
+    ) -> AsyncIterator[ChatMessageDeleteHold]:
+        """Hold one session while an exact message deletion is finalized."""
+
+        async with self._chat_message_delete.hold_session_for_message_delete(
+            session_id=session_id,
+            turn_id=turn_id,
+            expected_run_id=expected_run_id,
+            expected_run_revision=expected_run_revision,
+            match_turn_scope=match_turn_scope,
+        ) as hold:
+            yield hold
 
     async def ensure_agent(self, agent_type: TaskAgentType | str, agent_id: str) -> TaskAgent:
         if get_task_agent_type_value(agent_type) == TaskAgentType.CHAT.value:
+            normalized_agent_id = str(agent_id)
             while True:
                 await self._chat_work_resumed.wait()
+                session_quiesce = self._chat_session_quiesce_events.get(
+                    normalized_agent_id
+                )
+                if session_quiesce is not None:
+                    await session_quiesce.wait()
+                    continue
                 async with self._chat_clear_lock:
-                    if self._chat_pause_depth == 0:
+                    if (
+                        self._chat_pause_depth == 0
+                        and normalized_agent_id
+                        not in self._chat_session_quiesce_events
+                    ):
                         return await self._ensure_agent_unlocked(agent_type, agent_id)
         return await self._ensure_agent_unlocked(agent_type, agent_id)
 
@@ -269,10 +358,22 @@ class TaskAgentManager:
         """Add fact to agent, returns True if successful, False if rejected."""
         try:
             if get_task_agent_type_value(agent_type) == TaskAgentType.CHAT.value:
+                normalized_agent_id = str(agent_id)
                 while True:
                     await self._chat_work_resumed.wait()
+                    session_quiesce = self._chat_session_quiesce_events.get(
+                        normalized_agent_id
+                    )
+                    if session_quiesce is not None:
+                        await session_quiesce.wait()
+                        continue
                     async with self._chat_clear_lock:
                         if self._chat_pause_depth != 0:
+                            continue
+                        if (
+                            normalized_agent_id
+                            in self._chat_session_quiesce_events
+                        ):
                             continue
                         if await self._is_blocked_user_message(fact):
                             self._blocked_user_message_rejected_count += 1
@@ -292,7 +393,35 @@ class TaskAgentManager:
                             )
                             return False
                         agent = await self._ensure_agent_unlocked(agent_type, agent_id)
-                        result = await agent.add_fact(fact)
+                        delivery_identity = self._user_message_delivery_identity(fact)
+                        if delivery_identity is None:
+                            result = await agent.add_fact(fact)
+                        else:
+                            if (
+                                self._user_message_delivery_admitter is None
+                                or self._runtime_command_acknowledger is None
+                            ):
+                                raise RuntimeError(
+                                    "Managed user-message delivery callbacks are not configured"
+                                )
+                            admission = await agent.add_fact_with_admission(
+                                fact,
+                                admit=lambda: self._user_message_delivery_admitter(
+                                    turn_id=delivery_identity.turn_id,
+                                    delivery_attempt_no=(
+                                        delivery_identity.delivery_attempt_no
+                                    ),
+                                    command_id=delivery_identity.runtime_command_id,
+                                    updated_at_ms=int(time.time() * 1000),
+                                ),
+                            )
+                            if admission.superseded:
+                                self._superseded_user_message_count += 1
+                            if admission.queued or admission.superseded:
+                                await self._runtime_command_acknowledger(
+                                    delivery_identity.runtime_command_id
+                                )
+                            result = admission.queued or admission.superseded
                         break
             else:
                 agent = await self._ensure_agent_unlocked(agent_type, agent_id)
@@ -335,6 +464,7 @@ class TaskAgentManager:
             "enqueue_rejected_count": self._enqueue_rejected_count,
             "stale_user_message_rejected_count": self._stale_user_message_rejected_count,
             "blocked_user_message_rejected_count": self._blocked_user_message_rejected_count,
+            "superseded_user_message_count": self._superseded_user_message_count,
         }
 
     def current_user_message_generation(self) -> int | None:
@@ -367,6 +497,39 @@ class TaskAgentManager:
             session_id=session_id,
             turn_id=turn_id or None,
             correlation_id=fact.correlation_id,
+        )
+
+    @staticmethod
+    def _user_message_delivery_identity(
+        fact: FactRecord,
+    ) -> _UserMessageDeliveryIdentity | None:
+        if fact.event_type != EventTypes.USER_MESSAGE:
+            return None
+        payload = fact.payload if isinstance(fact.payload, dict) else {}
+        raw_attempt_no = fact.delivery_attempt_no
+        raw_command_id = fact.runtime_command_id
+        if raw_attempt_no is None and raw_command_id is None:
+            return None
+        turn_id = str(payload.get("turn_id") or "").strip()
+        if not turn_id or raw_attempt_no is None or raw_command_id is None:
+            raise ValueError(
+                "Managed user message requires turn, attempt, and command identity"
+            )
+        if isinstance(raw_attempt_no, bool) or isinstance(raw_command_id, bool):
+            raise ValueError("Managed user-message delivery identity is invalid")
+        try:
+            delivery_attempt_no = int(raw_attempt_no)
+            runtime_command_id = int(raw_command_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Managed user-message delivery identity is invalid"
+            ) from exc
+        if delivery_attempt_no < 0 or runtime_command_id <= 0:
+            raise ValueError("Managed user-message delivery identity is invalid")
+        return _UserMessageDeliveryIdentity(
+            turn_id=turn_id,
+            delivery_attempt_no=delivery_attempt_no,
+            runtime_command_id=runtime_command_id,
         )
 
     def list_instance_keys(self) -> list[str]:
@@ -426,9 +589,9 @@ class TaskAgentManager:
 
             idle_time = now - meta.last_active_at
             agent = self._agents.get(key)
-            queue_size = agent._fact_queue.qsize() if agent else 0
+            is_busy = agent.has_inflight_work() if agent else False
 
-            if idle_time > self._idle_ttl_seconds and queue_size == 0:
+            if idle_time > self._idle_ttl_seconds and not is_busy:
                 keys_to_remove.append(key)
 
         for key in keys_to_remove:
@@ -456,9 +619,9 @@ class TaskAgentManager:
                 continue
 
             agent = self._agents.get(key)
-            queue_size = agent._fact_queue.qsize() if agent else 0
+            is_busy = agent.has_inflight_work() if agent else False
 
-            if queue_size == 0 and meta.last_active_at < oldest_time:
+            if not is_busy and meta.last_active_at < oldest_time:
                 oldest_time = meta.last_active_at
                 oldest_key = key
 

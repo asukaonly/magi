@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from magi.runtime_trace.span_publisher import publish_trace_span, resolve_event_bus
+from ..session_run_decisions import supersession_terminal_status
 
 
 @dataclass(slots=True)
@@ -465,7 +466,7 @@ class ChatPostprocessRuntimeTraceMixin:
         reason: str,
         updated_at_ms: int,
     ) -> _TraceSupersessionContext:
-        status = "merged" if reason == "augment" else "interrupted"
+        status = supersession_terminal_status(reason)
         started_at_ms = int(existing_turn.started_at_ms or updated_at_ms)
         ended_at_ms = max(updated_at_ms, started_at_ms)
         return _TraceSupersessionContext(

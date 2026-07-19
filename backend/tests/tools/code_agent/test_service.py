@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import pytest
 
+from magi.control.cancel import EventCancelToken
 from magi.tools.code_agent.adapters.base import (
     AdapterRunOutcome,
     CancelToken,
@@ -77,6 +80,23 @@ class _FakeAdapter:
         return AdapterRunOutcome(**kwargs)
 
 
+class _NoopArtifactRegistry:
+    async def register(self, **_kwargs) -> None:
+        return None
+
+
+async def _delegate(
+    service: CodeAgentService,
+    req: DelegateRequest,
+    **kwargs: Any,
+):
+    return await service.delegate(
+        req,
+        artifact_registry=_NoopArtifactRegistry(),
+        **kwargs,
+    )
+
+
 @pytest.fixture
 def isolated_magi_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home = tmp_path / "magi_home"
@@ -89,6 +109,7 @@ def _request(repo: Path, *, adapter: AdapterName = "claude_code") -> DelegateReq
     return DelegateRequest(
         delegation_id="c" * 32,
         session_id="s1",
+        turn_id="turn-1",
         adapter=adapter,
         prompt="add max_retries to connect()",
         files_hint=["src/net.py"],
@@ -109,7 +130,7 @@ async def test_service_dry_run_succeeds_without_running_adapter(
         binary_paths={"claude_code": "/unused", "codex": "/unused"},
     )
     req = _request(repo)
-    result = await service.delegate(req, dry_run=True)
+    result = await _delegate(service, req, dry_run=True)
     assert result.success is True
     assert result.summary == "dry run"
     assert result.diff_stats.files_changed == 0
@@ -130,7 +151,7 @@ async def test_service_full_path_records_diff(
         adapters_factory=lambda: {"claude_code": fake},
         binary_paths={"claude_code": "/unused", "codex": "/unused"},
     )
-    result = await service.delegate(_request(repo))
+    result = await _delegate(service, _request(repo))
     assert result.success is True, result.error
     assert result.diff_stats.files_changed == 1
     assert result.files_changed == ["src/net.py"]
@@ -143,6 +164,53 @@ async def test_service_full_path_records_diff(
 
 
 @pytest.mark.asyncio
+async def test_service_auto_apply_returns_persists_and_broadcasts_final_result(
+    isolated_magi_home: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    fake = _FakeAdapter(
+        name="claude_code",
+        edit=("src/net.py", "def connect(max_retries=3):\n    return 1\n"),
+    )
+    port = _FakeDelegationEventPort()
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": fake},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    monkeypatch.setattr(
+        "magi.tools.code_agent.service.load_settings",
+        lambda workspace_root: SimpleNamespace(auto_apply=True),
+    )
+
+    req = _request(repo)
+    result = await _delegate(
+        service,
+        req,
+        user_id="local_user",
+        delegation_events=port,
+    )
+
+    assert result.success is True
+    assert result.applied is True
+    assert result.applied_at is not None
+    assert result.applied_files == ["src/net.py"]
+    assert "max_retries" in (repo / "src" / "net.py").read_text()
+    result_path = (
+        repo
+        / ".magi"
+        / "sessions"
+        / req.session_id
+        / "delegations"
+        / req.delegation_id
+        / "result.json"
+    )
+    assert json.loads(result_path.read_text()) == result.model_dump()
+    assert port.state_summaries[-1] == ("finished", result.model_dump())
+
+
+@pytest.mark.asyncio
 async def test_service_unknown_adapter_returns_error(
     isolated_magi_home: Path, tmp_path: Path,
 ) -> None:
@@ -152,11 +220,12 @@ async def test_service_unknown_adapter_returns_error(
         binary_paths={"claude_code": "/unused", "codex": "/unused"},
     )
     req = DelegateRequest(
-        delegation_id="d" * 32, session_id="s1", adapter="codex",
+        delegation_id="d" * 32, session_id="s1", turn_id="turn-1",
+        adapter="codex",
         prompt="x", files_hint=[], workspace_root=str(repo),
         constraints=DelegateConstraints(), timeout_s=30, model=None,
     )
-    result = await service.delegate(req)
+    result = await _delegate(service, req)
     assert result.success is False
     assert result.error and "not configured" in result.error.lower()
 
@@ -172,11 +241,12 @@ async def test_service_non_repo_workspace_returns_error(
         binary_paths={"claude_code": "/unused", "codex": "/unused"},
     )
     req = DelegateRequest(
-        delegation_id="e" * 32, session_id="s1", adapter="claude_code",
+        delegation_id="e" * 32, session_id="s1", turn_id="turn-1",
+        adapter="claude_code",
         prompt="x", files_hint=[], workspace_root=str(plain),
         constraints=DelegateConstraints(), timeout_s=30, model=None,
     )
-    result = await service.delegate(req)
+    result = await _delegate(service, req)
     assert result.success is False
     assert "git repository" in (result.error or "").lower()
 
@@ -192,7 +262,7 @@ async def test_service_cleans_worktree_after_run(
         cleanup_worktree=True,
     )
     req = _request(repo)
-    await service.delegate(req)
+    await _delegate(service, req)
     wt = repo / ".magi" / "sessions" / "s1" / "worktrees" / req.delegation_id
     assert not wt.exists()
 
@@ -201,13 +271,209 @@ class _FakeDelegationEventPort:
     """Fake DelegationEventPort that records calls for assertions."""
 
     def __init__(self):
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, str, str]] = []
+        self.state_summaries: list[tuple[str, dict[str, Any]]] = []
 
-    async def broadcast_event(self, *, user_id, session_id, delegation_id, event):
-        self.calls.append((delegation_id, "event"))
+    async def broadcast_event(
+        self,
+        *,
+        user_id,
+        session_id,
+        turn_id,
+        delegation_id,
+        event,
+    ):
+        self.calls.append((delegation_id, turn_id, "event"))
 
-    async def broadcast_state(self, *, user_id, session_id, delegation_id, state, summary=None):
-        self.calls.append((delegation_id, state))
+    async def broadcast_state(
+        self,
+        *,
+        user_id,
+        session_id,
+        turn_id,
+        delegation_id,
+        state,
+        summary=None,
+    ):
+        self.calls.append((delegation_id, turn_id, state))
+        self.state_summaries.append((state, dict(summary or {})))
+
+
+class _RecordingArtifactRegistry:
+    def __init__(self, workspace: Path):
+        self.workspace = workspace
+        self.calls: list[dict[str, str]] = []
+
+    async def register(
+        self,
+        *,
+        session_id,
+        turn_id,
+        delegation_id,
+        workspace_path,
+    ):
+        assert not (self.workspace / ".magi").exists()
+        self.calls.append(
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "delegation_id": delegation_id,
+                "workspace_path": workspace_path,
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_service_registers_artifact_before_first_workspace_write(
+    isolated_magi_home: Path,
+    tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    registry = _RecordingArtifactRegistry(repo)
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    req = _request(repo)
+
+    result = await service.delegate(
+        req,
+        dry_run=True,
+        artifact_registry=registry,
+    )
+
+    assert result.success is True
+    assert registry.calls == [
+        {
+            "session_id": "s1",
+            "turn_id": "turn-1",
+            "delegation_id": req.delegation_id,
+            "workspace_path": str(repo),
+        }
+    ]
+    assert (
+        repo
+        / ".magi"
+        / "sessions"
+        / req.session_id
+        / "delegations"
+        / req.delegation_id
+        / "request.json"
+    ).is_file()
+
+
+@pytest.mark.asyncio
+async def test_service_registration_failure_writes_no_artifact(
+    isolated_magi_home: Path,
+    tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+
+    class _FailingArtifactRegistry:
+        async def register(self, **_kwargs):
+            raise RuntimeError("registry unavailable")
+
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+
+    with pytest.raises(RuntimeError, match="registry unavailable"):
+        await service.delegate(
+            _request(repo),
+            dry_run=True,
+            artifact_registry=_FailingArtifactRegistry(),
+        )
+    assert not (repo / ".magi").exists()
+
+
+@pytest.mark.asyncio
+async def test_service_missing_registry_writes_no_artifact(
+    isolated_magi_home: Path,
+    tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+
+    with pytest.raises(RuntimeError, match="artifact registry is required"):
+        await service.delegate(
+            _request(repo),
+            artifact_registry=None,
+            dry_run=True,
+        )
+    assert not (repo / ".magi").exists()
+
+
+@pytest.mark.asyncio
+async def test_service_checks_git_before_registering_artifact(
+    isolated_magi_home: Path,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "plain"
+    workspace.mkdir()
+    calls: list[dict[str, Any]] = []
+
+    class _ArtifactRegistry:
+        async def register(self, **kwargs):
+            calls.append(kwargs)
+
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    req = _request(workspace)
+
+    result = await service.delegate(
+        req,
+        dry_run=True,
+        artifact_registry=_ArtifactRegistry(),
+    )
+
+    assert result.success is False
+    assert "git repository" in (result.error or "").lower()
+    assert calls == []
+    assert not (workspace / ".magi").exists()
+
+
+@pytest.mark.asyncio
+async def test_service_rejects_symlink_workspace_before_writing(
+    isolated_magi_home: Path,
+    tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    alias = tmp_path / "repo-alias"
+    alias.symlink_to(repo, target_is_directory=True)
+    req = _request(repo).model_copy(update={"workspace_root": str(alias)})
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+
+    with pytest.raises(ValueError):
+        await _delegate(service, req, dry_run=True)
+    assert not (repo / ".magi").exists()
+
+
+@pytest.mark.asyncio
+async def test_service_rejects_symlinked_artifact_scope_without_writing_target(
+    isolated_magi_home: Path,
+    tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (repo / ".magi").symlink_to(outside, target_is_directory=True)
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+
+    with pytest.raises(ValueError):
+        await _delegate(service, _request(repo), dry_run=True)
+    assert list(outside.iterdir()) == []
 
 
 @pytest.mark.asyncio
@@ -223,11 +489,17 @@ async def test_service_broadcasts_state_when_user_id_present(
         binary_paths={"claude_code": "/unused", "codex": "/unused"},
     )
     req = _request(repo)
-    await service.delegate(req, user_id="local_user", delegation_events=port)
+    await _delegate(
+        service,
+        req,
+        user_id="local_user",
+        delegation_events=port,
+    )
 
-    states = [c[1] for c in port.calls if c[1] != "event"]
+    states = [call[2] for call in port.calls if call[2] != "event"]
     assert states[0] == "started"
     assert states[-1] == "finished"
+    assert {call[1] for call in port.calls} == {"turn-1"}
 
 
 @pytest.mark.asyncio
@@ -242,12 +514,18 @@ async def test_service_broadcasts_failed_on_unknown_adapter(
         binary_paths={"claude_code": "/unused", "codex": "/unused"},
     )
     req = DelegateRequest(
-        delegation_id="f" * 32, session_id="s1", adapter="codex",
+        delegation_id="f" * 32, session_id="s1", turn_id="turn-1",
+        adapter="codex",
         prompt="x", files_hint=[], workspace_root=str(repo),
         constraints=DelegateConstraints(), timeout_s=30, model=None,
     )
-    await service.delegate(req, user_id="local_user", delegation_events=port)
-    states = [c[1] for c in port.calls if c[1] != "event"]
+    await _delegate(
+        service,
+        req,
+        user_id="local_user",
+        delegation_events=port,
+    )
+    states = [call[2] for call in port.calls if call[2] != "event"]
     assert "started" in states
     assert "failed" in states
 
@@ -263,7 +541,11 @@ async def test_service_does_not_broadcast_when_user_id_missing(
         adapters_factory=lambda: {"claude_code": _FakeAdapter(name="claude_code")},
         binary_paths={"claude_code": "/unused", "codex": "/unused"},
     )
-    await service.delegate(_request(repo), delegation_events=port)  # no user_id
+    await _delegate(
+        service,
+        _request(repo),
+        delegation_events=port,
+    )  # no user_id
     assert port.calls == []
 
 
@@ -300,7 +582,7 @@ async def test_service_cancel_signals_active_delegation(
                     seen_cancelled.append(True)
                     return AdapterRunOutcome(
                         exit_code=-1, summary=None, cost=None,
-                        error="cancelled by user",
+                        error="cancelled by user", cancelled=True,
                     )
                 await asyncio.sleep(0.05)
             return AdapterRunOutcome(
@@ -312,11 +594,75 @@ async def test_service_cancel_signals_active_delegation(
         binary_paths={"claude_code": "/unused", "codex": "/unused"},
     )
     req = _request(repo)
-    delegate_task = asyncio.create_task(service.delegate(req))
+    delegate_task = asyncio.create_task(_delegate(service, req))
     await asyncio.sleep(0.15)
     assert CodeAgentService.cancel(req.delegation_id) is True
     result = await delegate_task
     assert seen_cancelled == [True]
     assert result.success is False
+    assert result.cancelled is True
     assert req.delegation_id not in CodeAgentService._ACTIVE_CANCEL_TOKENS
 
+
+@pytest.mark.asyncio
+async def test_service_bridges_runtime_cancellation_and_broadcasts_cancelled(
+    isolated_magi_home: Path,
+    tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    adapter_started = asyncio.Event()
+
+    class _WaitingAdapter:
+        name = "claude_code"
+        display_name = "Waiting"
+
+        @classmethod
+        async def detect(cls):
+            raise NotImplementedError
+
+        async def run(
+            self,
+            req,
+            *,
+            cwd,
+            bundle_dir,
+            stdout_path,
+            stderr_path,
+            on_event,
+            cancel_token,
+            binary_path,
+        ):
+            stdout_path.write_text("")
+            stderr_path.write_text("")
+            adapter_started.set()
+            await cancel_token.wait()
+            return AdapterRunOutcome(
+                exit_code=-1,
+                summary=None,
+                cost=None,
+                error=f"adapter cancelled: {cancel_token.reason}",
+                cancelled=True,
+            )
+
+    port = _FakeDelegationEventPort()
+    cancellation = EventCancelToken()
+    service = CodeAgentService(
+        adapters_factory=lambda: {"claude_code": _WaitingAdapter()},
+        binary_paths={"claude_code": "/unused", "codex": "/unused"},
+    )
+    task = asyncio.create_task(
+        _delegate(
+            service,
+            _request(repo),
+            user_id="local_user",
+            delegation_events=port,
+            cancellation=cancellation,
+        )
+    )
+    await asyncio.wait_for(adapter_started.wait(), timeout=2)
+    cancellation.cancel("background_task_cancelled")
+    result = await asyncio.wait_for(task, timeout=2)
+
+    assert result.cancelled is True
+    assert "background_task_cancelled" in (result.error or "")
+    assert port.state_summaries[-1] == ("cancelled", result.model_dump())

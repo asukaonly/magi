@@ -9,13 +9,20 @@ Fakes only: chat store, chat read service, session mapper, channel router,
 """
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from types import SimpleNamespace
 
-from magi_plugin_sdk.channels import ChannelTarget
+from magi.delivery.contracts import DeliveryFanoutResult
 from magi_plugin_sdk.delivery import DeliveryReceipt
 
-from magi.outreach.contracts import OutreachIntent, OutreachKind, Urgency
+from magi.outreach.contracts import (
+    OutreachIntent,
+    OutreachIntentConflictError,
+    OutreachKind,
+    Urgency,
+)
 from magi.outreach.governor import Governor
 from magi.outreach.target_resolver import TargetResolver
 from magi.outreach.executor import DesktopTranscriptExecutor, ExternalChannelExecutor
@@ -26,9 +33,9 @@ from magi.outreach.stores import OutreachOutboxStore, OutreachDeliveryLogStore
 class _Store:
     def __init__(self): self.appended = []
     async def next_sequence_no(self, *, session_id): return 1
-    async def append_message(self, record): self.appended.append(record)
-    async def mark_message_replaced(self, **kw): pass
-    async def bump_history_version(self, session_id): pass
+    async def append_completion_message_once(self, record):
+        self.appended.append(record)
+        return record, True
 
 
 class _ReadService:
@@ -46,7 +53,15 @@ class _Router:
     def __init__(self): self.delivered = []
     async def fanout_deliver(self, *, content, targets):
         self.delivered.append((content.text, targets[0].channel_type))
-        return [DeliveryReceipt(channel_id=targets[0].channel_type, external_message_id="m", delivered_at_ms=1)]
+        return DeliveryFanoutResult(
+            receipts=(
+                DeliveryReceipt(
+                    channel_id=targets[0].channel_type,
+                    external_message_id="m",
+                    delivered_at_ms=1,
+                ),
+            )
+        )
 
 
 async def _say(intent): return f"[magi] {intent.facts}"
@@ -105,3 +120,100 @@ async def test_quiet_hours_defers_then_drain_delivers(runtime_paths_with_schema)
     )
     await svc.drain_due(now_ms=10**18)
     assert router.delivered == [("[magi] 3 flights found", "telegram")]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_duplicate_submit_delivers_external_once(
+    runtime_paths_with_schema,
+):
+    router = _Router()
+    service = _build(
+        runtime_paths_with_schema,
+        _Mapper("telegram"),
+        router,
+        hour=12,
+    )
+
+    await asyncio.gather(
+        service.submit(_intent(cid="concurrent-1")),
+        service.submit(_intent(cid="concurrent-1")),
+    )
+
+    assert router.delivered == [("[magi] 3 flights found", "telegram")]
+
+
+@pytest.mark.asyncio
+async def test_restart_duplicate_submit_reuses_terminal_external_identity(
+    runtime_paths_with_schema,
+):
+    router = _Router()
+    await _build(
+        runtime_paths_with_schema,
+        _Mapper("telegram"),
+        router,
+        hour=12,
+    ).submit(_intent(cid="restart-1"))
+
+    await _build(
+        runtime_paths_with_schema,
+        _Mapper("telegram"),
+        router,
+        hour=12,
+    ).submit(_intent(cid="restart-1"))
+
+    assert router.delivered == [("[magi] 3 flights found", "telegram")]
+
+
+@pytest.mark.asyncio
+async def test_duplicate_external_identity_rejects_changed_content(
+    runtime_paths_with_schema,
+):
+    router = _Router()
+    service = _build(
+        runtime_paths_with_schema,
+        _Mapper("telegram"),
+        router,
+        hour=12,
+    )
+    await service.submit(_intent(cid="conflict-1"))
+    conflicting = OutreachIntent(
+        kind=OutreachKind.TASK_COMPLETED,
+        user_id="u1",
+        origin_session_id="s1",
+        title="t",
+        facts="different result",
+        correlation_id="conflict-1",
+        completed_at_ms=1,
+    )
+
+    with pytest.raises(
+        OutreachIntentConflictError,
+        match="reused with different content",
+    ):
+        await service.submit(conflicting)
+
+    assert router.delivered == [("[magi] 3 flights found", "telegram")]
+
+
+@pytest.mark.asyncio
+async def test_same_correlation_can_deliver_once_per_external_channel(
+    runtime_paths_with_schema,
+):
+    router = _Router()
+    await _build(
+        runtime_paths_with_schema,
+        _Mapper("telegram"),
+        router,
+        hour=12,
+    ).submit(_intent(cid="multi-channel-1"))
+    await _build(
+        runtime_paths_with_schema,
+        _Mapper("weixin"),
+        router,
+        hour=12,
+    ).submit(_intent(cid="multi-channel-1"))
+
+    assert router.delivered == [
+        ("[magi] 3 flights found", "telegram"),
+        ("[magi] 3 flights found", "weixin"),
+    ]

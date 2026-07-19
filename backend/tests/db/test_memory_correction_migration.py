@@ -23,6 +23,8 @@ from magi.memory.l2.corrections.relationship_conflict_effects import (
 )
 from magi.memory.l2.store import L2CognitionStore
 
+MEMORY_HEAD_REVISION = "v33_chat_forget_activation"
+
 
 def _memory_migration_config(db_path: Path):
     target = next(item for item in MIGRATION_TARGETS if item.name == "memory_shared")
@@ -266,7 +268,7 @@ def test_relationship_reconciliation_upgrades_an_already_v14_database(
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "v31_correction_replacement_slot_index",
+            MEMORY_HEAD_REVISION,
         )
         assert connection.execute("""
             SELECT status, status_reason, deprecated_by
@@ -1061,8 +1063,7 @@ def test_relationship_reconciliation_rejects_destructive_downgrade(
             created_at=now - 60,
         )
         connection.commit()
-    command.upgrade(config, "head")
-    command.downgrade(config, "v16_relationship_correction_reconciliation")
+    command.upgrade(config, "v16_relationship_correction_reconciliation")
 
     with pytest.raises(
         RuntimeError,

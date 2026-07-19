@@ -128,6 +128,149 @@ async def test_l0_checkpoint_restores_execution_lane(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_execution_pending_turn_is_idempotent_by_turn_id():
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    store = L0WorkingMemoryStore(restore_on_restart=False)
+    await store.upsert_execution_run(
+        session_id="session-1",
+        run_id="run-1",
+        root_turn_id="turn-root",
+        root_user_message="Start",
+        revision=0,
+        status="running",
+    )
+
+    first = await store.append_execution_pending_turn(
+        session_id="session-1",
+        run_id="run-1",
+        turn_id="turn-pending",
+        content="Continue later",
+        revision=0,
+        disposition="defer",
+    )
+    replay = await store.append_execution_pending_turn(
+        session_id="session-1",
+        run_id="run-1",
+        turn_id="turn-pending",
+        content="Continue later",
+        revision=0,
+        disposition="defer",
+    )
+
+    execution_state = await store.get_execution_state("session-1")
+    assert replay == first
+    assert [item["turn_id"] for item in execution_state["pending_turns"]] == [
+        "turn-pending"
+    ]
+    with pytest.raises(ValueError, match="different content"):
+        await store.append_execution_pending_turn(
+            session_id="session-1",
+            run_id="run-1",
+            turn_id="turn-pending",
+            content="Conflicting replay",
+            revision=0,
+            disposition="defer",
+        )
+
+
+@pytest.mark.asyncio
+async def test_forget_old_checkpoint_revision_preserves_new_live_revision(tmp_path):
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    checkpoint_path = tmp_path / "l0_forget_old_revision.db"
+    store = L0WorkingMemoryStore(
+        checkpoint_db_path=str(checkpoint_path),
+        checkpoint_interval_seconds=1,
+        session_timeout_seconds=3600,
+        restore_on_restart=True,
+    )
+    await store.initialize()
+    await store.start_session(
+        session_id="session-1",
+        user_id="user-1",
+        runtime_agent_id="chat:session-1",
+    )
+    await store.upsert_execution_run(
+        session_id="session-1",
+        run_id="run-shared",
+        root_turn_id="turn-old",
+        root_user_message="old root",
+        revision=1,
+        status="cancelled",
+    )
+    await store.append_execution_pending_turn(
+        session_id="session-1",
+        run_id="run-shared",
+        turn_id="turn-old-pending",
+        content="old pending",
+        revision=1,
+    )
+    await store.record_execution_result(
+        session_id="session-1",
+        run_id="run-shared",
+        result_id="result-old",
+        revision=1,
+        disposition="accepted",
+        payload={"content": "old result"},
+    )
+    await store.checkpoint_session("session-1")
+
+    await store.upsert_execution_run(
+        session_id="session-1",
+        run_id="run-shared",
+        root_turn_id="turn-new",
+        root_user_message="new root",
+        revision=2,
+        status="running",
+    )
+    await store.append_execution_pending_turn(
+        session_id="session-1",
+        run_id="run-shared",
+        turn_id="turn-new-pending",
+        content="new pending",
+        revision=2,
+    )
+    await store.record_execution_result(
+        session_id="session-1",
+        run_id="run-shared",
+        result_id="result-new",
+        revision=2,
+        disposition="accepted",
+        payload={"content": "new result"},
+    )
+
+    await store.forget_execution_turn(session_id="session-1", turn_id="turn-old")
+
+    state = await store.get_execution_state("session-1")
+    assert state["run"]["root_turn_id"] == "turn-new"
+    assert state["run"]["revision"] == 2
+    assert [item["turn_id"] for item in state["pending_turns"]] == [
+        "turn-new-pending"
+    ]
+    assert [item["result_id"] for item in state["accepted_results"]] == [
+        "result-new"
+    ]
+
+    await store.checkpoint_session("session-1")
+    restored = L0WorkingMemoryStore(
+        checkpoint_db_path=str(checkpoint_path),
+        checkpoint_interval_seconds=1,
+        session_timeout_seconds=3600,
+        restore_on_restart=True,
+    )
+    await restored.initialize()
+    restored_state = await restored.get_execution_state("session-1")
+    assert restored_state["run"]["root_turn_id"] == "turn-new"
+    assert [item["turn_id"] for item in restored_state["pending_turns"]] == [
+        "turn-new-pending"
+    ]
+    assert [item["result_id"] for item in restored_state["accepted_results"]] == [
+        "result-new"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_l0_checkpoint_preserves_pending_turn_disposition(tmp_path):
     """AUGMENT / DEFER / STEER dispositions must survive a SQL round-trip.
 

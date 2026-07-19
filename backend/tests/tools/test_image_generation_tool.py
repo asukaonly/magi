@@ -53,7 +53,7 @@ class _FakeAdapter:
 
 
 class _FakeChatPort:
-    def ingest_local_file(
+    async def ingest_local_file(
         self,
         *,
         session_id: str,
@@ -76,7 +76,7 @@ class _FakeChatPort:
     def get_attachment_payload(self, user_id, session_id, attachment_id):
         return None
 
-    def prepare_runtime_attachment(self, *, session_id, turn_id, attachment):
+    async def prepare_runtime_attachment(self, *, session_id, turn_id, attachment):
         return attachment
 
 

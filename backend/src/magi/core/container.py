@@ -51,6 +51,20 @@ def _create_chat_surface_write_service():
     return ChatSurfaceWriteService()
 
 
+def _create_chat_forgetting_service():
+    """Build the chat deletion coordinator from active runtime bindings."""
+    from ..chat.forgetting import get_chat_forgetting_service
+
+    return get_chat_forgetting_service()
+
+
+def _create_embedding_rebuild_manager():
+    """Build the process-wide embedding rebuild manager."""
+    from ..memory.embedding.vector_admin import get_embedding_rebuild_manager
+
+    return get_embedding_rebuild_manager()
+
+
 def _create_chat_trace_read_service():
     """Factory function for ChatTraceReadService."""
     from ..runtime_trace.chat_trace.read_service import ChatTraceReadService
@@ -120,6 +134,12 @@ class Container(containers.DeclarativeContainer):
     )
     chat_surface_write_service: providers.Singleton[Any] = providers.Singleton(
         _create_chat_surface_write_service
+    )
+    chat_forgetting_service: providers.Factory[Any] = providers.Factory(
+        _create_chat_forgetting_service
+    )
+    embedding_rebuild_manager: providers.Singleton[Any] = providers.Singleton(
+        _create_embedding_rebuild_manager
     )
     chat_trace_read_service: providers.Singleton[ChatTraceReadService] = providers.Singleton(
         _create_chat_trace_read_service

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -30,6 +31,14 @@ class ChannelChatSessionProvisioner(Protocol):
     ) -> str:
         ...
 
+    async def is_channel_session_available(
+        self,
+        *,
+        magi_user_id: str,
+        session_id: str,
+    ) -> bool:
+        ...
+
 
 class ChannelSessionMapper:
     """Maps (channel_type, external_chat_id) ↔ Magi session_id.
@@ -56,6 +65,7 @@ class ChannelSessionMapper:
         self._session_provisioner = session_provisioner
         self._identity_resolver = identity_resolver
         self._initialized = False
+        self._resolve_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         # Schema is alembic-managed (magi.db.migrations.channels).
@@ -72,36 +82,45 @@ class ChannelSessionMapper:
         display_name: str | None = None,
     ) -> ChannelSessionMapping:
         """Look up existing mapping; if none, create a new Magi session."""
-        existing = await self.lookup(channel_type, external_chat_id)
-        if existing is not None:
-            return await self._touch_existing_mapping(existing)
+        async with self._resolve_lock:
+            existing = await self.lookup(channel_type, external_chat_id)
+            if existing is not None:
+                available = (
+                    await self._session_provisioner.is_channel_session_available(
+                        magi_user_id=existing.magi_user_id,
+                        session_id=existing.magi_session_id,
+                    )
+                )
+                if available:
+                    return await self._touch_existing_mapping(existing)
+                await self.delete_mapping(channel_type, external_chat_id)
 
-        magi_user_id = await self._resolve_magi_user_id(
-            channel_type=channel_type,
-            external_user_id=external_user_id,
-        )
-        now_ms = int(time.time() * 1000)
-        session_id = await self._session_provisioner.create_channel_session(
-            channel_type=channel_type,
-            external_chat_id=external_chat_id,
-            magi_user_id=magi_user_id,
-            display_name=display_name,
-            created_at_ms=now_ms,
-        )
+            magi_user_id = await self._resolve_magi_user_id(
+                channel_type=channel_type,
+                external_user_id=external_user_id,
+            )
+            now_ms = int(time.time() * 1000)
+            session_id = await self._session_provisioner.create_channel_session(
+                channel_type=channel_type,
+                external_chat_id=external_chat_id,
+                magi_user_id=magi_user_id,
+                display_name=display_name,
+                created_at_ms=now_ms,
+            )
 
-        mapping = self._build_new_mapping(
-            channel_type=channel_type,
-            external_chat_id=external_chat_id,
-            magi_user_id=magi_user_id,
-            session_id=session_id,
-            is_group=is_group,
-            display_name=display_name,
-            external_user_id=external_user_id,
-            now_ms=now_ms,
-        )
-        await self._insert(mapping)
-        self._log_mapping_created(mapping)
-        return mapping
+            mapping = self._build_new_mapping(
+                channel_type=channel_type,
+                external_chat_id=external_chat_id,
+                magi_user_id=magi_user_id,
+                session_id=session_id,
+                is_group=is_group,
+                display_name=display_name,
+                external_user_id=external_user_id,
+                now_ms=now_ms,
+            )
+            await self._insert(mapping)
+            self._log_mapping_created(mapping)
+            return mapping
 
     async def _touch_existing_mapping(
         self,
@@ -228,6 +247,30 @@ class ChannelSessionMapper:
                 (channel_type, external_chat_id),
             )
             await db.commit()
+
+    async def clear_conversation_state(self) -> dict[str, int]:
+        """Remove channel data that can retain or recreate cleared conversations."""
+
+        table_names = (
+            "delivery_receipts",
+            "outreach_outbox",
+            "outreach_delivery_log",
+            "channel_notification_cursors",
+            "channel_session_mappings",
+        )
+        async with self._resolve_lock:
+            async with aiosqlite.connect(self._db_path) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                try:
+                    counts: dict[str, int] = {}
+                    for table_name in table_names:
+                        cursor = await db.execute(f"DELETE FROM {table_name}")
+                        counts[table_name] = int(cursor.rowcount or 0)
+                    await db.commit()
+                except BaseException:
+                    await db.rollback()
+                    raise
+        return counts
 
     # -- notification cursor --------------------------------------------------
 

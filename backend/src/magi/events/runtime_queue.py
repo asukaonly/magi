@@ -6,10 +6,11 @@ import asyncio
 import hashlib
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Iterable
 
 from ..core.operation_barrier import AsyncOperationBarrier
 from ..core.sqlite import sqlite_connection_async
@@ -36,6 +37,27 @@ class UserMessageScopeBlockedError(RuntimeError):
     """Raised when ingress targets a durably deleted chat scope."""
 
 
+class StaleUserMessageDeliveryAttemptError(RuntimeError):
+    """Raised when enqueue targets an attempt older than the current receipt."""
+
+
+class UserMessageScheduleOutcome(str, Enum):
+    """Result of scheduling one explicit logical-turn delivery attempt."""
+
+    SCHEDULED = "scheduled"
+    EXISTING = "existing"
+    STALE = "stale"
+
+
+@dataclass(frozen=True, slots=True)
+class UserMessageScheduleResult:
+    """Attempt-aware durable scheduling result for one logical user turn."""
+
+    outcome: UserMessageScheduleOutcome
+    command_id: int | None
+    current_attempt_no: int
+
+
 class SQLiteRuntimeCommandQueue:
     """Persisted queue shared by API ingress and the lifecycle-owned runtime worker."""
 
@@ -58,6 +80,7 @@ class SQLiteRuntimeCommandQueue:
         # under load (CI). An asyncio.Lock makes in-process writes strictly serial.
         self._write_lock = asyncio.Lock()
         self._user_message_barrier = AsyncOperationBarrier()
+        self._user_message_destructive_lock = asyncio.Lock()
         self._user_message_generation: int | None = None
         self._user_message_generation_load_lock = asyncio.Lock()
         self._user_message_clear_owner: asyncio.Task[object] | None = None
@@ -74,15 +97,41 @@ class SQLiteRuntimeCommandQueue:
         self._started = False
 
     async def enqueue_user_message(self, command: UserMessageCommand) -> int:
+        result = await self.schedule_user_message(command)
+        if result.outcome is UserMessageScheduleOutcome.STALE:
+            raise StaleUserMessageDeliveryAttemptError(
+                "User-message delivery attempt is older than the current attempt"
+            )
+        if result.command_id is None:
+            raise RuntimeError("User-message scheduling did not return a command ID")
+        return result.command_id
+
+    async def schedule_user_message(
+        self,
+        command: UserMessageCommand,
+    ) -> UserMessageScheduleResult:
+        """Schedule exactly the requested delivery attempt for one logical turn."""
+        attempt_no = _normalize_delivery_attempt_no(command.delivery_attempt_no)
+        correlation_id = str(command.correlation_id or "").strip()
+        if not correlation_id:
+            raise ValueError("User-message correlation ID is required")
+        if command.runtime_command_id is not None:
+            raise ValueError("A new user-message schedule cannot carry a runtime command ID")
         async with self.user_message_operation():
             await self._ensure_user_message_generation_loaded()
-            return await self._enqueue_command(
-                command_type=RuntimeCommandType.USER_MESSAGE,
-                payload=command.to_payload(),
-                correlation_id=command.correlation_id,
-                created_at=command.created_at,
-                user_message_generation=self.current_user_message_generation(),
-            )
+            await self._initialize()
+            payload = command.to_payload()
+            payload_json = json.dumps(payload, ensure_ascii=False)
+            async with self._write_lock, sqlite_connection_async(self.db_path) as db:
+                return await self._schedule_user_message_once(
+                    db,
+                    payload=payload,
+                    payload_json=payload_json,
+                    correlation_id=correlation_id,
+                    delivery_attempt_no=attempt_no,
+                    created_at=command.created_at,
+                    user_message_generation=self.current_user_message_generation(),
+                )
 
     async def enqueue_refresh_llm_config(self, command: RefreshLLMConfigCommand) -> int:
         return await self._enqueue_command(
@@ -125,18 +174,11 @@ class SQLiteRuntimeCommandQueue:
         created_at: float,
         user_message_generation: int = 0,
     ) -> int:
+        if command_type is RuntimeCommandType.USER_MESSAGE:
+            raise ValueError("User messages must use the attempt-aware scheduling API")
         await self._initialize()
         payload_json = json.dumps(payload, ensure_ascii=False)
         async with self._write_lock, sqlite_connection_async(self.db_path) as db:
-            if command_type is RuntimeCommandType.USER_MESSAGE:
-                return await self._enqueue_user_message_once(
-                    db,
-                    payload=payload,
-                    payload_json=payload_json,
-                    correlation_id=correlation_id,
-                    created_at=created_at,
-                    user_message_generation=user_message_generation,
-                )
             cursor = await db.execute(
                 """
                 INSERT INTO runtime_commands (
@@ -146,9 +188,10 @@ class SQLiteRuntimeCommandQueue:
                     status,
                     retry_count,
                     user_message_generation,
+                    delivery_attempt_no,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, 0, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?)
                 """,
                 (
                     command_type.value,
@@ -164,16 +207,17 @@ class SQLiteRuntimeCommandQueue:
             await db.commit()
             return command_id
 
-    async def _enqueue_user_message_once(
+    async def _schedule_user_message_once(
         self,
         db,
         *,
         payload: dict[str, object],
         payload_json: str,
         correlation_id: str,
+        delivery_attempt_no: int,
         created_at: float,
         user_message_generation: int,
-    ) -> int:
+    ) -> UserMessageScheduleResult:
         payload_fingerprint = _payload_fingerprint(payload)
         await db.execute("BEGIN IMMEDIATE")
         try:
@@ -189,66 +233,91 @@ class SQLiteRuntimeCommandQueue:
                 )
             cursor = await db.execute(
                 """
-                SELECT receipt.payload_fingerprint,
-                       receipt.first_command_id,
-                       receipt.delivery_status,
-                       command.status
-                FROM runtime_user_message_idempotency AS receipt
-                LEFT JOIN runtime_commands AS command
-                  ON command.command_id = receipt.first_command_id
-                WHERE receipt.correlation_id = ?
+                SELECT payload_fingerprint,
+                       current_attempt_no,
+                       current_command_id
+                FROM runtime_user_message_idempotency
+                WHERE correlation_id = ?
                 """,
                 (correlation_id,),
             )
             existing = await cursor.fetchone()
             if existing is not None:
                 if str(existing[0]) != payload_fingerprint:
-                    raise ValueError("User-message correlation id was reused for different input")
-                receipt_status = str(existing[2] or "open")
-                command_status = str(existing[3] or "")
-                if receipt_status == "completed" or command_status == STATUS_COMPLETED:
-                    if receipt_status != "completed":
-                        await db.execute(
-                            """
-                            UPDATE runtime_user_message_idempotency
-                            SET delivery_status = 'completed'
-                            WHERE correlation_id = ?
-                            """,
-                            (correlation_id,),
-                        )
+                    raise ValueError(
+                        "User-message correlation id was reused for different input"
+                    )
+                current_attempt_no = int(existing[1])
+                current_command_id = int(existing[2])
+                if delivery_attempt_no < current_attempt_no:
                     await db.commit()
-                    return int(existing[1])
-                if receipt_status not in {"failed"} and command_status in {
-                    STATUS_PENDING,
-                    STATUS_CLAIMED,
-                }:
+                    return UserMessageScheduleResult(
+                        outcome=UserMessageScheduleOutcome.STALE,
+                        command_id=current_command_id,
+                        current_attempt_no=current_attempt_no,
+                    )
+                if delivery_attempt_no == current_attempt_no:
                     await db.commit()
-                    return int(existing[1])
+                    return UserMessageScheduleResult(
+                        outcome=UserMessageScheduleOutcome.EXISTING,
+                        command_id=current_command_id,
+                        current_attempt_no=current_attempt_no,
+                    )
 
                 command_id = await self._insert_user_message_command_row(
                     db,
                     payload_json=payload_json,
                     correlation_id=correlation_id,
+                    delivery_attempt_no=delivery_attempt_no,
                     created_at=created_at,
                     user_message_generation=user_message_generation,
                 )
                 await db.execute(
                     """
+                    UPDATE runtime_commands
+                    SET status = ?,
+                        claimed_by = NULL,
+                        claimed_at = NULL,
+                        last_error = 'SUPERSEDED_BY_NEW_DELIVERY_ATTEMPT',
+                        updated_at = ?
+                    WHERE command_id = ?
+                      AND status != ?
+                    """,
+                    (
+                        STATUS_COMPLETED,
+                        time.time(),
+                        current_command_id,
+                        STATUS_COMPLETED,
+                    ),
+                )
+                await db.execute(
+                    """
                     UPDATE runtime_user_message_idempotency
-                    SET first_command_id = ?,
+                    SET current_attempt_no = ?,
+                        current_command_id = ?,
                         delivery_status = 'open',
                         created_at = ?
                     WHERE correlation_id = ?
                     """,
-                    (command_id, float(created_at), correlation_id),
+                    (
+                        delivery_attempt_no,
+                        command_id,
+                        float(created_at),
+                        correlation_id,
+                    ),
                 )
                 await db.commit()
-                return command_id
+                return UserMessageScheduleResult(
+                    outcome=UserMessageScheduleOutcome.SCHEDULED,
+                    command_id=command_id,
+                    current_attempt_no=delivery_attempt_no,
+                )
 
             command_id = await self._insert_user_message_command_row(
                 db,
                 payload_json=payload_json,
                 correlation_id=correlation_id,
+                delivery_attempt_no=delivery_attempt_no,
                 created_at=created_at,
                 user_message_generation=user_message_generation,
             )
@@ -257,20 +326,26 @@ class SQLiteRuntimeCommandQueue:
                 INSERT INTO runtime_user_message_idempotency (
                     correlation_id,
                     payload_fingerprint,
-                    first_command_id,
+                    current_attempt_no,
+                    current_command_id,
                     delivery_status,
                     created_at
-                ) VALUES (?, ?, ?, 'open', ?)
+                ) VALUES (?, ?, ?, ?, 'open', ?)
                 """,
                 (
                     correlation_id,
                     payload_fingerprint,
+                    delivery_attempt_no,
                     command_id,
                     float(created_at),
                 ),
             )
             await db.commit()
-            return command_id
+            return UserMessageScheduleResult(
+                outcome=UserMessageScheduleOutcome.SCHEDULED,
+                command_id=command_id,
+                current_attempt_no=delivery_attempt_no,
+            )
         except BaseException:
             await db.rollback()
             raise
@@ -281,6 +356,7 @@ class SQLiteRuntimeCommandQueue:
         *,
         payload_json: str,
         correlation_id: str,
+        delivery_attempt_no: int,
         created_at: float,
         user_message_generation: int,
     ) -> int:
@@ -293,9 +369,10 @@ class SQLiteRuntimeCommandQueue:
                 status,
                 retry_count,
                 user_message_generation,
+                delivery_attempt_no,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, 0, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
             """,
             (
                 RuntimeCommandType.USER_MESSAGE.value,
@@ -303,6 +380,7 @@ class SQLiteRuntimeCommandQueue:
                 correlation_id,
                 STATUS_PENDING,
                 int(user_message_generation),
+                int(delivery_attempt_no),
                 float(created_at),
                 float(created_at),
             ),
@@ -357,7 +435,7 @@ class SQLiteRuntimeCommandQueue:
                         LIMIT 1
                     )
                     RETURNING command_id, command_type, payload_json, correlation_id,
-                              retry_count, user_message_generation
+                              retry_count, user_message_generation, delivery_attempt_no
                     """,
                     (
                         STATUS_CLAIMED,
@@ -387,6 +465,7 @@ class SQLiteRuntimeCommandQueue:
             correlation_id=str(row[3]),
             retry_count=int(row[4] or 0),
             user_message_generation=int(row[5] or 0),
+            delivery_attempt_no=int(row[6] or 0),
         )
 
     @asynccontextmanager
@@ -394,6 +473,21 @@ class SQLiteRuntimeCommandQueue:
         """Protect one end-to-end user-message ingress or dispatch operation."""
         async with self._user_message_barrier.operation():
             yield
+
+    @asynccontextmanager
+    async def user_message_destructive_operation(self) -> AsyncIterator[None]:
+        """Serialize destructive chat and full-memory operations."""
+
+        async with self._user_message_destructive_lock:
+            yield
+
+    @asynccontextmanager
+    async def user_message_global_clear_boundary(self) -> AsyncIterator[None]:
+        """Serialize and quiesce every user-message path for a global clear."""
+
+        async with self.user_message_destructive_operation():
+            async with self.user_message_clear_boundary():
+                yield
 
     @asynccontextmanager
     async def user_message_clear_boundary(self) -> AsyncIterator[None]:
@@ -511,7 +605,7 @@ class SQLiteRuntimeCommandQueue:
                     placeholders = ", ".join("?" for _ in command_ids)
                     await db.execute(
                         f"DELETE FROM runtime_user_message_idempotency "
-                        f"WHERE first_command_id IN ({placeholders})",
+                        f"WHERE current_command_id IN ({placeholders})",
                         command_ids,
                     )
                     await db.execute(
@@ -531,6 +625,7 @@ class SQLiteRuntimeCommandQueue:
 
     async def advance_user_message_generation_and_purge(self) -> tuple[int, int]:
         """Advance the clear generation and remove every older user-message payload."""
+
         task = asyncio.current_task()
         if task is None or task is not self._user_message_clear_owner:
             raise RuntimeError("User-message generation can only advance inside its clear boundary")
@@ -581,28 +676,73 @@ class SQLiteRuntimeCommandQueue:
     async def requeue(self, command_id: int, *, error_text: str | None = None) -> None:
         await self._initialize()
         async with self._write_lock, sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                """
-                UPDATE runtime_commands
-                SET status = ?,
-                    retry_count = retry_count + 1,
-                    last_error = ?,
-                    claimed_by = NULL,
-                    claimed_at = NULL,
-                    updated_at = ?
-                WHERE command_id = ?
-                """,
-                (STATUS_PENDING, error_text, time.time(), command_id),
-            )
-            await db.execute(
-                """
-                UPDATE runtime_user_message_idempotency
-                SET delivery_status = 'open'
-                WHERE first_command_id = ?
-                """,
-                (command_id,),
-            )
-            await db.commit()
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await db.execute(
+                    """
+                    SELECT command_type, correlation_id
+                    FROM runtime_commands
+                    WHERE command_id = ?
+                    """,
+                    (command_id,),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    await db.commit()
+                    return
+                is_user_message = str(row[0]) == RuntimeCommandType.USER_MESSAGE.value
+                is_current_delivery = True
+                if is_user_message:
+                    cursor = await db.execute(
+                        """
+                        SELECT 1
+                        FROM runtime_user_message_idempotency
+                        WHERE correlation_id = ?
+                          AND current_command_id = ?
+                        """,
+                        (str(row[1]), command_id),
+                    )
+                    is_current_delivery = await cursor.fetchone() is not None
+                if is_user_message and not is_current_delivery:
+                    await db.execute(
+                        """
+                        UPDATE runtime_commands
+                        SET status = ?,
+                            last_error = 'STALE_DELIVERY_ATTEMPT',
+                            claimed_by = NULL,
+                            claimed_at = NULL,
+                            updated_at = ?
+                        WHERE command_id = ?
+                        """,
+                        (STATUS_COMPLETED, time.time(), command_id),
+                    )
+                    await db.commit()
+                    return
+                await db.execute(
+                    """
+                    UPDATE runtime_commands
+                    SET status = ?,
+                        retry_count = retry_count + 1,
+                        last_error = ?,
+                        claimed_by = NULL,
+                        claimed_at = NULL,
+                        updated_at = ?
+                    WHERE command_id = ?
+                    """,
+                    (STATUS_PENDING, error_text, time.time(), command_id),
+                )
+                await db.execute(
+                    """
+                    UPDATE runtime_user_message_idempotency
+                    SET delivery_status = 'open'
+                    WHERE current_command_id = ?
+                    """,
+                    (command_id,),
+                )
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
 
     async def get_stats(self) -> dict[str, int]:
         await self._initialize()
@@ -695,7 +835,7 @@ class SQLiteRuntimeCommandQueue:
                     """
                     UPDATE runtime_user_message_idempotency
                     SET delivery_status = 'completed'
-                    WHERE first_command_id = ?
+                    WHERE current_command_id = ?
                     """,
                     (command_id,),
                 )
@@ -703,13 +843,30 @@ class SQLiteRuntimeCommandQueue:
 
 
 def _payload_fingerprint(payload: dict[str, object]) -> str:
+    stable_payload = dict(payload)
+    stable_payload.pop("delivery_attempt_no", None)
+    stable_payload.pop("runtime_command_id", None)
     canonical = json.dumps(
-        payload,
+        stable_payload,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _normalize_delivery_attempt_no(value: object) -> int:
+    if isinstance(value, bool):
+        raise ValueError("Delivery attempt number must be a non-negative integer")
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "Delivery attempt number must be a non-negative integer"
+        ) from exc
+    if normalized < 0:
+        raise ValueError("Delivery attempt number must be a non-negative integer")
+    return normalized
 
 
 def _message_id_from_correlation_id(correlation_id: str | None) -> str:
@@ -795,5 +952,8 @@ async def _matching_user_message_command_ids(
 
 __all__ = [
     "SQLiteRuntimeCommandQueue",
+    "StaleUserMessageDeliveryAttemptError",
     "UserMessageScopeBlockedError",
+    "UserMessageScheduleOutcome",
+    "UserMessageScheduleResult",
 ]

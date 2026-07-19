@@ -12,7 +12,10 @@ backward-compat with any external diagnostics that probe them.
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -20,6 +23,7 @@ from typing import Any, Awaitable, Callable
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
+from ..core.runtime_bindings import require_chat_read_service
 
 logger = get_logger(__name__)
 
@@ -166,6 +170,7 @@ class ChannelsModule(LifecycleModule):
         self._chat_delivery_dispatcher = None
         self._binding_settings_store = None
         self._ask_fanout_subscriber = None
+        self._channel_operation_lock = asyncio.Lock()
 
     async def init(self) -> None:
         self._context.channels.module = self
@@ -187,15 +192,52 @@ class ChannelsModule(LifecycleModule):
         settings rows)."""
         return self._session_mapper
 
+    @property
+    def channel_registry(self):
+        """Currently active registry, replaced atomically across channel restarts."""
+
+        return self._registry
+
+    @property
+    def receipts_store(self):
+        """Currently active delivery receipt store."""
+
+        return self._receipts_store
+
+    @asynccontextmanager
+    async def external_delivery_boundary(self) -> AsyncIterator[None]:
+        """Use the current channel runtime without racing restart or clear."""
+
+        async with self._channel_operation_lock:
+            if not await self._conversation_delivery_allowed():
+                raise RuntimeError(
+                    "External conversation delivery is blocked by a pending clear"
+                )
+            yield
+
+    @asynccontextmanager
+    async def conversation_clear_boundary(self) -> AsyncIterator[None]:
+        """Block channel restart and ask delivery while conversations clear."""
+
+        async with self._channel_operation_lock:
+            subscriber = self._ask_fanout_subscriber
+            if subscriber is None:
+                yield
+                return
+            async with subscriber.conversation_clear_boundary():
+                yield
+
     async def restart(self) -> None:
         """Tear down running channels and re-initialize from current plugin state."""
         logger.info("Restarting channels module")
-        await self._stop_channels()
-        await self._start_channels()
+        async with self._channel_operation_lock:
+            await self._stop_channels()
+            await self._start_channels()
 
     async def shutdown(self) -> None:
-        await self._stop_channels()
-        self._context.channels.module = None
+        async with self._channel_operation_lock:
+            await self._stop_channels()
+            self._context.channels.module = None
 
     async def _start_channels(self) -> None:
         deps = self._channel_dependencies()
@@ -204,6 +246,7 @@ class ChannelsModule(LifecycleModule):
             deps=deps,
             channel_instances=channel_instances,
         )
+        await self._recover_pending_conversation_clear(startup.session_mapper)
         await startup.registry.start_all()
         self._activate_channel_runtime(startup)
         control_fanout_wired = await self._wire_control_fanout_if_available(startup)
@@ -212,6 +255,39 @@ class ChannelsModule(LifecycleModule):
             plugin_channel_count=startup.plugin_channel_count,
             control_fanout_wired=control_fanout_wired,
         )
+
+    async def _recover_pending_conversation_clear(self, session_mapper: Any) -> None:
+        """Finish cross-store conversation cleanup before channels receive work."""
+
+        from ..agent.orchestration import get_orchestration_store
+        chat_read_service = require_chat_read_service()
+        pending_count = (
+            await chat_read_service.aget_interrupted_global_clear_count()
+        )
+        if pending_count is None:
+            return
+        await session_mapper.clear_conversation_state()
+        await get_orchestration_store().clear_all()
+        completed = await chat_read_service.acomplete_global_clear()
+        if not completed:
+            raise RuntimeError(
+                "Pending global conversation clear could not be completed"
+            )
+        logger.info(
+            "Recovered interrupted cross-store conversation clear",
+            cleared_chat_count=pending_count,
+        )
+
+    @staticmethod
+    async def _conversation_delivery_allowed() -> bool:
+        try:
+            pending = (
+                await require_chat_read_service().aget_interrupted_global_clear_count()
+            )
+        except Exception:
+            logger.exception("Failed to verify conversation clear state")
+            return False
+        return pending is None
 
     async def _prepare_channel_startup(
         self,
@@ -500,6 +576,7 @@ class ChannelsModule(LifecycleModule):
             session_mapper=session_mapper,
             delivery_router=delivery_router,
             default_user_id=default_user_id,
+            delivery_allowed=self._conversation_delivery_allowed,
         )
         await self._ask_fanout_subscriber.start()
         logger.info("Channels module: ask fanout subscriber started")

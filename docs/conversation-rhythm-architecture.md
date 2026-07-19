@@ -17,6 +17,11 @@ afterthought when the answer naturally supports that shape.
   alter the assistant's stance, or change the user's requested language.
 - Multi-bubble output is a presentation choice for a single assistant turn, not
   multiple independent assistant turns.
+- Natural reply rhythm is a visible Conversation setting. It is not a hidden
+  experiment flag.
+- Natural reply rhythm and token streaming are mutually exclusive. Enabling
+  either setting disables the other, and backend execution enforces the same
+  rule even if configuration is edited outside the Settings UI.
 - Every visible segment must carry real information or conversational value.
   Empty filler, fake hesitation, and forced follow-up questions are product bugs.
 - Simple factual requests should stay single-message by default.
@@ -34,8 +39,24 @@ afterthought when the answer naturally supports that shape.
   and clearly improves conversational flow.
 - Non-initial rhythm segments should wait at least one second before appearing;
   sub-second delays read as UI animation rather than conversational cadence.
-- The feature must degrade to the existing single-message flow whenever
-  segmentation, validation, persistence, or notification fails.
+- The feature must degrade to the existing single-message flow when
+  segmentation, validation, or persistence fails before channel delivery
+  starts. If persistence left partial rhythm rows, that fallback is allowed
+  only after every partial row is hidden successfully; cleanup failure stops
+  presentation and lets the normal failure finalizer repair the turn instead
+  of exposing both a partial rhythm and a duplicate final answer.
+- Once channel delivery has started, the durable segmented transcript remains
+  authoritative. Rewriting it as one final message at that point can duplicate
+  a desktop bubble or resend content to an external channel whose delivery
+  succeeded before reporting an error.
+- Live segment notifications are an acceleration path, not the recovery source.
+  Once the complete segmented transcript and terminal turn state are durable,
+  the runtime attempts channel presentation. After that delivery loop ends,
+  including when a target failure or unexpected delivery exception stops part
+  of the fanout, the runtime emits a terminal control signal. The signal proves
+  that the durable turn is complete, not that every channel presented every
+  segment. If any live notification is missed, the desktop reloads matching
+  session history before it unlocks the exact turn.
 
 ## Main Flow
 
@@ -46,7 +67,10 @@ User message
 -> canonical assistant answer text with optional internal bubble markers
 -> backend segmentation parser
 -> validated response plan
--> chat outcome writer emits one or more visible assistant messages
+-> persist the complete segmented transcript and terminal turn state
+-> attempt channel presentation
+-> emit terminal control signal
+-> reconcile desktop history when needed
 ```
 
 Segmentation is deliberately placed after the main execution handler. This keeps
@@ -133,14 +157,49 @@ message kind and carry a small payload with:
 - source segment IDs
 
 The canonical full answer still feeds memory updates, runtime trace, and
-assistant projection. It should not be replaced by concatenating notification
-events on the frontend.
+assistant projection. The chat commit derives it from the ordered persisted
+segments: the first segment ID is the stable source identity, and the non-empty
+segment texts joined with newlines are the projection content. It must not be
+reconstructed from notification events on the frontend.
+
+All visible rhythm bubbles for one completed reply share that single canonical
+memory source. Deleting any one bubble therefore removes the memory and derived
+evidence for the whole reply, while the chat surface hides only the bubble the
+user selected. Source resolution follows the persisted segment order and does
+not depend on the first bubble remaining visible, so retries keep targeting the
+same canonical reply.
 
 Turn-scoped supporting metadata should appear only once across visible rhythm
 segments. Recalled-memory references belong on the terminal segment so they act
 as a footer for the whole assistant turn instead of repeating inside every
-bubble. The compact disclosure sits directly below the terminal bubble rather
-than inside it, so short conversational bubbles keep their natural height.
+bubble. Code-delegation references follow the same rule: only the terminal
+segment owns them, so reload and deletion see one durable owner rather than
+duplicating the same code-task card under every bubble. The compact disclosure
+sits directly below the terminal bubble rather than inside it, so short
+conversational bubbles keep their natural height.
+
+## Notification Failure Policy
+
+Segment notifications use normal channel fanout, but fanout isolation must not
+make a failed target look like a complete success. The delivery result retains
+both successful receipts and explicit per-target failures.
+
+For a multi-segment response:
+
+- a channel that fails one segment is excluded from later segments in the same
+  response, so it does not receive an out-of-context tail
+- channels that are still healthy continue receiving the remaining segments
+- the persisted rhythm messages are not hidden and no replacement
+  `assistant_final` is broadcast after delivery has started
+- an unexpected delivery-layer exception stops the remaining notifications but
+  still keeps the durable segmented transcript as the source of truth
+
+This rule is intentionally conservative. A channel can perform its external
+side effect and then raise because its acknowledgement was lost. The absence of
+a receipt therefore does not prove that nothing was shown to the user, and an
+automatic single-message resend is not safe. Durable presentation scheduling,
+per-channel retry, and retract/repair remain follow-up work rather than being
+simulated by an unsafe fallback.
 
 ## Streaming Policy
 
@@ -161,7 +220,8 @@ single bubble and breaks the rhythm contract.
 
 The first implementation supports:
 
-- a hidden preference gate for enabling conversation rhythm
+- a visible Conversation-settings switch for enabling natural reply rhythm
+- mutually exclusive rhythm and streaming preferences
 - main-model prompt guidance for inline bubble markers
 - deterministic marker parsing with strict validation and single-message fallback
 - up to six visible assistant segments per turn

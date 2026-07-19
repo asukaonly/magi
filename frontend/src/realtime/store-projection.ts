@@ -16,6 +16,10 @@ import type {
 } from '@/api/modules/codeAgent';
 import type { RealtimeStreamEvent } from './stream-events';
 import { normalizeRealtimeStreamEvent } from './stream-events';
+import {
+  canApplyRealtimeChatProjection,
+  isRealtimeChatSessionProjectionAllowed,
+} from './chat-projection-retirement';
 
 export interface RealtimeStoreProjectionMessage {
   type?: string;
@@ -39,6 +43,9 @@ export const applyRealtimeStoreProjection = (
 ): boolean => {
   const eventName = String(message.event || message.type || '').trim();
   const conversationStore = useConversationStore.getState();
+  if (!canApplyRealtimeChatProjection(eventName, message.data)) {
+    return false;
+  }
 
   if (eventName === 'agent_response' && message.data && typeof message.data === 'object') {
     const payload = message.data as Record<string, unknown>;
@@ -213,7 +220,11 @@ export const applyRealtimeStoreProjection = (
         conversationStore.upsertMessage(sessionId, normalizedMessage);
       }
     }
-    if (payload.session_summary && typeof payload.session_summary === 'object') {
+    if (
+      isRealtimeChatSessionProjectionAllowed(sessionId)
+      && payload.session_summary
+      && typeof payload.session_summary === 'object'
+    ) {
       conversationStore.upsertSession(payload.session_summary as any);
     }
     return true;
@@ -226,7 +237,11 @@ export const applyRealtimeStoreProjection = (
     if (sessionId && messageId) {
       conversationStore.removeMessage(sessionId, messageId);
     }
-    if (payload.session_summary && typeof payload.session_summary === 'object') {
+    if (
+      isRealtimeChatSessionProjectionAllowed(sessionId)
+      && payload.session_summary
+      && typeof payload.session_summary === 'object'
+    ) {
       conversationStore.upsertSession(payload.session_summary as any);
     }
     return true;
@@ -298,10 +313,11 @@ export const applyRealtimeStoreProjection = (
   if (eventName === 'code_agent_delegation_event' && message.data && typeof message.data === 'object') {
     const payload = message.data as Record<string, unknown>;
     const sid = typeof payload.session_id === 'string' ? payload.session_id : null;
+    const tid = typeof payload.turn_id === 'string' ? payload.turn_id : null;
     const did = typeof payload.delegation_id === 'string' ? payload.delegation_id : null;
     const event = (payload.event ?? null) as RunEvent | null;
-    if (sid && did && event && typeof event === 'object' && typeof event.kind === 'string') {
-      useDelegationsStore.getState().upsertEvent(sid, did, event);
+    if (sid && tid && did && event && typeof event === 'object' && typeof event.kind === 'string') {
+      useDelegationsStore.getState().upsertEvent(sid, did, tid, event);
       return true;
     }
     return false;
@@ -310,12 +326,12 @@ export const applyRealtimeStoreProjection = (
   if (eventName === 'code_agent_delegation_state' && message.data && typeof message.data === 'object') {
     const payload = message.data as Record<string, unknown>;
     const sid = typeof payload.session_id === 'string' ? payload.session_id : null;
+    const tid = typeof payload.turn_id === 'string' ? payload.turn_id : null;
     const did = typeof payload.delegation_id === 'string' ? payload.delegation_id : null;
     const state = typeof payload.state === 'string' ? (payload.state as DelegationLifecycle) : null;
     const summary = (payload.summary ?? {}) as Record<string, unknown>;
-    if (sid && did && state) {
-      console.log('[store-projection] Received delegation state', { sid, did, state });
-      useDelegationsStore.getState().upsertState(sid, did, state, summary);
+    if (sid && tid && did && state) {
+      useDelegationsStore.getState().upsertState(sid, did, tid, state, summary);
       return true;
     }
     return false;

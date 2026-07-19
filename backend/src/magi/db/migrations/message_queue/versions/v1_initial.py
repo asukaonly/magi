@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS runtime_commands (
     claimed_by TEXT,
     claimed_at REAL,
     last_error TEXT,
+    delivery_attempt_no INTEGER NOT NULL DEFAULT 0
+        CHECK (delivery_attempt_no >= 0),
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -38,7 +40,9 @@ CREATE TABLE IF NOT EXISTS runtime_command_rollups (
 CREATE TABLE IF NOT EXISTS runtime_user_message_idempotency (
     correlation_id TEXT PRIMARY KEY,
     payload_fingerprint TEXT NOT NULL,
-    first_command_id INTEGER NOT NULL,
+    current_attempt_no INTEGER NOT NULL
+        CHECK (current_attempt_no >= 0),
+    current_command_id INTEGER NOT NULL,
     delivery_status TEXT NOT NULL DEFAULT 'open',
     created_at REAL NOT NULL
 );

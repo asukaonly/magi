@@ -8,10 +8,13 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException
 
 from ... import i18n as core_i18n
-from ...chat.forgetting import get_chat_forgetting_service
-from ...core.runtime_bindings import require_chat_surface_write_service
+from ...core.chat_cleanup import ChatSurfaceCleanupPendingError
+from ...core.runtime_bindings import (
+    require_chat_forgetting_service,
+    require_chat_surface_write_service,
+)
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
-from .messages_models import MessageLabelRequest
+from .messages_models import DeleteMessageResponse, MessageLabelRequest
 
 message_mutations_router = APIRouter()
 
@@ -62,16 +65,23 @@ async def set_message_label(
 
 
 @message_mutations_router.delete(
-    "/session/{session_id}/message/{message_id}", response_model=Dict[str, Any]
+    "/session/{session_id}/message/{message_id}",
+    response_model=DeleteMessageResponse,
 )
 async def delete_message(session_id: str, message_id: str, user_id: str = DEFAULT_USER_ID):
-    """Soft-delete one chat message from the visible transcript."""
+    """Permanently remove one message and the memory derived from it."""
+    cleanup_pending = False
     try:
-        deleted = await get_chat_forgetting_service().delete_message(
+        deleted = await require_chat_forgetting_service().delete_message(
             user_id=user_id,
             session_id=session_id,
             message_id=message_id,
         )
+    except ChatSurfaceCleanupPendingError as exc:
+        if exc.session_id != session_id or message_id not in exc.message_ids:
+            raise
+        deleted = True
+        cleanup_pending = True
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
@@ -86,6 +96,7 @@ async def delete_message(session_id: str, message_id: str, user_id: str = DEFAUL
         "user_id": user_id,
         "session_id": session_id,
         "deleted_message_id": message_id,
+        "cleanup_pending": cleanup_pending,
     }
 
 

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from ..chat.asset_gc import ChatAssetGC
+from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from ..config import get_config
 from .lifecycle import LifecycleModule
 from .context import RuntimeBootstrapContext, require_initialized
@@ -82,16 +81,18 @@ class RuntimeOperationalGCScheduleContrib:
                 runtime_paths=runtime_paths,
             )
             results.update(await runtime_gc.run())
-            if current_config.lifecycle.chat_assets.delete_on_session_delete:
-                chat_asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
-                results.update(
-                    await asyncio.to_thread(
-                        chat_asset_gc.sweep_orphan_session_assets,
-                        orphan_grace_hours=(
-                            current_config.lifecycle.chat_assets.orphan_grace_hours
-                        ),
-                    )
+            chat_asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
+            results.update(
+                await run_chat_asset_mutation(
+                    chat_asset_gc.sweep_orphan_assets,
+                    orphan_grace_hours=(
+                        current_config.lifecycle.chat_assets.orphan_grace_hours
+                    ),
+                    delete_orphan_sessions=(
+                        current_config.lifecycle.chat_assets.delete_on_session_delete
+                    ),
                 )
+            )
         except Exception as exc:
             logger.warning("runtime operational gc failed", error=str(exc), exc_info=True)
             return ScheduledExecutionResult(

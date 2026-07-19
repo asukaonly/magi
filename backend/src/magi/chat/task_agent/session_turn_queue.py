@@ -63,23 +63,6 @@ class SessionRunTurnQueueMixin:
             visible_user_message=visible_user_message,
         )
 
-    def consume_deferred_turns(
-        self,
-        session_id: str,
-        *,
-        revision: int | None = None,
-    ) -> list[PendingTurn]:
-        """Pop the DEFER pending turns queued on the session run."""
-        active_run = self._run_store.get_active_run(session_id)
-        if active_run is None:
-            return []
-        target_revision = active_run.revision if revision is None else int(revision)
-        return self._run_store.consume_pending_turns(
-            session_id,
-            revision=target_revision,
-            disposition=InterruptionDisposition.DEFER.value,
-        )
-
     def bind_detach_signal(self, session_id: str, signal: DetachSignal) -> None:
         """Expose the active run's detach signal for out-of-band user requests."""
         normalized_session_id = str(session_id or "").strip()
@@ -162,6 +145,23 @@ class SessionRunTurnQueueMixin:
             session_id,
             revision=target_revision,
             disposition=InterruptionDisposition.STEER.value,
+        )
+
+    async def discard_pending_turn_for_message_delete(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        run_id: str | None,
+        revision: int | None,
+    ) -> PendingTurn | None:
+        """Detach one exact unconsumed user turn from its active root run."""
+
+        return await self._run_store.discard_pending_turn_durably(
+            session_id,
+            turn_id=turn_id,
+            run_id=run_id,
+            revision=revision,
         )
 
     def _merge_visible_user_message(

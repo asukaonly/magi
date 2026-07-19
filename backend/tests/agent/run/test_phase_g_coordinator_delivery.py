@@ -17,13 +17,15 @@ def test_coordinator_accepts_injected_delivery_dispatcher() -> None:
     assert "DeliveryRouter" not in src
 
 
-def test_coordinator_execute_calls_delivery_helper_on_completion() -> None:
-    """ChatExecutionCoordinator.execute must call the delivery helper after
-    the node sequence completes."""
+def test_coordinator_execute_defers_final_delivery_to_postprocess() -> None:
+    """Execution must not send a final response before chat persistence."""
     from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
 
     src = inspect.getsource(ChatExecutionCoordinator.execute)
-    assert "_fanout_to_origin_channels" in src
+    assert "_fanout_to_origin_channels" not in src
+
+    delivery_src = inspect.getsource(ChatExecutionCoordinator.deliver_final_chat_response)
+    assert "_fanout_to_origin_channels" in delivery_src
 
 
 def test_session_run_coordinator_request_retract_uses_delivery_dispatcher() -> None:

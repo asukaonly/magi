@@ -71,6 +71,10 @@ class ChatMessageSourceIdentity:
     user_id: str
     role: str
     turn_id: str | None
+    run_id: str | None = None
+    run_revision: int = 0
+    source_message_id: str | None = None
+    background_task_id: str | None = None
 
 
 @dataclass(slots=True)

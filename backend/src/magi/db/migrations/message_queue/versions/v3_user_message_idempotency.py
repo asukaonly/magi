@@ -64,22 +64,40 @@ def upgrade() -> None:
                  command_id ASC
         """
     ).fetchall()
+    receipt_columns = {
+        str(row[1])
+        for row in connection.exec_driver_sql(
+            "PRAGMA table_info(runtime_user_message_idempotency)"
+        ).fetchall()
+    }
     for correlation_id, payload_json, command_id, created_at, _status in rows:
-        connection.exec_driver_sql(
-            """
-            INSERT OR IGNORE INTO runtime_user_message_idempotency (
-                correlation_id, payload_fingerprint, first_command_id,
-                delivery_status, created_at
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                str(correlation_id),
-                _payload_fingerprint(str(payload_json)),
-                int(command_id),
-                _receipt_status(str(_status)),
-                float(created_at),
-            ),
+        values = (
+            str(correlation_id),
+            _payload_fingerprint(str(payload_json)),
+            int(command_id),
+            _receipt_status(str(_status)),
+            float(created_at),
         )
+        if "current_command_id" in receipt_columns:
+            connection.exec_driver_sql(
+                """
+                INSERT OR IGNORE INTO runtime_user_message_idempotency (
+                    correlation_id, payload_fingerprint, current_attempt_no,
+                    current_command_id, delivery_status, created_at
+                ) VALUES (?, ?, 0, ?, ?, ?)
+                """,
+                values,
+            )
+        else:
+            connection.exec_driver_sql(
+                """
+                INSERT OR IGNORE INTO runtime_user_message_idempotency (
+                    correlation_id, payload_fingerprint, first_command_id,
+                    delivery_status, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                values,
+            )
 
 
 def downgrade() -> None:
@@ -89,6 +107,9 @@ def downgrade() -> None:
 def _payload_fingerprint(payload_json: str) -> str:
     try:
         payload = json.loads(payload_json)
+        if isinstance(payload, dict):
+            payload.pop("delivery_attempt_no", None)
+            payload.pop("runtime_command_id", None)
         canonical = json.dumps(
             payload,
             ensure_ascii=False,

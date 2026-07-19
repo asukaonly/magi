@@ -35,6 +35,7 @@ from .launch import (
     default_ack_text,
 )
 from .manager import (
+    BackgroundTaskAdmissionBlockedError,
     BackgroundTaskListener,
     BackgroundTaskManager,
     TERMINAL_BACKGROUND_TASK_STATUSES,
@@ -63,6 +64,7 @@ __all__ = [
     "BackgroundMemoryScope",
     "BackgroundRuleOutcome",
     "BackgroundTask",
+    "BackgroundTaskAdmissionBlockedError",
     "BackgroundTaskEvent",
     "BackgroundTaskExecutor",
     "BackgroundTaskListener",

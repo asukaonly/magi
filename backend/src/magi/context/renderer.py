@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List
 
+from magi.core.chat_assets.io import open_managed_chat_derived_file
 from ..config import get_user_preference
 from ..config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from ..personality.turn_planner import PersonaTurnPlan
@@ -20,7 +20,9 @@ from .schema import (
 
 def _conversation_rhythm_enabled() -> bool:
     enabled = get_user_preference("conversation_rhythm_enabled", True)
-    mode = str(get_user_preference("conversation_rhythm_mode", "natural") or "natural").strip().lower()
+    mode = (
+        str(get_user_preference("conversation_rhythm_mode", "natural") or "natural").strip().lower()
+    )
     if mode == "off":
         return False
     if isinstance(enabled, bool):
@@ -37,17 +39,21 @@ def _conversation_rhythm_enabled() -> bool:
 class PromptContextRenderer:
     """Renders modular prompt contexts into final system prompt text."""
 
-    def render_system_prompt(self, context: PromptAssemblyContext, *, include_tool_catalog: bool = True) -> str:
+    def render_system_prompt(
+        self, context: PromptAssemblyContext, *, include_tool_catalog: bool = True
+    ) -> str:
         lines: List[str] = []
 
-        lines.extend([
-            "# System Definition",
-            context.identity_constraints.system_definition,
-            "",
-            "## Core Truths & Boundaries",
-            context.identity_constraints.core_truths_and_boundaries,
-            "",
-        ])
+        lines.extend(
+            [
+                "# System Definition",
+                context.identity_constraints.system_definition,
+                "",
+                "## Core Truths & Boundaries",
+                context.identity_constraints.core_truths_and_boundaries,
+                "",
+            ]
+        )
 
         # Only the byte-stable persona DEFINITION (identity + baseline voice)
         # joins the cached head. Per-turn steer (register / modulation /
@@ -80,10 +86,12 @@ class PromptContextRenderer:
                 else None
             )
             suppress_tool_imperatives = register in {"emotional", "crisis"}
-            lines.extend(self._render_tool_catalog(
-                context.tool_catalog,
-                suppress_imperatives=suppress_tool_imperatives,
-            ))
+            lines.extend(
+                self._render_tool_catalog(
+                    context.tool_catalog,
+                    suppress_imperatives=suppress_tool_imperatives,
+                )
+            )
         lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
         lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
         lines.extend(self._render_profile_memory(context.profile_memory))
@@ -198,7 +206,9 @@ class PromptContextRenderer:
         if plan.active_triggers:
             lines.append("## Active Persona Triggers")
             for trigger in plan.active_triggers:
-                lines.append(f"* {trigger.trigger_id} ({trigger.intensity}): {trigger.behavior_shift}")
+                lines.append(
+                    f"* {trigger.trigger_id} ({trigger.intensity}): {trigger.behavior_shift}"
+                )
             lines.append("")
 
         if plan.active_layer or plan.layer_modifiers:
@@ -538,8 +548,16 @@ class PromptContextRenderer:
         text_path = str(attachment.get("derived_text_path") or "").strip()
         if text_path:
             try:
-                text = Path(text_path).read_text(encoding="utf-8").strip()
-            except OSError:
+                handle = open_managed_chat_derived_file(
+                    text_path,
+                    session_id=attachment.get("session_id"),
+                    turn_id=attachment.get("turn_id"),
+                    attachment_id=attachment.get("attachment_id"),
+                )
+                if handle is not None:
+                    with handle:
+                        text = handle.read().decode("utf-8").strip()
+            except (OSError, UnicodeError):
                 text = ""
         if not text:
             text = str(attachment.get("derived_text_excerpt") or "").strip()
@@ -564,6 +582,7 @@ class PromptContextRenderer:
     @staticmethod
     def _json_dump(payload: Any) -> str:
         import json
+
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
 

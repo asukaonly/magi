@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Generic, Optional, TypeVar, cast
 
@@ -10,6 +12,77 @@ from .contracts import FactRecord
 from .types import TaskAgentType, build_task_agent_key, get_task_agent_type_value
 
 logger = get_logger(__name__)
+
+
+class TaskAgentBatchDiscarded(Exception):
+    """Stop one transferred batch without treating it as an execution failure."""
+
+
+class FactQueue:
+    """Bounded FIFO queue with explicit inspection and filtering operations."""
+
+    def __init__(self, maxsize: int = 0) -> None:
+        self.maxsize = max(0, int(maxsize))
+        self._items: deque[FactRecord] = deque()
+
+    def qsize(self) -> int:
+        """Return the number of queued facts."""
+
+        return len(self._items)
+
+    def empty(self) -> bool:
+        """Return whether no facts are queued."""
+
+        return not self._items
+
+    def full(self) -> bool:
+        """Return whether the configured positive capacity is exhausted."""
+
+        return self.maxsize > 0 and len(self._items) >= self.maxsize
+
+    def put_nowait(self, fact: FactRecord) -> None:
+        """Append a fact or raise when the bounded queue is full."""
+
+        if self.full():
+            raise asyncio.QueueFull
+        self._items.append(fact)
+
+    def get_nowait(self) -> FactRecord:
+        """Remove and return the oldest fact without waiting."""
+
+        try:
+            return self._items.popleft()
+        except IndexError as exc:
+            raise asyncio.QueueEmpty from exc
+
+    def peek_nowait(self) -> FactRecord:
+        """Return the oldest fact without removing it."""
+
+        try:
+            return self._items[0]
+        except IndexError as exc:
+            raise asyncio.QueueEmpty from exc
+
+    def snapshot(self) -> tuple[FactRecord, ...]:
+        """Return an immutable FIFO snapshot."""
+
+        return tuple(self._items)
+
+    def remove_if(
+        self,
+        predicate: Callable[[FactRecord], bool],
+    ) -> tuple[FactRecord, ...]:
+        """Remove matching facts while preserving the order of all others."""
+
+        kept: deque[FactRecord] = deque()
+        removed: list[FactRecord] = []
+        for fact in self._items:
+            if predicate(fact):
+                removed.append(fact)
+            else:
+                kept.append(fact)
+        self._items = kept
+        return tuple(removed)
 
 
 @dataclass(slots=True)
@@ -49,6 +122,14 @@ class TaskAgentExecutionRequest:
     tool_result: TaskAgentToolSelection
 
 
+@dataclass(frozen=True, slots=True)
+class FactAdmissionResult:
+    """Outcome of conditionally admitting one fact into an agent queue."""
+
+    queued: bool
+    superseded: bool = False
+
+
 ContextT = TypeVar("ContextT")
 IntentT = TypeVar("IntentT")
 ToolSelectionT = TypeVar("ToolSelectionT")
@@ -71,12 +152,18 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
         self.runtime_key = build_task_agent_key(agent_type, agent_id)
         self._queue_maxsize = queue_maxsize
         self._enqueue_timeout_ms = enqueue_timeout_ms
-        self._fact_queue: asyncio.Queue[FactRecord] = asyncio.Queue(maxsize=queue_maxsize)
+        self._fact_queue = FactQueue(maxsize=queue_maxsize)
         self._task: Optional[asyncio.Task] = None
         self._running = False
         self._event_emitter = None
         self._processed = 0
+        self._failed = 0
         self._enqueue_rejected = 0
+        self._fact_transfer_lock = asyncio.Lock()
+        self._facts_available = asyncio.Event()
+        self._queue_space_available = asyncio.Event()
+        self._queue_space_available.set()
+        self._active_batch_facts: list[FactRecord] = []
         self._fact_memory: list[FactRecord] = []
         self._max_fact_memory = 200
         self._batch_size = 16
@@ -90,6 +177,8 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
         self._task_agent_manager = task_agent_manager
         self._sensor_hub = sensor_hub
         self._running = True
+        if not self._fact_queue.empty():
+            self._facts_available.set()
         self._task = asyncio.create_task(self._run_loop())
         logger.info(f"TaskAgent started | key={self.runtime_key}")
 
@@ -108,54 +197,194 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
 
     async def add_fact(self, fact: FactRecord) -> bool:
         """Add fact to queue with timeout. Returns True if successful, False if rejected."""
+        result = await self._enqueue_fact(fact)
+        return result.queued
+
+    async def add_fact_with_admission(
+        self,
+        fact: FactRecord,
+        *,
+        admit: Callable[[], Awaitable[bool]],
+    ) -> FactAdmissionResult:
+        """Conditionally persist admission immediately before queue insertion."""
+
+        return await self._enqueue_fact(fact, admit=admit)
+
+    async def _enqueue_fact(
+        self,
+        fact: FactRecord,
+        *,
+        admit: Callable[[], Awaitable[bool]] | None = None,
+    ) -> FactAdmissionResult:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + (self._enqueue_timeout_ms / 1000.0)
         try:
-            timeout_seconds = self._enqueue_timeout_ms / 1000.0
-            await asyncio.wait_for(self._fact_queue.put(fact), timeout=timeout_seconds)
-            return True
-        except asyncio.TimeoutError:
+            while True:
+                async with self._fact_transfer_lock:
+                    if self._fact_queue.full():
+                        self._queue_space_available.clear()
+                    else:
+                        admission_cancelled = False
+                        if admit is not None:
+                            admission_task = asyncio.create_task(admit())
+                            while not admission_task.done():
+                                try:
+                                    await asyncio.shield(admission_task)
+                                except asyncio.CancelledError:
+                                    if admission_task.cancelled():
+                                        break
+                                    admission_cancelled = True
+                                    if admission_task.done():
+                                        break
+                            if not admission_task.result():
+                                if admission_cancelled:
+                                    raise asyncio.CancelledError
+                                return FactAdmissionResult(
+                                    queued=False,
+                                    superseded=True,
+                                )
+                        self._fact_queue.put_nowait(fact)
+                        self._facts_available.set()
+                        if self._fact_queue.full():
+                            self._queue_space_available.clear()
+                        if admission_cancelled:
+                            raise asyncio.CancelledError
+                        return FactAdmissionResult(queued=True)
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError
+                await asyncio.wait_for(
+                    self._queue_space_available.wait(),
+                    timeout=remaining,
+                )
+        except (asyncio.TimeoutError, asyncio.QueueFull):
             self._enqueue_rejected += 1
             logger.warning(
                 f"TaskAgent queue full, fact rejected | key={self.runtime_key} "
                 f"queue_size={self._fact_queue.qsize()} max={self._queue_maxsize}"
             )
-            return False
-        except asyncio.QueueFull:
-            self._enqueue_rejected += 1
-            logger.warning(
-                f"TaskAgent queue full, fact rejected | key={self.runtime_key}"
-            )
-            return False
+            return FactAdmissionResult(queued=False)
 
     async def _run_loop(self) -> None:
         while self._running:
             try:
-                first = await asyncio.wait_for(self._fact_queue.get(), timeout=0.2)
-            except asyncio.TimeoutError:
+                await self._facts_available.wait()
+                batch = await self._take_next_batch()
+            except asyncio.CancelledError:
+                raise
+            if not batch:
                 continue
-            batch = [first]
+            stage = "merge_facts"
+            context: ContextT | None = None
+            try:
+                facts = await self.merge_facts(batch)
+                if facts:
+                    stage = "build_context"
+                    context = await self.build_context(facts)
+                    stage = "match_intent"
+                    intent_result = await self.match_intent(context)
+                    stage = "match_tools"
+                    tool_result = await self.match_tools(context, intent_result)
+                    stage = "assemble_llm_params"
+                    llm_params = await self.assemble_llm_params(
+                        context,
+                        intent_result,
+                        tool_result,
+                    )
+                    stage = "call_llm"
+                    raw_result = await self.call_llm(context, llm_params)
+                    stage = "parse_result"
+                    await self.parse_result(context, raw_result)
+            except asyncio.CancelledError:
+                raise
+            except TaskAgentBatchDiscarded:
+                pass
+            except Exception as exc:
+                self._failed += len(batch)
+                logger.error(
+                    f"TaskAgent handle_fact failed | key={self.runtime_key} "
+                    f"stage={stage} error={exc}",
+                    exc_info=True,
+                )
+                try:
+                    await self.handle_batch_failure(
+                        batch,
+                        error=exc,
+                        stage=stage,
+                        context=context,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as failure_exc:
+                    logger.error(
+                        f"TaskAgent failure finalization failed | key={self.runtime_key} "
+                        f"stage={stage} error={failure_exc}",
+                        exc_info=True,
+                    )
+            finally:
+                self._active_batch_facts = []
+            self._processed += len(batch)
+
+    async def _take_next_batch(self) -> list[FactRecord]:
+        """Atomically transfer queued facts into the active batch."""
+
+        async with self._fact_transfer_lock:
+            batch: list[FactRecord] = []
             while len(batch) < self._batch_size:
+                try:
+                    next_fact = self._fact_queue.peek_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if batch and self._should_end_batch_before(batch, next_fact):
+                    break
                 try:
                     batch.append(self._fact_queue.get_nowait())
                 except asyncio.QueueEmpty:
                     break
-            try:
-                facts = await self.merge_facts(batch)
-                context = await self.build_context(facts)
-                intent_result = await self.match_intent(context)
-                tool_result = await self.match_tools(context, intent_result)
-                llm_params = await self.assemble_llm_params(context, intent_result, tool_result)
-                raw_result = await self.call_llm(context, llm_params)
-                await self.parse_result(context, raw_result)
-            except Exception as exc:
-                logger.error(
-                    f"TaskAgent handle_fact failed | key={self.runtime_key} "
-                    f"error={exc}",
-                    exc_info=True,
-                )
-            self._processed += len(batch)
+            if self._fact_queue.empty():
+                self._facts_available.clear()
+            if not self._fact_queue.full():
+                self._queue_space_available.set()
+            self._active_batch_facts = list(batch)
+            return batch
+
+    def _should_end_batch_before(
+        self,
+        batch: list[FactRecord],
+        next_fact: FactRecord,
+    ) -> bool:
+        """Return whether the next queued fact must start a later batch."""
+
+        _ = (batch, next_fact)
+        return False
 
     async def handle_fact(self, fact: FactRecord) -> None:
         raise NotImplementedError
+
+    async def handle_batch_failure(
+        self,
+        batch: list[FactRecord],
+        *,
+        error: BaseException,
+        stage: str,
+        context: ContextT | None,
+    ) -> None:
+        """Finalize one failed batch without replaying potentially effectful work."""
+
+        _ = (batch, error, stage, context)
+
+    def snapshot_inflight_facts(self) -> tuple[FactRecord, ...]:
+        """Return the current batch followed by facts still waiting in the queue."""
+        return (*self._active_batch_facts, *self._fact_queue.snapshot())
+
+    def has_inflight_work(self) -> bool:
+        """Return whether this instance owns queued or actively executing work."""
+
+        return (
+            self._fact_transfer_lock.locked()
+            or bool(self._active_batch_facts)
+            or not self._fact_queue.empty()
+        )
 
     async def merge_facts(self, new_facts: list[FactRecord]) -> list[FactRecord]:
         """Merge new facts with in-memory context and return working set."""
@@ -238,6 +467,8 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
             "queue_size": self._fact_queue.qsize(),
             "queue_maxsize": self._queue_maxsize,
             "processed": self._processed,
+            "failed": self._failed,
             "enqueue_rejected": self._enqueue_rejected,
             "running": self._running,
+            "busy": self.has_inflight_work(),
         }

@@ -29,23 +29,70 @@ class _HostTracePort:
 
 
 class _HostDelegationEventPort:
-    async def broadcast_event(self, *, user_id, session_id, delegation_id, event):
+    async def broadcast_event(
+        self,
+        *,
+        user_id,
+        session_id,
+        turn_id,
+        delegation_id,
+        event,
+    ):
         from magi.transport.code_agent_events import broadcast_delegation_event
         await broadcast_delegation_event(
             user_id=user_id,
             session_id=session_id,
+            turn_id=turn_id,
             delegation_id=delegation_id,
             event=event,
         )
 
-    async def broadcast_state(self, *, user_id, session_id, delegation_id, state, summary=None):
+    async def broadcast_state(
+        self,
+        *,
+        user_id,
+        session_id,
+        turn_id,
+        delegation_id,
+        state,
+        summary=None,
+    ):
         from magi.transport.code_agent_events import broadcast_delegation_state
         await broadcast_delegation_state(
             user_id=user_id,
             session_id=session_id,
+            turn_id=turn_id,
             delegation_id=delegation_id,
             state=state,
             summary=summary or {},
+        )
+
+
+class _HostDelegationArtifactPort:
+    _registry = None
+
+    def _get_registry(self):
+        if self._registry is None:
+            from magi.chat.code_delegation_artifacts import (
+                ChatCodeDelegationArtifactRegistry,
+            )
+
+            self._registry = ChatCodeDelegationArtifactRegistry()
+        return self._registry
+
+    async def register(
+        self,
+        *,
+        session_id,
+        turn_id,
+        delegation_id,
+        workspace_path,
+    ):
+        await self._get_registry().register(
+            session_id=session_id,
+            turn_id=turn_id,
+            delegation_id=delegation_id,
+            workspace_path=workspace_path,
         )
 
 
@@ -150,15 +197,21 @@ class _HostChatPort:
         from magi.chat.read_service import get_chat_read_service
         return get_chat_read_service().get_attachment_payload(user_id, session_id, attachment_id)
 
-    def prepare_runtime_attachment(self, *, session_id, turn_id, attachment):
-        return self._get_ingestion().prepare_runtime_attachment(
+    async def prepare_runtime_attachment(self, *, session_id, turn_id, attachment):
+        from magi.core.chat_assets.mutations import run_chat_asset_mutation
+
+        return await run_chat_asset_mutation(
+            self._get_ingestion().prepare_runtime_attachment,
             session_id=session_id,
             turn_id=turn_id,
             attachment=attachment,
         )
 
-    def ingest_local_file(self, *, session_id, turn_id, file_path, original_name=None, mime_type=None):
-        return self._get_ingestion().ingest_local_file(
+    async def ingest_local_file(self, *, session_id, turn_id, file_path, original_name=None, mime_type=None):
+        from magi.core.chat_assets.mutations import run_chat_asset_mutation
+
+        return await run_chat_asset_mutation(
+            self._get_ingestion().ingest_local_file,
             session_id=session_id,
             turn_id=turn_id,
             file_path=file_path,
@@ -257,6 +310,7 @@ def build_tool_capabilities() -> ToolCapabilities:
         _capabilities = ToolCapabilities(
             trace=_HostTracePort(),
             delegation_events=_HostDelegationEventPort(),
+            delegation_artifacts=_HostDelegationArtifactPort(),
             background=_HostBackgroundPort(),
             memory_query=_HostMemoryQueryPort(),
             chat=_HostChatPort(),

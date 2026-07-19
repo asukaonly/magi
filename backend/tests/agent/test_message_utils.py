@@ -10,6 +10,7 @@ from magi.agent.message_utils import (
 from magi.agent.run.ports import NullAttachmentResolver
 from magi.agent.task_agents.handlers.contracts import ChatReplyContext
 from magi.agent.turn_input import UserTurnInput
+from magi.utils.runtime import RuntimePaths
 
 _NULL_RESOLVER = NullAttachmentResolver()
 
@@ -25,7 +26,11 @@ class _FakeAttachmentResolver:
         self, user_id: str, session_id: str, attachment_id: str
     ) -> dict[str, object] | None:
         self.calls.append((user_id, session_id, attachment_id))
-        return {"attachment_id": attachment_id, "storage_path": self._storage_path}
+        return {
+            "attachment_id": attachment_id,
+            "turn_id": "turn-1",
+            "storage_path": self._storage_path,
+        }
 
 
 def _turn(text: str) -> UserTurnInput:
@@ -223,12 +228,24 @@ def _image_turn(text: str) -> UserTurnInput:
 
 def test_append_latest_user_message_resolves_image_payload_via_resolver(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     """A chat turn resolves an image attachment payload through the injected
     resolver and the resolved storage_path lands in the built content."""
-    image_path = tmp_path / "diagram.png"
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    image_path = (
+        runtime_paths.chat_images_dir
+        / "session-1"
+        / "turn-1"
+        / "att-image__diagram.png"
+    )
+    image_path.parent.mkdir(parents=True, exist_ok=True)
     image_path.write_bytes(b"fake-image-bytes")
     resolver = _FakeAttachmentResolver(storage_path=str(image_path))
+    monkeypatch.setattr(
+        "magi.core.chat_assets.paths.get_runtime_paths",
+        lambda: runtime_paths,
+    )
 
     messages = append_latest_user_message(
         [],
@@ -242,6 +259,29 @@ def test_append_latest_user_message_resolves_image_payload_via_resolver(
     assert content[0] == {"type": "text", "text": "describe this screenshot"}
     assert content[1]["type"] == "image"
     assert content[1]["mime_type"] == "image/png"
+
+
+def test_append_latest_user_message_does_not_read_image_outside_chat_resources(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    outside_path = runtime_paths.base_dir / "private.png"
+    outside_path.write_bytes(b"private")
+    resolver = _FakeAttachmentResolver(storage_path=str(outside_path))
+    monkeypatch.setattr(
+        "magi.core.chat_assets.paths.get_runtime_paths",
+        lambda: runtime_paths,
+    )
+
+    messages = append_latest_user_message(
+        [],
+        _image_turn("describe this screenshot"),
+        history_token_budget=10_000,
+        resolver=resolver,
+    )
+
+    assert messages[-1]["content"] == "describe this screenshot"
 
 
 def test_append_latest_user_message_null_resolver_drops_unresolvable_image(

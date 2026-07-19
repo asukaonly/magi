@@ -240,6 +240,42 @@ async def test_ask_respond_resolves_waiter(wiring):
     assert await waiter == "sure"
 
 
+@pytest.mark.asyncio
+async def test_choice_only_ask_rejects_free_text_without_consuming_waiter(wiring):
+    broker: InteractionBroker = wiring["broker"]
+    import asyncio
+
+    waiter = asyncio.create_task(
+        broker.wait(
+            interaction_id="ask-choice",
+            kind="ask",
+            timeout_seconds=5.0,
+            metadata={
+                "allow_free_text": False,
+                "options": ["yes", "no"],
+            },
+        )
+    )
+    await asyncio.sleep(0.05)
+
+    app = FastAPI()
+    app.include_router(control_router, prefix="/api/control")
+    client = TestClient(app)
+    invalid = client.post(
+        "/api/control/ask/ask-choice/respond",
+        json={"answer": "maybe"},
+    )
+    assert invalid.status_code == 400
+    assert waiter.done() is False
+
+    valid = client.post(
+        "/api/control/ask/ask-choice/respond",
+        json={"answer": " yes "},
+    )
+    assert valid.status_code == 200
+    assert await waiter == "yes"
+
+
 # ---------------------------------------------------------------------------
 # Session snapshots
 # ---------------------------------------------------------------------------

@@ -17,6 +17,8 @@ def test_delegation_events_port_wired():
     assert hasattr(caps.delegation_events, "broadcast_state"), (
         "delegation_events must expose broadcast_state"
     )
+    assert caps.delegation_artifacts is not None
+    assert hasattr(caps.delegation_artifacts, "register")
     reset_tool_capabilities()
 
 

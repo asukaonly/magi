@@ -365,6 +365,46 @@ def test_request_cancel_marks_active_run_cancelling_and_complete_run_marks_cance
     assert refreshed.status == "cancelled"
 
 
+def test_cancelled_run_detaches_each_deferred_turn_only_once() -> None:
+    coordinator = SessionRunCoordinator()
+    coordinator._run_store.create_active_run(
+        session_id="s-chat",
+        run_id="run-cancel",
+        root_turn_id="turn-root",
+        root_user_message="Finish the root task",
+    )
+    coordinator._run_store.append_pending_turn(
+        session_id="s-chat",
+        turn_id="turn-deferred",
+        content="Handle this after cancellation",
+        disposition="defer",
+    )
+    active_run = coordinator.request_cancel(
+        session_id="s-chat",
+        requested_by="user",
+    )
+    assert active_run is not None
+
+    first_completed, first_deferred = coordinator.complete_run_with_deferred(
+        session_id="s-chat",
+        run_id=active_run.run_id,
+        revision=active_run.revision,
+    )
+    second_completed, second_deferred = coordinator.complete_run_with_deferred(
+        session_id="s-chat",
+        run_id=active_run.run_id,
+        revision=active_run.revision,
+    )
+
+    assert first_completed is True
+    assert [turn.turn_id for turn in first_deferred] == ["turn-deferred"]
+    assert second_completed is True
+    assert second_deferred == []
+    refreshed = coordinator.get_active_run("s-chat")
+    assert refreshed is not None
+    assert refreshed.status == "cancelled"
+
+
 def test_request_detach_flags_the_bound_signal_for_an_active_run() -> None:
     classifier = ChatFactClassifier()
     coordinator = SessionRunCoordinator()
@@ -550,13 +590,13 @@ def test_augment_is_merged_at_checkpoint_while_defer_stays_queued() -> None:
     )
     assert [item.turn_id for item in routed.checkpoint_pending_turns] == ["turn-augment"]
 
-    # DEFER stays in the queue for post-run drainage.
+    # DEFER stays attached until exact run completion.
     active_run = coordinator.get_active_run("s-chat")
     assert active_run is not None
     assert [item.turn_id for item in active_run.pending_turns] == ["turn-defer"]
 
 
-def test_consume_deferred_turns_returns_and_clears_defer_pending_turns() -> None:
+def test_complete_run_atomically_detaches_deferred_pending_turns() -> None:
     classifier = ChatFactClassifier()
     coordinator = SessionRunCoordinator(
         interruption_classifier=_StubInterruptionClassifier(
@@ -590,19 +630,18 @@ def test_consume_deferred_turns_returns_and_clears_defer_pending_turns() -> None
         )
     )
 
-    drained = coordinator.consume_deferred_turns("s-chat")
-
-    assert [item.turn_id for item in drained] == ["turn-defer"]
-    assert all(item.disposition == InterruptionDisposition.DEFER.value for item in drained)
-
-    # Second call must be empty; AUGMENT remains untouched.
-    assert coordinator.consume_deferred_turns("s-chat") == []
     active_run = coordinator.get_active_run("s-chat")
     assert active_run is not None
-    assert [item.turn_id for item in active_run.pending_turns] == ["turn-augment"]
+    completed, deferred_turns = coordinator.complete_run_with_deferred(
+        session_id="s-chat",
+        run_id=active_run.run_id,
+        revision=active_run.revision,
+    )
 
-
-def test_consume_deferred_turns_returns_empty_when_no_active_run() -> None:
-    coordinator = SessionRunCoordinator()
-
-    assert coordinator.consume_deferred_turns("unknown-session") == []
+    assert completed
+    assert [item.turn_id for item in deferred_turns] == ["turn-defer"]
+    assert all(
+        item.disposition == InterruptionDisposition.DEFER.value
+        for item in deferred_turns
+    )
+    assert coordinator.get_active_run("s-chat") is None

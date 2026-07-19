@@ -12,6 +12,11 @@ import {
   listPendingPermissions,
   PendingPermissionDTO,
 } from '@/api/modules/control';
+import { APP_EVENTS, subscribeToAppEvent } from '@/constants/events';
+import {
+  captureChatHistoryGuard,
+  isChatHistoryGuardCurrent,
+} from '@/hooks/chatRetryInvalidation';
 import { useControlEvents } from '@/realtime/useControlEvents';
 
 interface UsePendingPermissionsOptions {
@@ -20,35 +25,71 @@ interface UsePendingPermissionsOptions {
   enabled?: boolean;
 }
 
+type PermissionSnapshot = {
+  sessionId: string;
+  items: PendingPermissionDTO[];
+};
+
 export function usePendingPermissions({
   sessionId,
   intervalMs = 5000,
   enabled = true,
 }: UsePendingPermissionsOptions) {
-  const [items, setItems] = useState<PendingPermissionDTO[]>([]);
+  const normalizedSessionId = String(sessionId || '').trim();
+  const [snapshot, setSnapshot] = useState<PermissionSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const requestIdRef = useRef(0);
+  const items = snapshot?.sessionId === normalizedSessionId
+    ? snapshot.items
+    : [];
 
   const refresh = useCallback(async () => {
-    if (!sessionId) {
-      setItems([]);
+    const requestedSessionId = normalizedSessionId;
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    if (!requestedSessionId) {
+      setSnapshot(null);
+      setLoading(false);
+      setError(null);
       return;
     }
+    const historyGuard = captureChatHistoryGuard(requestedSessionId);
+    const requestIsCurrent = () => (
+      requestIdRef.current === requestId
+      && isChatHistoryGuardCurrent(historyGuard)
+    );
     setLoading(true);
     try {
-      const next = await listPendingPermissions(sessionId);
-      setItems(next);
+      const next = await listPendingPermissions(requestedSessionId);
+      if (!requestIsCurrent()) {
+        return;
+      }
+      setSnapshot({
+        sessionId: requestedSessionId,
+        items: next.filter((item) => (
+          !item.session_id || item.session_id === requestedSessionId
+        )),
+      });
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (requestIsCurrent()) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setLoading(false);
+      if (requestIsCurrent()) {
+        setLoading(false);
+      }
     }
-  }, [sessionId]);
+  }, [normalizedSessionId]);
 
   useEffect(() => {
-    if (!enabled || !sessionId) {
+    requestIdRef.current += 1;
+    setSnapshot(null);
+    setLoading(false);
+    setError(null);
+    if (!enabled || !normalizedSessionId) {
       if (timer.current) {
         clearInterval(timer.current);
         timer.current = null;
@@ -62,15 +103,58 @@ export function usePendingPermissions({
       }, intervalMs);
     }
     return () => {
+      requestIdRef.current += 1;
       if (timer.current) {
         clearInterval(timer.current);
         timer.current = null;
       }
     };
-  }, [enabled, sessionId, intervalMs, refresh]);
+  }, [enabled, normalizedSessionId, intervalMs, refresh]);
+
+  useEffect(() => {
+    const clearCurrentSession = () => {
+      requestIdRef.current += 1;
+      setSnapshot((current) => (
+        current?.sessionId === normalizedSessionId ? null : current
+      ));
+      setLoading(false);
+      setError(null);
+    };
+    const clearMatchingSession = (event: Event) => {
+      const clearedSessionId = String(
+        (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId
+          || '',
+      ).trim();
+      if (clearedSessionId === normalizedSessionId) {
+        clearCurrentSession();
+      }
+    };
+    const unsubscribeHistoryCleared = subscribeToAppEvent(
+      APP_EVENTS.CHAT_HISTORY_CLEARED,
+      clearMatchingSession,
+    );
+    const unsubscribeSessionDeleted = subscribeToAppEvent(
+      APP_EVENTS.CHAT_SESSION_DELETED,
+      clearMatchingSession,
+    );
+    const unsubscribeMemoryCleared = subscribeToAppEvent(
+      APP_EVENTS.MEMORY_CLEARED,
+      () => {
+        requestIdRef.current += 1;
+        setSnapshot(null);
+        setLoading(false);
+        setError(null);
+      },
+    );
+    return () => {
+      unsubscribeHistoryCleared();
+      unsubscribeSessionDeleted();
+      unsubscribeMemoryCleared();
+    };
+  }, [normalizedSessionId]);
 
   useControlEvents({
-    sessionId: sessionId ?? null,
+    sessionId: normalizedSessionId || null,
     onPermissionRequested: () => {
       void refresh();
     },

@@ -63,6 +63,19 @@ def get_optional_agent_runtime() -> Any | None:
     return instance
 
 
+def get_optional_background_task_manager() -> Any | None:
+    """Return the active background-task manager, or ``None`` before startup."""
+
+    container = get_container()
+    provider = container.background_task_manager
+    instance = provider()
+    if instance is None:
+        return None
+    if type(instance).__name__ == "object" and not provider.overridden:
+        return None
+    return instance
+
+
 def require_scheduler_service():
     """Return the active scheduler service binding."""
     return _require_binding("scheduler_service")
@@ -86,6 +99,16 @@ def require_chat_attachment_ingestion_service():
 def require_chat_surface_write_service():
     """Return the active chat surface write service binding."""
     return _require_binding("chat_surface_write_service")
+
+
+def require_chat_forgetting_service():
+    """Build the chat deletion coordinator from active runtime bindings."""
+    return _require_binding("chat_forgetting_service")
+
+
+def require_embedding_rebuild_manager():
+    """Return the process-wide embedding rebuild coordinator."""
+    return _require_binding("embedding_rebuild_manager")
 
 
 def get_chat_message_notifier():

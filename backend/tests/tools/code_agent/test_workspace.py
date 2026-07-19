@@ -85,3 +85,84 @@ def test_create_worktree_rejects_dirty_workspace(tmp_path: Path) -> None:
         create_worktree(workspace_root=repo, session_id="s1", delegation_id="e" * 32)
     assert "uncommitted changes" in str(exc_info.value).lower()
     assert "dirty.txt" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("session_id", "delegation_id"),
+    [
+        ("../outside", "a" * 32),
+        ("s1/child", "b" * 32),
+        ("s1", "../outside"),
+        ("s1", "z" * 32),
+    ],
+)
+def test_create_worktree_rejects_unsafe_identity(
+    tmp_path: Path,
+    session_id: str,
+    delegation_id: str,
+) -> None:
+    repo = _make_git_repo(tmp_path / "repo")
+    with pytest.raises(ValueError):
+        create_worktree(
+            workspace_root=repo,
+            session_id=session_id,
+            delegation_id=delegation_id,
+        )
+
+
+def test_create_worktree_rejects_symlink_workspace(tmp_path: Path) -> None:
+    repo = _make_git_repo(tmp_path / "repo")
+    alias = tmp_path / "repo-alias"
+    alias.symlink_to(repo, target_is_directory=True)
+
+    with pytest.raises(ValueError):
+        create_worktree(
+            workspace_root=alias,
+            session_id="s1",
+            delegation_id="a" * 32,
+        )
+
+
+def test_create_worktree_rejects_symlinked_artifact_scope(tmp_path: Path) -> None:
+    repo = _make_git_repo(tmp_path / "repo")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (repo / ".magi").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError):
+        create_worktree(
+            workspace_root=repo,
+            session_id="s1",
+            delegation_id="a" * 32,
+        )
+
+
+def test_create_worktree_rejects_symlinked_worktree_leaf(tmp_path: Path) -> None:
+    repo = _make_git_repo(tmp_path / "repo")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    worktrees_root = repo / ".magi" / "sessions" / "s1" / "worktrees"
+    worktrees_root.mkdir(parents=True)
+    (worktrees_root / ("a" * 32)).symlink_to(
+        outside,
+        target_is_directory=True,
+    )
+
+    with pytest.raises(ValueError):
+        create_worktree(
+            workspace_root=repo,
+            session_id="s1",
+            delegation_id="a" * 32,
+        )
+
+
+def test_remove_worktree_rejects_path_outside_scope(tmp_path: Path) -> None:
+    repo = _make_git_repo(tmp_path / "repo")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    with pytest.raises(ValueError):
+        remove_worktree(
+            workspace_root=repo,
+            worktree_path=outside,
+        )

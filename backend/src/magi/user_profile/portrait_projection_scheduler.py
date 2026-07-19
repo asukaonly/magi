@@ -7,6 +7,9 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from .correction_derivation import (
+    register_user_profile_correction_derivation_handlers,
+)
 from .portrait_projection_builder import UserPortraitProjectionBuilder
 from .portrait_projection_repository import UserPortraitProjectionRepository
 from .projection_repository import UserProfileProjectionRepository
@@ -126,7 +129,8 @@ async def schedule_portrait_projection_refresh(
 
 
 def register_l2_portrait_projection_refresh(unified_memory: Any) -> None:
-    """Attach portrait refresh scheduling to L2 assertion writes when available."""
+    """Attach user-profile derivations and portrait refreshes to L2."""
+    register_user_profile_correction_derivation_handlers(unified_memory)
     l2 = getattr(unified_memory, "l2", None)
     if l2 is None or not hasattr(l2, "set_assertion_change_callback"):
         return

@@ -18,6 +18,7 @@ from magi.tools.builtin.web_fetch_tool import WebFetchTool
 from magi.tools.builtin.web_search_tool import WebSearchTool
 from magi.tools.context_routing import RouteDecision
 from magi.tools.registry import ToolRegistry
+from magi_plugin_sdk.delivery import DeliveryContent
 
 
 class _FakeToolRegistry:
@@ -1669,16 +1670,17 @@ async def test_resolve_user_prefs_swallows_provider_errors():
 
 
 @pytest.mark.asyncio
-async def test_execute_uses_user_prefs_provider_for_fanout_targets():
-    """P3 Step 3: execute()-time fanout now serves EXTERNAL channels only
-    (exclude_chat_sse=True). The user opted into chat_sse + telegram, but the
-    chat_sse agent_response is produced later by the postprocess seam
-    (deliver_final_chat_response), so execute() delivers ONLY to telegram."""
+async def test_execute_defers_fanout_until_postprocess():
+    """Execution returns the result without sending before persistence.
+
+    The postprocess delivery seam then fans the durable result out to every
+    configured target.
+    """
     from magi.agent.task_agents.common.contracts import (
         ExecutionRequest, ExecutionResult, ExecutionMode,
     )
     from magi_plugin_sdk.channels import Channel
-    from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
     from magi.tools.context_routing import RouteDecision
 
     class _Rec(Channel):
@@ -1782,18 +1784,23 @@ async def test_execute_uses_user_prefs_provider_for_fanout_targets():
     result = await coordinator.execute(request)
     assert result is canned_result
 
-    # execute()-time fanout excludes chat_sse: only the external channel is served.
+    # No final channel sees an answer before chat post-processing persists it.
     assert len(sse.delivered) == 0
+    assert len(telegram.delivered) == 0
+
+    await coordinator.deliver_final_chat_response(
+        context,
+        content=DeliveryContent(text=result.response_text),
+    )
+
+    assert len(sse.delivered) == 1
     assert len(telegram.delivered) == 1
     assert telegram.delivered[0][1].text == "hello world"
 
 
 @pytest.mark.asyncio
-async def test_deliver_final_chat_response_delivers_rich_content_to_chat_sse_only():
-    """P3 Step 3: the postprocess seam delivers the rich agent_response to
-    chat_sse ONLY (chat_sse_only=True), carrying the full DeliveryContent, and
-    persists a chat_sse DeliveryReceipt. External channels are NOT re-served
-    here (execute()-time owns external delivery)."""
+async def test_deliver_final_chat_response_delivers_rich_content_to_all_targets():
+    """The postprocess seam fans one rich durable response to every target."""
     from magi_plugin_sdk.channels import Channel
     from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 
@@ -1833,8 +1840,6 @@ async def test_deliver_final_chat_response_delivers_rich_content_to_chat_sse_onl
             )
 
     async def _provider(user_id):
-        # Even though the user opted into telegram, the chat_sse-only seam must
-        # not re-serve it.
         return {"delivery_channels": ["chat_sse", "telegram"]}
 
     decider = _FakeContextDecider(RouteDecision(
@@ -1874,6 +1879,7 @@ async def test_deliver_final_chat_response_delivers_rich_content_to_chat_sse_onl
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload.from_dict(dict(fact.payload), fallback_user_id="u-1"),
         session_run_id="run-1",
+        session_run_revision=7,
     )
     content = DeliveryContent(
         text="final answer",
@@ -1888,11 +1894,13 @@ async def test_deliver_final_chat_response_delivers_rich_content_to_chat_sse_onl
         orchestration_id="o-1",
     )
 
-    receipts = await coordinator.deliver_final_chat_response(context, content=content)
+    delivery_result = await coordinator.deliver_final_chat_response(
+        context,
+        content=content,
+    )
 
-    # chat_sse only — telegram NOT re-served by the postprocess seam.
     assert len(sse.received) == 1
-    assert len(telegram.received) == 0
+    assert len(telegram.received) == 1
     delivered = sse.received[0]
     assert delivered.text == "final answer"
     assert delivered.turn_id == "t-1"
@@ -1905,18 +1913,21 @@ async def test_deliver_final_chat_response_delivers_rich_content_to_chat_sse_onl
     assert delivered.message_payload == {"k": "v"}
     assert delivered.orchestration_id == "o-1"
 
-    # A chat_sse receipt was returned and persisted.
-    assert len(receipts) == 1
-    assert receipts[0].channel_id == "chat_sse"
+    # Both receipts are persisted against the exact run revision.
+    assert len(delivery_result.receipts) == 2
+    assert {receipt.channel_id for receipt in delivery_result.receipts} == {
+        "chat_sse",
+        "telegram",
+    }
     assert len(saved_receipts) == 1
     assert saved_receipts[0]["session_id"] == "s-1"
     assert saved_receipts[0]["run_id"] == "run-1"
+    assert saved_receipts[0]["revision"] == 7
 
 
 @pytest.mark.asyncio
 async def test_execute_swallows_user_prefs_provider_errors_and_uses_default_target():
-    """If the provider raises, execute() defaults to empty prefs and still
-    fans out to chat_sse only (no crash)."""
+    """A preference lookup failure does not make execution fail."""
     from magi.agent.task_agents.common.contracts import (
         ExecutionRequest, ExecutionResult, ExecutionMode, ToolSelection,
     )
@@ -2019,9 +2030,7 @@ async def test_execute_swallows_user_prefs_provider_errors_and_uses_default_targ
     result = await coordinator.execute(request)
     assert result is canned_result
 
-    # The provider error is swallowed and execute() completes (result above).
-    # P3 Step 3: the default target (chat_sse) is excluded from execute()-time
-    # fanout, so no external delivery happens for a chat_sse-only default.
+    # The provider error is swallowed and execution still avoids early fanout.
     assert len(sse.delivered) == 0
 
 
@@ -2062,10 +2071,7 @@ async def test_execute_passes_runner_attachments_through_to_delivery_content():
             )
         async def retract(self, receipt): pass
 
-    # P3 Step 3: execute()-time fanout serves EXTERNAL channels only, so this
-    # attachment-passthrough assertion now targets an external (telegram)
-    # channel. The chat_sse rich delivery (also carrying attachments) flows via
-    # the postprocess seam, covered by deliver_final_chat_response tests.
+    # The durable postprocess seam must preserve outbound attachments.
     tg = _Capture("telegram")
 
     class _Registry:
@@ -2157,7 +2163,16 @@ async def test_execute_passes_runner_attachments_through_to_delivery_content():
         tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
     )
 
-    await coordinator.execute(request)
+    result = await coordinator.execute(request)
+
+    assert tg.received == []
+    await coordinator.deliver_final_chat_response(
+        context,
+        content=DeliveryContent(
+            text=result.response_text,
+            attachments=tuple(result.attachments),
+        ),
+    )
 
     assert len(tg.received) == 1
     delivered = tg.received[0]
@@ -2185,8 +2200,7 @@ async def test_execute_passes_empty_attachments_when_runner_has_none():
     from magi.tools.context_routing import RouteDecision
     from magi.agent.task_agents.handlers.contracts import IntentDecision
 
-    # P3 Step 3: execute()-time fanout serves EXTERNAL channels, so this
-    # empty-attachments assertion targets a telegram channel.
+    # The durable postprocess seam normalizes an empty attachment list.
     class _Capture(Channel):
         def __init__(self): self.received = []
         @property
@@ -2251,7 +2265,15 @@ async def test_execute_passes_empty_attachments_when_runner_has_none():
         tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
     )
 
-    await coordinator.execute(request)
+    result = await coordinator.execute(request)
+    assert sse.received == []
+    await coordinator.deliver_final_chat_response(
+        context,
+        content=DeliveryContent(
+            text=result.response_text,
+            attachments=tuple(result.attachments),
+        ),
+    )
     assert len(sse.received) == 1
     assert sse.received[0].attachments == ()
 
@@ -2387,13 +2409,18 @@ async def test_execute_routes_reply_back_to_origin_channel_from_run_trigger():
     result = await coordinator.execute(request)
     assert result is canned_result
 
-    # The fix: weixin received the reply because the run's trigger
-    # carried source_channel="weixin".
+    assert len(weixin.delivered) == 0
+    assert len(sse.delivered) == 0
+    await coordinator.deliver_final_chat_response(
+        context,
+        content=DeliveryContent(text=result.response_text),
+    )
+
+    # The durable postprocess delivery returns to the source channel carried by
+    # the run trigger, while also updating the desktop chat surface.
     assert len(weixin.delivered) == 1, "WeChat channel should have received the reply"
     assert weixin.delivered[0][1].text == "reply for weixin"
-    # P3 Step 3: execute()-time fanout excludes chat_sse (its rich agent_response
-    # is produced by the postprocess seam), so chat_sse does NOT fire here.
-    assert len(sse.delivered) == 0
+    assert len(sse.delivered) == 1
 
 
 @pytest.mark.asyncio
@@ -2494,12 +2521,18 @@ async def test_execute_context_user_prefs_wins_over_provider():
         tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
     )
 
-    await coordinator.execute(request)
+    result = await coordinator.execute(request)
+
+    assert len(sse.delivered) == 0
+    assert len(slack.delivered) == 0
+    assert len(telegram.delivered) == 0
+    await coordinator.deliver_final_chat_response(
+        context,
+        content=DeliveryContent(text=result.response_text),
+    )
 
     # Context's chat_sse + slack should have been used, not provider's telegram.
-    # P3 Step 3: execute()-time fanout excludes chat_sse, so only the external
-    # slack target fires here (chat_sse rich agent_response comes via the seam).
-    assert len(sse.delivered) == 0
+    assert len(sse.delivered) == 1
     assert len(slack.delivered) == 1
     assert len(telegram.delivered) == 0
 

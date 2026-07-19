@@ -13,19 +13,29 @@ from magi.agent.background import (
     BackgroundTaskTriggerSource,
 )
 from magi.agent.background.executor import BackgroundTaskRunResult
-from magi.agent.background.manager import BackgroundTaskManager
+from magi.agent.background.manager import (
+    BackgroundTaskAdmissionBlockedError,
+    BackgroundTaskManager,
+)
 from magi.agent.cancel import CancelToken
 
 
-def _make_spec(*, origin_turn_id: str = "turn-1") -> BackgroundTaskSpec:
+def _make_spec(
+    *,
+    user_id: str = "u",
+    session_id: str = "s",
+    origin_turn_id: str = "turn-1",
+    pending_message_id: str | None = None,
+) -> BackgroundTaskSpec:
     return BackgroundTaskSpec(
-        user_id="u",
-        session_id="s",
+        user_id=user_id,
+        session_id=session_id,
         origin_turn_id=origin_turn_id,
         title="Demo task",
         goal="do something",
         selected_tools=[],
         trigger_source=BackgroundTaskTriggerSource.PLANNER,
+        pending_message_id=pending_message_id,
     )
 
 
@@ -132,6 +142,7 @@ async def test_enqueued_task_runs_to_succeeded(runtime_paths_with_schema) -> Non
             BackgroundTaskStatus.RUNNING,
             BackgroundTaskStatus.SUCCEEDED,
         ]
+        assert await store.count_pending_completion_intents() == 1
     finally:
         await manager.stop()
 
@@ -285,6 +296,411 @@ async def test_cancel_pending_task_skips_dispatch(runtime_paths_with_schema) -> 
         await _wait_until(_status_reaches(store, first.task_id, BackgroundTaskStatus.SUCCEEDED))
         assert run_calls == [first.task_id]
     finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_cancel_pending_returns_before_listener_and_stop_waits_for_it(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+    first_running = asyncio.Event()
+    release_first = asyncio.Event()
+    listener_started = asyncio.Event()
+    release_listener = asyncio.Event()
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        if task.spec.origin_turn_id == "first":
+            first_running.set()
+            await release_first.wait()
+        return BackgroundTaskRunResult()
+
+    async def listener(task: BackgroundTask) -> None:
+        if task.spec.origin_turn_id == "cancelled-pending":
+            listener_started.set()
+            await release_listener.wait()
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    manager.add_listener(listener)
+    await manager.start()
+    try:
+        await manager.enqueue(_make_spec(origin_turn_id="first"))
+        pending = await manager.enqueue(
+            _make_spec(origin_turn_id="cancelled-pending")
+        )
+        await first_running.wait()
+
+        assert await asyncio.wait_for(
+            manager.cancel(pending.task_id),
+            timeout=0.2,
+        )
+        await listener_started.wait()
+
+        release_first.set()
+        stopping = asyncio.create_task(manager.stop())
+        await asyncio.sleep(0)
+        assert not stopping.done()
+
+        release_listener.set()
+        await stopping
+    finally:
+        release_first.set()
+        release_listener.set()
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_cancel_scope_waits_for_matching_terminal_listener(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+    target_running = asyncio.Event()
+    survivor_running = asyncio.Event()
+    listener_started = asyncio.Event()
+    release_listener = asyncio.Event()
+    release_survivor = asyncio.Event()
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        if task.spec.origin_turn_id == "target":
+            target_running.set()
+            while not await token.is_cancelled():
+                await asyncio.sleep(0.005)
+            raise asyncio.CancelledError
+        survivor_running.set()
+        await release_survivor.wait()
+        return BackgroundTaskRunResult(summary="kept")
+
+    async def listener(task: BackgroundTask) -> None:
+        if task.spec.origin_turn_id == "target":
+            listener_started.set()
+            await release_listener.wait()
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=2)
+    manager.add_listener(listener)
+    await manager.start()
+    try:
+        target = await manager.enqueue(_make_spec(origin_turn_id="target"))
+        survivor = await manager.enqueue(_make_spec(origin_turn_id="survivor"))
+        await asyncio.gather(target_running.wait(), survivor_running.wait())
+
+        cancellation = asyncio.create_task(
+            manager.cancel_scope_and_wait(
+                user_id="u",
+                session_id="s",
+                origin_turn_ids={"target"},
+            )
+        )
+        await listener_started.wait()
+        assert not cancellation.done()
+
+        release_listener.set()
+        assert await cancellation == 1
+        target_row = await store.get_task(target.task_id)
+        survivor_row = await store.get_task(survivor.task_id)
+        assert target_row is not None
+        assert target_row.status == BackgroundTaskStatus.CANCELLED
+        assert survivor_row is not None
+        assert survivor_row.status == BackgroundTaskStatus.RUNNING
+
+        release_survivor.set()
+        await _wait_until(
+            _status_reaches(
+                store,
+                survivor.task_id,
+                BackgroundTaskStatus.SUCCEEDED,
+            )
+        )
+    finally:
+        release_listener.set()
+        release_survivor.set()
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_cancel_scope_cancels_suspended_task(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+    running = asyncio.Event()
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        running.set()
+        while not await token.is_cancelled():
+            await asyncio.sleep(0.005)
+        raise asyncio.CancelledError
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    await manager.start()
+    try:
+        task = await manager.enqueue(_make_spec(origin_turn_id="suspended"))
+        await running.wait()
+        persisted = await store.get_task(task.task_id)
+        assert persisted is not None
+        persisted.status = BackgroundTaskStatus.SUSPENDED_WAITING_USER
+        await store.update_task(persisted)
+
+        assert (
+            await manager.cancel_scope_and_wait(
+                user_id="u",
+                session_id="s",
+                origin_turn_ids={"suspended"},
+            )
+            == 1
+        )
+        cancelled = await store.get_task(task.task_id)
+        assert cancelled is not None
+        assert cancelled.status == BackgroundTaskStatus.CANCELLED
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_cancel_scope_fails_when_matching_work_does_not_stop(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+    running = asyncio.Event()
+    release = asyncio.Event()
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        running.set()
+        await release.wait()
+        return BackgroundTaskRunResult()
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    await manager.start()
+    try:
+        await manager.enqueue(_make_spec(origin_turn_id="stuck"))
+        await running.wait()
+
+        with pytest.raises(
+            RuntimeError,
+            match="did not stop before deletion",
+        ):
+            await manager.cancel_scope_and_wait(
+                user_id="u",
+                session_id="s",
+                origin_turn_ids={"stuck"},
+                timeout_seconds=0.01,
+            )
+    finally:
+        release.set()
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_conversation_scope_boundary_rejects_exact_pending_message_admission(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+    release = asyncio.Event()
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        await release.wait()
+        return BackgroundTaskRunResult(summary=task.spec.pending_message_id)
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=2)
+    await manager.start()
+    try:
+        target_spec = _make_spec(
+            origin_turn_id="",
+            pending_message_id="pending-target",
+        )
+        survivor_spec = _make_spec(
+            origin_turn_id="",
+            pending_message_id="pending-survivor",
+        )
+        async with manager.conversation_scope_boundary(
+            user_id="u",
+            session_id="s",
+            origin_turn_ids=set(),
+            pending_message_ids={"pending-target"},
+        ):
+            with pytest.raises(BackgroundTaskAdmissionBlockedError):
+                await manager.enqueue(target_spec)
+            survivor = await manager.enqueue(survivor_spec)
+            persisted = await store.list_tasks(limit=10)
+            assert [task.task_id for task in persisted] == [survivor.task_id]
+
+        target = await manager.enqueue(target_spec)
+        release.set()
+        await _wait_until(
+            _status_reaches(
+                store,
+                survivor.task_id,
+                BackgroundTaskStatus.SUCCEEDED,
+            )
+        )
+        await _wait_until(
+            _status_reaches(
+                store,
+                target.task_id,
+                BackgroundTaskStatus.SUCCEEDED,
+            )
+        )
+    finally:
+        release.set()
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_conversation_scope_boundary_cancels_existing_pending_message_task(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+    blocker_running = asyncio.Event()
+    release_blocker = asyncio.Event()
+    target_started = False
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        nonlocal target_started
+        if task.spec.origin_turn_id == "blocker":
+            blocker_running.set()
+            await release_blocker.wait()
+        else:
+            target_started = True
+        return BackgroundTaskRunResult()
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    await manager.start()
+    try:
+        await manager.enqueue(_make_spec(origin_turn_id="blocker"))
+        target = await manager.enqueue(
+            _make_spec(
+                origin_turn_id="",
+                pending_message_id="pending-target",
+            )
+        )
+        await blocker_running.wait()
+
+        async with manager.conversation_scope_boundary(
+            user_id="u",
+            session_id="s",
+            origin_turn_ids=set(),
+            pending_message_ids={"pending-target"},
+        ):
+            persisted = await store.get_task(target.task_id)
+            assert persisted is not None
+            assert persisted.status is BackgroundTaskStatus.CANCELLED
+            assert await store.count_pending_completion_intents() == 0
+            assert target_started is False
+    finally:
+        release_blocker.set()
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_conversation_scope_boundary_rejects_matching_retry(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        raise RuntimeError("failed")
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    await manager.start()
+    try:
+        task = await manager.enqueue(_make_spec())
+        await _wait_until(
+            _status_reaches(
+                store,
+                task.task_id,
+                BackgroundTaskStatus.FAILED,
+            )
+        )
+
+        async with manager.conversation_scope_boundary(
+            user_id="u",
+            session_id="s",
+            task_ids={task.task_id},
+        ):
+            with pytest.raises(BackgroundTaskAdmissionBlockedError):
+                await manager.retry(task.task_id)
+            persisted = await store.get_task(task.task_id)
+            assert persisted is not None
+            assert persisted.status is BackgroundTaskStatus.FAILED
+            assert persisted.attempt_index == 0
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_conversation_scope_boundary_blocks_only_the_selected_session(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+    release = asyncio.Event()
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        await release.wait()
+        return BackgroundTaskRunResult()
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    await manager.start()
+    try:
+        async with manager.conversation_scope_boundary(
+            user_id="u",
+            session_id="deleted-session",
+        ):
+            with pytest.raises(BackgroundTaskAdmissionBlockedError):
+                await manager.enqueue(
+                    _make_spec(session_id="deleted-session")
+                )
+            survivor = await manager.enqueue(
+                _make_spec(session_id="surviving-session")
+            )
+
+        release.set()
+        await _wait_until(
+            _status_reaches(
+                store,
+                survivor.task_id,
+                BackgroundTaskStatus.SUCCEEDED,
+            )
+        )
+    finally:
+        release.set()
         await manager.stop()
 
 
@@ -709,4 +1125,3 @@ async def test_resume_from_wait_unknown_or_non_suspended(runtime_paths_with_sche
         assert await manager.suspend_waiting_user("bg_missing") is False
     finally:
         await manager.stop()
-

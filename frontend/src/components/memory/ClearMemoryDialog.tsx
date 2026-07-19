@@ -64,8 +64,12 @@ export const ClearMemoryDialog: React.FC<ClearMemoryDialogProps> = ({
               <li>{t('memory.clearConfirm.summaries')}</li>
               <li>{t('memory.clearConfirm.learnedSkills')}</li>
               <li>{t('memory.clearConfirm.currentContext')}</li>
+              <li>{t('memory.clearConfirm.pendingNotifications')}</li>
             </ol>
           </div>
+          <p className="text-sm leading-6 text-muted-foreground">
+            {t('memory.clearConfirm.preservedSettings')}
+          </p>
           <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-muted-foreground">
             {countdown > 0
               ? t('memory.clearConfirm.countdownHint', { seconds: countdown })

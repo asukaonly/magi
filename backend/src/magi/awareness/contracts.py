@@ -18,3 +18,5 @@ class SensorEvent:
     timestamp: float = field(default_factory=time.time)
     correlation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     user_message_generation: int | None = None
+    delivery_attempt_no: int | None = None
+    runtime_command_id: int | None = None

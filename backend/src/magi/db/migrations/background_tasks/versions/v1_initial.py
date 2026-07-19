@@ -45,6 +45,21 @@ CREATE TABLE IF NOT EXISTS background_task_events (
     FOREIGN KEY (task_id) REFERENCES background_tasks(task_id)
 );
 
+CREATE TABLE IF NOT EXISTS background_task_completion_intents (
+    task_id TEXT NOT NULL,
+    attempt_index INTEGER NOT NULL,
+    task_json TEXT NOT NULL,
+    intent_json TEXT,
+    composed_body TEXT,
+    claim_token TEXT,
+    claimed_at REAL,
+    state TEXT NOT NULL DEFAULT 'pending'
+        CHECK (state IN ('pending', 'processing', 'handled', 'discarded')),
+    created_at REAL NOT NULL,
+    handled_at REAL,
+    PRIMARY KEY (task_id, attempt_index)
+);
+
 CREATE INDEX IF NOT EXISTS idx_bg_tasks_user_status
     ON background_tasks(user_id, status);
 
@@ -56,9 +71,14 @@ CREATE INDEX IF NOT EXISTS idx_bg_tasks_status_created
 
 CREATE INDEX IF NOT EXISTS idx_bg_events_task_created
     ON background_task_events(task_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_bg_completion_intents_state_created
+    ON background_task_completion_intents(state, created_at);
 """
 
 DROP_SQL = """
+DROP INDEX IF EXISTS idx_bg_completion_intents_state_created;
+
 DROP INDEX IF EXISTS idx_bg_events_task_created;
 
 DROP INDEX IF EXISTS idx_bg_tasks_status_created;
@@ -68,6 +88,8 @@ DROP INDEX IF EXISTS idx_bg_tasks_session;
 DROP INDEX IF EXISTS idx_bg_tasks_user_status;
 
 DROP TABLE IF EXISTS background_task_events;
+
+DROP TABLE IF EXISTS background_task_completion_intents;
 
 DROP TABLE IF EXISTS background_tasks;
 """

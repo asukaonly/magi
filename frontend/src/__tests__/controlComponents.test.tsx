@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PermissionModal } from '@/components/control/PermissionModal';
 import { AskDialog } from '@/components/control/AskDialog';
 import { PermissionModalHost } from '@/components/control/PermissionModalHost';
+import { dispatchAppEvent } from '@/constants/events';
 import { RealtimeProvider } from '@/realtime/provider';
 import type { AskStateDTO, PendingPermissionDTO } from '@/api/modules/control';
 import { useConversationStore } from '@/stores';
@@ -123,6 +124,16 @@ const baseAsk: AskStateDTO = {
   created_at_ms: 10,
   timeout_seconds: 300,
   expires_at_ms: Date.now() + 300_000,
+};
+
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 };
 
 describe('PermissionModal', () => {
@@ -270,6 +281,93 @@ describe('PermissionModalHost', () => {
     });
 
     expect(toastWarningMock).toHaveBeenCalledWith('permission.toast_timed_out');
+  });
+
+  it('does not project a late permission response from the previous session', async () => {
+    const controlApi = await import('@/api/modules/control');
+    const firstSession = createDeferred<PendingPermissionDTO[]>();
+    const secondSession = createDeferred<PendingPermissionDTO[]>();
+    vi.mocked(controlApi.listPendingPermissions).mockImplementation(
+      (requestedSessionId) => (
+        requestedSessionId === 'sid-1'
+          ? firstSession.promise
+          : secondSession.promise
+      ),
+    );
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'sid-1',
+        title: 'First chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+      {
+        session_id: 'sid-2',
+        title: 'Second chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'sid-1');
+
+    const view = render(
+      <PermissionModalHost sessionId="sid-1" intervalMs={0} />,
+    );
+    await waitFor(() => {
+      expect(controlApi.listPendingPermissions).toHaveBeenCalledWith('sid-1');
+    });
+
+    view.rerender(
+      <PermissionModalHost sessionId="sid-2" intervalMs={0} />,
+    );
+    await waitFor(() => {
+      expect(controlApi.listPendingPermissions).toHaveBeenCalledWith('sid-2');
+    });
+
+    await act(async () => {
+      secondSession.resolve([]);
+      await secondSession.promise;
+      firstSession.resolve([{ ...baseRequest, session_id: 'sid-1' }]);
+      await firstSession.promise;
+    });
+
+    expect(
+      useConversationStore.getState().messagesBySession['sid-2']
+        ?.some((message) => message.messageKind === 'permission_request'),
+    ).not.toBe(true);
+  });
+
+  it('does not restore a permission after its chat history is cleared', async () => {
+    const controlApi = await import('@/api/modules/control');
+    const response = createDeferred<PendingPermissionDTO[]>();
+    vi.mocked(controlApi.listPendingPermissions).mockReturnValue(
+      response.promise,
+    );
+
+    render(<PermissionModalHost sessionId="sid-1" intervalMs={0} />);
+    await waitFor(() => {
+      expect(controlApi.listPendingPermissions).toHaveBeenCalledWith('sid-1');
+    });
+
+    act(() => {
+      dispatchAppEvent.chatHistoryCleared('sid-1');
+    });
+    await act(async () => {
+      response.resolve([{ ...baseRequest, session_id: 'sid-1' }]);
+      await response.promise;
+    });
+
+    expect(
+      useConversationStore.getState().messagesBySession['sid-1']
+        ?.some((message) => message.messageKind === 'permission_request'),
+    ).not.toBe(true);
   });
 });
 
@@ -446,5 +544,86 @@ describe('AskDialog', () => {
 
     const messages = useConversationStore.getState().messagesBySession['sid-1'] || [];
     expect(messages.some((message) => message.messageId === 'ask:historic-answered')).toBe(true);
+  });
+
+  it('does not project a late ask response from the previous session', async () => {
+    const controlApi = await import('@/api/modules/control');
+    const firstSession = createDeferred<AskStateDTO | null>();
+    const secondSession = createDeferred<AskStateDTO | null>();
+    vi.mocked(controlApi.getAskState).mockImplementation(
+      (requestedSessionId) => (
+        requestedSessionId === 'sid-1'
+          ? firstSession.promise
+          : secondSession.promise
+      ),
+    );
+    useConversationStore.getState().hydrateSessions([
+      {
+        session_id: 'sid-1',
+        title: 'First chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+      {
+        session_id: 'sid-2',
+        title: 'Second chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'sid-1');
+
+    const view = render(<AskDialog sessionId="sid-1" intervalMs={0} />);
+    await waitFor(() => {
+      expect(controlApi.getAskState).toHaveBeenCalledWith('sid-1');
+    });
+
+    view.rerender(<AskDialog sessionId="sid-2" intervalMs={0} />);
+    await waitFor(() => {
+      expect(controlApi.getAskState).toHaveBeenCalledWith('sid-2');
+    });
+
+    await act(async () => {
+      secondSession.resolve(null);
+      await secondSession.promise;
+      firstSession.resolve(baseAsk);
+      await firstSession.promise;
+    });
+
+    expect(
+      useConversationStore.getState().messagesBySession['sid-2']
+        ?.some((message) => message.messageKind === 'ask_request'),
+    ).not.toBe(true);
+  });
+
+  it('does not restore an ask after its chat history is cleared', async () => {
+    const controlApi = await import('@/api/modules/control');
+    const response = createDeferred<AskStateDTO | null>();
+    vi.mocked(controlApi.getAskState).mockReturnValue(response.promise);
+
+    render(<AskDialog sessionId="sid-1" intervalMs={0} />);
+    await waitFor(() => {
+      expect(controlApi.getAskState).toHaveBeenCalledWith('sid-1');
+    });
+
+    act(() => {
+      dispatchAppEvent.chatHistoryCleared('sid-1');
+    });
+    await act(async () => {
+      response.resolve(baseAsk);
+      await response.promise;
+    });
+
+    expect(
+      useConversationStore.getState().messagesBySession['sid-1']
+        ?.some((message) => message.messageKind === 'ask_request'),
+    ).not.toBe(true);
   });
 });

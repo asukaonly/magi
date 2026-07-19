@@ -12,6 +12,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { memoryApi } from '@/api/modules/memory';
+import { clearAllMemory } from './clearAllMemory';
+import { summarizeMemoryClear } from './memoryClearFeedback';
 import type {
   L0Session,
   L0Workbench,
@@ -224,8 +226,10 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     try {
       const data = await memoryApi.getStatistics();
       setStats(data);
+      return true;
     } catch (error) {
       console.error('Failed to load statistics:', error);
+      return false;
     }
   }, []);
 
@@ -358,8 +362,10 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
       setL2Snapshots(snapshotsRes.items || []);
       setL2SnapshotsTotal(snapshotsRes.total || 0);
       setL2ConflictRules(conflictRules);
+      return true;
     } catch (error) {
       console.error('Failed to load L2 data:', error);
+      return false;
     }
   }, []);
 
@@ -588,15 +594,21 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
 
   const refreshAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([
-      loadStatistics(),
-      loadL0Sessions(),
-      loadL1Events(),
-      loadL2Data(),
-      loadL3Summaries(),
-      loadL4Skills(),
-    ]);
-    setLoading(false);
+    try {
+      const results = await Promise.all([
+        loadStatistics(),
+        loadL0Sessions(),
+        loadL1Events(),
+        loadL2Data(),
+        loadL3Summaries(),
+        loadL4Skills(),
+      ]);
+      if (results.some((succeeded) => !succeeded)) {
+        throw new Error('One or more memory views failed to refresh');
+      }
+    } finally {
+      setLoading(false);
+    }
   }, [loadStatistics, loadL0Sessions, loadL1Events, loadL2Data, loadL3Summaries, loadL4Skills]);
 
   const refresh = useCallback(
@@ -659,19 +671,66 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     setClearDialogOpen(true);
   }, []);
 
+  const resetMemoryView = useCallback(() => {
+    setStats(DEFAULT_STATS);
+    setL0Sessions([]);
+    setL0Total(0);
+    setL0Workbench(null);
+    setSelectedSessionId(null);
+    setL1Events([]);
+    setL1Total(0);
+    setL2Relations([]);
+    setL2RelationsTotal(0);
+    setL2Assertions([]);
+    setL2AssertionsTotal(0);
+    setL2Stats(DEFAULT_L2_STATS);
+    setIdentityLinks([]);
+    setL2Entities([]);
+    setL2EntitiesTotal(0);
+    setL2Mentions([]);
+    setL2MentionsTotal(0);
+    setL2Snapshots([]);
+    setL2SnapshotsTotal(0);
+    setL2ConflictRules([]);
+    setL3Summaries([]);
+    setL3Total(0);
+    setL4Skills([]);
+    setL4Total(0);
+    setSearchQuery('');
+    setSearchResults(DEFAULT_SEARCH_RESULTS);
+  }, []);
+
   const handleClearConfirm = useCallback(async () => {
     setClearing(true);
+    let result: Awaited<ReturnType<typeof clearAllMemory>>;
     try {
-      const result = await memoryApi.clearAll();
-      toast.success(`Cleared ${result.results?.l0?.count || 0} items`);
-      setClearDialogOpen(false);
+      result = await clearAllMemory();
+    } catch {
+      setClearing(false);
+      toast.error(t('memory.clearFailed'));
+      return;
+    }
+
+    resetMemoryView();
+    const feedback = summarizeMemoryClear(result);
+    toast.success(t('memory.clearSuccess', {
+      count: feedback.clearedItemCount,
+    }));
+    if (feedback.recoveryPending) {
+      toast.warning(t('memory.clearRecoveryPending'));
+    }
+    if (feedback.otherWarningsPresent) {
+      toast.warning(t('memory.clearCompletedWithWarnings'));
+    }
+    setClearDialogOpen(false);
+    try {
       await refreshAll();
-    } catch (error) {
-      toast.error(`Clear failed: ${error}`);
+    } catch {
+      toast.warning(t('memory.clearRefreshFailed'));
     } finally {
       setClearing(false);
     }
-  }, [refreshAll]);
+  }, [refreshAll, resetMemoryView, t]);
 
   // ============================================================================
   // Return

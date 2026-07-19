@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -8,6 +9,7 @@ import pytest
 
 from magi.user_profile.portrait_projection_scheduler import (
     UserPortraitProjectionScheduler,
+    register_l2_portrait_projection_refresh,
     schedule_portrait_projection_refresh,
 )
 
@@ -77,6 +79,27 @@ async def test_schedule_portrait_refresh_targets_known_user(monkeypatch):
     await schedule_portrait_projection_refresh(memory, "local_user")
 
     scheduler.schedule_user.assert_awaited_once_with("local_user")
+
+
+def test_runtime_registration_includes_correction_derivations(tmp_path):
+    class _L2:
+        db_path = str(tmp_path / "memory.db")
+
+        def __init__(self) -> None:
+            self.handlers = {}
+            self.assertion_callback = None
+
+        def register_memory_correction_job_handler(self, job_kind, handler):
+            self.handlers[job_kind] = handler
+
+        def set_assertion_change_callback(self, callback):
+            self.assertion_callback = callback
+
+    l2 = _L2()
+    register_l2_portrait_projection_refresh(SimpleNamespace(l2=l2))
+
+    assert set(l2.handlers) == {"profile", "portrait"}
+    assert callable(l2.assertion_callback)
 
 
 def _assertion(

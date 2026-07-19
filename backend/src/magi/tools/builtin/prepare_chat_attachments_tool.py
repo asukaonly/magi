@@ -72,13 +72,12 @@ class PrepareChatAttachmentsTool(Tool):
                 file_path = str(item or "").strip()
                 if not file_path:
                     raise ValueError("Attachment source file not found.")
-                attachments.append(
-                    chat_port.ingest_local_file(
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        file_path=file_path,
-                    )
+                prepared = await chat_port.ingest_local_file(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    file_path=file_path,
                 )
+                attachments.append(prepared)
         except ValueError as exc:
             return ToolResult(
                 success=False,

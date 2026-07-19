@@ -5,6 +5,10 @@
   "chat": {
     "image_vision_unsupported": "I received an image, but the current core model does not support image input. Please switch to a vision-capable core model or resend the message with a text description.",
     "context_window_exceeded": "This conversation is too long for the current core model. Please shorten the current message, start a new conversation, or choose a model with a larger context capacity.",
+    "delivery": {
+      "execution_failed": "I couldn't finish this message. Send it again to retry.",
+      "recovery_failed": "This message could not continue after the last interruption. Please send it again."
+    },
     "runtime": {
       "not_ready": {
         "llm_selection_pending": "AI runtime is not ready yet. Please complete the core or context_decider model configuration first.",
@@ -30,7 +34,10 @@
         "bootstrap_state_update_failed": "The first conversation was saved, but onboarding state could not be updated. Please retry.",
         "attachments_must_be_list": "Attachments must be a list.",
         "attachment_must_be_object": "Each attachment must be an object.",
-        "attachment_kind_required": "Each attachment must include a kind."
+        "attachment_kind_required": "Each attachment must include a kind.",
+        "attachment_id_invalid": "Each attachment must include a valid attachment ID.",
+        "client_turn_id_invalid": "The send identifier is invalid. Send the message again.",
+        "ask_response_option_required": "Choose one of the available answers."
       }
     },
     "attachments": {
@@ -38,6 +45,8 @@
       "unsupported_type": "Unsupported attachment type.",
       "image_too_large": "Image attachment exceeds the 20 MB limit.",
       "file_too_large": "File attachment exceeds the 50 MB limit.",
+      "invalid_request": "The attachment request is invalid.",
+      "session_not_found": "Chat session not found.",
       "uploaded": "Attachment uploaded",
       "not_found": "Attachment not found",
       "file_not_found": "Attachment file not found"
@@ -438,7 +447,8 @@
       "rule_not_found": "Rule {rule_id!r} not found",
       "invalid_scope": "Invalid scope: {scope}",
       "permission_request_not_pending": "Permission request {request_id!r} is not pending",
-      "ask_request_not_pending": "Ask request {request_id!r} is not pending"
+      "ask_request_not_pending": "Ask request {request_id!r} is not pending",
+      "ask_response_option_required": "Choose one of the available answers."
     }
   }
 }

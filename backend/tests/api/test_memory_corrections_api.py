@@ -13,6 +13,9 @@ from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers.memory import memory_router
 from magi.api.routers.memory.schemas import MemoryCorrectionRecord
 from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
+from magi.user_profile.correction_derivation import (
+    register_user_profile_correction_derivation_handlers,
+)
 
 _INTERNAL_CORRECTION_FIELDS = {
     "request_id",
@@ -42,7 +45,7 @@ _INTERNAL_VERSION_FIELDS = {
 def _memory(tmp_path: Path) -> UnifiedMemoryStore:
     memory_db = tmp_path / "memory.db"
     asyncio.run(apply_memory_shared_schema(str(memory_db)))
-    return UnifiedMemoryStore(
+    memory = UnifiedMemoryStore(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(memory_db),
@@ -61,6 +64,8 @@ def _memory(tmp_path: Path) -> UnifiedMemoryStore:
             async_embeddings=False,
         ),
     )
+    register_user_profile_correction_derivation_handlers(memory)
+    return memory
 
 
 def _client(monkeypatch, memory: UnifiedMemoryStore) -> TestClient:

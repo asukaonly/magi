@@ -171,12 +171,8 @@ async def _two_channel_prefs(_user_id: str) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_execute_writes_receipts_to_store_not_snapshot():
-    """The coordinator must call receipts_store.save_receipts after the
-    execute()-time fanout, and the snapshot's node_states must NOT carry
-    'delivery_receipts'. P3 Step 3: execute()-time fanout serves EXTERNAL
-    channels only (chat_sse goes via the postprocess seam), so this asserts
-    the external (telegram) receipt is persisted."""
+async def test_postprocess_delivery_writes_receipts_to_store_not_snapshot():
+    """Durable postprocess delivery persists receipts outside run snapshots."""
     sse = _RecordingSseChannel()
 
     class _TgChannel(_RecordingSseChannel):
@@ -225,6 +221,7 @@ async def test_execute_writes_receipts_to_store_not_snapshot():
     context = _build_context_with_run_id(
         user_id="u1", session_id="s1", run_id="run-1",
     )
+    context.session_run_revision = 3
     intent = IntentDecision(
         intent="chat",
         difficulty="normal",
@@ -239,19 +236,27 @@ async def test_execute_writes_receipts_to_store_not_snapshot():
         tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
     )
 
-    await coordinator.execute(request)
+    result = await coordinator.execute(request)
 
-    # execute()-time fanout excludes chat_sse; only the external telegram
-    # channel is served here.
+    # Execution itself does not send before the matching chat outcome exists.
     assert sse.delivers == []
+    assert tg.delivers == []
+    assert receipts_store.saves == []
+
+    await coordinator.deliver_final_chat_response(
+        context,
+        content=DeliveryContent(text=result.response_text),
+    )
+
+    assert len(sse.delivers) == 1
     assert len(tg.delivers) == 1
     # Receipts went to the store, not the snapshot.
     assert len(receipts_store.saves) == 1
     sid, rid, rev, receipts = receipts_store.saves[0]
     assert sid == "s1"
     assert rid == "run-1"
-    assert rev == 0
-    assert len(receipts) >= 1
+    assert rev == 3
+    assert len(receipts) == 2
 
     # Snapshot must NOT carry delivery_receipts anymore.
     stored_snap = session_run_store.get_run_snapshot("s1", "run-1")

@@ -92,6 +92,8 @@ class ChatBootstrapState:
 
     store: ChatStore | None = None
     projector: ChatProjector | None = None
+    assistant_memory_projection_service: Any | None = None
+    delivery_scheduler: Any | None = None
     channel_session_provisioner: Any | None = None
     channel_attachment_store: Any | None = None
     # Phase F: ChatStoreModule sets ``module`` to itself so lifecycle
@@ -237,6 +239,13 @@ class ChannelsBootstrapState:
 
 
 @dataclass
+class OutreachBootstrapState:
+    """Proactive delivery state shared with destructive data boundaries."""
+
+    service: Any | None = None
+
+
+@dataclass
 class ControlPlaneBootstrapState:
     """Control-plane state slice — exposes ControlPlaneModule so later-
     initializing modules (ChannelsModule for the Phase H+2 control
@@ -289,5 +298,6 @@ class RuntimeBootstrapContext:
     runtime_trace: RuntimeTraceBootstrapState = field(default_factory=RuntimeTraceBootstrapState)
     maintenance: MaintenanceBootstrapState = field(default_factory=MaintenanceBootstrapState)
     channels: ChannelsBootstrapState = field(default_factory=ChannelsBootstrapState)
+    outreach: OutreachBootstrapState = field(default_factory=OutreachBootstrapState)
     control_plane: ControlPlaneBootstrapState = field(default_factory=ControlPlaneBootstrapState)
     identity: IdentityBootstrapState = field(default_factory=IdentityBootstrapState)

@@ -35,9 +35,14 @@ class UserMessageCommand:
     metadata: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     correlation_id: str = field(default_factory=lambda: f"cmd_{uuid.uuid4().hex[:16]}")
+    delivery_attempt_no: int = 0
+    runtime_command_id: int | None = None
 
     def to_payload(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload.pop("delivery_attempt_no")
+        payload.pop("runtime_command_id")
+        return payload
 
 
 @dataclass(slots=True)
@@ -108,10 +113,20 @@ class RuntimeQueuedCommand:
     correlation_id: str
     retry_count: int = 0
     user_message_generation: int = 0
+    delivery_attempt_no: int = 0
+
+    @property
+    def runtime_command_id(self) -> int:
+        """Return the durable identity of this physical delivery command."""
+        return self.command_id
 
     def as_user_message(self) -> UserMessageCommand:
         """Convert the queued payload into a typed user-message command."""
-        return UserMessageCommand(**self.payload)
+        return UserMessageCommand(
+            **self.payload,
+            delivery_attempt_no=self.delivery_attempt_no,
+            runtime_command_id=self.runtime_command_id,
+        )
 
     def as_refresh_llm_config(self) -> RefreshLLMConfigCommand:
         """Convert the queued payload into a typed config-refresh command."""

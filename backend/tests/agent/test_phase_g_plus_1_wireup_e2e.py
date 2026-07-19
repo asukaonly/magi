@@ -3,20 +3,17 @@
 Exercises the new delivery wire-up at the coordinator level — that is,
 streamed text deltas dispatched via ``ChatExecutionCoordinator.dispatch_stream_chunk``
 fan out to every configured channel (chat_sse + telegram-like), and the
-final assembled response delivered via ``coordinator.execute()`` reaches
-all of those channels as well.
+final assembled response delivered through the postprocess seam reaches
+all of those channels only after the local outcome is durable.
 
 These tests use real ``Channel`` subclasses (no Mocks) — they record
 ``deliver_chunk`` / ``deliver`` calls so we can assert the exact wire
 contract:
 
-  - chat_sse channel: gets N ``deliver_chunk`` calls (one per text_delta
-    + one final boundary) AND a final ``deliver`` call with the
-    assembled text.
-  - telegram-like channel: gets the same N ``deliver_chunk`` calls,
-    buffers them internally, and on ``is_final=True`` either flushes
-    the assembled text (chunk path) and/or receives ``deliver`` (fanout
-    path).
+  - chat_sse channel: gets N ``deliver_chunk`` calls during streaming and
+    receives a final ``deliver`` only for non-streamed turns.
+  - telegram-like channel: skips chunks and receives the assembled final
+    response from postprocess after persistence.
 
 Why these matter: Task 7 wired ``dispatch_stream_chunk`` on the
 coordinator, Task 8 wired the DirectLLMHandler to call it for each
@@ -359,7 +356,7 @@ async def test_dispatch_stream_chunk_uses_default_when_no_prefs() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test B: final-fanout path via execute()
+# Test B: final-fanout path via durable postprocess delivery
 # ---------------------------------------------------------------------------
 
 
@@ -392,10 +389,8 @@ def _build_context_with_run_id(*, user_id: str, session_id: str, run_id: str) ->
 
 
 @pytest.mark.asyncio
-async def test_execute_fanout_calls_deliver_on_both_channels() -> None:
-    """After the node-sequence runner returns its assembled result,
-    coordinator.execute() must call ``deliver()`` on BOTH channels the
-    user opted into.
+async def test_postprocess_fanout_calls_deliver_on_both_channels() -> None:
+    """Execution defers delivery; postprocess fans out the durable result.
 
     Pairs with Test A: A covers the streaming chunk path; this covers
     the final-assembled deliver path. Together they prove the Phase G+1
@@ -443,12 +438,16 @@ async def test_execute_fanout_calls_deliver_on_both_channels() -> None:
     result = await coordinator.execute(request)
     assert result is canned_result
 
-    # --- chat_sse: P3 Step 3 — execute()-time fanout excludes chat_sse; the
-    # rich chat_sse agent_response is produced by the postprocess seam
-    # (deliver_final_chat_response), not at execute() time. ---
+    # No target is sent the answer before persistence.
     assert len(sse.delivers) == 0
+    assert len(tg.delivers) == 0
 
-    # --- telegram: one deliver call with the assembled text ---
+    await coordinator.deliver_final_chat_response(
+        context,
+        content=DeliveryContent(text=result.response_text),
+    )
+
+    assert len(sse.delivers) == 1
     assert len(tg.delivers) == 1
     tg_target, tg_content = tg.delivers[0]
     assert tg_content.text == "hello world"
@@ -468,8 +467,7 @@ async def test_execute_fanout_calls_deliver_on_both_channels() -> None:
 
 @pytest.mark.asyncio
 async def test_streaming_chunks_then_final_fanout_reaches_both_channels() -> None:
-    """Full lifecycle: the coordinator dispatches streaming chunks AND
-    fans out the final assembled response. Both channels must see both.
+    """A streamed desktop turn sends only its durable final to Telegram.
 
     This is the most realistic "what a streaming chat turn looks like
     end-to-end at the coordinator level" test.
@@ -516,14 +514,18 @@ async def test_streaming_chunks_then_final_fanout_reaches_both_channels() -> Non
         intent=intent,
         tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
     )
-    await coordinator.execute(request)
+    result = await coordinator.execute(request)
 
-    # --- assertions: streaming-capable channel saw chunks; both got deliver ---
-    # chat_sse (supports_streaming=True): 4 chunks + 1 final deliver
+    assert len(sse.delivers) == 0
+    assert len(tg.delivers) == 0
+    await coordinator.deliver_final_chat_response(
+        context,
+        content=DeliveryContent(text=result.response_text),
+        exclude_chat_sse=True,
+    )
+
+    # chat_sse already rendered 4 chunks and is excluded from final delivery.
     assert len(sse.chunks) == 4
-    # P3 Step 3: execute()-time fanout excludes chat_sse, so the streaming
-    # channel gets chunks only (its final agent_response comes from the
-    # postprocess seam, not the execute()-time fanout).
     assert len(sse.delivers) == 0
 
     # telegram (supports_streaming=False): NO chunks, only the assembled

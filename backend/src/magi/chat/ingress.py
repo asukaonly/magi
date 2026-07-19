@@ -14,7 +14,6 @@ from typing import Any, AsyncIterator
 from ..core.logger import get_logger
 from ..core.runtime_bindings import get_chat_message_notifier, require_runtime_command_queue
 from ..events.contracts import UserMessageCommand
-from ..events.events import EventTypes
 from ..events.first_context import (
     FIRST_CONTEXT_METADATA_KEY,
     FIRST_CONTEXT_STORY_INTERACTION_KIND,
@@ -26,6 +25,7 @@ from ..events.recall_feedback import (
 )
 from ..events.user_message_dispatch import (
     ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED,
+    ASK_RESPONSE_OPTION_REQUIRED,
     ASK_RESPONSE_RESOLVE_FAILED,
     BOOTSTRAP_STATE_UPDATE_FAILED,
     CHAT_STORE_NOT_INITIALIZED,
@@ -34,6 +34,7 @@ from ..events.user_message_dispatch import (
     CHAT_PROJECTION_FAILED,
     CHAT_SCOPE_DELETED,
     EMPTY_TURN,
+    INVALID_CLIENT_TURN_ID,
     MALFORMED_ATTACHMENTS,
     RECALL_FEEDBACK_PENDING_ASK,
     MessageDispatchOutcome,
@@ -44,26 +45,27 @@ from ..events.user_message_dispatch import (
 from ..i18n import t
 from ..core.runtime_namespace import DEFAULT_RUNTIME_NAMESPACE
 from .attachment_ingestion import LocalChatAttachmentIngestionService
+from magi.core.chat_assets.mutations import run_chat_asset_mutation
+from magi.core.chat_assets.paths import normalize_chat_asset_component
+from .contracts import (
+    CHAT_DELIVERY_STATE_ADMITTED,
+    CHAT_DELIVERY_STATE_QUEUED,
+    CHAT_DELIVERY_STATE_READY,
+    CHAT_DELIVERY_STATE_TERMINAL,
+)
+from .first_context_projection import (
+    CHAT_PROJECTION_METADATA_KEYS,
+    extract_chat_projection_metadata,
+    wait_for_first_context_memory_projection,
+)
 from .provider import get_chat_projector, get_chat_store
 from .store import ChatTurnConflictError
 from .session_mutations import chat_session_mutation
 
 logger = get_logger(__name__)
 
-_FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS = 1.0
-_FIRST_CONTEXT_PROJECTION_CONFIRM_INTERVAL_SECONDS = 0.02
-
-_CHAT_PROJECTION_METADATA_KEYS = {
-    FIRST_CONTEXT_METADATA_KEY,
-    "l2_batch_owner",
-    "l2_batch_catch_up_owner",
-    "l2_batch_max_events",
-    "l2_batch_max_estimated_tokens",
-    "l2_batch_min_ready_events",
-    "l2_batch_max_wait_seconds",
-}
 _RECOMPUTED_DELIVERY_METADATA_KEYS = frozenset(
-    key for key in _CHAT_PROJECTION_METADATA_KEYS if key != FIRST_CONTEXT_METADATA_KEY
+    key for key in CHAT_PROJECTION_METADATA_KEYS if key != FIRST_CONTEXT_METADATA_KEY
 )
 
 
@@ -103,7 +105,9 @@ class _PersistedUserTurn:
     created_at_ms: int
     created: bool
     projection_completed: bool
-    runtime_enqueued: bool
+    delivery_attempt_no: int
+    delivery_state: str
+    current_command_id: int | None
 
 
 @dataclass(slots=True)
@@ -139,14 +143,6 @@ def resolve_control_interaction_broker():
     )
 
     return _resolve_control_interaction_broker()
-
-
-def _extract_chat_projection_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in metadata.items()
-        if key in _CHAT_PROJECTION_METADATA_KEYS and value is not None
-    }
 
 
 @asynccontextmanager
@@ -288,7 +284,13 @@ def _persisted_user_turn_from_result(result: Any) -> _PersistedUserTurn:
         created_at_ms=persisted_at_ms,
         created=bool(result.created),
         projection_completed=bool(result.projection_completed),
-        runtime_enqueued=bool(result.runtime_enqueued),
+        delivery_attempt_no=int(result.delivery_attempt_no),
+        delivery_state=str(result.delivery_state),
+        current_command_id=(
+            int(result.current_command_id)
+            if result.current_command_id is not None
+            else None
+        ),
     )
 
 
@@ -348,7 +350,26 @@ async def dispatch_user_message(
     if early_outcome is not None:
         return early_outcome
     assert dependencies is not None and validated is not None
-    turn_id = str(client_turn_id or "").strip() or f"turn_{uuid.uuid4().hex[:12]}"
+    try:
+        turn_id = (
+            normalize_chat_asset_component(
+                client_turn_id,
+                label="client_turn_id",
+            )
+            if client_turn_id is not None
+            else f"turn_{uuid.uuid4().hex[:12]}"
+        )
+    except ValueError:
+        return MessageDispatchOutcome(
+            success=False,
+            user_id=user_id,
+            session_id=validated.session_id,
+            error_code=INVALID_CLIENT_TURN_ID,
+            error_message=t(
+                "chat.dispatch.errors.client_turn_id_invalid",
+                fallback="The send identifier is invalid. Send the message again.",
+            ),
+        )
     request_fingerprint = _build_incoming_request_fingerprint(
         source=source,
         user_id=user_id,
@@ -447,23 +468,29 @@ async def dispatch_user_message(
                     return stage_error
                 persisted.projection_completed = True
 
-            if not persisted.runtime_enqueued:
-                enqueue_error = await _enqueue_runtime_user_message(
+            if persisted.delivery_state == CHAT_DELIVERY_STATE_READY:
+                command_id, enqueue_error = await _enqueue_runtime_user_message(
                     dependencies.runtime_command_queue,
                     submission,
                     persisted,
                 )
                 if enqueue_error is not None:
                     return enqueue_error
-                stage_error = await _mark_delivery_stage(
+                assert command_id is not None
+                stage_error = await _mark_runtime_delivery_queued(
                     dependencies.chat_store,
                     submission,
                     persisted,
-                    stage="runtime",
+                    command_id=command_id,
                 )
                 if stage_error is not None:
                     return stage_error
-                persisted.runtime_enqueued = True
+            elif persisted.delivery_state not in {
+                CHAT_DELIVERY_STATE_QUEUED,
+                CHAT_DELIVERY_STATE_ADMITTED,
+                CHAT_DELIVERY_STATE_TERMINAL,
+            }:
+                return _delivery_state_failed_outcome(submission, persisted)
 
             bootstrap_error = await _mark_first_context_bootstrap_started(
                 submission,
@@ -878,11 +905,6 @@ async def _mark_delivery_stage(
                 turn_id=submission.turn_id,
                 updated_at_ms=int(time.time() * 1000),
             )
-        elif stage == "runtime":
-            await chat_store.mark_user_turn_runtime_enqueued(
-                turn_id=submission.turn_id,
-                updated_at_ms=int(time.time() * 1000),
-            )
         else:
             raise ValueError(f"Unsupported delivery stage: {stage}")
     except Exception as exc:
@@ -905,6 +927,77 @@ async def _mark_delivery_stage(
             ),
         )
     return None
+
+
+async def _mark_runtime_delivery_queued(
+    chat_store: Any,
+    submission: _UserMessageSubmission,
+    persisted: _PersistedUserTurn,
+    *,
+    command_id: int,
+) -> MessageDispatchOutcome | None:
+    """Attach one runtime command without losing a faster agent admission."""
+
+    try:
+        changed = await chat_store.mark_user_turn_delivery_queued(
+            turn_id=submission.turn_id,
+            delivery_attempt_no=persisted.delivery_attempt_no,
+            command_id=command_id,
+            updated_at_ms=int(time.time() * 1000),
+        )
+        if changed:
+            persisted.delivery_state = CHAT_DELIVERY_STATE_QUEUED
+            persisted.current_command_id = command_id
+            return None
+        current = await chat_store.get_user_turn_delivery(
+            turn_id=submission.turn_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to persist runtime delivery command for turn %s: %s",
+            submission.turn_id,
+            exc,
+        )
+        try:
+            current = await chat_store.get_user_turn_delivery(
+                turn_id=submission.turn_id,
+            )
+        except Exception:
+            current = None
+
+    if (
+        current is not None
+        and int(current.delivery_attempt_no) == persisted.delivery_attempt_no
+        and int(current.current_command_id or 0) == command_id
+        and str(current.delivery_state)
+        in {
+            CHAT_DELIVERY_STATE_QUEUED,
+            CHAT_DELIVERY_STATE_ADMITTED,
+            CHAT_DELIVERY_STATE_TERMINAL,
+        }
+    ):
+        persisted.delivery_state = str(current.delivery_state)
+        persisted.current_command_id = command_id
+        return None
+    return _delivery_state_failed_outcome(submission, persisted)
+
+
+def _delivery_state_failed_outcome(
+    submission: _UserMessageSubmission,
+    persisted: _PersistedUserTurn,
+) -> MessageDispatchOutcome:
+    return MessageDispatchOutcome(
+        success=False,
+        user_id=submission.user_id,
+        session_id=submission.session_id,
+        turn_id=submission.turn_id,
+        message_id=persisted.created_turn.message_id,
+        error_code=CHAT_STORE_PERSIST_FAILED,
+        error_message=t(
+            "chat.dispatch.errors.persist_failed",
+            fallback="Chat turn persistence failed",
+        ),
+    )
 
 
 async def _project_user_message(
@@ -932,11 +1025,11 @@ async def _project_user_message(
                 if recall_feedback is not None
                 else submission.interaction_kind
             ),
-            metadata=_extract_chat_projection_metadata(submission.metadata),
+            metadata=extract_chat_projection_metadata(submission.metadata),
         )
         if (
             submission.interaction_kind == FIRST_CONTEXT_STORY_INTERACTION_KIND
-            and not await _wait_for_first_context_memory_projection(
+            and not await wait_for_first_context_memory_projection(
                 message_id=persisted.created_turn.message_id,
             )
         ):
@@ -946,71 +1039,6 @@ async def _project_user_message(
         if submission.interaction_kind == FIRST_CONTEXT_STORY_INTERACTION_KIND:
             return _chat_projection_failed_outcome(submission, persisted)
     return None
-
-
-async def _wait_for_first_context_memory_projection(*, message_id: str) -> bool:
-    """Confirm the normal memory subscriber reached every required durable stage."""
-    try:
-        unified_memory = _resolve_projection_memory()
-    except RuntimeError as exc:
-        if _memory_layer_enabled("l1") is False:
-            return True
-        logger.warning("First-context memory confirmation is unavailable: %s", exc)
-        return False
-
-    l1_store = getattr(unified_memory, "l1", None)
-    if l1_store is None:
-        return _memory_layer_enabled("l1") is False
-    finder = getattr(l1_store, "find_event_id_by_idempotency", None)
-    event_reader = getattr(l1_store, "get_memory_event", None)
-    if not callable(finder) or not callable(event_reader):
-        return False
-
-    l2_store = getattr(unified_memory, "l2", None)
-    has_projection_job = getattr(l2_store, "has_projection_job", None)
-    deadline = time.monotonic() + _FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS
-    while True:
-        event_id = await finder(
-            source="chat",
-            event_type=EventTypes.USER_MESSAGE,
-            idempotency_key=message_id,
-        )
-        if event_id is not None:
-            memory_event = await event_reader(event_id)
-            if memory_event is not None:
-                if not _event_requires_l2_projection(memory_event):
-                    return True
-                if _memory_layer_enabled("l2") is False:
-                    return True
-                if l2_store is None or not callable(has_projection_job):
-                    return False
-                if await has_projection_job(event_id=event_id):
-                    return True
-        if time.monotonic() >= deadline:
-            return False
-        await asyncio.sleep(_FIRST_CONTEXT_PROJECTION_CONFIRM_INTERVAL_SECONDS)
-
-
-def _event_requires_l2_projection(memory_event: object) -> bool:
-    from ..memory.evidence import event_allows_l2_projection
-
-    return event_allows_l2_projection(memory_event)
-
-
-def _resolve_projection_memory():
-    from ..memory.provider import get_unified_memory
-
-    return get_unified_memory()
-
-
-def _memory_layer_enabled(layer_name: str) -> bool | None:
-    try:
-        from ..config.loader import get_config
-
-        layer = getattr(get_config().agent.memory, layer_name)
-        return bool(layer.enabled)
-    except Exception:
-        return None
 
 
 def _chat_projection_failed_outcome(
@@ -1035,9 +1063,9 @@ async def _enqueue_runtime_user_message(
     runtime_command_queue: Any,
     submission: _UserMessageSubmission,
     persisted: _PersistedUserTurn,
-) -> MessageDispatchOutcome | None:
+) -> tuple[int | None, MessageDispatchOutcome | None]:
     try:
-        await runtime_command_queue.enqueue_user_message(
+        command_id = await runtime_command_queue.enqueue_user_message(
             UserMessageCommand(
                 source=submission.source,
                 user_id=submission.user_id,
@@ -1050,21 +1078,25 @@ async def _enqueue_runtime_user_message(
                 metadata=submission.metadata,
                 created_at=persisted.created_at,
                 correlation_id=f"user_message:{persisted.created_turn.message_id}",
+                delivery_attempt_no=persisted.delivery_attempt_no,
             )
         )
     except Exception:
-        return MessageDispatchOutcome(
-            success=False,
-            user_id=submission.user_id,
-            session_id=submission.session_id,
-            turn_id=submission.turn_id,
-            error_code=RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED,
-            error_message=t(
-                "chat.dispatch.errors.enqueue_failed",
-                fallback="Runtime command enqueue failed",
+        return (
+            None,
+            MessageDispatchOutcome(
+                success=False,
+                user_id=submission.user_id,
+                session_id=submission.session_id,
+                turn_id=submission.turn_id,
+                error_code=RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED,
+                error_message=t(
+                    "chat.dispatch.errors.enqueue_failed",
+                    fallback="Runtime command enqueue failed",
+                ),
             ),
         )
-    return None
+    return int(command_id), None
 
 
 async def _build_successful_dispatch_outcome(
@@ -1151,6 +1183,20 @@ async def _resolve_pending_ask_response(
 
     if has_attachments:
         return _ask_response_attachments_unsupported(user_id, session_id, ask_state.request_id)
+    options = tuple(
+        option
+        for option in (
+            str(item or "").strip()
+            for item in getattr(ask_state, "options", ())
+        )
+        if option
+    )
+    if getattr(ask_state, "allow_free_text", True) is False and answer not in options:
+        return _ask_response_option_required(
+            user_id,
+            session_id,
+            ask_state.request_id,
+        )
 
     try:
         broker = resolve_control_interaction_broker()
@@ -1228,6 +1274,25 @@ def _ask_response_resolve_failed(
     )
 
 
+def _ask_response_option_required(
+    user_id: str,
+    session_id: str,
+    ask_request_id: str,
+) -> MessageDispatchOutcome:
+    return MessageDispatchOutcome(
+        success=False,
+        user_id=user_id,
+        session_id=session_id,
+        handled_as="ask_response",
+        ask_request_id=ask_request_id,
+        error_code=ASK_RESPONSE_OPTION_REQUIRED,
+        error_message=t(
+            "chat.dispatch.errors.ask_response_option_required",
+            fallback="Choose one of the available answers.",
+        ),
+    )
+
+
 def _ask_response_success(
     user_id: str,
     session_id: str,
@@ -1284,6 +1349,21 @@ def _normalize_attachments(attachments: list[dict[str, Any]] | None) -> list[dic
                 )
             )
         normalized_item["kind"] = attachment_kind
+        if attachment_kind != "mcp_resource":
+            try:
+                normalized_item["attachment_id"] = normalize_chat_asset_component(
+                    normalized_item.get("attachment_id"),
+                    label="attachment_id",
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    t(
+                        "chat.dispatch.errors.attachment_id_invalid",
+                        fallback=(
+                            "Each attachment must include a valid attachment ID."
+                        ),
+                    )
+                ) from exc
         normalized.append(normalized_item)
     return normalized
 
@@ -1297,7 +1377,7 @@ async def _prepare_runtime_attachments(
     if not attachments:
         return []
     ingestion_service = LocalChatAttachmentIngestionService()
-    return await asyncio.to_thread(
+    return await run_chat_asset_mutation(
         _prepare_runtime_attachments_sync,
         ingestion_service,
         session_id,
@@ -1326,10 +1406,12 @@ def _prepare_runtime_attachments_sync(
 
 __all__ = [
     "ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED",
+    "ASK_RESPONSE_OPTION_REQUIRED",
     "ASK_RESPONSE_RESOLVE_FAILED",
     "CHAT_STORE_NOT_INITIALIZED",
     "CHAT_STORE_PERSIST_FAILED",
     "EMPTY_TURN",
+    "INVALID_CLIENT_TURN_ID",
     "MALFORMED_ATTACHMENTS",
     "MessageDispatchOutcome",
     "RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED",

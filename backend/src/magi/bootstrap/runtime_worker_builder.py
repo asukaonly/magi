@@ -32,6 +32,8 @@ from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
 from ..channels.lifecycle import ChannelsModule
 from ..outreach.lifecycle import OutreachModule
 from ..chat.lifecycle import (
+    ChatAssistantMemoryProjectionModule,
+    ChatDeliveryRecoveryModule,
     ChatForgettingRecoveryModule,
     ChatProjectorModule,
     ChatStoreModule,
@@ -226,6 +228,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         MemoryIngestionSubscriberModule(context),
         LLMUsageSubscriberModule(context),
         ChatProjectorModule(context),
+        ChatAssistantMemoryProjectionModule(context),
         ControlTranscriptSubscriberModule(context),
         _build_runtime_trace_module(context),
         RuntimeTraceSubscriberModule(context),
@@ -259,6 +262,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
 def _build_processing_modules(context: RuntimeBootstrapContext) -> list[LifecycleModule]:
     """Build long-running processors and business-facing background services."""
     return [
+        ChatDeliveryRecoveryModule(context),
         RuntimeCommandProcessorModule(context),
         PluginIngressProcessorModule(context),
         TimelineModule(context),

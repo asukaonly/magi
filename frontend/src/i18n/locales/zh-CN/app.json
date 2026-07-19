@@ -141,6 +141,8 @@
     "deleteSessionTitle": "删除会话",
     "deleteSessionDescription": "这会永久移除这个会话、其中的消息和附件，以及由这些内容形成的相关记忆。此操作无法撤销。",
     "confirmDeleteSession": "确认删除",
+    "deleteSessionFailed": "删除会话失败，没有改动任何内容。",
+    "deleteSessionCleanupPending": "会话已经删除，剩余的本地清理会在 Magi 重启后自动完成。",
     "cancel": "取消",
     "noPreview": "暂无预览",
     "personality": "人格",
@@ -881,6 +883,8 @@
     "tip": "💡 提示：按 Enter 发送消息，Shift + Enter 换行",
     "emptyInput": "请输入消息内容",
     "askAttachmentsUnsupported": "回答这个问题前请先移除附件。",
+    "askChoiceOnlyPlaceholder": "请从上面的答案中选择一项",
+    "askOptionRequired": "请选择一个已有答案。",
     "sessionRequired": "请先选择或创建一个会话",
     "wsNotConnected": "尚未连接服务器，请等待连接建立",
     "reply": {
@@ -902,7 +906,8 @@
       "copyPlain": "复制纯文本",
       "delete": "删除消息",
       "copyFailed": "复制消息失败",
-      "deleteFailed": "删除消息失败"
+      "deleteFailed": "删除消息失败",
+      "deleteCleanupPending": "消息已经删除，剩余的本地清理会在 Magi 重启后自动完成。"
     },
     "workspace": {
       "label": "当前会话目录",
@@ -978,9 +983,19 @@
       "backgroundRunning": "后台任务运行中",
       "backgroundPendingBadge": "执行中",
       "backgroundCancel": "取消",
-      "backgroundCancelRequested": "已请求取消。"
+      "backgroundCancelRequested": "已请求取消。",
+      "sendUnconfirmed": "暂时无法确认这次技能消息是否收到。再次运行同一个技能会安全重试。",
+      "pendingAskBlocked": "请先回答当前问题，再运行这个技能。后台技能仍可使用。",
+      "argumentsInvalid": "请检查技能参数中的引号是否完整。",
+      "notSent": "这次技能消息没有发出，请检查当前对话后重试。"
     },
     "sendFailed": "发送消息失败",
+    "sendUnconfirmed": "暂时无法确认这条消息是否已收到。内容仍保留在输入框里；再次发送会安全重试。",
+    "askNoLongerPending": "这个问题已经不再等待这份回答。输入框里的内容仍然保留。",
+    "previousSendUnconfirmed": "仍然无法确认上一条消息是否收到。当前输入框里的内容没有发送，请等连接恢复后再试。",
+    "restoredSendResolved": "刷新前那条消息的状态已经处理完成。当前输入框里的内容还没有发送，准备好后请再发送一次。",
+    "waitForCurrentReply": "请先等待当前回复完成，或停止当前回复后再发送新消息。",
+    "historyNotReady": "暂时无法确认这段对话的最新状态。内容仍保留在输入框里，请稍后再试。",
     "clearFailed": "清空对话失败",
     "cleared": "对话已清空",
     "clearHistoryDialog": {
@@ -990,8 +1005,10 @@
       "close": "关闭",
       "cancel": "取消",
       "confirm": "确认清空",
+      "inProgress": "请等待这段聊天清空完成后再发送新消息。",
       "retry": "重试",
       "success": "聊天和相关记忆已清空",
+      "cleanupPending": "聊天和相关记忆已经清空，剩余的本地清理会在 Magi 重启后自动完成。",
       "error": "没有收到清空完成的确认。请重试；重复操作不会多删内容。"
     },
     "createSessionFailed": "创建新会话失败",
@@ -1618,8 +1635,10 @@
       "cancel": "继续编辑",
       "confirm": "放弃并关闭"
     },
-    "memoryCleared": "已清除 {{count}} 条记忆数据",
+    "memoryCleared": "已清除历史与记忆，共 {{count}} 项",
     "memoryClearFailed": "清除记忆失败",
+    "memoryClearRecoveryPending": "内容已不可访问。如果聊天或外部消息仍不可用，请重启应用完成收尾。",
+    "memoryClearCompletedWithWarnings": "清除已完成，但有部分后台收尾没有正常完成。建议重启应用后再确认一次。",
     "clearConfirm": {
       "title": "确认清除所有记忆？",
       "warning": "此操作将永久清除以下所有数据：",
@@ -1685,7 +1704,7 @@
       },
       "dangerZone": {
         "title": "危险操作",
-        "description": "永久清除当前实例的全部记忆数据。此操作不可撤销，执行后 AI 需要重新积累记忆。",
+        "description": "永久清除聊天历史、全部记忆和会话关联的待发通知。模型配置、插件账号和频道偏好不会被清除。",
         "clearButton": "清除全部记忆"
       },
       "vector": {
@@ -4157,6 +4176,11 @@
     "searchError": "搜索失败: {{message}}",
     "search": "搜索",
     "clear": "清除",
+    "clearSuccess": "已清除历史与记忆，共 {{count}} 项",
+    "clearFailed": "清除记忆失败，请重试。",
+    "clearRefreshFailed": "记忆已清除，但当前页面暂时没有刷新。",
+    "clearRecoveryPending": "内容已不可访问。请重启应用完成收尾，再开始新聊天或向外发送消息。",
+    "clearCompletedWithWarnings": "清除已完成，但有部分后台收尾没有正常完成。建议重启应用后再确认一次。",
     "sources": {
       "chat_projector": "聊天",
       "runtime_event_emitter": "运行时事件发射器",
@@ -4427,13 +4451,15 @@
     },
     "clearConfirm": {
       "title": "清除所有记忆",
-      "description": "此操作将永久删除当前实例中的所有记忆数据。",
+      "description": "此操作会永久删除聊天历史、全部记忆及与这些会话关联的数据。",
       "conversations": "历史对话与会话目标",
       "events": "记录下来的事件与行为轨迹",
       "relationships": "整理出的关系、知识和长期认知",
       "summaries": "阶段总结与反思摘要",
       "learnedSkills": "从历史中沉淀出的经验和技能",
       "currentContext": "当前会话里的上下文缓存",
+      "pendingNotifications": "频道会话关联、送达记录和尚未发出的任务通知",
+      "preservedSettings": "模型配置、插件账号、身份绑定和频道偏好会保留。",
       "countdownHint": "请等待 {{seconds}} 秒后确认清除。",
       "readyHint": "现在可以确认清除了。",
       "confirmCountdown": "{{seconds}} 秒后可确认",

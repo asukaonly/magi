@@ -10,6 +10,7 @@ from magi.db.runner import MIGRATION_TARGETS, _build_config
 
 V31_REVISION = "v31_correction_replacement_slot_index"
 V32_REVISION = "v32_forget_source_owner_refs"
+MEMORY_HEAD_REVISION = "v33_chat_forget_activation"
 
 
 def _memory_config(db_path: Path):
@@ -108,10 +109,10 @@ def test_source_owner_ref_migration_preserves_and_downgrades_data(
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
-def test_source_owner_ref_revision_is_memory_head(tmp_path: Path) -> None:
+def test_memory_head_includes_source_owner_ref_revision(tmp_path: Path) -> None:
     db_path = tmp_path / "memory.db"
     command.upgrade(_memory_config(db_path), "head")
     with sqlite3.connect(db_path) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (V32_REVISION,)
+        ).fetchone() == (MEMORY_HEAD_REVISION,)

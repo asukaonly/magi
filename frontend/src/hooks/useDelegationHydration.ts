@@ -9,18 +9,18 @@
 import { useEffect, useRef } from 'react';
 
 import { codeAgentApi } from '@/api/modules/codeAgent';
-import { useDelegationsStore, selectDelegationCard } from '@/stores/delegations-store';
+import { useDelegationsStore } from '@/stores/delegations-store';
 
 
 export function useDelegationHydration(
   sessionId: string | null,
   delegationId: string | null,
+  turnId: string | null,
   workspace: string | null,
 ): void {
-  const card = useDelegationsStore(
-    sessionId && delegationId ? selectDelegationCard(sessionId, delegationId) : () => null,
-  );
   const setHydrating = useDelegationsStore((s) => s.setHydrating);
+  const markHydrated = useDelegationsStore((s) => s.markHydrated);
+  const markHydrationFailed = useDelegationsStore((s) => s.markHydrationFailed);
   const setResult = useDelegationsStore((s) => s.setResult);
   const setEventsTail = useDelegationsStore((s) => s.setEventsTail);
   const setLifecycle = useDelegationsStore((s) => s.setLifecycle);
@@ -30,17 +30,19 @@ export function useDelegationHydration(
   const requestIdRef = useRef<number>(0);
 
   useEffect(() => {
-    if (!sessionId || !delegationId || !workspace) {
+    if (!sessionId || !delegationId || !turnId || !workspace) {
       return;
     }
-    // Only skip if we already have diff_text OR we're already hydrating
-    if (card?.diffText || card?.hydrating) {
+    const card = useDelegationsStore
+      .getState()
+      .delegationsBySession[sessionId]?.[delegationId];
+    if (card?.hydrated || card?.hydrating || card?.hydrationAttempted) {
       return;
     }
 
     // Increment request ID for this effect invocation
     const currentRequestId = ++requestIdRef.current;
-    setHydrating(sessionId, delegationId, true);
+    setHydrating(sessionId, delegationId, true, turnId);
 
     codeAgentApi
       .getDelegation(sessionId, delegationId, workspace)
@@ -69,9 +71,12 @@ export function useDelegationHydration(
         if (typeof diff_text === 'string') {
           setDiffText(sessionId, delegationId, diff_text);
         }
+        markHydrated(sessionId, delegationId);
       })
       .catch(() => {
-        // Hydration is best-effort. The card stays in its current shape.
+        if (currentRequestId === requestIdRef.current) {
+          markHydrationFailed(sessionId, delegationId);
+        }
       })
       .finally(() => {
         // Only clear hydrating if this is still the latest request
@@ -79,13 +84,20 @@ export function useDelegationHydration(
           setHydrating(sessionId, delegationId, false);
         }
       });
+    return () => {
+      if (currentRequestId === requestIdRef.current) {
+        requestIdRef.current += 1;
+        setHydrating(sessionId, delegationId, false, turnId);
+      }
+    };
   }, [
     sessionId,
     delegationId,
+    turnId,
     workspace,
-    card?.diffText,
-    card?.hydrating,
     setHydrating,
+    markHydrated,
+    markHydrationFailed,
     setResult,
     setEventsTail,
     setLifecycle,

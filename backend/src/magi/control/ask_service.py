@@ -99,6 +99,13 @@ class ControlAskService:
         )
 
     async def ask(self, request: ControlAskRequest) -> ControlAskOutcome:
+        if (
+            not request.allow_free_text
+            and not any(str(item or "").strip() for item in request.options)
+        ):
+            raise ValueError(
+                "A choice-only question requires at least one non-empty option"
+            )
         state = self._ask_state(request)
         wait_tasks = self._start_wait_tasks(request, state)
 
@@ -178,6 +185,17 @@ class ControlAskService:
                 interaction_id=state.request_id,
                 kind="ask",
                 timeout_seconds=state.timeout_value,
+                metadata={
+                    "allow_free_text": request.allow_free_text,
+                    "options": [
+                        option
+                        for option in (
+                            str(item or "").strip()
+                            for item in request.options
+                        )
+                        if option
+                    ],
+                },
             ),
             name=f"ask-user-question-{state.request_id}",
         )

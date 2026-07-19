@@ -58,11 +58,14 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
 );
 
 CREATE TABLE IF NOT EXISTS outreach_outbox (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    intent_json     TEXT    NOT NULL,
-    release_at_ms   INTEGER NOT NULL,
-    status          TEXT    NOT NULL DEFAULT 'pending',
-    created_at_ms   INTEGER NOT NULL
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    correlation_id     TEXT    NOT NULL,
+    channel_scope      TEXT    NOT NULL,
+    intent_fingerprint TEXT    NOT NULL,
+    intent_json        TEXT    NOT NULL,
+    release_at_ms      INTEGER NOT NULL,
+    status             TEXT    NOT NULL DEFAULT 'pending',
+    created_at_ms      INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS outreach_delivery_log (
@@ -85,6 +88,9 @@ CREATE INDEX IF NOT EXISTS idx_dr_session
 CREATE INDEX IF NOT EXISTS ix_outreach_outbox_due
     ON outreach_outbox (status, release_at_ms);
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_outreach_outbox_identity
+    ON outreach_outbox (correlation_id, channel_scope);
+
 CREATE INDEX IF NOT EXISTS ix_outreach_delivery_log_user
     ON outreach_delivery_log (user_id, delivered_at_ms);
 """
@@ -93,6 +99,8 @@ DROP_SQL = """
 DROP INDEX IF EXISTS ix_outreach_delivery_log_user;
 
 DROP INDEX IF EXISTS ix_outreach_outbox_due;
+
+DROP INDEX IF EXISTS uq_outreach_outbox_identity;
 
 DROP INDEX IF EXISTS idx_dr_session;
 

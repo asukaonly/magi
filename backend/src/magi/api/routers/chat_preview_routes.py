@@ -30,7 +30,7 @@ from magi.api.routers.chat_preview_schemas import (
     PreviewMessageRequest,
     PreviewMessageResponse,
 )
-from magi.chat.task_agent.rhythm import (
+from magi.agent.response_rhythm import (
     ResponseRhythmPlanner,
     extract_persona_rhythm,
     strip_segmentation_sentinel,

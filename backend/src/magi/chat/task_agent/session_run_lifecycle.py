@@ -9,7 +9,11 @@ from magi.agent.runtime.contracts import FactRecord
 from magi.control.run_control import RunControl
 from magi.agent.task_agents.common import UserMessagePayload
 from .fact_classifier import ClassifiedFact
-from magi.agent.task_agents.handlers.run_contracts import ActiveRun, RunResult, RunResultDisposition
+from magi.agent.task_agents.handlers.run_contracts import (
+    ActiveRun,
+    PendingTurn,
+    RunResult,
+)
 
 if TYPE_CHECKING:
     from .run_store import SessionRunStore
@@ -87,23 +91,23 @@ class SessionRunLifecycleMixin:
         revision: int | None = None,
     ) -> bool:
         """Complete the active run if it still matches the expected identity."""
-        active_run = self._run_store.get_active_run(session_id)
-        if active_run is None:
-            return False
-        if run_id is not None and active_run.run_id != run_id:
-            return False
-        if revision is not None and active_run.revision != int(revision):
-            return False
-        if active_run.status == "cancelling":
-            self._run_store.mark_cancelled(
-                session_id,
-                run_id=run_id,
-                revision=revision,
-            )
-            return True
-        if active_run.status == "cancelled":
-            return True
-        return self._run_store.complete_active_run(
+        completed, _ = self.complete_run_with_deferred(
+            session_id=session_id,
+            run_id=run_id,
+            revision=revision,
+        )
+        return completed
+
+    def complete_run_with_deferred(
+        self,
+        *,
+        session_id: str,
+        run_id: str | None = None,
+        revision: int | None = None,
+    ) -> tuple[bool, list[PendingTurn]]:
+        """Complete one exact run and atomically detach its DEFER turns."""
+
+        return self._run_store.complete_active_run_with_deferred(
             session_id,
             run_id=run_id,
             revision=revision,

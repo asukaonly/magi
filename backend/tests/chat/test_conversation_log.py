@@ -73,6 +73,25 @@ CREATE TABLE IF NOT EXISTS chat_attachments (
     created_at_ms INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS chat_message_asset_refs (
+    message_id TEXT NOT NULL,
+    asset_key TEXT NOT NULL,
+    storage_rel_path TEXT NOT NULL,
+    asset_kind TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (message_id, asset_key)
+);
+
+CREATE TABLE IF NOT EXISTS chat_message_code_delegation_refs (
+    message_id TEXT NOT NULL,
+    session_id TEXT COLLATE NOCASE NOT NULL,
+    delegation_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    workspace_path TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (message_id, delegation_id)
+);
+
 CREATE TABLE IF NOT EXISTS chat_run_consumed_events (
     session_id     TEXT    NOT NULL,
     run_id         TEXT    NOT NULL,

@@ -139,17 +139,87 @@ class ForgetSelector:
         user_id: str,
         session_id: str,
         message_id: str,
+        source_message_id: str | None = None,
+        turn_id: str,
         source: str,
         event_type: str,
+        runtime_turn_ids: list[str] | tuple[str, ...] = (),
+        runtime_replay_turn_ids: list[str] | tuple[str, ...] = (),
+        messages: list[dict[str, str]] | tuple[dict[str, str], ...] = (),
+        surface_message_ids: list[str] | tuple[str, ...] = (),
     ) -> "ForgetSelector":
+        normalized_message_id = _required_text(message_id, field="message_id")
+        normalized_source_message_id = _required_text(
+            source_message_id or normalized_message_id,
+            field="source_message_id",
+        )
+        normalized_source = _required_text(source, field="source")
+        normalized_event_type = _required_text(
+            event_type,
+            field="event_type",
+        )
+        normalized_messages: dict[tuple[str, str, str], dict[str, str]] = {}
+        for message in (
+            messages
+            or (
+                {
+                    "message_id": normalized_source_message_id,
+                    "source": normalized_source,
+                    "event_type": normalized_event_type,
+                },
+            )
+        ):
+            source_id = _required_text(
+                message.get("message_id"),
+                field="message_id",
+            )
+            message_source = _required_text(
+                message.get("source"),
+                field="source",
+            )
+            message_event_type = _required_text(
+                message.get("event_type"),
+                field="event_type",
+            )
+            normalized_messages[
+                (source_id, message_source, message_event_type)
+            ] = {
+                "message_id": source_id,
+                "source": message_source,
+                "event_type": message_event_type,
+            }
+        normalized_surface_message_ids = list(
+            dict.fromkeys(
+                normalized
+                for value in (surface_message_ids or (normalized_message_id,))
+                if (normalized := str(value or "").strip())
+            )
+        )
         return cls(
             kind="chat_message",
             payload={
                 "user_id": _required_text(user_id, field="user_id"),
                 "session_id": _required_text(session_id, field="session_id"),
-                "message_id": _required_text(message_id, field="message_id"),
-                "source": _required_text(source, field="source"),
-                "event_type": _required_text(event_type, field="event_type"),
+                "message_id": normalized_message_id,
+                "source_message_id": normalized_source_message_id,
+                "turn_id": str(turn_id or "").strip(),
+                "source": normalized_source,
+                "event_type": normalized_event_type,
+                "runtime_turn_ids": list(
+                    sorted(normalize_source_event_ids(runtime_turn_ids))
+                ),
+                "runtime_replay_turn_ids": list(
+                    sorted(
+                        normalize_source_event_ids(
+                            runtime_replay_turn_ids
+                        )
+                    )
+                ),
+                "messages": [
+                    normalized_messages[key]
+                    for key in sorted(normalized_messages)
+                ],
+                "surface_message_ids": normalized_surface_message_ids,
             },
         )
 
@@ -202,6 +272,19 @@ class ForgetSelector:
                 "user_id": self.payload.get("user_id"),
                 "session_id": self.payload.get("session_id"),
             }
+        elif self.kind == "chat_message":
+            # The turn id locates transient execution state but does not change
+            # the durable business identity of one persisted message.
+            identity_payload = {
+                key: self.payload.get(key)
+                for key in (
+                    "user_id",
+                    "session_id",
+                    "message_id",
+                    "source",
+                    "event_type",
+                )
+            }
         encoded = f"{self.kind}\n{_canonical_json(identity_payload)}".encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
@@ -241,6 +324,7 @@ class ForgetOperation:
     cursor: str
     selection_complete: bool
     selector_cleanup_complete: bool
+    execution_ready: bool
     total_event_count: int
     active_event_count: int
     cleaned_event_count: int

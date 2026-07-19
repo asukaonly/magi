@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from magi_plugin_sdk.capabilities import ToolCapabilities
 
 from magi.tools.builtin import delegate_to_external_coder_tool as module
 from magi.tools.builtin.delegate_to_external_coder_tool import (
@@ -28,9 +29,33 @@ def _make_repo(path: Path) -> Path:
     return path
 
 
-def _ctx(workspace: Path, session_id: str | None = "s1") -> ToolExecutionContext:
-    env_vars = {"session_id": session_id} if session_id else {}
-    return ToolExecutionContext(agent_id="a", workspace=str(workspace), env_vars=env_vars)
+class _NoopArtifactRegistry:
+    async def register(self, **_kwargs) -> None:
+        return None
+
+
+def _ctx(
+    workspace: Path,
+    session_id: str | None = "s1",
+    *,
+    with_artifact_registry: bool = True,
+) -> ToolExecutionContext:
+    env_vars = (
+        {"session_id": session_id, "turn_id": "turn-1"}
+        if session_id
+        else {}
+    )
+    capabilities = (
+        ToolCapabilities(delegation_artifacts=_NoopArtifactRegistry())
+        if with_artifact_registry
+        else None
+    )
+    return ToolExecutionContext(
+        agent_id="a",
+        workspace=str(workspace),
+        env_vars=env_vars,
+        capabilities=capabilities,
+    )
 
 
 @pytest.fixture
@@ -60,6 +85,15 @@ async def test_dry_run_returns_success_without_running_adapter(
     assert res.data["success"] is True
     assert res.data["summary"] == "dry run"
     assert res.data["delegation_id"]
+    assert res.data["assistant_payload"] == {
+        "code_agent_delegations": [
+            {
+                "delegation_id": res.data["delegation_id"],
+                "turn_id": "turn-1",
+                "workspace_path": str(repo.resolve()),
+            }
+        ],
+    }
 
 
 @pytest.mark.asyncio
@@ -74,6 +108,23 @@ async def test_no_session_id_rejected(isolated_magi_home: Path, tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_missing_artifact_registry_rejected_before_workspace_write(
+    isolated_magi_home: Path,
+    tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+
+    res = await DelegateToExternalCoderTool().execute(
+        {"prompt": "x", "dry_run": True},
+        _ctx(repo, with_artifact_registry=False),
+    )
+
+    assert not res.success
+    assert "registry" in (res.error or "").lower()
+    assert not (repo / ".magi").exists()
+
+
+@pytest.mark.asyncio
 async def test_non_repo_workspace_rejected(isolated_magi_home: Path, tmp_path: Path) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()
@@ -83,6 +134,43 @@ async def test_non_repo_workspace_rejected(isolated_magi_home: Path, tmp_path: P
     )
     assert not res.success
     assert "git" in (res.error or "").lower()
+    assert "assistant_payload" not in res.data
+
+
+@pytest.mark.asyncio
+async def test_symlink_workspace_rejected_without_writing_target(
+    isolated_magi_home: Path,
+    tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+    alias = tmp_path / "repo-alias"
+    alias.symlink_to(repo, target_is_directory=True)
+
+    res = await DelegateToExternalCoderTool().execute(
+        {"prompt": "x", "dry_run": True},
+        _ctx(alias),
+    )
+
+    assert not res.success
+    assert "symbolic link" in (res.error or "").lower()
+    assert not (repo / ".magi").exists()
+
+
+@pytest.mark.asyncio
+async def test_unsafe_session_id_rejected_without_writing(
+    isolated_magi_home: Path,
+    tmp_path: Path,
+) -> None:
+    repo = _make_repo(tmp_path / "repo")
+
+    res = await DelegateToExternalCoderTool().execute(
+        {"prompt": "x", "dry_run": True},
+        _ctx(repo, session_id="../outside"),
+    )
+
+    assert not res.success
+    assert "session_id" in (res.error or "")
+    assert not (repo / ".magi").exists()
 
 
 @pytest.mark.asyncio

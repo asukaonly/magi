@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
 from magi.config import get_user_preference
@@ -10,8 +10,12 @@ from magi.llm.streaming_events import LLMStreamEvent
 from magi_plugin_sdk.delivery import DeliveryChunk, DeliveryContent
 
 from ..core.logger import get_logger
+from ..delivery.contracts import DeliveryFanoutResult
 from .delivery_prefs import resolve_delivery_targets
-from .delivery_router import ChannelRegistryProtocol, DeliveryRouter
+from .delivery_router import (
+    ChannelRegistryProtocol,
+    DeliveryRouter,
+)
 
 logger = get_logger(__name__)
 
@@ -64,7 +68,8 @@ class ChatDeliveryDispatcher:
         content: DeliveryContent | None = None,
         exclude_chat_sse: bool = False,
         chat_sse_only: bool = False,
-    ) -> list[Any]:
+        exclude_channel_types: Iterable[str] = (),
+    ) -> DeliveryFanoutResult:
         """Deliver a final assistant response to configured channel targets."""
         context = getattr(request, "context", None)
         session_id = getattr(context, "session_id", "") or ""
@@ -93,8 +98,19 @@ class ChatDeliveryDispatcher:
             targets = [target for target in targets if target.channel_type != "chat_sse"]
         if chat_sse_only:
             targets = [target for target in targets if target.channel_type == "chat_sse"]
+        excluded_channel_types = {
+            str(channel_type or "").strip()
+            for channel_type in exclude_channel_types
+            if str(channel_type or "").strip()
+        }
+        if excluded_channel_types:
+            targets = [
+                target
+                for target in targets
+                if target.channel_type not in excluded_channel_types
+            ]
         if not targets:
-            return []
+            return DeliveryFanoutResult()
 
         delivery_content = content if content is not None else DeliveryContent(
             text=response_text or "",
@@ -106,24 +122,29 @@ class ChatDeliveryDispatcher:
             len(delivery_content.attachments or ()),
             [target.channel_type for target in targets],
         )
-        receipts = await self._delivery_router.fanout_deliver(
+        result = await self._delivery_router.fanout_deliver(
             content=delivery_content,
             targets=targets,
         )
-        if receipts and self._receipts_store is not None and session_id and session_run_id:
+        if (
+            result.receipts
+            and self._receipts_store is not None
+            and session_id
+            and session_run_id
+        ):
             try:
                 await self._receipts_store.save_receipts(
                     session_id=session_id,
                     run_id=session_run_id,
-                    revision=int(getattr(context, "revision", 0) or 0),
-                    receipts=receipts,
+                    revision=int(context.session_run_revision or 0),
+                    receipts=list(result.receipts),
                 )
             except Exception:
                 logger.warning(
                     "DeliveryReceiptsStore.save_receipts failed",
                     exc_info=True,
                 )
-        return receipts
+        return result
 
     async def dispatch_stream_chunk(
         self,

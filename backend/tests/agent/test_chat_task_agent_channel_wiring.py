@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import inspect
 
+import pytest
+
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 
 
@@ -56,3 +58,46 @@ def test_chat_task_agent_default_resolver_no_container_does_not_crash() -> None:
     # placeholder, so the helper must return None — not crash.
     assert agent._coordinator._delivery_dispatcher is None
     assert agent._postprocess_service._deliver_final_response is None
+
+
+@pytest.mark.asyncio
+async def test_chat_task_agent_forwards_streamed_delivery_filter() -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    calls: list[dict] = []
+
+    class _Coordinator:
+        async def deliver_final_chat_response(
+            self,
+            context,
+            *,
+            content,
+            exclude_chat_sse=False,
+            exclude_channel_types=(),
+        ):
+            calls.append(
+                {
+                    "context": context,
+                    "content": content,
+                    "exclude_chat_sse": exclude_chat_sse,
+                    "exclude_channel_types": tuple(exclude_channel_types),
+                }
+            )
+            return ["ok"]
+
+    agent._coordinator = _Coordinator()
+    result = await agent._deliver_final_response_from_postprocess(
+        "context",
+        content="content",
+        exclude_chat_sse=True,
+        exclude_channel_types={"telegram"},
+    )
+
+    assert result == ["ok"]
+    assert calls == [
+        {
+            "context": "context",
+            "content": "content",
+            "exclude_chat_sse": True,
+            "exclude_channel_types": ("telegram",),
+        }
+    ]

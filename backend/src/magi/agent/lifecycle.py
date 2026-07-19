@@ -39,7 +39,6 @@ class _AgentRuntimeDependencies:
     memory_integration: Any
     runtime_trace_store: Any
     chat_store: Any
-    chat_projector: Any
     message_bus: Any
     runtime_command_queue: Any
     sensor_hub: Any
@@ -146,6 +145,10 @@ class AgentRuntimeModule(LifecycleModule):
                 deps.runtime_command_queue.current_user_message_generation
             ),
             user_message_scope_blocker=(deps.runtime_command_queue.is_user_message_scope_blocked),
+            user_message_delivery_admitter=(
+                deps.chat_store.mark_user_turn_delivery_admitted
+            ),
+            runtime_command_acknowledger=deps.runtime_command_queue.ack,
         )
 
     def _build_chat_agent_factory(
@@ -164,7 +167,6 @@ class AgentRuntimeModule(LifecycleModule):
             skill_runner=deps.skill_runner,
             runtime_trace_store=deps.runtime_trace_store,
             chat_store=deps.chat_store,
-            chat_projector=deps.chat_projector,
             chat_read_service_factory=self._chat_read_service_factory,
             config=deps.config,
             background_dispatcher=background_wiring.dispatcher if bg_settings.enabled else None,
@@ -309,7 +311,6 @@ def _load_agent_runtime_dependencies(
             "runtime trace store",
         ),
         chat_store=require_initialized(context.chat.store, "chat store"),
-        chat_projector=require_initialized(context.chat.projector, "chat projector"),
         message_bus=require_initialized(context.message_bus.message_bus, "message bus"),
         runtime_command_queue=require_initialized(
             context.runtime_commands.runtime_command_queue,

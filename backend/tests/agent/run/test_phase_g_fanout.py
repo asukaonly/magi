@@ -83,16 +83,20 @@ async def test_fanout_to_three_channels_then_retract_all() -> None:
     ]
     content = DeliveryContent(text="hello three places at once")
 
-    receipts = await router.fanout_deliver(content=content, targets=targets)
+    result = await router.fanout_deliver(content=content, targets=targets)
 
-    assert len(receipts) == 3
-    assert all(r.external_message_id is not None for r in receipts)
+    assert len(result.receipts) == 3
+    assert all(
+        receipt.external_message_id is not None
+        for receipt in result.receipts
+    )
+    assert result.failures == ()
     assert len(sse.delivered) == 1
     assert len(telegram.delivered) == 1
     assert len(slack.delivered) == 1
 
     # Retract everything.
-    await router.fanout_retract(receipts=receipts)
+    await router.fanout_retract(receipts=list(result.receipts))
     assert len(sse.retracted) == 1
     assert len(telegram.retracted) == 1
     assert len(slack.retracted) == 1
@@ -113,7 +117,7 @@ async def test_fanout_mixed_capability_channels() -> None:
         "chat_sse": sse, "email": email,
     }))
 
-    receipts = await router.fanout_deliver(
+    result = await router.fanout_deliver(
         content=DeliveryContent(text="hi"),
         targets=[
             ChannelTarget(
@@ -130,9 +134,10 @@ async def test_fanout_mixed_capability_channels() -> None:
             ),
         ],
     )
-    assert len(receipts) == 2
+    assert len(result.receipts) == 2
+    assert result.failures == ()
 
     # Retract must not raise even though email can't.
-    await router.fanout_retract(receipts=receipts)
+    await router.fanout_retract(receipts=list(result.receipts))
     assert len(sse.retracted) == 1
     assert len(email.retracted) == 0  # NotImplementedError silently swallowed

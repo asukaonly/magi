@@ -76,3 +76,26 @@ async def test_control_ask_service_owns_answer_lifecycle() -> None:
         EventTypes.CONTROL_ASK_ANSWERED,
     ]
 
+
+@pytest.mark.asyncio
+async def test_choice_only_ask_requires_an_available_option() -> None:
+    service = ControlAskService(
+        session_store=ControlSessionStore(),
+        interaction_broker=InteractionBroker(),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="choice-only question requires at least one",
+    ):
+        await service.ask(
+            ControlAskRequest(
+                session_id="sid-service",
+                user_id="local_user",
+                turn_id="turn-1",
+                question="Proceed?",
+                options=[],
+                allow_free_text=False,
+                timeout_seconds=5,
+            )
+        )

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from magi.config import AppConfig
-from magi.chat import ChatProjector, ChatStore
+from magi.chat import ChatStore
 from magi.memory import UnifiedMemoryStore
 from magi.memory.hybrid_retrieval import HybridRetrievalService
 from magi.memory.integration import MemoryIntegrationModule
@@ -25,7 +25,6 @@ def create_chat_agent_factory(
     skill_runner: Any,
     runtime_trace_store: RuntimeTraceStore | None,
     chat_store: ChatStore | None,
-    chat_projector: ChatProjector | None,
     chat_read_service_factory: Callable[[], Any],
     config: AppConfig,
     background_dispatcher: Any | None = None,
@@ -51,7 +50,6 @@ def create_chat_agent_factory(
             skill_runner=skill_runner,
             runtime_trace_store=runtime_trace_store,
             chat_store=chat_store,
-            chat_projector=chat_projector,
             chat_read_service_factory=chat_read_service_factory,
             background_dispatcher=background_dispatcher,
             background_launch_service=background_launch_service,

@@ -214,6 +214,13 @@ Expected behavior:
 - the default preferred tool should be automatic selection
 - detected executable paths should be visible and editable without exposing internal tool names
 - global constraints such as blocked paths, git commit/push guidance, and default timeout should use the same form styling as the rest of settings
+- a code delegation card must remain recoverable after reopening a conversation;
+  the saved assistant message carries its explicit code-delegation identities
+- ordinary background-task identities are a separate product concept and must
+  never be interpreted as code-delegation identities
+- deleting the owning message, conversation, session, or all memory removes
+  unshared code-task logs, diffs, temporary worktrees, and private branches;
+  edits already applied to the user's main project remain in place
 
 ## LLM Configuration
 
@@ -377,6 +384,33 @@ Important behavioral rules:
 - expert memory controls belong in Settings and operator tooling, not first-run onboarding
 - personal profile settings are user-confirmed facts; memory-derived values may be shown as suggestions, but accepting and saving them is the action that turns them into authoritative profile settings
 
+The destructive **Clear All Memory** action is broader than L0-L4:
+
+- it removes chat history and managed chat files, session summaries and traces,
+  working/orchestration state, all memory layers, manual-entry assets, external
+  channel conversation mappings and receipts, notification cursors, and queued
+  proactive notifications plus their delivery history
+- it preserves product configuration: installed/enabled channels, external
+  account authentication, channel binding preferences, LLM settings, persona
+  settings, and unrelated runtime notifications are not remembered
+  conversation content
+- the confirmation and completion copy must describe this real scope rather
+  than saying only “L0-L4”
+- once transcript redaction has committed, the action is reported as complete
+  even if later physical or cross-store cleanup needs startup recovery; the UI
+  should surface that recovery is pending and must discard every pre-clear
+  retry draft instead of offering to resend it
+- a clear action is exclusive with turn submission: it waits for an admitted
+  send to settle, blocks new sends during the boundary, and releases the
+  composer only after success or failure is known
+
+The host prevents already-seen messages and cleared session identities from
+returning after this action. It cannot classify a remote-platform backlog item
+that reaches Magi for the first time only after the clear. Until channel
+plugins participate with a provider-side cursor or time/sequence watermark,
+the product must not imply that clearing local memory also deletes or blocks
+unseen history still held by the external service.
+
 Current storage implementation notes:
 
 - `agent.memory.db_path` is persisted for forward compatibility, but the current Settings UI hides it until runtime directory switching and migration are implemented; active memory still uses `data/memory/`.
@@ -402,7 +436,7 @@ Current storage implementation notes:
 - `llm_usage.db` lives under `~/.magi/runtime/`.
 - `llm_usage.db` may include bounded prompt-cache diagnostic rows controlled by `lifecycle.llm_usage.cache_observability`; disabling that setting removes those rows during lifecycle cleanup.
 - `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery; raw trace data defaults to a 7-day retention window.
-- managed chat attachment and derived text files live under `~/.magi/data/resources/chat/`; an explicit user session/history deletion always removes its files immediately, while `lifecycle.chat_assets.delete_on_session_delete` controls the periodic orphan sweep for session directories that no longer have active chat rows.
+- managed chat attachment and derived text files live under `~/.magi/data/resources/chat/`; an explicit user message/session/history deletion makes the content inaccessible before file cleanup begins. Shared files remain while another visible message owns them. If private file cleanup is interrupted, the product reports the deletion as complete with a recovery warning and startup safely finishes the remaining local cleanup. `lifecycle.chat_assets.delete_on_session_delete` controls the separate periodic orphan sweep for session directories that no longer have active chat rows.
 - runtime logs are governed by size-based `RotatingFileHandler` limits, not lifecycle row retention.
 - rebuildable plugin state belongs under `~/.magi/cache/plugins/<plugin_id>/`, not under memory storage.
 

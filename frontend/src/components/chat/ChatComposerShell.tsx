@@ -40,6 +40,9 @@ export type ChatComposerShellProps = {
   onCompositionEnd: () => void;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
   onPaste: ClipboardEventHandler<HTMLTextAreaElement>;
+  answeringAsk?: boolean;
+  choiceOnlyAsk?: boolean;
+  validChoiceSelected?: boolean;
   waitingForReply: boolean;
   attachmentMenuOpen: boolean;
   coreModelSupportsVision: boolean;
@@ -49,6 +52,7 @@ export type ChatComposerShellProps = {
   onPickFile: () => void;
   sessionId: string | null;
   sendingMessage: boolean;
+  stoppingReply?: boolean;
   onPrimaryAction: () => void;
   recallFeedbackDraft?: RecallFeedbackDraft | null;
   onCancelRecallFeedback?: () => void;
@@ -72,6 +76,9 @@ export const ChatComposerShell = ({
   onCompositionEnd,
   onKeyDown,
   onPaste,
+  answeringAsk = false,
+  choiceOnlyAsk = false,
+  validChoiceSelected = false,
   waitingForReply,
   attachmentMenuOpen,
   coreModelSupportsVision,
@@ -81,6 +88,7 @@ export const ChatComposerShell = ({
   onPickFile,
   sessionId,
   sendingMessage,
+  stoppingReply = false,
   onPrimaryAction,
   recallFeedbackDraft = null,
   onCancelRecallFeedback,
@@ -91,6 +99,7 @@ export const ChatComposerShell = ({
   const { t } = useTranslation();
   const feedbackMode = recallFeedbackDraft !== null;
   const effectiveWaitingForReply = waitingForReply && !feedbackMode;
+  const inputDisabled = effectiveWaitingForReply || choiceOnlyAsk;
 
   return (
     <div
@@ -132,12 +141,14 @@ export const ChatComposerShell = ({
           onCompositionEnd={onCompositionEnd}
           placeholder={effectiveWaitingForReply
             ? t('chat.waitingForReply')
+            : choiceOnlyAsk
+              ? t('chat.askChoiceOnlyPlaceholder')
             : feedbackMode
               ? t('chat.recallFeedback.inputPlaceholder')
               : t('chat.inputPlaceholder')}
           onKeyDown={onKeyDown}
-          onPaste={feedbackMode ? undefined : onPaste}
-          disabled={effectiveWaitingForReply}
+          onPaste={feedbackMode || answeringAsk ? undefined : onPaste}
+          disabled={inputDisabled}
           minHeight={72}
           className="max-h-64 resize-none border-0 bg-transparent p-0 text-[15px] leading-7 shadow-none placeholder:text-muted-foreground/48 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
         />
@@ -153,7 +164,7 @@ export const ChatComposerShell = ({
             onToggle={onToggleAttachmentMenu}
             onPickImage={onPickImage}
             onPickFile={onPickFile}
-            disabled={feedbackMode}
+            disabled={feedbackMode || answeringAsk}
           />
           <div className="relative">
             <SessionSafetyControl sessionId={sessionId} />
@@ -167,7 +178,11 @@ export const ChatComposerShell = ({
           <button
             type="button"
             onClick={onPrimaryAction}
-            disabled={sendingMessage}
+            disabled={
+              sendingMessage
+              || stoppingReply
+              || (choiceOnlyAsk && !validChoiceSelected)
+            }
             className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-[0_8px_18px_hsl(var(--primary)/0.14)] transition-[background-color,box-shadow,color] duration-200 hover:bg-[hsl(var(--primary)/0.92)] hover:shadow-[0_10px_22px_hsl(var(--primary)/0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-[hsl(var(--muted))] disabled:text-muted-foreground disabled:shadow-none"
             aria-label={feedbackMode
               ? t('chat.recallFeedback.send')
@@ -176,7 +191,7 @@ export const ChatComposerShell = ({
               ? t('chat.recallFeedback.send')
               : effectiveWaitingForReply ? t('chat.stop') : t('chat.send')}
           >
-            {sendingMessage ? (
+            {sendingMessage || stoppingReply ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : effectiveWaitingForReply ? (
               <span aria-hidden="true" className="h-3.5 w-3.5 rounded-[2px] bg-current" />

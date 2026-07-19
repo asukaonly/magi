@@ -8,6 +8,11 @@ import {
 } from '@/domain/chat/state.history';
 import type { NormalizedExecutionTraceSummary } from '@/domain/chat/state.trace';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
+import {
+  orderCompleteRhythmItems,
+  readRhythmSegmentMeta,
+  type RhythmSegmentMeta,
+} from '@/domain/chat/rhythm';
 
 export {
   normalizeHistoryMessages,
@@ -65,28 +70,8 @@ export interface ChatTimelineMessage {
   payload?: Record<string, unknown> | null;
 }
 
-type RhythmSegmentMeta = {
-  segmentIndex: number;
-  segmentCount: number;
-};
-
 const getRhythmSegmentMeta = (message: ChatTimelineMessage): RhythmSegmentMeta | null => {
-  const rhythmPayload = message.payload?.rhythm;
-  if (!rhythmPayload || typeof rhythmPayload !== 'object') {
-    return null;
-  }
-  const rhythm = rhythmPayload as Record<string, unknown>;
-  const segmentIndex = Number(rhythm.segment_index ?? rhythm.segmentIndex);
-  const segmentCount = Number(rhythm.segment_count ?? rhythm.segmentCount);
-  if (
-    !Number.isInteger(segmentIndex)
-    || !Number.isInteger(segmentCount)
-    || segmentIndex < 0
-    || segmentCount < 1
-  ) {
-    return null;
-  }
-  return { segmentIndex, segmentCount };
+  return readRhythmSegmentMeta(message.payload?.rhythm);
 };
 
 export const buildSystemSuggestionTriggerText = (messages: ChatTimelineMessage[]): string => {
@@ -119,21 +104,21 @@ export const buildSystemSuggestionTriggerText = (messages: ChatTimelineMessage[]
       segments.unshift(message);
       index -= 1;
     }
-    if (segments.length !== lastMeta.segmentCount) {
-      return '';
-    }
-    const hasCompleteOrderedSegments = segments.every((message, segmentIndex) => {
-      const meta = getRhythmSegmentMeta(message);
-      return Boolean(meta && meta.segmentCount === lastMeta.segmentCount && meta.segmentIndex === segmentIndex);
-    });
-    if (!hasCompleteOrderedSegments) {
+    const orderedSegments = orderCompleteRhythmItems(
+      segments,
+      getRhythmSegmentMeta,
+    );
+    if (
+      !orderedSegments
+      || orderedSegments.length !== lastMeta.segmentCount
+    ) {
       return '';
     }
     const userMessage = messages[index];
     if (!userMessage || userMessage.role !== 'user') {
       return '';
     }
-    return `${userMessage.content}\n${segments.map((message) => message.content).join('\n')}`;
+    return `${userMessage.content}\n${orderedSegments.map((message) => message.content).join('\n')}`;
   }
 
   const lastTwo = messages.slice(-2);

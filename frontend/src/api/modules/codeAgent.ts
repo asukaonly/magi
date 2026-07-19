@@ -248,6 +248,7 @@ export interface ApplyOutcome {
 export interface DelegationStateBroadcast {
   user_id: string;
   session_id: string;
+  turn_id: string;
   delegation_id: string;
   state: DelegationLifecycle;
   summary: Record<string, unknown>;
@@ -256,6 +257,7 @@ export interface DelegationStateBroadcast {
 export interface DelegationEventBroadcast {
   user_id: string;
   session_id: string;
+  turn_id: string;
   delegation_id: string;
   event: RunEvent;
 }

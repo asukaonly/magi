@@ -82,7 +82,14 @@ class RuntimeCommandProcessorModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext, *, poll_interval_seconds: float = 0.1):
         super().__init__(
             name="runtime_command_processor",
-            dependencies=("runtime_command_queue", "runtime_agent_core", "runtime_message_bus"),
+            dependencies=(
+                "runtime_command_queue",
+                "runtime_agent_core",
+                "runtime_message_bus",
+                "runtime_chat_forgetting_recovery",
+                "runtime_chat_assistant_memory_projection",
+                "runtime_chat_delivery_recovery",
+            ),
         )
         self._context = context
         self._poll_interval_seconds = poll_interval_seconds
@@ -245,6 +252,8 @@ class RuntimeCommandProcessorModule(LifecycleModule):
 
     async def _complete_runtime_command(self, queue: Any, command: Any, published: bool) -> None:
         if published:
+            if command.command_type is RuntimeCommandType.USER_MESSAGE:
+                return
             await queue.ack(command.command_id)
         else:
             await queue.requeue(
@@ -254,6 +263,15 @@ class RuntimeCommandProcessorModule(LifecycleModule):
 
     async def _publish_user_message_command(self, command: Any, message_bus: Any) -> bool:
         user_message = command.as_user_message()
+        event_identity = (
+            f"{user_message.correlation_id}:"
+            f"{command.delivery_attempt_no}:"
+            f"{command.runtime_command_id}"
+        )
+        event_digest = uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"magi:runtime-user-message:{event_identity}",
+        ).hex
         return await message_bus.publish(
             Event(
                 type=EventTypes.USER_MESSAGE,
@@ -271,14 +289,18 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                     "metadata": dict(user_message.metadata),
                     "source": user_message.source,
                     "user_message_generation": int(command.user_message_generation),
+                    "delivery_attempt_no": int(command.delivery_attempt_no),
+                    "runtime_command_id": int(command.runtime_command_id),
                 },
                 source=user_message.source,
                 level=EventLevel.INFO,
                 correlation_id=user_message.correlation_id,
-                event_id=uuid.uuid5(
-                    uuid.NAMESPACE_URL,
-                    f"magi:runtime-user-message:{user_message.correlation_id}",
-                ).hex,
+                event_id=(
+                    "runtime-user-message:"
+                    f"{command.delivery_attempt_no}:"
+                    f"{command.runtime_command_id}:"
+                    f"{event_digest}"
+                ),
                 metadata={REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY: True},
             )
         )

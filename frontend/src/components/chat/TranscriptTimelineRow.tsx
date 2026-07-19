@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RotateCcw } from 'lucide-react';
 import { isInteractionExpired, remainingInteractionSeconds } from '@/components/control/interaction-expiry';
+import {
+  readCodeAgentDelegations,
+  type CodeAgentDelegationReference,
+} from '@/domain/chat/delegations';
 import type { ProjectedChatTimelineMessage } from '@/domain/chat/presentation';
+import { readRhythmSegmentMeta } from '@/domain/chat/rhythm';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
 import { useConversationStore } from '@/stores/conversation-store';
 import { useDelegationsStore, type DelegationCardState } from '@/stores/delegations-store';
@@ -26,13 +31,8 @@ const resolveTranscriptContent = (
   message: ProjectedChatTimelineMessage['message'],
   delegationCard: DelegationCardState | null,
 ): string => {
-  const payload = message.payload && typeof message.payload === 'object'
-    ? message.payload as Record<string, unknown>
-    : null;
-  const backgroundTaskId = String(payload?.background_task_id || '').trim();
-
   // Check if this message has an associated delegation
-  const hasDelegation = backgroundTaskId && delegationCard;
+  const hasDelegation = Boolean(delegationCard);
 
   // Check if delegation has finished
   const isDelegationTerminal = delegationCard?.lifecycle === 'finished'
@@ -155,12 +155,30 @@ export const TranscriptTimelineRow = ({
     sessionId ? state.delegationsBySession[sessionId] ?? null : null,
   );
 
-  // Find matching delegation card for this message (by background_task_id -> delegation_id)
-  const backgroundTaskId = message.payload && typeof message.payload === 'object'
-    ? String((message.payload as Record<string, unknown>).background_task_id || '').trim()
-    : '';
-  const matchingDelegation = backgroundTaskId && delegationCards?.[backgroundTaskId]
-    ? delegationCards[backgroundTaskId]
+  // Persisted messages carry explicit code-agent identities even when the
+  // in-memory store is empty after reopening or switching back to a session.
+  const rhythmMeta = readRhythmSegmentMeta(message.payload?.rhythm);
+  const isNonTerminalRhythmSegment = (
+    message.messageKind === 'assistant_rhythm_segment'
+    && rhythmMeta !== null
+    && rhythmMeta.segmentIndex < rhythmMeta.segmentCount - 1
+  );
+  const associatedDelegations = useMemo(
+    // Defensive rendering only. The persistence contract still requires the
+    // backend to attach code-agent references exclusively to the final segment.
+    () => isNonTerminalRhythmSegment
+      ? []
+      : readCodeAgentDelegations(message.payload),
+    [isNonTerminalRhythmSegment, message.payload],
+  );
+  const matchingDelegations = useMemo(
+    () => associatedDelegations
+      .map(({ delegationId }) => delegationCards?.[delegationId] ?? null)
+      .filter((card): card is DelegationCardState => Boolean(card)),
+    [associatedDelegations, delegationCards],
+  );
+  const matchingDelegation = associatedDelegations.length === 1
+    ? matchingDelegations[0] ?? null
     : null;
 
   const messageContent = resolveTranscriptContent(message, matchingDelegation);
@@ -180,24 +198,29 @@ export const TranscriptTimelineRow = ({
         : 'idle';
 
   // Check if this message has an associated delegation (running or finished)
-  const hasAssociatedDelegation = Boolean(matchingDelegation);
+  const hasAssociatedDelegation = associatedDelegations.length > 0;
 
   const workspacePath = useConversationStore((state) =>
     sessionId ? state.sessionsById[sessionId]?.workspace_path ?? null : null,
   );
-  const delegationIds = useMemo(() => {
-    if (!delegationCards) return [];
-
-    // If this message has an associated delegation, show only that card
-    if (hasAssociatedDelegation && matchingDelegation) {
-      return [matchingDelegation.delegation_id];
+  const visibleDelegations = useMemo<CodeAgentDelegationReference[]>(() => {
+    // Historical references own their original turn and workspace. The
+    // session workspace may have changed since the delegation ran.
+    if (associatedDelegations.length > 0) {
+      return associatedDelegations;
     }
+
+    if (!delegationCards) return [];
 
     // Otherwise, if we're the last assistant message, show all relevant cards
     const showDelegationCards = isLastAssistant && message.role === 'assistant' && Boolean(sessionId);
     if (!showDelegationCards) return [];
 
-    const allIds = Object.keys(delegationCards);
+    const messageTurnId = String(message.turnId || '').trim();
+    if (!messageTurnId) return [];
+    const allIds = Object.keys(delegationCards).filter((delegationId) => (
+      delegationCards[delegationId]?.turn_id === messageTurnId
+    ));
     // Filter out discarded cards initially
     const activeIds = allIds.filter((did) => {
       const card = delegationCards[did];
@@ -223,27 +246,41 @@ export const TranscriptTimelineRow = ({
       return card?.lifecycle === 'discarded';
     });
     const visibleDiscarded = (runningIds.length > 0 || finishedIds.length > 0) ? [] : discardedIds.slice(-1);
-    return [...runningIds, ...finishedIds, ...visibleDiscarded];
-  }, [delegationCards, hasAssociatedDelegation, matchingDelegation, isLastAssistant, message.role, sessionId]);
+    return [...runningIds, ...finishedIds, ...visibleDiscarded].map((delegationId) => ({
+      delegationId,
+      turnId: delegationCards[delegationId]?.turn_id || message.turnId || '',
+      workspacePath: workspacePath || '',
+    }));
+  }, [
+    associatedDelegations,
+    delegationCards,
+    isLastAssistant,
+    message.role,
+    message.turnId,
+    sessionId,
+    workspacePath,
+  ]);
 
   // Check if the associated delegation is running
-  const isAssociatedDelegationRunning = matchingDelegation?.lifecycle === 'started'
-    || matchingDelegation?.lifecycle === 'running';
+  const isAssociatedDelegationRunning = matchingDelegations.some((card) => (
+    card.lifecycle === 'started' || card.lifecycle === 'running'
+  ));
 
   // Check if we have any delegation cards at all
-  const hasAnyDelegationCards = delegationIds.length > 0;
+  const hasAnyDelegationCards = visibleDelegations.length > 0;
 
   // Render delegation cards
   const renderDelegationCards = (aboveMessage = false) => {
     if (!sessionId) return null;
     return (
       <div className={`${aboveMessage ? 'mb-2' : 'mt-2'} space-y-2`}>
-        {delegationIds.map((did) => (
+        {visibleDelegations.map((delegation) => (
           <DelegationCard
-            key={did}
+            key={delegation.delegationId}
             sessionId={sessionId}
-            delegationId={did}
-            workspace={workspacePath}
+            delegationId={delegation.delegationId}
+            turnId={delegation.turnId}
+            workspace={delegation.workspacePath || null}
           />
         ))}
       </div>

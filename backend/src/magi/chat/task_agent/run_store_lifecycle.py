@@ -59,10 +59,12 @@ class SessionRunLifecycleMixin:
                 response_anchor_turn_id=root_turn_id,
                 trigger_dict=trigger.to_dict() if trigger is not None else None,
             )
+            self._discard_session_run_controls(session_id)
             self._push_root_goal(
                 session_id=session_id,
                 run_id=run_identifier,
                 revision=0,
+                root_turn_id=root_turn_id,
                 root_user_message=root_user_message,
             )
             active_run = self._require_run(session_id)
@@ -134,10 +136,12 @@ class SessionRunLifecycleMixin:
                 cancel_requested_by=None,
                 cancel_anchor_turn_id=None,
             )
+            self._discard_session_run_controls(session_id)
             self._push_root_goal(
                 session_id=session_id,
                 run_id=active_run.run_id,
                 revision=active_run.revision,
+                root_turn_id=turn_id,
                 root_user_message=content,
             )
             active_run = self._require_run(session_id)
@@ -158,23 +162,79 @@ class SessionRunLifecycleMixin:
         revision: int | None = None,
     ) -> bool:
         """Clear the active run when the expected run/revision is still current."""
+        completed, _ = self.complete_active_run_with_deferred(
+            session_id,
+            run_id=run_id,
+            revision=revision,
+        )
+        return completed
+
+    def complete_active_run_with_deferred(
+        self,
+        session_id: str,
+        *,
+        run_id: str | None = None,
+        revision: int | None = None,
+    ) -> tuple[bool, list[PendingTurn]]:
+        """Complete one exact run and atomically return its DEFER turns."""
+
         with self._lock:
             active_run = self._get_run(session_id)
             if active_run is None:
-                return False
+                return False, []
             if run_id is not None and active_run.run_id != run_id:
-                return False
+                return False, []
             if revision is not None and active_run.revision != int(revision):
-                return False
+                return False, []
+            deferred_turns = [
+                self._to_pending_turn(item)
+                for item in self._l0_store.get_execution_state_sync(
+                    session_id
+                ).get("pending_turns", [])
+                if int(item.get("revision") or 0) == active_run.revision
+                and str(item.get("disposition") or "").strip().lower()
+                == "defer"
+            ]
+            if active_run.status == "cancelling":
+                self.mark_cancelled(
+                    session_id,
+                    run_id=active_run.run_id,
+                    revision=active_run.revision,
+                )
+                self._l0_store.consume_execution_pending_turns_sync(
+                    session_id,
+                    revision=active_run.revision,
+                    disposition="defer",
+                )
+                self._discard_exact_run_control(
+                    session_id=session_id,
+                    run_id=active_run.run_id,
+                )
+                return True, deferred_turns
+            if active_run.status == "cancelled":
+                self._l0_store.consume_execution_pending_turns_sync(
+                    session_id,
+                    revision=active_run.revision,
+                    disposition="defer",
+                )
+                self._discard_exact_run_control(
+                    session_id=session_id,
+                    run_id=active_run.run_id,
+                )
+                return True, deferred_turns
             self._complete_root_goal(session_id=session_id, active_run=active_run)
             self._l0_store.clear_execution_state_sync(session_id)
+            self._discard_exact_run_control(
+                session_id=session_id,
+                run_id=active_run.run_id,
+            )
             logger.info(
                 "Chat session run completed",
                 session_id=session_id,
                 run_id=active_run.run_id,
                 revision=active_run.revision,
             )
-            return True
+            return True, deferred_turns
 
     def request_cancel(
         self,
@@ -273,6 +333,61 @@ class SessionRunLifecycleMixin:
             ]
             return pending_turns
 
+    def discard_pending_turn(
+        self,
+        session_id: str,
+        *,
+        turn_id: str,
+        run_id: str | None = None,
+        revision: int | None = None,
+    ) -> PendingTurn | None:
+        """Remove one exact pending turn without changing its active root run."""
+
+        normalized_turn_id = str(turn_id or "").strip()
+        if not normalized_turn_id:
+            raise ValueError("turn_id must not be empty")
+        with self._lock:
+            active_run = self._get_run(session_id)
+            if active_run is None:
+                return None
+            normalized_run_id = str(run_id or "").strip()
+            if normalized_run_id and active_run.run_id != normalized_run_id:
+                return None
+            if revision is not None and active_run.revision != int(revision):
+                return None
+            removed = self._l0_store.consume_execution_pending_turns_sync(
+                session_id,
+                revision=active_run.revision,
+                turn_id=normalized_turn_id,
+            )
+            if len(removed) != 1:
+                return None
+            return deepcopy(self._to_pending_turn(removed[0]))
+
+    async def discard_pending_turn_durably(
+        self,
+        session_id: str,
+        *,
+        turn_id: str,
+        run_id: str | None = None,
+        revision: int | None = None,
+    ) -> PendingTurn | None:
+        """Remove one pending turn from live and checkpointed L0 state."""
+
+        removed = self.discard_pending_turn(
+            session_id,
+            turn_id=turn_id,
+            run_id=run_id,
+            revision=revision,
+        )
+        if removed is None:
+            return None
+        await self._l0_store.forget_execution_turn(
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+        return removed
+
     def register_active_run_control(
         self,
         session_id: str,
@@ -318,7 +433,29 @@ class SessionRunLifecycleMixin:
         reference accomplishes nothing.
         """
         with self._lock:
-            self._run_controls.pop((session_id, run_id), None)
+            self._discard_exact_run_control(
+                session_id=session_id,
+                run_id=run_id,
+            )
+
+    def _discard_exact_run_control(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+    ) -> None:
+        """Drop only the runtime control owned by one exact run."""
+
+        self._run_controls.pop((session_id, run_id), None)
+
+    def _discard_session_run_controls(self, session_id: str) -> None:
+        """Drop controls made obsolete when a session root is replaced."""
+
+        stale_keys = [
+            key for key in self._run_controls if key[0] == session_id
+        ]
+        for key in stale_keys:
+            self._run_controls.pop(key, None)
 
     def bump_revision(
         self,
@@ -348,6 +485,7 @@ class SessionRunLifecycleMixin:
                 ),
                 response_anchor_turn_id=active_run.root_turn_id,
             )
+            self._discard_session_run_controls(session_id)
             active_run = self._require_run(session_id)
             logger.info(
                 "Chat session run revised",

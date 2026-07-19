@@ -22,6 +22,7 @@ class SessionRunGoalMixin:
         session_id: str,
         run_id: str,
         revision: int,
+        root_turn_id: str | None,
         root_user_message: str,
     ) -> None:
         description = str(root_user_message or "").strip()
@@ -34,7 +35,11 @@ class SessionRunGoalMixin:
             description=description,
             status="in_progress",
             priority=0,
-            metadata={"run_id": run_id, "revision": int(revision)},
+            metadata={
+                "run_id": run_id,
+                "revision": int(revision),
+                "root_turn_id": str(root_turn_id or "").strip() or None,
+            },
         )
 
     def _cancel_root_goal(

@@ -3,6 +3,7 @@
 //! These tests verify that the Axum router builds correctly and that
 //! endpoints not requiring IPC (health, ready) respond as expected.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -58,6 +59,20 @@ fn router_test_guard() -> MutexGuard<'static, ()> {
         .get_or_init(|| Mutex::new(()))
         .lock()
         .expect("lock gateway router integration test")
+}
+
+fn staged_ipc_body_paths() -> HashSet<PathBuf> {
+    std::fs::read_dir(std::env::temp_dir())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("magi-ipc-body-"))
+        })
+        .collect()
 }
 
 async fn request_json(
@@ -795,9 +810,31 @@ async fn native_read_routes_return_stable_empty_payloads_when_databases_are_miss
 }
 
 #[tokio::test]
-async fn native_attachment_upload_route_stores_text_attachment() {
+async fn attachment_upload_route_forwards_multipart_to_python() {
     let home = isolated_home("upload-attachment");
-    let state = test_state().await;
+    let forwarded_body = serde_json::json!({
+        "success": true,
+        "message": "Attachment uploaded",
+        "data": {
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "attachment": {
+                "attachment_id": "attachment-1",
+                "kind": "text_file",
+                "parse_status": "pending"
+            }
+        }
+    });
+    let (state, requests) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 201,
+        "headers": {
+            "content-type": "application/json",
+            "x-magi-upload-owner": "python"
+        },
+        "body": forwarded_body
+    }))
+    .await;
     let router = api::build_router(state);
 
     let boundary = "magi-boundary";
@@ -816,21 +853,121 @@ async fn native_attachment_upload_route_stores_text_attachment() {
         .unwrap();
 
     let response = router.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), 200);
+    assert_eq!(response.status(), 201);
+    assert_eq!(
+        response.headers().get("x-magi-upload-owner").unwrap(),
+        "python"
+    );
+    assert!(response
+        .headers()
+        .contains_key("access-control-allow-origin"));
 
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["success"], true);
-    assert_eq!(json["data"]["user_id"], "local_user");
-    assert_eq!(json["data"]["session_id"], "session-1");
-    assert_eq!(json["data"]["turn_id"], "turn-1");
     assert_eq!(json["data"]["attachment"]["kind"], "text_file");
     assert_eq!(json["data"]["attachment"]["parse_status"], "pending");
-    assert!(json["data"]["attachment"]["derived_text_excerpt"].is_null());
 
-    let storage_path = json["data"]["attachment"]["storage_path"].as_str().unwrap();
-    assert!(Path::new(storage_path).is_file());
-    assert!(storage_path.starts_with(home.path().join(".magi").to_string_lossy().as_ref()));
+    let observed = requests.lock().unwrap();
+    let request = observed.first().expect("forwarded IPC request");
+    assert_eq!(request["method"], "api.forward");
+    assert_eq!(request["params"]["method"], "POST");
+    assert_eq!(
+        request["params"]["path"],
+        "/api/messages/session/session-1/attachments"
+    );
+    assert!(request["params"]["headers"]["content-type"]
+        .as_str()
+        .unwrap()
+        .contains("multipart/form-data"));
+    let staged_path = request["params"]["body_file_path"]
+        .as_str()
+        .expect("staged multipart path");
+    assert!(!Path::new(staged_path).exists());
+    assert!(!home
+        .path()
+        .join(".magi/data/resources/chat/files/session-1")
+        .exists());
+}
+
+#[tokio::test]
+async fn attachment_upload_proxy_accepts_large_body_and_cleans_on_failure() {
+    let home = isolated_home("upload-attachment-large");
+    let (state, requests) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 400,
+        "headers": {
+            "content-type": "application/json"
+        },
+        "body": {
+            "detail": "Rejected by Python attachment validation"
+        }
+    }))
+    .await;
+    let router = api::build_router(state);
+    let boundary = "magi-large-boundary";
+    let header = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"turn_id\"\r\n\r\nturn-1\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"large.txt\"\r\nContent-Type: text/plain\r\n\r\n"
+    )
+    .into_bytes();
+    let footer = format!("\r\n--{boundary}--\r\n").into_bytes();
+    let chunks = std::iter::once(Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(
+        header,
+    )))
+    .chain((0..11).map(|_| Ok(axum::body::Bytes::from(vec![b'x'; 1024 * 1024]))))
+    .chain(std::iter::once(Ok(axum::body::Bytes::from(footer))));
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/messages/session/session-1/attachments")
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from_stream(futures_util::stream::iter(chunks)))
+        .unwrap();
+
+    let response = router.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), 400);
+    let response_body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&response_body).unwrap();
+    assert_eq!(json["detail"], "Rejected by Python attachment validation");
+
+    let observed = requests.lock().unwrap();
+    let request = observed.first().expect("forwarded IPC request");
+    let staged_path = request["params"]["body_file_path"]
+        .as_str()
+        .expect("staged multipart path");
+    assert!(!Path::new(staged_path).exists());
+    drop(observed);
+    drop(home);
+}
+
+#[tokio::test]
+async fn attachment_upload_proxy_rejects_stream_over_limit_without_ipc_or_temp_leak() {
+    let home = isolated_home("upload-attachment-over-limit");
+    let (state, requests) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 201,
+        "headers": {"content-type": "application/json"},
+        "body": {"unexpected": true}
+    }))
+    .await;
+    let router = api::build_router(state);
+    let temp_before = staged_ipc_body_paths();
+    let chunks = (0..56).map(|_| {
+        Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(vec![b'x'; 1024 * 1024]))
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/messages/session/session-1/attachments")
+        .header("content-type", "multipart/form-data; boundary=over-limit")
+        .body(Body::from_stream(futures_util::stream::iter(chunks)))
+        .unwrap();
+
+    let response = router.oneshot(req).await.unwrap();
+
+    assert_eq!(response.status(), 400);
+    assert!(requests.lock().unwrap().is_empty());
+    assert_eq!(staged_ipc_body_paths(), temp_before);
+    drop(home);
 }
 
 #[tokio::test]

@@ -37,6 +37,24 @@ def _isolate_orchestration_store(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_chat_read_service(monkeypatch):
+    class _FakeChatReadService:
+        async def aclear_all_sessions(self) -> int:
+            return 0
+
+        async def acomplete_global_clear(self) -> bool:
+            return True
+
+        async def areset_user_turn_delivery_after_failed_clear(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _FakeChatReadService(),
+    )
+
+
+@pytest.fixture(autouse=True)
 def _isolate_user_message_clear_boundary(monkeypatch):
     class _FakeRuntimeCommandQueue:
         def __init__(self) -> None:
@@ -47,6 +65,11 @@ def _isolate_user_message_clear_boundary(monkeypatch):
         @asynccontextmanager
         async def user_message_clear_boundary(self):  # type: ignore[no-untyped-def]
             async with self.barrier.exclusive():
+                yield
+
+        @asynccontextmanager
+        async def user_message_global_clear_boundary(self):  # type: ignore[no-untyped-def]
+            async with self.user_message_clear_boundary():
                 yield
 
         async def advance_user_message_generation_and_purge(self) -> tuple[int, int]:
@@ -65,6 +88,22 @@ def _isolate_user_message_clear_boundary(monkeypatch):
         lambda: sensor_hub,
     )
     return queue, sensor_hub
+
+
+@pytest.fixture(autouse=True)
+def _isolate_external_conversation_clear_dependencies(monkeypatch):
+    class _FakeChannelSessionMapper:
+        async def clear_conversation_state(self) -> dict[str, int]:
+            return {}
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_outreach_service",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_channel_session_mapper",
+        lambda: _FakeChannelSessionMapper(),
+    )
 
 
 class _FakeL0Store:
@@ -2065,16 +2104,51 @@ def test_memory_clear_api_clears_all_layers(
 ):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
+    clear_order: list[str] = []
+
+    class _OrderedUnifiedMemory(_FakeUnifiedMemory):
+        async def clear_all_memory(
+            self,
+            *,
+            auxiliary_clearers=(),
+            context_clearer=None,
+        ):
+            result = await super().clear_all_memory(
+                auxiliary_clearers=auxiliary_clearers,
+                context_clearer=context_clearer,
+            )
+            clear_order.append("memory-finished")
+            return result
 
     class _FakeChatReadService:
         async def aclear_all_sessions(self) -> int:
+            assert clear_order == ["background-enter"]
+            clear_order.append("chat")
             return 4
 
+    @asynccontextmanager
+    async def background_scope_boundary(**kwargs):  # type: ignore[no-untyped-def]
+        assert kwargs == {"reason": "user_clear_all_memory"}
+        clear_order.append("background-enter")
+        try:
+            yield
+        finally:
+            clear_order.append("background-exit")
+
+    background_task_manager = SimpleNamespace(
+        conversation_scope_boundary=background_scope_boundary,
+    )
+
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _OrderedUnifiedMemory(),
     )
     monkeypatch.setattr(
         "magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService()
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_background_task_manager",
+        lambda: background_task_manager,
     )
 
     client = TestClient(app)
@@ -2090,6 +2164,12 @@ def test_memory_clear_api_clears_all_layers(
     assert body["results"]["l4"]["count"] == 1
     assert body["results"]["chat_context"]["count"] == 4
     _isolate_orchestration_store.clear_all.assert_awaited_once()
+    assert clear_order == [
+        "background-enter",
+        "chat",
+        "memory-finished",
+        "background-exit",
+    ]
 
 
 def test_memory_clear_resumes_rebuild_starts_when_pause_fails(monkeypatch):
@@ -2231,12 +2311,14 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
                 cursor = conn.execute("""
                     UPDATE chat_user_turn_delivery
                     SET projection_completed = 0,
-                        runtime_enqueued = 0,
+                        delivery_attempt_no = delivery_attempt_no + 1,
+                        delivery_state = 'ready',
+                        current_command_id = NULL,
                         updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
-                    WHERE projection_completed != 0 OR runtime_enqueued != 0
+                    WHERE delivery_state IN ('ready', 'queued', 'admitted')
                     """)
                 conn.commit()
-                return int(cursor.rowcount or 0)
+            return int(cursor.rowcount or 0)
 
         async def aclear_all_sessions(self) -> int:
             raise AssertionError("failing memory clear must not reach chat deletion")
@@ -2311,10 +2393,11 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
 
         with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as conn:
             assert conn.execute("""
-                SELECT projection_completed, runtime_enqueued
+                SELECT projection_completed, delivery_attempt_no,
+                       delivery_state, current_command_id
                 FROM chat_user_turn_delivery
                 WHERE turn_id = 'turn-clear-retry'
-                """).fetchone() == (0, 0)
+                """).fetchone() == (0, 1, "ready", None)
         with sqlite3.connect(runtime_paths_with_schema.message_queue_db_path) as conn:
             assert conn.execute(
                 "SELECT COUNT(*) FROM runtime_commands WHERE command_type = 'user_message'"
@@ -2329,10 +2412,11 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
         assert projector.calls == 2
         with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as conn:
             assert conn.execute("""
-                SELECT projection_completed, runtime_enqueued
+                SELECT projection_completed, delivery_attempt_no,
+                       delivery_state, current_command_id
                 FROM chat_user_turn_delivery
                 WHERE turn_id = 'turn-clear-retry'
-                """).fetchone() == (1, 1)
+                """).fetchone() == (1, 1, "queued", 2)
         assert (await queue.get_stats())["pending_count"] == 1
     finally:
         await queue.stop()
@@ -2372,11 +2456,254 @@ def test_memory_clear_finishes_data_clear_when_sensor_queue_cleanup_fails(
         lambda: task_agent_manager,
     )
 
-    with pytest.raises(RuntimeError, match="sensor queue cleanup failed"):
-        TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app).delete("/api/memory/clear")
 
+    assert response.status_code == 200
+    assert response.json()["warnings"] == ["sensor_cleanup_failed"]
     unified.clear_all_memory.assert_awaited_once()
     task_agent_manager.resume_chat_work.assert_awaited_once()
+
+
+def test_memory_clear_reports_success_when_physical_chat_cleanup_is_pending(
+    monkeypatch,
+) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _PendingChatClear:
+        async def aclear_all_sessions(self) -> int:
+            raise OSError("simulated asset cleanup failure")
+
+        async def aget_interrupted_global_clear_count(self) -> int:
+            return 3
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _PendingChatClear(),
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["warnings"] == ["chat_asset_cleanup_pending"]
+    assert response.json()["results"]["chat_context"]["count"] == 3
+
+
+def test_memory_clear_blocks_outreach_and_clears_channel_conversation_state(
+    monkeypatch,
+) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    outreach_boundary_active = False
+    channel_boundary_active = False
+    events: list[str] = []
+
+    class _OutreachService:
+        @asynccontextmanager
+        async def conversation_clear_boundary(self):
+            nonlocal outreach_boundary_active
+            outreach_boundary_active = True
+            events.append("outreach-paused")
+            try:
+                yield
+            finally:
+                events.append("outreach-resumed")
+                outreach_boundary_active = False
+
+    class _ChannelsModule:
+        @asynccontextmanager
+        async def conversation_clear_boundary(self):
+            nonlocal channel_boundary_active
+            channel_boundary_active = True
+            events.append("channel-delivery-paused")
+            try:
+                yield
+            finally:
+                events.append("channel-delivery-resumed")
+                channel_boundary_active = False
+
+    class _ChatReadService:
+        async def aclear_all_sessions(self) -> int:
+            assert outreach_boundary_active is True
+            assert channel_boundary_active is True
+            events.append("chat-cleared")
+            return 2
+
+        async def acomplete_global_clear(self) -> bool:
+            assert outreach_boundary_active is True
+            assert channel_boundary_active is True
+            events.append("conversation-clear-finalized")
+            return True
+
+    class _ChannelSessionMapper:
+        async def clear_conversation_state(self) -> dict[str, int]:
+            assert outreach_boundary_active is True
+            assert channel_boundary_active is True
+            events.append("channel-state-cleared")
+            return {"channel_session_mappings": 1, "outreach_outbox": 1}
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_outreach_service",
+        lambda: _OutreachService(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_channels_module",
+        lambda: _ChannelsModule(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_channel_session_mapper",
+        lambda: _ChannelSessionMapper(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _ChatReadService(),
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    assert response.json()["results"]["chat_context"]["count"] == 2
+    assert events == [
+        "outreach-paused",
+        "channel-delivery-paused",
+        "chat-cleared",
+        "channel-state-cleared",
+        "conversation-clear-finalized",
+        "channel-delivery-resumed",
+        "outreach-resumed",
+    ]
+
+
+def test_memory_clear_keeps_global_barrier_when_finalization_is_declined(
+    monkeypatch,
+) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    finalize = AsyncMock(return_value=False)
+
+    class _ChatReadService:
+        async def aclear_all_sessions(self) -> int:
+            return 1
+
+        acomplete_global_clear = finalize
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _ChatReadService(),
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    assert response.json()["warnings"] == [
+        "conversation_clear_finalization_failed"
+    ]
+    finalize.assert_awaited_once()
+
+
+def test_memory_clear_warns_when_channel_conversation_cleanup_fails(
+    monkeypatch,
+) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    finalize = AsyncMock(return_value=True)
+
+    class _ChannelSessionMapper:
+        async def clear_conversation_state(self) -> dict[str, int]:
+            raise OSError("channels database is unavailable")
+
+    class _ChatReadService:
+        async def aclear_all_sessions(self) -> int:
+            return 1
+
+        acomplete_global_clear = finalize
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_channel_session_mapper",
+        lambda: _ChannelSessionMapper(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _ChatReadService(),
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    assert response.json()["warnings"] == [
+        "channel_conversation_cleanup_failed"
+    ]
+    finalize.assert_not_awaited()
+
+
+def test_memory_clear_reports_success_when_memory_writers_fail_to_resume(
+    monkeypatch,
+) -> None:
+    from magi.memory.store_lifecycle import MemoryClearCompletedWithRecoveryError
+
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _ClearThenFailResume:
+        async def clear_all_memory(
+            self,
+            *,
+            auxiliary_clearers=(),
+            context_clearer=None,
+        ) -> dict[str, int]:
+            for clearer in auxiliary_clearers:
+                result = clearer()
+                if hasattr(result, "__await__"):
+                    await result
+            chat_count = await context_clearer()
+            failure = RuntimeError("memory writer restart failed")
+            raise MemoryClearCompletedWithRecoveryError(
+                counts={
+                    "l0": 1,
+                    "l1": 2,
+                    "l2": 3,
+                    "l3": 4,
+                    "l4": 5,
+                    "chat_context": chat_count,
+                },
+                recovery_error=failure,
+            )
+
+    class _FakeChatReadService:
+        async def aclear_all_sessions(self) -> int:
+            return 2
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _ClearThenFailResume(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _FakeChatReadService(),
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    assert response.json()["warnings"] == ["memory_writer_resume_failed"]
+    assert response.json()["results"]["chat_context"]["count"] == 2
 
 
 def test_memory_clear_keeps_clear_error_when_both_recovery_steps_fail(monkeypatch):
@@ -2412,7 +2739,7 @@ def test_memory_clear_keeps_clear_error_when_both_recovery_steps_fail(monkeypatc
     rebuild_resume.assert_awaited_once()
 
 
-def test_memory_clear_fails_when_chat_resume_fails_and_resumes_rebuilds(monkeypatch):
+def test_memory_clear_warns_when_chat_resume_fails_after_data_clear(monkeypatch):
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
 
     app = FastAPI()
@@ -2434,17 +2761,15 @@ def test_memory_clear_fails_when_chat_resume_fails_and_resumes_rebuilds(monkeypa
         lambda: task_agent_manager,
     )
 
-    with pytest.raises(
-        RuntimeError,
-        match="Failed to resume work after memory clear: chat",
-    ):
-        TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app).delete("/api/memory/clear")
 
+    assert response.status_code == 200
+    assert response.json()["warnings"] == ["chat_resume_failed"]
     task_agent_manager.resume_chat_work.assert_awaited_once()
     rebuild_resume.assert_awaited_once()
 
 
-def test_memory_clear_fails_when_rebuild_resume_fails_after_chat_resumes(monkeypatch):
+def test_memory_clear_warns_when_rebuild_resume_fails_after_data_clear(monkeypatch):
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
 
     app = FastAPI()
@@ -2466,25 +2791,27 @@ def test_memory_clear_fails_when_rebuild_resume_fails_after_chat_resumes(monkeyp
         lambda: task_agent_manager,
     )
 
-    with pytest.raises(
-        RuntimeError,
-        match="Failed to resume work after memory clear: embedding_rebuild",
-    ):
-        TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app).delete("/api/memory/clear")
 
+    assert response.status_code == 200
+    assert response.json()["warnings"] == ["embedding_rebuild_resume_failed"]
     task_agent_manager.resume_chat_work.assert_awaited_once()
     rebuild_resume.assert_awaited_once()
 
 
-def test_memory_clear_recovers_services_when_orchestration_cleanup_fails(monkeypatch):
+def test_memory_clear_warns_when_orchestration_cleanup_fails(monkeypatch):
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
 
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
+    finalize = AsyncMock(return_value=True)
+
     class _FakeChatReadService:
         async def aclear_all_sessions(self) -> int:
             return 1
+
+        acomplete_global_clear = finalize
 
     orchestration_store = SimpleNamespace(
         clear_all=AsyncMock(side_effect=OSError("orchestration disk full"))
@@ -2514,10 +2841,13 @@ def test_memory_clear_recovers_services_when_orchestration_cleanup_fails(monkeyp
         lambda: _FakeChatReadService(),
     )
 
-    with pytest.raises(OSError, match="orchestration disk full"):
-        TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app).delete("/api/memory/clear")
 
+    assert response.status_code == 200
+    assert response.json()["warnings"] == ["orchestration_cleanup_failed"]
+    assert response.json()["results"]["chat_context"]["count"] == 1
     orchestration_store.clear_all.assert_awaited_once()
+    finalize.assert_not_awaited()
     task_agent_manager.resume_chat_work.assert_awaited_once()
     rebuild_resume.assert_awaited_once()
 

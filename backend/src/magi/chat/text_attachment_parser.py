@@ -33,8 +33,19 @@ class LocalTextAttachmentParser:
     ) -> ParsedTextAttachment:
         """Load and normalize one local text-like file."""
 
-        path = Path(file_path)
-        content_bytes = path.read_bytes()
+        return self.parse_bytes(
+            Path(file_path).read_bytes(),
+            max_chars=max_chars,
+        )
+
+    def parse_bytes(
+        self,
+        content_bytes: bytes,
+        *,
+        max_chars: int = DEFAULT_TEXT_ATTACHMENT_MAX_CHARS,
+    ) -> ParsedTextAttachment:
+        """Normalize text from bytes already opened by the owning boundary."""
+
         text, encoding = self._decode_bytes(content_bytes)
         character_count = len(text)
         safe_max_chars = max(1, int(max_chars))

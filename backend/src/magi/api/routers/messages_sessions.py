@@ -7,11 +7,18 @@ from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query
 
-from ...chat.forgetting import get_chat_forgetting_service
-from ...core.runtime_bindings import require_chat_read_service
+from ...core.chat_cleanup import ChatSurfaceCleanupPendingError
+from ...core.runtime_bindings import (
+    require_chat_forgetting_service,
+    require_chat_read_service,
+)
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .messages_common import get_default_chat_workspace_path
-from .messages_models import RenameSessionRequest, UpdateSessionWorkspaceRequest
+from .messages_models import (
+    DeleteSessionResponse,
+    RenameSessionRequest,
+    UpdateSessionWorkspaceRequest,
+)
 
 message_sessions_router = APIRouter()
 
@@ -92,11 +99,15 @@ async def update_session_workspace(session_id: str, request: UpdateSessionWorksp
         raise HTTPException(status_code=503, detail=str(exc))
 
 
-@message_sessions_router.delete("/session/{session_id}", response_model=Dict[str, Any])
+@message_sessions_router.delete(
+    "/session/{session_id}",
+    response_model=DeleteSessionResponse,
+)
 async def delete_session(session_id: str, user_id: str = DEFAULT_USER_ID):
     """Delete one session and its related chat data."""
+    cleanup_pending = False
     try:
-        deleted = await get_chat_forgetting_service().delete_session(
+        deleted = await require_chat_forgetting_service().delete_session(
             user_id=user_id,
             session_id=session_id,
         )
@@ -106,6 +117,16 @@ async def delete_session(session_id: str, user_id: str = DEFAULT_USER_ID):
             "success": True,
             "user_id": user_id,
             "deleted_session_id": session_id,
+            "cleanup_pending": cleanup_pending,
+        }
+    except ChatSurfaceCleanupPendingError as exc:
+        if exc.session_id != session_id:
+            raise
+        return {
+            "success": True,
+            "user_id": user_id,
+            "deleted_session_id": session_id,
+            "cleanup_pending": True,
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

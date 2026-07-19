@@ -6,7 +6,6 @@ from pydantic import ValidationError
 
 from magi.tools.code_agent.contracts import (
     AdapterName,
-    CostInfo,
     DelegateConstraints,
     DelegateRequest,
     DelegateResult,
@@ -55,6 +54,7 @@ def test_delegate_request_round_trip():
     req = DelegateRequest(
         delegation_id="d" * 32,
         session_id="s1",
+        turn_id="turn-1",
         adapter="codex",
         prompt="add max_retries to connect()",
         files_hint=["src/net.py"],
@@ -71,6 +71,7 @@ def test_delegate_request_rejects_short_delegation_id():
         DelegateRequest(
             delegation_id="abc",
             session_id="s",
+            turn_id="turn-1",
             adapter="codex",
             prompt="x",
             files_hint=[],
@@ -79,6 +80,42 @@ def test_delegate_request_rejects_short_delegation_id():
             timeout_s=60,
             model=None,
         )
+
+
+@pytest.mark.parametrize(
+    "session_id",
+    ["../s1", "s1/child", "s1!", "", "x" * 129],
+)
+def test_delegate_request_rejects_unsafe_session_id(session_id: str) -> None:
+    with pytest.raises(ValidationError):
+        DelegateRequest(
+            delegation_id="a" * 32,
+            session_id=session_id,
+            turn_id="turn-1",
+            adapter="codex",
+            prompt="x",
+            files_hint=[],
+            workspace_root="/r",
+            constraints=DelegateConstraints(),
+            timeout_s=60,
+            model=None,
+        )
+
+
+def test_delegate_request_canonicalizes_delegation_id() -> None:
+    req = DelegateRequest(
+        delegation_id="A" * 32,
+        session_id="s1",
+        turn_id="turn-1",
+        adapter="codex",
+        prompt="x",
+        files_hint=[],
+        workspace_root="/r",
+        constraints=DelegateConstraints(),
+        timeout_s=60,
+        model=None,
+    )
+    assert req.delegation_id == "a" * 32
 
 
 def test_diff_snapshot_default_empty():

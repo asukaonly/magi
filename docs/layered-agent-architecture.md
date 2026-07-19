@@ -84,7 +84,7 @@ Primary packages:
 - `scheduler/`
 - `runtime_trace/`
 - `identity/`
-- `db/` — Alembic migration environments + runner for the runtime SQLite databases (owned by `DatabaseMigrationModule`, which runs migrations after `core` initializes the database files)
+- `db/` — Alembic migration environments + runner for the runtime SQLite databases (owned by `DatabaseMigrationModule`, which runs migrations after `core` initializes runtime paths and directories)
 - `utils/` — shared leaf helpers (runtime paths, packaged-path resolution, message text); imported across every layer, imports none
 - `hooks/` — hook registry, gateway, and shell-hook handlers; a low cross-cutting substrate consumed by `agent`/`api`/`plugins`, depending only on `core`/`config`
 - `location/` — location sample store, geocode cache, WiFi/IPGeo sources, and the read-side resolver (`LocationModule`); a low provider whose write (pollers) and read (viewport) sides are both driven by `timeline` (L13)
@@ -97,6 +97,11 @@ Notes:
 - bootstrap order and ownership layer are not the same thing
 - `runtime_trace/` stores execution observability data; it is not durable memory and does not participate in L7 recall
 - workspace storage is an infrastructure facade: `core` owns workspace identity, path safety, generated directory creation, and state manifests; upper layers receive scoped paths instead of constructing `<workspace>/.magi` paths directly
+- code-delegation path validation and exact filesystem/git cleanup are shared
+  infrastructure, but chat owns the durable artifact registry and decides when
+  a message, turn, session, history clear, or full conversation clear releases
+  that private state. Tool code reaches that registry only through the SDK
+  delegation-artifact port.
 - `db`, `location`, `media`, and `hooks` are structurally L1 (they depend only on `core`/`scheduler`/`config`) even though their *consumers* live higher — `db` is driven by the composition root, `location`/`media` feed `timeline` (L13), and `hooks` is actuated by `agent`/`api`. Layer = dependency position, not consumer position.
 - `identity/` owns the canonical user-id authority (`MagiUserID`, `IdentityResolver`, the `user_identity_bindings` table). Every upper-layer ingress site (channels dispatcher, api dispatch, sensor_hub, session_mapper) canonicalizes external identifiers through it before downstream stores see them; see [Identity Architecture](./identity-architecture.md) for the boundary contract
 
@@ -148,6 +153,7 @@ Notes:
 - transcript rendering of control state is the CHAT layer's job: `chat` subscribes to control events and writes state messages itself (downward); the control plane does not reach into `chat`/`transport`
 - ask-user lifecycle is the CONTROL layer's job: `ControlAskService` opens asks, waits on `InteractionBroker`, handles timeout/cancel/answer, and emits control events. The composition root's SDK `InteractionPort` adapter only delegates to that service.
 - external ask delivery is the CHANNEL layer's job: channels subscribe to `CONTROL_ASK_REQUESTED` and fan out pending asks to the origin channel; control does not call channel delivery directly.
+- external ask delivery is attempted once and publishes an explicit failure event when it cannot confirm a receipt. One active subscriber suppresses repeated pending events with a bounded, expiry-aware in-process LRU and skips asks that are already expired; completed delivery entries stay until expiry or capacity eviction instead of being removed immediately. This protection is intentionally not durable across restart. Until channel delivery has a stable idempotency key and a durable egress intent, restart recovery or a missing receipt must not trigger an automatic retry that could duplicate the question.
 - interaction answers flow downward: `transport` delivers user answers into the control interaction registry (`transport → control`)
 - `run_control` (detach signal / `current_detach_signal`) belongs here, not in the agent runtime
 - the four "actuator tools" split by species (ADR-0002): `ask_user` + `detach` are shareable capabilities exposed to ALL tools (incl. plugins) as SDK ports on `ToolExecutionContext` (`InteractionPort`/`DetachPort`), so they stay capability tools in `tools/builtin`; `plan_mode` + `todo_write` are host runtime-control tools in `control/tools/`; `agent_tool` (spawn sub-agent) is a runtime-control tool in the agent layer (`agent/runtime_tools/`, L12). The host runtime-control tools are closed and NOT plugin-contributable.
@@ -218,7 +224,7 @@ Primary packages:
 Notes:
 
 - **Tool taxonomy (ADR-0002):** two tool species share one origin-agnostic registry — **capability tools** (do work; depend only on `magi_plugin_sdk` + host-injected capability ports; first-party ≡ third-party; extensible) and **runtime-control tools** (drive agent execution state; host-owned, closed; live in `control/tools/` (L4) and `agent/runtime_tools/` (L12), registered via the composition root). The `plugin-isolation` contract governs only capability-tool code (`tools/builtin`, `tools/code_agent`): SDK-only, never host internals.
-- **Capability ports:** the host hands capabilities to tools via a `ToolCapabilities` bundle on `ToolExecutionContext` (SDK Protocols the host implements): trace, delegation-events, background, session-cache, chat, memory-query, image-gen, interaction (ask), detach. A tool depends on the Protocol, never the host package.
+- **Capability ports:** the host hands capabilities to tools via a `ToolCapabilities` bundle on `ToolExecutionContext` (SDK Protocols the host implements): trace, delegation-events, delegation-artifacts, background, session-cache, chat, memory-query, image-gen, interaction (ask), detach. A tool depends on the Protocol, never the host package. The delegation-artifact port registers the exact chat/session/workspace cleanup identity before a code tool creates logs, diffs, branches, or a temporary worktree; the capability tool must not import chat persistence to do this itself.
 - **Tool sources are host integrations:** the plugin manager (`plugins/`, L5), the MCP bridge (`mcp/`), and the skill-execution engine (`skills/`) all register their tools into the single registry. These integration packages are HOST code (`magi.skills` runs sub-agents via the orchestrator, like `magi.mcp` and `magi.plugins`) — so NONE are in the `plugin-isolation` source scope. Only third-party *content* (plugin / skill / MCP-server code) follows the plugin contract; it is loaded dynamically and runtime-guarded, not statically import-checked.
 
 ### L9. Personality Layer
@@ -366,15 +372,28 @@ Primary packages:
 
 Notes:
 
-- the Rust gateway (`crates/magi-gateway/`) handles static database reads, config file I/O, and session/task mutations natively
+- the Rust gateway (`crates/magi-gateway/`) handles static database reads,
+  config file I/O, task CRUD, and only lightweight chat-session creation and
+  presentation updates such as title and workspace. Message, session, and
+  history deletion cross memory, trace, file, delivery, and runtime
+  boundaries, so those operations are forwarded to the Python chat-forgetting
+  service rather than implemented as native soft-deletes
 - requests requiring the Python runtime are dispatched via IPC `api.forward` to FastAPI routers running as an in-memory ASGI app
-- `chat/` owns transcript truth (`chat.db`), attachment storage, and session workspace; it is not the memory layer
+- `chat/` owns transcript truth (`chat.db`), attachment storage, session
+  workspace, code-delegation ownership references, and deletion-recovery
+  registries; it is not the memory layer
 - inbound user-message handling is chat-owned: API and channel surfaces should hand off to the active user-message dispatcher instead of assembling chat turns, attachments, and runtime queue commands themselves
 - API and command surfaces must not assemble chat transcript rows directly; command, background-task, label/delete, and bootstrap assistant rows go through the chat-owned surface write service
 - `chat/portrait/` owns persona-voiced portrait cards shown in the chat rail; it
   may consume neutral memory snippets but memory must not assemble chat/persona
   presentation
 - `channels/` provides bidirectional adapters for external messaging platforms; each channel routes messages into the standard chat pipeline, while chat owns creation of chat sessions and storage of inbound chat attachments; channel-owned dispatchers own chat egress fanout, delivery preferences, delivery receipts, and delivered-message retraction
+- `outreach/` owns proactive intent identity, policy, durable pending work, and
+  delivery convergence. It reads the current channel registry and session
+  mapper through injected live views, but it does not own channel adapters or
+  ordinary chat/`ask_user` delivery. The proactive outbox must not be reused as
+  a shortcut for those paths: ordinary replies and asks need their own
+  per-target recovery contract
 
 ### L15. Connection And Transport
 

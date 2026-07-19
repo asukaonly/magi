@@ -32,7 +32,7 @@ class ChatSessionPersistenceMixin:
             """
             SELECT history_version
             FROM chat_sessions
-            WHERE session_id = ?
+            WHERE session_id = ? COLLATE NOCASE
             """,
             (session_id,),
         )
@@ -55,6 +55,23 @@ class ChatSessionPersistenceMixin:
             await db.commit()
         return await self.get_history_version(session_id)
 
+    async def is_session_available(self, *, user_id: str, session_id: str) -> bool:
+        """Return whether one user can still append work to a chat session."""
+
+        row = await self._fetchone(
+            """
+            SELECT 1
+            FROM chat_sessions
+            WHERE session_id = ?
+              AND user_id = ?
+              AND archived_at_ms IS NULL
+              AND deleted_at_ms IS NULL
+            LIMIT 1
+            """,
+            (session_id, user_id),
+        )
+        return row is not None
+
     async def _fetch_session_row(self, db: aiosqlite.Connection, *, session_id: str) -> aiosqlite.Row | None:
         cur = await db.execute(
             """
@@ -64,7 +81,7 @@ class ChatSessionPersistenceMixin:
                    workspace_path, history_version,
                    archived_at_ms, deleted_at_ms
             FROM chat_sessions
-            WHERE session_id = ?
+            WHERE session_id = ? COLLATE NOCASE
             """,
             (session_id,),
         )

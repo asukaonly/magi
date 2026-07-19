@@ -159,6 +159,67 @@ describe('conversation store', () => {
     expect(useConversationStore.getState().historyVersionBySession['session-a']).toBe(12);
   });
 
+  it('does not switch sessions when background history or UX updates arrive', () => {
+    const store = useConversationStore.getState();
+    store.setCurrentSessionId('session-b');
+
+    store.receiveHistory('session-a', [
+      {
+        id: 'msg-a',
+        role: 'user',
+        kind: 'user',
+        content: 'hello from a',
+        timestamp: 1000,
+        turnId: 'turn-a',
+      },
+    ], 12);
+    store.applyTurnUxPlan({
+      sessionId: 'session-a',
+      turnId: 'turn-a',
+      uxPlan: {
+        assistantSurfaceMode: 'final_only',
+        interimText: 'working',
+      },
+    });
+
+    const state = useConversationStore.getState();
+    expect(state.currentSessionId).toBe('session-b');
+    expect(state.messagesBySession['session-a']).toHaveLength(1);
+    expect(state.messagesBySession['session-a']?.[0]?.content).toBe('hello from a');
+  });
+
+  it('counts newly recovered assistant history as unread in a background session', () => {
+    const store = useConversationStore.getState();
+    store.setCurrentSessionId('session-b');
+
+    const history = [
+      {
+        id: 'msg-user-a',
+        messageId: 'msg-user-a',
+        role: 'user' as const,
+        kind: 'user' as const,
+        content: 'hello',
+        timestamp: 1000,
+        turnId: 'turn-a',
+      },
+      {
+        id: 'msg-assistant-a',
+        messageId: 'msg-assistant-a',
+        role: 'assistant' as const,
+        kind: 'assistant' as const,
+        content: 'recovered answer',
+        timestamp: 1001,
+        turnId: 'turn-a',
+        messageKind: 'assistant_final',
+      },
+    ];
+    store.receiveHistory('session-a', history, 12);
+    store.receiveHistory('session-a', history, 12);
+
+    expect(useConversationStore.getState().currentSessionId).toBe('session-b');
+    expect(useConversationStore.getState().unreadBySession['session-a']).toBe(1);
+  });
+
   it('clears cached history versions on reset', () => {
     const store = useConversationStore.getState();
 

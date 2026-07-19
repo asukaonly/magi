@@ -58,9 +58,27 @@ class NotificationService:
         )
 
     # ---- feed / state (thin pass-throughs the routes call) ----
-    def list(self, user_id: str, *, limit: int = 50, before_id: int | None = None) -> dict:
-        items = self._store.list_for_user(user_id, limit=limit, before_id=before_id)
-        return {"items": items, "unread_count": self._store.unread_count(user_id)}
+    def list(
+        self,
+        user_id: str,
+        *,
+        limit: int = 50,
+        before_id: int | None = None,
+        exclude_profile_conflicts: bool = False,
+    ) -> dict:
+        items = self._store.list_for_user(
+            user_id,
+            limit=limit,
+            before_id=before_id,
+            exclude_profile_conflicts=exclude_profile_conflicts,
+        )
+        return {
+            "items": items,
+            "unread_count": self._store.unread_count(
+                user_id,
+                exclude_profile_conflicts=exclude_profile_conflicts,
+            ),
+        }
 
     def mark_read(self, ids: list[int]) -> None:
         self._store.mark_read(ids)

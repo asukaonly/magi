@@ -65,21 +65,24 @@ def _target(channel_type: str, session_id: str = "s1", user_id: str = "u1"):
 async def test_fanout_deliver_resolves_by_exact_channel_type():
     sse = _RecordingChannel("chat_sse")
     router = DeliveryRouter(channel_registry=_StubRegistry({"chat_sse": sse}))
-    receipts = await router.fanout_deliver(
+    result = await router.fanout_deliver(
         content=DeliveryContent(text="hi"),
         targets=[_target("chat_sse")],
     )
-    assert len(receipts) == 1
+    assert len(result.receipts) == 1
+    assert result.failures == ()
 
 
 @pytest.mark.asyncio
 async def test_fanout_deliver_misses_when_channel_unknown():
     router = DeliveryRouter(channel_registry=_StubRegistry({}))
-    receipts = await router.fanout_deliver(
+    result = await router.fanout_deliver(
         content=DeliveryContent(text="hi"),
         targets=[_target("missing")],
     )
-    assert receipts == []
+    assert result.receipts == ()
+    assert len(result.failures) == 1
+    assert result.failures[0].delivery_attempted is False
 
 
 @pytest.mark.asyncio
@@ -88,11 +91,13 @@ async def test_no_scheme_fallback_for_composite_typed_targets():
     MUST miss (no fallback to 'chat_sse')."""
     sse = _RecordingChannel("chat_sse")
     router = DeliveryRouter(channel_registry=_StubRegistry({"chat_sse": sse}))
-    receipts = await router.fanout_deliver(
+    result = await router.fanout_deliver(
         content=DeliveryContent(text="hi"),
         targets=[_target("chat_sse:s1")],
     )
-    assert receipts == []
+    assert result.receipts == ()
+    assert len(result.failures) == 1
+    assert result.failures[0].delivery_attempted is False
 
 
 # === fanout_chunk ===
@@ -136,6 +141,27 @@ async def test_fanout_chunk_isolates_per_channel_errors():
         chunk=DeliveryChunk(text="hi", is_final=False, seq=0),
         targets=[_target("chat_sse"), _target("telegram")],
     )
+    assert sse.chunks
+
+
+@pytest.mark.asyncio
+async def test_fanout_chunk_isolates_registry_lookup_errors():
+    sse = _RecordingChunkChannel("chat_sse")
+
+    class _FailingRegistry(_StubRegistry):
+        def get(self, cid):
+            if cid == "broken":
+                raise RuntimeError("registry unavailable")
+            return super().get(cid)
+
+    router = DeliveryRouter(
+        channel_registry=_FailingRegistry({"chat_sse": sse})
+    )
+    await router.fanout_chunk(
+        chunk=DeliveryChunk(text="hi", is_final=False, seq=0),
+        targets=[_target("broken"), _target("chat_sse")],
+    )
+
     assert sse.chunks
 
 

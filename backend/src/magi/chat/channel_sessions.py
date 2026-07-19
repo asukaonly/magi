@@ -14,6 +14,19 @@ class ChatChannelSessionProvisioner:
     def __init__(self, *, chat_store: ChatStore) -> None:
         self._chat_store = chat_store
 
+    async def is_channel_session_available(
+        self,
+        *,
+        magi_user_id: str,
+        session_id: str,
+    ) -> bool:
+        """Return whether an existing channel mapping still owns a live chat."""
+
+        return await self._chat_store.is_session_available(
+            user_id=magi_user_id,
+            session_id=session_id,
+        )
+
     async def create_channel_session(
         self,
         *,

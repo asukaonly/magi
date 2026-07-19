@@ -36,6 +36,18 @@ class TurnSupersession:
     reason: str
 
 
+def supersession_terminal_status(reason: str) -> str:
+    """Map merge-like interjections separately from true interruption."""
+
+    normalized_reason = str(reason or "").strip().lower()
+    if normalized_reason in {
+        InterruptionDisposition.AUGMENT.value,
+        InterruptionDisposition.STEER.value,
+    }:
+        return "merged"
+    return "interrupted"
+
+
 @dataclass(slots=True)
 class CheckpointDecision:
     """Visible pending-turn merge for one session checkpoint."""

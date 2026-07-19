@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-import inspect
 import time
 import uuid
 from dataclasses import dataclass
@@ -610,13 +609,8 @@ class ImageGenerationTool(Tool):
 
     @staticmethod
     async def _close_adapter(adapter: Any) -> None:
-        close = getattr(adapter, "aclose", None)
-        if not callable(close):
-            return
         try:
-            result = close()
-            if inspect.isawaitable(result):
-                await result
+            await adapter.aclose()
         except Exception as exc:  # noqa: BLE001 - cleanup must not hide generation errors
             logger.warning("Image generation adapter cleanup failed", error=str(exc))
 
@@ -673,15 +667,22 @@ class ImageGenerationTool(Tool):
         chat_attachment = None
         has_chat_attachment = False
         if image_bytes is not None:
-            saved_path, chat_attachment, has_chat_attachment = self._write_generated_image(
+            saved_path = await asyncio.to_thread(
+                self._write_generated_image,
                 image_bytes=image_bytes,
                 image_mime=image_mime,
                 output_dir=output_dir,
                 model=model,
-                session_id=session_id,
-                turn_id=turn_id,
-                chat_port=chat_port,
             )
+            if session_id and turn_id and chat_port is not None:
+                chat_attachment = await chat_port.ingest_local_file(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    file_path=saved_path,
+                    original_name=Path(saved_path).name,
+                    mime_type=image_mime,
+                )
+                has_chat_attachment = True
         elif image.url:
             saved_path = image.url
 
@@ -724,26 +725,14 @@ class ImageGenerationTool(Tool):
         image_mime: str,
         output_dir: Path,
         model: str,
-        session_id: str,
-        turn_id: str,
-        chat_port: Any,
-    ) -> tuple[str, Any, bool]:
+    ) -> str:
         extension = self._extension_for_mime(image_mime)
         filename = f"{uuid.uuid4().hex[:12]}{extension}"
         filepath = output_dir / filename
         filepath.write_bytes(image_bytes)
         saved_path = str(filepath)
         logger.info("Image saved", path=saved_path, model=model)
-        if not (session_id and turn_id and chat_port is not None):
-            return saved_path, None, False
-        attachment = chat_port.ingest_local_file(
-            session_id=session_id,
-            turn_id=turn_id,
-            file_path=saved_path,
-            original_name=filename,
-            mime_type=image_mime,
-        )
-        return saved_path, attachment, True
+        return saved_path
 
     @staticmethod
     def _image_artifact_payload(

@@ -4,6 +4,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from magi.chat.attachment_ingestion import LocalChatAttachmentIngestionService
+from magi.core.container import get_container
 from magi.utils.runtime import get_runtime_paths, set_runtime_dir
 from magi.transport.http_app import create_transport_app
 
@@ -14,18 +16,32 @@ def test_upload_chat_attachment_returns_normalized_metadata(monkeypatch, tmp_pat
     set_runtime_dir(runtime_dir)
 
     try:
-        client = TestClient(create_transport_app())
+        class _ReadService:
+            async def aget_session_summary(
+                self,
+                _user_id: str,
+                _session_id: str,
+            ) -> object:
+                return object()
 
-        response = client.post(
-            "/api/messages/session/session-1/attachments",
-            data={
-                "user_id": "local_user",
-                "turn_id": "turn-1",
-            },
-            files={
-                "file": ("notes.md", b"# hello\nworld\n", "text/markdown"),
-            },
+        ingestion_service = LocalChatAttachmentIngestionService(
+            runtime_paths=get_runtime_paths(),
+            chat_read_service_factory=lambda: _ReadService(),
         )
+        with get_container().chat_attachment_ingestion_service.override(
+            ingestion_service
+        ):
+            client = TestClient(create_transport_app())
+            response = client.post(
+                "/api/messages/session/session-1/attachments",
+                data={
+                    "user_id": "local_user",
+                    "turn_id": "turn-1",
+                },
+                files={
+                    "file": ("notes.md", b"# hello\nworld\n", "text/markdown"),
+                },
+            )
 
         assert response.status_code == 200
         payload = response.json()

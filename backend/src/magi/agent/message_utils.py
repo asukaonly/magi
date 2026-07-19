@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import base64
-from pathlib import Path
 from typing import Any
 
+from magi.core.chat_assets.io import open_managed_chat_attachment
 from magi.context.window_budget import estimate_context_tokens
 
 from .run.ports import AttachmentResolverPort
@@ -147,24 +147,36 @@ def _build_latest_user_message_content(
 
         if kind != "image":
             continue
+        resolved_attachment = attachment
         storage_path = str(attachment.get("storage_path") or "").strip()
         if not storage_path and user_id and session_id:
             attachment_id = str(attachment.get("attachment_id") or "").strip()
             if attachment_id:
                 resolved = resolver.get_attachment_payload(user_id, session_id, attachment_id)
                 if isinstance(resolved, dict):
+                    resolved_attachment = resolved
                     storage_path = str(resolved.get("storage_path") or "").strip()
         if not storage_path:
             continue
-        path = Path(storage_path)
-        if not path.is_file():
+        handle = open_managed_chat_attachment(
+            storage_path,
+            session_id=session_id,
+            turn_id=resolved_attachment.get("turn_id"),
+            attachment_id=resolved_attachment.get("attachment_id")
+            or attachment.get("attachment_id"),
+            original_name=resolved_attachment.get("original_name")
+            or attachment.get("original_name"),
+        )
+        if handle is None:
             continue
         mime_type = str(attachment.get("mime_type") or "image/png").strip() or "image/png"
+        with handle:
+            image_bytes = handle.read()
         blocks.append(
             {
                 "type": "image",
                 "mime_type": mime_type,
-                "data": base64.b64encode(path.read_bytes()).decode("ascii"),
+                "data": base64.b64encode(image_bytes).decode("ascii"),
             }
         )
 

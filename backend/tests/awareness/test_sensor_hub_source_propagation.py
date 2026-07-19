@@ -36,6 +36,8 @@ def _make_user_message_event(*, source: str) -> Event:
             "metadata": {},
             "timestamp": time.time(),
             "source": source,
+            "delivery_attempt_no": 3,
+            "runtime_command_id": 41,
         },
         source=source,
         level=EventLevel.INFO,
@@ -59,6 +61,8 @@ async def test_on_user_message_propagates_source_to_sensor_event_payload():
     assert len(batch) == 1
     sensor_event = batch[0]
     assert sensor_event.payload.get("source") == "weixin"
+    assert sensor_event.delivery_attempt_no == 3
+    assert sensor_event.runtime_command_id == 41
 
 
 @pytest.mark.asyncio

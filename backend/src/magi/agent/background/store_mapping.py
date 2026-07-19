@@ -26,40 +26,74 @@ class BackgroundTaskRowMappingMixin:
         spec_data.setdefault("origin_turn_id", str(row["origin_turn_id"]))
         spec_data.setdefault("title", str(row["title"]))
         spec_data.setdefault("goal", str(row["goal"]))
+        task_data = {
+            "task_id": str(row["task_id"]),
+            "spec": spec_data,
+            "status": str(row["status"]),
+            "attempt_index": int(row["attempt_index"] or 0),
+            "orchestration_id": row["orchestration_id"],
+            "user_task_id": row["user_task_id"],
+            "summary": row["summary"],
+            "result_payload": json.loads(
+                str(row["result_payload_json"] or "{}")
+            ),
+            "error": row["error"],
+            "cancel_reason": row["cancel_reason"],
+            "created_at": float(row["created_at"]),
+            "started_at": row["started_at"],
+            "finished_at": row["finished_at"],
+            "updated_at": float(row["updated_at"]),
+        }
+        return BackgroundTaskRowMappingMixin._dict_to_task(task_data)
+
+    @staticmethod
+    def _dict_to_task(data: dict[str, Any]) -> BackgroundTask:
+        """Rebuild a task from its durable completion snapshot."""
+
+        spec_data = data.get("spec")
+        if not isinstance(spec_data, dict):
+            raise ValueError("Background task snapshot is missing its spec")
         spec = BackgroundTaskSpec.from_dict(spec_data)
+        result_payload = data.get("result_payload")
+        if not isinstance(result_payload, dict):
+            raise ValueError("Background task snapshot has an invalid result payload")
         return BackgroundTask(
-            task_id=str(row["task_id"]),
+            task_id=str(data["task_id"]),
             spec=spec,
-            status=BackgroundTaskStatus(str(row["status"])),
-            attempt_index=int(row["attempt_index"] or 0),
+            status=BackgroundTaskStatus(str(data["status"])),
+            attempt_index=int(data.get("attempt_index") or 0),
             orchestration_id=(
-                str(row["orchestration_id"])
-                if row["orchestration_id"] is not None
+                str(data["orchestration_id"])
+                if data.get("orchestration_id") is not None
                 else None
             ),
             user_task_id=(
-                str(row["user_task_id"])
-                if row["user_task_id"] is not None
+                str(data["user_task_id"])
+                if data.get("user_task_id") is not None
                 else None
             ),
             summary=(
-                str(row["summary"]) if row["summary"] is not None else None
+                str(data["summary"]) if data.get("summary") is not None else None
             ),
-            result_payload=json.loads(str(row["result_payload_json"] or "{}")),
-            error=(str(row["error"]) if row["error"] is not None else None),
+            result_payload=dict(result_payload),
+            error=(str(data["error"]) if data.get("error") is not None else None),
             cancel_reason=(
-                str(row["cancel_reason"])
-                if row["cancel_reason"] is not None
+                str(data["cancel_reason"])
+                if data.get("cancel_reason") is not None
                 else None
             ),
-            created_at=float(row["created_at"]),
+            created_at=float(data["created_at"]),
             started_at=(
-                float(row["started_at"]) if row["started_at"] is not None else None
+                float(data["started_at"])
+                if data.get("started_at") is not None
+                else None
             ),
             finished_at=(
-                float(row["finished_at"]) if row["finished_at"] is not None else None
+                float(data["finished_at"])
+                if data.get("finished_at") is not None
+                else None
             ),
-            updated_at=float(row["updated_at"]),
+            updated_at=float(data["updated_at"]),
         )
 
     @staticmethod

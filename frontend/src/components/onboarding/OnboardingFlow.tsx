@@ -18,6 +18,7 @@ import {
   STORAGE_KEYS,
 } from "@/constants/app";
 import { createClientTurnId } from "@/domain/chat/state";
+import { activateRealtimeChatSession } from "@/realtime/chat-projection-retirement";
 import { useConversationStore } from "@/stores/conversation-store";
 import { configApi } from "../../api/modules/config";
 import type {
@@ -1179,6 +1180,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           );
           return;
         }
+        activateRealtimeChatSession(createdSessionId);
       }
 
       let turnId = String(progress.turnId || "").trim();

@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import zlib
 from pathlib import Path
+from typing import Any, Callable, TypeVar
 
 import pytest
 
+from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from magi.chat.attachment_ingestion import LocalChatAttachmentIngestionService
 from magi.i18n import language_context
 from magi.utils.runtime import RuntimePaths
+
+
+R = TypeVar("R")
+
+
+def _mutate(func: Callable[..., R], **kwargs: Any) -> R:
+    return asyncio.run(run_chat_asset_mutation(func, **kwargs))
 
 
 class FakeHeicPreviewConverter:
@@ -29,7 +39,8 @@ def test_ingest_text_attachment_returns_unparsed_upload_metadata(tmp_path: Path)
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
 
-    payload = service.ingest_attachment(
+    payload = _mutate(
+        service.ingest_attachment,
         session_id="session-1",
         turn_id="turn-1",
         original_name="notes.md",
@@ -48,7 +59,8 @@ def test_prepare_runtime_text_attachment_writes_derived_text_file(tmp_path: Path
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
 
-    upload_payload = service.ingest_attachment(
+    upload_payload = _mutate(
+        service.ingest_attachment,
         session_id="session-1",
         turn_id="turn-1",
         original_name="notes.md",
@@ -56,7 +68,8 @@ def test_prepare_runtime_text_attachment_writes_derived_text_file(tmp_path: Path
         mime_type="text/markdown",
     )
 
-    payload = service.prepare_runtime_attachment(
+    payload = _mutate(
+        service.prepare_runtime_attachment,
         session_id="session-1",
         turn_id="turn-1",
         attachment=upload_payload,
@@ -71,12 +84,148 @@ def test_prepare_runtime_text_attachment_writes_derived_text_file(tmp_path: Path
     assert derived_text_path.read_text(encoding="utf-8") == "# hello\nworld\n"
 
 
+def test_prepare_runtime_attachment_rejects_traversal_attachment_id(
+    tmp_path: Path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
+    upload_payload = _mutate(
+        service.ingest_attachment,
+        session_id="session-1",
+        turn_id="turn-1",
+        original_name="notes.md",
+        content=b"safe source",
+        mime_type="text/markdown",
+    )
+    victim = runtime_paths.base_dir / "victim.txt"
+    victim.write_text("keep-me", encoding="utf-8")
+    malicious_payload = {
+        **upload_payload,
+        "attachment_id": "../../../../../../victim",
+    }
+
+    prepared = _mutate(
+        service.prepare_runtime_attachment,
+        session_id="session-1",
+        turn_id="turn-1",
+        attachment=malicious_payload,
+    )
+
+    assert prepared["parse_status"] == "failed"
+    assert "storage_path" not in prepared
+    assert "derived_text_path" not in prepared
+    assert victim.read_text(encoding="utf-8") == "keep-me"
+
+
+def test_prepare_runtime_attachment_rejects_storage_outside_chat_resources(
+    tmp_path: Path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
+    outside = runtime_paths.base_dir / "private.txt"
+    outside.write_text("private", encoding="utf-8")
+
+    prepared = _mutate(
+        service.prepare_runtime_attachment,
+        session_id="session-1",
+        turn_id="turn-1",
+        attachment={
+            "attachment_id": "attachment-1",
+            "kind": "text_file",
+            "original_name": "private.txt",
+            "mime_type": "text/plain",
+            "storage_path": str(outside),
+            "parse_status": "pending",
+        },
+    )
+
+    assert prepared["parse_status"] == "failed"
+    assert "storage_path" not in prepared
+    assert "derived_text_path" not in prepared
+
+
+def test_prepare_runtime_attachment_ignores_untrusted_prepared_text_path(
+    tmp_path: Path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
+    upload_payload = _mutate(
+        service.ingest_attachment,
+        session_id="session-1",
+        turn_id="turn-1",
+        original_name="notes.md",
+        content=b"safe source",
+        mime_type="text/markdown",
+    )
+    outside = runtime_paths.base_dir / "private.txt"
+    outside.write_text("private content", encoding="utf-8")
+
+    prepared = _mutate(
+        service.prepare_runtime_attachment,
+        session_id="session-1",
+        turn_id="turn-1",
+        attachment={
+            **upload_payload,
+            "parse_status": "parsed",
+            "derived_text_path": str(outside),
+        },
+    )
+
+    expected_path = (
+        runtime_paths.chat_derived_dir
+        / "session-1"
+        / "turn-1"
+        / f"{upload_payload['attachment_id']}.txt"
+    )
+    assert prepared["derived_text_path"] == str(expected_path)
+    assert expected_path.read_text(encoding="utf-8") == "safe source"
+    assert outside.read_text(encoding="utf-8") == "private content"
+
+
+def test_prepare_runtime_attachment_rejects_another_attachment_in_same_turn(
+    tmp_path: Path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
+    first = _mutate(
+        service.ingest_attachment,
+        session_id="session-1",
+        turn_id="turn-1",
+        original_name="first.md",
+        content=b"first secret",
+        mime_type="text/markdown",
+    )
+    second = _mutate(
+        service.ingest_attachment,
+        session_id="session-1",
+        turn_id="turn-1",
+        original_name="second.md",
+        content=b"second secret",
+        mime_type="text/markdown",
+    )
+
+    prepared = _mutate(
+        service.prepare_runtime_attachment,
+        session_id="session-1",
+        turn_id="turn-1",
+        attachment={
+            **second,
+            "storage_path": first["storage_path"],
+        },
+    )
+
+    assert prepared["parse_status"] == "failed"
+    assert "storage_path" not in prepared
+    assert "derived_text_path" not in prepared
+
+
 def test_ingest_attachment_rejects_unsupported_file_type(tmp_path: Path) -> None:
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
 
     with language_context("en"), pytest.raises(ValueError, match="Unsupported attachment type"):
-        service.ingest_attachment(
+        _mutate(
+            service.ingest_attachment,
             session_id="session-1",
             turn_id="turn-1",
             original_name="archive.zip",
@@ -93,7 +242,8 @@ def test_ingest_attachment_converts_heic_to_jpeg_preview(tmp_path: Path) -> None
         heic_preview_converter=converter,
     )
 
-    payload = service.ingest_attachment(
+    payload = _mutate(
+        service.ingest_attachment,
         session_id="session-1",
         turn_id="turn-1",
         original_name="IMG_3367.HEIC",
@@ -121,7 +271,8 @@ def test_ingest_local_file_converts_heic_path_to_jpeg_preview(tmp_path: Path) ->
     source_path = tmp_path / "IMG_3379.heic"
     source_path.write_bytes(b"local-heic")
 
-    payload = service.ingest_local_file(
+    payload = _mutate(
+        service.ingest_local_file,
         session_id="session-1",
         turn_id="turn-1",
         file_path=str(source_path),
@@ -146,7 +297,8 @@ def test_ingest_attachment_reports_heic_conversion_failure(tmp_path: Path) -> No
     )
 
     with language_context("en"), pytest.raises(ValueError, match="HEIC image conversion failed"):
-        service.ingest_attachment(
+        _mutate(
+            service.ingest_attachment,
             session_id="session-1",
             turn_id="turn-1",
             original_name="IMG_3578.HEIC",
@@ -163,7 +315,8 @@ def test_ingest_attachment_rejects_oversized_image(tmp_path: Path) -> None:
         ValueError,
         match="Image attachment exceeds the 20 MB limit",
     ):
-        service.ingest_attachment(
+        _mutate(
+            service.ingest_attachment,
             session_id="session-1",
             turn_id="turn-1",
             original_name="huge.png",
@@ -180,7 +333,8 @@ def test_ingest_attachment_rejects_oversized_text_file(tmp_path: Path) -> None:
         ValueError,
         match="File attachment exceeds the 50 MB limit",
     ):
-        service.ingest_attachment(
+        _mutate(
+            service.ingest_attachment,
             session_id="session-1",
             turn_id="turn-1",
             original_name="huge.md",
@@ -195,7 +349,8 @@ def test_ingest_local_file_imports_existing_image_path(tmp_path: Path) -> None:
     source_path = tmp_path / "photo.jpg"
     source_path.write_bytes(b"fake-jpeg")
 
-    payload = service.ingest_local_file(
+    payload = _mutate(
+        service.ingest_local_file,
         session_id="session-1",
         turn_id="turn-1",
         file_path=str(source_path),
@@ -212,7 +367,8 @@ def test_prepare_runtime_pdf_attachment_writes_derived_text_file(tmp_path: Path)
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
 
-    upload_payload = service.ingest_attachment(
+    upload_payload = _mutate(
+        service.ingest_attachment,
         session_id="session-1",
         turn_id="turn-1",
         original_name="report.pdf",
@@ -224,7 +380,8 @@ def test_prepare_runtime_pdf_attachment_writes_derived_text_file(tmp_path: Path)
     assert upload_payload["parse_status"] == "pending"
     assert "derived_text_path" not in upload_payload
 
-    payload = service.prepare_runtime_attachment(
+    payload = _mutate(
+        service.prepare_runtime_attachment,
         session_id="session-1",
         turn_id="turn-1",
         attachment=upload_payload,

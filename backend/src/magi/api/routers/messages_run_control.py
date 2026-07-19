@@ -26,6 +26,7 @@ async def cancel_session_run(session_id: str, request: CancelSessionRunRequest):
             raise RuntimeError(t("chat.run.cancel.unsupported", fallback="Chat task agent does not support explicit session cancellation."))
         outcome = await cancel_handler(
             session_id=session_id,
+            user_id=request.user_id,
             requested_by=request.requested_by,
             reason=request.reason,
             anchor_turn_id=request.turn_id,

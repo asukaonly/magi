@@ -28,11 +28,14 @@ async def chat_session_mutation(session_id: str) -> AsyncIterator[None]:
         state = _SessionLockState(lock=asyncio.Lock())
         _SESSION_LOCKS[normalized_session_id] = state
     state.users += 1
-    await state.lock.acquire()
+    acquired = False
     try:
+        await state.lock.acquire()
+        acquired = True
         yield
     finally:
-        state.lock.release()
+        if acquired:
+            state.lock.release()
         state.users -= 1
         if state.users == 0 and _SESSION_LOCKS.get(normalized_session_id) is state:
             _SESSION_LOCKS.pop(normalized_session_id, None)

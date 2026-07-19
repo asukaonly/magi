@@ -9,8 +9,8 @@ here so the migration concern lives with the package that owns it, and so the
 ``core <-> db`` package cycle.
 
 Runs immediately after ``CoreDependenciesModule`` — it needs the runtime paths
-and the initialized database files that module produces — and before any module
-that opens one of the migrated databases.
+and directories that module initializes — and before any module that opens one
+of the migrated databases.
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .chunking import ChunkedText
-from .config_coordination import (
+from ...config.embedding_coordination import (
     get_embedding_execution_generation,
     get_embedding_publication_lock,
 )

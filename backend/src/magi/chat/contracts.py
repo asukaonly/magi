@@ -5,6 +5,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+CHAT_DELIVERY_STATE_READY = "ready"
+CHAT_DELIVERY_STATE_QUEUED = "queued"
+CHAT_DELIVERY_STATE_ADMITTED = "admitted"
+CHAT_DELIVERY_STATE_TERMINAL = "terminal"
+CHAT_DELIVERY_STATES = frozenset(
+    {
+        CHAT_DELIVERY_STATE_READY,
+        CHAT_DELIVERY_STATE_QUEUED,
+        CHAT_DELIVERY_STATE_ADMITTED,
+        CHAT_DELIVERY_STATE_TERMINAL,
+    }
+)
+CHAT_RECOVERABLE_DELIVERY_STATES = frozenset(
+    {
+        CHAT_DELIVERY_STATE_READY,
+        CHAT_DELIVERY_STATE_QUEUED,
+        CHAT_DELIVERY_STATE_ADMITTED,
+    }
+)
+
 
 @dataclass(slots=True)
 class ChatSessionRecord:
@@ -76,6 +96,28 @@ class ChatMessageRecord:
     label: "ChatMessageLabel | None" = None
 
 
+@dataclass(frozen=True, slots=True)
+class ChatAssistantMemoryProjection:
+    """Canonical assistant message waiting for durable L1 confirmation."""
+
+    canonical_message_id: str
+    user_id: str
+    session_id: str
+    turn_id: str
+    content: str
+    created_at_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class ChatAssistantMemoryOutboxRecord:
+    """One leased assistant-memory projection outbox row."""
+
+    projection: ChatAssistantMemoryProjection
+    attempt_count: int
+    lease_token: str
+    lease_expires_at_ms: int
+
+
 @dataclass(slots=True)
 class CreateUserTurnResult:
     """Result of an idempotent user-turn creation attempt."""
@@ -83,8 +125,28 @@ class CreateUserTurnResult:
     message: ChatMessageRecord
     created: bool
     projection_completed: bool
-    runtime_enqueued: bool
+    delivery_attempt_no: int
+    delivery_state: str
+    current_command_id: int | None
     runtime_envelope: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class ChatUserTurnDeliveryRecord:
+    """Durable runtime-delivery state for one accepted user turn."""
+
+    user_id: str
+    session_id: str
+    turn_id: str
+    message_id: str
+    projection_completed: bool
+    delivery_attempt_no: int
+    delivery_state: str
+    current_command_id: int | None
+    runtime_envelope: dict[str, Any]
+    request_fingerprint: str
+    created_at_ms: int
+    sequence_no: int
 
 
 @dataclass(slots=True)

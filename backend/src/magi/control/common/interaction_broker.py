@@ -205,6 +205,20 @@ class InteractionBroker:
             )
             return True
 
+    async def get_pending_metadata(
+        self,
+        *,
+        interaction_id: str,
+        kind: str,
+    ) -> dict[str, Any] | None:
+        """Return an isolated snapshot of one pending interaction's metadata."""
+
+        async with self._lock:
+            pending = self._pending.get((kind, interaction_id))
+            if pending is None or pending.future.done():
+                return None
+            return dict(pending.metadata)
+
     # ------------------------------------------------------------------
     # Introspection & shutdown
     # ------------------------------------------------------------------

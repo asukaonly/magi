@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import gc
 from dataclasses import dataclass
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
 from magi.api.routers import messages as messages_router
@@ -17,6 +18,8 @@ from magi.api.routers import (
     messages_sessions,
 )
 from magi.chat.read_service import ChatDisplayMessage
+from magi.core.chat_cleanup import ChatSurfaceCleanupPendingError
+from magi.utils.runtime import RuntimePaths
 from magi.api.services.message_dispatch_service import MessageDispatchOutcome
 from magi.i18n import language_context
 
@@ -483,10 +486,12 @@ async def test_get_conversation_history_uses_async_read_service(
 
 
 @pytest.mark.asyncio
-async def test_get_chat_attachment_content_returns_file_response(
+async def test_get_chat_attachment_content_returns_streaming_response(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    attachment_path = tmp_path / "diagram.png"
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    attachment_path = runtime_paths.chat_images_dir / "s1" / "turn-1" / "att-1__diagram.png"
+    attachment_path.parent.mkdir(parents=True, exist_ok=True)
     attachment_path.write_bytes(b"png")
 
     class _AsyncOnlyReadService:
@@ -501,11 +506,17 @@ async def test_get_chat_attachment_content_returns_file_response(
                 "attachment_id": "att-1",
                 "original_name": "diagram.png",
                 "mime_type": "image/png",
+                "turn_id": "turn-1",
                 "storage_path": str(attachment_path),
             }
 
     monkeypatch.setattr(
         messages_content, "require_chat_read_service", lambda: _AsyncOnlyReadService()
+    )
+    monkeypatch.setattr(
+        messages_content,
+        "get_runtime_paths",
+        lambda: runtime_paths,
     )
 
     response = await messages_router.get_chat_attachment_content(
@@ -514,9 +525,281 @@ async def test_get_chat_attachment_content_returns_file_response(
         user_id="u1",
     )
 
-    assert isinstance(response, FileResponse)
-    assert str(response.path) == str(attachment_path)
+    assert isinstance(response, StreamingResponse)
     assert response.media_type == "image/png"
+    assert response.headers["content-length"] == "3"
+    assert b"".join([chunk async for chunk in response.body_iterator]) == b"png"
+
+
+@pytest.mark.asyncio
+async def test_get_chat_attachment_content_streams_large_file_in_bounded_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    attachment_path = runtime_paths.chat_files_dir / "s1" / "turn-1" / "att-1__large.bin"
+    attachment_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = b"x" * (2 * 1024 * 1024 + 17)
+    attachment_path.write_bytes(payload)
+
+    class _AsyncOnlyReadService:
+        async def aget_attachment_payload(
+            self,
+            user_id: str,
+            session_id: str,
+            attachment_id: str,
+        ):
+            return {
+                "attachment_id": attachment_id,
+                "original_name": "large.bin",
+                "mime_type": "application/octet-stream",
+                "turn_id": "turn-1",
+                "storage_path": str(attachment_path),
+            }
+
+    monkeypatch.setattr(
+        messages_content,
+        "require_chat_read_service",
+        lambda: _AsyncOnlyReadService(),
+    )
+    monkeypatch.setattr(
+        messages_content,
+        "get_runtime_paths",
+        lambda: runtime_paths,
+    )
+
+    response = await messages_router.get_chat_attachment_content(
+        session_id="s1",
+        attachment_id="att-1",
+        user_id="u1",
+    )
+    chunks = [chunk async for chunk in response.body_iterator]
+
+    assert [len(chunk) for chunk in chunks] == [
+        1024 * 1024,
+        1024 * 1024,
+        17,
+    ]
+    assert b"".join(chunks) == payload
+
+
+@pytest.mark.asyncio
+async def test_unstarted_attachment_stream_releases_open_handle_on_response_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    attachment_path = runtime_paths.chat_files_dir / "s1" / "turn-1" / "att-1__notes.txt"
+    attachment_path.parent.mkdir(parents=True, exist_ok=True)
+    attachment_path.write_bytes(b"notes")
+    captured_handles = []
+    original_open = messages_content.aopen_managed_chat_attachment
+
+    async def capture_open_handle(*args, **kwargs):
+        handle = await original_open(*args, **kwargs)
+        captured_handles.append(handle)
+        return handle
+
+    class _AsyncOnlyReadService:
+        async def aget_attachment_payload(
+            self,
+            user_id: str,
+            session_id: str,
+            attachment_id: str,
+        ):
+            return {
+                "attachment_id": attachment_id,
+                "original_name": "notes.txt",
+                "mime_type": "text/plain",
+                "turn_id": "turn-1",
+                "storage_path": str(attachment_path),
+            }
+
+    monkeypatch.setattr(
+        messages_content,
+        "require_chat_read_service",
+        lambda: _AsyncOnlyReadService(),
+    )
+    monkeypatch.setattr(
+        messages_content,
+        "get_runtime_paths",
+        lambda: runtime_paths,
+    )
+    monkeypatch.setattr(
+        messages_content,
+        "aopen_managed_chat_attachment",
+        capture_open_handle,
+    )
+
+    response = await messages_router.get_chat_attachment_content(
+        session_id="s1",
+        attachment_id="att-1",
+        user_id="u1",
+    )
+    assert captured_handles[0] is not None
+    assert not captured_handles[0].closed
+
+    del response
+    gc.collect()
+
+    assert captured_handles[0].closed
+
+
+@pytest.mark.asyncio
+async def test_get_chat_attachment_content_rejects_file_outside_chat_resources(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    outside_path = runtime_paths.base_dir / "private.txt"
+    outside_path.write_text("private", encoding="utf-8")
+
+    class _UnsafeReadService:
+        async def aget_attachment_payload(
+            self,
+            user_id: str,
+            session_id: str,
+            attachment_id: str,
+        ):
+            return {
+                "attachment_id": attachment_id,
+                "turn_id": "turn-1",
+                "storage_path": str(outside_path),
+            }
+
+    monkeypatch.setattr(
+        messages_content,
+        "require_chat_read_service",
+        lambda: _UnsafeReadService(),
+    )
+    monkeypatch.setattr(
+        messages_content,
+        "get_runtime_paths",
+        lambda: runtime_paths,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await messages_router.get_chat_attachment_content(
+            session_id="s1",
+            attachment_id="att-1",
+            user_id="u1",
+        )
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("language", "expected_detail"),
+    [
+        ("en", "The attachment request is invalid."),
+        ("zh-CN", "附件请求无效，请重新操作。"),
+    ],
+)
+async def test_attachment_routes_localize_invalid_identifiers(
+    language: str,
+    expected_detail: str,
+) -> None:
+    class _Upload:
+        filename = "notes.txt"
+        content_type = "text/plain"
+
+        async def read(self) -> bytes:
+            return b"notes"
+
+    with language_context(language):
+        with pytest.raises(HTTPException) as upload_error:
+            await messages_content.upload_chat_attachment(
+                session_id="../private",
+                user_id="u1",
+                turn_id="turn-1",
+                file=_Upload(),  # type: ignore[arg-type]
+            )
+        with pytest.raises(HTTPException) as download_error:
+            await messages_content.get_chat_attachment_content(
+                session_id="session-1",
+                attachment_id="../private",
+                user_id="u1",
+            )
+
+    assert upload_error.value.status_code == 400
+    assert upload_error.value.detail == expected_detail
+    assert download_error.value.status_code == 400
+    assert download_error.value.detail == expected_detail
+
+
+@pytest.mark.asyncio
+async def test_attachment_upload_rejects_an_inactive_session_before_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ingestion_calls: list[dict[str, object]] = []
+
+    class _ReadService:
+        async def aget_session_summary(
+            self,
+            _user_id: str,
+            _session_id: str,
+        ) -> None:
+            return None
+
+    class _IngestionService:
+        async def ingest_uploaded_attachment(
+            self,
+            **_kwargs,  # type: ignore[no-untyped-def]
+        ) -> None:
+            return None
+
+    class _Upload:
+        filename = "notes.txt"
+        content_type = "text/plain"
+
+        async def read(self) -> bytes:
+            return b"notes"
+
+    monkeypatch.setattr(
+        messages_content,
+        "require_chat_read_service",
+        lambda: _ReadService(),
+    )
+    monkeypatch.setattr(
+        messages_content,
+        "get_chat_attachment_ingestion_service",
+        lambda: _IngestionService(),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        await messages_content.upload_chat_attachment(
+            session_id="session-deleted",
+            user_id="u1",
+            turn_id="turn-1",
+            file=_Upload(),  # type: ignore[arg-type]
+        )
+
+    assert error.value.status_code == 404
+    assert ingestion_calls == []
+
+
+@pytest.mark.parametrize(
+    "client_turn_id",
+    [".", "..", "turn/one", "turn\\one", "x" * 129],
+)
+def test_user_message_request_rejects_unsafe_client_turn_id(
+    client_turn_id: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        messages_router.UserMessageRequest(
+            message="hello",
+            client_turn_id=client_turn_id,
+        )
+
+
+def test_user_message_request_accepts_safe_client_turn_id() -> None:
+    request = messages_router.UserMessageRequest(
+        message="hello",
+        client_turn_id="turn_01-safe",
+    )
+
+    assert request.client_turn_id == "turn_01-safe"
 
 
 @pytest.mark.asyncio
@@ -573,7 +856,7 @@ async def test_set_message_label_route_updates_message_without_creating_new_row(
 
 
 @pytest.mark.asyncio
-async def test_delete_message_route_soft_deletes_existing_chat_message(
+async def test_delete_message_route_permanently_deletes_existing_chat_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -593,7 +876,7 @@ async def test_delete_message_route_soft_deletes_existing_chat_message(
 
     monkeypatch.setattr(
         messages_mutations,
-        "get_chat_forgetting_service",
+        "require_chat_forgetting_service",
         lambda: _FakeForgettingService(),
     )
 
@@ -608,12 +891,44 @@ async def test_delete_message_route_soft_deletes_existing_chat_message(
         "user_id": "u1",
         "session_id": "s1",
         "deleted_message_id": "msg-1",
+        "cleanup_pending": False,
     }
     assert captured == {
         "user_id": "u1",
         "session_id": "s1",
         "message_id": "msg-1",
     }
+
+
+@pytest.mark.asyncio
+async def test_delete_message_route_confirms_committed_delete_with_pending_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeForgettingService:
+        async def delete_message(self, **_kwargs) -> bool:  # type: ignore[no-untyped-def]
+            raise ChatSurfaceCleanupPendingError(
+                "cleanup pending",
+                user_id="u1",
+                session_id="s1",
+                message_ids=["msg-1"],
+                turn_ids=["turn-1"],
+            )
+
+    monkeypatch.setattr(
+        messages_mutations,
+        "require_chat_forgetting_service",
+        lambda: _FakeForgettingService(),
+    )
+
+    response = await messages_router.delete_message(
+        session_id="s1",
+        message_id="msg-1",
+        user_id="u1",
+    )
+
+    assert response["success"] is True
+    assert response["deleted_message_id"] == "msg-1"
+    assert response["cleanup_pending"] is True
 
 
 @pytest.mark.asyncio
@@ -773,6 +1088,7 @@ async def test_cancel_session_run_route_delegates_to_chat_agent(
             self,
             *,
             session_id: str,
+            user_id: str | None = None,
             requested_by: str,
             reason: str,
             anchor_turn_id: str | None = None,
@@ -780,6 +1096,7 @@ async def test_cancel_session_run_route_delegates_to_chat_agent(
             captured.update(
                 {
                     "session_id": session_id,
+                    "user_id": user_id,
                     "requested_by": requested_by,
                     "reason": reason,
                     "anchor_turn_id": anchor_turn_id,
@@ -817,6 +1134,7 @@ async def test_cancel_session_run_route_delegates_to_chat_agent(
     assert response["success"] is True
     assert response["data"]["run_id"] == "run-1"
     assert response["data"]["cancelled_orchestration_ids"] == ["orch-1"]
+    assert captured["user_id"] == "u1"
 
 
 @pytest.mark.asyncio

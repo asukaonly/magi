@@ -304,6 +304,73 @@ describe('useChatComposerCommands', () => {
       expect.objectContaining({ name: 'pr-review' }),
     );
   });
+
+  it('hides inline skills during a pending ask and keeps background skills', async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === '/commands/') return { data: [] } as any;
+      if (url === '/commands/skills') {
+        return {
+          data: [
+            {
+              name: 'inline-only',
+              description: 'Inline',
+              tags: [],
+              context_mode: 'inline',
+            },
+            {
+              name: 'background-only',
+              description: 'Background',
+              tags: [],
+              context_mode: 'fork',
+            },
+          ],
+        } as any;
+      }
+      return { data: [] } as any;
+    });
+    const Harness = () => {
+      const ref = useRef<HTMLTextAreaElement>(null);
+      const hook = useChatComposerCommands({
+        setInputValue: () => undefined,
+        textareaRef: ref,
+        allowInlineSkills: false,
+        onPickInternal: () => undefined,
+        onPickTool: () => undefined,
+        onPickSkill: () => undefined,
+      });
+      return (
+        <div>
+          <textarea ref={ref} defaultValue="/" />
+          <button
+            data-testid="open-filtered-skills"
+            onClick={() => {
+              ref.current?.setSelectionRange(1, 1);
+              hook.onValueChange('/');
+            }}
+          />
+          <ul data-testid="filtered-skills">
+            {hook.items.map((item) => (
+              <li key={`${item.source}|${item.name}`}>
+                {item.source}|{item.name}
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
+    };
+
+    render(<Harness />);
+    fireEvent.click(screen.getByTestId('open-filtered-skills'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('filtered-skills')).toHaveTextContent(
+        'skill|background-only',
+      );
+    });
+    expect(screen.getByTestId('filtered-skills')).not.toHaveTextContent(
+      'skill|inline-only',
+    );
+  });
 });
 
 describe('ComposerSlashPicker', () => {
@@ -474,7 +541,7 @@ describe('ToolArgsDialog', () => {
 
 describe('SkillArgsDialog', () => {
   it('renders argument hint and forwards args text on submit', async () => {
-    const onSubmit = vi.fn(async () => undefined);
+    const onSubmit = vi.fn(async () => ({ kind: 'accepted' as const }));
     render(
       <SkillArgsDialog
         open
@@ -500,7 +567,7 @@ describe('SkillArgsDialog', () => {
   });
 
   it('Enter key submits the dialog', async () => {
-    const onSubmit = vi.fn(async () => undefined);
+    const onSubmit = vi.fn(async () => ({ kind: 'accepted' as const }));
     render(
       <SkillArgsDialog
         open
@@ -532,9 +599,38 @@ describe('SkillArgsDialog', () => {
           context_mode: 'fork',
         }}
         onClose={() => undefined}
-        onSubmit={async () => undefined}
+        onSubmit={async () => ({ kind: 'accepted' })}
       />,
     );
     expect(screen.getByText(/background task/i)).toBeTruthy();
+  });
+
+  it('keeps the arguments and dialog open when the skill was not sent', async () => {
+    const onClose = vi.fn();
+    render(
+      <SkillArgsDialog
+        open
+        descriptor={{
+          name: 'pr-review',
+          description: 'Review a pull request',
+          argument_hint: '<pr_number>',
+          tags: [],
+        }}
+        onClose={onClose}
+        onSubmit={async () => ({
+          kind: 'not_sent',
+          message: 'Please try again',
+        })}
+      />,
+    );
+
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: '123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(await screen.findByText('Please try again')).toBeInTheDocument();
+    expect(input).toHaveValue('123');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 });

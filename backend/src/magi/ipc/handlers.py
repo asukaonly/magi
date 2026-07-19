@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
+import os
+import stat
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +16,9 @@ import structlog
 from magi.api.services import get_runtime_system_status
 
 logger = structlog.get_logger(__name__)
+_STAGED_BODY_CHUNK_BYTES = 1024 * 1024
+_STAGED_BODY_FILE_PREFIX = "magi-ipc-body-"
+_MAX_STAGED_BODY_BYTES = 55 * 1024 * 1024
 
 
 def _is_json_content_type(content_type: str) -> bool:
@@ -23,7 +30,116 @@ def _is_text_content_type(content_type: str) -> bool:
     normalized = str(content_type or "").lower()
     if normalized.startswith("text/"):
         return True
-    return any(token in normalized for token in ("application/xml", "application/javascript", "image/svg+xml"))
+    return any(
+        token in normalized
+        for token in ("application/xml", "application/javascript", "image/svg+xml")
+    )
+
+
+def _open_staged_request_body(path: Path) -> int:
+    """Open one private gateway staging file without a path-swap window."""
+
+    try:
+        file_stat = path.lstat()
+        temp_root = Path(tempfile.gettempdir()).resolve(strict=True)
+        parent = path.parent.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError("Staged request body file is not available") from exc
+    if (
+        parent != temp_root
+        or not path.name.startswith(_STAGED_BODY_FILE_PREFIX)
+        or not stat.S_ISREG(file_stat.st_mode)
+    ):
+        raise ValueError("Staged request body file is outside the IPC staging boundary")
+    _validate_staged_request_body_stat(file_stat)
+
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError("Staged request body file is not available") from exc
+    try:
+        opened_stat = os.fstat(descriptor)
+        _validate_staged_request_body_stat(opened_stat)
+        if (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
+        ) != (
+            file_stat.st_dev,
+            file_stat.st_ino,
+        ):
+            raise ValueError("Staged request body file changed before forwarding")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _validate_staged_request_body_stat(file_stat: os.stat_result) -> None:
+    """Require one opened staging file to retain its private-file contract."""
+
+    if not stat.S_ISREG(file_stat.st_mode):
+        raise ValueError("Staged request body file is outside the IPC staging boundary")
+    if file_stat.st_size > _MAX_STAGED_BODY_BYTES:
+        raise ValueError("Staged request body file exceeds the forwarding limit")
+    if hasattr(file_stat, "st_nlink") and file_stat.st_nlink != 1:
+        raise ValueError("Staged request body file has an unexpected link count")
+    if hasattr(os, "getuid") and file_stat.st_uid != os.getuid():
+        raise ValueError("Staged request body file has an unexpected owner")
+    if os.name != "nt" and file_stat.st_mode & 0o077:
+        raise ValueError("Staged request body file permissions are too broad")
+
+
+async def _open_staged_request_body_async(path: Path) -> int:
+    """Close a late-opened descriptor when the forwarding task is cancelled."""
+
+    worker = asyncio.create_task(asyncio.to_thread(_open_staged_request_body, path))
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        try:
+            descriptor = await worker
+        except BaseException:
+            pass
+        else:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        raise
+
+
+async def _stream_staged_request_body(descriptor: int):
+    """Yield a staged IPC request without materializing the whole file."""
+
+    total_bytes = 0
+    while chunk := await _read_staged_request_body_chunk(descriptor):
+        total_bytes += len(chunk)
+        if total_bytes > _MAX_STAGED_BODY_BYTES:
+            raise ValueError("Staged request body grew beyond the forwarding limit")
+        yield chunk
+
+
+async def _read_staged_request_body_chunk(descriptor: int) -> bytes:
+    """Finish an in-flight file read before its descriptor can be closed."""
+
+    worker = asyncio.create_task(
+        asyncio.to_thread(
+            os.read,
+            descriptor,
+            _STAGED_BODY_CHUNK_BYTES,
+        )
+    )
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        try:
+            await worker
+        except BaseException:
+            pass
+        raise
 
 
 async def handle_ping(params: dict[str, Any] | None) -> dict[str, str]:
@@ -88,6 +204,7 @@ class ApiForwardHandler:
         headers = params.get("headers", {})
         body = params.get("body")
         body_file_path = str(params.get("body_file_path") or "").strip()
+        staged_descriptor: int | None = None
 
         url = path
         if query:
@@ -95,13 +212,16 @@ class ApiForwardHandler:
 
         kwargs: dict[str, Any] = {"headers": headers}
         if body_file_path:
-            staged_path = Path(body_file_path)
-            if not staged_path.is_file():
-                return {"status": 400, "body": {"detail": "Missing staged request body file"}}
-            kwargs["content"] = staged_path.read_bytes()
+            try:
+                staged_descriptor = await _open_staged_request_body_async(Path(body_file_path))
+            except ValueError as exc:
+                return {"status": 400, "body": {"detail": str(exc)}}
+            kwargs["content"] = _stream_staged_request_body(staged_descriptor)
         elif body is not None:
-            kwargs["content"] = json.dumps(body).encode("utf-8") if not isinstance(body, (str, bytes)) else (
-                body.encode("utf-8") if isinstance(body, str) else body
+            kwargs["content"] = (
+                json.dumps(body).encode("utf-8")
+                if not isinstance(body, (str, bytes))
+                else (body.encode("utf-8") if isinstance(body, str) else body)
             )
             if "content-type" not in {k.lower() for k in headers}:
                 kwargs["headers"] = {**headers, "content-type": "application/json"}
@@ -132,6 +252,12 @@ class ApiForwardHandler:
         except Exception as exc:
             logger.exception("api_forward_error", path=path, method=method)
             return {"status": 500, "body": {"detail": str(exc)}}
+        finally:
+            if staged_descriptor is not None:
+                try:
+                    os.close(staged_descriptor)
+                except OSError:
+                    pass
 
     async def close(self) -> None:
         await self._client.aclose()

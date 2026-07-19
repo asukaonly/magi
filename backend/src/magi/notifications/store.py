@@ -8,7 +8,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -164,7 +164,14 @@ class NotificationStore:
         finally:
             conn.close()
 
-    def list_for_user(self, user_id: str, *, limit: int = 50, before_id: Optional[int] = None) -> list[NotificationRow]:
+    def list_for_user(
+        self,
+        user_id: str,
+        *,
+        limit: int = 50,
+        before_id: Optional[int] = None,
+        exclude_profile_conflicts: bool = False,
+    ) -> list[NotificationRow]:
         conn = self._connect()
         try:
             sql = (
@@ -172,6 +179,8 @@ class NotificationStore:
                 "WHERE user_id=? AND status IN ('unread','read') "
             )
             params: list = [user_id]
+            if exclude_profile_conflicts:
+                sql += "AND dedupe_key NOT LIKE 'profile_conflict:%' "
             if before_id is not None:
                 sql += "AND id < ? "
                 params.append(before_id)
@@ -182,11 +191,23 @@ class NotificationStore:
         finally:
             conn.close()
 
-    def unread_count(self, user_id: str) -> int:
+    def unread_count(
+        self,
+        user_id: str,
+        *,
+        exclude_profile_conflicts: bool = False,
+    ) -> int:
         conn = self._connect()
         try:
+            profile_filter = (
+                " AND dedupe_key NOT LIKE 'profile_conflict:%'"
+                if exclude_profile_conflicts
+                else ""
+            )
             r = conn.execute(
-                "SELECT COUNT(*) AS c FROM user_notifications WHERE user_id=? AND status='unread'",
+                "SELECT COUNT(*) AS c FROM user_notifications "
+                "WHERE user_id=? AND status='unread'"
+                f"{profile_filter}",
                 (user_id,),
             ).fetchone()
             return int(r["c"] or 0)

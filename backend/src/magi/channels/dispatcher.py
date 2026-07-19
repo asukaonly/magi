@@ -9,6 +9,9 @@ dispatch for any other message.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+
 from magi_plugin_sdk.channels import (
     ChannelMessageDispatcherProtocol,
     ChannelMessageDispatchOutcome,
@@ -20,6 +23,7 @@ from .session_commands import try_handle_session_command
 
 
 MESSAGE_DISPATCHER_NOT_INITIALIZED = "MESSAGE_DISPATCHER_NOT_INITIALIZED"
+_EXTERNAL_TURN_PREFIX = "turn_external_"
 
 
 class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
@@ -83,7 +87,11 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
             attachments=attachments,
             reply_to_message_id=reply_to_message_id,
             workspace_path=workspace_path,
-            client_turn_id=client_turn_id,
+            client_turn_id=_resolve_client_turn_id(
+                source=source,
+                client_turn_id=client_turn_id,
+                metadata=metadata,
+            ),
             metadata=metadata,
             runtime_namespace=runtime_namespace,
         )
@@ -173,6 +181,52 @@ def _channel_dispatch_outcome(outcome: object) -> ChannelMessageDispatchOutcome:
         error_message=outcome.error_message,
         queue_size=outcome.queue_size,
     )
+
+
+def _resolve_client_turn_id(
+    *,
+    source: str,
+    client_turn_id: str | None,
+    metadata: dict[str, object] | None,
+) -> str | None:
+    """Return an explicit or safely derived id for one external message."""
+
+    if client_turn_id is not None:
+        return client_turn_id
+    if not isinstance(metadata, dict):
+        return None
+
+    channel = _stable_external_identifier(source)
+    external_chat_id = _stable_external_identifier(metadata.get("external_chat_id"))
+    external_message_id = _stable_external_identifier(
+        metadata.get("external_message_id")
+    )
+    if channel is None or external_chat_id is None or external_message_id is None:
+        return None
+
+    identity = {
+        "account_id": _stable_external_identifier(metadata.get("account_id")),
+        "external_chat_id": external_chat_id,
+        "external_message_id": external_message_id,
+        "source": channel,
+    }
+    canonical = json.dumps(
+        identity,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"{_EXTERNAL_TURN_PREFIX}{digest}"
+
+
+def _stable_external_identifier(value: object) -> str | None:
+    """Normalize scalar transport ids without accepting ambiguous values."""
+
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return None
+    normalized = str(value).strip()
+    return normalized or None
 
 
 def _control_command_outcome(

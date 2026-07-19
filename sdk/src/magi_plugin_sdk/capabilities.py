@@ -15,8 +15,37 @@ class TracePort(Protocol):
 
 
 class DelegationEventPort(Protocol):
-    async def broadcast_event(self, *, user_id: str, session_id: str, delegation_id: str, event: Any) -> None: ...
-    async def broadcast_state(self, *, user_id: str, session_id: str, delegation_id: str, state: Any, summary: Optional[dict[str, Any]] = None) -> None: ...
+    async def broadcast_event(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+        delegation_id: str,
+        event: Any,
+    ) -> None: ...
+
+    async def broadcast_state(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+        delegation_id: str,
+        state: Any,
+        summary: Optional[dict[str, Any]] = None,
+    ) -> None: ...
+
+
+class DelegationArtifactPort(Protocol):
+    async def register(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        delegation_id: str,
+        workspace_path: str,
+    ) -> None: ...
 
 
 class BackgroundPort(Protocol):
@@ -70,7 +99,7 @@ class ChatPort(Protocol):
         attachment_id: str,
     ) -> Optional[dict[str, Any]]: ...
 
-    def prepare_runtime_attachment(
+    async def prepare_runtime_attachment(
         self,
         *,
         session_id: str,
@@ -78,7 +107,7 @@ class ChatPort(Protocol):
         attachment: dict[str, Any],
     ) -> dict[str, Any]: ...
 
-    def ingest_local_file(
+    async def ingest_local_file(
         self,
         *,
         session_id: str,
@@ -192,6 +221,7 @@ class ToolCapabilities:
 
     trace: Optional[TracePort] = None
     delegation_events: Optional[DelegationEventPort] = None
+    delegation_artifacts: Optional[DelegationArtifactPort] = None
     background: Optional[BackgroundPort] = None
     session_cache: Optional[Any] = None
     chat: Optional[ChatPort] = None
@@ -207,6 +237,7 @@ __all__ = [
     "ToolCapabilities",
     "TracePort",
     "DelegationEventPort",
+    "DelegationArtifactPort",
     "BackgroundPort",
     "MemoryQueryPort",
     "ChatPort",

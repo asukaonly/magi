@@ -50,20 +50,23 @@ async def broadcast_delegation_event(
     *,
     user_id: str,
     session_id: str,
+    turn_id: str,
     delegation_id: str,
     event: RunEvent,
 ) -> None:
     """Push one ``RunEvent`` for live UI updates. Rate-limited per delegation."""
     user = (user_id or "").strip()
     sid = (session_id or "").strip()
+    tid = (turn_id or "").strip()
     did = (delegation_id or "").strip()
-    if not user or not sid or not did:
+    if not user or not sid or not tid or not did:
         return
     if not _allow_event_emit(did):
         return
     payload_data: dict[str, Any] = {
         "user_id": user,
         "session_id": sid,
+        "turn_id": tid,
         "delegation_id": did,
         "event": event.model_dump(),
     }
@@ -84,6 +87,7 @@ async def broadcast_delegation_state(
     *,
     user_id: str,
     session_id: str,
+    turn_id: str,
     delegation_id: str,
     state: DelegationLifecycle,
     summary: dict[str, Any] | None = None,
@@ -91,14 +95,16 @@ async def broadcast_delegation_state(
     """Push a lifecycle transition. Never rate-limited."""
     user = (user_id or "").strip()
     sid = (session_id or "").strip()
+    tid = (turn_id or "").strip()
     did = (delegation_id or "").strip()
-    if not user or not sid or not did:
+    if not user or not sid or not tid or not did:
         return
     if state in ("finished", "failed", "cancelled"):
         _clear_rate_limit(did)
     payload_data: dict[str, Any] = {
         "user_id": user,
         "session_id": sid,
+        "turn_id": tid,
         "delegation_id": did,
         "state": state,
         "summary": summary or {},

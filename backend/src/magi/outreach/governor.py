@@ -1,4 +1,4 @@
-"""Gate the EXTERNAL push (quiet hours / dedup / budget). Desktop write is
+"""Gate the EXTERNAL push (quiet hours / budget). Desktop write is
 ungated. v1 hardcodes thresholds as module constants — moving them to
 user/system config is a follow-up (spec section 11.9)."""
 from __future__ import annotations
@@ -44,8 +44,6 @@ class Governor:
         self, intent: OutreachIntent, *, external_target: Any
     ) -> tuple[GovernorVerdict, int | None]:
         if external_target is None:
-            return GovernorVerdict.DROP, None
-        if await self._log.was_delivered(intent.correlation_id):
             return GovernorVerdict.DROP, None
 
         now = self._now_local()

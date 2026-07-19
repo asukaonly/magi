@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 from magi.channels.base import Channel
 from magi.channels.contracts import (
-    ChannelSessionMapping,
     ChannelTarget,
-    InboundMessage,
     OutboundContent,
 )
 from magi.channels.registry import ChannelRegistry
@@ -95,10 +94,22 @@ def session_provisioner():
     class _FakeSessionProvisioner:
         def __init__(self) -> None:
             self.created: list[dict[str, object]] = []
+            self.available_session_ids: set[str] = set()
 
         async def create_channel_session(self, **kwargs):  # type: ignore[no-untyped-def]
             self.created.append(dict(kwargs))
-            return f"chsess_{len(self.created):012d}"
+            session_id = f"chsess_{len(self.created):012d}"
+            self.available_session_ids.add(session_id)
+            return session_id
+
+        async def is_channel_session_available(
+            self,
+            *,
+            magi_user_id: str,
+            session_id: str,
+        ) -> bool:
+            del magi_user_id
+            return session_id in self.available_session_ids
 
     return _FakeSessionProvisioner()
 
@@ -147,8 +158,6 @@ class TestChannelSessionMapper:
             IdentityBindingsStore,
             LocalUserResolver,
         )
-        from pathlib import Path
-        import sqlite3
 
         # Build an in-memory-style identity store (separate file in tmp).
         identity_db = str(Path(mapper_db).parent / "identity.db")
@@ -210,6 +219,104 @@ class TestChannelSessionMapper:
         assert first.magi_session_id == second.magi_session_id
         # Session provisioner called only once (first create)
         assert len(session_provisioner.created) == 1
+
+    async def test_resolve_replaces_mapping_to_deleted_chat(
+        self, mapper_db: str, session_provisioner
+    ) -> None:
+        mapper = ChannelSessionMapper(
+            db_path=mapper_db,
+            session_provisioner=session_provisioner,
+        )
+        await mapper.initialize()
+        first = await mapper.resolve_or_create(
+            channel_type="telegram",
+            external_chat_id="12345",
+            external_user_id="user1",
+        )
+        session_provisioner.available_session_ids.remove(first.magi_session_id)
+
+        replacement = await mapper.resolve_or_create(
+            channel_type="telegram",
+            external_chat_id="12345",
+            external_user_id="user1",
+        )
+
+        assert replacement.magi_session_id != first.magi_session_id
+        assert await mapper.lookup_by_session(first.magi_session_id) is None
+        assert len(session_provisioner.created) == 2
+
+    async def test_concurrent_resolve_creates_one_session(
+        self, mapper_db: str, session_provisioner
+    ) -> None:
+        import asyncio
+
+        mapper = ChannelSessionMapper(
+            db_path=mapper_db,
+            session_provisioner=session_provisioner,
+        )
+        await mapper.initialize()
+
+        first, second = await asyncio.gather(
+            mapper.resolve_or_create(
+                channel_type="telegram",
+                external_chat_id="12345",
+                external_user_id="user1",
+            ),
+            mapper.resolve_or_create(
+                channel_type="telegram",
+                external_chat_id="12345",
+                external_user_id="user1",
+            ),
+        )
+
+        assert first.magi_session_id == second.magi_session_id
+        assert len(session_provisioner.created) == 1
+
+    async def test_clear_conversation_state_preserves_channel_preferences(
+        self, mapper_db: str, session_provisioner
+    ) -> None:
+        import aiosqlite
+
+        mapper = ChannelSessionMapper(
+            db_path=mapper_db,
+            session_provisioner=session_provisioner,
+        )
+        await mapper.initialize()
+        await mapper.resolve_or_create(
+            channel_type="telegram",
+            external_chat_id="12345",
+            external_user_id="user1",
+        )
+        async with aiosqlite.connect(mapper_db) as database:
+            await database.execute(
+                """
+                INSERT INTO channel_binding_settings(
+                    channel_type, external_user_id, auto_approve, updated_at_ms
+                ) VALUES ('telegram', 'user1', 1, 1)
+                """
+            )
+            await database.execute(
+                """
+                INSERT INTO outreach_outbox(
+                    correlation_id, channel_scope, intent_fingerprint,
+                    intent_json, release_at_ms, status, created_at_ms
+                ) VALUES ('task-1', 'telegram', 'fingerprint', '{"secret":true}',
+                          1, 'pending', 1)
+                """
+            )
+            await database.commit()
+
+        counts = await mapper.clear_conversation_state()
+
+        assert counts["channel_session_mappings"] == 1
+        assert counts["outreach_outbox"] == 1
+        assert await mapper.lookup("telegram", "12345") is None
+        async with aiosqlite.connect(mapper_db) as database:
+            assert await (
+                await database.execute(
+                    "SELECT COUNT(*) FROM channel_binding_settings"
+                )
+            ).fetchone() == (1,)
 
     async def test_lookup_nonexistent(
         self, mapper_db: str, session_provisioner

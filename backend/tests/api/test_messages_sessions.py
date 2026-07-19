@@ -12,6 +12,8 @@ if str(BACKEND_SRC) not in sys.path:
 
 from magi.api.routers import messages, messages_sessions  # noqa: E402
 from magi.chat import ChatStore  # noqa: E402
+from magi.chat.forgetting import ChatHistoryClearResult  # noqa: E402
+from magi.core.chat_cleanup import ChatSurfaceCleanupPendingError  # noqa: E402
 from magi.chat.read_service import (  # noqa: E402
     ChatReadService,
     ChatSessionRenameResult,
@@ -630,7 +632,12 @@ def test_clear_all_sessions_keeps_chat_rows_when_trace_cleanup_fails(
     monkeypatch,
 ):
     service = _build_service(tmp_path)
-    monkeypatch.setattr(service, "_clear_all_chat_assets", lambda: None)
+    asset_cleanup_calls: list[bool] = []
+    monkeypatch.setattr(
+        service,
+        "_clear_all_chat_assets",
+        lambda: asset_cleanup_calls.append(True),
+    )
     _init_chat_session_store(service._chat_db_path)
     _insert_session(
         service._chat_db_path,
@@ -648,6 +655,7 @@ def test_clear_all_sessions_keeps_chat_rows_when_trace_cleanup_fails(
         service.clear_all_sessions()
 
     assert _count_table_rows(service._chat_db_path, CHAT_SESSIONS_TABLE) == 1
+    assert asset_cleanup_calls == []
 
 
 def test_clear_all_sessions_removes_traces_when_chat_database_is_absent(
@@ -798,6 +806,21 @@ def test_create_new_session_with_client_session_id_is_idempotent(tmp_path):
             "SELECT workspace_path FROM chat_sessions WHERE session_id = ?",
             (first,),
         ).fetchone() == ("/tmp/magi",)
+
+
+def test_create_new_session_rejects_case_variant_client_session_id(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    service.create_new_session(
+        "u1",
+        client_session_id="Onboarding_Session_1",
+    )
+
+    with pytest.raises(ValueError, match="not available"):
+        service.create_new_session(
+            "u1",
+            client_session_id="onboarding_session_1",
+        )
 
 
 def test_create_new_session_with_client_session_id_is_idempotent_under_concurrency(tmp_path):
@@ -2064,7 +2087,7 @@ def test_delete_session_router_response(monkeypatch):
 
     monkeypatch.setattr(
         messages_sessions,
-        "get_chat_forgetting_service",
+        "require_chat_forgetting_service",
         lambda: _FakeForgettingService(),
     )
 
@@ -2072,6 +2095,35 @@ def test_delete_session_router_response(monkeypatch):
 
     assert result["success"] is True
     assert result["deleted_session_id"] == "s1"
+    assert result["cleanup_pending"] is False
+
+
+def test_delete_session_router_confirms_committed_delete_with_pending_cleanup(
+    monkeypatch,
+):
+    class _FakeForgettingService:
+        async def delete_session(self, *, user_id: str, session_id: str):
+            raise ChatSurfaceCleanupPendingError(
+                "cleanup pending",
+                user_id=user_id,
+                session_id=session_id,
+                message_ids=["message-1"],
+                turn_ids=["turn-1"],
+            )
+
+    monkeypatch.setattr(
+        messages_sessions,
+        "require_chat_forgetting_service",
+        lambda: _FakeForgettingService(),
+    )
+
+    result = __import__("asyncio").run(
+        messages.delete_session(session_id="s1", user_id="u1")
+    )
+
+    assert result["success"] is True
+    assert result["deleted_session_id"] == "s1"
+    assert result["cleanup_pending"] is True
 
 
 def test_delete_session_router_returns_not_found_for_unknown_owner(monkeypatch):
@@ -2083,7 +2135,7 @@ def test_delete_session_router_returns_not_found_for_unknown_owner(monkeypatch):
 
     monkeypatch.setattr(
         messages_sessions,
-        "get_chat_forgetting_service",
+        "require_chat_forgetting_service",
         lambda: _FakeForgettingService(),
     )
 
@@ -2122,12 +2174,15 @@ def test_clear_history_route_waits_for_governed_service(monkeypatch):
     calls: list[str] = []
 
     class _Service:
-        async def clear_history(self, *, user_id: str, session_id: str) -> bool:
+        async def clear_history(self, *, user_id: str, session_id: str):
             calls.append(f"clear:{user_id}:{session_id}")
-            return True
+            return ChatHistoryClearResult(
+                message_ids=("message-1",),
+                turn_ids=("turn-1",),
+            )
 
     monkeypatch.setattr(
-        "magi.api.routers.messages_content.get_chat_forgetting_service",
+        "magi.api.routers.messages_content.require_chat_forgetting_service",
         lambda: _Service(),
     )
 
@@ -2136,16 +2191,45 @@ def test_clear_history_route_waits_for_governed_service(monkeypatch):
     )
 
     assert result["success"] is True
+    assert result["cleared_message_ids"] == ["message-1"]
+    assert result["cleared_turn_ids"] == ["turn-1"]
+    assert result["cleanup_pending"] is False
     assert calls == ["clear:u1:s1"]
+
+
+def test_clear_history_route_confirms_redaction_with_pending_cleanup(monkeypatch):
+    class _Service:
+        async def clear_history(self, *, user_id: str, session_id: str):
+            raise ChatSurfaceCleanupPendingError(
+                "cleanup pending",
+                user_id=user_id,
+                session_id=session_id,
+                message_ids=["message-1"],
+                turn_ids=["turn-1"],
+            )
+
+    monkeypatch.setattr(
+        "magi.api.routers.messages_content.require_chat_forgetting_service",
+        lambda: _Service(),
+    )
+
+    result = __import__("asyncio").run(
+        messages.clear_conversation_history(user_id="u1", session_id="s1")
+    )
+
+    assert result["success"] is True
+    assert result["cleared_message_ids"] == ["message-1"]
+    assert result["cleared_turn_ids"] == ["turn-1"]
+    assert result["cleanup_pending"] is True
 
 
 def test_clear_history_route_does_not_report_success_on_failure(monkeypatch):
     class _Service:
-        async def clear_history(self, *, user_id: str, session_id: str) -> bool:
+        async def clear_history(self, *, user_id: str, session_id: str):
             raise RuntimeError("memory cleanup failed")
 
     monkeypatch.setattr(
-        "magi.api.routers.messages_content.get_chat_forgetting_service",
+        "magi.api.routers.messages_content.require_chat_forgetting_service",
         lambda: _Service(),
     )
 

@@ -8,12 +8,14 @@ file owns a piece of state — start here.
 ## Runtime SQLite layout
 
 All runtime data is rooted under `RuntimePaths.base_dir`
-(`~/.magi` by default; override with `MAGI_RUNTIME_DIR`). The runtime
-keeps state across multiple SQLite files, grouped by lifecycle ownership:
+(`~/.magi` in the desktop product). Tests and maintenance code may inject a
+different `RuntimePaths` instance, but the shipped Settings UI does not
+currently support moving an existing runtime directory. The runtime keeps
+state across multiple SQLite files, grouped by lifecycle ownership:
 
 | File | Owner | Holds |
 |------|-------|-------|
-| `data/chat/chat.db` | chat | sessions, turns, messages, attachments, context summaries, user-turn delivery checkpoints |
+| `data/chat/chat.db` | chat | sessions, turns, messages, attachments, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, context summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |
 | `data/memory/l1_events.db` | memory L1 + L1-projected chat sessions | normalized event log, embeddings, FTS, entity links |
 | `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | working memory, knowledge graph, ToM, correction history, stable context identities, summaries, procedural skills |
 | `runtime/runtime_trace.db` | runtime trace | trace turns / spans / llm calls / tools, plugin ingress events |
@@ -25,9 +27,9 @@ keeps state across multiple SQLite files, grouped by lifecycle ownership:
 | `runtime/scheduler.db` | scheduler | schedules, execution history, sensor sync jobs |
 | `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups |
 | `runtime/sensor_state.db` | sensors | per-source cursors, fingerprints, stats |
-| `runtime/background_tasks.db` | runtime | background-task durability |
+| `runtime/background_tasks.db` | runtime | background-task rows and event history, plus recoverable terminal-completion snapshots with frozen outreach intent/body |
 | `runtime/permission_rules.db` | runtime permissions | trust and permission rule state |
-| `data/channels/channels.db` | channels | external channel session mapping |
+| `data/channels/channels.db` | channels + outreach | external channel session mappings, binding preferences, delivery receipts, notification cursors, proactive-outreach outbox and delivery log |
 | `data/identity/identity.db` | identity | external channel identity to canonical user mapping |
 | `data/batch/batch.db` | batch | batch job and item manifests |
 | `data/memory/self_memory_v2.db` | (reserved) | — |
@@ -47,17 +49,152 @@ correction and preserve evidence added after the correction was created.
 Each subsystem owns the schema for its own file. There is no
 cross-file foreign-key enforcement.
 
-The runtime command queue provides durable **at-least-once handoff only from the
-persisted queue to a local message-bus publish**. It is not end-to-end durable
-delivery or exactly-once execution. Stable user-turn receipts prevent repeated
-HTTP submissions from creating another chat row or another queued command, and
-claimed rows are recovered after a process restart. A crash after local publish
-but before queue acknowledgement can replay the command. A crash after queue
-acknowledgement but before the in-memory subscriber handles the event can lose
-that delivery because there is currently no durable agent inbox. Consumers must
-therefore make transcript writes and any external side effects idempotent using
-the stable turn or message identity; the queue receipt is not proof that a
-subscriber handled the event or that a downstream side effect ran exactly once.
+The runtime command queue provides durable **at-least-once handoff through chat
+agent admission**. Publishing a user message to the process-local bus does not
+acknowledge its command. The command remains claimed until the task-agent
+manager has either admitted that exact delivery attempt or recognized it as an
+already admitted or superseded attempt. Lease expiry or acknowledgement failure
+may replay the same physical command and attempt. On process startup, the queue
+restores claimed rows and chat recovery first checks for a durable terminal
+surface. Any remaining pre-restart non-terminal attempt is superseded by a
+higher attempt and scheduled with a new command ID while preserving the stable
+turn ID and runtime envelope. Stable correlation IDs identify the logical turn,
+while an explicit attempt number and command ID distinguish deliberate
+redelivery from duplicate transport. Repeating the same attempt is idempotent;
+only a higher attempt creates a new command, including after completed command
+rows have been cleaned up.
+
+This closes the former publish-to-subscriber loss window, but it does not make
+agent execution or external side effects exactly once. A replay after admission
+is rejected by the durable chat delivery record and then acknowledged without
+entering the agent twice. Transcript completion and external tools must still
+converge on stable turn or message identities and provide their own
+idempotency where needed.
+
+The chat-owned user-turn ledger moves through ready, queued, admitted, and
+terminal states. Terminal is evidence-backed: it is written only after the
+matching chat turn has a durable final surface, a legal no-message/reaction
+outcome, a persisted cancelled/interrupted/merged state, or another durable
+handoff. When the runtime fact carries an attempt number and command ID,
+terminal transition is an exact compare-and-set; a late result from an older
+attempt cannot close a newer one. Recovery without command identity may close
+only the currently stored attempt and only after verifying the durable terminal
+surface.
+
+Terminal-surface recovery closes the chat turn and its exact delivery attempt
+in one `chat.db` transaction. It may update an existing queued or running turn
+to completed when the durable final or complete rhythm surface proves the
+result, but it never inserts a missing turn. This keeps a late recovery pass
+from recreating a turn that message or session deletion already removed. The
+chat `v4` migration applies the same rule while backfilling existing delivery
+rows.
+
+Assistant transcript completion and assistant-memory projection use one chat
+transaction. The chat store derives the projection directly from the committed
+assistant rows, so callers cannot save a visible answer while forgetting its
+memory handoff. A normal final reply uses its message ID and text. A segmented
+reply uses the first segment ID as the stable identity and the ordered segment
+texts joined with newlines as the canonical content. Reaction-only and other
+legal no-message outcomes create no projection work.
+
+The pending projection remains in `chat_assistant_memory_outbox` until L1
+confirms the exact `chat` / `AIResponse` / message-ID identity. A worker starts
+during runtime bootstrap, recovers expired claims, retries with bounded
+backoff, and periodically scans even if its in-process wake hint was lost. It
+checks L1 before publishing so a crash after successful ingestion does not
+publish a duplicate. If L1 is disabled, the row is completed without blocking
+the visible reply. Successful confirmation deletes the outbox row, including
+its answer text; failed attempts retain the text only for the next retry.
+
+Terminal background-task delivery uses the same durable-work principle in
+`background_task_completion_intents`. The first outreach intent and rendered
+body are frozen before delivery, and every attempt is claimed in the database.
+Pending rows are drained both after startup and by the bounded periodic
+outreach pass, so a live delivery failure does not require a process restart.
+Successful acknowledgement scrubs the private snapshot and removes it from
+pending work; retries retain the same task-attempt identity and wording.
+
+Destructive chat operations use two database phases around external cleanup.
+The first phase validates the exact message or transcript snapshot, removes all
+public content and attachment metadata, and retains only private ownership
+records for managed attachments and code-delegation artifacts. Code delegation
+is registered before its first filesystem write, so cleanup does not depend on
+an assistant message having been committed successfully. The first phase
+commits before any trace row, managed file, delegation log/diff, temporary
+worktree, or delegation branch is deleted. After external cleanup succeeds, a
+second transaction removes those private records and physically deletes the
+redacted message and turn rows. Shared artifacts survive while another visible
+message in an active session still owns them. Applied edits in the main
+workspace are user project state and are never reverted by conversation
+deletion. A crash or cleanup failure therefore never leaves public transcript
+content pointing at an already removed file, and retry retains exact cleanup
+identities without retaining user-facing content.
+
+The same operation holds a matching background-task admission scope from before
+the memory delete snapshot until chat-surface cleanup returns. Enqueue and retry
+check that scope under the manager's admission lock, so newly submitted work
+cannot enter between cancellation and deletion. Exact-message deletion derives
+the scope from the complete logical replacement chain, including linked task
+and pending-message identities; session and history operations hold the whole
+user/session scope. Work outside the selected scope is unaffected.
+
+Full chat clear uses the same ordering and additionally persists one
+`chat_global_clear_intent` row in the first transaction. The intent records the
+original visible-session count. Chat cleanup removes traces, assets, messages,
+turns, and sessions but deliberately retains the intent: the same clear also
+owns conversation mappings, delivery receipts, notification cursors, pending
+proactive outreach and its delivery log in `channels.db`, plus persisted
+orchestration payloads outside `chat.db`. The intent is deleted only after
+those stores have also been cleared.
+
+The full-memory clear boundary holds a global background admission seal,
+cancels matching non-terminal work, and waits for its terminal listeners until
+the cross-store clear finishes. It does not delete terminal task/event audit
+rows from `background_tasks.db`. Those rows are not memory-retrieval input; the
+Tasks UI may dismiss them explicitly, and the background-task retention
+schedule removes them later. Their terminal completion intent is either already
+handled or marked discarded and scrubbed with the same task-attempt identity;
+the remaining audit row is not treated as chat transcript truth.
+
+Startup recovery is split across the stores. Chat recovery first finishes the
+local redaction and physical cleanup while retaining the intent. Before channel
+plugins start, the channels lifecycle sees that marker, clears channel
+conversation state and orchestration payloads, and then asks chat to complete
+the intent. External delivery remains blocked while the marker exists. This is
+an immediate crash-recovery path; it does not rely on the periodic orphan-file
+retention window.
+
+Deleted and globally cleared session IDs are retained in
+`chat_cleared_session_scopes`. The table key, session lookup, and the unique
+`chat_sessions` identity index all use case-insensitive comparison. Insert
+triggers on sessions and every session-scoped chat table reject a cleared ID,
+a case-only alias, an archived/deleted session, or any write while the global
+clear intent is active. These tombstones are permanent privacy barriers, not
+temporary recovery rows.
+
+An explicit stop does not depend on an in-memory run already existing. The chat
+store validates the requested user, session, and turn in the same transaction
+that marks the turn cancelled and closes any ready, queued, or admitted
+delivery. A queued runtime command may remain in the separate queue database
+briefly; when consumed, the terminal chat record rejects admission and the
+command is acknowledged. A fact already transferred into an in-memory agent
+batch is revalidated against the same exact delivery before any context, tool,
+or model work and is discarded if cancellation or supersession won. Other
+executable facts in that batch are preserved. The final revalidation and
+in-memory run creation are serialized with stop: cancellation either closes the
+delivery before a run exists, or observes and cancels the exact run that was
+created first. This deliberately avoids pretending that the queue and chat
+databases share one atomic transaction. Repeated stops are idempotent, while a
+completed outcome that committed first remains completed.
+
+A DEFER message remains non-terminal while it is attached to another active
+run. Exact completion of that run captures the deferred entry and clears the
+run before the message is prepared as a higher delivery attempt. Its durable
+runtime envelope and stable turn ID are reused. A transient completion
+checkpoint failure retains one in-process retry for the captured batch and
+does not release it until the checkpoint succeeds. A failure before scheduling
+leaves admitted or ready ledger work for startup or background recovery rather
+than relying on an in-memory replay.
 
 ## Two tiers of schema management
 
@@ -85,6 +222,16 @@ independent Alembic environment with its own version chain:
 | `channels` | `channels.db` |
 | `identity` | `identity.db` |
 | `batch` | `batch.db` |
+
+Current heads that matter to the chat-clear and delivery boundary:
+
+| environment | head | Boundary added at head |
+|-------------|------|------------------------|
+| `chat` | `v9` | durable message ownership and orphan-recovery registry for private code-delegation artifacts |
+| `background_tasks` | `v2` | recoverable terminal-completion snapshots with durable delivery claims, frozen intent/body, and scoped discard during conversation deletion |
+| `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
+| `message_queue` | `v5` | explicit user-message delivery attempts |
+| `memory_shared` | `v33_chat_forget_activation` | activate chat forget intent before cancelling a claimed assistant-memory projection |
 
 Layout under `backend/src/magi/db/`:
 
@@ -132,13 +279,23 @@ Current governed runtime cleanup:
 | `message_queue.db` | roll up completed rows by hour, delete completed rows older than 24 hours, delete failed rows older than 7 days |
 | `scheduler.db` | delete success history after 30 days and failed history after 60 days |
 | `sensor_state.db` | keep only the latest configured fingerprint count per sensor |
-| chat resources | delete session attachment and derived-file directories on session/history clear; sweep old orphan directories |
+| `background_tasks.db` | delete terminal task rows, event history, and their completion-intent rows after the configured background-task history window |
+| chat resources | preserve every file with a surviving message owner, including hidden transcript rows; remove unclaimed files from active sessions only after the longer of the configured grace period or 25 hours; optionally sweep old orphan session directories after the configured grace period |
 | ephemeral jobs | personality generation job snapshots use the configured TTL |
 
 Cleanup deletes operational rows or files after any configured rollup step;
 it does not soft-delete runtime telemetry. Durable memory history remains
 governed by the memory retention/archive settings described in the product
 configuration guide.
+
+Chat upload storage and transcript ownership are intentionally separate:
+uploading writes the managed file first, while accepting the message creates
+its durable owner record. Periodic cleanup therefore always bounds abandoned
+uploads in active sessions, even when orphan session-directory cleanup is
+disabled. The extra 25-hour floor protects in-progress browser recovery across
+a full day. `lifecycle.chat_assets.delete_on_session_delete` controls only the
+whole-directory sweep for sessions that no longer have an active row; it does
+not disable cleanup of unclaimed upload files.
 
 User-requested memory deletion is tracked separately from periodic retention.
 The shared memory database stores the selected source references, replay
@@ -156,11 +313,11 @@ projected again.
 
 ## How migrations run
 
-`CoreDependenciesModule.init` (in `backend/src/magi/core/lifecycle.py`)
-calls `magi.db.run_upgrade_head(runtime_paths)` early in the
-bootstrap sequence — before any store opens its connection. It
-iterates `MIGRATION_TARGETS` and runs `alembic upgrade head` against
-each. A failure aborts startup with a logged error.
+`DatabaseMigrationModule.init` (in `backend/src/magi/db/lifecycle.py`)
+calls `magi.db.run_upgrade_head(runtime_paths)` immediately after core runtime
+paths are initialized and before any store opens its connection. It iterates
+`MIGRATION_TARGETS` and runs `alembic upgrade head` against each. A failure
+aborts startup with a logged error.
 
 Every store also keeps its own baseline `executescript(...)` of
 `CREATE TABLE IF NOT EXISTS` statements as a fast path on fresh
@@ -252,8 +409,9 @@ The workflow for any change to a Tier-1 DB:
 
    ```sh
    # apply against a fresh DB
-   rm -rf /tmp/magi-fresh && MAGI_RUNTIME_DIR=/tmp/magi-fresh \
-     python -m magi.db upgrade chat
+   rm -f /tmp/magi-fresh-chat.db
+   alembic -c backend/alembic.ini -n chat \
+     -x dburl=sqlite:////tmp/magi-fresh-chat.db upgrade head
 
    # apply against a copy of an existing DB
    cp ~/.magi/data/chat/chat.db /tmp/chat-existing.db
@@ -301,9 +459,12 @@ needing column-level migrations):
 - **JSON payloads** live in `_json` suffixed `TEXT` columns
   (`payload_json`, `metadata_json`, `ux_plan_json`, `label_json`).
   Default to `'{}'` on NOT NULL JSON columns.
-- **Deletes are soft** wherever a `_at_ms` (chat) or `deleted_at`
-  (L1, l4) column is present. Don't add hard `DELETE` paths to those
-  tables without a discussion.
+- **Use soft deletion where the schema defines a lifecycle tombstone** through
+  `_at_ms` (chat) or `deleted_at` (L1, L4). Governed chat transcript deletion is
+  the deliberate exception: it first commits an inaccessible redacted state for
+  crash recovery, then physically removes message and turn rows after strict
+  trace and asset cleanup succeeds. Do not add any other hard-delete path
+  without documenting its recovery and ownership boundary.
 - **Indexes belong in the same revision** as the column they support.
   Don't split them.
 - **Never write data migrations from old tables that no longer exist

@@ -5,6 +5,10 @@
   "chat": {
     "image_vision_unsupported": "我收到了图片，但当前核心模型不支持图片输入。请切换到支持视觉能力的核心模型，或补充文字描述后再发送。",
     "context_window_exceeded": "当前对话内容超过了核心模型可接收的长度。请缩短这条消息、开启新会话，或换用上下文容量更大的模型。",
+    "delivery": {
+      "execution_failed": "这条消息没能处理完成。请重新发送一次再试。",
+      "recovery_failed": "这条消息在上次中断后没能继续处理。请重新发送一次。"
+    },
     "runtime": {
       "not_ready": {
         "llm_selection_pending": "AI 运行时尚未就绪。请先完成核心模型或 context_decider 模型配置。",
@@ -30,7 +34,10 @@
         "bootstrap_state_update_failed": "首次对话已保存，但初始化状态更新失败。请重试。",
         "attachments_must_be_list": "附件必须是列表。",
         "attachment_must_be_object": "每个附件必须是对象。",
-        "attachment_kind_required": "每个附件都必须包含 kind。"
+        "attachment_kind_required": "每个附件都必须包含 kind。",
+        "attachment_id_invalid": "每个附件都必须包含有效的附件编号。",
+        "client_turn_id_invalid": "本次发送编号无效，请重新发送。",
+        "ask_response_option_required": "请选择一个已有答案。"
       }
     },
     "attachments": {
@@ -38,6 +45,8 @@
       "unsupported_type": "不支持的附件类型。",
       "image_too_large": "图片附件不能超过 20 MB。",
       "file_too_large": "文件附件不能超过 50 MB。",
+      "invalid_request": "附件请求无效，请重新操作。",
+      "session_not_found": "未找到这段对话。",
       "uploaded": "附件已上传",
       "not_found": "未找到附件",
       "file_not_found": "未找到附件文件"
@@ -438,7 +447,8 @@
       "rule_not_found": "未找到规则：{rule_id!r}",
       "invalid_scope": "范围无效：{scope}",
       "permission_request_not_pending": "权限请求 {request_id!r} 不在待处理状态",
-      "ask_request_not_pending": "提问请求 {request_id!r} 不在待处理状态"
+      "ask_request_not_pending": "提问请求 {request_id!r} 不在待处理状态",
+      "ask_response_option_required": "请选择一个已有答案。"
     }
   }
 }

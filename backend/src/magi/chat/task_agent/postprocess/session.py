@@ -2,23 +2,37 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from typing import Any, Callable, Protocol, cast
 
 from magi.agent.trace import now_wall_ms
-from magi.chat import ChatTurnRecord
 from magi.core.logger import get_logger
 from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 
 logger = get_logger(__name__)
 
+_DEFERRED_RELEASE_RETRY_INITIAL_SECONDS = 0.1
+_DEFERRED_RELEASE_RETRY_MAX_SECONDS = 5.0
+
 
 class _SessionPostprocessHostProtocol(Protocol):
     _complete_session_run: Callable[[str, str, int], Any] | None
     _resolve_session_run_status: Callable[[str, str, int], Any] | None
-    _drain_deferred_turns: Callable[[str], Any] | None
+    _release_deferred_turns: Callable[[str, list[Any]], Any] | None
     _unified_memory: Any
     _chat_store: Any
+    _background_tasks: set[asyncio.Task[Any]]
+    _deferred_release_retry_keys: set[tuple[str, str, int]]
+
+    async def mark_user_turn_delivery_terminal_if_persisted(
+        self,
+        *,
+        turn_id: str | None,
+        source_fact: Any,
+        required_message_kind: str | None = None,
+        expected_message_count: int = 0,
+    ) -> bool: ...
 
     async def emit_execution_control_notification(
         self,
@@ -45,6 +59,37 @@ class ChatPostprocessSessionMixin:
         if not run_id:
             return
         revision = int(context.session_run_revision or 0)
+        status = await self._session_run_status(context)
+        if host._resolve_session_run_status is not None and status is None:
+            return
+        cancellation_turn_id: str | None = None
+        if status in {"cancelling", "cancelled"}:
+            active_run = context.active_run
+            cancellation_turn_id = (
+                str(
+                    (
+                        active_run.cancel_anchor_turn_id
+                        if active_run is not None
+                        else None
+                    )
+                    or (
+                        active_run.root_turn_id
+                        if active_run is not None
+                        else None
+                    )
+                    or getattr(context.latest_payload, "turn_id", None)
+                    or ""
+                ).strip()
+                or None
+            )
+            cancellation_committed = await self._mark_cancelled_turn(context)
+            if cancellation_committed:
+                await host.mark_user_turn_delivery_terminal_if_persisted(
+                    turn_id=cancellation_turn_id,
+                    source_fact=context.latest_fact,
+                )
+            else:
+                status = "completed"
         try:
             completion = host._complete_session_run(
                 context.session_id,
@@ -52,7 +97,9 @@ class ChatPostprocessSessionMixin:
                 revision,
             )
             if inspect.isawaitable(completion):
-                await completion
+                completion = await completion
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             logger.warning(
                 "Failed to complete chat session run",
@@ -61,29 +108,16 @@ class ChatPostprocessSessionMixin:
                 revision=revision,
                 error=str(exc),
             )
+            raise
+        completed, deferred_turns = self._normalize_run_completion(completion)
+        if not completed:
             return
-        status = self._session_run_status(context)
-        if status == "cancelled":
+        if status in {"cancelling", "cancelled"}:
             active_run = context.active_run
-            await self._mark_cancelled_turn(context)
             await host.emit_execution_control_notification(
                 user_id=context.user_id,
                 session_id=context.session_id,
-                turn_id=(
-                    str(
-                        (
-                            active_run.cancel_anchor_turn_id
-                            if active_run is not None
-                            else None
-                        )
-                        or ""
-                    ).strip()
-                    or str(
-                        (active_run.root_turn_id if active_run is not None else None)
-                        or ""
-                    ).strip()
-                    or None
-                ),
+                turn_id=cancellation_turn_id,
                 run_id=run_id,
                 orchestration_id=(
                     str(
@@ -97,13 +131,29 @@ class ChatPostprocessSessionMixin:
                 can_cancel=False,
                 label="Run cancelled",
             )
-        await self._drain_deferred_user_turns(context)
+        await self.checkpoint_completed_run_and_release_deferred(
+            session_id=context.session_id,
+            run_id=run_id,
+            revision=revision,
+            deferred_turns=deferred_turns,
+        )
         await self._notify_memory_session_end(context.session_id)
 
-    async def _mark_cancelled_turn(self, context: ChatRuntimeContext) -> None:
+    @staticmethod
+    def _normalize_run_completion(
+        completion: Any,
+    ) -> tuple[bool, list[Any]]:
+        """Normalize the completion callback's result."""
+
+        if isinstance(completion, tuple) and len(completion) == 2:
+            completed, deferred_turns = completion
+            return bool(completed), list(deferred_turns or [])
+        return completion is not False, []
+
+    async def _mark_cancelled_turn(self, context: ChatRuntimeContext) -> bool:
         host = cast(_SessionPostprocessHostProtocol, self)
         if host._chat_store is None:
-            return
+            return True
         active_run = context.active_run
         turn_id = str(
             (active_run.cancel_anchor_turn_id if active_run is not None else None)
@@ -112,36 +162,34 @@ class ChatPostprocessSessionMixin:
             or ""
         ).strip()
         if not turn_id:
-            return
+            return True
         existing_turn = await host._chat_store.get_turn(turn_id)
         if existing_turn is None:
-            return
+            return True
+        if str(existing_turn.status or "").strip().lower() == "cancelled":
+            return True
         completed_at_ms = now_wall_ms()
-        await host._chat_store.upsert_turn(
-            ChatTurnRecord(
-                turn_id=existing_turn.turn_id,
-                session_id=existing_turn.session_id,
-                user_id=existing_turn.user_id,
-                trace_id=existing_turn.trace_id,
-                orchestration_id=existing_turn.orchestration_id,
-                status="cancelled",
-                response_mode=existing_turn.response_mode,
-                execution_mode=existing_turn.execution_mode,
-                ux_plan_json=existing_turn.ux_plan_json,
-                created_at_ms=existing_turn.created_at_ms,
-                updated_at_ms=completed_at_ms,
-                completed_at_ms=completed_at_ms,
-                error_text=existing_turn.error_text
-                or (active_run.cancel_reason if active_run is not None else None),
-                run_id=existing_turn.run_id or context.session_run_id,
-                run_revision=existing_turn.run_revision
-                or int(context.session_run_revision or 0),
-                run_disposition=existing_turn.run_disposition,
-                response_anchor_turn_id=existing_turn.response_anchor_turn_id,
-                superseded_by_turn_id=existing_turn.superseded_by_turn_id,
-                supersession_reason=existing_turn.supersession_reason,
-            )
+        cancellation_reason = (
+            str(active_run.cancel_reason or "").strip()
+            if active_run is not None
+            else ""
         )
+        cancelled = await host._chat_store.cancel_user_turn_delivery_if_active(
+            turn_id=existing_turn.turn_id,
+            run_id=existing_turn.run_id or context.session_run_id,
+            run_revision=(
+                existing_turn.run_revision
+                or int(context.session_run_revision or 0)
+            ),
+            reason=cancellation_reason or "user_cancel",
+            updated_at_ms=completed_at_ms,
+        )
+        if not cancelled:
+            current_turn = await host._chat_store.get_turn(turn_id)
+            return bool(
+                current_turn is not None
+                and str(current_turn.status or "").strip().lower() == "cancelled"
+            )
         emit_cancelled_turn_trace = getattr(self, "emit_cancelled_turn_trace", None)
         if callable(emit_cancelled_turn_trace):
             await emit_cancelled_turn_trace(
@@ -166,25 +214,155 @@ class ChatPostprocessSessionMixin:
                 error_summary=existing_turn.error_text
                 or (active_run.cancel_reason if active_run is not None else None),
             )
+        return True
 
-    async def _drain_deferred_user_turns(self, context: ChatRuntimeContext) -> None:
-        """Re-inject DEFER pending turns after active run finalization."""
+    async def _release_deferred_user_turns(
+        self,
+        *,
+        session_id: str,
+        deferred_turns: list[Any],
+    ) -> bool:
+        """Release detached DEFER turns after durable run completion."""
+
         host = cast(_SessionPostprocessHostProtocol, self)
-        if host._drain_deferred_turns is None:
-            return
-        session_id = str(context.session_id or "").strip()
-        if not session_id:
-            return
+        if not deferred_turns:
+            return True
+        normalized_session_id = str(session_id or "").strip()
+        if host._release_deferred_turns is None or not normalized_session_id:
+            return False
         try:
-            result = host._drain_deferred_turns(session_id)
+            result = host._release_deferred_turns(
+                normalized_session_id,
+                deferred_turns,
+            )
             if inspect.isawaitable(result):
                 await result
+            return True
         except Exception as exc:
             logger.warning(
-                "Failed to drain deferred user turns",
-                session_id=session_id,
+                "Failed to release deferred user turns",
+                session_id=normalized_session_id,
                 error=str(exc),
             )
+            return False
+
+    async def checkpoint_completed_run_and_release_deferred(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        revision: int,
+        deferred_turns: list[Any],
+    ) -> bool:
+        """Checkpoint one completed run before releasing its DEFER batch."""
+
+        host = cast(_SessionPostprocessHostProtocol, self)
+        normalized_session_id = str(session_id or "").strip()
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_session_id or not normalized_run_id:
+            return False
+
+        captured_turns = list(deferred_turns)
+        key = (normalized_session_id, normalized_run_id, int(revision))
+        if key in host._deferred_release_retry_keys:
+            return False
+        host._deferred_release_retry_keys.add(key)
+
+        try:
+            checkpointed = await self._checkpoint_l0_session(normalized_session_id)
+            if checkpointed and await self._release_deferred_user_turns(
+                session_id=normalized_session_id,
+                deferred_turns=captured_turns,
+            ):
+                host._deferred_release_retry_keys.discard(key)
+                return True
+        except asyncio.CancelledError:
+            host._deferred_release_retry_keys.discard(key)
+            raise
+
+        try:
+            self._schedule_deferred_release_retry(
+                session_id=normalized_session_id,
+                run_id=normalized_run_id,
+                revision=revision,
+                deferred_turns=captured_turns,
+                checkpointed=checkpointed,
+            )
+        except Exception:
+            host._deferred_release_retry_keys.discard(key)
+            raise
+        return False
+
+    def _schedule_deferred_release_retry(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        revision: int,
+        deferred_turns: list[Any],
+        checkpointed: bool,
+    ) -> None:
+        """Retry one detached DEFER batch without releasing it twice."""
+
+        host = cast(_SessionPostprocessHostProtocol, self)
+        key = (session_id, run_id, int(revision))
+        captured_turns = list(deferred_turns)
+
+        async def _runner() -> None:
+            durable = checkpointed
+            delay_seconds = _DEFERRED_RELEASE_RETRY_INITIAL_SECONDS
+            try:
+                while True:
+                    await asyncio.sleep(max(0.0, delay_seconds))
+                    if not durable:
+                        durable = await self._checkpoint_l0_session(session_id)
+                        if not durable:
+                            delay_seconds = min(
+                                max(
+                                    _DEFERRED_RELEASE_RETRY_INITIAL_SECONDS,
+                                    delay_seconds * 2,
+                                ),
+                                _DEFERRED_RELEASE_RETRY_MAX_SECONDS,
+                            )
+                            continue
+                    if await self._release_deferred_user_turns(
+                        session_id=session_id,
+                        deferred_turns=captured_turns,
+                    ):
+                        return
+                    delay_seconds = min(
+                        max(
+                            _DEFERRED_RELEASE_RETRY_INITIAL_SECONDS,
+                            delay_seconds * 2,
+                        ),
+                        _DEFERRED_RELEASE_RETRY_MAX_SECONDS,
+                    )
+            finally:
+                host._deferred_release_retry_keys.discard(key)
+
+        task = asyncio.create_task(
+            _runner(),
+            name=f"deferred-release:{session_id}:{run_id}:{revision}",
+        )
+        host._background_tasks.add(task)
+        task.add_done_callback(host._background_tasks.discard)
+
+    async def _checkpoint_l0_session(self, session_id: str) -> bool:
+        """Persist run completion before a released turn can become active."""
+
+        host = cast(_SessionPostprocessHostProtocol, self)
+        if host._unified_memory is None or host._unified_memory.l0 is None:
+            return True
+        try:
+            await host._unified_memory.l0.checkpoint_session(session_id)
+            return True
+        except Exception:
+            logger.warning(
+                "Failed to checkpoint completed chat session run",
+                session_id=session_id,
+                exc_info=True,
+            )
+            return False
 
     async def _notify_memory_session_end(self, session_id: str | None) -> None:
         """Notify L2 that a chat session ended so it can flush staged memory."""
@@ -203,7 +381,10 @@ class ChatPostprocessSessionMixin:
                 exc_info=True,
             )
 
-    def _session_run_status(self, context: ChatRuntimeContext) -> str | None:
+    async def _session_run_status(
+        self,
+        context: ChatRuntimeContext,
+    ) -> str | None:
         host = cast(_SessionPostprocessHostProtocol, self)
         if host._resolve_session_run_status is None:
             return None
@@ -218,7 +399,9 @@ class ChatPostprocessSessionMixin:
                 revision,
             )
             if inspect.isawaitable(status):
-                return None
+                status = await status
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             logger.warning(
                 "Failed to resolve chat session run status",
@@ -227,6 +410,6 @@ class ChatPostprocessSessionMixin:
                 revision=revision,
                 error=str(exc),
             )
-            return None
+            raise
         normalized = str(status or "").strip()
         return normalized or None

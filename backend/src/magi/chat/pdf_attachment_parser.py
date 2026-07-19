@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
+from typing import BinaryIO
 
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
@@ -51,14 +52,29 @@ class LocalPdfAttachmentParser:
         path = Path(file_path)
         try:
             with path.open("rb") as file:
-                header = file.read(5)
+                return self.parse_stream(file, max_chars=max_chars)
+        except OSError:
+            return _failed_parse("Unsupported PDF format")
+
+    def parse_stream(
+        self,
+        file: BinaryIO,
+        *,
+        max_chars: int = DEFAULT_PDF_ATTACHMENT_MAX_CHARS,
+    ) -> ParsedPdfAttachment:
+        """Parse a PDF from an already-validated, held file handle."""
+
+        try:
+            file.seek(0)
+            header = file.read(5)
+            file.seek(0)
         except OSError:
             return _failed_parse("Unsupported PDF format")
         if header != b"%PDF-":
             return _failed_parse("Unsupported PDF format")
 
         try:
-            reader = PdfReader(str(path), strict=False)
+            reader = PdfReader(file, strict=False)
         except (OSError, PdfReadError, ValueError):
             return _failed_parse("Unsupported PDF format")
 

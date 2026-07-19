@@ -19,7 +19,13 @@ type SkillArgsDialogProps = {
   open: boolean;
   descriptor: SkillCommandDescriptor | null;
   onClose: () => void;
-  onSubmit: (descriptor: SkillCommandDescriptor, argsText: string) => Promise<void>;
+  onSubmit: (
+    descriptor: SkillCommandDescriptor,
+    argsText: string,
+  ) => Promise<
+    | { kind: 'accepted' }
+    | { kind: 'not_sent'; message: string }
+  >;
 };
 
 export const SkillArgsDialog = ({
@@ -46,7 +52,11 @@ export const SkillArgsDialog = ({
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(descriptor, argsText);
+      const outcome = await onSubmit(descriptor, argsText);
+      if (outcome.kind === 'not_sent') {
+        setError(outcome.message);
+        return;
+      }
       onClose();
     } catch (exc: any) {
       setError(exc?.message ?? String(exc));

@@ -71,10 +71,11 @@ async def test_fanout_deliver_to_single_channel_returns_one_receipt() -> None:
         magi_user_id="u1",
     )
 
-    receipts = await router.fanout_deliver(content=content, targets=[target])
+    result = await router.fanout_deliver(content=content, targets=[target])
 
-    assert len(receipts) == 1
-    assert receipts[0].channel_id == "chat_sse"
+    assert len(result.receipts) == 1
+    assert result.receipts[0].channel_id == "chat_sse"
+    assert result.failures == ()
     assert sse.delivered == [(target, content)]
 
 
@@ -101,10 +102,14 @@ async def test_fanout_deliver_to_two_channels_returns_two_receipts() -> None:
         ),
     ]
 
-    receipts = await router.fanout_deliver(content=content, targets=targets)
+    result = await router.fanout_deliver(content=content, targets=targets)
 
-    assert len(receipts) == 2
-    assert {r.channel_id for r in receipts} == {"chat_sse", "telegram"}
+    assert len(result.receipts) == 2
+    assert {receipt.channel_id for receipt in result.receipts} == {
+        "chat_sse",
+        "telegram",
+    }
+    assert result.failures == ()
     assert len(sse.delivered) == 1
     assert len(telegram.delivered) == 1
 
@@ -131,11 +136,54 @@ async def test_fanout_deliver_skips_unknown_channel_and_continues() -> None:
         ),
     ]
 
-    receipts = await router.fanout_deliver(content=content, targets=targets)
+    result = await router.fanout_deliver(content=content, targets=targets)
 
     # Only the known channel produces a receipt.
-    assert len(receipts) == 1
-    assert receipts[0].channel_id == "chat_sse"
+    assert len(result.receipts) == 1
+    assert result.receipts[0].channel_id == "chat_sse"
+    assert len(result.failures) == 1
+    assert result.failures[0].target.channel_type == "nonexistent"
+    assert isinstance(result.failures[0].error, LookupError)
+
+
+@pytest.mark.asyncio
+async def test_fanout_deliver_isolates_registry_lookup_failure() -> None:
+    sse = _RecordingChannel("chat_sse")
+
+    class _FailingRegistry(_ChannelRegistryStub):
+        def get(self, channel_id: str) -> Channel | None:
+            if channel_id == "broken":
+                raise RuntimeError("registry unavailable")
+            return super().get(channel_id)
+
+    router = DeliveryRouter(
+        channel_registry=_FailingRegistry({"chat_sse": sse})
+    )
+    targets = [
+        ChannelTarget(
+            channel_type="broken",
+            external_chat_id="x",
+            magi_session_id="s1",
+            magi_user_id="u1",
+        ),
+        ChannelTarget(
+            channel_type="chat_sse",
+            external_chat_id="",
+            magi_session_id="s1",
+            magi_user_id="u1",
+        ),
+    ]
+
+    result = await router.fanout_deliver(
+        content=DeliveryContent(text="hello"),
+        targets=targets,
+    )
+
+    assert [receipt.channel_id for receipt in result.receipts] == ["chat_sse"]
+    assert len(result.failures) == 1
+    assert result.failures[0].target.channel_type == "broken"
+    assert str(result.failures[0].error) == "registry unavailable"
+    assert result.failures[0].delivery_attempted is False
 
 
 @pytest.mark.asyncio
@@ -167,13 +215,47 @@ async def test_fanout_deliver_continues_when_one_channel_raises() -> None:
         ),
     ]
 
-    receipts = await router.fanout_deliver(
+    result = await router.fanout_deliver(
         content=DeliveryContent(text="x"), targets=targets,
     )
 
     # Only the working channel produces a receipt.
-    assert len(receipts) == 1
-    assert receipts[0].channel_id == "chat_sse"
+    assert len(result.receipts) == 1
+    assert result.receipts[0].channel_id == "chat_sse"
+    assert len(result.failures) == 1
+    assert result.failures[0].target.channel_type == "broken"
+    assert str(result.failures[0].error) == "channel broken"
+    assert result.failures[0].delivery_attempted is True
+
+
+@pytest.mark.asyncio
+async def test_fanout_deliver_reports_channel_without_receipt() -> None:
+    class _NoReceiptChannel(_RecordingChannel):
+        async def deliver(self, target, content):
+            self.delivered.append((target, content))
+            return None
+
+    channel = _NoReceiptChannel("no_receipt")
+    router = DeliveryRouter(
+        channel_registry=_ChannelRegistryStub({"no_receipt": channel})
+    )
+    target = ChannelTarget(
+        channel_type="no_receipt",
+        external_chat_id="",
+        magi_session_id="s1",
+        magi_user_id="u1",
+    )
+
+    result = await router.fanout_deliver(
+        content=DeliveryContent(text="hello"),
+        targets=[target],
+    )
+
+    assert result.receipts == ()
+    assert len(result.failures) == 1
+    assert result.failures[0].target == target
+    assert "returned no delivery receipt" in str(result.failures[0].error)
+    assert result.failures[0].delivery_attempted is True
 
 
 @pytest.mark.asyncio
@@ -207,3 +289,34 @@ async def test_fanout_retract_swallows_not_implemented_silently() -> None:
 
     # Must not raise.
     await router.fanout_retract(receipts=[receipt])
+
+
+@pytest.mark.asyncio
+async def test_fanout_retract_isolates_registry_lookup_failure() -> None:
+    healthy = _RecordingChannel("healthy")
+
+    class _FailingRegistry(_ChannelRegistryStub):
+        def get(self, channel_id: str) -> Channel | None:
+            if channel_id == "broken":
+                raise RuntimeError("registry unavailable")
+            return super().get(channel_id)
+
+    router = DeliveryRouter(
+        channel_registry=_FailingRegistry({"healthy": healthy})
+    )
+    broken_receipt = DeliveryReceipt(
+        channel_id="broken",
+        external_message_id="m1",
+        delivered_at_ms=1,
+    )
+    healthy_receipt = DeliveryReceipt(
+        channel_id="healthy",
+        external_message_id="m2",
+        delivered_at_ms=2,
+    )
+
+    await router.fanout_retract(
+        receipts=[broken_receipt, healthy_receipt]
+    )
+
+    assert healthy.retracted == [healthy_receipt]

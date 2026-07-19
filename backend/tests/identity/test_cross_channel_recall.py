@@ -65,6 +65,15 @@ class _FakeSessionProvisioner:
     async def create_channel_session(self, **kwargs):  # type: ignore[no-untyped-def]
         return "chsess_identity_test"
 
+    async def is_channel_session_available(
+        self,
+        *,
+        magi_user_id: str,
+        session_id: str,
+    ) -> bool:
+        del magi_user_id, session_id
+        return True
+
 
 @pytest.mark.asyncio
 async def test_weixin_and_desktop_inbounds_converge_on_canonical_user(

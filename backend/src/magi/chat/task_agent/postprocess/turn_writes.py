@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from magi.chat import ChatStore, ChatTurnRecord
+from ..session_run_decisions import supersession_terminal_status
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +138,33 @@ class ChatTurnStateWriter:
             ux_plan=normalized_ux_plan,
         )
 
+    async def resolve_turn_completion(
+        self,
+        *,
+        turn_id: str | None,
+        ux_plan: dict[str, Any] | None,
+    ) -> ChatTurnWriteResult | None:
+        """Load the turn and response mode before committing visible output."""
+
+        normalized_turn_id = str(turn_id or "").strip()
+        if self._chat_store is None or not normalized_turn_id:
+            return None
+        existing_turn = await self._chat_store.get_turn(normalized_turn_id)
+        if existing_turn is None:
+            return None
+        normalized_ux_plan = ux_plan if isinstance(ux_plan, dict) else {}
+        response_mode = str(
+            normalized_ux_plan.get("assistant_surface_mode")
+            or existing_turn.response_mode
+            or "final_only"
+        )
+        return ChatTurnWriteResult(
+            turn=existing_turn,
+            turn_id=normalized_turn_id,
+            response_mode=response_mode,
+            ux_plan=normalized_ux_plan,
+        )
+
     async def persist_turn_supersession(
         self,
         *,
@@ -150,7 +178,7 @@ class ChatTurnStateWriter:
         existing_turn = await self._chat_store.get_turn(turn_id)
         if existing_turn is None:
             return
-        status = "merged" if reason == "augment" else "interrupted"
+        status = supersession_terminal_status(reason)
         await self._chat_store.upsert_turn(
             ChatTurnRecord(
                 turn_id=existing_turn.turn_id,

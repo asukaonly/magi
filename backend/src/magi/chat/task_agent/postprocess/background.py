@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-import uuid
 from typing import Any
 
 from magi.chat import ChatMessageRecord
+
+_OUTREACH_METADATA_KEY = "_magi_outreach"
 
 
 async def persist_completion_message(
@@ -18,8 +19,12 @@ async def persist_completion_message(
     message_kind: str,
     body: str,
     payload: dict[str, Any],
+    turn_id: str | None,
     pending_message_id: str | None,
     created_at_ms: int,
+    message_id: str,
+    correlation_id: str,
+    identity_fingerprint: str,
 ) -> "ChatMessageRecord | None":
     """Append a completion transcript row with a caller-supplied body.
 
@@ -29,15 +34,25 @@ async def persist_completion_message(
     """
     if chat_store is None:
         return None
+    durable_payload = dict(payload)
+    durable_payload[_OUTREACH_METADATA_KEY] = {
+        "correlation_id": correlation_id,
+        "intent_fingerprint": identity_fingerprint,
+    }
     record = ChatMessageRecord(
-        message_id=f"msg_{uuid.uuid4().hex[:16]}",
+        message_id=message_id,
         session_id=session_id,
-        turn_id=None,
+        turn_id=(str(turn_id or "").strip() or None),
         user_id=user_id,
         role=role,
         message_kind=message_kind,
         content_text=body,
-        payload_json=json.dumps(payload, ensure_ascii=False),
+        payload_json=json.dumps(
+            durable_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
         is_final=True,
         is_visible=True,
         created_at_ms=created_at_ms,
@@ -45,11 +60,5 @@ async def persist_completion_message(
         replaces_message_id=pending_message_id,
         replaced_by_message_id=None,
     )
-    await chat_store.append_message(record)
-    if pending_message_id is not None:
-        await chat_store.mark_message_replaced(
-            message_id=pending_message_id,
-            replaced_by_message_id=record.message_id,
-        )
-    await chat_store.bump_history_version(session_id)
-    return record
+    persisted, _created = await chat_store.append_completion_message_once(record)
+    return persisted

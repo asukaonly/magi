@@ -6,9 +6,14 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 
-from magi_plugin_sdk.fs import append_jsonl, atomic_write_bytes, atomic_write_text
+from magi_plugin_sdk.fs import (
+    append_jsonl,
+    append_jsonl_many,
+    atomic_write_bytes,
+    atomic_write_text,
+)
 from .contracts import EditOp, EditRecord, ReadRecord, SnapshotRef, TodoState
 from .errors import SessionCacheCorruptError, SnapshotIntegrityError
 from .root import WorkspaceCacheRoot
@@ -133,8 +138,30 @@ class SessionCache:
             snapshot_ref=snapshot_ref,
             ts_ms=_now_ms(),
         )
-        append_jsonl(self.edits_log, rec.model_dump())
+        self.record_edits((rec,))
         return rec
+
+    def record_edits(
+        self,
+        records: Iterable[EditRecord],
+    ) -> tuple[EditRecord, ...]:
+        """Append a complete edit group without leaving a partial group."""
+        prepared = tuple(records)
+        for record in prepared:
+            raw_path = Path(record.path)
+            if raw_path.is_absolute():
+                raise ValueError(f"edit record path must be relative: {record.path}")
+            normalized = _relative_posix(
+                self.root.workspace_root,
+                self.root.workspace_root / raw_path,
+            )
+            if normalized != raw_path.as_posix():
+                raise ValueError(f"edit record path is invalid: {record.path}")
+        append_jsonl_many(
+            self.edits_log,
+            (record.model_dump() for record in prepared),
+        )
+        return prepared
 
     def iter_edits(self) -> Iterator[EditRecord]:
         log = self.edits_log

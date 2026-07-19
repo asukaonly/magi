@@ -6,6 +6,7 @@ from typing import Any
 
 from magi.agent.task_agents.common import AssistantResponsePlan
 from magi.chat import ChatMessageRecord, ChatStore, ChatTurnRecord
+from magi.chat.rhythm_completion import MAX_RHYTHM_SEGMENT_COUNT
 
 from .message_payloads import (
     build_message_payload_json,
@@ -20,7 +21,7 @@ class ChatAssistantMessageWriter:
     def __init__(self, *, chat_store: ChatStore | None) -> None:
         self._chat_store = chat_store
 
-    async def append_final_message(
+    async def build_final_message(
         self,
         *,
         turn: ChatTurnRecord,
@@ -31,24 +32,22 @@ class ChatAssistantMessageWriter:
         completed_at_ms: int,
         reply_to_message_id: str | None,
         persona_id: str | None,
-    ) -> ChatMessageRecord | None:
-        if self._chat_store is None:
-            return None
-        existing_final = await self._chat_store.get_latest_message_for_turn(
-            turn_id,
-            message_kind="assistant_final",
-        )
-        if existing_final is not None:
-            return existing_final
+    ) -> ChatMessageRecord:
+        """Build a final record without crossing the persistence boundary."""
+
         resolved_persona_id = await self.resolve_turn_persona_id(
             turn_id=turn_id,
             fallback_persona_id=persona_id,
         )
-        interim_message = await self._chat_store.get_latest_message_for_turn(
-            turn_id,
-            message_kind="assistant_interim",
+        interim_message = (
+            await self._chat_store.get_latest_message_for_turn(
+                turn_id,
+                message_kind="assistant_interim",
+            )
+            if self._chat_store is not None
+            else None
         )
-        final_message = ChatMessageRecord(
+        return ChatMessageRecord(
             message_id=f"msg_{uuid.uuid4().hex[:16]}",
             session_id=turn.session_id,
             turn_id=turn_id,
@@ -60,22 +59,14 @@ class ChatAssistantMessageWriter:
             is_final=True,
             is_visible=True,
             created_at_ms=completed_at_ms,
-            sequence_no=await self._chat_store.next_sequence_no(session_id=turn.session_id),
+            sequence_no=0,
             replaces_message_id=interim_message.message_id if interim_message is not None else None,
             replaced_by_message_id=None,
             persona_id=resolved_persona_id,
             reply_to_message_id=str(reply_to_message_id or "").strip() or None,
         )
-        await self._chat_store.append_message(final_message, attachment_payloads=attachments)
-        await self._chat_store.bump_history_version(turn.session_id)
-        if interim_message is not None:
-            await self._chat_store.mark_message_replaced(
-                message_id=interim_message.message_id,
-                replaced_by_message_id=final_message.message_id,
-            )
-        return final_message
 
-    async def append_rhythm_segments(
+    async def build_rhythm_segments(
         self,
         *,
         turn: ChatTurnRecord,
@@ -87,22 +78,23 @@ class ChatAssistantMessageWriter:
         reply_to_message_id: str | None,
         persona_id: str | None,
     ) -> list[ChatMessageRecord]:
-        if self._chat_store is None:
-            return []
-        existing_segments = [
-            message
-            for message in await self._chat_store.list_messages(session_id=turn.session_id)
-            if message.turn_id == turn_id and message.message_kind == "assistant_rhythm_segment"
-        ]
-        if existing_segments:
-            return existing_segments
+        """Build rhythm records without crossing the persistence boundary."""
+
+        total = len(response_plan.segments)
+        if not 1 <= total <= MAX_RHYTHM_SEGMENT_COUNT:
+            raise ValueError("Conversation rhythm segment count is out of range")
+        if any(
+            not isinstance(segment.segment_index, int)
+            or isinstance(segment.segment_index, bool)
+            or segment.segment_index != index
+            for index, segment in enumerate(response_plan.segments)
+        ):
+            raise ValueError("Conversation rhythm segment indexes are invalid")
 
         resolved_persona_id = await self.resolve_turn_persona_id(
             turn_id=turn_id,
             fallback_persona_id=persona_id,
         )
-        sequence_no = await self._chat_store.next_sequence_no(session_id=turn.session_id)
-        total = len(response_plan.segments)
         records: list[ChatMessageRecord] = []
         cumulative_delay_ms = 0
         for index, segment in enumerate(response_plan.segments):
@@ -113,6 +105,7 @@ class ChatAssistantMessageWriter:
             if index < total - 1:
                 segment_message_payload.pop("recalled_memories", None)
                 segment_message_payload.pop("recalled_memory_summary", None)
+                segment_message_payload.pop("code_agent_delegations", None)
             segment_payload = build_segment_payload_json(
                 base_payload=segment_message_payload,
                 segment=segment,
@@ -136,18 +129,13 @@ class ChatAssistantMessageWriter:
                 is_final=True,
                 is_visible=True,
                 created_at_ms=completed_at_ms + cumulative_delay_ms,
-                sequence_no=sequence_no + index,
+                sequence_no=index,
                 replaces_message_id=None,
                 replaced_by_message_id=None,
                 persona_id=resolved_persona_id,
                 reply_to_message_id=segment_reply_to_message_id,
             )
-            await self._chat_store.append_message(
-                record,
-                attachment_payloads=segment_attachments,
-            )
             records.append(record)
-        await self._chat_store.bump_history_version(turn.session_id)
         return records
 
     async def append_interim_message(

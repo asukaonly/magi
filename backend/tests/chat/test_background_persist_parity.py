@@ -16,6 +16,15 @@ class _FakeChatStore:
     async def append_message(self, record) -> None:
         self.appended.append(record)
 
+    async def append_completion_message_once(self, record):
+        self.appended.append(record)
+        if record.replaces_message_id is not None:
+            self.replaced.append(
+                (record.replaces_message_id, record.message_id)
+            )
+        self.bumped.append(record.session_id)
+        return record, True
+
     async def mark_message_replaced(self, *, message_id: str, replaced_by_message_id: str) -> None:
         self.replaced.append((message_id, replaced_by_message_id))
 
@@ -37,8 +46,12 @@ async def test_persist_completion_message_writes_record():
         message_kind="assistant_final",
         body="All done — found 3 options.",
         payload={"background_task_id": "task_abc", "background_task_status": "succeeded"},
+        turn_id="turn-1",
         pending_message_id="msg_pending",
         created_at_ms=1_700_000_000_000,
+        message_id="msg_outreach_1",
+        correlation_id="task_abc",
+        identity_fingerprint="fingerprint-1",
     )
     assert record is not None
     assert len(store.appended) == 1
@@ -58,7 +71,7 @@ async def test_persist_completion_message_writes_record():
     # break if persist_completion_message is edited later.
     assert written.created_at_ms == 1_700_000_000_000
     assert written.sequence_no == 1  # first next_sequence_no() call
-    assert written.turn_id is None
+    assert written.turn_id == "turn-1"
     assert written.replaced_by_message_id is None
 
 
@@ -68,5 +81,8 @@ async def test_persist_returns_none_without_store():
     assert await persist_completion_message(
         None, session_id="s1", user_id="u1", role="assistant",
         message_kind="assistant_final", body="x", payload={},
+        turn_id=None,
         pending_message_id=None, created_at_ms=1,
+        message_id="msg_outreach_1", correlation_id="task_abc",
+        identity_fingerprint="fingerprint-1",
     ) is None

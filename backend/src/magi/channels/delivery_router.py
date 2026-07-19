@@ -21,6 +21,7 @@ import asyncio
 from typing import TYPE_CHECKING, Protocol
 
 from ..core.logger import get_logger
+from ..delivery.contracts import DeliveryFailure, DeliveryFanoutResult
 
 if TYPE_CHECKING:
     from magi_plugin_sdk.channels import Channel, ChannelTarget
@@ -42,9 +43,8 @@ class DeliveryRouter:
     Surface: ``fanout_deliver``, ``fanout_chunk``, ``fanout_retract``.
 
     Errors per channel are isolated — a failure in one channel does not
-    abort delivery to others. Failed channels do NOT contribute a
-    receipt to the return value; downstream callers should treat an
-    absent receipt as "delivery to that channel failed; check logs".
+    abort delivery to others. Callers must inspect the explicit ``receipts``
+    and ``failures`` fields.
     """
 
     __slots__ = ("_channel_registry",)
@@ -65,38 +65,86 @@ class DeliveryRouter:
         *,
         content: "DeliveryContent",
         targets: list["ChannelTarget"],
-    ) -> list["DeliveryReceipt"]:
+    ) -> DeliveryFanoutResult:
         """Deliver ``content`` to each target's channel in parallel.
 
-        Returns the list of successful receipts (one per channel that
-        accepted delivery). Failed / unknown channels are logged but
-        not raised.
+        Returns successful receipts while retaining failed targets on
+        ``result.failures``. Failed / unknown channels are logged but do
+        not abort delivery to the remaining targets.
 
         Uses ``target.channel_type`` (the scheme, e.g. "chat_sse") as
         the registry lookup key.
         """
         if not targets:
-            return []
+            return DeliveryFanoutResult()
 
-        async def _deliver_one(target: "ChannelTarget"):
-            channel = self._resolve(target.channel_type)
+        async def _deliver_one(
+            target: "ChannelTarget",
+        ) -> tuple["DeliveryReceipt | None", DeliveryFailure | None]:
+            try:
+                channel = self._resolve(target.channel_type)
+            except Exception as exc:
+                logger.warning(
+                    "DeliveryRouter: channel lookup failed "
+                    "| channel_type=%r error=%s",
+                    target.channel_type,
+                    exc,
+                )
+                return None, DeliveryFailure(
+                    target=target,
+                    error=exc,
+                    delivery_attempted=False,
+                )
             if channel is None:
+                error = LookupError(
+                    f"No channel registered for channel type {target.channel_type!r}"
+                )
                 logger.warning(
                     "DeliveryRouter: no channel registered for channel_type=%r",
                     target.channel_type,
                 )
-                return None
+                return None, DeliveryFailure(
+                    target=target,
+                    error=error,
+                    delivery_attempted=False,
+                )
             try:
-                return await channel.deliver(target, content)
+                receipt = await channel.deliver(target, content)
             except Exception as exc:
                 logger.warning(
                     "DeliveryRouter: channel.deliver failed | channel_type=%r error=%s",
                     target.channel_type, exc,
                 )
-                return None
+                return None, DeliveryFailure(
+                    target=target,
+                    error=exc,
+                    delivery_attempted=True,
+                )
+            if receipt is None:
+                error = RuntimeError(
+                    f"Channel {target.channel_type!r} returned no delivery receipt"
+                )
+                logger.warning(
+                    "DeliveryRouter: channel.deliver returned no receipt "
+                    "| channel_type=%r",
+                    target.channel_type,
+                )
+                return None, DeliveryFailure(
+                    target=target,
+                    error=error,
+                    delivery_attempted=True,
+                )
+            return receipt, None
 
         results = await asyncio.gather(*(_deliver_one(t) for t in targets))
-        return [r for r in results if r is not None]
+        return DeliveryFanoutResult(
+            receipts=tuple(
+                receipt for receipt, _failure in results if receipt is not None
+            ),
+            failures=tuple(
+                failure for _receipt, failure in results if failure is not None
+            ),
+        )
 
     async def fanout_chunk(
         self,
@@ -113,8 +161,17 @@ class DeliveryRouter:
         if not targets:
             return
 
-        async def _chunk_one(target: "ChannelTarget"):
-            channel = self._resolve(target.channel_type)
+        async def _chunk_one(target: "ChannelTarget") -> None:
+            try:
+                channel = self._resolve(target.channel_type)
+            except Exception as exc:
+                logger.warning(
+                    "DeliveryRouter: channel lookup failed for chunk "
+                    "| channel_type=%r error=%s",
+                    target.channel_type,
+                    exc,
+                )
+                return
             if channel is None:
                 logger.warning(
                     "DeliveryRouter: no channel registered for chunk | channel_type=%r",
@@ -166,7 +223,16 @@ class DeliveryRouter:
             return
 
         async def _request_one(target: "ChannelTarget") -> None:
-            channel = self._resolve(target.channel_type)
+            try:
+                channel = self._resolve(target.channel_type)
+            except Exception as exc:
+                logger.warning(
+                    "DeliveryRouter: channel lookup failed for control request "
+                    "| channel_type=%r error=%s",
+                    target.channel_type,
+                    exc,
+                )
+                return
             if channel is None:
                 logger.warning(
                     "DeliveryRouter: no channel registered for control_request "
@@ -213,8 +279,17 @@ class DeliveryRouter:
         if not receipts:
             return
 
-        async def _retract_one(receipt: "DeliveryReceipt"):
-            channel = self._resolve(receipt.channel_id)
+        async def _retract_one(receipt: "DeliveryReceipt") -> None:
+            try:
+                channel = self._resolve(receipt.channel_id)
+            except Exception as exc:
+                logger.warning(
+                    "DeliveryRouter: channel lookup failed for retract "
+                    "| channel_id=%r error=%s",
+                    receipt.channel_id,
+                    exc,
+                )
+                return
             if channel is None:
                 logger.warning(
                     "DeliveryRouter: no channel for retract | channel_id=%r",
@@ -237,4 +312,7 @@ class DeliveryRouter:
         await asyncio.gather(*(_retract_one(r) for r in receipts))
 
 
-__all__ = ["DeliveryRouter", "ChannelRegistryProtocol"]
+__all__ = [
+    "ChannelRegistryProtocol",
+    "DeliveryRouter",
+]

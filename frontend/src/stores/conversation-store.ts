@@ -284,9 +284,17 @@ export const useConversationStore = create<ConversationState>((set) => ({
     const normalizedHistoryVersion = Number(historyVersion);
     const shouldRecordHistoryVersion = Number.isFinite(normalizedHistoryVersion) && normalizedHistoryVersion >= 0;
     const mergedMessages = mergeHistorySnapshot(previousMessages, messages);
-    persistSessionReadCursor(sessionId, ensured.sessionsById[sessionId], mergedMessages);
+    if (state.currentSessionId === sessionId) {
+      persistSessionReadCursor(sessionId, ensured.sessionsById[sessionId], mergedMessages);
+    }
+    const newUnreadMessageCount = state.currentSessionId === sessionId
+      ? 0
+      : messages.filter((message) => (
+        isUnreadWorthyMessage(message)
+        && !previousMessages.some((current) => canMergeTimelineMessage(current, message))
+      )).length;
     return {
-      currentSessionId: sessionId,
+      currentSessionId: state.currentSessionId,
       sessionsById: ensured.sessionsById,
       orderedSessionIds: ensured.orderedSessionIds,
       messagesBySession: {
@@ -301,7 +309,9 @@ export const useConversationStore = create<ConversationState>((set) => ({
         : state.historyVersionBySession,
       unreadBySession: {
         ...state.unreadBySession,
-        [sessionId]: 0,
+        [sessionId]: state.currentSessionId === sessionId
+          ? 0
+          : (state.unreadBySession[sessionId] || 0) + newUnreadMessageCount,
       },
     };
   }),
@@ -369,7 +379,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
     };
     persistSessionReadCursor(sessionId, nextSession, nextMessages);
     return {
-      currentSessionId: sessionId,
+      currentSessionId: state.currentSessionId,
       orderedSessionIds: ensured.orderedSessionIds,
       messagesBySession: {
         ...state.messagesBySession,
@@ -391,7 +401,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
     }
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
     return {
-      currentSessionId: sessionId,
+      currentSessionId: state.currentSessionId,
       orderedSessionIds: ensured.orderedSessionIds,
       sessionsById: ensured.sessionsById,
       messagesBySession: {

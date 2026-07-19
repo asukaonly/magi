@@ -21,6 +21,10 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
+from ...core.code_agent_artifacts import (
+    CodeAgentArtifactLocator,
+    CodeAgentArtifactPathError,
+)
 from ...core.logger import get_logger
 from ...tools.code_agent.apply_diff import apply_delegation, discard_delegation
 from ...tools.code_agent.probe import probe_all
@@ -111,8 +115,23 @@ class _WorkspaceBody(BaseModel):
     workspace: str
 
 
-def _delegation_dir(workspace: Path, sid: str, did: str) -> Path:
-    return workspace / ".magi" / "sessions" / sid / "delegations" / did
+def _code_agent_locator_or_http(
+    *,
+    workspace: str,
+    session_id: str,
+    delegation_id: str,
+) -> CodeAgentArtifactLocator:
+    try:
+        return CodeAgentArtifactLocator.resolve(
+            workspace_root=Path(workspace).expanduser(),
+            session_id=session_id,
+            delegation_id=delegation_id,
+        )
+    except (CodeAgentArtifactPathError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 def _read_events_tail(events_path: Path, limit: int = 50) -> list[dict[str, Any]]:
@@ -130,6 +149,78 @@ def _read_events_tail(events_path: Path, limit: int = 50) -> list[dict[str, Any]
     return out[-limit:]
 
 
+def _existing_delegation_or_http(
+    locator: CodeAgentArtifactLocator,
+) -> Path | None:
+    try:
+        return locator.existing_delegation_dir()
+    except CodeAgentArtifactPathError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+def _artifact_file_or_http(
+    locator: CodeAgentArtifactLocator,
+    filename: str,
+) -> Path:
+    try:
+        return locator.artifact_file(
+            filename,
+            require_delegation=True,
+        )
+    except CodeAgentArtifactPathError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+def _artifact_read_error(
+    *,
+    artifact: str,
+    problem: str,
+) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"delegation {artifact} artifact is {problem}",
+    )
+
+
+def _read_result_artifact_or_http(result_path: Path) -> dict[str, Any]:
+    try:
+        raw_result = result_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise _artifact_read_error(
+            artifact="result",
+            problem="unreadable",
+        ) from exc
+    try:
+        result = json.loads(raw_result)
+    except json.JSONDecodeError as exc:
+        raise _artifact_read_error(
+            artifact="result",
+            problem="invalid",
+        ) from exc
+    if not isinstance(result, dict):
+        raise _artifact_read_error(
+            artifact="result",
+            problem="invalid",
+        )
+    return result
+
+
+def _read_patch_artifact_or_http(patch_path: Path) -> str:
+    try:
+        return patch_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise _artifact_read_error(
+            artifact="patch",
+            problem="unreadable",
+        ) from exc
+
+
 @code_agent_router.get("/delegations/{session_id}/{delegation_id}")
 def get_delegation(
     session_id: str, delegation_id: str, workspace: Optional[str] = None,
@@ -139,30 +230,29 @@ def get_delegation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="workspace query parameter is required",
         )
-    workspace_path = Path(workspace).resolve()
-    delegation_dir = _delegation_dir(workspace_path, session_id, delegation_id)
-    if not delegation_dir.is_dir():
+    locator = _code_agent_locator_or_http(
+        workspace=workspace,
+        session_id=session_id,
+        delegation_id=delegation_id,
+    )
+    delegation_dir = _existing_delegation_or_http(locator)
+    if delegation_dir is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"delegation not found: {delegation_id}",
         )
-    result_path = delegation_dir / "result.json"
+    result_path = _artifact_file_or_http(locator, "result.json")
     result: Optional[dict[str, Any]]
     if result_path.is_file():
-        try:
-            result = json.loads(result_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            result = None
+        result = _read_result_artifact_or_http(result_path)
     else:
         result = None
-    events_tail = _read_events_tail(delegation_dir / "events.jsonl", limit=50)
-    patch_path = delegation_dir / "changes.patch"
+    events_path = _artifact_file_or_http(locator, "events.jsonl")
+    events_tail = _read_events_tail(events_path, limit=50)
+    patch_path = _artifact_file_or_http(locator, "changes.patch")
     diff_text = ""
     if patch_path.is_file():
-        try:
-            diff_text = patch_path.read_text(encoding="utf-8")
-        except OSError:
-            diff_text = ""
+        diff_text = _read_patch_artifact_or_http(patch_path)
     return {"result": result, "events_tail": events_tail, "diff_text": diff_text}
 
 
@@ -170,9 +260,13 @@ def get_delegation(
 def post_cancel(
     session_id: str, delegation_id: str, body: _WorkspaceBody,
 ) -> dict[str, Any]:
-    _ = session_id
-    _ = body
-    ok = CodeAgentService.cancel(delegation_id)
+    locator = _code_agent_locator_or_http(
+        workspace=body.workspace,
+        session_id=session_id,
+        delegation_id=delegation_id,
+    )
+    _existing_delegation_or_http(locator)
+    ok = CodeAgentService.cancel(locator.delegation_id)
     return {"ok": ok}
 
 
@@ -180,12 +274,22 @@ def post_cancel(
 def post_apply(
     session_id: str, delegation_id: str, body: _WorkspaceBody,
 ) -> dict[str, Any]:
-    workspace_path = Path(body.workspace).resolve()
-    outcome = apply_delegation(
-        workspace_root=workspace_path,
+    locator = _code_agent_locator_or_http(
+        workspace=body.workspace,
         session_id=session_id,
         delegation_id=delegation_id,
     )
+    try:
+        outcome = apply_delegation(
+            workspace_root=locator.workspace_root,
+            session_id=locator.session_id,
+            delegation_id=locator.delegation_id,
+        )
+    except CodeAgentArtifactPathError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     return {"outcome": outcome.to_dict()}
 
 
@@ -193,12 +297,22 @@ def post_apply(
 def post_discard(
     session_id: str, delegation_id: str, body: _WorkspaceBody,
 ) -> dict[str, Any]:
-    workspace_path = Path(body.workspace).resolve()
-    discard_delegation(
-        workspace_root=workspace_path,
+    locator = _code_agent_locator_or_http(
+        workspace=body.workspace,
         session_id=session_id,
         delegation_id=delegation_id,
     )
+    try:
+        discard_delegation(
+            workspace_root=locator.workspace_root,
+            session_id=locator.session_id,
+            delegation_id=locator.delegation_id,
+        )
+    except CodeAgentArtifactPathError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     return {"ok": True}
 
 

@@ -397,7 +397,7 @@ async def test_embedding_pipeline_discards_inflight_results_after_identity_chang
 async def test_embedding_pipeline_rechecks_identity_at_publication(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from magi.memory.embedding import config_coordination
+    from magi.config import embedding_coordination as config_coordination
     from magi.memory.embedding.embedding_pipeline import MemoryEmbeddingPipeline
 
     publication_lock = asyncio.Lock()
@@ -450,7 +450,7 @@ async def test_embedding_rebuild_fails_if_identity_changes_before_publication():
 
 @pytest.mark.asyncio
 async def test_embedding_pipeline_discards_results_across_coordinated_config_generation():
-    from magi.memory.embedding.config_coordination import (
+    from magi.config.embedding_coordination import (
         pause_rebuilds_for_embedding_config_change,
     )
     from magi.memory.embedding.embedding_pipeline import MemoryEmbeddingPipeline

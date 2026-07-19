@@ -12,7 +12,7 @@ import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import IO, Any, Iterator, Mapping
+from typing import IO, Any, Iterable, Iterator, Mapping
 
 _IS_WINDOWS = sys.platform == "win32"
 
@@ -75,16 +75,54 @@ def atomic_write_bytes(path: str | Path, data: bytes) -> None:
     _atomic_write(Path(path), data)
 
 
-def append_jsonl(path: str | Path, record: Mapping[str, Any]) -> None:
-    """Append a JSON-encoded record as a single newline-terminated line."""
-    line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+def append_jsonl_many(
+    path: str | Path,
+    records: Iterable[Mapping[str, Any]],
+) -> None:
+    """Append multiple JSON records as one rollback-safe locked write."""
+    lines = [
+        json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+        for record in records
+    ]
+    if not lines:
+        return
+    payload = "".join(lines).encode("utf-8")
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    with open(target, "ab") as f:
+    with open(target, "a+b") as f:
         with file_lock(f):
-            f.write(line.encode("utf-8"))
-            f.flush()
-            os.fsync(f.fileno())
+            f.seek(0, os.SEEK_END)
+            original_size = f.tell()
+            try:
+                written = f.write(payload)
+                if written != len(payload):
+                    raise OSError(
+                        f"short JSONL write: expected {len(payload)} bytes, wrote {written}"
+                    )
+                f.flush()
+                os.fsync(f.fileno())
+            except Exception:
+                try:
+                    f.seek(original_size)
+                    f.truncate()
+                    f.flush()
+                    os.fsync(f.fileno())
+                except Exception as rollback_exc:
+                    raise RuntimeError(
+                        "JSONL append failed and the original file could not be restored"
+                    ) from rollback_exc
+                raise
 
 
-__all__ = ["atomic_write_text", "atomic_write_bytes", "append_jsonl", "file_lock"]
+def append_jsonl(path: str | Path, record: Mapping[str, Any]) -> None:
+    """Append a JSON-encoded record as a single newline-terminated line."""
+    append_jsonl_many(path, (record,))
+
+
+__all__ = [
+    "atomic_write_text",
+    "atomic_write_bytes",
+    "append_jsonl",
+    "append_jsonl_many",
+    "file_lock",
+]

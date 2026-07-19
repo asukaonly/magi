@@ -10,6 +10,8 @@ from alembic import command
 
 from magi.db.runner import MIGRATION_TARGETS, _build_config
 
+V17_REVISION = "v17_scheduled_correction_cancellation"
+
 
 def _memory_config(db_path: Path):
     target = next(item for item in MIGRATION_TARGETS if item.name == "memory_shared")
@@ -52,7 +54,7 @@ def test_cancellation_migration_refuses_to_drop_retained_cancellations(
 ) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
-    command.upgrade(config, "head")
+    command.upgrade(config, V17_REVISION)
     with sqlite3.connect(db_path) as connection:
         connection.execute("""
             INSERT INTO memory_corrections(
@@ -80,5 +82,5 @@ def test_cancellation_migration_refuses_to_drop_retained_cancellations(
             FROM memory_corrections
             WHERE correction_id = 'cancelled-future'
             """).fetchone()
-    assert revision == ("v17_scheduled_correction_cancellation",)
+    assert revision == (V17_REVISION,)
     assert retained == (None, 150.0, "forget_entity")

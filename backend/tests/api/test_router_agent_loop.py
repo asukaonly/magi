@@ -117,3 +117,54 @@ async def test_router_agent_loop_routes_targeted_timeline_events(tmp_path):
     assert timeline_agent is not None
     assert timeline_agent.get_stats()["processed"] >= 1
     assert router_stats["facts_written"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_router_agent_propagates_user_message_delivery_identity():
+    class _RecordingManager:
+        def __init__(self):
+            self.facts = []
+
+        @staticmethod
+        def resolve_targets(sensor_event):
+            return [(TaskAgentType.CHAT, sensor_event.payload["session_id"])]
+
+        async def add_fact_to_agent(self, agent_type, agent_id, fact):
+            _ = (agent_type, agent_id)
+            self.facts.append(fact)
+            return True
+
+    message_bus = InMemoryMessageBusBackend(num_workers=1)
+    await message_bus.start()
+    sensor_hub = SensorHub(message_bus=message_bus)
+    manager = _RecordingManager()
+    router_agent = RouterAgent(
+        sensor_hub=sensor_hub,
+        task_agent_manager=manager,
+        batch_size=1,
+        poll_timeout_seconds=0.01,
+    )
+
+    await router_agent.start()
+    await sensor_hub.push_sensor_event(
+        SensorEvent(
+            sensor_name="user_input_sensor",
+            event_type=EventTypes.USER_MESSAGE,
+            payload={"session_id": "session-1", "content": "hello"},
+            correlation_id="user_message:message-1",
+            delivery_attempt_no=2,
+            runtime_command_id=99,
+        )
+    )
+    try:
+        for _ in range(100):
+            if manager.facts:
+                break
+            await asyncio.sleep(0.01)
+    finally:
+        await router_agent.stop()
+        await message_bus.stop()
+
+    assert len(manager.facts) == 1
+    assert manager.facts[0].delivery_attempt_no == 2
+    assert manager.facts[0].runtime_command_id == 99

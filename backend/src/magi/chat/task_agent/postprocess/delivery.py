@@ -10,6 +10,7 @@ from magi_plugin_sdk.delivery import DeliveryContent
 
 from magi.agent.task_agents.common import ExecutionResult
 from magi.agent.task_agents.handlers.contracts import ChatParseOutcome, ChatRuntimeContext
+from magi.delivery.contracts import DeliveryFanoutResult
 from magi.core.logger import get_logger
 
 from .final_response_plan import build_final_response_delivery_plan
@@ -19,15 +20,8 @@ logger = get_logger(__name__)
 
 class _DeliveryPostprocessHostProtocol(Protocol):
     _chat_store: Any
-    _deliver_final_response: Callable[..., Awaitable[list[Any]]] | None
+    _deliver_final_response: Callable[..., Awaitable[DeliveryFanoutResult]] | None
     _runtime_notifier: Any
-
-    async def _persist_final_response_outcome(
-        self,
-        context: ChatRuntimeContext,
-        result: ExecutionResult,
-        prepared: Any,
-    ) -> None: ...
 
     async def _get_notification_chat_message(
         self,
@@ -35,23 +29,6 @@ class _DeliveryPostprocessHostProtocol(Protocol):
         turn_id: str | None,
         ux_plan: dict[str, Any] | None,
     ) -> Any | None: ...
-
-    async def _project_final_chat_message(
-        self,
-        *,
-        context: ChatRuntimeContext,
-        final_message: Any | None,
-    ) -> None: ...
-
-    async def _project_canonical_assistant_response(
-        self,
-        *,
-        context: ChatRuntimeContext,
-        turn_id: str | None,
-        message_id: str | None,
-        response_text: str,
-        created_at_ms: int,
-    ) -> None: ...
 
     def _resolve_reaction_notification_text(
         self,
@@ -108,33 +85,9 @@ class ChatPostprocessDeliveryMixin:
         result: ExecutionResult,
         prepared: _PreparedDeliveryStateProtocol,
     ) -> ChatParseOutcome:
-        await self._project_segmented_chat_response(context, prepared)
-        try:
-            await self._deliver_segmented_notifications(context, result, prepared)
-        except Exception as exc:
-            logger.warning(
-                "Segmented chat response notification failed; falling back to final message: %s",
-                exc,
-            )
-            await self._fallback_segmented_response_to_final(context, result, prepared)
-            return await self._emit_chat_response_event(context, result, prepared)
+        await self._deliver_segmented_notifications(context, result, prepared)
+        await self._emit_response_completion(context, result, prepared)
         return await self._emit_chat_response_event(context, result, prepared)
-
-    async def _project_segmented_chat_response(
-        self,
-        context: ChatRuntimeContext,
-        prepared: _PreparedDeliveryStateProtocol,
-    ) -> None:
-        host = cast(_DeliveryPostprocessHostProtocol, self)
-        await host._project_canonical_assistant_response(
-            context=context,
-            turn_id=prepared.turn_id,
-            message_id=(
-                prepared.segmented_messages[0].message_id if prepared.segmented_messages else None
-            ),
-            response_text=prepared.response_text,
-            created_at_ms=prepared.now_ms,
-        )
 
     async def _deliver_segmented_notifications(
         self,
@@ -150,51 +103,6 @@ class ChatPostprocessDeliveryMixin:
             messages=prepared.segmented_messages,
             trace_summary=prepared.trace_summary,
             trace_available=prepared.trace_available,
-        )
-
-    async def _fallback_segmented_response_to_final(
-        self,
-        context: ChatRuntimeContext,
-        result: ExecutionResult,
-        prepared: _PreparedDeliveryStateProtocol,
-    ) -> None:
-        host = cast(_DeliveryPostprocessHostProtocol, self)
-        await self._hide_persisted_rhythm_segments(
-            session_id=context.session_id,
-            turn_id=prepared.turn_id,
-        )
-        await host._persist_final_response_outcome(context, result, prepared)
-        notification_message = await host._get_notification_chat_message(
-            turn_id=prepared.turn_id,
-            ux_plan=prepared.ux_plan,
-        )
-        await host._project_final_chat_message(
-            context=context,
-            final_message=(
-                notification_message
-                if notification_message and notification_message.message_kind == "assistant_final"
-                else None
-            ),
-        )
-        await self._deliver_agent_response(
-            context=context,
-            turn_id=prepared.turn_id,
-            response_text=prepared.response_text,
-            attachments=list(getattr(result, "attachments", []) or []),
-            message_payload=dict(getattr(result, "message_payload", {}) or {}),
-            orchestration_id=result.orchestration_id,
-            trace_summary=prepared.trace_summary,
-            trace_available=prepared.trace_available,
-            ux_plan=result.ux_plan,
-            message_id=notification_message.message_id if notification_message is not None else None,
-            message_kind=(
-                notification_message.message_kind if notification_message is not None else "assistant_final"
-            ),
-            persona_id=(
-                notification_message.persona_id
-                if notification_message is not None
-                else context.active_persona_id
-            ),
         )
 
     async def _deliver_final_chat_response(
@@ -215,10 +123,6 @@ class ChatPostprocessDeliveryMixin:
             fallback_persona_id=context.active_persona_id,
             resolve_reaction_text=host._resolve_reaction_notification_text,
         )
-        await host._project_final_chat_message(
-            context=context,
-            final_message=delivery_plan.final_message,
-        )
         if getattr(result, "streamed", False) and delivery_plan.final_message is not None:
             await host._runtime_notifier.emit_chat_message_upsert(
                 user_id=context.user_id,
@@ -234,7 +138,13 @@ class ChatPostprocessDeliveryMixin:
                 delivery_plan=delivery_plan,
             )
         else:
-            await self._emit_stream_completion(context, result, prepared)
+            await self._deliver_streamed_external_response(
+                context=context,
+                result=result,
+                prepared=prepared,
+                delivery_plan=delivery_plan,
+            )
+            await self._emit_response_completion(context, result, prepared)
 
         return await self._emit_chat_response_event(context, result, prepared)
 
@@ -261,7 +171,7 @@ class ChatPostprocessDeliveryMixin:
             persona_id=delivery_plan.persona_id,
         )
 
-    async def _emit_stream_completion(
+    async def _emit_response_completion(
         self,
         context: ChatRuntimeContext,
         result: ExecutionResult,
@@ -276,6 +186,37 @@ class ChatPostprocessDeliveryMixin:
             orchestration_id=result.orchestration_id,
             state="completed",
             can_cancel=False,
+        )
+
+    async def _deliver_streamed_external_response(
+        self,
+        *,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedDeliveryStateProtocol,
+        delivery_plan: Any,
+    ) -> None:
+        """Deliver the assembled response only to non-SSE channels.
+
+        The desktop SSE surface already consumed the stream chunks. External
+        channels that do not support streaming still need one final response,
+        and it must be sent only after the local chat outcome is durable.
+        """
+
+        await self._deliver_agent_response(
+            context=context,
+            turn_id=prepared.turn_id,
+            response_text=delivery_plan.response_text,
+            attachments=list(getattr(result, "attachments", []) or []),
+            message_payload=dict(getattr(result, "message_payload", {}) or {}),
+            orchestration_id=result.orchestration_id,
+            trace_summary=prepared.trace_summary,
+            trace_available=prepared.trace_available,
+            ux_plan=result.ux_plan,
+            message_id=delivery_plan.message_id,
+            message_kind=delivery_plan.message_kind,
+            persona_id=delivery_plan.persona_id,
+            exclude_chat_sse=True,
         )
 
     async def _emit_chat_response_event(
@@ -301,12 +242,12 @@ class ChatPostprocessDeliveryMixin:
         *,
         session_id: str | None,
         turn_id: str | None,
-    ) -> None:
+    ) -> bool:
         host = cast(_DeliveryPostprocessHostProtocol, self)
         normalized_turn_id = str(turn_id or "").strip()
         normalized_session_id = str(session_id or "").strip()
         if host._chat_store is None or not normalized_turn_id or not normalized_session_id:
-            return
+            return False
         try:
             messages = await host._chat_store.list_messages(session_id=normalized_session_id)
             for message in messages:
@@ -319,8 +260,10 @@ class ChatPostprocessDeliveryMixin:
                         session_id=normalized_session_id,
                         message_id=message.message_id,
                     )
+            return True
         except Exception as exc:
             logger.warning("Failed to hide persisted rhythm segments: %s", exc)
+            return False
 
     async def _deliver_agent_response(
         self,
@@ -337,10 +280,12 @@ class ChatPostprocessDeliveryMixin:
         message_id: str | None,
         message_kind: str | None,
         persona_id: str | None,
-    ) -> None:
+        exclude_chat_sse: bool = False,
+        exclude_channel_types: frozenset[str] = frozenset(),
+    ) -> DeliveryFanoutResult:
         host = cast(_DeliveryPostprocessHostProtocol, self)
         if host._deliver_final_response is None:
-            return
+            return DeliveryFanoutResult()
         content = DeliveryContent(
             text=response_text,
             attachments=tuple(attachments or ()),
@@ -354,7 +299,14 @@ class ChatPostprocessDeliveryMixin:
             message_payload=dict(message_payload or {}),
             orchestration_id=orchestration_id,
         )
-        await host._deliver_final_response(context, content=content)
+        delivery_kwargs: dict[str, Any] = {"content": content}
+        if exclude_chat_sse:
+            delivery_kwargs["exclude_chat_sse"] = True
+        if exclude_channel_types:
+            delivery_kwargs["exclude_channel_types"] = tuple(
+                sorted(exclude_channel_types)
+            )
+        return await host._deliver_final_response(context, **delivery_kwargs)
 
     async def _emit_segmented_agent_response_notifications(
         self,
@@ -369,28 +321,57 @@ class ChatPostprocessDeliveryMixin:
     ) -> None:
         attachments = list(getattr(result, "attachments", []) or [])
         total = len(messages)
+        excluded_channel_types: set[str] = set()
         for index, message in enumerate(messages):
-            if index > 0:
-                delay_ms = 0
-                if index < len(response_plan.segments):
-                    delay_ms = int(response_plan.segments[index].delay_ms or 0)
-                if delay_ms > 0:
-                    await asyncio.sleep(delay_ms / 1000.0)
-            segment_payload = self._parse_message_payload(message.payload_json)
-            await self._deliver_agent_response(
-                context=context,
-                turn_id=turn_id,
-                response_text=str(message.content_text or ""),
-                attachments=attachments if index == total - 1 else [],
-                message_payload=segment_payload,
-                orchestration_id=result.orchestration_id,
-                trace_summary=trace_summary,
-                trace_available=trace_available,
-                ux_plan=result.ux_plan,
-                message_id=message.message_id,
-                message_kind=message.message_kind,
-                persona_id=message.persona_id,
-            )
+            try:
+                if index > 0:
+                    delay_ms = 0
+                    if index < len(response_plan.segments):
+                        delay_ms = int(response_plan.segments[index].delay_ms or 0)
+                    if delay_ms > 0:
+                        await asyncio.sleep(delay_ms / 1000.0)
+                segment_payload = self._parse_message_payload(message.payload_json)
+                delivery_result = await self._deliver_agent_response(
+                    context=context,
+                    turn_id=turn_id,
+                    response_text=str(message.content_text or ""),
+                    attachments=attachments if index == total - 1 else [],
+                    message_payload=segment_payload,
+                    orchestration_id=result.orchestration_id,
+                    trace_summary=trace_summary,
+                    trace_available=trace_available,
+                    ux_plan=result.ux_plan,
+                    message_id=message.message_id,
+                    message_kind=message.message_kind,
+                    persona_id=message.persona_id,
+                    exclude_channel_types=frozenset(excluded_channel_types),
+                )
+                failures = delivery_result.failures
+                if not failures:
+                    continue
+                failed_types = {
+                    str(failure.target.channel_type or "").strip()
+                    for failure in failures
+                }
+                failed_types.discard("")
+                excluded_channel_types.update(failed_types)
+                logger.warning(
+                    "Segmented response notification failed for channel targets; "
+                    "later segments will skip those channels",
+                    turn_id=turn_id,
+                    segment_index=index,
+                    failed_channel_types=sorted(failed_types),
+                    successful_channels=len(delivery_result.receipts),
+                )
+            except Exception:
+                logger.warning(
+                    "Segmented response notification stopped after an unknown "
+                    "delivery failure; keeping the durable segmented response",
+                    turn_id=turn_id,
+                    segment_index=index,
+                    exc_info=True,
+                )
+                return
 
     @staticmethod
     def _parse_message_payload(raw_payload_json: str | None) -> dict[str, Any]:

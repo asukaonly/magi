@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from typing import Any
 
+from ...events.events import EventTypes
 from .cleanup import ForgetLayerCleanup
 from .models import (
     ForgetOperation,
@@ -61,11 +62,38 @@ class DurableForgetRunner:
         reason: str,
         reuse_completed: bool,
     ) -> ForgetOutcome:
-        operation = await self._repository.create_or_reuse(
+        operation = await self.prepare(
             selector=selector,
             reason=reason,
             reuse_completed=reuse_completed,
         )
+        return await self.execute_prepared(operation.operation_id)
+
+    async def prepare(
+        self,
+        selector: ForgetSelector,
+        *,
+        reason: str,
+        reuse_completed: bool,
+        execution_ready: bool = True,
+    ) -> ForgetOperation:
+        """Persist an operation intent without starting destructive cleanup."""
+
+        return await self._repository.create_or_reuse(
+            selector=selector,
+            reason=reason,
+            reuse_completed=reuse_completed,
+            execution_ready=execution_ready,
+        )
+
+    async def execute_prepared(self, operation_id: str) -> ForgetOutcome:
+        """Execute a previously persisted operation intent."""
+
+        operation = await self._repository.get(str(operation_id or "").strip())
+        if operation is None:
+            raise RuntimeError("Forget operation does not exist")
+        if not operation.execution_ready:
+            raise RuntimeError("Forget operation runtime barrier is not active")
         if operation.completed:
             return self._outcome(operation)
         async with self._run_lock:
@@ -158,6 +186,31 @@ class DurableForgetRunner:
     async def list_pending_surface_finalizations(self) -> list[ForgetOperation]:
         """Return completed chat operations awaiting their final surface mutation."""
         return await self._repository.list_pending_surface_finalizations()
+
+    async def list_completed_chat_forget_operations(
+        self,
+        *,
+        limit: int = 1000,
+        after_created_at: float | None = None,
+        after_operation_id: str | None = None,
+    ) -> list[ForgetOperation]:
+        """Page completed chat selectors used to rebuild chat barriers."""
+
+        return await self._repository.list_completed_chat_forget_operations(
+            limit=limit,
+            after_created_at=after_created_at,
+            after_operation_id=after_operation_id,
+        )
+
+    async def list_awaiting_chat_barriers(self) -> list[ForgetOperation]:
+        """Return chat intents awaiting runtime delivery barriers."""
+
+        return await self._repository.list_awaiting_chat_barriers()
+
+    async def activate(self, operation_id: str) -> ForgetOperation:
+        """Activate one chat intent after its runtime barrier commits."""
+
+        return await self._repository.activate(operation_id)
 
     async def mark_surface_finalized(self, operation_id: str) -> ForgetOperation:
         """Record that the chat-owned surface mutation completed."""
@@ -541,7 +594,19 @@ class DurableForgetRunner:
             l0 = getattr(self._host, "l0", None)
             if l0 is not None:
                 await l0.forget_entity(str(payload["entity_id"]))
-        if selector.kind in {"chat_session", "chat_history", "chat_message"}:
+        if selector.kind == "chat_message":
+            l0 = getattr(self._host, "l0", None)
+            turn_id = str(payload.get("turn_id") or "").strip()
+            if (
+                l0 is not None
+                and turn_id
+                and str(payload["event_type"]) == EventTypes.USER_MESSAGE
+            ):
+                await l0.forget_execution_turn(
+                    session_id=str(payload["session_id"]),
+                    turn_id=turn_id,
+                )
+        if selector.kind in {"chat_session", "chat_history"}:
             l0 = getattr(self._host, "l0", None)
             if l0 is not None:
                 await l0.forget_session(str(payload["session_id"]))

@@ -84,6 +84,7 @@ def _request(tmp_path: Path) -> DelegateRequest:
     return DelegateRequest(
         delegation_id="b" * 32,
         session_id="s1",
+        turn_id="turn-1",
         adapter="codex",
         prompt="add max_retries to connect()",
         files_hint=["src/net.py"],
@@ -96,6 +97,21 @@ def _request(tmp_path: Path) -> DelegateRequest:
 
 async def _noop_on_event(ev: RunEvent) -> None:
     return None
+
+
+def test_codex_adapter_targets_isolated_worktree(tmp_path: Path) -> None:
+    adapter = CodexAdapter()
+    worktree = tmp_path / "isolated-worktree"
+    argv = adapter._build_argv(
+        _request(tmp_path),
+        bundle_dir=tmp_path / "_bundle",
+        binary_path="/usr/bin/codex",
+        last_message_path=tmp_path / "last.txt",
+        working_directory=worktree,
+    )
+
+    assert argv[argv.index("--cd") + 1] == str(worktree)
+    assert str(tmp_path) != str(worktree)
 
 
 @pytest.mark.asyncio

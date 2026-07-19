@@ -7,6 +7,45 @@ import pytest
 
 
 @pytest.mark.asyncio
+async def test_destructive_chat_and_global_clear_cannot_deadlock_on_reversed_inner_locks(
+    tmp_path: Path,
+) -> None:
+    import asyncio
+
+    from magi.core.operation_barrier import AsyncOperationBarrier
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    memory_barrier = AsyncOperationBarrier()
+    chat_holds_memory = asyncio.Event()
+    global_started = asyncio.Event()
+    order: list[str] = []
+
+    async def chat_delete() -> None:
+        async with queue.user_message_destructive_operation():
+            async with memory_barrier.operation():
+                chat_holds_memory.set()
+                await global_started.wait()
+                await asyncio.sleep(0)
+                async with queue.user_message_clear_boundary():
+                    order.append("chat")
+
+    async def global_clear() -> None:
+        await chat_holds_memory.wait()
+        global_started.set()
+        async with queue.user_message_global_clear_boundary():
+            async with memory_barrier.exclusive():
+                order.append("global")
+
+    await asyncio.wait_for(
+        asyncio.gather(chat_delete(), global_clear()),
+        timeout=1.0,
+    )
+
+    assert order == ["chat", "global"]
+
+
+@pytest.mark.asyncio
 async def test_runtime_command_queue_enqueues_and_claims_user_message(tmp_path: Path) -> None:
     from magi.events.contracts import RuntimeCommandType, UserMessageCommand
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
@@ -174,6 +213,108 @@ async def test_runtime_command_queue_deduplicates_stable_user_turn_correlation(
 
 
 @pytest.mark.asyncio
+async def test_runtime_command_queue_schedules_user_message_attempts_monotonically(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import UserMessageCommand
+    from magi.events.runtime_queue import (
+        SQLiteRuntimeCommandQueue,
+        UserMessageScheduleOutcome,
+    )
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+
+    def _command(attempt_no: int) -> UserMessageCommand:
+        return UserMessageCommand(
+            source="api",
+            user_id="user-1",
+            session_id="session-1",
+            turn_id="turn-1",
+            message="same logical turn",
+            correlation_id="user_message:message-1",
+            created_at=1710000000.0,
+            delivery_attempt_no=attempt_no,
+        )
+
+    try:
+        first = await queue.schedule_user_message(_command(0))
+        duplicate = await queue.schedule_user_message(_command(0))
+        newer = await queue.schedule_user_message(_command(1))
+        stale = await queue.schedule_user_message(_command(0))
+
+        assert first.outcome is UserMessageScheduleOutcome.SCHEDULED
+        assert first.current_attempt_no == 0
+        assert duplicate.outcome is UserMessageScheduleOutcome.EXISTING
+        assert duplicate.command_id == first.command_id
+        assert newer.outcome is UserMessageScheduleOutcome.SCHEDULED
+        assert newer.current_attempt_no == 1
+        assert newer.command_id != first.command_id
+        assert stale.outcome is UserMessageScheduleOutcome.STALE
+        assert stale.current_attempt_no == 1
+        assert stale.command_id == newer.command_id
+
+        with sqlite3.connect(queue.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT command_id, delivery_attempt_no, status
+                FROM runtime_commands
+                WHERE correlation_id = ?
+                ORDER BY command_id
+                """,
+                ("user_message:message-1",),
+            ).fetchall()
+            receipt = conn.execute(
+                """
+                SELECT current_attempt_no, current_command_id, delivery_status
+                FROM runtime_user_message_idempotency
+                WHERE correlation_id = ?
+                """,
+                ("user_message:message-1",),
+            ).fetchone()
+        assert rows == [
+            (first.command_id, 0, "completed"),
+            (newer.command_id, 1, "pending"),
+        ]
+        assert receipt == (1, newer.command_id, "open")
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_command_queue_rejects_stale_attempt_from_enqueue_api(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import UserMessageCommand
+    from magi.events.runtime_queue import (
+        SQLiteRuntimeCommandQueue,
+        StaleUserMessageDeliveryAttemptError,
+    )
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+
+    def _command(attempt_no: int) -> UserMessageCommand:
+        return UserMessageCommand(
+            source="api",
+            user_id="user-1",
+            session_id="session-1",
+            turn_id="turn-1",
+            message="same logical turn",
+            correlation_id="user_message:message-1",
+            delivery_attempt_no=attempt_no,
+            created_at=1710000000.0,
+        )
+
+    try:
+        await queue.enqueue_user_message(_command(1))
+        with pytest.raises(StaleUserMessageDeliveryAttemptError):
+            await queue.enqueue_user_message(_command(0))
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
 async def test_runtime_command_queue_rejects_same_correlation_for_different_input(
     tmp_path: Path,
 ) -> None:
@@ -218,7 +359,10 @@ async def test_user_message_idempotency_survives_completed_command_gc(
     tmp_path: Path,
 ) -> None:
     from magi.events.contracts import RuntimeCommandType, UserMessageCommand
-    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+    from magi.events.runtime_queue import (
+        SQLiteRuntimeCommandQueue,
+        UserMessageScheduleOutcome,
+    )
 
     db_path = tmp_path / "runtime_commands.db"
     queue = SQLiteRuntimeCommandQueue(db_path=str(db_path))
@@ -244,22 +388,94 @@ async def test_user_message_idempotency_survives_completed_command_gc(
             db.execute("DELETE FROM runtime_commands WHERE command_id = ?", (first_id,))
             db.commit()
 
-        assert await queue.enqueue_user_message(original) == first_id
+        same_attempt = await queue.schedule_user_message(original)
+        assert same_attempt.outcome is UserMessageScheduleOutcome.EXISTING
+        assert same_attempt.command_id == first_id
         assert (await queue.get_stats())["pending_count"] == 0
 
-        second_id = await queue.enqueue_user_message(
+        next_attempt = await queue.schedule_user_message(
             UserMessageCommand(
                 source="api",
                 user_id="user-1",
                 session_id="session-1",
                 turn_id="turn-1",
-                message="hello again",
-                correlation_id="user_message:message-2",
-                created_at=1710000001.0,
+                message="hello",
+                correlation_id="user_message:message-1",
+                created_at=1710000000.0,
+                delivery_attempt_no=1,
             )
         )
-        assert second_id != first_id
+        assert next_attempt.outcome is UserMessageScheduleOutcome.SCHEDULED
+        assert next_attempt.command_id != first_id
         assert (await queue.get_stats())["pending_count"] == 1
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_stale_ack_and_requeue_do_not_change_current_user_message_attempt(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import RuntimeCommandType, UserMessageCommand
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+
+    def _command(attempt_no: int) -> UserMessageCommand:
+        return UserMessageCommand(
+            source="api",
+            user_id="user-1",
+            session_id="session-1",
+            turn_id="turn-1",
+            message="same logical turn",
+            correlation_id="user_message:message-1",
+            created_at=1710000000.0,
+            delivery_attempt_no=attempt_no,
+        )
+
+    try:
+        old_id = await queue.enqueue_user_message(_command(0))
+        old_claim = await queue.claim_next(
+            consumer_name="runtime-worker",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert old_claim is not None
+        assert old_claim.command_id == old_id
+
+        current = await queue.schedule_user_message(_command(1))
+        assert current.command_id is not None
+        await queue.requeue(old_id, error_text="OLD_HANDLER_FAILED")
+        await queue.ack(old_id)
+
+        with sqlite3.connect(queue.db_path) as conn:
+            receipt = conn.execute(
+                """
+                SELECT current_attempt_no, current_command_id, delivery_status
+                FROM runtime_user_message_idempotency
+                WHERE correlation_id = ?
+                """,
+                ("user_message:message-1",),
+            ).fetchone()
+            old_row = conn.execute(
+                "SELECT status FROM runtime_commands WHERE command_id = ?",
+                (old_id,),
+            ).fetchone()
+        assert receipt == (1, current.command_id, "open")
+        assert old_row == ("completed",)
+
+        claimed_current = await queue.claim_next(
+            consumer_name="runtime-worker",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert claimed_current is not None
+        assert claimed_current.command_id == current.command_id
+        assert claimed_current.delivery_attempt_no == 1
+        assert claimed_current.as_user_message().delivery_attempt_no == 1
+        assert (
+            claimed_current.as_user_message().runtime_command_id
+            == claimed_current.command_id
+        )
     finally:
         await queue.stop()
 

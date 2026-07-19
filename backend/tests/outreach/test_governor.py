@@ -12,19 +12,15 @@ def _intent(urgency=Urgency.NORMAL, cid="c1"):
 
 class _Log:
     def __init__(self, delivered=(), count=0):
-        self._delivered = set(delivered); self._count = count
+        self._delivered = set(delivered)
+        self._count = count
+
     async def was_delivered(self, cid): return cid in self._delivered
     async def count_for_user_since(self, user_id, since_ms): return self._count
 
 
 def _gov(log, hour):
     return Governor(delivery_log=log, now_local=lambda: datetime(2026, 6, 2, hour, 0, 0))
-
-
-@pytest.mark.asyncio
-async def test_dedup_drops():
-    v, _ = await _gov(_Log(delivered={"c1"}), hour=12).evaluate(_intent(), external_target=object())
-    assert v is GovernorVerdict.DROP
 
 
 @pytest.mark.asyncio

@@ -321,10 +321,40 @@ class _AskRespondRequest(BaseModel):
 @control_router.post("/ask/{request_id}/respond")
 async def respond_ask(request_id: str, payload: _AskRespondRequest) -> dict[str, Any]:
     broker = _broker()
+    metadata = await broker.get_pending_metadata(
+        interaction_id=request_id,
+        kind="ask",
+    )
+    if metadata is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t(
+                "control.errors.ask_request_not_pending",
+                fallback="Ask request {request_id!r} is not pending",
+                request_id=request_id,
+            ),
+        )
+    answer = payload.answer.strip()
+    options = {
+        option
+        for option in (
+            str(item or "").strip()
+            for item in metadata.get("options", [])
+        )
+        if option
+    }
+    if metadata.get("allow_free_text", True) is False and answer not in options:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=core_i18n.t(
+                "control.errors.ask_response_option_required",
+                fallback="Choose one of the available answers.",
+            ),
+        )
     resolved = await broker.resolve(
         interaction_id=request_id,
         kind="ask",
-        response=payload.answer,
+        response=answer,
     )
     if not resolved:
         raise HTTPException(

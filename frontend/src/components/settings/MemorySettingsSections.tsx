@@ -8,6 +8,8 @@ import type { SystemConfig } from '@/api/modules/config';
 import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import type { EmbeddingVectorStatus } from '@/api/modules/memory';
 import memoryApi from '@/api/modules/memory';
+import { clearAllMemory } from '@/hooks/clearAllMemory';
+import { summarizeMemoryClear } from '@/hooks/memoryClearFeedback';
 import { ClearMemoryDialog } from '@/components/memory/ClearMemoryDialog';
 import { LabeledSelectField, NumberField } from '@/components/settings/form-fields';
 import { Button } from '@/components/ui/button';
@@ -279,8 +281,15 @@ export function MemoryGeneralSettingsSection({
   const handleClearConfirm = useCallback(async () => {
     setClearing(true);
     try {
-      const result = await memoryApi.clearAll();
-      toast.success(t('settings.memoryCleared', { count: result.results?.l0?.count ?? 0 }));
+      const result = await clearAllMemory();
+      const feedback = summarizeMemoryClear(result);
+      toast.success(t('settings.memoryCleared', { count: feedback.clearedItemCount }));
+      if (feedback.recoveryPending) {
+        toast.warning(t('settings.memoryClearRecoveryPending'));
+      }
+      if (feedback.otherWarningsPresent) {
+        toast.warning(t('settings.memoryClearCompletedWithWarnings'));
+      }
       setClearDialogOpen(false);
     } catch {
       toast.error(t('settings.memoryClearFailed'));

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Callable, Literal, Optional
+from collections.abc import Awaitable, Callable
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -49,11 +50,15 @@ def build_default_notifications_router(
     *,
     service_dep: Callable[[], NotificationService],
     unified_memory_dep: "Callable[[], object] | None" = None,
+    profile_conflict_suppression_dep: "Callable[[], Awaitable[bool]] | None" = None,
 ) -> APIRouter:
     router = APIRouter()
     router.add_api_route(
         "/notifications",
-        _list_notifications_endpoint(service_dep),
+        _list_notifications_endpoint(
+            service_dep,
+            profile_conflict_suppression_dep,
+        ),
         methods=["GET"],
         response_model=ListResponse,
     )
@@ -86,9 +91,20 @@ def build_default_notifications_router(
     return router
 
 
-def _list_notifications_endpoint(service_dep: Callable[[], NotificationService]):
+def _list_notifications_endpoint(
+    service_dep: Callable[[], NotificationService],
+    profile_conflict_suppression_dep: "Callable[[], Awaitable[bool]] | None",
+):
     async def list_notifications() -> ListResponse:
-        result = service_dep().list(_USER_ID)
+        suppress_profile_conflicts = (
+            await profile_conflict_suppression_dep()
+            if profile_conflict_suppression_dep is not None
+            else False
+        )
+        result = service_dep().list(
+            _USER_ID,
+            exclude_profile_conflicts=suppress_profile_conflicts,
+        )
         items = [_notification_item_model(row) for row in result["items"]]
         return ListResponse(items=items, unread_count=result["unread_count"])
 
@@ -238,10 +254,23 @@ def _default_unified_memory_dep():
         return None
 
 
+async def _default_profile_conflict_suppression_dep() -> bool:
+    from magi.core.runtime_bindings import require_chat_read_service
+
+    try:
+        pending_count = (
+            await require_chat_read_service().aget_interrupted_global_clear_count()
+        )
+    except RuntimeError:
+        return False
+    return pending_count is not None
+
+
 def _build_production_notifications_router() -> APIRouter:
     return build_default_notifications_router(
         service_dep=_default_service,
         unified_memory_dep=_default_unified_memory_dep,
+        profile_conflict_suppression_dep=_default_profile_conflict_suppression_dep,
     )
 
 

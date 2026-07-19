@@ -514,3 +514,62 @@ async def test_ask_response_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) ->
     assert hi == []
 
     await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_answered_ask_does_not_recreate_deleted_request(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.chat.control_transcript_subscriber import ControlTranscriptSubscriber
+
+    store = await _new_store(tmp_path)
+    up: list[str] = []
+    hi: list[str] = []
+    _patch_broadcasts(monkeypatch, up, hi)
+
+    ask = _AskState()
+    sub = ControlTranscriptSubscriber(event_bus=_FakeBus())
+    with _override(chat_store=store):
+        await _run(
+            sub,
+            EventTypes.CONTROL_ASK_REQUESTED,
+            ControlAskRequested(
+                session_id="session-1",
+                user_id="user-1",
+                turn_id="turn-1",
+                ask=_ask_snapshot(ask),
+            ),
+        )
+        async with aiosqlite.connect(store.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO chat_cleared_message_scopes(
+                    session_id, message_id, cleared_at_ms
+                ) VALUES ('session-1', 'ask:ask-1', 1500)
+                """
+            )
+            await db.execute(
+                "DELETE FROM chat_messages WHERE message_id = 'ask:ask-1'"
+            )
+            await db.commit()
+
+        ask.answer = "yes"
+        ask.resolution = "user"
+        ask.answered_at = 2.0
+        await _run(
+            sub,
+            EventTypes.CONTROL_ASK_ANSWERED,
+            ControlAskAnswered(
+                session_id="session-1",
+                user_id="user-1",
+                turn_id="turn-1",
+                ask=_ask_snapshot(ask),
+                answer="yes",
+            ),
+        )
+
+    assert await store.list_messages(session_id="session-1") == []
+    assert up == ["ask:ask-1"]
+    assert hi == []
+    await store.shutdown()

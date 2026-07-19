@@ -46,9 +46,6 @@ vi.mock('@/api/modules/personas', async () => {
 const Harness = ({ sessionId }: { sessionId: string }) => {
   useChatSessionLifecycle({
     currentSessionId: sessionId,
-    setCurrentSessionId: vi.fn(),
-    resetConversation: vi.fn(),
-    resetTraceDrawer: vi.fn(),
     upsertMessage: useConversationStore.getState().upsertMessage,
     removeMessage: useConversationStore.getState().removeMessage,
     translate: (key: string) => key,

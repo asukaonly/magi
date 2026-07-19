@@ -117,6 +117,28 @@ Open items:
 - if the need is proven, define one SDK contract, host dispatch path, privacy boundary, and migration for existing source-owned resolver tools
 - until then, document and test the current source-owned flow rather than presenting a universal resolver as implemented
 
+### 7. Close external conversation delivery gaps
+
+Status: active
+
+Why it is still open:
+
+- local clear barriers reject sessions and messages that have already entered
+  the host, but an external platform can deliver an older unseen backlog item
+  for the first time after the clear
+- ordinary external chat replies and `ask_user` questions have no durable
+  per-target delivery intent, so restart recovery cannot resend a missing
+  delivery without also risking a duplicate
+
+Open items:
+
+- define an SDK-level clear generation plus provider cursor/time/sequence
+  watermark contract for polling and backfill channel plugins
+- add a recoverable per-target outbox with stable message identity and
+  channel-side idempotency for ordinary external replies and asks; do not reuse
+  the proactive-outreach outbox without defining their different lifecycle
+  semantics
+
 ## Maintenance Fixes
 
 ### 1. Retire or split oversized legacy modules

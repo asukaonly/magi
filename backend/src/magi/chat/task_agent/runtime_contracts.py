@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from magi.agent.task_agents.handlers import ExecutionHandlerRegistry
     from magi.agent.task_orchestrator import TaskOrchestrator
     from magi.agent.execution.function_calling import FunctionCallingOrchestrator
-    from magi.chat import ChatProjector, ChatReadService, ChatStore
+    from magi.chat import ChatReadService, ChatStore
     from magi.chat.task_agent.context_assembler import ChatContextAssembler
     from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
     from magi.chat.task_agent.fact_classifier import ChatFactClassifier
@@ -49,7 +49,6 @@ class ChatTaskAgentRuntimeConfig:
     skill_runner: Any | None = None
     runtime_trace_store: RuntimeTraceStore | None = None
     chat_store: ChatStore | None = None
-    chat_projector: ChatProjector | None = None
     chat_read_service_factory: Callable[[], ChatReadService] | None = None
     background_dispatcher: Any | None = None
     background_launch_service: Any | None = None
@@ -66,7 +65,7 @@ class ChatTaskAgentRuntimeCallbacks:
     get_task_agent_manager: Callable[[], Any]
     get_sensor_hub: Callable[[], Any]
     max_fact_memory: int
-    drain_deferred_turns: Callable[..., Any]
+    release_deferred_turns: Callable[..., Any]
     deliver_final_response: Callable[..., Any]
     tool_advisory_provider: Callable[..., Any]
     session_workspace_provider: Callable[..., Any]

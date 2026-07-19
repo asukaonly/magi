@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...core.sqlite import sqlite_connection_async
+from ...events.events import EventTypes
 from .models import ForgetSelector, SelectedEvent
 
 
@@ -94,10 +95,16 @@ class ForgetSelectorResolver:
         elif selector.kind == "chat_message":
             if self._l1 is None:
                 return []
-            event_ids = await self._l1.list_raw_event_ids_by_chat_message(
+            event_ids = await self._l1.list_raw_event_ids_by_chat_sources(
                 user_id=str(payload["user_id"]),
                 session_id=str(payload["session_id"]),
-                message_id=str(payload["message_id"]),
+                message_ids=tuple(
+                    str(item.get("message_id") or "")
+                    for item in payload["messages"]
+                    if isinstance(item, dict)
+                ),
+                turn_ids=(),
+                include_session=False,
                 after_event_id=after_event_id,
                 limit=page_size,
             )
@@ -230,6 +237,11 @@ class ForgetSelectorResolver:
             return (
                 bool(selector.payload.get("include_turn_references", True)),
                 bool(selector.payload.get("block_source_item", True)),
+            )
+        if selector.kind == "chat_message":
+            return (
+                str(selector.payload.get("event_type") or "") == EventTypes.USER_MESSAGE,
+                True,
             )
         return True, True
 

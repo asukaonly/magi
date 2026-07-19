@@ -6,7 +6,8 @@ from magi.api.routers.notifications_routes import build_default_notifications_ro
 
 
 def _client(tmp_path):
-    store = NotificationStore(str(tmp_path / "n.db")); store.ensure_schema()
+    store = NotificationStore(str(tmp_path / "n.db"))
+    store.ensure_schema()
     store.insert(NotificationRow(user_id="default_user", kind="suggestion",
         dedupe_key="browser_history", title="t", body="b",
         payload_json='{"installable_plugin_ids":["edge-history"]}', created_at_ms=1000))
@@ -24,6 +25,43 @@ def test_list(tmp_path):
     assert body["unread_count"] == 1
     assert body["items"][0]["dedupe_key"] == "browser_history"
     assert body["items"][0]["payload"]["installable_plugin_ids"] == ["edge-history"]
+
+
+def test_list_hides_profile_conflicts_while_memory_clear_is_pending(tmp_path):
+    store = NotificationStore(str(tmp_path / "n.db"))
+    store.ensure_schema()
+    store.insert(NotificationRow(
+        user_id="default_user",
+        kind="suggestion",
+        dedupe_key="profile_conflict:identity.name:user",
+        title="old conflict",
+        body="old evidence",
+        payload_json='{"conflict_type":"profile_conflict"}',
+        created_at_ms=1000,
+    ))
+    store.insert(NotificationRow(
+        user_id="default_user",
+        kind="suggestion",
+        dedupe_key="browser_history",
+        title="normal",
+        body="normal",
+        created_at_ms=2000,
+    ))
+    svc = NotificationService(store=store)
+
+    async def _clear_pending() -> bool:
+        return True
+
+    app = FastAPI()
+    app.include_router(build_default_notifications_router(
+        service_dep=lambda: svc,
+        profile_conflict_suppression_dep=_clear_pending,
+    ))
+
+    body = TestClient(app).get("/notifications").json()
+
+    assert body["unread_count"] == 1
+    assert [item["dedupe_key"] for item in body["items"]] == ["browser_history"]
 
 
 def test_mark_read_all(tmp_path):

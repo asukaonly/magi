@@ -16,7 +16,7 @@ from ....context.window_budget import (
     measure_provider_prompt_usage,
 )
 from ....agent.turn_input import UserTurnInput
-from ....chat.task_agent.rhythm import extract_persona_rhythm
+from magi.agent.response_rhythm import extract_persona_rhythm
 from ....context.scenarios import Scenario
 from .... import i18n as core_i18n
 from ....core.logger import get_logger

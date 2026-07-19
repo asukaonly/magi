@@ -191,37 +191,50 @@ class ChatSurfaceWriteService:
                 user_id=user_id,
                 trace_id=None,
                 orchestration_id=None,
-                status="completed",
+                status="running",
                 response_mode="final_only",
                 execution_mode=None,
                 ux_plan_json="{}",
                 created_at_ms=now_ms,
                 updated_at_ms=now_ms,
-                completed_at_ms=now_ms,
+                completed_at_ms=None,
                 error_text=None,
             )
         )
 
-        await chat_store.append_message(
-            ChatMessageRecord(
-                message_id=message_id,
-                session_id=session_id,
-                turn_id=turn_id,
-                user_id=user_id,
-                role="assistant",
-                message_kind="assistant_final",
-                content_text=content,
-                payload_json="{}",
-                is_final=True,
-                is_visible=True,
-                created_at_ms=now_ms,
-                sequence_no=await chat_store.next_sequence_no(session_id=session_id),
-                replaces_message_id=None,
-                replaced_by_message_id=None,
-            )
+        message = ChatMessageRecord(
+            message_id=message_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            user_id=user_id,
+            role="assistant",
+            message_kind="assistant_final",
+            content_text=content,
+            payload_json="{}",
+            is_final=True,
+            is_visible=True,
+            created_at_ms=now_ms,
+            sequence_no=0,
+            replaces_message_id=None,
+            replaced_by_message_id=None,
         )
-
-        await chat_store.bump_history_version(session_id)
+        committed = await chat_store.commit_unmanaged_assistant_outcome(
+            turn_id=turn_id,
+            messages=[message],
+            attachment_payloads_by_message_id={},
+            trace_id=None,
+            orchestration_id=None,
+            execution_mode=None,
+            ux_plan={},
+            response_mode="final_only",
+            started_at_ms=now_ms,
+            completed_at_ms=now_ms,
+            run_id=None,
+            run_revision=0,
+            run_disposition=None,
+        )
+        if committed is None:
+            raise RuntimeError("Bootstrap assistant message commit was rejected")
         await self._broadcast_upsert(user_id=user_id, session_id=session_id, message_id=message_id)
         await self._emit_bootstrap_notification(
             user_id=user_id,

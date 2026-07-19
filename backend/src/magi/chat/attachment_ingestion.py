@@ -3,17 +3,37 @@
 from __future__ import annotations
 
 import mimetypes
+from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 
-from magi_plugin_sdk.image_generation import MAX_IMAGE_ATTACHMENT_BYTES  # promoted to SDK; re-exported here for host use
+from magi_plugin_sdk.image_generation import (
+    MAX_IMAGE_ATTACHMENT_BYTES,
+)  # promoted to SDK; re-exported here for host use
 
 from ..core.logger import get_logger
 from ..i18n import t
 from ..utils.runtime import RuntimePaths, get_runtime_paths
+from ..core.chat_assets.io import (
+    open_managed_chat_attachment,
+    write_managed_chat_asset_atomically,
+)
+from ..core.chat_assets.paths import (
+    normalize_chat_asset_component,
+    prepare_chat_derived_write_path,
+    resolve_chat_attachment_file,
+    resolve_chat_derived_file,
+)
+from ..core.chat_assets.mutations import run_chat_asset_mutation
 from .attachment_storage import LocalChatAttachmentStorage, StoredChatAttachment
 from .image_preview_conversion import HeicPreviewConverter, PillowHeicPreviewConverter
-from .pdf_attachment_parser import PDF_PARSER_BACKEND, PDF_PARSER_BACKEND_VERSION, LocalPdfAttachmentParser
+from .pdf_attachment_parser import (
+    PDF_PARSER_BACKEND,
+    PDF_PARSER_BACKEND_VERSION,
+    LocalPdfAttachmentParser,
+)
 from .text_attachment_parser import LocalTextAttachmentParser
+from .session_mutations import chat_session_mutation
 
 logger = get_logger(__name__)
 
@@ -101,6 +121,17 @@ SUPPORTED_TEXT_EXTENSIONS = {
 MAX_FILE_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 
+class ChatSessionReadPort(Protocol):
+    """Read the owning chat session before publishing an attachment."""
+
+    async def aget_session_summary(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> object | None:
+        """Return the owned session, or ``None`` when it is unavailable."""
+
+
 class LocalChatAttachmentIngestionService:
     """Normalize, store, and prepare chat attachments for runtime use."""
 
@@ -112,12 +143,58 @@ class LocalChatAttachmentIngestionService:
         text_parser: LocalTextAttachmentParser | None = None,
         pdf_parser: LocalPdfAttachmentParser | None = None,
         heic_preview_converter: HeicPreviewConverter | None = None,
+        chat_read_service_factory: Callable[[], ChatSessionReadPort] | None = None,
     ) -> None:
         self._runtime_paths = runtime_paths or get_runtime_paths()
         self._storage = storage or LocalChatAttachmentStorage(runtime_paths=self._runtime_paths)
         self._text_parser = text_parser or LocalTextAttachmentParser()
         self._pdf_parser = pdf_parser or LocalPdfAttachmentParser()
         self._heic_preview_converter = heic_preview_converter or PillowHeicPreviewConverter()
+        self._chat_read_service_factory = chat_read_service_factory
+
+    async def ingest_uploaded_attachment(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+        original_name: str,
+        content: bytes,
+        mime_type: str,
+    ) -> dict[str, object] | None:
+        """Validate ownership and persist one upload under the chat boundary."""
+
+        normalized_session_id = normalize_chat_asset_component(
+            session_id,
+            label="session_id",
+        )
+        normalized_turn_id = normalize_chat_asset_component(
+            turn_id,
+            label="turn_id",
+        )
+        async with chat_session_mutation(normalized_session_id):
+            read_service = self._resolve_chat_read_service()
+            session = await read_service.aget_session_summary(
+                user_id,
+                normalized_session_id,
+            )
+            if session is None:
+                return None
+            return await run_chat_asset_mutation(
+                self.ingest_attachment,
+                session_id=normalized_session_id,
+                turn_id=normalized_turn_id,
+                original_name=original_name,
+                content=content,
+                mime_type=mime_type,
+            )
+
+    def _resolve_chat_read_service(self) -> ChatSessionReadPort:
+        if self._chat_read_service_factory is not None:
+            return self._chat_read_service_factory()
+        from .read_service import get_chat_read_service
+
+        return get_chat_read_service()
 
     def ingest_attachment(
         self,
@@ -135,7 +212,9 @@ class LocalChatAttachmentIngestionService:
         conversion_payload: dict[str, object] = {}
         if self._is_convertible_heic(original_name=normalized_name, mime_type=normalized_mime_type):
             if not content:
-                raise ValueError(t("chat.attachments.empty_file", fallback="Empty file is not allowed."))
+                raise ValueError(
+                    t("chat.attachments.empty_file", fallback="Empty file is not allowed.")
+                )
             source_original_name = normalized_name
             source_original_mime_type = normalized_mime_type
             try:
@@ -158,13 +237,27 @@ class LocalChatAttachmentIngestionService:
             mime_type=normalized_mime_type,
         )
         if attachment_kind is None:
-            raise ValueError(t("chat.attachments.unsupported_type", fallback="Unsupported attachment type."))
+            raise ValueError(
+                t("chat.attachments.unsupported_type", fallback="Unsupported attachment type.")
+            )
         if not content:
-            raise ValueError(t("chat.attachments.empty_file", fallback="Empty file is not allowed."))
+            raise ValueError(
+                t("chat.attachments.empty_file", fallback="Empty file is not allowed.")
+            )
         if attachment_kind == "image" and len(content) > MAX_IMAGE_ATTACHMENT_BYTES:
-            raise ValueError(t("chat.attachments.image_too_large", fallback="Image attachment exceeds the 20 MB limit."))
+            raise ValueError(
+                t(
+                    "chat.attachments.image_too_large",
+                    fallback="Image attachment exceeds the 20 MB limit.",
+                )
+            )
         if attachment_kind != "image" and len(content) > MAX_FILE_ATTACHMENT_BYTES:
-            raise ValueError(t("chat.attachments.file_too_large", fallback="File attachment exceeds the 50 MB limit."))
+            raise ValueError(
+                t(
+                    "chat.attachments.file_too_large",
+                    fallback="File attachment exceeds the 50 MB limit.",
+                )
+            )
 
         if attachment_kind == "image":
             stored = self._storage.store_image_attachment(
@@ -175,6 +268,14 @@ class LocalChatAttachmentIngestionService:
                 mime_type=normalized_mime_type,
             )
             payload = self._build_uploaded_payload(stored=stored, attachment_kind=attachment_kind)
+            payload["session_id"] = normalize_chat_asset_component(
+                session_id,
+                label="session_id",
+            )
+            payload["turn_id"] = normalize_chat_asset_component(
+                turn_id,
+                label="turn_id",
+            )
             payload.update(conversion_payload)
             return payload
 
@@ -187,6 +288,14 @@ class LocalChatAttachmentIngestionService:
         )
 
         payload = self._build_uploaded_payload(stored=stored, attachment_kind=attachment_kind)
+        payload["session_id"] = normalize_chat_asset_component(
+            session_id,
+            label="session_id",
+        )
+        payload["turn_id"] = normalize_chat_asset_component(
+            turn_id,
+            label="turn_id",
+        )
         payload.update(conversion_payload)
         return payload
 
@@ -229,16 +338,72 @@ class LocalChatAttachmentIngestionService:
         """Parse one already-managed attachment for prompt/runtime consumption."""
 
         payload = dict(attachment)
+        try:
+            normalized_session_id = normalize_chat_asset_component(
+                session_id,
+                label="session_id",
+            )
+            normalized_turn_id = normalize_chat_asset_component(
+                turn_id,
+                label="turn_id",
+            )
+            normalized_attachment_id = normalize_chat_asset_component(
+                payload.get("attachment_id"),
+                label="attachment_id",
+            )
+        except ValueError as exc:
+            payload.pop("storage_path", None)
+            payload.pop("derived_text_path", None)
+            return self._mark_parse_failed(payload, str(exc))
+        payload["session_id"] = normalized_session_id
+        payload["turn_id"] = normalized_turn_id
+        payload["attachment_id"] = normalized_attachment_id
         attachment_kind = self._resolve_payload_kind(payload)
         if attachment_kind is None:
             return payload
         payload["kind"] = attachment_kind
+        resolved_storage_path = resolve_chat_attachment_file(
+            payload.get("storage_path"),
+            session_id=normalized_session_id,
+            turn_id=normalized_turn_id,
+            attachment_id=normalized_attachment_id,
+            runtime_paths=self._runtime_paths,
+        )
+        if resolved_storage_path is None:
+            payload.pop("storage_path", None)
+        else:
+            payload["storage_path"] = str(resolved_storage_path)
         if attachment_kind == "image":
+            if resolved_storage_path is None:
+                return self._mark_parse_failed(
+                    payload,
+                    "Attachment file not found in the managed chat turn.",
+                )
             return payload
+        raw_derived_path = str(payload.get("derived_text_path") or "").strip()
+        if raw_derived_path:
+            resolved_derived_path = resolve_chat_derived_file(
+                raw_derived_path,
+                session_id=normalized_session_id,
+                turn_id=normalized_turn_id,
+                attachment_id=normalized_attachment_id,
+                runtime_paths=self._runtime_paths,
+            )
+            if resolved_derived_path is None:
+                payload.pop("derived_text_path", None)
+                if not str(payload.get("derived_text_excerpt") or "").strip():
+                    payload["parse_status"] = "pending"
+            else:
+                payload["derived_text_path"] = str(resolved_derived_path)
         if self._is_prepared_payload(payload):
             return payload
 
-        stored = self._stored_from_payload(payload, attachment_kind=attachment_kind)
+        stored = self._stored_from_payload(
+            payload,
+            attachment_kind=attachment_kind,
+            session_id=normalized_session_id,
+            turn_id=normalized_turn_id,
+        )
         if stored is None:
             return self._mark_parse_failed(payload, "Attachment file not found.")
 
@@ -290,7 +455,18 @@ class LocalChatAttachmentIngestionService:
         turn_id: str,
         stored: StoredChatAttachment,
     ) -> dict[str, object]:
-        parsed = self._text_parser.parse_file(stored.storage_path)
+        handle = open_managed_chat_attachment(
+            stored.storage_path,
+            session_id=session_id,
+            turn_id=turn_id,
+            attachment_id=stored.attachment_id,
+            original_name=stored.original_name,
+            runtime_paths=self._runtime_paths,
+        )
+        if handle is None:
+            raise ValueError("Attachment file not found.")
+        with handle:
+            parsed = self._text_parser.parse_bytes(handle.read())
         derived_text_path = self._write_derived_text(
             session_id=session_id,
             turn_id=turn_id,
@@ -299,6 +475,8 @@ class LocalChatAttachmentIngestionService:
         )
         return {
             "attachment_id": stored.attachment_id,
+            "session_id": session_id,
+            "turn_id": turn_id,
             "kind": "text_file",
             "original_name": stored.original_name,
             "mime_type": stored.mime_type,
@@ -333,7 +511,18 @@ class LocalChatAttachmentIngestionService:
             parser_backend=PDF_PARSER_BACKEND,
             parser_version=PDF_PARSER_BACKEND_VERSION,
         )
-        parsed = self._pdf_parser.parse_file(stored.storage_path)
+        handle = open_managed_chat_attachment(
+            stored.storage_path,
+            session_id=session_id,
+            turn_id=turn_id,
+            attachment_id=stored.attachment_id,
+            original_name=stored.original_name,
+            runtime_paths=self._runtime_paths,
+        )
+        if handle is None:
+            raise ValueError("Attachment file not found.")
+        with handle:
+            parsed = self._pdf_parser.parse_stream(handle)
         derived_text_path: str | None = None
         if parsed.extraction_succeeded:
             derived_text_path = self._write_derived_text(
@@ -344,6 +533,8 @@ class LocalChatAttachmentIngestionService:
             )
         payload: dict[str, object] = {
             "attachment_id": stored.attachment_id,
+            "session_id": session_id,
+            "turn_id": turn_id,
             "kind": "pdf",
             "original_name": stored.original_name,
             "mime_type": stored.mime_type,
@@ -388,14 +579,25 @@ class LocalChatAttachmentIngestionService:
         payload: dict[str, object],
         *,
         attachment_kind: str,
+        session_id: str,
+        turn_id: str,
     ) -> StoredChatAttachment | None:
-        storage_path = self._resolve_managed_storage_path(
-            str(payload.get("storage_path") or "").strip()
+        attachment_id = str(payload.get("attachment_id") or "").strip()
+        try:
+            attachment_id = normalize_chat_asset_component(
+                attachment_id,
+                label="attachment_id",
+            )
+        except ValueError:
+            return None
+        storage_path = resolve_chat_attachment_file(
+            payload.get("storage_path"),
+            session_id=session_id,
+            turn_id=turn_id,
+            attachment_id=attachment_id,
+            runtime_paths=self._runtime_paths,
         )
         if storage_path is None:
-            return None
-        attachment_id = str(payload.get("attachment_id") or "").strip()
-        if not attachment_id:
             return None
         size_bytes = payload.get("size_bytes")
         try:
@@ -405,24 +607,14 @@ class LocalChatAttachmentIngestionService:
         return StoredChatAttachment(
             attachment_id=attachment_id,
             kind=attachment_kind,
-            original_name=str(payload.get("original_name") or storage_path.name).strip() or storage_path.name,
+            original_name=str(payload.get("original_name") or storage_path.name).strip()
+            or storage_path.name,
             mime_type=str(payload.get("mime_type") or "application/octet-stream").strip()
             or "application/octet-stream",
             size_bytes=normalized_size,
             storage_path=str(storage_path),
             sha256=str(payload.get("sha256") or "").strip(),
         )
-
-    def _resolve_managed_storage_path(self, storage_path: str) -> Path | None:
-        if not storage_path:
-            return None
-        candidate = Path(storage_path)
-        try:
-            resolved = candidate.resolve()
-            resolved.relative_to(self._runtime_paths.base_dir.resolve())
-        except Exception:
-            return None
-        return resolved if resolved.is_file() else None
 
     def _resolve_payload_kind(self, payload: dict[str, object]) -> str | None:
         explicit_kind = str(payload.get("kind") or "").strip()
@@ -461,10 +653,16 @@ class LocalChatAttachmentIngestionService:
         attachment_id: str,
         text: str,
     ) -> str:
-        target_dir = self._runtime_paths.chat_derived_dir / session_id / turn_id
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / f"{attachment_id}.txt"
-        target_path.write_text(text, encoding="utf-8")
+        target_path = prepare_chat_derived_write_path(
+            session_id=session_id,
+            turn_id=turn_id,
+            attachment_id=attachment_id,
+            runtime_paths=self._runtime_paths,
+        )
+        write_managed_chat_asset_atomically(
+            target_path,
+            str(text).encode("utf-8"),
+        )
         return str(target_path)
 
     @staticmethod
@@ -474,7 +672,11 @@ class LocalChatAttachmentIngestionService:
             return "image"
         if mime_type in SUPPORTED_PDF_MIME_TYPES or extension == ".pdf":
             return "pdf"
-        if mime_type.startswith("text/") or mime_type in SUPPORTED_TEXT_MIME_TYPES or extension in SUPPORTED_TEXT_EXTENSIONS:
+        if (
+            mime_type.startswith("text/")
+            or mime_type in SUPPORTED_TEXT_MIME_TYPES
+            or extension in SUPPORTED_TEXT_EXTENSIONS
+        ):
             return "text_file"
         return None
 

@@ -2,17 +2,32 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Iterable
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from magi.agent.cancel import SessionRunCancelToken
 from magi.control.run_control import null_run_control
 from magi.agent.trace import now_wall_ms
-from magi.chat import ChatProjector, ChatReadService, ChatStore
+from magi.chat import ChatReadService, ChatStore
+from magi.chat.contracts import (
+    CHAT_DELIVERY_STATE_ADMITTED,
+    CHAT_DELIVERY_STATE_TERMINAL,
+)
+from magi.chat.rhythm_completion import complete_visible_rhythm_segments
+from magi.chat.user_turn_delivery import parse_user_turn_runtime_envelope
+from magi.delivery.contracts import DeliveryFanoutResult
 from magi.config import get_config, get_user_preference
 from magi.core.logger import get_logger
+from magi.events.events import EventTypes
 from magi.agent.runtime.contracts import FactRecord
-from magi.agent.runtime.task_agent import TaskAgent, TaskAgentRuntimeContext
+from magi.agent.runtime.task_agent import (
+    FactAdmissionResult,
+    TaskAgent,
+    TaskAgentBatchDiscarded,
+    TaskAgentRuntimeContext,
+)
 from magi.agent.runtime.types import TaskAgentType
 from magi.tools.registry import tool_registry
 from magi.runtime_trace import RuntimeTraceStore
@@ -28,7 +43,7 @@ from magi.agent.task_agents.handlers import (
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from magi.chat.task_agent.reply_context import ChatReplyContextMixin
 from magi.chat.task_agent.recall_feedback_context import ChatRecallFeedbackContextMixin
-from .rhythm import (
+from magi.agent.response_rhythm import (
     is_conversation_rhythm_enabled,
 )
 from magi.chat.task_agent.session_control import ChatSessionControlMixin
@@ -44,6 +59,9 @@ from .runtime_dependencies import (
 
 logger = get_logger(__name__)
 
+_PIPELINE_FAILURE_RETRY_INITIAL_SECONDS = 0.25
+_PIPELINE_FAILURE_RETRY_MAX_SECONDS = 30.0
+
 _RUNTIME_CONFIG_INIT_FIELDS = (
     "llm_adapter",
     "llm_pool",
@@ -54,7 +72,6 @@ _RUNTIME_CONFIG_INIT_FIELDS = (
     "skill_runner",
     "runtime_trace_store",
     "chat_store",
-    "chat_projector",
     "chat_read_service_factory",
     "background_dispatcher",
     "background_launch_service",
@@ -116,7 +133,6 @@ class ChatTaskAgent(
         skill_runner=None,
         runtime_trace_store: RuntimeTraceStore | None = None,
         chat_store: ChatStore | None = None,
-        chat_projector: ChatProjector | None = None,
         chat_read_service_factory: Callable[[], ChatReadService] | None = None,
         background_dispatcher: Any | None = None,
         background_launch_service: Any | None = None,
@@ -158,7 +174,7 @@ class ChatTaskAgent(
             get_task_agent_manager=lambda: self._task_agent_manager,
             get_sensor_hub=lambda: self._sensor_hub,
             max_fact_memory=self._max_fact_memory,
-            drain_deferred_turns=self._drain_deferred_turns,
+            release_deferred_turns=self._release_deferred_turns,
             deliver_final_response=self._deliver_final_response_from_postprocess,
             tool_advisory_provider=self._get_tool_advisory,
             session_workspace_provider=self._resolve_session_workspace_path,
@@ -167,6 +183,7 @@ class ChatTaskAgent(
 
     def _bind_runtime_views(self) -> None:
         self._last_batch_facts: list[FactRecord] = []
+        self._execution_admission_lock = asyncio.Lock()
 
         # Keep this alias so existing read paths and tests see the same underlying store.
         self._conversation_history = self._context_assembler._conversation_history
@@ -208,12 +225,33 @@ class ChatTaskAgent(
         await super().stop()
         await self._postprocess_service.cancel_background_tasks()
 
-    async def _deliver_final_response_from_postprocess(self, context, *, content):
+    def has_inflight_work(self) -> bool:
+        """Keep the session alive while durable post-processing is unfinished."""
+
+        return (
+            super().has_inflight_work()
+            or self._postprocess_service.has_pending_background_work()
+        )
+
+    async def _deliver_final_response_from_postprocess(
+        self,
+        context,
+        *,
+        content,
+        exclude_chat_sse: bool = False,
+        exclude_channel_types: Iterable[str] = (),
+    ) -> DeliveryFanoutResult:
         coordinator = getattr(self, "_coordinator", None)
         deliver = getattr(coordinator, "deliver_final_chat_response", None)
         if deliver is None:
-            return []
-        return await deliver(context, content=content)
+            return DeliveryFanoutResult()
+        delivery_kwargs: dict[str, Any] = {"content": content}
+        if exclude_chat_sse:
+            delivery_kwargs["exclude_chat_sse"] = True
+        excluded_channel_types = tuple(exclude_channel_types)
+        if excluded_channel_types:
+            delivery_kwargs["exclude_channel_types"] = excluded_channel_types
+        return await deliver(context, **delivery_kwargs)
 
     async def _persist_turn_supersessions_from_handler(
         self,
@@ -326,38 +364,143 @@ class ChatTaskAgent(
         before the run loop gets a chance to pull the fact off the queue
         and classify it.
         """
-        await self._request_ingress_interrupt(fact)
-        return await super().add_fact(fact)
+        async with self._chat_execution_admission_boundary():
+            await self._request_ingress_interrupt_at_admission_boundary(fact)
+            return await super().add_fact(fact)
+
+    async def add_fact_with_admission(
+        self,
+        fact: FactRecord,
+        *,
+        admit: Callable[[], Awaitable[bool]],
+    ) -> FactAdmissionResult:
+        """Admit and enqueue a managed fact through the same interrupt boundary."""
+
+        async with self._chat_execution_admission_boundary():
+
+            async def _admit_and_interrupt() -> bool:
+                admitted = await admit()
+                if admitted:
+                    await self._request_ingress_interrupt_at_admission_boundary(
+                        fact
+                    )
+                return admitted
+
+            return await super().add_fact_with_admission(
+                fact,
+                admit=_admit_and_interrupt,
+            )
 
     async def handle_fact(self, fact: FactRecord) -> None:
         _ = fact
 
+    def _should_end_batch_before(
+        self,
+        batch: list[FactRecord],
+        next_fact: FactRecord,
+    ) -> bool:
+        """Keep admitted user turns as non-mergeable command boundaries."""
+
+        return (
+            next_fact.event_type == EventTypes.USER_MESSAGE
+            and any(fact.event_type == EventTypes.USER_MESSAGE for fact in batch)
+        )
+
     async def merge_facts(self, new_facts: list[FactRecord]) -> list[FactRecord]:
-        self._last_batch_facts = list(new_facts)
-        return await super().merge_facts(new_facts)
+        executable_facts = [
+            fact
+            for fact in new_facts
+            if await self._fact_delivery_is_executable(fact)
+        ]
+        self._last_batch_facts = list(executable_facts)
+        self._active_batch_facts = list(executable_facts)
+        if not executable_facts:
+            return []
+        return await super().merge_facts(executable_facts)
+
+    async def _fact_delivery_is_executable(self, fact: FactRecord) -> bool:
+        """Reject a cancelled or superseded admitted fact before execution."""
+
+        if (
+            fact.event_type != EventTypes.USER_MESSAGE
+            or fact.delivery_attempt_no is None
+            or fact.runtime_command_id is None
+            or self._chat_store is None
+        ):
+            return True
+        payload = fact.payload if isinstance(fact.payload, dict) else {}
+        turn_id = str(payload.get("turn_id") or "").strip()
+        if not turn_id:
+            logger.warning(
+                "Discarding managed chat fact without a turn identity",
+                runtime_command_id=fact.runtime_command_id,
+            )
+            return False
+        delivery = await self._chat_store.get_user_turn_delivery(turn_id=turn_id)
+        if delivery is None:
+            logger.warning(
+                "Discarding managed chat fact without a delivery record",
+                session_id=str(payload.get("session_id") or ""),
+                turn_id=turn_id,
+                runtime_command_id=fact.runtime_command_id,
+            )
+            return False
+        executable = (
+            delivery.delivery_state == CHAT_DELIVERY_STATE_ADMITTED
+            and delivery.delivery_attempt_no == int(fact.delivery_attempt_no)
+            and delivery.current_command_id == int(fact.runtime_command_id)
+        )
+        if not executable:
+            logger.info(
+                "Discarding non-executable admitted chat fact",
+                session_id=str(payload.get("session_id") or ""),
+                turn_id=turn_id,
+                delivery_state=delivery.delivery_state,
+                terminal=(
+                    delivery.delivery_state == CHAT_DELIVERY_STATE_TERMINAL
+                ),
+            )
+        return executable
 
     async def build_context(self, merged_facts: list[FactRecord]) -> ChatRuntimeContext:
-        base_context = await super().build_context(merged_facts)
-        batch_facts = list(self._last_batch_facts)
-        latest_fact = _latest_runtime_fact(base_context)
-        classified = self._fact_classifier.classify(
-            agent_id=self.agent_id,
-            latest_fact=latest_fact,
-            batch_facts=batch_facts,
-        )
-        run_decision = await self._session_run_coordinator.aroute(classified)
+        async with self._execution_admission_lock:
+            (
+                merged_facts,
+                batch_facts,
+            ) = await self._revalidate_execution_batch(merged_facts)
+            if not batch_facts:
+                raise TaskAgentBatchDiscarded
+            base_context = await super().build_context(merged_facts)
+            latest_fact = _latest_runtime_fact(base_context)
+            classified = self._fact_classifier.classify(
+                agent_id=self.agent_id,
+                latest_fact=latest_fact,
+                batch_facts=batch_facts,
+            )
+            await self._reconcile_finished_active_run(classified.session_id)
+            await self._before_execution_run_admission(classified=classified)
+            run_decision = await self._session_run_coordinator.aroute(classified)
+            turn_control = null_run_control()
+            if run_decision.active_run is not None:
+                turn_control.cancel_token = SessionRunCancelToken(
+                    coordinator=self._session_run_coordinator,
+                    session_id=classified.session_id,
+                    run_id=run_decision.active_run.run_id,
+                    revision=int(run_decision.active_run.revision or 0),
+                )
+            self._register_turn_control(
+                classified.session_id,
+                run_decision,
+                turn_control,
+            )
+            await self._after_execution_run_admitted(
+                classified=classified,
+                run_decision=run_decision,
+            )
+
         await self._persist_context_supersessions(run_decision, latest_fact)
 
         context_inputs = await self._load_context_inputs(classified, run_decision)
-        turn_control = null_run_control()
-        if run_decision.active_run is not None:
-            turn_control.cancel_token = SessionRunCancelToken(
-                coordinator=self._session_run_coordinator,
-                session_id=context_inputs.session_id,
-                run_id=run_decision.active_run.run_id,
-                revision=int(run_decision.active_run.revision or 0),
-            )
-        self._register_turn_control(context_inputs.session_id, run_decision, turn_control)
 
         return self._build_chat_runtime_context(
             base_context=base_context,
@@ -368,6 +511,124 @@ class ChatTaskAgent(
             context_inputs=context_inputs,
             turn_control=turn_control,
         )
+
+    async def _before_execution_run_admission(
+        self,
+        *,
+        classified: Any,
+    ) -> None:
+        """Test seam after final delivery validation and before run creation."""
+
+        _ = classified
+
+    async def _revalidate_execution_batch(
+        self,
+        merged_facts: list[FactRecord],
+    ) -> tuple[list[FactRecord], list[FactRecord]]:
+        """Revalidate the transferred batch inside the stop/run boundary."""
+
+        original_batch = list(self._last_batch_facts)
+        executable_batch = [
+            fact
+            for fact in original_batch
+            if await self._fact_delivery_is_executable(fact)
+        ]
+        if len(executable_batch) == len(original_batch):
+            return merged_facts, executable_batch
+
+        executable_ids = {id(fact) for fact in executable_batch}
+        removed_ids = {
+            id(fact)
+            for fact in original_batch
+            if id(fact) not in executable_ids
+        }
+        self._last_batch_facts = list(executable_batch)
+        self._active_batch_facts = list(executable_batch)
+        self._fact_memory = [
+            fact for fact in self._fact_memory if id(fact) not in removed_ids
+        ]
+        filtered_merged_facts = [
+            fact for fact in merged_facts if id(fact) not in removed_ids
+        ]
+        return filtered_merged_facts, executable_batch
+
+    async def _after_execution_run_admitted(
+        self,
+        *,
+        classified: Any,
+        run_decision: Any,
+    ) -> None:
+        """Test seam after an active run wins the execution boundary."""
+
+        _ = (classified, run_decision)
+
+    async def _raise_if_execution_cancelled(
+        self,
+        context: ChatRuntimeContext,
+    ) -> None:
+        async with self._execution_admission_lock:
+            latest_fact = context.latest_fact
+            if (
+                isinstance(latest_fact, FactRecord)
+                and not await self._fact_delivery_is_executable(latest_fact)
+            ):
+                raise TaskAgentBatchDiscarded
+            if await context.control.cancel_token.is_cancelled():
+                raise TaskAgentBatchDiscarded
+
+    async def _reconcile_finished_active_run(self, session_id: str) -> None:
+        """Discard an L0 run whose durable chat surface already finished.
+
+        Chat and L0 checkpoints live in different databases.  A process can
+        stop after the final chat result commits but before the L0 completion
+        checkpoint.  Delivery recovery then replays a deferred turn; this
+        check prevents that original turn from being attached to the stale
+        finished run again.
+        """
+
+        active_run = self._session_run_coordinator.get_active_run(session_id)
+        if active_run is None or self._chat_store is None:
+            return
+        root_turn_id = str(active_run.root_turn_id or "").strip()
+        if not root_turn_id:
+            return
+        turn = await self._chat_store.get_turn(root_turn_id)
+        if turn is None:
+            return
+        status = str(turn.status or "").strip().lower()
+        terminal = status in {"cancelled", "interrupted", "merged"}
+        if status == "completed":
+            response_mode = str(turn.response_mode or "").strip().lower()
+            terminal = response_mode in {"none", "reaction_only"}
+            if not terminal:
+                messages = await self._chat_store.list_messages(
+                    session_id=turn.session_id,
+                )
+                terminal = any(
+                    message.turn_id == root_turn_id
+                    and message.role == "assistant"
+                    and message.message_kind == "assistant_final"
+                    and message.is_visible
+                    and message.is_final
+                    for message in messages
+                ) or (
+                    complete_visible_rhythm_segments(
+                        messages,
+                        turn_id=root_turn_id,
+                    )
+                    is not None
+                )
+        if not terminal:
+            return
+        completed = self._session_run_coordinator.complete_run(
+            session_id=session_id,
+            run_id=active_run.run_id,
+            revision=active_run.revision,
+        )
+        if not completed:
+            return
+        if self.unified_memory is not None and self.unified_memory.l0 is not None:
+            await self.unified_memory.l0.checkpoint_session(session_id)
 
     async def _load_context_inputs(self, classified: Any, run_decision: Any) -> _ChatContextInputs:
         session_id = self._context_assembler.require_session_id(
@@ -509,10 +770,16 @@ class ChatTaskAgent(
         return str(active_id or "").strip() or None
 
     async def match_intent(self, context: ChatRuntimeContext):
-        return await self._coordinator.match_intent(context)
+        await self._raise_if_execution_cancelled(context)
+        result = await self._coordinator.match_intent(context)
+        await self._raise_if_execution_cancelled(context)
+        return result
 
     async def match_tools(self, context: ChatRuntimeContext, intent_result):
-        return await self._coordinator.match_tools(context, intent_result)
+        await self._raise_if_execution_cancelled(context)
+        result = await self._coordinator.match_tools(context, intent_result)
+        await self._raise_if_execution_cancelled(context)
+        return result
 
     async def assemble_llm_params(
         self,
@@ -520,11 +787,19 @@ class ChatTaskAgent(
         intent_result,
         tool_result,
     ) -> ExecutionRequest:
-        return await self._coordinator.assemble_request(context, intent_result, tool_result)
+        await self._raise_if_execution_cancelled(context)
+        result = await self._coordinator.assemble_request(
+            context,
+            intent_result,
+            tool_result,
+        )
+        await self._raise_if_execution_cancelled(context)
+        return result
 
     async def call_llm(
         self, context: ChatRuntimeContext, llm_params: ExecutionRequest
     ) -> ExecutionResult:
+        await self._raise_if_execution_cancelled(context)
         sink = None
         turn_id = str(getattr(context.latest_payload, "turn_id", "") or "").strip() or None
         if (
@@ -587,6 +862,185 @@ class ChatTaskAgent(
                 self._session_run_coordinator.unregister_active_run_control(
                     context.session_id, context.session_run_id
                 )
+
+    async def handle_batch_failure(
+        self,
+        batch: list[FactRecord],
+        *,
+        error: BaseException,
+        stage: str,
+        context: ChatRuntimeContext | None,
+    ) -> None:
+        """Close one failed admitted chat turn without replaying its work."""
+
+        _ = context
+        delay_seconds = _PIPELINE_FAILURE_RETRY_INITIAL_SECONDS
+        while True:
+            try:
+                source_fact = await self._resolve_pipeline_failure_source_fact(
+                    batch=batch,
+                    context=context,
+                )
+                if source_fact is None:
+                    return
+                await self._finalize_failed_batch_once(
+                    source_fact=source_fact,
+                    error=error,
+                    stage=stage,
+                )
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    "Chat pipeline failure finalization retry failed",
+                    stage=stage,
+                    exc_info=True,
+                )
+                await asyncio.sleep(max(0.0, delay_seconds))
+                delay_seconds = min(
+                    max(
+                        _PIPELINE_FAILURE_RETRY_INITIAL_SECONDS,
+                        delay_seconds * 2,
+                    ),
+                    _PIPELINE_FAILURE_RETRY_MAX_SECONDS,
+                )
+
+    async def _resolve_pipeline_failure_source_fact(
+        self,
+        *,
+        batch: list[FactRecord],
+        context: ChatRuntimeContext | None,
+    ) -> FactRecord | None:
+        """Resolve the admitted root turn owned by a failed continuation fact."""
+
+        def _managed_user_fact(fact: FactRecord) -> bool:
+            return (
+                fact.event_type == EventTypes.USER_MESSAGE
+                and fact.delivery_attempt_no is not None
+                and fact.runtime_command_id is not None
+            )
+
+        source_fact = next(
+            (fact for fact in reversed(batch) if _managed_user_fact(fact)),
+            None,
+        )
+        if source_fact is not None:
+            return source_fact
+
+        session_id = str(context.session_id if context is not None else "").strip()
+        if not session_id:
+            for fact in reversed(batch):
+                payload = fact.payload if isinstance(fact.payload, dict) else {}
+                session_id = str(payload.get("session_id") or "").strip()
+                if session_id:
+                    break
+        if not session_id:
+            return None
+        active_run = self._session_run_coordinator.get_active_run(session_id)
+        if active_run is None:
+            return None
+        root_turn_id = str(active_run.root_turn_id or "").strip()
+        if not root_turn_id:
+            return None
+
+        for fact in reversed(self._fact_memory):
+            if not _managed_user_fact(fact):
+                continue
+            payload = fact.payload if isinstance(fact.payload, dict) else {}
+            if (
+                str(payload.get("session_id") or "").strip() == session_id
+                and str(payload.get("turn_id") or "").strip() == root_turn_id
+            ):
+                return fact
+
+        if self._chat_store is None:
+            return None
+        delivery = await self._chat_store.get_user_turn_delivery(
+            turn_id=root_turn_id,
+        )
+        if (
+            delivery is None
+            or delivery.current_command_id is None
+            or delivery.delivery_attempt_no < 0
+        ):
+            return None
+        try:
+            envelope = parse_user_turn_runtime_envelope(delivery)
+        except ValueError:
+            logger.warning(
+                "Cannot reconstruct failed chat root from its delivery envelope",
+                session_id=session_id,
+                turn_id=root_turn_id,
+                exc_info=True,
+            )
+            return None
+        return FactRecord(
+            agent_id=self.runtime_key,
+            agent_type=TaskAgentType.CHAT.value,
+            agent_instance_id=session_id,
+            event_type=EventTypes.USER_MESSAGE,
+            payload={
+                "content": envelope.message,
+                "attachments": list(envelope.attachments),
+                "author_type": "user",
+                "content_type": "text",
+                "user_id": envelope.user_id,
+                "runtime_namespace": envelope.runtime_namespace,
+                "session_id": envelope.session_id,
+                "turn_id": envelope.turn_id,
+                "workspace_path": envelope.workspace_path,
+                "timestamp": float(delivery.created_at_ms) / 1000.0,
+                "metadata": dict(envelope.metadata),
+                "source": envelope.source,
+                "interaction_kind": envelope.interaction_kind,
+            },
+            timestamp=float(delivery.created_at_ms) / 1000.0,
+            correlation_id=f"user_message:{delivery.message_id}",
+            delivery_attempt_no=delivery.delivery_attempt_no,
+            runtime_command_id=delivery.current_command_id,
+        )
+
+    async def _finalize_failed_batch_once(
+        self,
+        *,
+        source_fact: FactRecord,
+        error: BaseException,
+        stage: str,
+    ) -> None:
+        """Finalize one failed delivery without rerunning the original pipeline."""
+
+        finalized = await self._postprocess_service.handle_pipeline_failure(
+            source_fact=source_fact,
+            error=error,
+            stage=stage,
+        )
+        if not finalized:
+            return
+
+        payload = source_fact.payload if isinstance(source_fact.payload, dict) else {}
+        session_id = str(payload.get("session_id") or "").strip()
+        turn_id = str(payload.get("turn_id") or "").strip()
+        if not session_id or not turn_id:
+            return
+        active_run = self._session_run_coordinator.get_active_run(session_id)
+        if active_run is None or active_run.root_turn_id != turn_id:
+            return
+        completed, deferred_turns = (
+            self._session_run_coordinator.complete_run_with_deferred(
+                session_id=session_id,
+                run_id=active_run.run_id,
+                revision=active_run.revision,
+            )
+        )
+        if not completed:
+            return
+        await self._postprocess_service.checkpoint_completed_run_and_release_deferred(
+            session_id=session_id,
+            run_id=active_run.run_id,
+            revision=active_run.revision,
+            deferred_turns=deferred_turns,
+        )
 
     def get_conversation_history(self, user_id: str, session_id: str) -> list[dict]:
         return self._context_assembler.get_conversation_history(user_id, session_id)

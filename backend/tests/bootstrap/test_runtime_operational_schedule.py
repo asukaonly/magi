@@ -73,7 +73,7 @@ async def test_runtime_operational_gc_handler_runs_all_runtime_cleanup() -> None
     runtime_gc = MagicMock()
     runtime_gc.run = AsyncMock(return_value={"llm_usage_raw_deleted": 3})
     chat_asset_gc = MagicMock()
-    chat_asset_gc.sweep_orphan_session_assets.return_value = {"chat_asset_orphan_files_deleted": 4}
+    chat_asset_gc.sweep_orphan_assets.return_value = {"chat_asset_orphan_files_deleted": 4}
 
     with (
         patch(
@@ -82,7 +82,7 @@ async def test_runtime_operational_gc_handler_runs_all_runtime_cleanup() -> None
         ) as runtime_gc_cls,
         patch("magi.bootstrap.maintenance.ChatAssetGC", return_value=chat_asset_gc),
         patch(
-            "magi.bootstrap.maintenance.asyncio.to_thread",
+            "magi.bootstrap.maintenance.run_chat_asset_mutation",
             new=AsyncMock(side_effect=lambda func, **kwargs: func(**kwargs)),
         ),
     ):
@@ -103,11 +103,14 @@ async def test_runtime_operational_gc_handler_runs_all_runtime_cleanup() -> None
     unified_memory.cleanup_runtime_data.assert_awaited_once()
     runtime_gc.run.assert_awaited_once()
     runtime_gc_cls.assert_called_once()
-    chat_asset_gc.sweep_orphan_session_assets.assert_called_once_with(orphan_grace_hours=7)
+    chat_asset_gc.sweep_orphan_assets.assert_called_once_with(
+        orphan_grace_hours=7,
+        delete_orphan_sessions=True,
+    )
 
 
 @pytest.mark.asyncio
-async def test_runtime_operational_gc_skips_orphan_assets_when_disabled() -> None:
+async def test_runtime_operational_gc_still_sweeps_unowned_assets_when_session_gc_disabled() -> None:
     from magi.bootstrap.maintenance import RuntimeOperationalGCScheduleContrib
 
     config = AppConfig()
@@ -134,4 +137,7 @@ async def test_runtime_operational_gc_skips_orphan_assets_when_disabled() -> Non
         result = await contrib.handle(MagicMock())
 
     assert result.success is True
-    chat_asset_gc.sweep_orphan_session_assets.assert_not_called()
+    chat_asset_gc.sweep_orphan_assets.assert_called_once_with(
+        orphan_grace_hours=24,
+        delete_orphan_sessions=False,
+    )

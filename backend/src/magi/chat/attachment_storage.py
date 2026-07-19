@@ -9,6 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..utils.runtime import RuntimePaths, get_runtime_paths
+from magi.core.chat_assets.io import write_managed_chat_asset_atomically
+from magi.core.chat_assets.paths import (
+    normalize_chat_asset_component,
+    prepare_chat_asset_turn_directory,
+)
 
 _NON_SAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -90,10 +95,18 @@ class LocalChatAttachmentStorage:
         display_name = self._sanitize_original_name(original_name)
         attachment_id = uuid.uuid4().hex
         content_bytes = bytes(content)
-        target_dir = root_dir / normalized_session_id / normalized_turn_id
-        target_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = prepare_chat_asset_turn_directory(
+            root_dir,
+            session_id=normalized_session_id,
+            turn_id=normalized_turn_id,
+            runtime_paths=self._runtime_paths,
+        )
         target_path = target_dir / f"{attachment_id}__{display_name}"
-        target_path.write_bytes(content_bytes)
+        if target_path.is_symlink():
+            raise ValueError(
+                "Managed chat attachment path is outside the expected turn directory"
+            )
+        write_managed_chat_asset_atomically(target_path, content_bytes)
         return StoredChatAttachment(
             attachment_id=attachment_id,
             kind=kind,
@@ -106,12 +119,7 @@ class LocalChatAttachmentStorage:
 
     @staticmethod
     def _normalize_path_component(value: str, *, label: str) -> str:
-        normalized = str(value or "").strip()
-        if not normalized:
-            raise ValueError(f"{label} is required")
-        if "/" in normalized or "\\" in normalized:
-            raise ValueError(f"{label} must not contain path separators")
-        return normalized
+        return normalize_chat_asset_component(value, label=label)
 
     @staticmethod
     def _sanitize_original_name(original_name: str) -> str:

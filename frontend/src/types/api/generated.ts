@@ -1242,7 +1242,7 @@ export interface paths {
         readonly post?: never;
         /**
          * Clear Memory Layers
-         * @description Clear all memory layers and chat session mappings.
+         * @description Permanently clear memory, chat content, derived evidence, and pending delivery state.
          */
         readonly delete: operations["clear_memory_layers_api_memory_clear_delete"];
         readonly options?: never;
@@ -2626,7 +2626,7 @@ export interface paths {
         readonly put?: never;
         /**
          * Clear Conversation History
-         * @description Clear conversation history.
+         * @description Permanently clear the current immutable conversation snapshot.
          */
         readonly post: operations["clear_conversation_history_api_messages_history_clear_post"];
         readonly delete?: never;
@@ -2788,7 +2788,7 @@ export interface paths {
         readonly post?: never;
         /**
          * Delete Message
-         * @description Soft-delete one chat message from the visible transcript.
+         * @description Permanently remove one message and the memory derived from it.
          */
         readonly delete: operations["delete_message_api_messages_session__session_id__message__message_id__delete"];
         readonly options?: never;
@@ -4475,6 +4475,62 @@ export interface components {
             /** Dedupe Key */
             readonly dedupe_key: string;
         };
+        /**
+         * ClearHistoryResponse
+         * @description Confirmed immutable transcript snapshot removed by a history clear.
+         */
+        readonly ClearHistoryResponse: {
+            /**
+             * Cleanup Pending
+             * @default false
+             */
+            readonly cleanup_pending: boolean;
+            /** Cleared Message Ids */
+            readonly cleared_message_ids?: readonly string[];
+            /** Cleared Turn Ids */
+            readonly cleared_turn_ids?: readonly string[];
+            /** Message */
+            readonly message: string;
+            /** Session Id */
+            readonly session_id: string;
+            /** Success */
+            readonly success: boolean;
+            /** User Id */
+            readonly user_id: string;
+        };
+        /**
+         * ClearMemoryResponseModel
+         * @description Confirmed full-memory clear with any deferred recovery warnings.
+         */
+        readonly ClearMemoryResponseModel: {
+            readonly results: components["schemas"]["ClearResultsModel"];
+            /** Success */
+            readonly success: boolean;
+            /** Warnings */
+            readonly warnings?: readonly string[];
+        };
+        /**
+         * ClearResultModel
+         * @description Count returned for one cleared product area.
+         */
+        readonly ClearResultModel: {
+            /** Cleared */
+            readonly cleared: boolean;
+            /** Count */
+            readonly count: number;
+        };
+        /**
+         * ClearResultsModel
+         * @description Every memory and conversation area covered by a full clear.
+         */
+        readonly ClearResultsModel: {
+            readonly chat_context: components["schemas"]["ClearResultModel"];
+            readonly l0: components["schemas"]["ClearResultModel"];
+            readonly l1: components["schemas"]["ClearResultModel"];
+            readonly l2: components["schemas"]["ClearResultModel"];
+            readonly l3: components["schemas"]["ClearResultModel"];
+            readonly l4: components["schemas"]["ClearResultModel"];
+        };
         /** ConfigResponse */
         readonly ConfigResponse: {
             readonly data?: components["schemas"]["SystemConfigModel-Output"] | null;
@@ -4511,6 +4567,42 @@ export interface components {
             readonly enabled: boolean;
             /** Managed Model Id */
             readonly managed_model_id?: string | null;
+        };
+        /**
+         * DeleteMessageResponse
+         * @description Confirmed message removal and its remaining cleanup state.
+         */
+        readonly DeleteMessageResponse: {
+            /**
+             * Cleanup Pending
+             * @default false
+             */
+            readonly cleanup_pending: boolean;
+            /** Deleted Message Id */
+            readonly deleted_message_id: string;
+            /** Session Id */
+            readonly session_id: string;
+            /** Success */
+            readonly success: boolean;
+            /** User Id */
+            readonly user_id: string;
+        };
+        /**
+         * DeleteSessionResponse
+         * @description Confirmed session removal and its remaining cleanup state.
+         */
+        readonly DeleteSessionResponse: {
+            /**
+             * Cleanup Pending
+             * @default false
+             */
+            readonly cleanup_pending: boolean;
+            /** Deleted Session Id */
+            readonly deleted_session_id: string;
+            /** Success */
+            readonly success: boolean;
+            /** User Id */
+            readonly user_id: string;
         };
         /**
          * DetachSessionRunRequest
@@ -11404,7 +11496,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": unknown;
+                    readonly "application/json": components["schemas"]["ClearMemoryResponseModel"];
                 };
             };
         };
@@ -13879,7 +13971,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": unknown;
+                    readonly "application/json": components["schemas"]["ClearHistoryResponse"];
                 };
             };
             /** @description Validation Error */
@@ -13979,9 +14071,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": {
-                        readonly [key: string]: unknown;
-                    };
+                    readonly "application/json": components["schemas"]["DeleteSessionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -14197,9 +14287,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": {
-                        readonly [key: string]: unknown;
-                    };
+                    readonly "application/json": components["schemas"]["DeleteMessageResponse"];
                 };
             };
             /** @description Validation Error */

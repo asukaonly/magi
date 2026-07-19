@@ -81,7 +81,7 @@ def test_post_preview_returns_delivery_segments(app_with_preview) -> None:
 
 
 def test_post_preview_returns_delays_for_buffered_desktop_transport(monkeypatch) -> None:
-    from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+    from magi.agent.response_rhythm import ResponseRhythmPlanner
 
     async def fake_llm(*, system_prompt, messages, model):
         yield "first short message‖second short message"
@@ -431,7 +431,7 @@ def test_post_preview_requires_seed_or_override() -> None:
 @pytest.mark.asyncio
 async def test_build_preview_delivery_preserves_bubbles_and_delays(monkeypatch) -> None:
     from magi.api.routers.chat_preview_routes import _build_preview_delivery
-    from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+    from magi.agent.response_rhythm import ResponseRhythmPlanner
 
     monkeypatch.setattr(
         ResponseRhythmPlanner,
@@ -447,7 +447,7 @@ async def test_build_preview_delivery_preserves_bubbles_and_delays(monkeypatch) 
 @pytest.mark.asyncio
 async def test_build_preview_delivery_strips_invalid_bubble_markers(monkeypatch) -> None:
     from magi.api.routers.chat_preview_routes import _build_preview_delivery
-    from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+    from magi.agent.response_rhythm import ResponseRhythmPlanner
 
     monkeypatch.setattr(
         ResponseRhythmPlanner,

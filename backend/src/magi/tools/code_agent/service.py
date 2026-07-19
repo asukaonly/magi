@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Optional
 
+from magi_plugin_sdk.capabilities import (
+    DelegationArtifactPort,
+    DelegationEventPort,
+)
 from magi_plugin_sdk.fs import append_jsonl, atomic_write_text
+
+from ...core.code_agent_artifacts import (
+    CodeAgentArtifactLocator,
+    CodeAgentArtifactPathError,
+    normalize_code_agent_delegation_id,
+)
 from .adapters.base import AdapterRunOutcome, CancelToken, CodeAgentAdapter, OnEvent
 from .adapters.claude_code import ClaudeCodeAdapter
 from .adapters.codex import CodexAdapter
@@ -26,7 +38,7 @@ from .diff_collector import collect_diff
 from .errors import NotAGitRepoError
 from .probe import probe_all
 from .settings import load_settings
-from .workspace import create_worktree, remove_worktree
+from .workspace import assert_git_repo, create_worktree, remove_worktree
 
 
 def _default_adapters_factory() -> dict[AdapterName, CodeAgentAdapter]:
@@ -48,27 +60,29 @@ def _default_binary_paths() -> dict[AdapterName, Optional[str]]:
 class _DelegationRunContext:
     req: DelegateRequest
     start: float
+    paths: CodeAgentArtifactLocator
     delegation_dir: Path
     events_path: Path
     on_event: Optional[OnEvent]
     broadcaster_user_id: str
-    delegation_events: Any | None
-
-    @property
-    def broadcast_enabled(self) -> bool:
-        return bool(self.broadcaster_user_id) and self.delegation_events is not None
+    delegation_events: DelegationEventPort | None
 
     def write_request(self) -> None:
-        self.delegation_dir.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(self.delegation_dir / "request.json", json.dumps(self.req.model_dump()))
+        request_path = self.paths.artifact_file(
+            "request.json",
+            require_delegation=True,
+        )
+        atomic_write_text(request_path, json.dumps(self.req.model_dump()))
 
     async def broadcast_event_safely(self, ev: RunEvent) -> None:
-        if not self.broadcast_enabled:
+        port = self.delegation_events
+        if not self.broadcaster_user_id or port is None:
             return
         try:
-            await self.delegation_events.broadcast_event(
+            await port.broadcast_event(
                 user_id=self.broadcaster_user_id,
                 session_id=self.req.session_id,
+                turn_id=self.req.turn_id,
                 delegation_id=self.req.delegation_id,
                 event=ev,
             )
@@ -80,12 +94,14 @@ class _DelegationRunContext:
         state: str,
         summary: dict | None = None,
     ) -> None:
-        if not self.broadcast_enabled:
+        port = self.delegation_events
+        if not self.broadcaster_user_id or port is None:
             return
         try:
-            await self.delegation_events.broadcast_state(
+            await port.broadcast_state(
                 user_id=self.broadcaster_user_id,
                 session_id=self.req.session_id,
+                turn_id=self.req.turn_id,
                 delegation_id=self.req.delegation_id,
                 state=state,  # type: ignore[arg-type]
                 summary=summary or {},
@@ -95,7 +111,11 @@ class _DelegationRunContext:
 
     async def emit(self, ev: RunEvent) -> None:
         try:
-            append_jsonl(self.events_path, ev.model_dump())
+            events_path = self.paths.artifact_file(
+                "events.jsonl",
+                require_delegation=True,
+            )
+            append_jsonl(events_path, ev.model_dump())
         except Exception:
             pass
         await self.broadcast_event_safely(ev)
@@ -103,7 +123,9 @@ class _DelegationRunContext:
             await self.on_event(ev)
 
     async def finalize(self, result: DelegateResult) -> DelegateResult:
-        if result.error and not result.success:
+        if result.cancelled:
+            await self.broadcast_state_safely("cancelled", result.model_dump())
+        elif result.error and not result.success:
             await self.broadcast_state_safely("failed", result.model_dump())
         else:
             await self.broadcast_state_safely("finished", result.model_dump())
@@ -127,7 +149,11 @@ class CodeAgentService:
         Returns ``True`` when the delegation_id was active and the token has
         been flipped, ``False`` when no active delegation matches.
         """
-        token = cls._ACTIVE_CANCEL_TOKENS.get(delegation_id)
+        try:
+            normalized_id = normalize_code_agent_delegation_id(delegation_id)
+        except CodeAgentArtifactPathError:
+            return False
+        token = cls._ACTIVE_CANCEL_TOKENS.get(normalized_id)
         if token is None:
             return False
         token.cancel()
@@ -137,13 +163,43 @@ class CodeAgentService:
         self,
         req: DelegateRequest,
         *,
+        artifact_registry: DelegationArtifactPort | None,
         dry_run: bool = False,
         on_event: Optional[OnEvent] = None,
         user_id: Optional[str] = None,
-        delegation_events=None,
+        delegation_events: DelegationEventPort | None = None,
+        cancellation: Any | None = None,
     ) -> DelegateResult:
+        start = time.monotonic()
+        paths = CodeAgentArtifactLocator.resolve(
+            workspace_root=req.workspace_root,
+            session_id=req.session_id,
+            delegation_id=req.delegation_id,
+        )
+        try:
+            assert_git_repo(paths.workspace_root)
+        except NotAGitRepoError as exc:
+            return self._unpersisted_failure(
+                req,
+                paths,
+                start,
+                str(exc),
+            )
+        paths.validate_existing_scopes()
+        if artifact_registry is None:
+            raise RuntimeError(
+                "code-agent artifact registry is required"
+            )
+        await artifact_registry.register(
+            session_id=paths.session_id,
+            turn_id=req.turn_id,
+            delegation_id=paths.delegation_id,
+            workspace_path=str(paths.workspace_root),
+        )
+        paths.ensure_delegation_dir()
         context = self._build_run_context(
             req,
+            paths=paths,
             on_event=on_event,
             user_id=user_id,
             delegation_events=delegation_events,
@@ -156,7 +212,10 @@ class CodeAgentService:
             return await context.finalize(failure)
         assert worktree is not None
 
-        self._write_context_bundle(req, context.delegation_dir / "_bundle")
+        self._write_context_bundle(
+            req,
+            context.paths.ensure_delegation_child_dir("_bundle"),
+        )
 
         if dry_run:
             result = self._build_dry_run_result(req, context)
@@ -167,7 +226,7 @@ class CodeAgentService:
         if error is not None:
             self._cleanup_worktree_if_needed(req, worktree)
             return await context.finalize(
-                self._fail(req, context.delegation_dir, context.start, error)
+                self._fail(req, context, error)
             )
         assert adapter is not None and binary_path is not None
 
@@ -177,9 +236,14 @@ class CodeAgentService:
             binary_path=binary_path,
             worktree=worktree,
             context=context,
+            cancellation=cancellation,
         )
         result, snapshot = self._record_adapter_result(req, context, outcome, worktree)
-        self._maybe_auto_apply_successful_result(req, context, result, snapshot)
+        result = self._maybe_auto_apply_successful_result(
+            req,
+            result,
+            snapshot,
+        )
         self._cleanup_worktree_if_needed(req, worktree)
         return await context.finalize(result)
 
@@ -187,16 +251,24 @@ class CodeAgentService:
         self,
         req: DelegateRequest,
         *,
+        paths: CodeAgentArtifactLocator,
         on_event: Optional[OnEvent],
         user_id: Optional[str],
-        delegation_events: Any | None,
+        delegation_events: DelegationEventPort | None,
     ) -> _DelegationRunContext:
-        delegation_dir = self._delegation_dir(req)
+        delegation_dir = paths.existing_delegation_dir()
+        if delegation_dir is None:  # pragma: no cover - created by delegate
+            raise RuntimeError("delegation directory is missing")
+        events_path = paths.artifact_file(
+            "events.jsonl",
+            require_delegation=True,
+        )
         return _DelegationRunContext(
             req=req,
             start=time.monotonic(),
+            paths=paths,
             delegation_dir=delegation_dir,
-            events_path=delegation_dir / "events.jsonl",
+            events_path=events_path,
             on_event=on_event,
             broadcaster_user_id=(user_id or "").strip(),
             delegation_events=delegation_events,
@@ -214,12 +286,11 @@ class CodeAgentService:
                 delegation_id=req.delegation_id,
             )
         except NotAGitRepoError as exc:
-            return None, self._fail(req, context.delegation_dir, context.start, str(exc))
+            return None, self._fail(req, context, str(exc))
         except Exception as exc:
             return None, self._fail(
                 req,
-                context.delegation_dir,
-                context.start,
+                context,
                 f"worktree creation failed: {exc}",
             )
         return worktree, None
@@ -238,7 +309,10 @@ class CodeAgentService:
         req: DelegateRequest,
         context: _DelegationRunContext,
     ) -> DelegateResult:
-        patch_path = context.delegation_dir / "changes.patch"
+        patch_path = context.paths.artifact_file(
+            "changes.patch",
+            require_delegation=True,
+        )
         atomic_write_text(patch_path, "")
         result = DelegateResult(
             delegation_id=req.delegation_id,
@@ -254,6 +328,7 @@ class CodeAgentService:
             events_path=str(context.events_path),
             error=None,
             cost=None,
+            artifact_registered=True,
         )
         self._write_result(context, result)
         return result
@@ -282,16 +357,32 @@ class CodeAgentService:
         binary_path: str,
         worktree: Path,
         context: _DelegationRunContext,
+        cancellation: Any | None,
     ) -> AdapterRunOutcome:
         cancel_token = CancelToken()
+        cancellation_bridge: asyncio.Task[None] | None = None
+        if cancellation is not None:
+            cancellation_bridge = asyncio.create_task(
+                self._bridge_external_cancellation(
+                    cancellation,
+                    cancel_token,
+                ),
+                name=f"code-agent-cancellation-{req.delegation_id}",
+            )
         CodeAgentService._ACTIVE_CANCEL_TOKENS[req.delegation_id] = cancel_token
         try:
             return await adapter.run(
                 req,
                 cwd=worktree,
-                bundle_dir=context.delegation_dir / "_bundle",
-                stdout_path=context.delegation_dir / "stdout.log",
-                stderr_path=context.delegation_dir / "stderr.log",
+                bundle_dir=context.paths.ensure_delegation_child_dir("_bundle"),
+                stdout_path=context.paths.artifact_file(
+                    "stdout.log",
+                    require_delegation=True,
+                ),
+                stderr_path=context.paths.artifact_file(
+                    "stderr.log",
+                    require_delegation=True,
+                ),
                 on_event=context.emit,
                 cancel_token=cancel_token,
                 binary_path=binary_path,
@@ -305,6 +396,32 @@ class CodeAgentService:
             )
         finally:
             CodeAgentService._ACTIVE_CANCEL_TOKENS.pop(req.delegation_id, None)
+            if cancellation_bridge is not None:
+                cancellation_bridge.cancel()
+                with suppress(asyncio.CancelledError):
+                    await cancellation_bridge
+
+    @staticmethod
+    async def _bridge_external_cancellation(
+        cancellation: Any,
+        cancel_token: CancelToken,
+    ) -> None:
+        try:
+            wait = getattr(cancellation, "wait", None)
+            if callable(wait):
+                await wait()
+            else:
+                is_cancelled = getattr(cancellation, "is_cancelled", None)
+                if not callable(is_cancelled):
+                    return
+                while not await is_cancelled():
+                    await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return
+        reason = getattr(cancellation, "reason", None)
+        cancel_token.cancel(str(reason or "runtime_cancelled"))
 
     def _record_adapter_result(
         self,
@@ -314,7 +431,10 @@ class CodeAgentService:
         worktree: Path,
     ) -> tuple[DelegateResult, DiffSnapshot]:
         snapshot = collect_diff(worktree)
-        patch_path = context.delegation_dir / "changes.patch"
+        patch_path = context.paths.artifact_file(
+            "changes.patch",
+            require_delegation=True,
+        )
         atomic_write_text(patch_path, snapshot.unified_diff)
 
         result = DelegateResult(
@@ -331,6 +451,8 @@ class CodeAgentService:
             events_path=str(context.events_path),
             error=outcome.error,
             cost=outcome.cost,
+            artifact_registered=True,
+            cancelled=outcome.cancelled,
         )
         self._write_result(context, result)
         return result, snapshot
@@ -338,27 +460,34 @@ class CodeAgentService:
     def _maybe_auto_apply_successful_result(
         self,
         req: DelegateRequest,
-        context: _DelegationRunContext,
         result: DelegateResult,
         snapshot: DiffSnapshot,
-    ) -> None:
+    ) -> DelegateResult:
         if not result.success or not snapshot.unified_diff.strip():
-            return
+            return result
         try:
             settings = load_settings(workspace_root=Path(req.workspace_root))
-            if not settings.auto_apply:
-                return
-            apply_outcome = apply_delegation(
-                workspace_root=Path(req.workspace_root),
-                session_id=req.session_id,
-                delegation_id=req.delegation_id,
-            )
-            if apply_outcome.applied:
-                result.applied_at = apply_outcome.to_dict().get("applied_at")
-                result.applied_files = apply_outcome.files_applied
-                self._write_result(context, result)
         except Exception:
-            pass
+            return result
+        if not settings.auto_apply:
+            return result
+        apply_outcome = apply_delegation(
+            workspace_root=Path(req.workspace_root),
+            session_id=req.session_id,
+            delegation_id=req.delegation_id,
+        )
+        if not apply_outcome.applied:
+            return result
+        if apply_outcome.applied_at is None:
+            raise RuntimeError("applied delegation is missing its timestamp")
+        final_result = result.model_copy(
+            update={
+                "applied": True,
+                "applied_at": apply_outcome.applied_at,
+                "applied_files": list(apply_outcome.files_applied),
+            },
+        )
+        return final_result
 
     def _cleanup_worktree_if_needed(self, req: DelegateRequest, worktree: Path) -> None:
         if self.cleanup_worktree:
@@ -370,50 +499,65 @@ class CodeAgentService:
 
     @staticmethod
     def _write_result(context: _DelegationRunContext, result: DelegateResult) -> None:
-        atomic_write_text(
-            context.delegation_dir / "result.json",
-            json.dumps(result.model_dump()),
+        result_path = context.paths.artifact_file(
+            "result.json",
+            require_delegation=True,
         )
-
-    def _delegation_dir(self, req: DelegateRequest) -> Path:
-        return (
-            Path(req.workspace_root)
-            / ".magi"
-            / "sessions"
-            / req.session_id
-            / "delegations"
-            / req.delegation_id
+        atomic_write_text(
+            result_path,
+            json.dumps(result.model_dump()),
         )
 
     def _fail(
         self,
         req: DelegateRequest,
-        delegation_dir: Path,
-        start: float,
+        context: _DelegationRunContext,
         error: str,
     ) -> DelegateResult:
-        duration_ms = int((time.monotonic() - start) * 1000)
-        events_path = delegation_dir / "events.jsonl"
         result = DelegateResult(
             delegation_id=req.delegation_id,
             success=False,
             exit_code=-1,
-            duration_ms=duration_ms,
+            duration_ms=self._duration_ms(context.start),
             adapter=req.adapter,
             diff_path=None,
             diff_stats=DiffStats(),
             files_changed=[],
             summary=None,
-            logs_path=str(delegation_dir),
-            events_path=str(events_path),
+            logs_path=str(context.delegation_dir),
+            events_path=str(context.events_path),
             error=error,
             cost=None,
+            artifact_registered=True,
         )
         try:
-            atomic_write_text(delegation_dir / "result.json", json.dumps(result.model_dump()))
+            self._write_result(context, result)
         except Exception:
             pass
         return result
+
+    def _unpersisted_failure(
+        self,
+        req: DelegateRequest,
+        paths: CodeAgentArtifactLocator,
+        start: float,
+        error: str,
+    ) -> DelegateResult:
+        return DelegateResult(
+            delegation_id=req.delegation_id,
+            success=False,
+            exit_code=-1,
+            duration_ms=self._duration_ms(start),
+            adapter=req.adapter,
+            diff_path=None,
+            diff_stats=DiffStats(),
+            files_changed=[],
+            summary=None,
+            logs_path=str(paths.delegation_dir),
+            events_path=str(paths.delegation_dir / "events.jsonl"),
+            error=error,
+            cost=None,
+        )
 
 
 __all__ = ["CodeAgentService"]

@@ -331,6 +331,12 @@ class L2CognitionStore(
         """Register a composed runtime handler for a durable correction follow-up."""
         self._memory_correction_job_handlers[str(job_kind)] = handler
 
+    def get_memory_correction_job_handlers(
+        self,
+    ) -> Dict[str, Callable[[Mapping[str, Any]], Awaitable[None]]]:
+        """Return a snapshot of composed correction follow-up handlers."""
+        return dict(self._memory_correction_job_handlers)
+
     def set_memory_correction_job_wakeup(
         self,
         callback: Callable[[], Awaitable[None]] | None,
@@ -393,7 +399,6 @@ class L2CognitionStore(
                 db_path=self.db_path,
                 l2_store=self,
                 l3_store=l3_store,
-                handlers=self._memory_correction_job_handlers,
             ).run_pending(
                 limit=limit,
                 recover_interrupted=recover_interrupted,

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from magi_plugin_sdk.channels import ChannelAttachmentStoreProtocol
 
 from ..utils.runtime import RuntimePaths
+from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from .attachment_storage import LocalChatAttachmentStorage, StoredChatAttachment
 
 
@@ -27,7 +27,7 @@ class ChatChannelAttachmentStore(ChannelAttachmentStoreProtocol):
         content: bytes,
         mime_type: str,
     ) -> dict[str, Any]:
-        stored = await asyncio.to_thread(
+        stored = await run_chat_asset_mutation(
             self._store_sync,
             session_id=session_id,
             turn_id=turn_id,

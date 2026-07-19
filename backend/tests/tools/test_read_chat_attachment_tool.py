@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from magi.tools.builtin.read_chat_attachment_tool import ReadChatAttachmentTool
 from magi.tools.schema import ToolExecutionContext
 from magi.utils.runtime import get_runtime_paths, set_runtime_dir
@@ -32,20 +33,21 @@ class _FakeChatPort:
         assert attachment_id == "att-1"
         return self.payload
 
-    def prepare_runtime_attachment(
+    async def prepare_runtime_attachment(
         self,
         *,
         session_id: str,
         turn_id: str,
         attachment: dict[str, Any],
     ) -> dict[str, Any]:
-        return self._ingestion.prepare_runtime_attachment(
+        return await run_chat_asset_mutation(
+            self._ingestion.prepare_runtime_attachment,
             session_id=session_id,
             turn_id=turn_id,
             attachment=attachment,
         )
 
-    def ingest_local_file(self, *, session_id, turn_id, file_path, original_name=None, mime_type=None):
+    async def ingest_local_file(self, *, session_id, turn_id, file_path, original_name=None, mime_type=None):
         return {}
 
 

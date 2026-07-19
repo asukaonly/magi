@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from magi.chat import ingress as service
+from magi.chat import first_context_projection as projection_confirmation
 from magi.core.operation_barrier import AsyncOperationBarrier
 from magi.i18n import language_context
 from magi.utils.runtime import get_runtime_paths, set_runtime_dir
@@ -44,7 +45,10 @@ class _FakeRuntimeCommandQueue:
 
     async def enqueue_user_message(self, command) -> int:
         for index, existing in enumerate(self.commands, start=1):
-            if existing.correlation_id == command.correlation_id:
+            if (
+                existing.correlation_id == command.correlation_id
+                and existing.delivery_attempt_no == command.delivery_attempt_no
+            ):
                 return index
         self.commands.append(command)
         command_id = self.next_command_id
@@ -68,7 +72,7 @@ class _FakeChatStore:
     def __init__(self) -> None:
         self.created_turns: list[dict[str, object]] = []
         self.turns_by_id: dict[str, _FakeCreatedTurn] = {}
-        self.delivery_by_id: dict[str, dict[str, bool]] = {}
+        self.delivery_by_id: dict[str, dict[str, object]] = {}
         self.runtime_envelope_by_id: dict[str, dict[str, object]] = {}
         self.request_fingerprint_by_id: dict[str, str] = {}
 
@@ -91,7 +95,9 @@ class _FakeChatStore:
                 "message": existing,
                 "created": False,
                 "projection_completed": delivery["projection_completed"],
-                "runtime_enqueued": delivery["runtime_enqueued"],
+                "delivery_attempt_no": delivery["delivery_attempt_no"],
+                "delivery_state": delivery["delivery_state"],
+                "current_command_id": delivery["current_command_id"],
                 "runtime_envelope": dict(self.runtime_envelope_by_id[turn_id]),
             },
         )()
@@ -123,7 +129,9 @@ class _FakeChatStore:
                     "message": existing,
                     "created": False,
                     "projection_completed": delivery["projection_completed"],
-                    "runtime_enqueued": delivery["runtime_enqueued"],
+                    "delivery_attempt_no": delivery["delivery_attempt_no"],
+                    "delivery_state": delivery["delivery_state"],
+                    "current_command_id": delivery["current_command_id"],
                     "runtime_envelope": dict(self.runtime_envelope_by_id[turn_id]),
                 },
             )()
@@ -150,7 +158,9 @@ class _FakeChatStore:
         self.turns_by_id[turn_id] = created
         self.delivery_by_id[turn_id] = {
             "projection_completed": False,
-            "runtime_enqueued": False,
+            "delivery_attempt_no": 0,
+            "delivery_state": "ready",
+            "current_command_id": None,
         }
         self.runtime_envelope_by_id[turn_id] = dict(runtime_envelope or {})
         self.request_fingerprint_by_id[turn_id] = request_fingerprint
@@ -161,7 +171,9 @@ class _FakeChatStore:
                 "message": created,
                 "created": True,
                 "projection_completed": False,
-                "runtime_enqueued": False,
+                "delivery_attempt_no": 0,
+                "delivery_state": "ready",
+                "current_command_id": None,
                 "runtime_envelope": dict(runtime_envelope or {}),
             },
         )()
@@ -172,9 +184,35 @@ class _FakeChatStore:
         _ = updated_at_ms
         self.delivery_by_id[turn_id]["projection_completed"] = True
 
-    async def mark_user_turn_runtime_enqueued(self, *, turn_id: str, updated_at_ms: int) -> None:
+    async def mark_user_turn_delivery_queued(
+        self,
+        *,
+        turn_id: str,
+        delivery_attempt_no: int,
+        command_id: int,
+        updated_at_ms: int,
+    ) -> bool:
         _ = updated_at_ms
-        self.delivery_by_id[turn_id]["runtime_enqueued"] = True
+        delivery = self.delivery_by_id[turn_id]
+        if (
+            delivery["delivery_state"] != "ready"
+            or delivery["delivery_attempt_no"] != delivery_attempt_no
+            or delivery["current_command_id"] is not None
+        ):
+            return False
+        delivery["delivery_state"] = "queued"
+        delivery["current_command_id"] = command_id
+        return True
+
+    async def get_user_turn_delivery(self, *, turn_id: str):  # type: ignore[no-untyped-def]
+        delivery = self.delivery_by_id.get(turn_id)
+        if delivery is None:
+            return None
+        return SimpleNamespace(
+            delivery_attempt_no=delivery["delivery_attempt_no"],
+            delivery_state=delivery["delivery_state"],
+            current_command_id=delivery["current_command_id"],
+        )
 
 
 class _FakeChatProjector:
@@ -229,6 +267,8 @@ class _FakeAskState:
     request_id: str
     status: str = "pending"
     expires_at: float | None = None
+    options: tuple[str, ...] = ()
+    allow_free_text: bool = True
 
 
 class _FakeControlSessionStore:
@@ -302,6 +342,41 @@ async def test_dispatch_user_message_persists_chat_turn_before_enqueue(
     assert chat_projector.user_messages[0]["message_id"] == f"msg-{outcome.turn_id}"
     assert chat_projector.user_messages[0]["metadata"] == {}
     assert len(queue.commands) == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_accepts_agent_admission_before_queue_stage_is_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chat_store = _FakeChatStore()
+
+    class _FastAdmissionQueue(_FakeRuntimeCommandQueue):
+        async def enqueue_user_message(self, command) -> int:
+            command_id = await super().enqueue_user_message(command)
+            delivery = chat_store.delivery_by_id[command.turn_id]
+            delivery["delivery_state"] = "admitted"
+            delivery["current_command_id"] = command_id
+            return command_id
+
+    queue = _FastAdmissionQueue()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="fast handoff",
+        session_id="session-fast-admission",
+        client_turn_id="turn-fast-admission",
+    )
+
+    assert outcome.success is True
+    assert chat_store.delivery_by_id["turn-fast-admission"] == {
+        "projection_completed": True,
+        "delivery_attempt_no": 0,
+        "delivery_state": "admitted",
+        "current_command_id": 1,
+    }
 
 
 @pytest.mark.asyncio
@@ -402,6 +477,42 @@ async def test_dispatch_user_message_resolves_pending_ask_before_chat_turn(
             "response": "main",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_rejects_non_option_choice_only_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    broker = _FakeControlInteractionBroker()
+    ask_state = _FakeAskState(
+        request_id="ask-1",
+        options=("main", "later"),
+        allow_free_text=False,
+    )
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(
+        service,
+        "resolve_control_session_store",
+        lambda: _FakeControlSessionStore(ask_state),
+    )
+    monkeypatch.setattr(service, "resolve_control_interaction_broker", lambda: broker)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="something else",
+        session_id="session-for-u1",
+    )
+
+    assert outcome.success is False
+    assert outcome.error_code == service.ASK_RESPONSE_OPTION_REQUIRED
+    assert outcome.handled_as == "ask_response"
+    assert broker.resolutions == []
+    assert chat_store.created_turns == []
+    assert queue.commands == []
 
 
 @pytest.mark.asyncio
@@ -577,7 +688,11 @@ async def test_dispatch_user_message_carries_attachments_and_workspace_path_into
 
     assert outcome.success is True
     command = queue.commands[0]
-    assert command.attachments == [{"kind": "image", "attachment_id": "att-1"}]
+    assert len(command.attachments) == 1
+    assert command.attachments[0]["kind"] == "image"
+    assert command.attachments[0]["attachment_id"] == "att-1"
+    assert command.attachments[0]["session_id"] == "session-for-u1"
+    assert command.attachments[0]["turn_id"] == outcome.turn_id
     assert command.workspace_path == "/tmp/magi"
 
 
@@ -1016,7 +1131,7 @@ async def test_same_turn_retry_completes_enqueue_without_duplicate_delivery(
     monkeypatch.setattr(service, "get_chat_message_notifier", lambda: notifier)
     monkeypatch.setattr(
         service,
-        "_wait_for_first_context_memory_projection",
+        "wait_for_first_context_memory_projection",
         _projection_confirmed,
     )
     monkeypatch.setattr(service, "_resolve_active_persona_id", _active_persona_id)
@@ -1084,12 +1199,13 @@ async def test_same_turn_retry_completes_enqueue_without_duplicate_delivery(
         ).fetchone() == (1,)
         assert db.execute(
             """
-            SELECT projection_completed, runtime_enqueued
+            SELECT projection_completed, delivery_attempt_no,
+                   delivery_state, current_command_id
             FROM chat_user_turn_delivery
             WHERE turn_id = ?
             """,
             ("turn-first-context",),
-        ).fetchone() == (1, 1)
+        ).fetchone() == (1, 0, "queued", 1)
 
 
 @pytest.mark.asyncio
@@ -1165,17 +1281,21 @@ async def test_existing_turn_retry_bypasses_new_pending_ask(
             super().__init__()
             self.runtime_stage_attempts = 0
 
-        async def mark_user_turn_runtime_enqueued(
+        async def mark_user_turn_delivery_queued(
             self,
             *,
             turn_id: str,
+            delivery_attempt_no: int,
+            command_id: int,
             updated_at_ms: int,
-        ) -> None:
+        ) -> bool:
             self.runtime_stage_attempts += 1
             if self.runtime_stage_attempts == 1:
                 raise RuntimeError("temporary runtime-stage failure")
-            await super().mark_user_turn_runtime_enqueued(
+            return await super().mark_user_turn_delivery_queued(
                 turn_id=turn_id,
+                delivery_attempt_no=delivery_attempt_no,
+                command_id=command_id,
                 updated_at_ms=updated_at_ms,
             )
 
@@ -1285,17 +1405,21 @@ async def test_runtime_stage_retry_restores_canonical_scheduling_metadata(
             super().__init__()
             self.runtime_stage_attempts = 0
 
-        async def mark_user_turn_runtime_enqueued(
+        async def mark_user_turn_delivery_queued(
             self,
             *,
             turn_id: str,
+            delivery_attempt_no: int,
+            command_id: int,
             updated_at_ms: int,
-        ) -> None:
+        ) -> bool:
             self.runtime_stage_attempts += 1
             if self.runtime_stage_attempts == 1:
                 raise RuntimeError("temporary runtime-stage failure")
-            await super().mark_user_turn_runtime_enqueued(
+            return await super().mark_user_turn_delivery_queued(
                 turn_id=turn_id,
+                delivery_attempt_no=delivery_attempt_no,
+                command_id=command_id,
                 updated_at_ms=updated_at_ms,
             )
 
@@ -1401,7 +1525,7 @@ async def test_concurrent_same_first_context_turn_records_one_bootstrap_start(
     monkeypatch.setattr(service, "get_chat_message_notifier", lambda: notifier)
     monkeypatch.setattr(
         service,
-        "_wait_for_first_context_memory_projection",
+        "wait_for_first_context_memory_projection",
         _projection_confirmed,
     )
     monkeypatch.setattr(service, "_resolve_active_persona_id", _active_persona_id)
@@ -1492,7 +1616,7 @@ async def test_projection_failure_is_retried_before_runtime_enqueue(
     monkeypatch.setattr(service, "_mark_first_context_bootstrap_started", _skip_bootstrap_mark)
     monkeypatch.setattr(
         service,
-        "_wait_for_first_context_memory_projection",
+        "wait_for_first_context_memory_projection",
         _projection_confirmed,
     )
 
@@ -1546,7 +1670,9 @@ async def test_ordinary_chat_remains_available_without_chat_projector(
     assert len(queue.commands) == 1
     assert store.delivery_by_id["turn-no-projector"] == {
         "projection_completed": True,
-        "runtime_enqueued": True,
+        "delivery_attempt_no": 0,
+        "delivery_state": "queued",
+        "current_command_id": 1,
     }
 
 
@@ -1658,11 +1784,17 @@ async def test_first_context_projection_confirms_l1_for_policy_skip(
     l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
     l2 = _ProjectionConfirmationL2([False])
     memory = SimpleNamespace(l1=l1, l2=l2)
-    monkeypatch.setattr(service, "_resolve_projection_memory", lambda: memory)
-    monkeypatch.setattr(service, "_event_requires_l2_projection", lambda event: False)
-    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
+    monkeypatch.setattr(projection_confirmation, "_resolve_projection_memory", lambda: memory)
+    monkeypatch.setattr(
+        projection_confirmation,
+        "_event_requires_l2_projection",
+        lambda event: False,
+    )
+    monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: True)
 
-    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is True
+    assert await projection_confirmation.wait_for_first_context_memory_projection(
+        message_id="message-1"
+    ) is True
     assert l2.calls == 0
 
 
@@ -1673,12 +1805,22 @@ async def test_first_context_projection_waits_for_durable_l2_job(
     l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
     l2 = _ProjectionConfirmationL2([False, True])
     memory = SimpleNamespace(l1=l1, l2=l2)
-    monkeypatch.setattr(service, "_resolve_projection_memory", lambda: memory)
-    monkeypatch.setattr(service, "_event_requires_l2_projection", lambda event: True)
-    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
-    monkeypatch.setattr(service, "_FIRST_CONTEXT_PROJECTION_CONFIRM_INTERVAL_SECONDS", 0)
+    monkeypatch.setattr(projection_confirmation, "_resolve_projection_memory", lambda: memory)
+    monkeypatch.setattr(
+        projection_confirmation,
+        "_event_requires_l2_projection",
+        lambda event: True,
+    )
+    monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: True)
+    monkeypatch.setattr(
+        projection_confirmation,
+        "_FIRST_CONTEXT_PROJECTION_CONFIRM_INTERVAL_SECONDS",
+        0,
+    )
 
-    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is True
+    assert await projection_confirmation.wait_for_first_context_memory_projection(
+        message_id="message-1"
+    ) is True
     assert l2.calls == 2
 
 
@@ -1689,15 +1831,27 @@ async def test_first_context_projection_does_not_accept_l1_only_for_self_report(
     l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
     l2 = _ProjectionConfirmationL2([False])
     memory = SimpleNamespace(l1=l1, l2=l2)
-    monkeypatch.setattr(service, "_resolve_projection_memory", lambda: memory)
-    monkeypatch.setattr(service, "_event_requires_l2_projection", lambda event: True)
-    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
-    monkeypatch.setattr(service, "_FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS", 0)
+    monkeypatch.setattr(projection_confirmation, "_resolve_projection_memory", lambda: memory)
+    monkeypatch.setattr(
+        projection_confirmation,
+        "_event_requires_l2_projection",
+        lambda event: True,
+    )
+    monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: True)
+    monkeypatch.setattr(
+        projection_confirmation,
+        "_FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS",
+        0,
+    )
 
-    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is False
+    assert await projection_confirmation.wait_for_first_context_memory_projection(
+        message_id="message-1"
+    ) is False
 
     l2.results = [True]
-    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is True
+    assert await projection_confirmation.wait_for_first_context_memory_projection(
+        message_id="message-1"
+    ) is True
 
 
 @pytest.mark.asyncio
@@ -1705,29 +1859,39 @@ async def test_first_context_projection_only_skips_explicitly_disabled_layers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        service,
+        projection_confirmation,
         "_resolve_projection_memory",
         lambda: (_ for _ in ()).throw(RuntimeError("memory unavailable")),
     )
-    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: False)
-    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is True
+    monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: False)
+    assert await projection_confirmation.wait_for_first_context_memory_projection(
+        message_id="message-1"
+    ) is True
 
-    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
-    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is False
+    monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: True)
+    assert await projection_confirmation.wait_for_first_context_memory_projection(
+        message_id="message-1"
+    ) is False
 
     l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
     monkeypatch.setattr(
-        service,
+        projection_confirmation,
         "_resolve_projection_memory",
         lambda: SimpleNamespace(l1=l1, l2=None),
     )
-    monkeypatch.setattr(service, "_event_requires_l2_projection", lambda event: True)
     monkeypatch.setattr(
-        service,
+        projection_confirmation,
+        "_event_requires_l2_projection",
+        lambda event: True,
+    )
+    monkeypatch.setattr(
+        projection_confirmation,
         "_memory_layer_enabled",
         lambda layer: False if layer == "l2" else True,
     )
-    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is True
+    assert await projection_confirmation.wait_for_first_context_memory_projection(
+        message_id="message-1"
+    ) is True
 
 
 @pytest.mark.asyncio
@@ -1740,13 +1904,13 @@ async def test_first_context_projection_policy_error_stays_retriable(
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
     monkeypatch.setattr(service, "get_chat_store", lambda: store)
     monkeypatch.setattr(
-        service,
+        projection_confirmation,
         "_resolve_projection_memory",
         lambda: SimpleNamespace(l1=l1, l2=_ProjectionConfirmationL2([True])),
     )
-    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
+    monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: True)
     monkeypatch.setattr(
-        service,
+        projection_confirmation,
         "_event_requires_l2_projection",
         lambda event: (_ for _ in ()).throw(RuntimeError("classification failed")),
     )
@@ -1780,12 +1944,16 @@ async def test_first_context_async_publish_without_durable_l1_stays_pending(
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
     monkeypatch.setattr(service, "get_chat_store", lambda: store)
     monkeypatch.setattr(
-        service,
+        projection_confirmation,
         "_resolve_projection_memory",
         lambda: SimpleNamespace(l1=l1, l2=_ProjectionConfirmationL2([False])),
     )
-    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
-    monkeypatch.setattr(service, "_FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS", 0)
+    monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: True)
+    monkeypatch.setattr(
+        projection_confirmation,
+        "_FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS",
+        0,
+    )
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -1859,8 +2027,8 @@ async def test_first_context_republish_converges_to_one_l1_event_and_l2_job(
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
     monkeypatch.setattr(service, "get_chat_store", lambda: store)
     monkeypatch.setattr(service, "get_chat_projector", lambda: projector)
-    monkeypatch.setattr(service, "_resolve_projection_memory", lambda: memory)
-    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
+    monkeypatch.setattr(projection_confirmation, "_resolve_projection_memory", lambda: memory)
+    monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: True)
     monkeypatch.setattr(service, "_mark_first_context_bootstrap_started", _skip_bootstrap_mark)
 
     request = {

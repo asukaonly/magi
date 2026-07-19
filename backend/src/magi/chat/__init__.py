@@ -4,11 +4,14 @@ from .attachment_storage import LocalChatAttachmentStorage, StoredChatAttachment
 from .asset_gc import ChatAssetGC
 from .attachment_ingestion import LocalChatAttachmentIngestionService
 from .contracts import (
+    ChatAssistantMemoryOutboxRecord,
+    ChatAssistantMemoryProjection,
     ChatContextSummaryRecord,
     ChatMessageLabel,
     ChatMessageRecord,
     ChatSessionRecord,
     ChatTurnRecord,
+    ChatUserTurnDeliveryRecord,
 )
 from .pdf_attachment_parser import LocalPdfAttachmentParser, ParsedPdfAttachment
 from .projector import ChatProjector
@@ -25,6 +28,8 @@ from .text_attachment_parser import LocalTextAttachmentParser, ParsedTextAttachm
 
 __all__ = [
     "ChatDisplayMessage",
+    "ChatAssistantMemoryOutboxRecord",
+    "ChatAssistantMemoryProjection",
     "ChatContextSummaryRecord",
     "ChatMessageLabel",
     "ChatMessageRecord",
@@ -44,5 +49,6 @@ __all__ = [
     "StoredChatAttachment",
     "ChatStore",
     "ChatTurnRecord",
+    "ChatUserTurnDeliveryRecord",
     "get_chat_read_service",
 ]

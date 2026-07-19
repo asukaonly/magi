@@ -323,15 +323,44 @@ that source-owned message from being projected again. Turn-linked derivatives
 that cannot be attributed more precisely are removed conservatively, without
 turn-wide replay blocking. The L1 session preview is rebuilt from surviving
 events after a message delete and scrubbed when the whole session is deleted.
-After memory cleanup succeeds, single-message deletion irreversibly scrubs the
-chat row body and payload while retaining only its structural identity, removes
-its managed attachment files and metadata, invalidates session context
-summaries, clears its reply previews and delivery copies, deletes the linked
-turn trace, and rebuilds the visible session preview. Whole-session deletion
-removes the transcript, immediately deletes all managed attachment and derived
-files regardless of automatic asset-retention settings, and scrubs the retained
-session tombstone. These chat changes happen only after memory cleanup succeeds,
-so a failed memory request remains visible and retryable.
+After memory cleanup succeeds, single-message deletion first commits an
+inaccessible redacted row, removes its public attachment metadata, invalidates
+session context summaries, clears reply previews that point to it, and rebuilds
+the visible session preview. A user message also owns the execution boundary for
+its turn, so deleting that message removes its delivery copy and linked turn
+trace. Deleting a completed assistant message preserves the originating user
+turn's trace and delivery row; if its reply is still unfinished, the runtime
+closes that delivery so the deleted assistant response cannot be regenerated. A
+managed attachment or derived file is deleted only when no other visible
+message in an active session still owns that same asset. The redacted message
+and its private asset-retry references are physically removed only after the
+required trace and file cleanup succeeds. Transcript-snapshot and whole-session
+deletion use the same two-phase ordering; a deleted session keeps only its
+scrubbed session tombstone after its messages and turns are finalized. These
+chat changes start only after memory cleanup succeeds, so a failed memory
+request remains visible and retryable. If later physical cleanup fails, the
+content is already inaccessible and durable recovery can safely finish it.
+
+Private code-delegation evidence follows the same ownership rule. The tool
+registers the exact session, turn, delegation, and workspace before it creates
+local artifacts; a committed assistant message then adds its visible ownership
+reference. Deleting a message, transcript, session, or all conversations removes
+an unshared delegation's logs, diffs, temporary worktree, and private branch.
+If another visible message in an active session still references the same
+delegation, those artifacts remain available. Edits already applied to the
+user's main workspace are not chat-owned evidence and are never reverted.
+Cleanup failure leaves the redacted transcript inaccessible and retains only
+the private registry required to retry safely.
+
+Committed assistant replies reach L1 through a durable chat-owned projection
+queue rather than a best-effort call in response post-processing. Deleting a
+message, session, or chat history first activates the durable forget intent;
+only then may the matching pending or claimed projection row be cancelled.
+This ordering matters for an already claimed worker: the permanent source
+barrier rejects any late `AIResponse` ingestion, while lease ownership prevents
+that worker from completing or re-creating cancelled work. Startup recovery
+uses the same ordering, so a crash cannot make a deleted assistant answer
+return to memory.
 
 Each layer owns removal of its own derivatives:
 
@@ -351,6 +380,16 @@ Each layer owns removal of its own derivatives:
 - L0 removes temporary tactics linked by either event or turn reference and
   active-entity cards linked by deleted events or governed time ranges, then
   rechecks the same governance on new writes, prompt reads, and restart restore.
+  Deleting one user chat message removes its execution-owned state without
+  clearing unrelated working state. A newer run continues only when the target
+  is still unconsumed; if its context may contain the deleted message, that run
+  is cancelled and terminalized. Admitted turns that have not established a
+  run are recorded in the first durable delete intent, stopped before deletion,
+  and replayed only after the remaining context is rebuilt.
+  Deleting a completed assistant message preserves the originating user turn's
+  execution root, although an unfinished run may still be cancelled by the
+  runtime privacy boundary. Deleting a session or all chat history still clears
+  the complete L0 session.
 - L4 retires a procedural skill when the deleted source contributed to its
   learned aggregate, removes its searchable/vector and L4 trace material, and
   refuses future learning from a deleted or time-range-governed event.
@@ -1846,11 +1885,70 @@ independent table deletes.
   The bus overwrites caller-provided values, does not persist this epoch, and
   starts from the new store's epoch after process restart.
 - Chat transcripts, session summaries, session-bound runtime traces,
-  orchestration payloads, L0-L4 stores, manual-entry assets, and rebuildable
-  memory projections are cleared within the same boundary. Notifications
-  derived from memory conflicts are cleared with their source claims. Global
-  runtime notifications, unrelated user notifications, and non-chat
-  ingress/audit streams are not chat memory and are preserved.
+  orchestration payloads, channel conversation mappings, delivery receipts,
+  channel notification cursors, queued proactive outreach and its delivery
+  log, L0-L4 stores, manual-entry assets, and rebuildable memory projections
+  are cleared within the same boundary. Notifications derived from memory
+  conflicts are cleared with their source claims. Channel installation,
+  account authentication, enablement, and binding preferences are
+  configuration rather than remembered conversation state and are preserved.
+  Global runtime notifications, unrelated user notifications, and non-chat
+  ingress/audit streams are also preserved.
+- The request stops active chat work and pauses proactive outreach and
+  external ask delivery while it clears conversation-owned channel state.
+  Proactive external delivery and ask fanout also fail closed while the
+  persistent chat clear marker exists. This keeps active replies and
+  notifications from racing the cross-store cleanup.
+- Message, session, history, and full-memory deletion also open the matching
+  background admission boundary before cancelling existing foreground and
+  background work. The boundary rejects matching enqueue and retry until
+  memory and chat-surface cleanup finishes, and waits through terminal
+  background listeners before taking the final chat snapshot. Exact-message
+  deletion applies that boundary to the complete logical replacement chain;
+  unrelated sibling work remains admissible. A cancellation completion
+  therefore cannot arrive after the transcript has already been removed and
+  recreate a user-visible result.
+- Terminal task rows and their event history remain as a separate, visible
+  Tasks-page audit record. They are not recallable memory and are removed by
+  explicit task dismissal or the configured background-task retention window.
+  "Clear memory" therefore means clearing conversation, recall, evidence, and
+  their private files; it does not claim to erase this independent task audit
+  history.
+- Chat clear first commits a persistent global-clear intent together with
+  public transcript redaction, then removes traces and managed files, and only
+  then deletes the remaining private attachment/code-delegation retry records
+  and chat rows. Code-delegation cleanup removes Magi-owned logs, diffs,
+  temporary worktrees, and branches but preserves changes already applied to a
+  main workspace. The intent deliberately remains after `chat.db` is empty. It
+  is removed only after channel conversation state and persisted orchestration
+  payloads have also been cleared.
+- Startup recovery is therefore two-stage. Chat recovery first finishes local
+  transcript, trace, asset, and retry cleanup while retaining the global
+  marker. Before any channel plugin starts receiving or sending messages, the
+  channels lifecycle sees that marker, clears channel and orchestration state,
+  and releases it. Chat delivery recovery, memory projection, and runtime
+  command processing cannot revive the cleared transcript, and external
+  conversation delivery remains blocked until the second stage completes. No
+  periodic retention job is needed to make a user-requested clear converge.
+- Every deleted or globally cleared chat session also leaves a
+  `chat_cleared_session_scopes` tombstone. Session identity is compared
+  case-insensitively, `chat_sessions` enforces the same case-insensitive
+  uniqueness, and database triggers reject both a direct session recreation
+  and late child-row writes. The tombstone outlives the transient global-clear
+  intent, so changing only the letter case cannot revive a cleared session.
+- Once the durable clear boundary has committed, later cleanup or writer-resume
+  failures cannot turn the response back into a retryable failure. The API
+  returns success with explicit warnings, and the desktop client discards its
+  pre-clear retry drafts. This prevents an already-cleared user message from
+  being resent and recreating chat or memory. Failures before the durable clear
+  commit still fail normally and preserve retryability.
+- These host barriers cover messages and sessions that have already entered
+  Magi. They cannot identify an old remote-platform item that is delivered to
+  the host for the first time only after the clear. A channel that can replay
+  remote backlog still needs a provider-side cursor, sequence, or time
+  watermark that participates in the clear boundary. Until the plugin contract
+  exposes that shared watermark, full clear must not be described as erasing
+  unseen remote backlog from the external platform.
 
 ### What Compression Means
 

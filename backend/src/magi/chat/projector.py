@@ -7,7 +7,12 @@ from ..events.domain_payloads import (
     TaskContext,
     UserMessageReceived,
 )
-from ..events.events import Event, EventLevel, EventTypes
+from ..events.events import (
+    Event,
+    EventLevel,
+    EventTypes,
+    REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY,
+)
 
 
 CHAT_MEMORY_SOURCE = "chat"
@@ -78,10 +83,10 @@ class ChatProjector:
         content: str,
         created_at_ms: int,
         metadata: dict[str, object] | None = None,
-    ) -> None:
+    ) -> bool:
         normalized_content = str(content or "").strip()
         if not normalized_content:
-            return
+            return True
         event_metadata = {
             "source_item_id": message_id,
             "author_type": "assistant",
@@ -101,7 +106,7 @@ class ChatProjector:
             ),
             metadata=event_metadata,
         )
-        await self._event_bus.publish(
+        published = await self._event_bus.publish(
             Event(
                 type=EventTypes.ASSISTANT_RESPONSE_PRODUCED,
                 data=payload,
@@ -109,5 +114,9 @@ class ChatProjector:
                 level=EventLevel.INFO,
                 timestamp=float(created_at_ms) / 1000.0,
                 correlation_id=turn_id,
+                metadata={REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY: True},
             )
         )
+        if published is False:
+            raise RuntimeError("Chat assistant-message projection was not delivered")
+        return True

@@ -33,6 +33,10 @@ class GovernorVerdict(str, Enum):
     DROP = "drop"
 
 
+class OutreachIntentConflictError(ValueError):
+    """Raised when one logical outreach identity is reused with new content."""
+
+
 @dataclass(frozen=True, slots=True)
 class OutreachIntent:
     """Something magi wants to say to the user, unprompted.
@@ -51,6 +55,7 @@ class OutreachIntent:
     # Terminal-event timestamp (epoch ms): the moment the task reached its
     # terminal state — completion, failure, OR cancellation (not success-only).
     completed_at_ms: int
+    origin_turn_id: str | None = None
     pending_message_id: str | None = None
     urgency: Urgency = Urgency.NORMAL
     payload: dict[str, Any] = field(default_factory=dict)
@@ -64,6 +69,7 @@ class OutreachIntent:
             "facts": self.facts,
             "correlation_id": self.correlation_id,
             "completed_at_ms": int(self.completed_at_ms),
+            "origin_turn_id": self.origin_turn_id,
             "pending_message_id": self.pending_message_id,
             "urgency": self.urgency.value,
             "payload": dict(self.payload),
@@ -84,6 +90,7 @@ class OutreachIntent:
             facts=str(data.get("facts") or ""),
             correlation_id=str(data["correlation_id"]),
             completed_at_ms=int(data["completed_at_ms"]),
+            origin_turn_id=data.get("origin_turn_id"),
             pending_message_id=data.get("pending_message_id"),
             urgency=Urgency(data.get("urgency") or Urgency.NORMAL.value),
             payload=dict(data.get("payload") or {}),

@@ -160,8 +160,19 @@ class FunctionCallingResponseMixin:
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {}
         for result in tool_results:
-            if not result.success or not isinstance(result.data, dict):
+            if not isinstance(result.data, dict):
                 continue
+
+            nested_payload = result.data.get("assistant_payload")
+            if isinstance(nested_payload, dict):
+                payload = self._merge_assistant_message_payload(
+                    payload,
+                    normalize_asset_ref_payload(nested_payload),
+                )
+
+            if not result.success:
+                continue
+
             normalized_result = normalize_asset_ref_payload(result.data)
             direct_payload: dict[str, Any] = {}
             asset_refs = normalized_result.get("asset_refs")
@@ -183,13 +194,6 @@ class FunctionCallingResponseMixin:
                 if recalled_memory_summary:
                     direct_payload["recalled_memory_summary"] = recalled_memory_summary
             payload = self._merge_assistant_message_payload(payload, direct_payload)
-
-            nested_payload = result.data.get("assistant_payload")
-            if isinstance(nested_payload, dict):
-                payload = self._merge_assistant_message_payload(
-                    payload,
-                    normalize_asset_ref_payload(nested_payload),
-                )
         return payload
 
     def _compact_recalled_memories(

@@ -28,6 +28,8 @@ layers =
     outreach
     commands
     api | chat | channels
+    chat_preview
+    delivery
     timeline
     agent
     context
@@ -55,7 +57,6 @@ layers =
     core
     utils
     availability
-    chat_preview
 ignore_imports =
     # == Composition root (NOT debt; structural & permanent) ==================
     # core.container is the DI container: wiring every layer is its purpose.

@@ -33,7 +33,7 @@ async def test_broadcast_event_writes_notification(monkeypatch):
     store = _FakeStore()
     monkeypatch.setattr(module, "resolve_runtime_trace_store", lambda: store)
     await broadcast_delegation_event(
-        user_id="u1", session_id="s1", delegation_id="d1",
+        user_id="u1", session_id="s1", turn_id="t1", delegation_id="d1",
         event=RunEvent(kind="status", ts_ms=1, payload={"hello": "world"}),
     )
     assert len(store.records) == 1
@@ -43,6 +43,7 @@ async def test_broadcast_event_writes_notification(monkeypatch):
     assert record.session_id == "s1"
     payload = json.loads(record.payload_json)
     assert payload["delegation_id"] == "d1"
+    assert payload["turn_id"] == "t1"
     assert payload["event"]["kind"] == "status"
 
 
@@ -52,16 +53,16 @@ async def test_broadcast_event_rate_limits_per_delegation(monkeypatch):
     monkeypatch.setattr(module, "resolve_runtime_trace_store", lambda: store)
     ev = RunEvent(kind="status", ts_ms=1, payload={})
     await broadcast_delegation_event(
-        user_id="u", session_id="s", delegation_id="dA", event=ev,
+        user_id="u", session_id="s", turn_id="t", delegation_id="dA", event=ev,
     )
     await broadcast_delegation_event(
-        user_id="u", session_id="s", delegation_id="dA", event=ev,
+        user_id="u", session_id="s", turn_id="t", delegation_id="dA", event=ev,
     )
     # second one rate-limited
     assert len(store.records) == 1
     # different delegation_id is not rate-limited
     await broadcast_delegation_event(
-        user_id="u", session_id="s", delegation_id="dB", event=ev,
+        user_id="u", session_id="s", turn_id="t", delegation_id="dB", event=ev,
     )
     assert len(store.records) == 2
 
@@ -72,7 +73,7 @@ async def test_broadcast_state_never_rate_limited(monkeypatch):
     monkeypatch.setattr(module, "resolve_runtime_trace_store", lambda: store)
     for state in ("started", "running", "finished"):
         await broadcast_delegation_state(
-            user_id="u", session_id="s", delegation_id="dX",
+            user_id="u", session_id="s", turn_id="t", delegation_id="dX",
             state=state, summary={"step": state},
         )
     assert len(store.records) == 3
@@ -84,15 +85,16 @@ async def test_broadcast_state_clears_rate_limit_on_terminal(monkeypatch):
     monkeypatch.setattr(module, "resolve_runtime_trace_store", lambda: store)
     ev = RunEvent(kind="status", ts_ms=1, payload={})
     await broadcast_delegation_event(
-        user_id="u", session_id="s", delegation_id="dY", event=ev,
+        user_id="u", session_id="s", turn_id="t", delegation_id="dY", event=ev,
     )
     await broadcast_delegation_state(
-        user_id="u", session_id="s", delegation_id="dY", state="finished",
+        user_id="u", session_id="s", turn_id="t", delegation_id="dY",
+        state="finished",
     )
     # Even though it's within 100 ms, the next event broadcast fires because
     # 'finished' cleared the rate-limit bucket.
     await broadcast_delegation_event(
-        user_id="u", session_id="s", delegation_id="dY", event=ev,
+        user_id="u", session_id="s", turn_id="t", delegation_id="dY", event=ev,
     )
     channels = [r.channel for r in store.records]
     assert channels == [
@@ -107,10 +109,11 @@ async def test_broadcast_silent_when_ids_missing(monkeypatch):
     store = _FakeStore()
     monkeypatch.setattr(module, "resolve_runtime_trace_store", lambda: store)
     await broadcast_delegation_event(
-        user_id="", session_id="s", delegation_id="d",
+        user_id="", session_id="s", turn_id="t", delegation_id="d",
         event=RunEvent(kind="status", ts_ms=1, payload={}),
     )
     await broadcast_delegation_state(
-        user_id="u", session_id="", delegation_id="d", state="started",
+        user_id="u", session_id="", turn_id="t", delegation_id="d",
+        state="started",
     )
     assert store.records == []

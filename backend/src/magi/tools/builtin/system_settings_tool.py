@@ -7,12 +7,12 @@ from __future__ import annotations
 from typing import Any
 
 from ...config import get_config, get_config_file_path, list_app_config_specs, save_config
-from ...memory.embedding.config_coordination import (
+from ...config.embedding_coordination import (
     clone_config_with_update,
     get_embedding_config_update_lock,
-    get_embedding_rebuild_manager,
     pause_rebuilds_for_embedding_config_change,
 )
+from ...core.runtime_bindings import require_embedding_rebuild_manager
 from ..schema import (
     Tool,
     ToolErrorCode,
@@ -40,6 +40,12 @@ def refresh_runtime_llm_config(config: Any) -> None:
     from ...bootstrap import refresh_runtime_llm_config as refresh
 
     refresh(config)
+
+
+def get_embedding_rebuild_manager() -> Any:
+    """Return the active embedding rebuild manager."""
+
+    return require_embedding_rebuild_manager()
 
 
 class SystemSettingsTool(SystemSettingsPathMixin, SystemSettingsActionsMixin, Tool):

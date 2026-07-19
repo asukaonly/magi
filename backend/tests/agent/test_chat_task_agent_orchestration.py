@@ -8,6 +8,8 @@ from typing import Any
 import pytest
 
 from magi.chat import ChatContextSummaryRecord, ChatMessageRecord, ChatStore
+from magi.chat.attachment_storage import LocalChatAttachmentStorage
+from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from magi.chat.read.models import ChatDisplayMessage
 from magi.agent.orchestration import (
     OrchestrationStore,
@@ -123,6 +125,16 @@ async def test_chat_context_assembler_reloads_cache_when_history_version_changes
 async def test_chat_context_assembler_loads_active_summary_context_and_tail(tmp_path: Path, runtime_paths_with_schema) -> None:
     chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
+    attachment = await run_chat_asset_mutation(
+        LocalChatAttachmentStorage(
+            runtime_paths=runtime_paths_with_schema,
+        ).store_file_attachment,
+        session_id="s-chat",
+        turn_id="turn-1",
+        original_name="original.pdf",
+        content=b"%PDF-1.4 test",
+        mime_type="application/pdf",
+    )
     await chat_store.create_user_turn(
         session_id="s-chat",
         user_id="u-chat",
@@ -130,9 +142,15 @@ async def test_chat_context_assembler_loads_active_summary_context_and_tail(tmp_
         message_text="original topic",
         attachment_payloads=[
             {
-                "attachment_id": "attachment-old",
+                "attachment_id": attachment.attachment_id,
                 "kind": "pdf",
-                "original_name": "original.pdf",
+                "original_name": attachment.original_name,
+                "mime_type": attachment.mime_type,
+                "size_bytes": attachment.size_bytes,
+                "storage_path": attachment.storage_path,
+                "sha256": attachment.sha256,
+                "session_id": "s-chat",
+                "turn_id": "turn-1",
             }
         ],
         created_at_ms=100,
@@ -203,7 +221,7 @@ async def test_chat_context_assembler_loads_active_summary_context_and_tail(tmp_
         "# Session Attachment References\n"
         "These are lightweight references to files attached in this session.\n"
         "Use `read_chat_attachment` with an `attachment_id` when the user asks about an earlier attachment; do not guess attachment contents from memory.\n"
-        "- attachment_id=attachment-old; name=original.pdf; kind=pdf; turn_id=turn-1"
+        f"- attachment_id={attachment.attachment_id}; name=original.pdf; kind=pdf; turn_id=turn-1"
     )
     assert history_context.messages == [
         {"role": "user", "content": "tail starts here"},

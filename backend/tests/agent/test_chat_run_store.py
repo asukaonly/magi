@@ -4,6 +4,7 @@ import pytest
 
 from magi.agent.task_agents.handlers.run_contracts import RunResultDisposition
 from magi.chat.task_agent.run_store import SessionRunStore
+from magi.control.run_control import null_run_control
 
 
 def test_create_active_run_tracks_session_state() -> None:
@@ -78,6 +79,11 @@ def test_mark_cancelled_updates_run_status() -> None:
 def test_complete_active_run_clears_session_state() -> None:
     store = SessionRunStore()
     store.create_active_run(session_id="session-1", run_id="run-1")
+    store.register_active_run_control(
+        "session-1",
+        "run-1",
+        null_run_control(),
+    )
     store.append_pending_turn(
         session_id="session-1",
         turn_id="turn-2",
@@ -92,6 +98,125 @@ def test_complete_active_run_clears_session_state() -> None:
 
     assert completed is True
     assert store.get_active_run("session-1") is None
+    assert store.get_active_run_control("session-1", "run-1") is None
+
+
+def test_cancel_completion_unregisters_active_run_control() -> None:
+    store = SessionRunStore()
+    store.create_active_run(session_id="session-1", run_id="run-1")
+    store.register_active_run_control(
+        "session-1",
+        "run-1",
+        null_run_control(),
+    )
+    store.request_cancel("session-1", requested_by="local_user")
+
+    completed = store.complete_active_run(
+        "session-1",
+        run_id="run-1",
+        revision=0,
+    )
+
+    assert completed is True
+    assert store.get_active_run_control("session-1", "run-1") is None
+
+
+def test_replacing_session_root_discards_only_obsolete_controls() -> None:
+    store = SessionRunStore()
+    old_control = null_run_control()
+    new_control = null_run_control()
+    store.create_active_run(session_id="session-1", run_id="run-old")
+    store.register_active_run_control("session-1", "run-old", old_control)
+
+    store.create_active_run(session_id="session-1", run_id="run-new")
+    store.register_active_run_control("session-1", "run-new", new_control)
+
+    assert store.get_active_run_control("session-1", "run-old") is None
+    assert (
+        store.complete_active_run(
+            "session-1",
+            run_id="run-old",
+            revision=0,
+        )
+        is False
+    )
+    assert store.get_active_run_control("session-1", "run-new") is new_control
+
+
+def test_stale_revision_completion_does_not_clear_new_revision_control() -> None:
+    store = SessionRunStore()
+    store.create_active_run(session_id="session-1", run_id="run-1")
+    store.register_active_run_control(
+        "session-1",
+        "run-1",
+        null_run_control(),
+    )
+
+    store.bump_revision("session-1")
+    new_control = null_run_control()
+    store.register_active_run_control("session-1", "run-1", new_control)
+
+    assert (
+        store.complete_active_run(
+            "session-1",
+            run_id="run-1",
+            revision=0,
+        )
+        is False
+    )
+    assert store.get_active_run_control("session-1", "run-1") is new_control
+
+
+def test_complete_active_run_atomically_returns_only_current_deferred_turns() -> None:
+    store = SessionRunStore()
+    store.create_active_run(session_id="session-1", run_id="run-1")
+    store.append_pending_turn(
+        session_id="session-1",
+        turn_id="turn-augment",
+        content="Use this in the current task",
+        disposition="augment",
+    )
+    store.append_pending_turn(
+        session_id="session-1",
+        turn_id="turn-deferred",
+        content="Handle this after the current task",
+        disposition="defer",
+    )
+
+    completed, deferred_turns = store.complete_active_run_with_deferred(
+        "session-1",
+        run_id="run-1",
+        revision=0,
+    )
+
+    assert completed is True
+    assert [turn.turn_id for turn in deferred_turns] == ["turn-deferred"]
+    assert store.get_active_run("session-1") is None
+
+
+def test_complete_active_run_mismatch_does_not_detach_deferred_turns() -> None:
+    store = SessionRunStore()
+    store.create_active_run(session_id="session-1", run_id="run-current")
+    store.append_pending_turn(
+        session_id="session-1",
+        turn_id="turn-deferred",
+        content="Handle this after the current task",
+        disposition="defer",
+    )
+
+    completed, deferred_turns = store.complete_active_run_with_deferred(
+        "session-1",
+        run_id="run-stale",
+        revision=0,
+    )
+
+    active_run = store.get_active_run("session-1")
+    assert completed is False
+    assert deferred_turns == []
+    assert active_run is not None
+    assert [turn.turn_id for turn in active_run.pending_turns] == [
+        "turn-deferred"
+    ]
 
 
 @pytest.mark.asyncio
@@ -111,6 +236,11 @@ async def test_create_active_run_populates_l0_goal_stack() -> None:
     assert workbench["goal_stack"][0]["goal_id"] == "chat_run:run-1:0"
     assert workbench["goal_stack"][0]["description"] == "Inspect the login flow"
     assert workbench["goal_stack"][0]["status"] == "in_progress"
+    assert workbench["goal_stack"][0]["metadata"] == {
+        "run_id": "run-1",
+        "revision": 0,
+        "root_turn_id": "turn-1",
+    }
 
 
 @pytest.mark.asyncio
@@ -140,6 +270,8 @@ async def test_interrupting_run_supersedes_previous_goal_and_pushes_new_goal() -
     assert workbench["goal_stack"][0]["result_summary"] == "Superseded by a newer user turn"
     assert workbench["goal_stack"][1]["status"] == "in_progress"
     assert workbench["goal_stack"][1]["description"] == "Switch to the checkout issue instead"
+    assert workbench["goal_stack"][0]["metadata"]["root_turn_id"] == "turn-1"
+    assert workbench["goal_stack"][1]["metadata"]["root_turn_id"] == "turn-2"
 
 
 @pytest.mark.asyncio

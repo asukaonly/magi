@@ -14,7 +14,6 @@ Pins:
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import pytest
@@ -159,6 +158,27 @@ async def test_exception_in_one_channel_does_not_abort_others() -> None:
     )
     assert len(good.calls) == 1
     assert len(bad.calls) == 1  # was called, raised, caught
+
+
+@pytest.mark.asyncio
+async def test_registry_lookup_failure_does_not_abort_other_control_targets() -> None:
+    good = _ChannelStub(ctype="good", supports_control=True)
+
+    class _FailingRegistry(_Registry):
+        def get(self, channel_id: str):
+            if channel_id == "broken":
+                raise RuntimeError("registry unavailable")
+            return super().get(channel_id)
+
+    router = DeliveryRouter(
+        channel_registry=_FailingRegistry({"good": good})
+    )
+    await router.fanout_control_request(
+        request=_make_request(),
+        targets=[_target("broken"), _target("good")],
+    )
+
+    assert len(good.calls) == 1
 
 
 @pytest.mark.asyncio

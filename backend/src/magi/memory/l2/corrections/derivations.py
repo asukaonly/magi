@@ -14,10 +14,6 @@ from ...derivation_revision import (
     DerivationRevisionChangedError,
     MemoryClearGenerationChangedError,
 )
-from ....user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
-from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
-from ....user_profile.projection_builder import UserProfileProjectionBuilder
-from ....user_profile.projection_repository import UserProfileProjectionRepository
 from .repository import (
     DEFAULT_DERIVATION_MAX_ATTEMPTS,
     MemoryCorrectionRepository,
@@ -43,7 +39,16 @@ class CorrectionDerivationRunner:
         self._l2_store = l2_store
         self._l3_store = l3_store
         self._repository = MemoryCorrectionRepository(db_path)
-        self._handlers = dict(handlers or {})
+        registered_handlers: Mapping[str, DerivationHandler] = {}
+        get_registered_handlers = getattr(
+            l2_store,
+            "get_memory_correction_job_handlers",
+            None,
+        )
+        if callable(get_registered_handlers):
+            registered_handlers = get_registered_handlers()
+        self._handlers = dict(registered_handlers)
+        self._handlers.update(handlers or {})
 
     async def run_pending(
         self,
@@ -136,7 +141,9 @@ class CorrectionDerivationRunner:
         current_revision = await self._repository.current_subject_revision(subject_key)
         if current_revision != int(target_revision):
             raise DerivationRevisionChangedError(
-                f"Subject revision changed from {target_revision} to {current_revision}"
+                subject_key=subject_key,
+                expected_revision=int(target_revision),
+                actual_revision=current_revision,
             )
         job_kinds = ["snapshot", "l3_insight"]
         if subject_key.startswith("user:"):
@@ -158,12 +165,6 @@ class CorrectionDerivationRunner:
             return
         if job_kind == "snapshot":
             await self._rebuild_snapshot(job)
-            return
-        if job_kind == "profile":
-            await self._rebuild_profile(job)
-            return
-        if job_kind == "portrait":
-            await self._rebuild_portrait(job)
             return
         if job_kind == "l3_insight":
             await self._rebuild_l3_insights(job)
@@ -206,47 +207,6 @@ class CorrectionDerivationRunner:
         await self._repository.replace_dependencies(
             artifact_kind="snapshot",
             artifact_id=str(snapshot["snapshot_id"]),
-            subject_key=entity_id,
-            source_revision=int(job["target_revision"]),
-            sources=sources,
-        )
-
-    async def _rebuild_profile(self, job: Mapping[str, Any]) -> None:
-        entity_id = str(job["target_key"])
-        user_id = _user_id(entity_id)
-        if user_id is None:
-            return
-        projection = await UserProfileProjectionBuilder(self._l2_store).build(user_id)
-        stored = await UserProfileProjectionRepository(self._db_path).upsert(projection)
-        await self._repository.replace_dependencies(
-            artifact_kind="profile",
-            artifact_id=user_id,
-            subject_key=entity_id,
-            source_revision=int(job["target_revision"]),
-            sources=[
-                ("assertion", assertion_id)
-                for assertion_id in _collect_assertion_ids(stored.field_sources)
-            ],
-        )
-
-    async def _rebuild_portrait(self, job: Mapping[str, Any]) -> None:
-        entity_id = str(job["target_key"])
-        user_id = _user_id(entity_id)
-        if user_id is None:
-            return
-        profile = await UserProfileProjectionRepository(self._db_path).get(user_id)
-        projection = await UserPortraitProjectionBuilder(
-            self._l2_store,
-            profile_projection=profile,
-        ).build(user_id)
-        stored = await UserPortraitProjectionRepository(self._db_path).upsert(projection)
-        sources = []
-        for reference in stored.evidence_refs:
-            if reference.startswith("assertion:"):
-                sources.append(("assertion", reference.split(":", 1)[1]))
-        await self._repository.replace_dependencies(
-            artifact_kind="portrait",
-            artifact_id=user_id,
             subject_key=entity_id,
             source_revision=int(job["target_revision"]),
             sources=sources,
@@ -323,27 +283,5 @@ class CorrectionDerivationRunner:
             except Exception:
                 await db.rollback()
                 raise
-
-
-def _user_id(subject_key: str) -> str | None:
-    if not subject_key.startswith("user:"):
-        return None
-    value = subject_key.split(":", 1)[1].strip()
-    return value or None
-
-
-def _collect_assertion_ids(value: Any) -> list[str]:
-    found: list[str] = []
-    if isinstance(value, Mapping):
-        assertion_id = str(value.get("assertion_id") or "").strip()
-        if assertion_id:
-            found.append(assertion_id)
-        for nested in value.values():
-            found.extend(_collect_assertion_ids(nested))
-    elif isinstance(value, (list, tuple)):
-        for nested in value:
-            found.extend(_collect_assertion_ids(nested))
-    return list(dict.fromkeys(found))
-
 
 __all__ = ["CorrectionDerivationRunner"]

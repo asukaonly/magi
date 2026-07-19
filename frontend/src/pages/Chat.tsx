@@ -12,7 +12,11 @@ import { useChatRealtimeEffects } from '@/hooks/useChatRealtimeEffects';
 import { useChatSessionLifecycle } from '@/hooks/useChatSessionLifecycle';
 import { useChatTraceDrawer } from '@/hooks/useChatTraceDrawer';
 import { useChatExecutionControls } from '@/hooks/useChatExecutionControls';
+import { useChatInlineSkillSend } from '@/hooks/useChatInlineSkillSend';
+import { useChatDestructiveCleanupEvents } from '@/hooks/useChatDestructiveCleanupEvents';
 import { useConversationStore } from '@/stores';
+import { useContextUsageStore } from '@/stores/context-usage';
+import { useDelegationsStore } from '@/stores/delegations-store';
 import { ChatComposerPane } from '@/components/chat/ChatComposerPane';
 import { ChatClearHistoryDialog } from '@/components/chat/ChatClearHistoryDialog';
 import { SystemSuggestionTopBar } from '@/components/chat/SystemSuggestionTopBar';
@@ -30,8 +34,37 @@ import { useChatComposerMentions } from '@/hooks/useChatComposerMentions';
 import { useChatComposerCommands } from '@/hooks/useChatComposerCommands';
 import { commandsApi, messagesApi, type CommandDescriptor, type SkillCommandDescriptor } from '@/api';
 import { DEFAULT_USER_ID } from '@/constants';
+import { dispatchAppEvent } from '@/constants/events';
+import {
+  clearPersistedChatRetriesForSession,
+  clearPersistedChatRetriesForTurn,
+} from '@/hooks/chatRetryLifecycle';
+import {
+  activateRealtimeChatSession,
+  retireRealtimeChatDelegations,
+  retireRealtimeChatHistory,
+  retireRealtimeChatMessageIds,
+  retireRealtimeChatTurns,
+} from '@/realtime/chat-projection-retirement';
 import { toast } from 'sonner';
-import { buildSystemSuggestionTriggerText, type ChatTimelineMessage } from '@/domain/chat/state';
+import {
+  buildSystemSuggestionTriggerText,
+  type ChatTimelineMessage,
+} from '@/domain/chat/state';
+import {
+  ChatTurnAdmissionCoordinator,
+  type ExistingTurnAdmissionCheck,
+  type RunWithChatTurnAdmission,
+} from '@/hooks/chatTurnAdmission';
+import {
+  findLatestPendingResponseTurn,
+  getNextRhythmPresentationAt,
+  isTerminalRunState,
+  messagesReadyForPresentation,
+  resolvePendingTurnFromHistory,
+} from '@/domain/chat/turn-completion';
+
+const EMPTY_CHAT_MESSAGES: ChatTimelineMessage[] = [];
 
 const toPlainText = (content: string): string => String(content || '')
   .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[\w-]*\n?/g, '').replace(/```/g, ''))
@@ -80,6 +113,7 @@ const normalizeAskOptions = (value: unknown): string[] => (
 const resolvePendingAskComposerState = (
   messages: ChatTimelineMessage[],
   currentSessionId: string | null,
+  nowMs: number,
 ): PendingAskComposerState | null => {
   const sessionId = String(currentSessionId || '').trim();
   if (!sessionId) {
@@ -101,7 +135,7 @@ const resolvePendingAskComposerState = (
       continue;
     }
     const expiresAtMs = numberOrNull(payload.expires_at_ms);
-    if (expiresAtMs !== null && expiresAtMs <= Date.now()) {
+    if (expiresAtMs !== null && expiresAtMs <= nowMs) {
       continue;
     }
     const requestId = String(payload.ask_request_id || '').trim();
@@ -132,8 +166,20 @@ export const ChatPage: React.FC = () => {
     state.currentSessionId ? state.sessionsById[state.currentSessionId] || null : null
   ));
   const setCurrentSessionId = useConversationStore((state) => state.setCurrentSessionId);
-  const messages = useConversationStore((state) =>
-    state.currentSessionId ? (state.messagesBySession[state.currentSessionId] || []) : []
+  const storedMessages = useConversationStore((state) =>
+    state.currentSessionId
+      ? (state.messagesBySession[state.currentSessionId] || EMPTY_CHAT_MESSAGES)
+      : EMPTY_CHAT_MESSAGES
+  );
+  const [presentationNowMs, setPresentationNowMs] = useState(() => Date.now());
+  const [pendingAskNowMs, setPendingAskNowMs] = useState(() => Date.now());
+  const nextRhythmPresentationAt = useMemo(
+    () => getNextRhythmPresentationAt(storedMessages, presentationNowMs),
+    [presentationNowMs, storedMessages],
+  );
+  const messages = useMemo(
+    () => messagesReadyForPresentation(storedMessages, presentationNowMs),
+    [presentationNowMs, storedMessages],
   );
   const appendPendingTurn = useConversationStore((state) => state.appendPendingTurn);
   const upsertMessage = useConversationStore((state) => state.upsertMessage);
@@ -145,7 +191,21 @@ export const ChatPage: React.FC = () => {
   const [historyImagePreview, setHistoryImagePreview] = useState<HistoryImagePreview | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
   const lastTimelineScrollKeyRef = useRef<string | null>(null);
-  const clearPendingResponseTurnRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    setPresentationNowMs(Date.now());
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    if (nextRhythmPresentationAt === null) {
+      return;
+    }
+    const delayMs = Math.max(1, nextRhythmPresentationAt - Date.now() + 1);
+    const timer = window.setTimeout(() => {
+      setPresentationNowMs(Date.now());
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [nextRhythmPresentationAt]);
 
   const {
     loadingTrace,
@@ -166,9 +226,9 @@ export const ChatPage: React.FC = () => {
     requestRunCancel,
     requestRunDetach,
     handleTurnExecutionControlEvent,
+    settleTurnFromHistory,
   } = useChatExecutionControls({
     currentSessionId,
-    onTerminalExecutionState: () => clearPendingResponseTurnRef.current(),
   });
 
   const {
@@ -178,20 +238,39 @@ export const ChatPage: React.FC = () => {
     coreModelSupportsVision,
     coreModelContextWindow,
     allowInterjection,
+    interjectionSettingLoaded,
+    clearSessionLifecycleState,
+    ensureSessionHistoryReady,
+    reconcileTurnFromHistory,
   } = useChatSessionLifecycle({
     currentSessionId,
-    setCurrentSessionId,
-    resetConversation,
-    resetTraceDrawer,
     upsertMessage,
     removeMessage,
     translate: t,
   });
 
   const activePendingAsk = React.useMemo(
-    () => resolvePendingAskComposerState(messages, currentSessionId),
-    [currentSessionId, messages],
+    () => resolvePendingAskComposerState(
+      messages,
+      currentSessionId,
+      pendingAskNowMs,
+    ),
+    [currentSessionId, messages, pendingAskNowMs],
   );
+  useEffect(() => {
+    setPendingAskNowMs(Date.now());
+  }, [currentSessionId, messages]);
+  useEffect(() => {
+    const expiresAtMs = activePendingAsk?.expiresAtMs;
+    if (expiresAtMs === null || expiresAtMs === undefined) {
+      return undefined;
+    }
+    const timeout = window.setTimeout(
+      () => setPendingAskNowMs(Date.now()),
+      Math.max(1, expiresAtMs - Date.now() + 1),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [activePendingAsk?.expiresAtMs]);
 
   const handleAskAnswerSent = React.useCallback((answerPayload: PendingAskAnswerPayload) => {
     const state = useConversationStore.getState();
@@ -272,8 +351,106 @@ export const ChatPage: React.FC = () => {
     handleLabelDraftCompositionEnd,
   } = useChatMessageOverlays(currentSessionId);
 
+  const inlineSkillReconciliationRef = useRef<(
+    sessionId: string,
+    excludedRetryKey?: string,
+  ) => Promise<ExistingTurnAdmissionCheck>>(async () => ({
+    kind: 'unconfirmed',
+  }));
+  const reconcileInlineSkillBeforeComposerTurn = React.useCallback((
+    sessionId: string,
+    excludedRetryKey?: string,
+  ) => inlineSkillReconciliationRef.current(
+    sessionId,
+    excludedRetryKey,
+  ), []);
+  const turnAdmissionCoordinatorRef = useRef<ChatTurnAdmissionCoordinator | null>(
+    null,
+  );
+  if (!turnAdmissionCoordinatorRef.current) {
+    turnAdmissionCoordinatorRef.current = new ChatTurnAdmissionCoordinator();
+  }
+  const ensureAdmissionHistoryReady = React.useCallback(async (
+    sessionId: string,
+  ): Promise<boolean> => {
+    const historyState = await ensureSessionHistoryReady(sessionId);
+    if (!historyState.loaded) {
+      return false;
+    }
+    const pendingTurnId = findLatestPendingResponseTurn(
+      historyState.messages,
+      Date.now(),
+    );
+    if (pendingTurnId) {
+      turnAdmissionCoordinatorRef.current!.markPendingTurn(
+        sessionId,
+        pendingTurnId,
+      );
+      return true;
+    }
+    const trackedTurnId = turnAdmissionCoordinatorRef.current!
+      .getPendingTurnId(sessionId);
+    if (
+      trackedTurnId
+      && resolvePendingTurnFromHistory(
+        historyState.messages,
+        trackedTurnId,
+        Date.now(),
+        { resolveMissing: false },
+      ).resolved
+    ) {
+      turnAdmissionCoordinatorRef.current!.clearPendingTurn(
+        sessionId,
+        trackedTurnId,
+      );
+    }
+    return true;
+  }, [ensureSessionHistoryReady]);
+  const runWithTurnAdmission = React.useCallback<RunWithChatTurnAdmission>(
+    (sessionId, kind, operation) => (
+      turnAdmissionCoordinatorRef.current!.run(
+        sessionId,
+        kind,
+        ensureAdmissionHistoryReady,
+        operation,
+      )
+    ),
+    [ensureAdmissionHistoryReady],
+  );
+  const markAdmissionPendingTurn = React.useCallback((
+    sessionId: string,
+    turnId: string,
+  ) => {
+    turnAdmissionCoordinatorRef.current!.markPendingTurn(
+      sessionId,
+      turnId,
+    );
+  }, []);
+  const clearAdmissionPendingTurn = React.useCallback((
+    sessionId: string,
+    turnId?: string,
+  ) => {
+    turnAdmissionCoordinatorRef.current!.clearPendingTurn(
+      sessionId,
+      turnId,
+    );
+  }, []);
+  useLayoutEffect(() => {
+    turnAdmissionCoordinatorRef.current!.setInterjectionPolicy({
+      loaded: interjectionSettingLoaded,
+      allow: allowInterjection,
+    });
+  }, [allowInterjection, interjectionSettingLoaded]);
   const {
     attachmentMenuOpen,
+    clearAllPendingResponseTurns,
+    clearAllRetryableSends,
+    clearConversationBoundDraftState,
+    clearComposerReferenceToMessage,
+    clearDeletedSessionDraftState,
+    clearHistoryBoundDraftState,
+    clearRetryableSendForTurn,
+    clearRetryableSendsForSession,
     clearPendingResponseTurn,
     composerRef,
     draftAttachments,
@@ -288,6 +465,9 @@ export const ChatPage: React.FC = () => {
     imageInputRef,
     inputValue,
     pendingResponseTurnId,
+    pendingResponseTurnsBySession,
+    reconcilePendingSendBeforeExternalTurn,
+    trackPendingResponseTurn,
     recallFeedbackDraft,
     removeDraftAttachment,
     replyTarget,
@@ -310,8 +490,116 @@ export const ChatPage: React.FC = () => {
     setCurrentSessionId,
     onAskAnswered: handleAskAnswerSent,
     requestRunCancel,
+    markAdmissionPendingTurn,
+    clearAdmissionPendingTurn,
+    reconcileExternalTurnBeforeSend:
+      reconcileInlineSkillBeforeComposerTurn,
+    runWithTurnAdmission,
     translate: t,
   });
+
+  const {
+    clearAllRetries: clearAllInlineSkillRetries,
+    clearRetryForTurn: clearInlineSkillRetryForTurn,
+    clearRetriesForSession: clearInlineSkillRetriesForSession,
+    reconcileBeforeComposerTurn:
+      reconcileInlineSkillOperationsBeforeComposerTurn,
+    runSkillExpansion,
+  } = useChatInlineSkillSend({
+    currentSessionId,
+    workspacePath: currentSession?.workspace_path,
+    allowInterjection,
+    hasPendingAsk: Boolean(activePendingAsk),
+    appendPendingTurn,
+    removeMessage,
+    trackPendingResponseTurn,
+    clearPendingResponseTurn,
+    reconcilePendingSendBeforeExternalTurn,
+    runWithTurnAdmission,
+    translate: t,
+  });
+  useLayoutEffect(() => {
+    inlineSkillReconciliationRef.current =
+      reconcileInlineSkillOperationsBeforeComposerTurn;
+  }, [reconcileInlineSkillOperationsBeforeComposerTurn]);
+
+  const getCurrentSessionId = React.useCallback(
+    () => useConversationStore.getState().currentSessionId,
+    [],
+  );
+  const clearAllAdmissionPendingTurns = React.useCallback(() => {
+    turnAdmissionCoordinatorRef.current!.clearAllPendingTurns();
+  }, []);
+  useChatDestructiveCleanupEvents({
+    clearAdmissionPendingTurn,
+    clearAllAdmissionPendingTurns,
+    clearAllInlineSkillRetries,
+    clearAllPendingResponseTurns,
+    clearAllRetryableSends,
+    clearConversationBoundDraftState,
+    clearDeletedSessionDraftState,
+    clearInlineSkillRetriesForSession,
+    clearPendingResponseTurn,
+    clearRetryableSendsForSession,
+    clearSessionLifecycleState,
+    clearSessionHistory,
+    getCurrentSessionId,
+    resetTraceDrawer,
+    resetConversation,
+    setCurrentSessionId,
+  });
+
+  const recoveredPendingResponseTurnId = useMemo(() => (
+    allowInterjection
+      ? null
+      : findLatestPendingResponseTurn(storedMessages, presentationNowMs)
+  ), [allowInterjection, presentationNowMs, storedMessages]);
+
+  useLayoutEffect(() => {
+    if (!currentSessionId || !recoveredPendingResponseTurnId) {
+      return;
+    }
+    trackPendingResponseTurn(currentSessionId, recoveredPendingResponseTurnId);
+  }, [
+    currentSessionId,
+    recoveredPendingResponseTurnId,
+    trackPendingResponseTurn,
+  ]);
+
+  const pendingTurnHistoryResolution = useMemo(() => (
+    currentSessionId && pendingResponseTurnId
+      ? resolvePendingTurnFromHistory(
+        storedMessages,
+        pendingResponseTurnId,
+        presentationNowMs,
+        { resolveMissing: false },
+      )
+      : null
+  ), [
+    currentSessionId,
+    pendingResponseTurnId,
+    presentationNowMs,
+    storedMessages,
+  ]);
+
+  useEffect(() => {
+    if (
+      !currentSessionId
+      || !pendingResponseTurnId
+      || !pendingTurnHistoryResolution?.resolved
+    ) {
+      return;
+    }
+    clearPendingResponseTurn({
+      sessionId: currentSessionId,
+      turnId: pendingResponseTurnId,
+    });
+  }, [
+    clearPendingResponseTurn,
+    currentSessionId,
+    pendingResponseTurnId,
+    pendingTurnHistoryResolution,
+  ]);
 
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -347,18 +635,65 @@ export const ChatPage: React.FC = () => {
     clearHistoryInFlightRef.current = true;
     setClearHistoryLoading(true);
     setClearHistoryError(null);
+    let cleanupPending = false;
     try {
-      const result = await messagesApi.clearHistory(DEFAULT_USER_ID, targetSessionId);
-      if (!result.success) {
-        throw new Error('Clear history request was not completed');
-      }
-      clearSessionHistory(targetSessionId);
-      if (currentSessionId === targetSessionId) {
-        clearPendingResponseTurnRef.current();
-        resetTraceDrawer();
+      const admission = await turnAdmissionCoordinatorRef.current!.runExclusive(
+        targetSessionId,
+        async () => {
+          const result = await messagesApi.clearHistory(
+            DEFAULT_USER_ID,
+            targetSessionId,
+          );
+          if (!result.success) {
+            throw new Error('Clear history request was not completed');
+          }
+          if (String(result.session_id || '').trim() !== targetSessionId) {
+            throw new Error('Clear history request returned another session');
+          }
+          cleanupPending = result.cleanup_pending;
+          retireRealtimeChatMessageIds(
+            targetSessionId,
+            result.cleared_message_ids,
+          );
+          retireRealtimeChatTurns(
+            targetSessionId,
+            result.cleared_turn_ids,
+          );
+          retireRealtimeChatHistory(
+            targetSessionId,
+            useConversationStore.getState().messagesBySession[targetSessionId] || [],
+          );
+          useContextUsageStore.getState().clear(targetSessionId);
+          retireRealtimeChatDelegations(
+            targetSessionId,
+            Object.keys(
+              useDelegationsStore.getState().delegationsBySession[targetSessionId]
+              || {},
+            ),
+          );
+          useDelegationsStore.getState().clearSession(targetSessionId);
+          clearSessionHistory(targetSessionId);
+          clearSessionLifecycleState(targetSessionId);
+          clearPersistedChatRetriesForSession(targetSessionId);
+          clearRetryableSendsForSession(targetSessionId);
+          clearInlineSkillRetriesForSession(targetSessionId);
+          clearPendingResponseTurn({ sessionId: targetSessionId });
+          if (currentSessionId === targetSessionId) {
+            clearHistoryBoundDraftState();
+            resetTraceDrawer();
+          }
+          dispatchAppEvent.chatHistoryCleared(targetSessionId);
+        },
+      );
+      if (!admission.entered) {
+        throw new Error('Clear history admission was not completed');
       }
       setClearHistorySessionId(null);
-      toast.success(t('chat.clearHistoryDialog.success'));
+      if (cleanupPending) {
+        toast.warning(t('chat.clearHistoryDialog.cleanupPending'));
+      } else {
+        toast.success(t('chat.clearHistoryDialog.success'));
+      }
     } catch {
       const message = t('chat.clearHistoryDialog.error');
       setClearHistoryError(message);
@@ -367,7 +702,18 @@ export const ChatPage: React.FC = () => {
       clearHistoryInFlightRef.current = false;
       setClearHistoryLoading(false);
     }
-  }, [clearHistorySessionId, clearSessionHistory, currentSessionId, resetTraceDrawer, t]);
+  }, [
+    clearHistorySessionId,
+    clearPendingResponseTurn,
+    clearInlineSkillRetriesForSession,
+    clearRetryableSendsForSession,
+    clearSessionLifecycleState,
+    clearSessionHistory,
+    clearHistoryBoundDraftState,
+    currentSessionId,
+    resetTraceDrawer,
+    t,
+  ]);
 
   const handleInternalCommand = React.useCallback(
     async (action: 'clear' | 'new-session' | 'cancel' | 'help') => {
@@ -385,6 +731,7 @@ export const ChatPage: React.FC = () => {
           const created = await messagesApi.createNewSession(DEFAULT_USER_ID);
           const newId = created?.session_id ?? null;
           if (newId) {
+            activateRealtimeChatSession(newId);
             setCurrentSessionId(String(newId));
             toast.success(t('chat.sessionSwitched'));
           }
@@ -395,7 +742,13 @@ export const ChatPage: React.FC = () => {
             toast.info(t('chat.commands.nothingToCancel', { defaultValue: 'No active run to cancel.' }));
             return;
           }
-          await requestRunCancel(pendingResponseTurnId);
+          const outcome = await requestRunCancel(pendingResponseTurnId);
+          if (outcome === 'settled') {
+            clearPendingResponseTurn({
+              sessionId: currentSessionId || undefined,
+              turnId: pendingResponseTurnId,
+            });
+          }
           return;
         }
         if (action === 'help') {
@@ -409,7 +762,14 @@ export const ChatPage: React.FC = () => {
         toast.error(exc?.message ?? String(exc));
       }
     },
-    [currentSessionId, pendingResponseTurnId, requestRunCancel, setCurrentSessionId, t],
+    [
+      clearPendingResponseTurn,
+      currentSessionId,
+      pendingResponseTurnId,
+      requestRunCancel,
+      setCurrentSessionId,
+      t,
+    ],
   );
 
   const handleToolPicked = React.useCallback((descriptor: CommandDescriptor) => {
@@ -422,7 +782,10 @@ export const ChatPage: React.FC = () => {
       // Otherwise open a small dialog so the user can fill them in.
       if (!descriptor.argument_hint) {
         try {
-          await runSkillExpansion(descriptor, '');
+          const outcome = await runSkillExpansion(descriptor, '');
+          if (outcome.kind === 'not_sent') {
+            toast.warning(outcome.message);
+          }
         } catch (exc: any) {
           toast.error(exc?.message ?? String(exc));
         }
@@ -430,56 +793,7 @@ export const ChatPage: React.FC = () => {
         setSkillDialogDescriptor(descriptor);
       }
     },
-    [],
-  );
-
-  const runSkillExpansion = React.useCallback(
-    async (descriptor: SkillCommandDescriptor, argsText: string) => {
-      if (!currentSessionId) {
-        throw new Error(t('chat.sessionRequired'));
-      }
-      const args = argsText.trim()
-        ? argsText.trim().split(/\s+/)
-        : [];
-
-      // Skills declared `context: fork` run as background tasks; the
-      // completion is delivered back to the timeline via the existing
-      // background_task_completion plumbing. Inline skills expand into
-      // the user's next message.
-      if (descriptor.context_mode === 'fork') {
-        const result = await commandsApi.runSkillAsBackground({
-          user_id: DEFAULT_USER_ID,
-          session_id: currentSessionId,
-          skill_name: descriptor.name,
-          arguments: args,
-          workspace_path: currentSession?.workspace_path ?? null,
-        });
-        toast.success(
-          t('chat.skills.backgroundQueued', {
-            defaultValue: 'Started {{title}} in the background.',
-            title: result.title,
-          }),
-        );
-        return;
-      }
-
-      const expansion = await commandsApi.expandSkill({
-        user_id: DEFAULT_USER_ID,
-        session_id: currentSessionId,
-        skill_name: descriptor.name,
-        arguments: args,
-        workspace_path: currentSession?.workspace_path ?? null,
-      });
-      const body =
-        `${expansion.invocation_text}\n\n${expansion.rendered_prompt}`.trim();
-      await messagesApi.sendMessage({
-        user_id: DEFAULT_USER_ID,
-        session_id: currentSessionId,
-        message: body,
-        workspace_path: currentSession?.workspace_path ?? null,
-      });
-    },
-    [currentSession?.workspace_path, currentSessionId, t],
+    [runSkillExpansion],
   );
 
   const handleRunTool = React.useCallback(
@@ -505,6 +819,7 @@ export const ChatPage: React.FC = () => {
   const commands = useChatComposerCommands({
     setInputValue,
     textareaRef: composerTextareaRef,
+    allowInlineSkills: !activePendingAsk,
     onPickInternal: handleInternalCommand,
     onPickTool: handleToolPicked,
     onPickSkill: handleSkillPicked,
@@ -526,13 +841,12 @@ export const ChatPage: React.FC = () => {
     (value: string) => {
       const option = String(value || '').trim();
       if (!option) return;
-      const next = inputValue.trim() ? `${inputValue.trim()} ${option}` : option;
-      handleInputChangeWithMentions(next);
+      handleInputChangeWithMentions(option);
       window.requestAnimationFrame(() => {
         composerTextareaRef.current?.focus();
       });
     },
-    [handleInputChangeWithMentions, inputValue],
+    [handleInputChangeWithMentions],
   );
 
   const handleKeyDownWithMentions = React.useCallback(
@@ -547,10 +861,6 @@ export const ChatPage: React.FC = () => {
     },
     [commands, handleComposerKeyDown, mentions, recallFeedbackDraft],
   );
-
-  useEffect(() => {
-    clearPendingResponseTurnRef.current = clearPendingResponseTurn;
-  }, [clearPendingResponseTurn]);
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   const lastReasoningFootprint = (lastMessage?.reasoning || [])
@@ -637,11 +947,22 @@ export const ChatPage: React.FC = () => {
 
   useChatRealtimeEffects({
     allowInterjection,
-    turnActive: waitingForReply,
+    pendingResponseTurnsBySession,
     refreshVisibleTrace,
     handleTurnExecutionControlEvent,
+    reconcilePendingResponseTurn: reconcileTurnFromHistory,
+    settleTurnFromHistory,
     clearPendingResponseTurn,
   });
+
+  const clearRetryableTurn = React.useCallback((
+    sessionId: string,
+    turnId: string,
+  ) => {
+    clearPersistedChatRetriesForTurn(sessionId, turnId);
+    clearRetryableSendForTurn(sessionId, turnId);
+    clearInlineSkillRetryForTurn(sessionId, turnId);
+  }, [clearInlineSkillRetryForTurn, clearRetryableSendForTurn]);
 
   const {
     applyLabelToMessage,
@@ -652,6 +973,9 @@ export const ChatPage: React.FC = () => {
     activeLabelMessageId: labelPopoverState?.messageId || null,
     applyMessageLabel,
     removeMessage,
+    clearRetryableTurn,
+    clearPendingResponseTurn,
+    clearComposerReferenceToMessage,
     closeLabelPopover,
     closeMessageContextMenu,
     normalizeCopyText: toPlainText,
@@ -731,7 +1055,7 @@ export const ChatPage: React.FC = () => {
       <ChatComposerPane
         composerRef={composerRef}
         textareaRef={composerTextareaRef}
-        replyTarget={recallFeedbackDraft ? null : replyTarget}
+        replyTarget={recallFeedbackDraft || activePendingAsk ? null : replyTarget}
         onCancelReply={() => setReplyTarget(null)}
         attachments={recallFeedbackDraft ? [] : draftAttachments}
         onRemoveAttachment={removeDraftAttachment}
@@ -741,6 +1065,12 @@ export const ChatPage: React.FC = () => {
         onCompositionEnd={handleCompositionEnd}
         onKeyDown={handleKeyDownWithMentions}
         onPaste={handleComposerPaste}
+        answeringAsk={Boolean(activePendingAsk)}
+        choiceOnlyAsk={Boolean(activePendingAsk && !activePendingAsk.allowFreeText)}
+        validChoiceSelected={Boolean(
+          activePendingAsk
+          && activePendingAsk.options.includes(inputValue.trim())
+        )}
         waitingForReply={waitingForReply}
         attachmentMenuOpen={attachmentMenuOpen}
         coreModelSupportsVision={coreModelSupportsVision}
@@ -750,6 +1080,16 @@ export const ChatPage: React.FC = () => {
         onPickFile={() => fileInputRef.current?.click()}
         sessionId={currentSessionId}
         sendingMessage={sendingMessage}
+        stoppingReply={Boolean(
+          pendingResponseTurnId
+          && (
+            cancellingTurnIds.includes(pendingResponseTurnId)
+            || pendingTurnHistoryResolution?.safeToCommitHistory
+            || isTerminalRunState(
+              executionControlByTurnId[pendingResponseTurnId]?.state,
+            )
+          )
+        )}
         onPrimaryAction={handleComposerPrimaryAction}
         recallFeedbackDraft={recallFeedbackDraft}
         onCancelRecallFeedback={cancelRecallFeedback}
@@ -765,7 +1105,7 @@ export const ChatPage: React.FC = () => {
             onPick={handleAskQuickReplyPicked}
           />
         ) : undefined}
-        pickerSlot={recallFeedbackDraft ? undefined : (
+        pickerSlot={recallFeedbackDraft || activePendingAsk ? undefined : (
           <>
             <ComposerMentionPicker
               open={mentions.state.open}

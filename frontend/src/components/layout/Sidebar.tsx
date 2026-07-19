@@ -18,9 +18,16 @@ import {
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { messagesApi, type ChatSessionListItem } from '@/api';
 import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
+import { APP_EVENTS } from '@/constants/events';
+import { completeChatSessionDeletion } from '@/hooks/chatRetryLifecycle';
+import {
+  activateRealtimeChatSession,
+  activateRealtimeChatSessions,
+} from '@/realtime/chat-projection-retirement';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -40,8 +47,6 @@ import { MoodCalendar } from '@/components/timeline/immersive/sidebar/MoodCalend
 import { StandoutList } from '@/components/timeline/immersive/sidebar/StandoutList';
 
 const USER_ID = DEFAULT_USER_ID;
-const SESSION_EVENT = 'magi-session-sync';
-
 interface SidebarProps {
   collapsed?: boolean;
 }
@@ -119,9 +124,13 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const [renameValue, setRenameValue] = useState('');
   const [actionPending, setActionPending] = useState(false);
   const sessionMenuRef = useRef<HTMLDivElement>(null);
-  const sessionCreatingRef = useRef(false);
+  const refreshRequestIdRef = useRef(0);
+  const sessionCreationPromiseRef = useRef<Promise<string | null> | null>(null);
 
   const refreshSessions = useCallback(async (preferredSessionId?: string | null) => {
+    const requestId = refreshRequestIdRef.current + 1;
+    refreshRequestIdRef.current = requestId;
+    const requestIsCurrent = () => refreshRequestIdRef.current === requestId;
     const sessionStorageKey = CHAT_SESSION_KEY(USER_ID);
     const readPersistedSessionId = () => {
       try {
@@ -149,40 +158,57 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         requestedSessionId: string | null = preferredSessionId ?? null,
       ): Promise<void> => {
         const response = await messagesApi.listSessions(USER_ID, 50);
+        if (!requestIsCurrent()) {
+          return;
+        }
         const sessions = response.sessions || [];
-        if (sessions.length === 0 && allowCreate && !sessionCreatingRef.current) {
-          sessionCreatingRef.current = true;
-          try {
-            const created = await messagesApi.createNewSession(USER_ID);
-            if (created.session_id) {
-              persistSessionId(created.session_id);
-              await loadSessions(false, created.session_id);
-              return;
-            }
-          } finally {
-            sessionCreatingRef.current = false;
+        if (sessions.length === 0 && allowCreate) {
+          if (!sessionCreationPromiseRef.current) {
+            sessionCreationPromiseRef.current = messagesApi.createNewSession(USER_ID)
+              .then((created) => String(created.session_id || '').trim() || null)
+              .finally(() => {
+                sessionCreationPromiseRef.current = null;
+              });
+          }
+          const createdSessionId = await sessionCreationPromiseRef.current;
+          if (!requestIsCurrent()) {
+            return;
+          }
+          if (createdSessionId) {
+            activateRealtimeChatSession(createdSessionId);
+            persistSessionId(createdSessionId);
+            await loadSessions(false, createdSessionId);
+            return;
           }
         }
+        if (!requestIsCurrent()) {
+          return;
+        }
         const sessionIds = sessions.map((session) => session.session_id);
+        activateRealtimeChatSessions(sessionIds);
         const latestSessionId = useConversationStore.getState().currentSessionId;
         const persistedSessionId = readPersistedSessionId();
-        const preferredSessionId = (
+        const nextSessionId = (
           (requestedSessionId && sessionIds.includes(requestedSessionId) ? requestedSessionId : null)
           || (latestSessionId && sessionIds.includes(latestSessionId) ? latestSessionId : null)
           || (persistedSessionId && sessionIds.includes(persistedSessionId) ? persistedSessionId : null)
           || sessionIds[0]
           || null
         );
-        hydrateSessions(sessions, preferredSessionId);
-        setCurrentSessionId(preferredSessionId);
-        persistSessionId(preferredSessionId);
+        hydrateSessions(sessions, nextSessionId);
+        setCurrentSessionId(nextSessionId);
+        persistSessionId(nextSessionId);
       };
 
       await loadSessions(true);
     } catch {
-      hydrateSessions([], useConversationStore.getState().currentSessionId);
+      if (requestIsCurrent()) {
+        hydrateSessions([], useConversationStore.getState().currentSessionId);
+      }
     } finally {
-      setLoading(false);
+      if (requestIsCurrent()) {
+        setLoading(false);
+      }
     }
   }, [hydrateSessions, setCurrentSessionId]);
 
@@ -203,11 +229,12 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         void refreshSessions();
       }
     };
-    window.addEventListener(SESSION_EVENT, handleSync as EventListener);
+    window.addEventListener(APP_EVENTS.SESSION_SYNC, handleSync as EventListener);
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      window.removeEventListener(SESSION_EVENT, handleSync as EventListener);
+      refreshRequestIdRef.current += 1;
+      window.removeEventListener(APP_EVENTS.SESSION_SYNC, handleSync as EventListener);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -244,6 +271,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     try {
       const result = await messagesApi.createNewSession(USER_ID);
       if (result.session_id) {
+        activateRealtimeChatSession(result.session_id);
         window.localStorage.setItem(CHAT_SESSION_KEY(USER_ID), result.session_id);
         await refreshSessions(result.session_id);
         setActivePanel('conversation');
@@ -288,18 +316,56 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     if (!deleteTargetSession) {
       return;
     }
+    const targetSessionId = deleteTargetSession.session_id;
     setActionPending(true);
+    let deleteConfirmed = false;
+    let cleanupPending = false;
     try {
-      await messagesApi.deleteSession(USER_ID, deleteTargetSession.session_id);
+      const result = await messagesApi.deleteSession(USER_ID, targetSessionId);
+      if (
+        !result.success
+        || String(result.deleted_session_id || '').trim() !== targetSessionId
+      ) {
+        throw new Error('Session delete request was not completed');
+      }
+      deleteConfirmed = true;
+      cleanupPending = result.cleanup_pending;
+    } catch {
+      toast.error(t('shell.deleteSessionFailed'));
+    }
+    if (!deleteConfirmed) {
+      setActionPending(false);
+      return;
+    }
+
+    const wasCurrentSession = (
+      useConversationStore.getState().currentSessionId === targetSessionId
+    );
+    completeChatSessionDeletion(targetSessionId);
+    if (cleanupPending) {
+      toast.warning(t('shell.deleteSessionCleanupPending'));
+    }
+    if (wasCurrentSession) {
+      setCurrentSessionId(null);
+      try {
+        window.localStorage.removeItem(CHAT_SESSION_KEY(USER_ID));
+      } catch {
+        // Keep the in-memory selection authoritative when persistence fails.
+      }
+    }
+    setDeleteTargetSession(null);
+    setOpenPanel('conversation');
+    setActivePanel('conversation');
+    navigate('/chat');
+    try {
       await refreshSessions();
-      setDeleteTargetSession(null);
-      setOpenPanel('conversation');
-      setActivePanel('conversation');
-      navigate('/chat');
+    } catch {
+      // The deletion is already committed locally; the next sync can refresh
+      // the remaining session list without misreporting the delete as failed.
     } finally {
       setActionPending(false);
     }
-  }, [deleteTargetSession, navigate, refreshSessions, setActivePanel, setCurrentSessionId]);
+  }, [deleteTargetSession, navigate, refreshSessions, setActivePanel, setCurrentSessionId, t]);
 
   const sessionRows = useMemo(() => {
     if (orderedSessionIds.length > 0) {

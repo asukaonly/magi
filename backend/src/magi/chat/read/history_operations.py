@@ -7,10 +7,34 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+from ...core.chat_cleanup import ChatSurfaceCleanupPendingError
+from ...core.code_agent_artifacts import CodeAgentDelegationReference
 from ...core.logger import get_logger
+from magi.core.chat_assets.paths import (
+    normalize_chat_asset_component,
+    resolve_chat_attachment_file,
+)
+from .asset_ownership import (
+    assert_unambiguous_session_asset_scope,
+    unshared_asset_references,
+)
+from .deletion_phases import (
+    DELETION_MESSAGE_IDS_TABLE,
+    DELETION_TURN_IDS_TABLE,
+    delete_code_delegation_artifact_records,
+    delete_scoped_asset_references,
+    delete_scoped_code_delegation_references,
+    delete_scoped_message_tombstones,
+    redact_scoped_messages,
+    replace_deletion_scope,
+)
+from .code_delegation_ownership import (
+    unshared_code_delegation_references,
+)
 from .models import ChatDisplayMessage
 from .schema import (
     CHAT_ATTACHMENTS_TABLE,
+    CHAT_CLEARED_MESSAGE_SCOPES_TABLE,
     CHAT_CONTEXT_SUMMARIES_TABLE,
     CHAT_MESSAGES_TABLE,
     CHAT_RUN_CONSUMED_EVENTS_TABLE,
@@ -42,49 +66,13 @@ class _TurnDisplayMetadata:
     run_state_by_turn: dict[str, dict[str, object] | None]
 
 
-def _history_snapshot_storage_paths(
-    *,
-    host: _ChatHistoryOperationsHost,
-    message_rows: list[sqlite3.Row],
-    attachment_rows: list[sqlite3.Row],
-) -> list[str]:
-    """Collect every managed file path attributable to a transcript snapshot."""
-
-    paths: set[str] = set()
-    turn_by_message_id = {
-        str(row["message_id"] or "").strip(): str(row["turn_id"] or "").strip()
-        for row in message_rows
-    }
-    for row in attachment_rows:
-        storage_rel_path = str(row["storage_rel_path"] or "").strip()
-        if storage_rel_path:
-            paths.add(storage_rel_path)
-        attachment_id = str(row["attachment_id"] or "").strip()
-        message_id = str(row["message_id"] or "").strip()
-        turn_id = turn_by_message_id.get(message_id, "")
-        if attachment_id and turn_id and "/" not in attachment_id and "\\" not in attachment_id:
-            paths.add(
-                str(
-                    host._runtime_paths.chat_derived_dir
-                    / str(row["session_id"] or "").strip()
-                    / turn_id
-                    / f"{attachment_id}.txt"
-                )
-            )
-
-    for row in message_rows:
-        payload = host._parse_message_payload_json(row["payload_json"])
-        attachments = payload.get("attachments")
-        if not isinstance(attachments, list):
-            continue
-        for attachment in attachments:
-            if not isinstance(attachment, dict):
-                continue
-            for path_key in ("storage_path", "derived_text_path"):
-                managed_path = str(attachment.get(path_key) or "").strip()
-                if managed_path:
-                    paths.add(managed_path)
-    return sorted(paths)
+@dataclass(slots=True)
+class _HistoryDeletionSnapshot:
+    message_ids: list[str]
+    removable_turn_ids: list[str]
+    asset_references: list[tuple[str, str]]
+    code_delegation_references: list[CodeAgentDelegationReference]
+    delete_entire_session: bool
 
 
 def _collapse_rhythm_segments_for_prompt(
@@ -190,16 +178,116 @@ class _ChatHistoryOperationsHost(Protocol):
         turn_id: str,
     ) -> None: ...
 
-    def _delete_chat_message_assets(self, *, storage_rel_paths: list[str]) -> None: ...
+    def _delete_chat_message_assets(
+        self,
+        *,
+        asset_references: list[tuple[str, str]],
+    ) -> None: ...
 
-    def _delete_chat_history_snapshot_assets(
+    def _delete_code_delegation_artifacts(
+        self,
+        *,
+        references: list[CodeAgentDelegationReference],
+    ) -> None: ...
+
+    def _list_chat_snapshot_asset_references(
         self,
         *,
         session_id: str,
         turn_ids: list[str],
-        storage_rel_paths: list[str],
         delete_entire_session: bool,
-    ) -> None: ...
+    ) -> list[tuple[str, str]]: ...
+
+
+def _resolve_history_deletion_snapshot(
+    *,
+    host: _ChatHistoryOperationsHost,
+    conn: sqlite3.Connection,
+    user_id: str,
+    session_id: str,
+    requested_message_ids: list[str],
+    requested_turn_ids: list[str],
+) -> _HistoryDeletionSnapshot | None:
+    session = conn.execute(
+        f"""
+        SELECT 1
+        FROM {CHAT_SESSIONS_TABLE}
+        WHERE user_id = ? AND session_id = ? AND deleted_at_ms IS NULL
+        LIMIT 1
+        """,
+        (user_id, session_id),
+    ).fetchone()
+    if session is None:
+        return None
+    assert_unambiguous_session_asset_scope(conn, session_id=session_id)
+
+    current_message_rows = conn.execute(
+        f"""
+        SELECT message_id, turn_id
+        FROM {CHAT_MESSAGES_TABLE}
+        WHERE user_id = ? AND session_id = ?
+        """,
+        (user_id, session_id),
+    ).fetchall()
+    requested_message_id_set = set(requested_message_ids)
+    target_message_ids = [
+        str(row["message_id"] or "").strip()
+        for row in current_message_rows
+        if str(row["message_id"] or "").strip() in requested_message_id_set
+    ]
+    target_message_id_set = set(target_message_ids)
+    survivor_rows = [
+        row
+        for row in current_message_rows
+        if str(row["message_id"] or "").strip() not in target_message_id_set
+    ]
+    survivor_turn_ids = {
+        str(row["turn_id"] or "").strip()
+        for row in survivor_rows
+        if str(row["turn_id"] or "").strip()
+    }
+    current_turn_ids = {
+        str(row["turn_id"] or "").strip()
+        for row in conn.execute(
+            f"""
+            SELECT turn_id
+            FROM {CHAT_TURNS_TABLE}
+            WHERE user_id = ? AND session_id = ?
+            """,
+            (user_id, session_id),
+        ).fetchall()
+        if str(row["turn_id"] or "").strip()
+    }
+    target_turn_ids = current_turn_ids.intersection(requested_turn_ids)
+    removable_turn_ids = sorted(target_turn_ids - survivor_turn_ids)
+
+    delete_entire_session = not survivor_rows
+    candidate_asset_references = host._list_chat_snapshot_asset_references(
+        session_id=session_id,
+        turn_ids=removable_turn_ids,
+        delete_entire_session=delete_entire_session,
+    )
+    if (
+        not target_message_ids
+        and not target_turn_ids
+        and not candidate_asset_references
+    ):
+        return None
+    return _HistoryDeletionSnapshot(
+        message_ids=target_message_ids,
+        removable_turn_ids=removable_turn_ids,
+        asset_references=unshared_asset_references(
+            conn,
+            message_ids=target_message_ids,
+            candidate_asset_references=candidate_asset_references,
+        ),
+        code_delegation_references=unshared_code_delegation_references(
+            conn,
+            message_ids=target_message_ids,
+            turn_ids=removable_turn_ids,
+        ),
+        delete_entire_session=delete_entire_session,
+    )
 
 
 def _query_display_history_rows(
@@ -600,6 +688,14 @@ class ChatHistoryOperationsMixin:
         normalized_attachment_id = str(attachment_id).strip()
         if not normalized_user_id or not normalized_session_id or not normalized_attachment_id:
             raise ValueError("User ID, session ID, and attachment ID are required")
+        normalized_session_id = normalize_chat_asset_component(
+            normalized_session_id,
+            label="session_id",
+        )
+        normalized_attachment_id = normalize_chat_asset_component(
+            normalized_attachment_id,
+            label="attachment_id",
+        )
         if not host._chat_db_path.exists():
             return None
 
@@ -611,10 +707,15 @@ class ChatHistoryOperationsMixin:
                    a.size_bytes, a.storage_rel_path, a.sha256
             FROM {CHAT_ATTACHMENTS_TABLE} a
             JOIN {CHAT_MESSAGES_TABLE} m ON m.message_id = a.message_id
+                                         AND m.session_id = a.session_id
+                                         AND m.user_id = a.user_id
+            JOIN {CHAT_SESSIONS_TABLE} s ON s.session_id = a.session_id
+                                         AND s.user_id = a.user_id
             WHERE a.user_id = ?
               AND a.session_id = ?
               AND a.attachment_id = ?
               AND m.is_visible = 1
+              AND s.deleted_at_ms IS NULL
             LIMIT 1
             """,
                 (normalized_user_id, normalized_session_id, normalized_attachment_id),
@@ -626,10 +727,19 @@ class ChatHistoryOperationsMixin:
         storage_rel_path = str(row["storage_rel_path"] or "").strip()
         if not storage_rel_path:
             return None
-        storage_path = host._runtime_paths.base_dir / Path(storage_rel_path)
+        turn_id = str(row["turn_id"] or "").strip()
+        storage_path = resolve_chat_attachment_file(
+            storage_rel_path,
+            session_id=normalized_session_id,
+            turn_id=turn_id,
+            attachment_id=normalized_attachment_id,
+            runtime_paths=host._runtime_paths,
+        )
+        if storage_path is None:
+            return None
         return {
             "attachment_id": str(row["attachment_id"] or "").strip(),
-            "turn_id": str(row["turn_id"] or "").strip(),
+            "turn_id": turn_id,
             "kind": str(row["kind"] or "file").strip() or "file",
             "original_name": str(row["original_name"] or "").strip(),
             "mime_type": str(row["mime_type"] or "application/octet-stream").strip()
@@ -662,7 +772,7 @@ class ChatHistoryOperationsMixin:
         try:
             target = conn.execute(
                 f"""
-                SELECT turn_id, payload_json
+                SELECT turn_id, role, is_visible
                 FROM {CHAT_MESSAGES_TABLE}
                 WHERE user_id = ? AND session_id = ? AND message_id = ?
                 LIMIT 1
@@ -672,83 +782,52 @@ class ChatHistoryOperationsMixin:
             if target is None:
                 conn.rollback()
                 return False
+            assert_unambiguous_session_asset_scope(
+                conn,
+                session_id=normalized_session_id,
+            )
             turn_id = str(target["turn_id"] or "").strip()
-            attachment_rows = conn.execute(
-                f"""
-                SELECT attachment_id, storage_rel_path
-                FROM {CHAT_ATTACHMENTS_TABLE}
-                WHERE user_id = ? AND session_id = ? AND message_id = ?
-                """,
-                (normalized_user_id, normalized_session_id, normalized_message_id),
-            ).fetchall()
-            storage_rel_paths = [
-                str(row["storage_rel_path"] or "").strip()
-                for row in attachment_rows
-                if str(row["storage_rel_path"] or "").strip()
-            ]
-            if turn_id:
-                for row in attachment_rows:
-                    attachment_id = str(row["attachment_id"] or "").strip()
-                    if not attachment_id or "/" in attachment_id or "\\" in attachment_id:
-                        continue
-                    storage_rel_paths.append(
-                        str(
-                            host._runtime_paths.chat_derived_dir
-                            / normalized_session_id
-                            / turn_id
-                            / f"{attachment_id}.txt"
-                        )
-                    )
-            payload = host._parse_message_payload_json(target["payload_json"])
-            attachments = payload.get("attachments")
-            if isinstance(attachments, list):
-                for attachment in attachments:
-                    if not isinstance(attachment, dict):
-                        continue
-                    for path_key in ("storage_path", "derived_text_path"):
-                        managed_path = str(attachment.get(path_key) or "").strip()
-                        if managed_path:
-                            storage_rel_paths.append(managed_path)
-
-            if turn_id:
-                host._delete_runtime_trace_turn_rows(
-                    user_id=normalized_user_id,
-                    session_id=normalized_session_id,
-                    turn_id=turn_id,
+            is_user_message = str(target["role"] or "").strip().lower() == "user"
+            was_visible = bool(target["is_visible"])
+            asset_references = unshared_asset_references(
+                conn,
+                message_ids=[normalized_message_id],
+            )
+            code_delegation_references = (
+                unshared_code_delegation_references(
+                    conn,
+                    message_ids=[normalized_message_id],
+                    turn_ids=[turn_id] if is_user_message and turn_id else [],
                 )
-            host._delete_chat_message_assets(storage_rel_paths=storage_rel_paths)
-
-            conn.execute(
-                f"""
-                UPDATE {CHAT_MESSAGES_TABLE}
-                SET content_text = '',
-                    payload_json = '{{}}',
-                    is_visible = 0,
-                    replaces_message_id = NULL,
-                    replaced_by_message_id = NULL,
-                    persona_id = NULL,
-                    reply_to_message_id = NULL,
-                    label_json = NULL
-                WHERE user_id = ? AND session_id = ? AND message_id = ?
-                """,
-                (normalized_user_id, normalized_session_id, normalized_message_id),
+            )
+            replace_deletion_scope(
+                conn,
+                message_ids=[normalized_message_id],
+                turn_ids=[turn_id] if turn_id else [],
             )
             conn.execute(
                 f"""
-                UPDATE {CHAT_MESSAGES_TABLE}
-                SET reply_to_message_id = NULL
-                WHERE user_id = ? AND session_id = ? AND reply_to_message_id = ?
+                INSERT OR IGNORE INTO {CHAT_CLEARED_MESSAGE_SCOPES_TABLE}(
+                    session_id,
+                    message_id,
+                    cleared_at_ms
+                )
+                VALUES (
+                    ?,
+                    ?,
+                    CAST(strftime('%s', 'now') AS INTEGER) * 1000
+                )
                 """,
-                (normalized_user_id, normalized_session_id, normalized_message_id),
+                (normalized_session_id, normalized_message_id),
             )
-            conn.execute(
-                f"""
-                DELETE FROM {CHAT_ATTACHMENTS_TABLE}
-                WHERE user_id = ? AND session_id = ? AND message_id = ?
-                """,
-                (normalized_user_id, normalized_session_id, normalized_message_id),
+            # Commit the user-visible redaction before touching files. Asset
+            # references stay private in the database as an exact retry ledger.
+            redact_scoped_messages(
+                conn,
+                user_id=normalized_user_id,
+                session_id=normalized_session_id,
             )
-            if turn_id:
+            if turn_id and is_user_message:
                 conn.execute(
                     f"DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE} WHERE turn_id = ?",
                     (turn_id,),
@@ -807,7 +886,7 @@ class ChatHistoryOperationsMixin:
                     last_message_preview = ?,
                     last_user_message_preview = ?,
                     message_count = ?,
-                    history_version = history_version + 1
+                    history_version = history_version + ?
                 WHERE user_id = ? AND session_id = ? AND deleted_at_ms IS NULL
                 """,
                 (
@@ -816,15 +895,55 @@ class ChatHistoryOperationsMixin:
                     preview,
                     preview,
                     message_count,
+                    1 if was_visible else 0,
                     normalized_user_id,
                     normalized_session_id,
                 ),
             )
             conn.commit()
-            return True
         except BaseException:
             conn.rollback()
             raise
+
+        try:
+            if turn_id and is_user_message:
+                host._delete_runtime_trace_turn_rows(
+                    user_id=normalized_user_id,
+                    session_id=normalized_session_id,
+                    turn_id=turn_id,
+                )
+            host._delete_chat_message_assets(asset_references=asset_references)
+            host._delete_code_delegation_artifacts(
+                references=code_delegation_references,
+            )
+
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                replace_deletion_scope(conn, message_ids=[normalized_message_id])
+                delete_scoped_asset_references(conn)
+                delete_scoped_code_delegation_references(conn)
+                delete_code_delegation_artifact_records(
+                    conn,
+                    references=code_delegation_references,
+                )
+                delete_scoped_message_tombstones(
+                    conn,
+                    user_id=normalized_user_id,
+                    session_id=normalized_session_id,
+                )
+                conn.commit()
+            except BaseException:
+                conn.rollback()
+                raise
+        except Exception as exc:
+            raise ChatSurfaceCleanupPendingError(
+                "Chat message was removed but private cleanup is pending",
+                user_id=normalized_user_id,
+                session_id=normalized_session_id,
+                message_ids=[normalized_message_id],
+                turn_ids=[turn_id] if turn_id else [],
+            ) from exc
+        return True
 
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:
         """Clear the current transcript through the snapshot-safe finalizer."""
@@ -889,163 +1008,62 @@ class ChatHistoryOperationsMixin:
             return
 
         conn = host._get_conn()
-        session = conn.execute(
-            f"""
-            SELECT 1
-            FROM {CHAT_SESSIONS_TABLE}
-            WHERE user_id = ? AND session_id = ? AND deleted_at_ms IS NULL
-            LIMIT 1
-            """,
-            (normalized_user_id, normalized_session_id),
-        ).fetchone()
-        if session is None:
-            return
-
-        current_message_rows = conn.execute(
-            f"""
-            SELECT message_id, turn_id, payload_json
-            FROM {CHAT_MESSAGES_TABLE}
-            WHERE user_id = ? AND session_id = ?
-            """,
-            (normalized_user_id, normalized_session_id),
-        ).fetchall()
-        target_message_id_set = set(normalized_message_ids)
-        target_message_rows = [
-            row
-            for row in current_message_rows
-            if str(row["message_id"] or "").strip() in target_message_id_set
-        ]
-        survivor_rows = [
-            row
-            for row in current_message_rows
-            if str(row["message_id"] or "").strip() not in target_message_id_set
-        ]
-        survivor_turn_ids = {
-            str(row["turn_id"] or "").strip()
-            for row in survivor_rows
-            if str(row["turn_id"] or "").strip()
-        }
-        removable_turn_ids = [
-            turn_id for turn_id in normalized_turn_ids if turn_id not in survivor_turn_ids
-        ]
-        attachment_rows = conn.execute(
-            f"""
-            SELECT attachment_id, session_id, turn_id, message_id, storage_rel_path
-            FROM {CHAT_ATTACHMENTS_TABLE}
-            WHERE user_id = ? AND session_id = ?
-            """,
-            (normalized_user_id, normalized_session_id),
-        ).fetchall()
-        target_attachment_rows = [
-            row
-            for row in attachment_rows
-            if str(row["message_id"] or "").strip() in target_message_id_set
-        ]
-        current_turn_ids = {
-            str(row["turn_id"] or "").strip()
-            for row in conn.execute(
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            snapshot = _resolve_history_deletion_snapshot(
+                host=host,
+                conn=conn,
+                user_id=normalized_user_id,
+                session_id=normalized_session_id,
+                requested_message_ids=normalized_message_ids,
+                requested_turn_ids=normalized_turn_ids,
+            )
+            if snapshot is None:
+                conn.rollback()
+                return
+            replace_deletion_scope(
+                conn,
+                message_ids=snapshot.message_ids,
+                turn_ids=snapshot.removable_turn_ids,
+            )
+            conn.execute(
                 f"""
-                SELECT turn_id
-                FROM {CHAT_TURNS_TABLE}
-                WHERE user_id = ? AND session_id = ?
+                INSERT OR IGNORE INTO {CHAT_CLEARED_MESSAGE_SCOPES_TABLE}(
+                    session_id,
+                    message_id,
+                    cleared_at_ms
+                )
+                SELECT
+                    ?,
+                    item_id,
+                    CAST(strftime('%s', 'now') AS INTEGER) * 1000
+                FROM {DELETION_MESSAGE_IDS_TABLE}
+                """,
+                (normalized_session_id,),
+            )
+            visible_target = conn.execute(
+                f"""
+                SELECT 1
+                FROM {CHAT_MESSAGES_TABLE}
+                WHERE user_id = ?
+                  AND session_id = ?
+                  AND is_visible = 1
+                  AND message_id IN (
+                      SELECT item_id FROM {DELETION_MESSAGE_IDS_TABLE}
+                  )
+                LIMIT 1
                 """,
                 (normalized_user_id, normalized_session_id),
-            ).fetchall()
-            if str(row["turn_id"] or "").strip()
-        }
-        target_turn_row_ids = current_turn_ids.intersection(normalized_turn_ids)
-        if (
-            (normalized_message_ids or normalized_turn_ids)
-            and not target_message_rows
-            and not target_attachment_rows
-            and not target_turn_row_ids
-        ):
-            return
-        storage_rel_paths = _history_snapshot_storage_paths(
-            host=host,
-            message_rows=target_message_rows,
-            attachment_rows=target_attachment_rows,
-        )
-        delete_entire_session = not survivor_rows
-
-        # User-requested deletion is strict: database references remain until
-        # every managed file and runtime trace in this snapshot is gone.
-        host._delete_chat_history_snapshot_assets(
-            session_id=normalized_session_id,
-            turn_ids=removable_turn_ids,
-            storage_rel_paths=storage_rel_paths,
-            delete_entire_session=delete_entire_session,
-        )
-        if delete_entire_session:
-            host._delete_runtime_trace_rows(
+            ).fetchone()
+            # First make the transcript and attachment metadata inaccessible.
+            # Private asset-reference rows remain as a durable exact retry ledger
+            # until strict filesystem cleanup has completed.
+            redact_scoped_messages(
+                conn,
                 user_id=normalized_user_id,
                 session_id=normalized_session_id,
             )
-        else:
-            for turn_id in removable_turn_ids:
-                host._delete_runtime_trace_turn_rows(
-                    user_id=normalized_user_id,
-                    session_id=normalized_session_id,
-                    turn_id=turn_id,
-                )
-
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            conn.execute("""
-                CREATE TEMP TABLE IF NOT EXISTS chat_history_snapshot_message_ids (
-                    item_id TEXT PRIMARY KEY
-                ) WITHOUT ROWID
-                """)
-            conn.execute("""
-                CREATE TEMP TABLE IF NOT EXISTS chat_history_snapshot_turn_ids (
-                    item_id TEXT PRIMARY KEY
-                ) WITHOUT ROWID
-                """)
-            conn.execute("DELETE FROM chat_history_snapshot_message_ids")
-            conn.execute("DELETE FROM chat_history_snapshot_turn_ids")
-            conn.executemany(
-                "INSERT INTO chat_history_snapshot_message_ids(item_id) VALUES (?)",
-                [(message_id,) for message_id in normalized_message_ids],
-            )
-            conn.executemany(
-                "INSERT INTO chat_history_snapshot_turn_ids(item_id) VALUES (?)",
-                [(turn_id,) for turn_id in normalized_turn_ids],
-            )
-            conn.execute(
-                f"""
-                DELETE FROM {CHAT_ATTACHMENTS_TABLE}
-                WHERE user_id = ?
-                  AND session_id = ?
-                  AND message_id IN (
-                      SELECT item_id FROM chat_history_snapshot_message_ids
-                  )
-                """,
-                (normalized_user_id, normalized_session_id),
-            )
-            conn.execute(
-                f"""
-                UPDATE {CHAT_MESSAGES_TABLE}
-                SET reply_to_message_id = NULL
-                WHERE user_id = ?
-                  AND session_id = ?
-                  AND reply_to_message_id IN (
-                      SELECT item_id FROM chat_history_snapshot_message_ids
-                  )
-                """,
-                (normalized_user_id, normalized_session_id),
-            )
-            conn.execute(
-                f"""
-                DELETE FROM {CHAT_MESSAGES_TABLE}
-                WHERE user_id = ?
-                  AND session_id = ?
-                  AND message_id IN (
-                      SELECT item_id FROM chat_history_snapshot_message_ids
-                  )
-                """,
-                (normalized_user_id, normalized_session_id),
-            )
-            if delete_entire_session:
+            if snapshot.delete_entire_session:
                 conn.execute(
                     f"""
                     DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}
@@ -1059,37 +1077,16 @@ class ChatHistoryOperationsMixin:
                     DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}
                     WHERE session_id = ?
                       AND message_id IN (
-                          SELECT item_id FROM chat_history_snapshot_message_ids
+                          SELECT item_id FROM {DELETION_MESSAGE_IDS_TABLE}
                       )
                     """,
                     (normalized_session_id,),
                 )
-            conn.execute(
-                f"""
-                DELETE FROM {CHAT_TURNS_TABLE} AS target
-                WHERE target.user_id = ?
-                  AND target.session_id = ?
-                  AND target.turn_id IN (
-                      SELECT item_id FROM chat_history_snapshot_turn_ids
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM {CHAT_MESSAGES_TABLE} AS message
-                      WHERE message.turn_id = target.turn_id
-                  )
-                """,
-                (normalized_user_id, normalized_session_id),
-            )
             conn.execute(f"""
                 DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE}
                 WHERE turn_id IN (
-                    SELECT item_id FROM chat_history_snapshot_turn_ids
+                    SELECT item_id FROM {DELETION_TURN_IDS_TABLE}
                 )
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM {CHAT_TURNS_TABLE} AS turn_row
-                      WHERE turn_row.turn_id = {CHAT_USER_TURN_DELIVERY_TABLE}.turn_id
-                  )
                 """)
             conn.execute(
                 f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE} WHERE session_id = ?",
@@ -1138,7 +1135,7 @@ class ChatHistoryOperationsMixin:
                     last_message_preview = ?,
                     last_user_message_preview = ?,
                     message_count = ?,
-                    history_version = history_version + 1
+                    history_version = history_version + ?
                 WHERE user_id = ?
                   AND session_id = ?
                   AND deleted_at_ms IS NULL
@@ -1149,6 +1146,7 @@ class ChatHistoryOperationsMixin:
                     preview,
                     preview,
                     message_count,
+                    1 if visible_target is not None else 0,
                     normalized_user_id,
                     normalized_session_id,
                 ),
@@ -1157,6 +1155,73 @@ class ChatHistoryOperationsMixin:
         except BaseException:
             conn.rollback()
             raise
+
+        try:
+            if snapshot.delete_entire_session:
+                host._delete_runtime_trace_rows(
+                    user_id=normalized_user_id,
+                    session_id=normalized_session_id,
+                )
+            else:
+                for turn_id in snapshot.removable_turn_ids:
+                    host._delete_runtime_trace_turn_rows(
+                        user_id=normalized_user_id,
+                        session_id=normalized_session_id,
+                        turn_id=turn_id,
+                    )
+            host._delete_chat_message_assets(
+                asset_references=snapshot.asset_references
+            )
+            host._delete_code_delegation_artifacts(
+                references=snapshot.code_delegation_references,
+            )
+
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                replace_deletion_scope(
+                    conn,
+                    message_ids=snapshot.message_ids,
+                    turn_ids=snapshot.removable_turn_ids,
+                )
+                delete_scoped_asset_references(conn)
+                delete_scoped_code_delegation_references(conn)
+                delete_code_delegation_artifact_records(
+                    conn,
+                    references=snapshot.code_delegation_references,
+                )
+                delete_scoped_message_tombstones(
+                    conn,
+                    user_id=normalized_user_id,
+                    session_id=normalized_session_id,
+                )
+                conn.execute(
+                    f"""
+                    DELETE FROM {CHAT_TURNS_TABLE} AS target
+                    WHERE target.user_id = ?
+                      AND target.session_id = ?
+                      AND target.turn_id IN (
+                          SELECT item_id FROM {DELETION_TURN_IDS_TABLE}
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM {CHAT_MESSAGES_TABLE} AS message
+                          WHERE message.turn_id = target.turn_id
+                      )
+                    """,
+                    (normalized_user_id, normalized_session_id),
+                )
+                conn.commit()
+            except BaseException:
+                conn.rollback()
+                raise
+        except Exception as exc:
+            raise ChatSurfaceCleanupPendingError(
+                "Chat history was removed but private cleanup is pending",
+                user_id=normalized_user_id,
+                session_id=normalized_session_id,
+                message_ids=snapshot.message_ids,
+                turn_ids=snapshot.removable_turn_ids,
+            ) from exc
 
 
 __all__ = ["ChatHistoryOperationsMixin"]

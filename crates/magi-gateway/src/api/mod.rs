@@ -45,9 +45,9 @@ pub fn build_router(state: ApiState) -> Router {
         )
         .route(
             "/api/messages/session/{session_id}/attachments",
-            axum::routing::post(messages::upload_attachment).layer(DefaultBodyLimit::max(
-                messages::MAX_ATTACHMENT_UPLOAD_BODY_BYTES,
-            )),
+            axum::routing::post(proxy::attachment_upload_proxy_handler).layer(
+                DefaultBodyLimit::max(messages::MAX_ATTACHMENT_UPLOAD_BODY_BYTES),
+            ),
         )
         .route(
             "/api/messages/session/{session_id}/attachments/{attachment_id}/content",

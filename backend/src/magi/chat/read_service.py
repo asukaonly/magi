@@ -10,9 +10,14 @@ from typing import TYPE_CHECKING, Any, Optional
 from ..agent.orchestration import get_orchestration_store
 from ..config import get_config
 from ..core.logger import get_logger
+from ..core.code_agent_artifacts import (
+    CodeAgentArtifactGC,
+    CodeAgentDelegationReference,
+)
 from ..core.sqlite import connect_sqlite
-from ..utils.runtime import get_runtime_paths
+from ..utils.runtime import RuntimePaths, get_runtime_paths
 from .asset_gc import ChatAssetGC
+from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from .message_frontier import (
     MESSAGE_FRONTIER_SELECT_SQL,
     MESSAGE_ORDER_SQL,
@@ -25,6 +30,7 @@ from .read.models import (
     ChatSessionSummary,
     SessionWorkspaceUpdateResult,
 )
+from .read.delivery_operations import ChatDeliveryOperationsMixin
 from .read.history_operations import ChatHistoryOperationsMixin
 from .read.session_operations import ChatSessionOperationsMixin
 from .read.schema import (
@@ -43,23 +49,28 @@ from .read.serialization import (
 )
 
 if TYPE_CHECKING:
-    from .contracts import ChatMessageLabel
+    from .contracts import ChatMessageLabel, ChatUserTurnDeliveryRecord
 
 logger = get_logger(__name__)
 
 FACT_EVENTS_TABLE = "fact_events"
 
 
-class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
+class ChatReadService(
+    ChatDeliveryOperationsMixin,
+    ChatSessionOperationsMixin,
+    ChatHistoryOperationsMixin,
+):
     """Query chat session and history from persistent storage."""
 
-    def __init__(self) -> None:
-        runtime_paths = get_runtime_paths()
+    def __init__(self, *, runtime_paths: RuntimePaths | None = None) -> None:
+        runtime_paths = runtime_paths or get_runtime_paths()
         self._runtime_paths = runtime_paths
         self._chat_db_path: Path = runtime_paths.chat_db_path
         self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
         self._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
+        self._code_agent_artifact_gc = CodeAgentArtifactGC()
         self._conn: Optional[sqlite3.Connection] = None
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -139,11 +150,29 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
 
     async def adelete_session(self, user_id: str, session_id: str) -> None:
         """Delete a session without blocking the event loop."""
-        await self._run_threaded("delete_session", user_id, session_id)
+        await run_chat_asset_mutation(
+            self._run_isolated,
+            "delete_session",
+            user_id,
+            session_id,
+        )
 
     async def alist_session_turn_ids(self, user_id: str, session_id: str) -> list[str]:
         """Load all source turn identities before deleting a session."""
         return await self._run_threaded("list_session_turn_ids", user_id, session_id)
+
+    async def abackfill_cleared_chat_scopes(
+        self,
+        session_ids: list[str],
+        message_scopes: list[tuple[str, str]],
+    ) -> dict[str, int]:
+        """Restore durable chat barriers without blocking the event loop."""
+
+        return await self._run_threaded(
+            "backfill_cleared_chat_scopes",
+            session_ids,
+            message_scopes,
+        )
 
     async def aget_message_source_identity(
         self,
@@ -154,6 +183,21 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         """Resolve one persisted message to its exact memory source identity."""
         return await self._run_threaded(
             "get_message_source_identity",
+            user_id,
+            session_id,
+            message_id,
+        )
+
+    async def alist_message_replacement_source_identities(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> list[ChatMessageSourceIdentity]:
+        """Snapshot every persisted revision of one logical message."""
+
+        return await self._run_threaded(
+            "list_message_replacement_source_identities",
             user_id,
             session_id,
             message_id,
@@ -230,7 +274,8 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         message_id: str,
     ) -> bool:
         """Remove every chat-owned copy of one governed message."""
-        return await self._run_threaded(
+        return await run_chat_asset_mutation(
+            self._run_isolated,
             "forget_message_artifacts",
             user_id,
             session_id,
@@ -245,7 +290,8 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         turn_ids: list[str],
     ) -> None:
         """Physically remove one governed transcript snapshot."""
-        await self._run_threaded(
+        await run_chat_asset_mutation(
+            self._run_isolated,
             "clear_conversation_history_snapshot",
             user_id,
             session_id,
@@ -255,15 +301,75 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
 
     async def aclear_conversation_history(self, user_id: str, session_id: str) -> None:
         """Clear a session history without blocking the event loop."""
-        await self._run_threaded("clear_conversation_history", user_id, session_id)
+        await run_chat_asset_mutation(
+            self._run_isolated,
+            "clear_conversation_history",
+            user_id,
+            session_id,
+        )
 
     async def aclear_all_sessions(self) -> int:
         """Clear all sessions without blocking the event loop."""
-        return await self._run_threaded("clear_all_sessions")
+        return await run_chat_asset_mutation(
+            self._run_isolated,
+            "clear_all_sessions",
+        )
+
+    async def arecover_interrupted_global_clear(self) -> bool:
+        """Finish an interrupted global chat clear before runtime work starts."""
+
+        return await run_chat_asset_mutation(
+            self._run_isolated,
+            "recover_interrupted_global_clear",
+        )
+
+    async def acomplete_global_clear(self) -> bool:
+        """Release the global barrier after external conversation cleanup."""
+
+        return await self._run_threaded("complete_global_clear")
+
+    async def aget_interrupted_global_clear_count(self) -> int | None:
+        """Read the count committed by an interrupted global clear."""
+
+        return await self._run_threaded("get_interrupted_global_clear_count")
 
     async def areset_user_turn_delivery_after_failed_clear(self) -> int:
         """Make surviving turns replayable after a failed destructive clear."""
         return await self._run_threaded("reset_user_turn_delivery_after_failed_clear")
+
+    async def alist_recoverable_user_turn_deliveries(
+        self,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        limit: int = 1000,
+        after: "ChatUserTurnDeliveryRecord | None" = None,
+    ) -> list["ChatUserTurnDeliveryRecord"]:
+        """Load non-terminal runtime envelopes without blocking the event loop."""
+        return await self._run_threaded(
+            "list_recoverable_user_turn_deliveries",
+            user_id,
+            session_id,
+            limit,
+            after,
+        )
+
+    async def abump_nonterminal_user_turn_delivery_attempts(
+        self,
+        user_id: str,
+        session_id: str,
+        excluded_turn_ids: list[str],
+        updated_at_ms: int,
+        bump_survivors: bool = True,
+    ) -> list["ChatUserTurnDeliveryRecord"]:
+        """Invalidate session-local survivor attempts without blocking."""
+        return await self._run_threaded(
+            "bump_nonterminal_user_turn_delivery_attempts",
+            user_id,
+            session_id,
+            excluded_turn_ids,
+            updated_at_ms,
+            bump_survivors,
+        )
 
     def get_worker_result(self, worker_id: str) -> Optional[dict[str, Any]]:
         if not worker_id.strip():
@@ -476,24 +582,34 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         finally:
             conn.close()
 
-    def _delete_chat_session_assets(self, *, session_id: str) -> None:
-        self._asset_gc.delete_session_assets(session_id)
+    def _delete_chat_message_assets(
+        self,
+        *,
+        asset_references: list[tuple[str, str]],
+    ) -> None:
+        self._asset_gc.delete_message_assets(asset_references)
 
-    def _delete_chat_message_assets(self, *, storage_rel_paths: list[str]) -> None:
-        self._asset_gc.delete_message_assets(storage_rel_paths)
+    def _delete_code_delegation_artifacts(
+        self,
+        *,
+        references: list[CodeAgentDelegationReference],
+    ) -> None:
+        gc = getattr(self, "_code_agent_artifact_gc", None)
+        if gc is None:
+            gc = CodeAgentArtifactGC()
+            self._code_agent_artifact_gc = gc
+        gc.delete_references(references)
 
-    def _delete_chat_history_snapshot_assets(
+    def _list_chat_snapshot_asset_references(
         self,
         *,
         session_id: str,
         turn_ids: list[str],
-        storage_rel_paths: list[str],
         delete_entire_session: bool,
-    ) -> None:
-        self._asset_gc.delete_history_snapshot_assets(
+    ) -> list[tuple[str, str]]:
+        return self._asset_gc.list_snapshot_asset_references(
             session_id=session_id,
             turn_ids=turn_ids,
-            storage_rel_paths=storage_rel_paths,
             delete_entire_session=delete_entire_session,
         )
 
@@ -634,9 +750,14 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
     async def _run_threaded(self, method_name: str, *args: Any) -> Any:
         return await asyncio.to_thread(self._run_isolated, method_name, *args)
 
-    @staticmethod
-    def _run_isolated(method_name: str, *args: Any) -> Any:
-        service = ChatReadService()
+    def _run_isolated(self, method_name: str, *args: Any) -> Any:
+        service = object.__new__(ChatReadService)
+        service._runtime_paths = self._runtime_paths
+        service._chat_db_path = self._chat_db_path
+        service._l1_db_path = self._l1_db_path
+        service._runtime_trace_db_path = self._runtime_trace_db_path
+        service._asset_gc = ChatAssetGC(runtime_paths=self._runtime_paths)
+        service._conn = None
         try:
             method = getattr(service, method_name)
             return method(*args)

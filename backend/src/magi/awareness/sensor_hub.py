@@ -171,6 +171,16 @@ class SensorHub:
                 if data.get("user_message_generation") is not None
                 else None
             ),
+            delivery_attempt_no=(
+                int(data["delivery_attempt_no"])
+                if data.get("delivery_attempt_no") is not None
+                else None
+            ),
+            runtime_command_id=(
+                int(data["runtime_command_id"])
+                if data.get("runtime_command_id") is not None
+                else None
+            ),
         )
         await self.push_sensor_event(sensor_event)
 

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any, Protocol
 
+from magi.delivery.contracts import DeliveryFanoutResult
 from magi.llm.streaming_events import LLMStreamEvent
 from magi_plugin_sdk.delivery import DeliveryContent
 
@@ -20,7 +22,8 @@ class ChatDeliveryDispatchPort(Protocol):
         content: DeliveryContent | None = None,
         exclude_chat_sse: bool = False,
         chat_sse_only: bool = False,
-    ) -> list[Any]:
+        exclude_channel_types: Iterable[str] = (),
+    ) -> DeliveryFanoutResult:
         """Deliver a final assistant response to configured channel targets."""
 
     async def dispatch_stream_chunk(

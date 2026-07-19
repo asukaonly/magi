@@ -50,7 +50,7 @@ Magi is a desktop-only application:
 - Desktop mode
   Tauri shell plus React WebView plus Rust Axum gateway plus Python sidecar (IPC worker)
 
-The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, chat attachment upload/download resource handling, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, attachment parsing/context preparation, LLM calls, agent execution) are dispatched over IPC to the Python sidecar, using Unix Domain Sockets on Unix-like systems and loopback TCP on Windows. The Python process runs no public HTTP server; FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
+The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, identity-validated streaming chat attachment downloads, config file I/O, task CRUD, and lightweight chat-session creation/title/workspace updates natively in Rust. Governed message, session, and history deletion is forwarded to Python because it also owns memory, trace, file, delivery, and runtime cleanup. Chat attachment uploads are size-bounded and streamed into temporary staging by the gateway; IPC passes the staging reference, and Python streams the body into its in-memory API so it can own the final managed-file mutation, parsing, and message ownership without repeated whole-body copies. Other requests that require the Python runtime (message send, LLM calls, agent execution) use the same IPC channel, with Unix Domain Sockets on Unix-like systems and loopback TCP on Windows. The Python process runs no public HTTP server; FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
 
 On confirmed desktop quit, the Tauri shell hides the main window first and then stops the Python sidecar in the background before exiting. Windows helper processes used for sidecar startup and shutdown must be launched without visible console windows so quit feels like a native desktop close rather than a terminal-driven teardown.
 
@@ -101,6 +101,32 @@ The core runtime is centered on:
 
 - `WorkerAgentManager`
   Leaf worker lifecycle and result publication
+
+Background-task completion is recoverable across startup ordering: every
+terminal attempt leaves a pending completion snapshot before listeners run, and
+the outreach layer drains those snapshots after channels are ready. A task that
+finishes while the app is still starting therefore still converges on the same
+chat result and proactive-delivery identity. If delivery fails while the app
+keeps running, the periodic outreach pass retries a bounded set of pending
+snapshots using the already saved wording; a handled attempt is not sent again.
+
+### Conversation lifecycle
+
+Deleting a message, clearing a conversation, deleting a session, or clearing
+all memory is a governed operation across chat, memory, evidence, active work,
+delivery state, traces, and private files. Related foreground and background
+work is stopped first, and matching new background work or retries remain
+blocked until memory and the visible chat surface finish cleanup. Deleting one
+edited or replaced message covers its complete logical message chain without
+blocking unrelated sibling work. The transcript becomes inaccessible before
+slower file cleanup runs, and startup recovery finishes any interrupted cleanup
+without bringing deleted content back.
+
+Managed attachments are removed only when no surviving visible message owns
+them. Code-task logs, diffs, temporary worktrees, and private branches follow
+the same ownership rule and are removed with the conversation that owns them.
+Edits already applied to the user's main project remain in place; deleting a
+conversation never rolls those edits back.
 
 ### Unified plugin runtime
 
@@ -173,10 +199,20 @@ The durable design is documented in [Persona Runtime Architecture](./persona-run
   Sensor sync cursors, source-item fingerprints, and sensor sync statistics. The awareness layer owns this database; high-volume fingerprint writes flow through a bounded batch queue so sensor catch-up runs apply backpressure instead of opening one SQLite write per emitted event.
 
 - `~/.magi/data/chat/chat.db`
-  Chat-domain source of truth for `chat_sessions`, `chat_turns`, `chat_messages`, and indexed `chat_attachments`
+  Chat-domain source of truth for sessions, turns, messages, indexed
+  attachments, message-owned asset and code-delegation references, private
+  deletion-recovery registries, user-turn delivery attempts, assistant-memory
+  projection intents, permanent cleared-session and cleared-message scopes, and
+  interrupted global conversation clear
+
+- `~/.magi/runtime/background_tasks.db`
+  Background task rows, attempt events, and recoverable terminal-completion
+  snapshots. Task history is operational state rather than recallable memory
+  and remains visible in Tasks until manual dismissal or its configured
+  retention policy removes it.
 
 - `~/.magi/data/resources/chat/`
-  Managed local chat attachments and derived artifacts grouped by type, session, and turn. Rust owns raw desktop upload/download resource handling; Python owns semantic parsing, compact session attachment references, on-demand attachment reading tools, and derived text artifacts used by runtime context.
+  Managed local chat attachments and derived artifacts grouped by type, session, and turn. Rust owns size-bounded upload staging and native downloads; Python owns the final managed upload write, semantic parsing, compact session attachment references, on-demand attachment reading tools, derived text artifacts, and lifecycle serialization with garbage collection.
 
 - `~/.magi/data/memory/l1_events.db`
   Canonical L1 fact storage for lossy memory projection of `user_text` and `assistant_final` content only
@@ -185,6 +221,10 @@ The durable design is documented in [Persona Runtime Architecture](./persona-run
   Shared L0/L2/L3/L4 storage
 
   Sensor-derived L2 knowledge graph projection is owned by Python memory, but high-volume event subscribers must enter it through the awareness-owned knowledge graph write queue. The queue batches edge writes into memory facade calls and exposes queue depth, flush, retry, and failure counters for runtime diagnostics.
+
+- `~/.magi/data/channels/channels.db`
+  External channel conversation mappings, binding preferences, delivery
+  receipts, notification cursors, and proactive-outreach outbox/delivery state
 
 - `~/.magi/runtime/runtime_trace.db`
   Runtime execution observability only: turn summaries, spans, LLM metrics, tool calls, intent-resolution details, live notifications, and append-only plugin ingress events produced by the desktop shell
@@ -200,6 +240,11 @@ The durable design is documented in [Persona Runtime Architecture](./persona-run
 
 - `<workspace>/.magi/`
   Optional project-local overlay for team-shareable project instructions, rules, skills, safe project settings, and gitignored local runtime/cache/traces. It is created only by explicit workspace initialization or by a feature that needs generated workspace-local state.
+
+  Code delegation keeps private logs, diffs, context bundles, temporary
+  worktrees, and branches under the governed workspace/session identity. Chat
+  owns their lifecycle through private references in `chat.db`; applied files
+  in the main workspace are not part of that disposable artifact set.
 
 Workspace storage is an overlay, not a second global database. Core path infrastructure owns workspace identity, path resolution, generated directory creation, local `.gitignore` guards, and state manifests. A random durable identity is written under the gitignored local overlay only when chat commits a workspace association or an explicit workspace-state feature needs it; read-only discovery does not modify the workspace. Copies and ordinary path switches receive new identities, so the product never merges projects by guessing that a missing old path means a move. Context may read project knowledge from the overlay; agent runtime, tools, and plugins may use scoped cache/runtime directories through the workspace path facade; memory projection remains the only route into durable memory databases.
 
@@ -226,10 +271,12 @@ High-volume Python write paths must have a single owning service or bounded writ
 
 | Database | Tables / state | Source of truth | Rust gateway access | Python access | Migration owner |
 |---|---|---|---|---|---|
-| `chat.db` | `chat_sessions`, `chat_turns`, `chat_messages`, `chat_attachments` metadata | Chat domain transcript and presentation state | Reads history/session/attachment views; writes lightweight session presentation mutations such as create, rename, workspace, labels, soft-delete, and history version bumps | Writes user/assistant turn and message records produced by runtime execution; owns chat-domain store invariants | Python chat store schema; Rust route tests must track response/write expectations |
-| `data/resources/chat/` | attachment files and derived artifacts | Managed chat attachment content | Writes raw desktop uploads and reads attachment content for desktop HTTP routes; does not parse file semantics | Writes derived artifacts during runtime preparation and may import local tool/channel attachments into managed storage | Python chat attachment services for parsing; Rust gateway for desktop upload resource storage |
+| `chat.db` | sessions, turns, messages, attachment metadata, asset/code-delegation ownership, private cleanup registries, delivery attempts, assistant-memory projection intents, clear intents, cleared-session scopes, cleared-message scopes | Chat transcript, presentation state, delivery convergence, and deletion barriers | Reads history/session/attachment views; writes only lightweight session creation and presentation fields such as title and workspace | Writes runtime turns and messages; owns stop, message/session/history deletion, permanent session and message tombstones, attachment/code-delegation cleanup, projection handoff, and recovery invariants. Governed deletion is forwarded to Python and is never a native Rust soft-delete | Python chat store schema; Rust route tests must track response/write expectations |
+| `data/resources/chat/` | attachment files and derived artifacts | Managed chat attachment content | Streams bounded upload request bodies into temporary staging outside managed storage and streams downloads only from an exact active message owner after file-identity validation | Streams staged uploads into the in-memory API; owns final upload writes, derived artifacts, tool/channel imports, message ownership validation, safe internal reads, and serialized garbage collection | Python chat attachment services own every managed mutation and internal safe-read rules; Rust gateway owns request staging and native validated downloads |
 | `runtime_trace.db` | trace turns, spans, tool calls, LLM calls, runtime notifications, plugin ingress events | Execution observability and best-effort live fan-out | Reads trace snapshots and readiness metrics; inserts `runtime_notifications` only for gateway-owned mutations that need frontend fan-out | Writes trace/notification/plugin ingress records produced by runtime services | Python runtime trace store schema; Rust notification bridge contract tests |
-| `message_queue.db` | `runtime_commands` | Durable runtime command queue | No direct writes except through IPC-facing command enqueue flows if explicitly implemented | Owns queue schema, claiming, retry, ack, and recovery semantics | Python runtime command queue |
+| `message_queue.db` | `runtime_commands`, user-message clear generation, cleared session/turn scopes | Durable runtime command queue and pre-admission privacy boundary | No direct writes except through IPC-facing command enqueue flows if explicitly implemented | Owns queue schema, attempt identity, claiming, retry, ack, recovery, generation advance, and scope blocking | Python runtime command queue |
+| `background_tasks.db` | background task rows, attempt events, terminal-completion intents | Background execution state and recoverable completion handoff | No direct native writes currently | Owns task transitions, cancellation, startup recovery, terminal snapshot handoff, and retention | Python background-task store/schema |
+| `channels.db` | session mappings, binding settings, receipts, notification cursors, proactive-outreach outbox and delivery log | External conversation routing and proactive-delivery state | No direct native writes currently | Owns channel mapping/preferences, delivery receipts, clear-time conversation cleanup, proactive-outreach claiming, and delivery convergence | Python channels/outreach schema |
 | `tasks.db` | `tasks` | User-facing task records | Reads task views; writes product task CRUD fields through `crates/magi-gateway/src/api/tasks/write.rs` | May write runtime-linked task rows and orchestration linkage through task-domain services | Shared task-domain schema; native route mutations must stay field-scoped |
 | `scheduler.db` | `schedules`, `target_state`, execution history | Unified scheduler configuration and execution bookkeeping | Reads schedules/executions; writes product schedule CRUD, target-state reset fields, and cancellation markers through `crates/magi-gateway/src/api/schedules/write.rs` | Owns scheduler execution, job registration, run history, and recovery | Python scheduler repository schema; Rust route tests cover native mutation fields |
 | `sensor_state.db` | `sensor_cursors`, `sensor_fingerprints`, `sensor_stats` | Sensor sync bookkeeping and source-item dedupe state | No direct native writes currently; product commands request state flushes through IPC/runtime command queue | Owns cursor/stat updates and fingerprint dedupe writes; high-volume fingerprint writes must use the awareness-owned bounded batch writer | Python sensor_state schema |

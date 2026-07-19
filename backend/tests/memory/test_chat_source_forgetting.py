@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiosqlite
@@ -10,6 +11,9 @@ import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
 from magi.chat.asset_gc import ChatAssetGC
+from magi.chat.assistant_memory_projection import (
+    ChatAssistantMemoryProjectionService,
+)
 from magi.chat.forgetting import ChatForgettingService, ChatSurfaceFinalizer
 from magi.chat.read_service import ChatReadService
 from magi.chat.store import ChatStore
@@ -139,6 +143,18 @@ class _DirectReadAdapter:
     ):
         return self._service.get_message_source_identity(user_id, session_id, message_id)
 
+    async def alist_message_replacement_source_identities(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ):
+        return self._service.list_message_replacement_source_identities(
+            user_id,
+            session_id,
+            message_id,
+        )
+
     async def alist_session_message_source_identities(
         self,
         user_id: str,
@@ -178,6 +194,14 @@ class _UnusedSurfaceWriter:
 
 
 class _NoopRuntimeForgettingCoordinator:
+    @asynccontextmanager
+    async def forget_operation_boundary(self):
+        yield
+
+    @asynccontextmanager
+    async def background_scope_boundary(self, **_scope):  # type: ignore[no-untyped-def]
+        yield
+
     async def prepare_session_delete(
         self,
         *,
@@ -193,8 +217,47 @@ class _NoopRuntimeForgettingCoordinator:
         session_id: str,
         turn_id: str,
         message_id: str,
+        include_turn_scope: bool,
+        run_id: str | None,
+        run_revision: int,
+        runtime_turn_ids: list[str],
+        replay_turn_ids: list[str],
+        related_message_ids: list[str] | None = None,
+        background_task_ids: list[str] | None = None,
     ) -> object:
         return object()
+
+    @asynccontextmanager
+    async def message_delete_boundary(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+        message_id: str,
+        include_turn_scope: bool,
+        run_id: str | None,
+        run_revision: int,
+        runtime_turn_ids: list[str],
+        replay_turn_ids: list[str],
+        related_message_ids: list[str],
+        background_task_ids: list[str],
+        prepare_intent,
+    ):
+        _ = (
+            user_id,
+            session_id,
+            turn_id,
+            message_id,
+            include_turn_scope,
+            run_id,
+            run_revision,
+            replay_turn_ids,
+            background_task_ids,
+            related_message_ids,
+        )
+        await prepare_intent(runtime_turn_ids, replay_turn_ids)
+        yield object()
 
     async def quiesce_history_clear(
         self,
@@ -210,7 +273,7 @@ class _NoopRuntimeForgettingCoordinator:
         user_id: str,
         session_id: str,
         turn_ids: list[str],
-        messages: list[object],
+        message_ids: list[str],
     ) -> object:
         return object()
 
@@ -330,6 +393,45 @@ def _seed_chat_turn_with_two_messages(chat_db: Path) -> None:
     conn.close()
 
 
+def _seed_chat_turn_with_rhythm_segments(chat_db: Path) -> None:
+    _seed_chat_session(chat_db)
+    conn = sqlite3.connect(chat_db)
+    for index in range(3):
+        conn.execute(
+            """
+            INSERT INTO chat_messages(
+                message_id, session_id, turn_id, user_id, role, message_kind,
+                content_text, payload_json, is_final, is_visible, created_at_ms,
+                sequence_no
+            ) VALUES (?, 'session-1', 'turn-1', 'u1', 'assistant',
+                      'assistant_rhythm_segment', ?, ?, 1, 1, ?, ?)
+            """,
+            (
+                f"rhythm-{index + 1}",
+                f"part {index + 1}",
+                json.dumps(
+                    {
+                        "rhythm": {
+                            "segment_index": index,
+                            "segment_count": 3,
+                        }
+                    }
+                ),
+                index + 2,
+                index + 2,
+            ),
+        )
+    conn.execute(
+        """
+        UPDATE chat_sessions
+        SET message_count = 4, history_version = 4
+        WHERE session_id = 'session-1'
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
 def _seed_new_message_after_crash(chat_db: Path) -> None:
     conn = sqlite3.connect(chat_db)
     conn.execute("""
@@ -425,6 +527,28 @@ def _seed_message_artifacts(
         """,
         (relative_attachment_path,),
     )
+    conn.executemany(
+        """
+        INSERT INTO chat_message_asset_refs(
+            message_id, asset_key, storage_rel_path, asset_kind, created_at_ms
+        ) VALUES ('message-assistant', ?, ?, ?, 2)
+        """,
+        [
+            (
+                asset_path.resolve()
+                .relative_to(runtime_paths.chat_resources_dir.resolve())
+                .as_posix(),
+                asset_path.resolve()
+                .relative_to(runtime_paths.base_dir.resolve())
+                .as_posix(),
+                asset_kind,
+            )
+            for asset_path, asset_kind in (
+                (attachment_path, "attachment"),
+                (derived_path, "derived_text"),
+            )
+        ],
+    )
     conn.execute("""
         INSERT INTO chat_context_summaries(
             summary_id, session_id, status, summary_kind, session_origin,
@@ -436,12 +560,13 @@ def _seed_message_artifacts(
         """)
     conn.execute("""
         INSERT INTO chat_user_turn_delivery(
-            turn_id, projection_completed, runtime_enqueued,
+            turn_id, projection_completed, delivery_attempt_no,
+            delivery_state, current_command_id,
             runtime_envelope_json, request_fingerprint, created_at_ms,
             updated_at_ms
         ) VALUES (
-            'turn-1', 1, 1, '{"message":"assistant content"}', 'fingerprint',
-            1, 1
+            'turn-1', 1, 0, 'terminal', NULL,
+            '{"message":"user content"}', 'fingerprint', 1, 1
         )
         """)
     conn.execute("""
@@ -531,7 +656,10 @@ async def test_real_session_delete_forgets_chat_memory_and_blocks_replay(
     read_service = ChatReadService()
     read_service._chat_db_path = chat_db
     read_service._delete_runtime_trace_rows = lambda **_kwargs: None  # type: ignore[method-assign]
-    read_service._delete_chat_session_assets = lambda **_kwargs: None  # type: ignore[method-assign]
+    read_service._list_chat_snapshot_asset_references = (  # type: ignore[method-assign]
+        lambda **_kwargs: []
+    )
+    read_service._delete_chat_message_assets = lambda **_kwargs: None  # type: ignore[method-assign]
 
     try:
         assert memory.l0 is not None
@@ -681,6 +809,217 @@ async def test_real_session_delete_forgets_chat_memory_and_blocks_replay(
 
 
 @pytest.mark.asyncio
+async def test_rhythm_source_resolution_survives_hidden_first_segment(
+    tmp_path: Path,
+) -> None:
+    chat_db = tmp_path / "chat.db"
+    _seed_chat_turn_with_rhythm_segments(chat_db)
+    read_service = ChatReadService()
+    read_service._chat_db_path = chat_db
+    try:
+        with sqlite3.connect(chat_db) as connection:
+            connection.execute(
+                """
+                UPDATE chat_messages
+                SET sequence_no = sequence_no + 2
+                WHERE message_id LIKE 'rhythm-%'
+                """
+            )
+            for index in range(2):
+                connection.execute(
+                    """
+                    INSERT INTO chat_messages(
+                        message_id, session_id, turn_id, user_id, role,
+                        message_kind, content_text, payload_json, is_final,
+                        is_visible, created_at_ms, sequence_no
+                    ) VALUES (?, 'session-1', 'turn-1', 'u1', 'assistant',
+                              'assistant_rhythm_segment', '', ?, 1, 0, ?, ?)
+                    """,
+                    (
+                        f"old-rhythm-{index + 1}",
+                        json.dumps(
+                            {
+                                "rhythm": {
+                                    "segment_index": index,
+                                    "segment_count": 2,
+                                }
+                            }
+                        ),
+                        index + 2,
+                        index + 2,
+                    ),
+                )
+            connection.commit()
+
+        second = read_service.get_message_source_identity(
+            "u1",
+            "session-1",
+            "rhythm-2",
+        )
+        assert second is not None
+        assert second.source_message_id == "rhythm-1"
+
+        with sqlite3.connect(chat_db) as connection:
+            connection.execute(
+                """
+                UPDATE chat_messages
+                SET content_text = '', payload_json = '{}', is_visible = 0
+                WHERE message_id = 'rhythm-1'
+                """
+            )
+            connection.commit()
+
+        last = read_service.get_message_source_identity(
+            "u1",
+            "session-1",
+            "rhythm-3",
+        )
+        assert last is not None
+        assert last.message_id == "rhythm-3"
+        assert last.source_message_id == "rhythm-1"
+    finally:
+        read_service.close()
+
+
+def test_replacement_chain_source_snapshot_includes_task_identity(
+    tmp_path: Path,
+) -> None:
+    chat_db = tmp_path / "chat.db"
+    _seed_chat_session(chat_db)
+    with sqlite3.connect(chat_db) as connection:
+        connection.execute(
+            """
+            INSERT INTO chat_messages(
+                message_id, session_id, turn_id, user_id, role, message_kind,
+                content_text, payload_json, is_final, is_visible, created_at_ms,
+                sequence_no
+            ) VALUES (
+                'pending-1', 'session-1', 'turn-1', 'u1', 'assistant',
+                'background_task_pending', 'pending',
+                '{"background_task_id":"task-1"}', 0, 1, 2, 2
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO chat_messages(
+                message_id, session_id, turn_id, user_id, role, message_kind,
+                content_text, payload_json, is_final, is_visible, created_at_ms,
+                sequence_no, replaces_message_id
+            ) VALUES (
+                'completion-1', 'session-1', 'turn-1', 'u1', 'assistant',
+                'assistant_final', 'complete',
+                '{"background_task_id":"task-1"}', 1, 1, 3, 3, 'pending-1'
+            )
+            """
+        )
+        connection.execute(
+            """
+            UPDATE chat_messages
+            SET replaced_by_message_id = 'completion-1'
+            WHERE message_id = 'pending-1'
+            """
+        )
+        connection.commit()
+
+    read_service = ChatReadService()
+    read_service._chat_db_path = chat_db
+    try:
+        from_pending = (
+            read_service.list_message_replacement_source_identities(
+                "u1",
+                "session-1",
+                "pending-1",
+            )
+        )
+        from_completion = (
+            read_service.list_message_replacement_source_identities(
+                "u1",
+                "session-1",
+                "completion-1",
+            )
+        )
+
+        for identities in (from_pending, from_completion):
+            assert [
+                identity.message_id
+                for identity in identities
+            ] == ["pending-1", "completion-1"]
+            assert {
+                identity.background_task_id
+                for identity in identities
+            } == {"task-1"}
+    finally:
+        read_service.close()
+
+
+@pytest.mark.asyncio
+async def test_rhythm_last_segment_delete_forgets_whole_canonical_evidence(
+    tmp_path: Path,
+) -> None:
+    memory = await _build_memory(tmp_path)
+    chat_db = tmp_path / "chat.db"
+    _seed_chat_turn_with_rhythm_segments(chat_db)
+    read_service = ChatReadService()
+    read_service._chat_db_path = chat_db
+    read_service._runtime_paths = RuntimePaths(base_dir=tmp_path / "runtime-home")
+    read_service._delete_runtime_trace_turn_rows = lambda **_kwargs: None  # type: ignore[method-assign]
+    read_service._delete_chat_message_assets = lambda **_kwargs: None  # type: ignore[method-assign]
+
+    try:
+        assert memory.l1 is not None and memory.l2 is not None
+        await memory.l1.store(
+            _memory_event(
+                "event-rhythm",
+                session_id="session-1",
+                turn_id="turn-1",
+                message_id="rhythm-1",
+                content="part 1\n\npart 2\n\npart 3",
+                author_type="assistant",
+            )
+        )
+        assertion_id = await _upsert_assertion(
+            memory,
+            trait_name="rhythm_supported_trait",
+            trait_value="forget",
+            event_id="event-rhythm",
+        )
+        service = ChatForgettingService(
+            chat_read_service=_DirectReadAdapter(read_service),
+            chat_surface_write_service=_DirectSurfaceWriter(chat_db),
+            memory=memory,
+            runtime=_NoopRuntimeForgettingCoordinator(),
+        )
+
+        assert await service.delete_message(
+            user_id="u1",
+            session_id="session-1",
+            message_id="rhythm-3",
+        )
+
+        event = await memory.l1.get_event("event-rhythm")
+        assertion = await memory.l2.get_tom_assertion(assertion_id=assertion_id)
+        assert event is not None and event["deleted_at"] is not None
+        assert assertion is not None and assertion["status"] == "archived"
+        with sqlite3.connect(chat_db) as connection:
+            rows = connection.execute(
+                """
+                SELECT message_id, content_text, is_visible
+                FROM chat_messages
+                WHERE message_id LIKE 'rhythm-%'
+                ORDER BY sequence_no
+                """
+            ).fetchall()
+        assert rows == [
+            ("rhythm-1", "part 1", 1),
+            ("rhythm-2", "part 2", 1),
+        ]
+    finally:
+        read_service.close()
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_message_delete_forgets_only_that_message_and_blocks_its_replay(
     tmp_path: Path,
 ) -> None:
@@ -785,15 +1124,7 @@ async def test_message_delete_forgets_only_that_message_and_blocks_its_replay(
                 """).fetchone()[0],
         }
         conn.close()
-        assert target_row is not None
-        assert dict(target_row) == {
-            "content_text": "",
-            "payload_json": "{}",
-            "is_visible": 0,
-            "persona_id": None,
-            "reply_to_message_id": None,
-            "label_json": None,
-        }
+        assert target_row is None
         assert reply_row is not None and reply_row[0] is None
         assert session_row is not None
         assert tuple(session_row) == (
@@ -806,7 +1137,7 @@ async def test_message_delete_forgets_only_that_message_and_blocks_its_replay(
         assert artifact_counts == {
             "attachments": 0,
             "summaries": 0,
-            "delivery": 0,
+            "delivery": 1,
             "consumed": 0,
         }
         assert not attachment_path.exists()
@@ -838,13 +1169,13 @@ async def test_message_delete_forgets_only_that_message_and_blocks_its_replay(
         trace_conn = sqlite3.connect(runtime_trace_db)
         assert trace_conn.execute(
             "SELECT COUNT(*) FROM trace_turns WHERE turn_id = 'turn-1'"
-        ).fetchone() == (0,)
+        ).fetchone() == (1,)
         assert trace_conn.execute(
             "SELECT COUNT(*) FROM trace_llm_calls WHERE turn_id = 'turn-1'"
-        ).fetchone() == (0,)
+        ).fetchone() == (1,)
         assert trace_conn.execute(
             "SELECT COUNT(*) FROM runtime_notifications WHERE turn_id = 'turn-1'"
-        ).fetchone() == (0,)
+        ).fetchone() == (1,)
         trace_conn.close()
 
         l1_conn = sqlite3.connect(memory.l1.db_path)
@@ -911,6 +1242,601 @@ async def test_message_delete_forgets_only_that_message_and_blocks_its_replay(
 
 
 @pytest.mark.asyncio
+async def test_message_delete_keeps_unrelated_l0_state_across_retry_and_restart(
+    tmp_path: Path,
+) -> None:
+    memory = await _build_memory(tmp_path)
+    assert memory.l0 is not None and memory.l1 is not None
+    deleted_event = _memory_event(
+        "event-delete-l0",
+        session_id="session-l0",
+        turn_id="turn-delete-l0",
+        message_id="message-delete-l0",
+        content="delete this message",
+    )
+    retained_event = _memory_event(
+        "event-keep-l0",
+        session_id="session-l0",
+        turn_id="turn-keep-l0",
+        message_id="message-keep-l0",
+        content="keep this message",
+    )
+    await memory.l1.store(deleted_event)
+    await memory.l1.store(retained_event)
+    await memory.l0.start_session(session_id="session-l0", user_id="u1")
+    await memory.l0.push_goal(
+        session_id="session-l0",
+        goal_id="goal-keep",
+        goal_type="conversation",
+        description="Keep helping with the current conversation",
+        status="in_progress",
+        priority=1,
+    )
+    await memory.l0.upsert_active_entity(
+        session_id="session-l0",
+        entity_id="person:delete",
+        entity_type="person",
+        snapshot={"name": "Delete"},
+        source_event_ids=[deleted_event.event_id],
+    )
+    await memory.l0.upsert_active_entity(
+        session_id="session-l0",
+        entity_id="person:keep",
+        entity_type="person",
+        snapshot={"name": "Keep"},
+        source_event_ids=[retained_event.event_id],
+    )
+    await memory.l0.add_temporary_tactic(
+        session_id="session-l0",
+        scope_type="session",
+        scope_id="session-l0",
+        tactic_type="delete-tactic",
+        tactic_payload={"turn_id": deleted_event.turn_id},
+        source_event_ids=[deleted_event.event_id],
+        tactic_id="tactic-delete",
+    )
+    await memory.l0.add_temporary_tactic(
+        session_id="session-l0",
+        scope_type="session",
+        scope_id="session-l0",
+        tactic_type="keep-tactic",
+        tactic_payload={"turn_id": retained_event.turn_id},
+        source_event_ids=[retained_event.event_id],
+        tactic_id="tactic-keep",
+    )
+    await memory.l0.checkpoint_session("session-l0")
+
+    try:
+        first = await memory.forget_chat_message_source(
+            user_id="u1",
+            session_id="session-l0",
+            message_id="message-delete-l0",
+            turn_id="turn-delete-l0",
+            source="chat",
+            event_type="UserMessage",
+        )
+        second = await memory.forget_chat_message_source(
+            user_id="u1",
+            session_id="session-l0",
+            message_id="message-delete-l0",
+            turn_id="turn-delete-l0",
+            source="chat",
+            event_type="UserMessage",
+        )
+        assert second.operation_id == first.operation_id
+
+        workbench = await memory.l0.get_workbench("session-l0")
+        assert workbench["session"] is not None
+        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == ["goal-keep"]
+        assert [entity["entity_id"] for entity in workbench["active_entities"]] == ["person:keep"]
+        assert [tactic["tactic_id"] for tactic in workbench["temporary_tactics"]] == ["tactic-keep"]
+    finally:
+        await memory.shutdown()
+
+    restored = await _build_memory(tmp_path, initialize_schema=False)
+    try:
+        assert restored.l0 is not None
+        workbench = await restored.l0.get_workbench("session-l0")
+        assert workbench["session"] is not None
+        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == ["goal-keep"]
+        assert [entity["entity_id"] for entity in workbench["active_entities"]] == ["person:keep"]
+        assert [tactic["tactic_id"] for tactic in workbench["temporary_tactics"]] == ["tactic-keep"]
+    finally:
+        await restored.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_user_message_delete_removes_owned_l0_execution_state(
+    tmp_path: Path,
+) -> None:
+    memory = await _build_memory(tmp_path)
+    assert memory.l0 is not None and memory.l1 is not None
+    deleted_event = _memory_event(
+        "event-delete-execution",
+        session_id="session-delete-execution",
+        turn_id="turn-delete-execution",
+        message_id="message-delete-execution",
+        content="private execution root",
+    )
+    await memory.l1.store(deleted_event)
+    await memory.l0.upsert_execution_run(
+        session_id="session-delete-execution",
+        run_id="run-delete-execution",
+        status="completed",
+        revision=1,
+        root_turn_id="turn-delete-execution",
+        root_user_message="private execution root",
+    )
+    await memory.l0.append_execution_pending_turn(
+        session_id="session-delete-execution",
+        run_id="run-delete-execution",
+        turn_id="turn-pending-from-deleted-run",
+        content="private pending content",
+        revision=1,
+    )
+    await memory.l0.record_execution_result(
+        session_id="session-delete-execution",
+        run_id="run-delete-execution",
+        result_id="result-delete-execution",
+        revision=1,
+        disposition="accepted",
+        payload={"content": "private execution result"},
+    )
+    await memory.l0.push_goal(
+        session_id="session-delete-execution",
+        goal_id="chat_run:run-delete-execution:1",
+        goal_type="chat_run",
+        description="private execution root",
+        status="in_progress",
+        metadata={
+            "run_id": "run-delete-execution",
+            "revision": 1,
+            "root_turn_id": "turn-delete-execution",
+        },
+    )
+    await memory.l0.push_goal(
+        session_id="session-delete-execution",
+        goal_id="goal-retained",
+        goal_type="conversation",
+        description="retain unrelated goal",
+        status="in_progress",
+    )
+    await memory.l0.checkpoint_session("session-delete-execution")
+
+    try:
+        await memory.forget_chat_message_source(
+            user_id="u1",
+            session_id="session-delete-execution",
+            message_id="message-delete-execution",
+            turn_id="turn-delete-execution",
+            source="chat",
+            event_type="UserMessage",
+        )
+        state = await memory.l0.get_execution_state("session-delete-execution")
+        assert state == {
+            "run": None,
+            "pending_turns": [],
+            "accepted_results": [],
+            "stale_results": [],
+        }
+        workbench = await memory.l0.get_workbench("session-delete-execution")
+        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
+            "goal-retained"
+        ]
+    finally:
+        await memory.shutdown()
+
+    restored = await _build_memory(tmp_path, initialize_schema=False)
+    try:
+        assert restored.l0 is not None
+        state = await restored.l0.get_execution_state("session-delete-execution")
+        assert state == {
+            "run": None,
+            "pending_turns": [],
+            "accepted_results": [],
+            "stale_results": [],
+        }
+        workbench = await restored.l0.get_workbench("session-delete-execution")
+        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
+            "goal-retained"
+        ]
+    finally:
+        await restored.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_old_user_message_delete_preserves_concurrent_new_l0_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = await _build_memory(tmp_path)
+    assert memory.l0 is not None and memory.l1 is not None
+    deleted_event = _memory_event(
+        "event-delete-old-execution",
+        session_id="session-concurrent-execution",
+        turn_id="turn-old-execution",
+        message_id="message-old-execution",
+        content="old private root",
+    )
+    await memory.l1.store(deleted_event)
+    await memory.l0.upsert_execution_run(
+        session_id="session-concurrent-execution",
+        run_id="run-old-execution",
+        status="completed",
+        revision=1,
+        root_turn_id="turn-old-execution",
+        root_user_message="old private root",
+    )
+    await memory.l0.push_goal(
+        session_id="session-concurrent-execution",
+        goal_id="chat_run:run-old-execution:1",
+        goal_type="chat_run",
+        description="old private root",
+        status="in_progress",
+        metadata={
+            "run_id": "run-old-execution",
+            "revision": 1,
+            "root_turn_id": "turn-old-execution",
+        },
+    )
+    await memory.l0.checkpoint_session("session-concurrent-execution")
+
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    runner = memory._durable_forget_runner
+    original_cleanup_target = runner._cleanup_target
+
+    async def pause_before_target_cleanup(operation):  # type: ignore[no-untyped-def]
+        cleanup_started.set()
+        await release_cleanup.wait()
+        return await original_cleanup_target(operation)
+
+    monkeypatch.setattr(runner, "_cleanup_target", pause_before_target_cleanup)
+    try:
+        deletion = asyncio.create_task(
+            memory.forget_chat_message_source(
+                user_id="u1",
+                session_id="session-concurrent-execution",
+                message_id="message-old-execution",
+                turn_id="turn-old-execution",
+                source="chat",
+                event_type="UserMessage",
+            )
+        )
+        await cleanup_started.wait()
+        await memory.l0.upsert_execution_run(
+            session_id="session-concurrent-execution",
+            run_id="run-new-execution",
+            status="running",
+            revision=2,
+            root_turn_id="turn-new-execution",
+            root_user_message="new retained root",
+        )
+        await memory.l0.record_execution_result(
+            session_id="session-concurrent-execution",
+            run_id="run-new-execution",
+            result_id="result-new-execution",
+            revision=2,
+            disposition="accepted",
+            payload={"content": "new retained result"},
+        )
+        await memory.l0.push_goal(
+            session_id="session-concurrent-execution",
+            goal_id="chat_run:run-new-execution:2",
+            goal_type="chat_run",
+            description="new retained root",
+            status="in_progress",
+            metadata={
+                "run_id": "run-new-execution",
+                "revision": 2,
+                "root_turn_id": "turn-new-execution",
+            },
+        )
+        await memory.l0.checkpoint_session("session-concurrent-execution")
+        release_cleanup.set()
+        await deletion
+
+        state = await memory.l0.get_execution_state("session-concurrent-execution")
+        assert state["run"]["run_id"] == "run-new-execution"
+        assert state["run"]["root_user_message"] == "new retained root"
+        assert [item["result_id"] for item in state["accepted_results"]] == [
+            "result-new-execution"
+        ]
+        workbench = await memory.l0.get_workbench("session-concurrent-execution")
+        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
+            "chat_run:run-new-execution:2"
+        ]
+    finally:
+        release_cleanup.set()
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_superseded_root_delete_removes_only_its_l0_goal(
+    tmp_path: Path,
+) -> None:
+    memory = await _build_memory(tmp_path)
+    assert memory.l0 is not None and memory.l1 is not None
+    deleted_event = _memory_event(
+        "event-superseded-root",
+        session_id="session-superseded-root",
+        turn_id="turn-old-root",
+        message_id="message-old-root",
+        content="old private root",
+    )
+    await memory.l1.store(deleted_event)
+    await memory.l0.upsert_execution_run(
+        session_id="session-superseded-root",
+        run_id="run-shared",
+        status="running",
+        revision=2,
+        root_turn_id="turn-new-root",
+        root_user_message="new retained root",
+    )
+    await memory.l0.push_goal(
+        session_id="session-superseded-root",
+        goal_id="chat_run:run-shared:1",
+        goal_type="chat_run",
+        description="old private root",
+        status="cancelled",
+        metadata={
+            "run_id": "run-shared",
+            "revision": 1,
+            "root_turn_id": "turn-old-root",
+        },
+    )
+    await memory.l0.push_goal(
+        session_id="session-superseded-root",
+        goal_id="chat_run:run-shared:2",
+        goal_type="chat_run",
+        description="new retained root",
+        status="in_progress",
+        metadata={
+            "run_id": "run-shared",
+            "revision": 2,
+            "root_turn_id": "turn-new-root",
+        },
+    )
+    await memory.l0.checkpoint_session("session-superseded-root")
+
+    try:
+        await memory.forget_chat_message_source(
+            user_id="u1",
+            session_id="session-superseded-root",
+            message_id="message-old-root",
+            turn_id="turn-old-root",
+            source="chat",
+            event_type="UserMessage",
+        )
+        state = await memory.l0.get_execution_state("session-superseded-root")
+        assert state["run"]["root_turn_id"] == "turn-new-root"
+        workbench = await memory.l0.get_workbench("session-superseded-root")
+        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
+            "chat_run:run-shared:2"
+        ]
+    finally:
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_assistant_message_delete_preserves_user_l0_execution_root(
+    tmp_path: Path,
+) -> None:
+    memory = await _build_memory(tmp_path)
+    assert (
+        memory.l0 is not None
+        and memory.l1 is not None
+        and memory.l2 is not None
+        and memory.l3 is not None
+        and memory.l4 is not None
+    )
+    assistant_event = _memory_event(
+        "event-delete-assistant-execution",
+        session_id="session-assistant-execution",
+        turn_id="turn-shared-execution",
+        message_id="message-assistant-execution",
+        content="assistant response",
+        author_type="assistant",
+    )
+    await memory.l1.store(assistant_event)
+    await memory.l0.upsert_execution_run(
+        session_id="session-assistant-execution",
+        run_id="run-user-execution",
+        status="completed",
+        revision=1,
+        root_turn_id="turn-shared-execution",
+        root_user_message="retain user root",
+    )
+    await memory.l0.add_temporary_tactic(
+        session_id="session-assistant-execution",
+        scope_type="session",
+        scope_id="session-assistant-execution",
+        tactic_type="user-turn-tactic",
+        tactic_payload={"content": "retain user tactic"},
+        source_event_ids=["turn-shared-execution"],
+        tactic_id="tactic-user-turn",
+    )
+    assertion_id = await _upsert_assertion(
+        memory,
+        trait_name="user_turn_preference",
+        trait_value="retain",
+        event_id="turn-shared-execution",
+    )
+    summary = await memory.l3.upsert_candidate(
+        candidate=L3Candidate(
+            summary_type="thematic",
+            summary_category="topic",
+            content="retain user turn summary",
+            source_event_ids=["turn-shared-execution"],
+            insight_key="retain-user-turn-summary",
+        )
+    )
+    preference_id = await memory.l4.record_task_preference(
+        user_id="u1",
+        persona_id="seven",
+        task_category="coding",
+        preference="retain user turn preference",
+        evidence_text="retain user root",
+        confidence=0.9,
+        turn_id="turn-shared-execution",
+    )
+    assert preference_id is not None
+    await memory.l0.checkpoint_session("session-assistant-execution")
+
+    try:
+        await memory.forget_chat_message_source(
+            user_id="u1",
+            session_id="session-assistant-execution",
+            message_id="message-assistant-execution",
+            turn_id="turn-shared-execution",
+            source="chat",
+            event_type="AIResponse",
+        )
+        state = await memory.l0.get_execution_state("session-assistant-execution")
+        assert state["run"]["run_id"] == "run-user-execution"
+        assert state["run"]["root_user_message"] == "retain user root"
+        workbench = await memory.l0.get_workbench("session-assistant-execution")
+        assert [item["tactic_id"] for item in workbench["temporary_tactics"]] == [
+            "tactic-user-turn"
+        ]
+        assertion = await memory.l2.get_tom_assertion(assertion_id=assertion_id)
+        assert assertion is not None and assertion["status"] != "archived"
+        assert await memory.l3.get_summary_by_id(summary["summary_id"]) is not None
+        assert len(
+            await memory.l4.get_task_preferences(
+                user_id="u1",
+                task_category="coding",
+            )
+        ) == 1
+    finally:
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_user_message_delete_removes_only_owned_pending_execution_revision(
+    tmp_path: Path,
+) -> None:
+    memory = await _build_memory(tmp_path)
+    assert memory.l0 is not None and memory.l1 is not None
+    deleted_event = _memory_event(
+        "event-delete-pending-execution",
+        session_id="session-pending-execution",
+        turn_id="turn-delete-pending",
+        message_id="message-delete-pending",
+        content="delete pending augmentation",
+    )
+    await memory.l1.store(deleted_event)
+    await memory.l0.upsert_execution_run(
+        session_id="session-pending-execution",
+        run_id="run-retained-root",
+        status="running",
+        revision=3,
+        root_turn_id="turn-retained-root",
+        root_user_message="retain root",
+    )
+    await memory.l0.append_execution_pending_turn(
+        session_id="session-pending-execution",
+        run_id="run-retained-root",
+        turn_id="turn-delete-pending",
+        content="delete pending augmentation",
+        revision=2,
+    )
+    await memory.l0.append_execution_pending_turn(
+        session_id="session-pending-execution",
+        run_id="run-retained-root",
+        turn_id="turn-keep-pending",
+        content="keep pending augmentation",
+        revision=3,
+    )
+    await memory.l0.record_execution_result(
+        session_id="session-pending-execution",
+        run_id="run-retained-root",
+        result_id="result-delete-pending",
+        revision=2,
+        disposition="accepted",
+        payload={
+            "turn_id": "turn-delete-pending",
+            "content": "delete pending result",
+        },
+    )
+    await memory.l0.record_execution_result(
+        session_id="session-pending-execution",
+        run_id="run-retained-root",
+        result_id="result-keep-pending",
+        revision=2,
+        disposition="accepted",
+        payload={
+            "turn_id": "turn-keep-pending",
+            "content": "keep pending result",
+        },
+    )
+    await memory.l0.record_execution_result(
+        session_id="session-pending-execution",
+        run_id="run-retained-root",
+        result_id="result-unowned-same-revision",
+        revision=2,
+        disposition="accepted",
+        payload={"content": "retain result without exact turn ownership"},
+    )
+    await memory.l0.push_goal(
+        session_id="session-pending-execution",
+        goal_id="chat_run:run-retained-root:3",
+        goal_type="chat_run",
+        description="retain root",
+        status="in_progress",
+        metadata={
+            "run_id": "run-retained-root",
+            "revision": 3,
+            "root_turn_id": "turn-retained-root",
+        },
+    )
+    await memory.l0.checkpoint_session("session-pending-execution")
+
+    try:
+        await memory.forget_chat_message_source(
+            user_id="u1",
+            session_id="session-pending-execution",
+            message_id="message-delete-pending",
+            turn_id="turn-delete-pending",
+            source="chat",
+            event_type="UserMessage",
+        )
+        state = await memory.l0.get_execution_state("session-pending-execution")
+        assert state["run"]["run_id"] == "run-retained-root"
+        assert [item["turn_id"] for item in state["pending_turns"]] == [
+            "turn-keep-pending"
+        ]
+        assert [item["result_id"] for item in state["accepted_results"]] == [
+            "result-keep-pending",
+            "result-unowned-same-revision",
+        ]
+        workbench = await memory.l0.get_workbench("session-pending-execution")
+        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
+            "chat_run:run-retained-root:3"
+        ]
+    finally:
+        await memory.shutdown()
+
+    restored = await _build_memory(tmp_path, initialize_schema=False)
+    try:
+        assert restored.l0 is not None
+        state = await restored.l0.get_execution_state("session-pending-execution")
+        assert [item["turn_id"] for item in state["pending_turns"]] == [
+            "turn-keep-pending"
+        ]
+        assert [item["result_id"] for item in state["accepted_results"]] == [
+            "result-keep-pending",
+            "result-unowned-same-revision",
+        ]
+        workbench = await restored.l0.get_workbench("session-pending-execution")
+        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
+            "chat_run:run-retained-root:3"
+        ]
+    finally:
+        await restored.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_session_forgetting_pages_through_every_matching_event(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -972,11 +1898,10 @@ async def test_completed_chat_forget_recovers_its_surface_after_restart(
     crashed_read_service._chat_db_path = chat_db
     crashed_read_service._delete_runtime_trace_rows = lambda **_kwargs: None  # type: ignore[method-assign]
     crashed_read_service._delete_runtime_trace_turn_rows = lambda **_kwargs: None  # type: ignore[method-assign]
-    crashed_read_service._delete_chat_session_assets = lambda **_kwargs: None  # type: ignore[method-assign]
-    crashed_read_service._delete_chat_message_assets = lambda **_kwargs: None  # type: ignore[method-assign]
-    crashed_read_service._delete_chat_history_snapshot_assets = (  # type: ignore[method-assign]
-        lambda **_kwargs: None
+    crashed_read_service._list_chat_snapshot_asset_references = (  # type: ignore[method-assign]
+        lambda **_kwargs: []
     )
+    crashed_read_service._delete_chat_message_assets = lambda **_kwargs: None  # type: ignore[method-assign]
     service = ChatForgettingService(
         chat_read_service=_CrashAfterMemoryReadAdapter(
             crashed_read_service,
@@ -1022,11 +1947,10 @@ async def test_completed_chat_forget_recovers_its_surface_after_restart(
     recovered_read_service._chat_db_path = chat_db
     recovered_read_service._delete_runtime_trace_rows = lambda **_kwargs: None  # type: ignore[method-assign]
     recovered_read_service._delete_runtime_trace_turn_rows = lambda **_kwargs: None  # type: ignore[method-assign]
-    recovered_read_service._delete_chat_session_assets = lambda **_kwargs: None  # type: ignore[method-assign]
-    recovered_read_service._delete_chat_message_assets = lambda **_kwargs: None  # type: ignore[method-assign]
-    recovered_read_service._delete_chat_history_snapshot_assets = (  # type: ignore[method-assign]
-        lambda **_kwargs: None
+    recovered_read_service._list_chat_snapshot_asset_references = (  # type: ignore[method-assign]
+        lambda **_kwargs: []
     )
+    recovered_read_service._delete_chat_message_assets = lambda **_kwargs: None  # type: ignore[method-assign]
     finalizer = ChatSurfaceFinalizer(
         chat_read_service=_DirectReadAdapter(recovered_read_service),
         memory=recovered_memory,
@@ -1047,10 +1971,10 @@ async def test_completed_chat_forget_recovers_its_surface_after_restart(
                 ).fetchone() == (0,)
             elif selector_kind == "chat_message":
                 assert connection.execute("""
-                    SELECT content_text, is_visible
+                    SELECT COUNT(*)
                     FROM chat_messages
                     WHERE message_id = 'message-1'
-                    """).fetchone() == ("", 0)
+                    """).fetchone() == (0,)
             if selector_kind == "chat_history":
                 assert connection.execute("""
                     SELECT COUNT(*)
@@ -1123,6 +2047,7 @@ async def test_message_delete_barrier_wins_against_concurrent_reprojection(
                 user_id="u1",
                 session_id="session-race",
                 message_id="message-race",
+                turn_id="turn-race",
                 source="chat",
                 event_type="UserMessage",
             )
@@ -1154,6 +2079,127 @@ async def test_message_delete_barrier_wins_against_concurrent_reprojection(
 
 
 @pytest.mark.asyncio
+async def test_claimed_assistant_outbox_cannot_reproject_after_delete_barrier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = await _build_memory(tmp_path)
+    chat_store = ChatStore(db_path=str(tmp_path / "chat-outbox-race.db"))
+    await chat_store.initialize()
+    barrier_written = asyncio.Event()
+    release_delete = asyncio.Event()
+    projection_started = asyncio.Event()
+    release_projection = asyncio.Event()
+    assert memory.l1 is not None
+    async with aiosqlite.connect(chat_store.db_path) as db:
+        await db.execute(
+            """
+            INSERT INTO chat_assistant_memory_outbox (
+                canonical_message_id, user_id, session_id, turn_id,
+                content_text, created_at_ms, state, attempt_count,
+                next_attempt_at_ms, lease_token, lease_expires_at_ms,
+                last_error, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, 0, NULL, NULL, NULL, ?)
+            """,
+            (
+                "message-outbox-race",
+                "u1",
+                "session-outbox-race",
+                "turn-outbox-race",
+                "must not return",
+                1_720_000_000_000,
+                1_720_000_000_000,
+            ),
+        )
+        await db.commit()
+
+    repository = memory._durable_forget_runner._repository
+    original_persist_references = repository.persist_selector_references
+    paused = False
+
+    async def persist_references_then_pause(*args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal paused
+        result = await original_persist_references(*args, **kwargs)
+        if not paused:
+            paused = True
+            barrier_written.set()
+            await release_delete.wait()
+        return result
+
+    monkeypatch.setattr(
+        repository,
+        "persist_selector_references",
+        persist_references_then_pause,
+    )
+
+    class _MemoryProjector:
+        async def project_assistant_message(self, **kwargs):  # type: ignore[no-untyped-def]
+            projection_started.set()
+            await release_projection.wait()
+            result = await memory.ingest_event(
+                _memory_event(
+                    "event-outbox-race-late",
+                    session_id=str(kwargs["session_id"]),
+                    turn_id=str(kwargs["turn_id"]),
+                    message_id=str(kwargs["message_id"]),
+                    content=str(kwargs["content"]),
+                    author_type="assistant",
+                )
+            )
+            assert result["skip_reason"] == "source_event_forgotten"
+            return True
+
+    service = ChatAssistantMemoryProjectionService(
+        outbox=chat_store,
+        projector=_MemoryProjector(),  # type: ignore[arg-type]
+        unified_memory=memory,
+        confirmation_timeout_seconds=0.02,
+        confirmation_poll_seconds=0.002,
+        retry_base_seconds=0.01,
+    )
+    try:
+        delete_task = asyncio.create_task(
+            memory.forget_chat_message_source(
+                user_id="u1",
+                session_id="session-outbox-race",
+                message_id="message-outbox-race",
+                turn_id="turn-outbox-race",
+                source="chat",
+                event_type="AIResponse",
+            )
+        )
+        await barrier_written.wait()
+        projection_task = asyncio.create_task(service.process_ready_once())
+        await projection_started.wait()
+        assert projection_task.done() is False
+
+        assert await chat_store.cancel_assistant_memory_projection(
+            canonical_message_id="message-outbox-race"
+        )
+        release_delete.set()
+        assert (await delete_task).event_count == 0
+        release_projection.set()
+        projection_stats = await projection_task
+
+        assert projection_stats["cancelled"] == 1
+        assert await chat_store.count_assistant_memory_projections() == 0
+        assert (
+            await memory.l1.find_event_id_by_idempotency(
+                source="chat",
+                event_type="AIResponse",
+                idempotency_key="message-outbox-race",
+            )
+            is None
+        )
+        assert await memory.l1.get_event("event-outbox-race-late") is None
+    finally:
+        release_delete.set()
+        release_projection.set()
+        await chat_store.shutdown()
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_unknown_or_wrong_owner_session_never_creates_a_delete_barrier(
     tmp_path: Path,
 ) -> None:
@@ -1163,7 +2209,6 @@ async def test_unknown_or_wrong_owner_session_never_creates_a_delete_barrier(
     read_service = ChatReadService()
     read_service._chat_db_path = chat_db
     read_service._delete_runtime_trace_rows = lambda **_kwargs: None  # type: ignore[method-assign]
-    read_service._delete_chat_session_assets = lambda **_kwargs: None  # type: ignore[method-assign]
     service = ChatForgettingService(
         chat_read_service=_DirectReadAdapter(read_service),
         chat_surface_write_service=_UnusedSurfaceWriter(),

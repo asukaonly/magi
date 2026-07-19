@@ -85,7 +85,17 @@ class BackgroundTaskExecutor:
         before we even reached a terminal state" from arbitrary other
         exceptions. Pass a fresh token per attempt.
         """
-        await self._transition_to_running(task)
+        if not await self._transition_to_running(task):
+            latest = await self._store.get_task(task.task_id)
+            if latest is None:
+                raise RuntimeError(
+                    "Background task disappeared before attempt start"
+                )
+            if latest.status in BackgroundTaskStatus.terminal():
+                return latest
+            raise RuntimeError(
+                "Background task attempt could not start from its durable state"
+            )
         try:
             result = await self._run_fn(task, cancel_token)
         except asyncio.CancelledError:
@@ -129,7 +139,7 @@ class BackgroundTaskExecutor:
     # Transitions
     # ------------------------------------------------------------------
 
-    async def _transition_to_running(self, task: BackgroundTask) -> None:
+    async def _transition_to_running(self, task: BackgroundTask) -> bool:
         previous = task.status
         now = self._clock()
         task.status = BackgroundTaskStatus.RUNNING
@@ -137,14 +147,14 @@ class BackgroundTaskExecutor:
         task.updated_at = now
         task.error = None
         task.cancel_reason = None
-        await self._store.update_task(task)
-        await self._store.append_event(
+        return await self._store.persist_running_transition(
+            task,
             BackgroundTaskEvent.transition(
                 task_id=task.task_id,
                 attempt_index=task.attempt_index,
                 from_status=previous,
                 to_status=BackgroundTaskStatus.RUNNING,
-            )
+            ),
         )
 
     async def _transition_to_succeeded(
@@ -161,14 +171,14 @@ class BackgroundTaskExecutor:
             task.orchestration_id = result.orchestration_id
         task.finished_at = now
         task.updated_at = now
-        await self._store.update_task(task)
-        await self._store.append_event(
+        await self._store.persist_terminal_transition(
+            task,
             BackgroundTaskEvent.transition(
                 task_id=task.task_id,
                 attempt_index=task.attempt_index,
                 from_status=previous,
                 to_status=BackgroundTaskStatus.SUCCEEDED,
-            )
+            ),
         )
 
     async def _transition_to_failed(
@@ -180,15 +190,15 @@ class BackgroundTaskExecutor:
         task.error = reason
         task.finished_at = now
         task.updated_at = now
-        await self._store.update_task(task)
-        await self._store.append_event(
+        await self._store.persist_terminal_transition(
+            task,
             BackgroundTaskEvent.transition(
                 task_id=task.task_id,
                 attempt_index=task.attempt_index,
                 from_status=previous,
                 to_status=BackgroundTaskStatus.FAILED,
                 message=reason,
-            )
+            ),
         )
 
     async def _transition_to_cancelled(
@@ -200,15 +210,15 @@ class BackgroundTaskExecutor:
         task.cancel_reason = reason
         task.finished_at = now
         task.updated_at = now
-        await self._store.update_task(task)
-        await self._store.append_event(
+        await self._store.persist_terminal_transition(
+            task,
             BackgroundTaskEvent.transition(
                 task_id=task.task_id,
                 attempt_index=task.attempt_index,
                 from_status=previous,
                 to_status=BackgroundTaskStatus.CANCELLED,
                 message=reason,
-            )
+            ),
         )
 
     @staticmethod

@@ -9,7 +9,7 @@ import aiosqlite
 
 from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
-from .contracts import BackgroundTask, BackgroundTaskStatus
+from .contracts import BackgroundTask, BackgroundTaskEvent, BackgroundTaskStatus
 
 logger = get_logger(__name__)
 
@@ -113,6 +113,10 @@ class BackgroundTaskRowStoreMixin:
         """Hard-delete a task and its event log. Used for admin dismiss."""
         await self.initialize()
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            await db.execute(
+                "DELETE FROM background_task_completion_intents WHERE task_id = ?",
+                (task_id,),
+            )
             await db.execute(
                 "DELETE FROM background_task_events WHERE task_id = ?",
                 (task_id,),
@@ -223,25 +227,24 @@ class BackgroundTaskRowStoreMixin:
             rows = await cursor.fetchall()
             recovered: list[BackgroundTask] = []
             for row in rows:
-                await db.execute(
-                    """
-                    UPDATE background_tasks
-                    SET status = ?, error = ?, finished_at = ?, updated_at = ?
-                    WHERE task_id = ?
-                    """,
-                    (
-                        BackgroundTaskStatus.FAILED.value,
-                        reason,
-                        now,
-                        now,
-                        str(row["task_id"]),
-                    ),
-                )
                 task = self._row_to_task(row)
+                previous = task.status
                 task.status = BackgroundTaskStatus.FAILED
                 task.error = reason
                 task.finished_at = now
                 task.updated_at = now
+                await self._update_task_row(db, task)
+                await self._insert_event_row(
+                    db,
+                    BackgroundTaskEvent.transition(
+                        task_id=task.task_id,
+                        attempt_index=task.attempt_index,
+                        from_status=previous,
+                        to_status=BackgroundTaskStatus.FAILED,
+                        message=reason,
+                    ),
+                )
+                await self._insert_completion_intent_row(db, task)
                 recovered.append(task)
             await db.commit()
         if recovered:
@@ -284,6 +287,11 @@ class BackgroundTaskRowStoreMixin:
             placeholders = ",".join("?" * len(task_ids))
             await db.execute(
                 f"DELETE FROM background_task_events WHERE task_id IN ({placeholders})",
+                task_ids,
+            )
+            await db.execute(
+                "DELETE FROM background_task_completion_intents "
+                f"WHERE task_id IN ({placeholders})",
                 task_ids,
             )
             await db.execute(

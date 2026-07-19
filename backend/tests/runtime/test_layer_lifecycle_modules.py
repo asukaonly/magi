@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -59,6 +60,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_memory_ingestion_subscriber",
         "runtime_llm_usage_subscriber",
         "runtime_chat_projector",
+        "runtime_chat_assistant_memory_projection",
         "runtime_control_transcript_subscriber",
         "runtime_trace",
         "runtime_trace_subscriber",
@@ -71,6 +73,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_sensor_hub",
         "runtime_context",
         "runtime_agent_core",
+        "runtime_chat_delivery_recovery",
         "runtime_command_processor",
         "runtime_plugin_ingress_processor",
         "runtime_timeline",
@@ -156,6 +159,27 @@ def test_runtime_worker_phase_metadata_matches_built_module_order() -> None:
     phase_plan = describe_runtime_worker_phase_plan()
     assert "infrastructure=subprocess_orphan_cleanup" in phase_plan
     assert "exports_and_maintenance=runtime_exports" in phase_plan
+
+
+def test_runtime_worker_phase_docs_match_built_module_order() -> None:
+    """Keep the durable architecture guide aligned with the runtime manifest."""
+    from magi.bootstrap import get_runtime_worker_module_order
+
+    docs_path = (
+        Path(__file__).resolve().parents[3]
+        / "docs/task-agent-runtime-architecture.md"
+    )
+    source = docs_path.read_text(encoding="utf-8")
+    sequence = source.split(
+        "The current runtime-worker sequence in "
+        "`bootstrap/runtime_worker_builder.py` is:",
+        1,
+    )[1].split("Important rule: bootstrap order", 1)[0]
+    documented_order = tuple(
+        re.findall(r"^\d+\. `([^`]+)`$", sequence, flags=re.MULTILINE)
+    )
+
+    assert documented_order == get_runtime_worker_module_order()
 
 
 def test_tools_module_does_not_initialize_shared_skills_runtime() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock
@@ -9,6 +10,7 @@ from unittest.mock import patch
 from magi.context import ContextAssemblyService, PromptContextAssembler, PromptContextRenderer
 from magi.personality.loader import PersonalityConfig
 from magi.personality.models import EmotionalState
+from magi.utils.runtime import RuntimePaths
 
 
 class _FakeMemory:
@@ -248,12 +250,18 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
 
     async def test_build_prompt_package_renders_active_text_and_pdf_attachments(self):
         retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
-        text_path = Path(self.id().replace(".", "_")).with_suffix(".txt")
-        pdf_path = Path(self.id().replace(".", "_")).with_suffix(".pdf.txt")
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        runtime_paths = RuntimePaths(Path(temp_dir.name) / "runtime")
+        text_path = (
+            runtime_paths.chat_derived_dir / "s1" / "turn-1" / "att-text.txt"
+        )
+        pdf_path = (
+            runtime_paths.chat_derived_dir / "s1" / "turn-1" / "att-pdf.txt"
+        )
+        text_path.parent.mkdir(parents=True, exist_ok=True)
         text_path.write_text("Alpha\nBeta\n", encoding="utf-8")
         pdf_path.write_text("Quarterly summary", encoding="utf-8")
-        self.addCleanup(lambda: text_path.unlink(missing_ok=True))
-        self.addCleanup(lambda: pdf_path.unlink(missing_ok=True))
 
         service = ContextAssemblyService(
             agent_id="chat-agent",
@@ -264,34 +272,42 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             retrieval_memory_provider=retrieval_memory_provider,
         )
 
-        package = await service.build_prompt_package(
-            user_id="u1",
-            session_id="s1",
-            user_message="帮我总结附件",
-            task_category="chat",
-            tools=[],
-            attachments=[
-                {
-                    "attachment_id": "att-text",
-                    "kind": "text_file",
-                    "original_name": "notes.md",
-                    "parse_status": "parsed",
-                    "derived_text_path": str(text_path),
-                    "character_count": 11,
-                    "truncated": False,
-                },
-                {
-                    "attachment_id": "att-pdf",
-                    "kind": "pdf",
-                    "original_name": "report.pdf",
-                    "parse_status": "parsed",
-                    "derived_text_path": str(pdf_path),
-                    "character_count": 17,
-                    "truncated": False,
-                    "page_count": 2,
-                },
-            ],
-        )
+        with patch(
+            "magi.core.chat_assets.paths.get_runtime_paths",
+            return_value=runtime_paths,
+        ):
+            package = await service.build_prompt_package(
+                user_id="u1",
+                session_id="s1",
+                user_message="帮我总结附件",
+                task_category="chat",
+                tools=[],
+                attachments=[
+                    {
+                        "attachment_id": "att-text",
+                        "session_id": "s1",
+                        "turn_id": "turn-1",
+                        "kind": "text_file",
+                        "original_name": "notes.md",
+                        "parse_status": "parsed",
+                        "derived_text_path": str(text_path),
+                        "character_count": 11,
+                        "truncated": False,
+                    },
+                    {
+                        "attachment_id": "att-pdf",
+                        "session_id": "s1",
+                        "turn_id": "turn-1",
+                        "kind": "pdf",
+                        "original_name": "report.pdf",
+                        "parse_status": "parsed",
+                        "derived_text_path": str(pdf_path),
+                        "character_count": 17,
+                        "truncated": False,
+                        "page_count": 2,
+                    },
+                ],
+            )
 
         self.assertIn("# Active Attachments", package.system_prompt)
         self.assertIn("notes.md", package.system_prompt)
@@ -301,9 +317,14 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
 
     async def test_build_prompt_package_prefers_full_attachment_text_over_excerpt(self):
         retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
-        text_path = Path(self.id().replace(".", "_")).with_suffix(".txt")
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        runtime_paths = RuntimePaths(Path(temp_dir.name) / "runtime")
+        text_path = (
+            runtime_paths.chat_derived_dir / "s1" / "turn-1" / "att-text.txt"
+        )
+        text_path.parent.mkdir(parents=True, exist_ok=True)
         text_path.write_text("First line\nSecond line\nFinal line", encoding="utf-8")
-        self.addCleanup(lambda: text_path.unlink(missing_ok=True))
 
         service = ContextAssemblyService(
             agent_id="chat-agent",
@@ -314,28 +335,77 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             retrieval_memory_provider=retrieval_memory_provider,
         )
 
-        package = await service.build_prompt_package(
-            user_id="u1",
-            session_id="s1",
-            user_message="完整看看附件",
-            task_category="chat",
-            tools=[],
-            attachments=[
-                {
-                    "attachment_id": "att-text",
-                    "kind": "text_file",
-                    "original_name": "notes.md",
-                    "parse_status": "parsed",
-                    "derived_text_excerpt": "First line",
-                    "derived_text_path": str(text_path),
-                    "character_count": len("First line\nSecond line\nFinal line"),
-                    "truncated": False,
-                },
-            ],
-        )
+        with patch(
+            "magi.core.chat_assets.paths.get_runtime_paths",
+            return_value=runtime_paths,
+        ):
+            package = await service.build_prompt_package(
+                user_id="u1",
+                session_id="s1",
+                user_message="完整看看附件",
+                task_category="chat",
+                tools=[],
+                attachments=[
+                    {
+                        "attachment_id": "att-text",
+                        "session_id": "s1",
+                        "turn_id": "turn-1",
+                        "kind": "text_file",
+                        "original_name": "notes.md",
+                        "parse_status": "parsed",
+                        "derived_text_excerpt": "First line",
+                        "derived_text_path": str(text_path),
+                        "character_count": len("First line\nSecond line\nFinal line"),
+                        "truncated": False,
+                    },
+                ],
+            )
 
         self.assertIn("First line\nSecond line\nFinal line", package.system_prompt)
         self.assertNotIn("```text\nFirst line\n```", package.system_prompt)
+
+    async def test_build_prompt_package_does_not_read_derived_text_outside_chat_storage(
+        self,
+    ):
+        retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        runtime_paths = RuntimePaths(Path(temp_dir.name) / "runtime")
+        outside = runtime_paths.base_dir / "private.txt"
+        outside.write_text("PRIVATE OUTSIDE TEXT", encoding="utf-8")
+        service = ContextAssemblyService(
+            agent_id="chat-agent",
+            agent_type="chat",
+            prompt_context_assembler=PromptContextAssembler(),
+            prompt_context_renderer=PromptContextRenderer(),
+            memory=_FakeMemory(),
+            retrieval_memory_provider=retrieval_memory_provider,
+        )
+
+        with patch(
+            "magi.core.chat_assets.paths.get_runtime_paths",
+            return_value=runtime_paths,
+        ):
+            package = await service.build_prompt_package(
+                user_id="u1",
+                session_id="s1",
+                user_message="看看附件",
+                task_category="chat",
+                tools=[],
+                attachments=[
+                    {
+                        "attachment_id": "att-text",
+                        "session_id": "s1",
+                        "turn_id": "turn-1",
+                        "kind": "text_file",
+                        "original_name": "notes.md",
+                        "parse_status": "parsed",
+                        "derived_text_path": str(outside),
+                    }
+                ],
+            )
+
+        self.assertNotIn("PRIVATE OUTSIDE TEXT", package.system_prompt)
 
     @staticmethod
     def _empty_retrieval_payload() -> dict[str, object]:

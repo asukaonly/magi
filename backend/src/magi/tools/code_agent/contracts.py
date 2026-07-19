@@ -5,6 +5,11 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ...core.code_agent_artifacts import (
+    normalize_code_agent_delegation_id,
+)
+from ...core.chat_assets.paths import normalize_chat_asset_component
+
 
 AdapterName = Literal["claude_code", "codex"]
 RunEventKind = Literal[
@@ -39,6 +44,7 @@ class DelegateConstraints(_Frozen):
 class DelegateRequest(_Frozen):
     delegation_id: str
     session_id: str
+    turn_id: str
     adapter: AdapterName
     prompt: str
     files_hint: list[str] = Field(default_factory=list)
@@ -50,10 +56,20 @@ class DelegateRequest(_Frozen):
     @field_validator("delegation_id")
     @classmethod
     def _check_delegation_id(cls, v: str) -> str:
-        if len(v) != 32:
-            raise ValueError("delegation_id must be a 32-char uuid hex")
-        int(v, 16)
-        return v
+        return normalize_code_agent_delegation_id(v)
+
+    @field_validator("session_id")
+    @classmethod
+    def _check_session_id(cls, value: str) -> str:
+        return normalize_chat_asset_component(value, label="session_id")
+
+    @field_validator("turn_id")
+    @classmethod
+    def _check_turn_id(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError("turn_id must not be blank")
+        return normalized
 
 
 class DiffStats(_Frozen):
@@ -95,6 +111,11 @@ class DelegateResult(_Frozen):
     events_path: str
     error: Optional[str]
     cost: Optional[CostInfo]
+    artifact_registered: bool = False
+    applied: bool = False
+    applied_at: Optional[int] = Field(default=None, ge=0)
+    applied_files: list[str] = Field(default_factory=list)
+    cancelled: bool = False
 
 
 __all__ = [

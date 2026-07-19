@@ -61,52 +61,71 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 
 ### Phase 1: infrastructure bring-up
 
-1. `runtime_core_dependencies`
-2. `runtime_configuration`
-3. `runtime_command_queue`
-4. `runtime_message_bus`
-5. `runtime_chat_store`
-6. `runtime_plugin_system`
-7. `runtime_llm`
+1. `subprocess_orphan_cleanup`
+2. `runtime_core_dependencies`
+3. `runtime_database_migrations`
+4. `runtime_identity`
+5. `runtime_configuration`
+6. `runtime_command_queue`
+7. `runtime_message_bus`
+8. `runtime_chat_store`
+9. `runtime_plugin_system`
+10. `runtime_llm`
 
 ### Phase 2: stateful services and read/write stores
 
-8. `runtime_memory`
-9. `runtime_chat_projector`
-10. `runtime_trace`
-11. `runtime_tools`
-12. `runtime_skills`
-13. `runtime_personality`
-14. `runtime_sensor_hub`
-15. `runtime_context`
-16. `runtime_agent_core`
+11. `runtime_memory`
+12. `runtime_chat_forgetting_recovery`
+13. `runtime_media_registry`
+14. `runtime_location`
+15. `runtime_manual_entries`
+16. `runtime_memory_ingestion_subscriber`
+17. `runtime_llm_usage_subscriber`
+18. `runtime_chat_projector`
+19. `runtime_chat_assistant_memory_projection`
+20. `runtime_control_transcript_subscriber`
+21. `runtime_trace`
+22. `runtime_trace_subscriber`
+23. `runtime_hooks`
+24. `runtime_first_party_tools`
+25. `runtime_tools`
+26. `runtime_skills`
+27. `runtime_mcp`
+28. `runtime_personality`
+29. `runtime_sensor_hub`
+30. `runtime_context`
+31. `runtime_agent_core`
 
 ### Phase 3: long-running processors and business services
 
-17. `runtime_command_processor`
-18. `runtime_plugin_ingress_processor`
-19. `runtime_timeline`
-20. `runtime_scheduler`
-21. `runtime_agent_schedule_registration`
-22. `runtime_sensor_scheduler`
-23. `runtime_sensor_sync_executor`
+32. `runtime_chat_delivery_recovery`
+33. `runtime_command_processor`
+34. `runtime_plugin_ingress_processor`
+35. `runtime_timeline`
+36. `runtime_timeline_subscriber`
+37. `runtime_kg_subscriber`
+38. `runtime_sensor_state_subscriber`
+39. `runtime_scheduler`
+40. `runtime_agent_schedule_registration`
+41. `runtime_sensor_scheduler`
+42. `runtime_sensor_sync_executor`
 
 ### Phase 4: exports and maintenance registration
 
-24. `runtime_exports`
-25. `runtime_control_plane`
-26. `runtime_l1_maintenance_scheduler`
-27. `runtime_l2_maintenance_scheduler`
-28. `runtime_l2_consolidation_scheduler`
-29. `runtime_l2_derive_scheduler`
-30. `runtime_l3_summary_scheduler`
-31. `runtime_l3_maintenance_scheduler`
-32. `runtime_l4_maintenance_scheduler`
-33. `runtime_timeline_schedulers`
-34. `runtime_operational_gc_scheduler`
-35. `runtime_other_dependencies`
-36. `runtime_channels`
-37. `runtime_outreach`
+43. `runtime_exports`
+44. `runtime_control_plane`
+45. `runtime_l1_maintenance_scheduler`
+46. `runtime_l2_maintenance_scheduler`
+47. `runtime_l2_consolidation_scheduler`
+48. `runtime_l2_derive_scheduler`
+49. `runtime_l3_summary_scheduler`
+50. `runtime_l3_maintenance_scheduler`
+51. `runtime_l4_maintenance_scheduler`
+52. `runtime_timeline_schedulers`
+53. `runtime_operational_gc_scheduler`
+54. `runtime_other_dependencies`
+55. `runtime_channels`
+56. `runtime_outreach`
 
 Important rule: bootstrap order is dependency order, not ownership order. For example, the scheduler engine is infrastructure even though it is started after timeline services that will register schedules into it.
 
@@ -338,7 +357,7 @@ Persona switches add a second prompt-history boundary. When a session tail conta
 Memory retrieval remains a separate input to prompt assembly. Long-term memory can be queried alongside session summaries, but session summaries are not promoted into L1/L2/L3/L4 by default because they are continuation checkpoints rather than canonical cross-session facts.
 
 - `memory/l1_events.db`
-  Canonical memory projection only; it stores `user_text` and `assistant_final` as lossy memory facts, but it is no longer the chat transcript source of truth
+  Canonical memory projection only; it stores user messages and completed assistant replies as lossy memory facts, but it is no longer the chat transcript source of truth. Assistant replies are projected from a durable `chat.db` queue after the transcript commit, and the queue row is removed only after L1 confirms the stable message identity.
   Current path: `~/.magi/data/memory/l1_events.db`
 
 - `message_queue.db`
@@ -358,22 +377,124 @@ Memory retrieval remains a separate input to prompt assembly. Long-term memory c
   Rebuildable plugin-owned runtime state such as in-progress sensor aggregation files
   Current path pattern: `~/.magi/cache/plugins/<plugin_id>/`
 
-Important rule: runtime notifications are best-effort live fan-out of already committed chat state. Transcript recovery and reload must come from `chat.db`, not from notifications or `fact_events`.
+Important rule: runtime notifications are best-effort live fan-out of already committed chat state. Transcript recovery and reload must come from `chat.db`, not from notifications or `fact_events`. A desktop pending-response lock belongs to one exact `session_id` + `turn_id`; unrelated events cannot release it. Terminal notifications for streamed, rhythm, none, and reaction-only outcomes trigger a matching history check, and a bounded delayed history check provides convergence when any live notification is lost.
+
+Important rule: response post-processing never publishes assistant memory
+directly. The same transaction that completes the turn stores the assistant
+rows and derives one projection intent from them. Runtime startup recovers
+forget operations before starting the assistant projection worker, and starts
+that worker before accepting runtime commands. Memory delay or failure cannot
+hide an already committed user-visible reply.
 
 Important rule: the runtime message bus is process-local to `runtime_worker`. It is not a durable cross-process broker and it does not own SQLite queue persistence.
 
-Important rule: runtime commands provide at-least-once handoff only from the
-persisted queue to a local message-bus publish. The queue makes one HTTP turn
-durable and retryable, but it cannot atomically commit an in-memory bus publish
-together with subscriber handling or arbitrary agent and tool side effects. A
-restart may replay a command that was published before its queue acknowledgement.
-Conversely, a process exit after queue acknowledgement but before an in-memory
-subscriber handles the event can lose that delivery. There is currently no
-durable agent inbox to close this gap. Chat consumers must converge on the
-existing stable turn and final-message records, and any consumer that performs
-an external side effect must provide its own idempotency keyed by the stable turn
-or message identity. This boundary must not be described as end-to-end durable
-delivery or exactly-once execution.
+Important rule: user-message runtime commands remain claimed after process-local
+bus publication and are acknowledged only after task-agent admission. The
+stable correlation ID identifies the logical turn; the delivery attempt number
+and runtime command ID identify one physical handoff. Repeating the same attempt
+returns the existing command, an older attempt is stale, and only an explicitly
+higher attempt creates another command. Lease expiry or acknowledgement failure
+may replay the same physical command and attempt. On process startup, the queue
+first restores claimed rows, then chat delivery recovery verifies durable
+terminal surfaces. Any remaining pre-restart non-terminal attempt is superseded
+by a higher attempt and scheduled with a new command ID while preserving the
+stable turn ID and runtime envelope. The durable chat delivery record rejects
+an already admitted or superseded replay before it can enter the agent again,
+then acknowledges that physical command.
+
+The delivery ledger becomes terminal only after chat truth exposes a durable
+terminal result: a complete visible final response, every expected visible
+rhythm segment, a legal none/reaction outcome, a persisted
+cancelled/interrupted/merged turn, or another durable handoff. Normal completion
+uses the exact turn ID, attempt number, and command ID from the admitted fact.
+If that compare-and-set loses to a newer attempt, it must not close the newer
+attempt or fan out the stale response. Recovery may close the current attempt
+without command identity only after independently verifying the terminal chat
+surface. Session-run completion is part of the same fail-closed boundary: an
+exception there returns to the idempotent failure finalizer, which preserves an
+already-persisted answer without replacing it with a failure message and then
+releases the exact active run.
+
+Explicit chat stop is scoped to the exact user, session, and turn rather than
+only to an in-memory active run. In one `chat.db` transaction, cancellation
+verifies that ownership still matches, changes a queued or running turn to
+cancelled, and closes its ready, queued, or admitted delivery. This means a stop
+accepted immediately after send still wins even when runtime admission has not
+happened yet. A later copy of that runtime command is rejected by the terminal
+delivery record and acknowledged without entering the agent. An admitted fact
+that has already moved into an agent batch is checked again against the exact
+delivery before context assembly, intent matching, tools, or model execution;
+cancelled and superseded facts are removed while executable siblings in the same
+batch continue. That final check and active-run creation share one per-agent
+boundary with explicit stop. If stop wins the boundary, no run is created. If
+run creation wins, stop observes that exact run, marks its durable turn
+cancelled, and requests run cancellation before later intent, tool, and model
+stages can proceed. Those stages also honor the exact delivery and run cancel
+token at their side-effect boundaries. If the completed outcome commits first,
+the late stop cannot overwrite it.
+
+Direct and delivery-managed user messages use the same ingress boundary. A
+managed strict-interrupt phrase may request cancellation only after its exact
+delivery attempt is durably admitted and before that fact enters the queue; a
+stale or superseded attempt cannot interrupt the current run. Strict interrupt,
+message-deletion planning and pending-turn removal, detach requests, final
+delivery revalidation, and run creation all use the same execution boundary.
+Operations that also inspect or mutate the fact queue always acquire the
+execution boundary before the fact-transfer boundary. Therefore deletion and a
+checkpoint consume in one observable order: either deletion removes the pending
+turn before context assembly, or context assembly wins and deletion treats the
+affected run as consumed work that must be cancelled or replayed.
+
+Runtime-only run controls follow the durable run lifecycle. Every successful
+normal or cancelled run completion removes the control for that exact run, while
+an identity or revision mismatch leaves the current run's control untouched.
+Creating a new root or replacing the active root also removes obsolete controls
+for that session, so later run-control lookups cannot target a finished run.
+
+Only after the accepted chat outcome is durable and the exact delivery attempt
+has reached its terminal state may post-processing update the in-process
+conversation cache or schedule memory and reflection work. A failed persistence
+step or a stale attempt therefore cannot teach the system an answer that was not
+accepted as the durable result for that turn.
+
+This is durable at-least-once admission, not exactly-once execution. The queue
+cannot atomically commit arbitrary model or tool side effects. Chat completion
+must converge on the existing stable turn and final-message records, and any
+external side effect must provide its own idempotency keyed by the stable turn
+or message identity.
+
+Every external outreach, including a `PUSH_NOW` decision, first enters the
+outbox. Before invoking a channel, the service atomically moves that row from
+`pending` to `attempting`. A failed claim prevents the channel call. Rows left
+in `attempting` or changed to `uncertain` are never selected automatically
+again, including after restart. Only a typed failure that proves no channel was
+called may move the row back to `pending`. This deliberately chooses
+at-most-once delivery: a crash after the claim but before the channel call can
+miss a notification, but it cannot duplicate one. A confirmed receipt remains
+successful even if auxiliary delivery-log or final-status persistence fails,
+because the durable `attempting` claim still prevents replay. A governor
+`DEFER` decision moves the pending row to the returned release time, so each
+drain cycle does not repeatedly resolve and compose work that is not yet
+eligible.
+
+Normal chat response delivery has a separate boundary. The desktop transcript
+is durable before notification, so a client can recover it from history.
+External-channel fanout currently happens after that commit without a durable
+per-target egress intent. A process crash between the chat commit and the
+channel call can therefore leave the desktop result intact while the external
+reply is never sent. Delivery receipts cannot repair that pre-send gap, and
+this path must not be described as exactly-once or durable at-least-once
+external delivery. Closing it requires a dedicated per-target egress outbox
+with stable message identities and channel-side idempotency; the proactive
+outreach outbox is not interchangeable with chat reply delivery.
+
+External `ask_user` questions have the same unresolved recovery class. The
+channel subscriber suppresses duplicate pending events only in one process and
+attempts delivery once; it does not persist a per-target egress intent. A
+restart or lost acknowledgement therefore cannot be repaired automatically
+without risking a duplicate question. Ordinary external replies and asks need
+their own recoverable per-target outbox before either path can promise durable
+delivery.
 
 ## Agent Runtime
 
@@ -395,6 +516,15 @@ It acts as a typed pipeline over these stages:
 6. `parse_result`
 
 The base class is generic over runtime context, intent result, tool selection, execution request, and execution result.
+
+`agent/runtime/task_agent_manager.py` owns task-agent instance admission,
+lifecycle, and the shared session-quiesce state. Exact chat-message deletion is
+coordinated by `agent/runtime/chat_message_delete.py`: it plans the affected
+terminal and replay turns through the chat-agent control contract, holds only
+the target session across the durable deletion barrier, and stops or abandons
+unsafe work after that barrier. Keep this deletion protocol out of the generic
+manager and do not add capability-detection fallbacks for incomplete chat-agent
+implementations.
 
 ### `ChatTaskAgent`
 
@@ -469,8 +599,13 @@ the segmentation contract, persistence shape, and streaming restrictions.
 
 Chat post-processing also owns the final response delivery shape. It derives a
 small final-response plan after outcome persistence, then passes that plan to
-the injected delivery seam. Delivery branching for single-message, streamed, and
-conversation-rhythm responses lives in `chat/task_agent/postprocess/delivery.py`,
+the injected delivery seam. Final fanout to both the desktop chat surface and
+external origin/configured channels happens only after the matching chat outcome
+is durable. Streamed turns exclude the desktop SSE target from that final fanout
+because it already received chunks, while non-streaming external channels still
+receive the assembled final response. Delivery branching for single-message,
+streamed, and conversation-rhythm responses lives in
+`chat/task_agent/postprocess/delivery.py`,
 so new chat-surface delivery behavior should not be added to the post-process
 service coordinator itself. `ChatTaskAgent` wires the seam at construction time
 and does not mutate post-processing internals after the coordinator is built.
@@ -498,9 +633,11 @@ recall.
   The new message adds information without changing scope (for example, "also …", "by the way …", "补充 …", "另外 …"). The tool loop keeps running and tool results are preserved; the steer text is drained from the persistent queue at the top of the next iteration and appended to `state.messages` as a plain user message, so the next LLM call sees it without rebuilding the prompt. Supersession bookkeeping uses `reason="steer"` with the same root-plus-intermediate shape as AUGMENT.
 
 - `DEFER`
-  The new message is unrelated or better treated as a follow-up (for example, "帮我看看 github 的仓库吧" while an email draft is in flight). It stays on the queue until the current turn finalizes, then triggers a new root turn via `consume_deferred_turns`.
+  The new message is unrelated or better treated as a follow-up (for example, "帮我看看 github 的仓库吧" while an email draft is in flight). It remains attached to the current run and its chat delivery stays non-terminal. Exact run completion atomically captures the current revision's DEFER turns while clearing the finished run. After the L0 completion checkpoint succeeds, each captured turn is prepared as a higher delivery attempt and rescheduled from its durable original envelope, preserving the same turn ID, attachments, workspace, and metadata. An immediate consumer therefore sees no old running root and starts a new root turn.
 
-All four dispositions are persisted to L0 working memory on `l0_execution_pending_turns.disposition`, so a backend restart preserves queued AUGMENT / STEER / DEFER turns and the next chat turn drains them instead of losing them.
+All four dispositions are persisted to L0 working memory on `l0_execution_pending_turns.disposition`. Appending a pending entry is idempotent by stable turn ID, so replaying one admitted runtime command cannot create duplicate pending work. FACT_ONLY handling for AUGMENT / STEER / DEFER records acceptance only: it must not complete the pending `ChatTurn`, close its delivery ledger, or finalize the active run.
+
+DEFER recovery is ledger-driven rather than in-memory reinjection. If the process stops before run completion, the admitted delivery and L0 pending entry remain recoverable. If the completion checkpoint fails while the process remains alive, the captured DEFER batch stays attached to a single bounded-backoff retry until that checkpoint succeeds, and only then is it released once. If the process stops after completion but before scheduling, the delivery is either still admitted or already prepared as ready work; startup recovery can advance and schedule it. Scheduling failure leaves a ready attempt for the normal retry path. The runtime never consumes the L0 DEFER entry before the exact run/revision completion barrier and never mints a replacement turn ID.
 
 AUGMENT and STEER share the same persistent queue and the same supersession shape but differ in when and how they are consumed:
 
@@ -740,10 +877,13 @@ Key components:
 
 - `BackgroundTaskStore` ([store.py](../backend/src/magi/agent/background/store.py))
   — SQLite-backed persistence for task rows and an append-only event
-  log. Owns restart recovery (``running`` / ``cancelling`` rows from a
-  previous process become ``failed(reason="backend_restart")``) and
-  ``purge_expired``, which hard-deletes terminal rows (plus their
-  event log) once they predate the configured retention window.
+  log. Every terminal transition also writes a completion snapshot in the same
+  transaction; its private payload is scrubbed after handling or governed
+  discard. The store owns restart recovery (``running`` /
+  ``cancelling`` rows from a previous process become
+  ``failed(reason="backend_restart")`` with the same completion snapshot) and
+  ``purge_expired``, which hard-deletes terminal rows, event history, and their
+  completion intents once they predate the configured retention window.
 - `BackgroundTaskManager` ([manager.py](../backend/src/magi/agent/background/manager.py))
   — runtime-singleton scheduler with a bounded semaphore, pending
   queue, and a pluggable ``run_fn`` so phases can swap the orchestrator
@@ -767,33 +907,102 @@ Key components:
   — registers the scheduler-owned hourly purge driven by
   ``agent.background_tasks.history_retention_days``.
 
-Lifecycle (orchestrated by
-[agent/lifecycle.py](../backend/src/magi/agent/lifecycle.py)):
+Lifecycle is split between
+[agent/lifecycle.py](../backend/src/magi/agent/lifecycle.py) and the later
+[outreach/lifecycle.py](../backend/src/magi/outreach/lifecycle.py):
 
 1. `build_background_task_wiring` composes store + executor + manager +
    dispatcher + launch service from config.
-2. Two listeners are registered before ``manager.start()``:
-   - `build_completion_handshake_listener` — routes the terminal task
-     through `ChatPostProcessService.deliver_background_task_completion`
-     on the resolved chat task agent. Successful tasks with a non-empty
-     LLM summary are written as ordinary assistant final messages, because
-     the output is the user-facing artifact and background execution is an
-     implementation detail. Tasks without user-facing output, plus failed
-     or cancelled tasks, carry ``message_kind="background_task_completion"``
-     and a ``payload`` with ``background_task_id`` / ``status`` / ``title``
-     / ``attempt`` so the chat UI can render a status card that deep-links
-     into the Tasks drawer via ``/tasks?taskId=...``.
-   - `broadcast_background_task_state_changed` (from
-    [agent/background/notifications.py](../backend/src/magi/agent/background/notifications.py))
-     — writes a ``background_task_state_changed`` row onto the runtime
-     notification channel. The Rust gateway relays that channel onto
-     the Tauri event stream the frontend Tasks page subscribes to.
+2. The Tasks-page listener
+   `broadcast_background_task_state_changed` and the batch driver are
+   registered before ``manager.start()``. The state listener writes a
+   ``background_task_state_changed`` row onto the runtime notification
+   channel; the Rust gateway relays it onto the Tauri event stream.
 3. `manager.start()` runs restart recovery, rehydrates any ``pending``
    rows, and spawns the dispatcher loop.
 4. `runtime_agent_schedule_registration` registers both user-agent
    schedules and the ``background_task_retention`` cleanup schedule, so
    retention executions are visible through the same scheduler execution
    ledger as other periodic runtime work.
+5. After channels start, `runtime_outreach` builds `OutreachService`,
+   attaches the background-completion producer before draining every pending
+   completion snapshot, and registers the durable outreach-drain schedule. The
+   same bounded 15-minute scheduled pass retries pending completion snapshots
+   before it drains due external-outbox work. A task that finished before this
+   phase is recovered from the snapshot rather than depending on a listener
+   that did not yet exist. This replaces the old desktop-only completion
+   handshake.
+
+The completion producer treats one task attempt as one logical notification.
+Its identity is ``<task_id>:attempt:<attempt_index>``: a repeated callback for
+the same attempt converges on the same desktop message and external outbox row,
+while a user retry receives a new identity and may report a different result.
+Only attempt zero may replace the original pending chat card. Batch runs stay
+quiet while work remains and use a stable digest of the terminal status counts
+for the final job-level notification, so an unchanged terminal snapshot is not
+announced twice.
+
+The producer acknowledges a completion snapshot only after submitting the
+corresponding outreach intent, or after deciding that the terminal task has no
+user-facing intent. Before any delivery side effect, the first derived outreach
+intent and composed user-facing body are frozen on that snapshot; retries reuse
+them instead of asking the composer to generate different text. If submission
+fails, the snapshot returns to pending for the next bounded scheduled pass or
+startup drain. Every delivery first claims the task attempt in the database;
+restart releases a crash-interrupted claim, and the producer's in-process lock
+additionally serializes live listener delivery with both drain paths. A handled
+attempt leaves no pending payload for the next pass, while its stable identity
+keeps repeated callbacks from producing another result.
+
+Destructive conversation operations use
+`BackgroundTaskManager.conversation_scope_boundary`, not a one-shot
+cancellation. The boundary installs its admission scope under the same lock
+used by enqueue and retry, drains existing matching work and completion
+delivery, and remains installed until memory and chat-surface cleanup exits.
+Session deletion and history clear seal the whole user/session scope; full
+memory clear seals all background admission. Exact-message deletion first reads
+the complete logical replacement chain, then seals the related origin turns,
+task IDs, and pending-message IDs before preparing the final delete snapshot.
+Matching enqueue or retry is rejected during that window, while sibling work
+outside the scope continues. A processing completion is allowed to settle;
+pending matching completions are discarded and scrubbed so a later scheduled
+or startup drain cannot recreate the deleted surface.
+
+Successful task summaries are written to the originating desktop transcript as
+ordinary assistant final messages. Failures, cancellations, and tasks without
+user-facing output use ``message_kind="background_task_completion"`` with the
+task identity, status, title, and attempt in the payload. External proactive
+delivery always enters the outreach outbox before a channel is invoked. A row
+is claimed as ``attempting`` before the external call; an uncertain outcome is
+not retried automatically, which favors at-most-once delivery over duplicate
+notifications.
+
+External code delegation has a separate durable identity from the background
+task that may host it. A tool result projects
+``code_agent_delegations`` into the assistant message payload as structured
+references containing the delegation ID, origin turn ID, and workspace path
+used for that execution. Foreground replies persist those references directly.
+Background completion carries the same references from the task result into the
+completion message and preserves the origin turn on the chat row. The frontend
+therefore restores the correct delegation after reload even if the conversation
+workspace later changes. It must never interpret ``background_task_id`` as a
+code-delegation ID.
+
+Before a code delegation creates its first local artifact, the tool registers
+that exact session, turn, delegation, and workspace identity in `chat.db`
+through the SDK capability port. Message persistence adds a separate visible
+ownership reference. Message/session/history deletion uses both records: it
+removes an orphaned delegation's private logs, diffs, temporary worktree, and
+branch, but preserves the artifact while another visible message still owns it.
+Changes already applied to the main workspace are never rolled back. If cleanup
+fails, the transcript is already inaccessible and the private registry remains
+for deterministic retry.
+
+Outreach resolves the current channel registry and session mapper at delivery
+time rather than retaining the instances that existed during startup. Channel
+restart therefore does not leave proactive delivery pointing at a stopped
+adapter. Delivery also enters the channel module's operation boundary, so
+restart and a pending global conversation clear block it safely.
 
 Configuration lives under `agent.background_tasks` in
 [config.example.yaml](../backend/configs/config.example.yaml):
@@ -819,6 +1028,13 @@ Realtime: the manager's listener pipeline is push-only. The UI hydrates
 once from `GET /api/background-tasks`, then replaces or inserts
 individual rows as each ``background_task_state_changed`` notification
 arrives — no polling.
+
+Conversation deletion and full-memory clear cancel matching non-terminal
+background work and wait through its terminal listeners before removing the
+chat surface. They do not erase the terminal task/event audit rows shown in the
+Tasks UI. Those records are outside memory recall and remain available for
+manual dismissal until the configured background-task retention job removes
+them.
 
 ### Mid-turn detach to background
 
@@ -972,6 +1188,33 @@ Frontend composition:
   before normal chat-turn persistence or runtime queueing. This makes the
   desktop composer and external channel adapters share the same answer
   routing semantics.
+- Every frontend entry that can create a chat turn, including normal,
+  reply, recall-correction, ask-answer, and inline-skill sends, shares one
+  admission gate per session. The gate is acquired before asynchronous
+  expansion, upload, or delivery begins, so rapid clicks and cross-entry
+  sends cannot create concurrent turns before React renders its disabled
+  state. When interjection is disabled, the same gate remains closed while
+  that session has an accepted non-terminal turn; this is enforced below
+  the individual buttons and keyboard handlers. A pending ask answer is the
+  sole explicit exception because it resumes the already-running turn
+  instead of creating a competing one. Interjection settings fail closed
+  until configuration has loaded, while an empty session with no active
+  turn can still submit its first message as soon as its first authoritative
+  empty-history read completes. Normal, reply, recall-correction, and
+  inline-skill submissions share that initial history-read promise; a read
+  failure preserves the intent and asks the user to retry instead of assuming
+  the session is empty. A realtime or cached pending ask remains answerable
+  because it is a control reply to the existing run, not a new turn.
+- When delivery acknowledgement is ambiguous, the frontend retains the
+  exact request and stable client turn ID in ``sessionStorage``. This is
+  limited to refresh recovery in the same WebView and is not durable
+  desktop-restart storage; backend chat history and stable-turn
+  idempotency remain authoritative. Before any later turn-producing
+  intent, every older ambiguous send in that session is checked first and,
+  when safe, retried with the same turn ID. A changed visible draft is
+  preserved, and after refresh its first send action only settles the old
+  operation; the user must explicitly send the still-visible new intent
+  afterwards.
 - ``SessionControlRail`` is mounted inside the chat page and hosts
   ``PlanCard`` + ``TodoPanel``. The rail self-hides when there is no
   active plan and no todos so the chat surface stays clean.
@@ -979,7 +1222,11 @@ Frontend composition:
   ``useChatRealtimeEffects`` should subscribe to realtime messages and execute
   the returned effect plan only; rhythm-segment completion, session-sync
   decisions, and pending-turn unlock rules belong to the chat-domain projector,
-  not the React subscription hook.
+  not the React subscription hook. Pending-turn release requires an exact
+  ``session_id`` + ``turn_id`` match. Direct final/upsert events may release that
+  turn immediately; a terminal control event first refreshes durable history,
+  and the same history check runs after a bounded delay so missed rhythm or
+  terminal notifications cannot leave the composer locked indefinitely.
 - ``ControlSettingsPanel`` lives under the settings Control Plane tab
   and surfaces permission rules plus background-task controls.
 
@@ -1187,6 +1434,13 @@ generation is rejected after clear. This makes a concurrent message either a
 complete pre-clear turn that is removed or a complete post-clear turn that is
 kept, never a partial turn that can later recreate deleted chat or memory.
 
+Deleting one message uses a session-local admission boundary. An unconsumed
+pending target can be discarded without stopping the current root. If an active
+root has consumed the target or may contain the deleted message in its assembled
+context, that root is cancelled and durably terminalized. Other surviving
+non-terminal turns are prepared as higher delivery attempts and replayed in
+their original order. Work in other sessions continues.
+
 This admission boundary relies on the current runtime owning one
 `SQLiteRuntimeCommandQueue` instance in one Python worker process. A future
 API/runtime multi-process split must move generation admission and stale-command
@@ -1239,7 +1493,13 @@ This is how plugin-backed local sources participate in timeline ingestion withou
 
 HTTP and WebSocket transport is owned by the Rust gateway (`crates/magi-gateway/`). The Python sidecar runs no HTTP server. FastAPI is used only as an in-memory ASGI app, with requests arriving over an IPC channel (NDJSON over Unix Domain Socket on macOS/Linux, TCP loopback on Windows).
 
-The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, config file I/O, and session/task mutations natively in Rust. Requests that require the Python runtime (message send, LLM calls, agent execution) are dispatched over the IPC channel.
+The Rust gateway serves all HTTP and WebSocket traffic on a single port. It
+handles static database reads, config file I/O, task CRUD, and lightweight
+chat-session creation/title/workspace updates natively in Rust. Governed
+message, session, and history deletion is forwarded to Python because it also
+owns memory, trace, file, delivery, and runtime cleanup. Requests that require
+the Python runtime (message send, LLM calls, agent execution) are dispatched
+over the IPC channel.
 
 Transport-related Python code lives in `backend/src/magi/ipc/` and `backend/src/magi/transport/`:
 
@@ -1319,6 +1579,7 @@ If you are modifying this part of the system, read these first:
 - `TaskOrchestrator` is still a dense class and may eventually need event-adapter separation
 - Event transport payloads are still dict-based externally, so contract drift is still possible if new event producers bypass the typed classifiers
 - Memory quality now depends more heavily on correct event routing and source taxonomy, so runtime producers must follow the memory event contract carefully
+- ordinary external chat replies and `ask_user` questions still lack a durable per-target egress intent, so restart recovery cannot safely resend them
 
 ## Contributor Guidance
 

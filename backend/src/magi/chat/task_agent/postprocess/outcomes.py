@@ -78,6 +78,48 @@ class ChatPostprocessOutcomeMixin:
             persona_id=persona_id,
         )
 
+    async def _commit_final_chat_outcome(
+        self,
+        *,
+        turn_id: str | None,
+        delivery_attempt_no: int,
+        command_id: int,
+        response_text: str,
+        attachments: list[dict[str, Any]] | None = None,
+        message_payload: dict[str, Any] | None = None,
+        started_at_ms: int,
+        completed_at_ms: int,
+        orchestration_id: str | None,
+        execution_mode: str | None,
+        ux_plan: dict[str, Any] | None,
+        run_id: str | None = None,
+        run_revision: int = 0,
+        run_disposition: str | None = None,
+        reply_to_message_id: str | None = None,
+        persona_id: str | None = None,
+    ) -> bool:
+        """Commit one exact final delivery outcome."""
+
+        host = cast(_OutcomePostprocessHostProtocol, self)
+        return await host._chat_outcome_writer.commit_final_chat_outcome(
+            turn_id=turn_id,
+            delivery_attempt_no=delivery_attempt_no,
+            command_id=command_id,
+            orchestration_id=orchestration_id,
+            execution_mode=execution_mode,
+            ux_plan=ux_plan,
+            response_text=response_text,
+            attachments=attachments,
+            message_payload=message_payload,
+            started_at_ms=started_at_ms,
+            completed_at_ms=completed_at_ms,
+            run_id=run_id,
+            run_revision=run_revision,
+            run_disposition=run_disposition,
+            reply_to_message_id=reply_to_message_id,
+            persona_id=persona_id,
+        )
+
     async def _persist_segmented_chat_outcome(
         self,
         *,
@@ -99,6 +141,48 @@ class ChatPostprocessOutcomeMixin:
         host = cast(_OutcomePostprocessHostProtocol, self)
         return await host._chat_outcome_writer.persist_segmented_chat_outcome(
             turn_id=turn_id,
+            orchestration_id=orchestration_id,
+            execution_mode=execution_mode,
+            ux_plan=ux_plan,
+            response_plan=response_plan,
+            attachments=attachments,
+            message_payload=message_payload,
+            started_at_ms=started_at_ms,
+            completed_at_ms=completed_at_ms,
+            run_id=run_id,
+            run_revision=run_revision,
+            run_disposition=run_disposition,
+            reply_to_message_id=reply_to_message_id,
+            persona_id=persona_id,
+        )
+
+    async def _commit_segmented_chat_outcome(
+        self,
+        *,
+        turn_id: str | None,
+        delivery_attempt_no: int,
+        command_id: int,
+        response_plan: AssistantResponsePlan,
+        attachments: list[dict[str, Any]] | None = None,
+        message_payload: dict[str, Any] | None = None,
+        started_at_ms: int,
+        completed_at_ms: int,
+        orchestration_id: str | None,
+        execution_mode: str | None,
+        ux_plan: dict[str, Any] | None,
+        run_id: str | None = None,
+        run_revision: int = 0,
+        run_disposition: str | None = None,
+        reply_to_message_id: str | None = None,
+        persona_id: str | None = None,
+    ) -> tuple[bool, list[ChatMessageRecord]]:
+        """Commit one exact segmented delivery outcome."""
+
+        host = cast(_OutcomePostprocessHostProtocol, self)
+        return await host._chat_outcome_writer.commit_segmented_chat_outcome(
+            turn_id=turn_id,
+            delivery_attempt_no=delivery_attempt_no,
+            command_id=command_id,
             orchestration_id=orchestration_id,
             execution_mode=execution_mode,
             ux_plan=ux_plan,
@@ -210,36 +294,4 @@ class ChatPostprocessOutcomeMixin:
         return json.dumps(
             payload,
             ensure_ascii=False,
-        )
-
-    async def _project_final_chat_message(
-        self,
-        *,
-        context: ChatRuntimeContext,
-        final_message: ChatMessageRecord | None,
-    ) -> None:
-        host = cast(_OutcomePostprocessHostProtocol, self)
-        await host._chat_outcome_writer.project_final_chat_message(
-            user_id=context.user_id,
-            session_id=context.session_id,
-            final_message=final_message,
-        )
-
-    async def _project_canonical_assistant_response(
-        self,
-        *,
-        context: ChatRuntimeContext,
-        turn_id: str | None,
-        message_id: str | None,
-        response_text: str,
-        created_at_ms: int,
-    ) -> None:
-        host = cast(_OutcomePostprocessHostProtocol, self)
-        await host._chat_outcome_writer.project_canonical_assistant_response(
-            user_id=context.user_id,
-            session_id=context.session_id,
-            turn_id=turn_id,
-            message_id=message_id,
-            content=response_text,
-            created_at_ms=created_at_ms,
         )

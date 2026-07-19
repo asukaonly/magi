@@ -22,8 +22,10 @@ import {
   syncUnreadBadgeCount,
 } from '@/runtime/desktop-notifications';
 import { OPEN_ASK_REQUEST_EVENT } from '@/components/control/ui-events';
+import { APP_EVENTS } from '@/constants/events';
 import type { RealtimeStreamEvent } from './stream-events';
 import { normalizeRealtimeStreamEvent } from './stream-events';
+import { isRealtimeChatContentEvent } from './chat-projection-retirement';
 import { applyRealtimeStoreProjection } from './store-projection';
 import { TauriBridgeClient } from './tauri-bridge';
 
@@ -85,25 +87,49 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
   useEffect(() => {
     const dispatcher = dispatcherRef.current!;
 
-    // Provider-level handler: keep only side effects here and let the
-    // shared store projection own all store mutations.
-    const unsubscribeProviderHandler = dispatcher.subscribe((message) => {
-      const eventName = String(message.event || message.type || '').trim();
+    // Start Tauri event bridge
+    const bridge = new TauriBridgeClient();
+    bridgeRef.current = bridge;
+    let lastRejectedProjectionSyncAt = 0;
+    const unsubscribeBridge = bridge.subscribe((message) => {
+      const normalizedData = message.data && typeof message.data === 'object'
+        ? message.data as Record<string, unknown>
+        : null;
+      const normalizedMessage = {
+        ...message,
+        streamEvent: message.streamEvent ?? (normalizedData ? normalizeRealtimeStreamEvent(normalizedData) : null),
+      };
+      const eventName = String(
+        normalizedMessage.event || normalizedMessage.type || '',
+      ).trim();
+      const projectionAccepted = applyRealtimeStoreProjection(
+        normalizedMessage,
+        { pendingLabel: t('chat.trace.pending') },
+      );
+      if (isRealtimeChatContentEvent(eventName) && !projectionAccepted) {
+        const now = Date.now();
+        if (now - lastRejectedProjectionSyncAt >= 1_000) {
+          lastRejectedProjectionSyncAt = now;
+          window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
+        }
+        return;
+      }
+
       const conversationStore = useConversationStore.getState();
       const notificationRequest = buildUnreadChatNotificationRequest(
-        message,
+        normalizedMessage,
         conversationStore.currentSessionId,
       );
-
-      if (eventName === 'agent_response_chunk' && message.data && typeof message.data === 'object') {
-        const payload = message.data as Record<string, unknown>;
-        const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
-        const turnId = String(payload.turn_id || '').trim();
-        const streamEvent = message.streamEvent ?? normalizeRealtimeStreamEvent(payload);
+      if (
+        eventName === 'agent_response_chunk'
+        && normalizedData
+      ) {
+        const sessionId = String(normalizedData.session_id || '').trim();
+        const turnId = String(normalizedData.turn_id || '').trim();
         if (
           sessionId
           && sessionId === conversationStore.currentSessionId
-          && shouldWakeAskDialogFromChunk(streamEvent)
+          && shouldWakeAskDialogFromChunk(normalizedMessage.streamEvent)
         ) {
           window.dispatchEvent(new CustomEvent(OPEN_ASK_REQUEST_EVENT, {
             detail: {
@@ -114,32 +140,17 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
           }));
         }
       }
-
-      applyRealtimeStoreProjection(message, { pendingLabel: t('chat.trace.pending') });
       if (notificationRequest) {
         void notifyForUnreadChatMessage({
           ...notificationRequest,
           ...getDesktopNotificationPreferences(),
         });
       }
-    });
-
-    // Start Tauri event bridge
-    const bridge = new TauriBridgeClient();
-    bridgeRef.current = bridge;
-    const unsubscribeBridge = bridge.subscribe((message) => {
-      const normalizedData = message.data && typeof message.data === 'object'
-        ? message.data as Record<string, unknown>
-        : null;
-      dispatcher.dispatch({
-        ...message,
-        streamEvent: message.streamEvent ?? (normalizedData ? normalizeRealtimeStreamEvent(normalizedData) : null),
-      });
+      dispatcher.dispatch(normalizedMessage);
     });
     bridge.connect();
 
     return () => {
-      unsubscribeProviderHandler();
       unsubscribeBridge();
       bridgeRef.current?.disconnect();
       bridgeRef.current = undefined;

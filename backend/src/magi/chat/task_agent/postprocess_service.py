@@ -11,13 +11,17 @@ from magi.agent.runtime.contracts import FactRecord
 from magi.agent.trace import (
     now_wall_ms,
 )
-from magi.chat import ChatProjector, ChatStore
+from magi.chat import ChatStore
+from magi.delivery.contracts import DeliveryFanoutResult
+from magi.chat.rhythm_completion import complete_visible_rhythm_segments
 from magi.events.events import EventTypes
 from magi.events.first_context import FIRST_CONTEXT_STORY_INTERACTION_KIND
+from magi.i18n import t
 from magi.runtime_trace import (
     RuntimeTraceStore,
 )
 from magi.agent.task_agents.common import (
+    ExecutionMode,
     ExecutionResult,
     FunctionCallingExecutionResult,
     IncomingFactKind,
@@ -32,13 +36,20 @@ from .postprocess.outcomes import ChatPostprocessOutcomeMixin
 from .postprocess.session import ChatPostprocessSessionMixin
 from .postprocess.tool_events import ChatPostprocessToolEventMixin
 from .postprocess.trace import ChatPostprocessTraceMixin
-from .rhythm import strip_segmentation_sentinel
+from magi.agent.response_rhythm import strip_segmentation_sentinel
 from .session_run_decisions import TurnSupersession
 
 if TYPE_CHECKING:
     from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
 
 logger = get_logger(__name__)
+
+_PENDING_INTERJECTION_DISPOSITIONS = frozenset({"augment", "defer", "steer"})
+_TERMINAL_TURN_STATUSES = frozenset({"cancelled", "interrupted", "merged"})
+
+
+class _MissingVisibleChatResponseError(RuntimeError):
+    """Signal that an expected visible response produced no usable content."""
 
 
 def _default_chat_read_service_factory() -> Any:
@@ -87,15 +98,14 @@ class ChatPostProcessService:
         trace_read_service: "ChatTraceReadService | None" = None,
         runtime_trace_store: RuntimeTraceStore | None = None,
         chat_store: ChatStore | None = None,
-        chat_projector: ChatProjector | None = None,
         chat_read_service_factory: Callable[[], Any] | None = None,
         complete_session_run: Callable[[str, str, int], Any] | None = None,
         resolve_session_run_status: Callable[[str, str, int], Any] | None = None,
-        drain_deferred_turns: Callable[[str], Any] | None = None,
+        release_deferred_turns: Callable[[str, list[Any]], Any] | None = None,
         response_rhythm_planner: Any | None = None,
         transcript_summarizer: Any | None = None,
         event_bus: Any | None = None,
-        deliver_final_response: Callable[..., Awaitable[list]] | None = None,
+        deliver_final_response: Callable[..., Awaitable[DeliveryFanoutResult]] | None = None,
     ) -> None:
         self._wire_core_dependencies(
             agent_id=agent_id,
@@ -111,14 +121,13 @@ class ChatPostProcessService:
             trace_read_service=trace_read_service,
             runtime_trace_store=runtime_trace_store,
             chat_store=chat_store,
-            chat_projector=chat_projector,
             chat_read_service_factory=chat_read_service_factory,
             event_bus=event_bus,
         )
         self._wire_session_runtime(
             complete_session_run=complete_session_run,
             resolve_session_run_status=resolve_session_run_status,
-            drain_deferred_turns=drain_deferred_turns,
+            release_deferred_turns=release_deferred_turns,
             response_rhythm_planner=response_rhythm_planner,
             transcript_summarizer=transcript_summarizer,
         )
@@ -132,6 +141,93 @@ class ChatPostProcessService:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._background_tasks.clear()
+        self._deferred_release_retry_keys.clear()
+
+    def has_pending_background_work(self) -> bool:
+        """Return whether a durable completion retry still owns the session."""
+
+        return bool(self._deferred_release_retry_keys)
+
+    async def handle_pipeline_failure(
+        self,
+        *,
+        source_fact: FactRecord,
+        error: BaseException,
+        stage: str,
+    ) -> bool:
+        """Persist a retryable failure for one exact admitted user turn."""
+
+        if self._chat_store is None or source_fact.event_type != EventTypes.USER_MESSAGE:
+            return False
+        payload = source_fact.payload if isinstance(source_fact.payload, dict) else {}
+        user_id = str(payload.get("user_id") or "").strip()
+        session_id = str(payload.get("session_id") or "").strip()
+        turn_id = str(payload.get("turn_id") or "").strip()
+        if (
+            not user_id
+            or not session_id
+            or not turn_id
+            or source_fact.delivery_attempt_no is None
+            or source_fact.runtime_command_id is None
+        ):
+            return False
+
+        failure_message = t(
+            "chat.delivery.execution_failed",
+            fallback="I couldn't finish this message. Send it again to retry.",
+        )
+        result = await self._chat_store.finalize_user_turn_delivery_failure(
+            turn_id=turn_id,
+            delivery_attempt_no=int(source_fact.delivery_attempt_no),
+            command_id=int(source_fact.runtime_command_id),
+            user_message=failure_message,
+            failure_stage=stage,
+            error_type=type(error).__name__,
+            updated_at_ms=now_wall_ms(),
+        )
+        if not result.applied:
+            logger.info(
+                "Chat pipeline failure finalization was superseded",
+                turn_id=turn_id,
+                delivery_attempt_no=int(source_fact.delivery_attempt_no),
+                runtime_command_id=int(source_fact.runtime_command_id),
+            )
+            return False
+        if not result.wrote_failure or not result.message_id:
+            return True
+
+        try:
+            await self._runtime_notifier.emit_chat_message_upsert(
+                user_id=user_id,
+                session_id=session_id,
+                message_id=result.message_id,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to publish chat failure message upsert",
+                turn_id=turn_id,
+                exc_info=True,
+            )
+        event_emitter = self._get_event_emitter()
+        if event_emitter is not None:
+            try:
+                await event_emitter.emit_chat_response_event(
+                    user_id=user_id,
+                    session_id=session_id,
+                    response=failure_message,
+                    correlation_id=source_fact.correlation_id,
+                    turn_id=turn_id,
+                    orchestration_id=None,
+                    trace_summary=None,
+                    trace_available=False,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to publish chat pipeline failure response",
+                    turn_id=turn_id,
+                    exc_info=True,
+                )
+        return True
 
     def _wire_core_dependencies(
         self,
@@ -162,7 +258,6 @@ class ChatPostProcessService:
         trace_read_service: "ChatTraceReadService | None",
         runtime_trace_store: RuntimeTraceStore | None,
         chat_store: ChatStore | None,
-        chat_projector: ChatProjector | None,
         chat_read_service_factory: Callable[[], Any] | None,
         event_bus: Any | None,
     ) -> None:
@@ -176,7 +271,6 @@ class ChatPostProcessService:
         self._operations = _ChatPostProcessOperations(self)
         self._chat_outcome_writer = ChatOutcomeWriter(
             chat_store=chat_store,
-            chat_projector=chat_projector,
             trace_id_factory=self._build_trace_id,
         )
         self._runtime_notifier = ChatRuntimeNotifier(
@@ -190,22 +284,23 @@ class ChatPostProcessService:
         *,
         complete_session_run: Callable[[str, str, int], Any] | None,
         resolve_session_run_status: Callable[[str, str, int], Any] | None,
-        drain_deferred_turns: Callable[[str], Any] | None,
+        release_deferred_turns: Callable[[str, list[Any]], Any] | None,
         response_rhythm_planner: Any | None,
         transcript_summarizer: Any | None,
     ) -> None:
         self._complete_session_run = complete_session_run
         self._resolve_session_run_status = resolve_session_run_status
-        self._drain_deferred_turns = drain_deferred_turns
+        self._release_deferred_turns = release_deferred_turns
         self._response_rhythm_planner = response_rhythm_planner
         self._transcript_summarizer = transcript_summarizer
 
     def _wire_delivery(
         self,
-        deliver_final_response: Callable[..., Awaitable[list]] | None,
+        deliver_final_response: Callable[..., Awaitable[DeliveryFanoutResult]] | None,
     ) -> None:
         self._deliver_final_response = deliver_final_response
         self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._deferred_release_retry_keys: set[tuple[str, str, int]] = set()
 
     def __getattr__(self, name: str) -> Any:
         operations = self.__dict__.get("_operations")
@@ -236,6 +331,10 @@ class ChatPostProcessService:
                 reason=superseded_turn.reason,
                 updated_at_ms=updated_at_ms,
             )
+            await self.mark_user_turn_delivery_terminal_if_persisted(
+                turn_id=superseded_turn.turn_id,
+                source_fact=None,
+            )
 
     async def handle(
         self, context: ChatRuntimeContext, result: ExecutionResult
@@ -244,11 +343,50 @@ class ChatPostProcessService:
         if isinstance(prepared, ChatParseOutcome):
             return prepared
 
-        self._record_chat_history_and_memory(context, result, prepared)
         prepared.now_ms = now_wall_ms()
         await self._emit_chat_response_observability(context, result, prepared)
         await self._prepare_chat_delivery_state(context, prepared)
-        await self._persist_chat_response_outcome(context, result, prepared)
+        if not await self._persist_chat_response_outcome(
+            context,
+            result,
+            prepared,
+        ):
+            return ChatParseOutcome(False, False, False, False)
+        try:
+            await self._emit_committed_chat_response_observability(
+                context,
+                result,
+                prepared,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to publish committed chat response trace",
+                turn_id=prepared.turn_id,
+                exc_info=True,
+            )
+        response_mode = str(
+            prepared.ux_plan.get("assistant_surface_mode") or ""
+        ).strip()
+        has_message_surface = response_mode not in {"none", "reaction_only"}
+        await self._mark_required_user_turn_delivery_terminal(
+            turn_id=prepared.turn_id,
+            source_fact=prepared.latest_fact,
+            required_message_kind=(
+                (
+                    "assistant_rhythm_segment"
+                    if prepared.response_plan is not None
+                    else "assistant_final"
+                )
+                if has_message_surface
+                else None
+            ),
+            expected_message_count=(
+                len(prepared.response_plan.segments)
+                if prepared.response_plan is not None
+                else (1 if has_message_surface else 0)
+            ),
+        )
+        self._record_chat_history_and_memory(context, result, prepared)
         await self._finalize_session_run(context)
         self._schedule_transcript_summary_update(context)
         return await self._deliver_chat_response_outcome(context, result, prepared)
@@ -272,11 +410,9 @@ class ChatPostProcessService:
                 ux_plan=ux_plan,
             ):
                 return ChatParseOutcome(False, False, False, False)
-            return ChatParseOutcome(False, False, False, False)
-
-        if self._session_run_status(context) in {"cancelling", "cancelled"}:
-            await self._finalize_session_run(context)
-            return ChatParseOutcome(False, False, False, False)
+            raise _MissingVisibleChatResponseError(
+                "A visible chat response was expected but no content was produced"
+            )
 
         return await self._build_prepared_chat_postprocess(
             context=context,
@@ -304,6 +440,12 @@ class ChatPostProcessService:
         }:
             return ChatParseOutcome(False, False, False, False)
         ux_plan = result.ux_plan if isinstance(result.ux_plan, dict) else {}
+        if await self._session_run_status(context) in {
+            "cancelling",
+            "cancelled",
+        }:
+            await self._finalize_session_run(context)
+            return ChatParseOutcome(False, False, False, False)
         if result.skip_emit:
             await self._complete_turn_without_visible_response(
                 context=context,
@@ -423,6 +565,15 @@ class ChatPostProcessService:
             started_at_ms=prepared.started_at_ms,
             user_message=context.latest_user_message,
         )
+
+    async def _emit_committed_chat_response_observability(
+        self,
+        context: ChatRuntimeContext,
+        result: ExecutionResult,
+        prepared: _PreparedChatPostprocess,
+    ) -> None:
+        """Publish response traces only after the durable outcome wins."""
+
         if prepared.response_plan is not None:
             await self._emit_response_rhythm_trace(
                 user_id=context.user_id,
@@ -486,73 +637,193 @@ class ChatPostProcessService:
         context: ChatRuntimeContext,
         result: ExecutionResult,
         prepared: _PreparedChatPostprocess,
-    ) -> None:
+    ) -> bool:
+        (
+            delivery_identity,
+            delivery_is_terminal,
+        ) = await self._resolve_outcome_delivery_identity(
+            turn_id=prepared.turn_id,
+            source_fact=prepared.latest_fact,
+        )
+        if delivery_is_terminal:
+            return False
         if prepared.response_plan is not None:
-            await self._try_persist_segmented_response(context, result, prepared)
+            accepted = await self._try_persist_segmented_response(
+                context,
+                result,
+                prepared,
+                delivery_identity=delivery_identity,
+            )
+            if not accepted:
+                return False
 
         if prepared.response_plan is None:
-            await self._persist_final_response_outcome(context, result, prepared)
+            return await self._persist_final_response_outcome(
+                context,
+                result,
+                prepared,
+                delivery_identity=delivery_identity,
+            )
+        return True
 
     async def _try_persist_segmented_response(
         self,
         context: ChatRuntimeContext,
         result: ExecutionResult,
         prepared: _PreparedChatPostprocess,
-    ) -> None:
+        *,
+        delivery_identity: tuple[int, int] | None,
+    ) -> bool:
         try:
-            prepared.segmented_messages = await self._persist_segmented_chat_outcome(
-                turn_id=prepared.turn_id,
-                response_plan=prepared.response_plan,
-                attachments=list(getattr(result, "attachments", []) or []),
-                message_payload=dict(getattr(result, "message_payload", {}) or {}),
-                started_at_ms=prepared.started_at_ms,
-                completed_at_ms=prepared.now_ms,
-                orchestration_id=result.orchestration_id,
-                execution_mode=self._normalize_mode(result.mode),
-                ux_plan=prepared.ux_plan,
-                run_id=context.session_run_id,
-                run_revision=context.session_run_revision,
-                run_disposition=context.session_run_disposition,
-                reply_to_message_id=prepared.reply_anchor_message_id,
-                persona_id=context.active_persona_id,
-            )
+            if delivery_identity is None:
+                prepared.segmented_messages = (
+                    await self._persist_segmented_chat_outcome(
+                        turn_id=prepared.turn_id,
+                        response_plan=prepared.response_plan,
+                        attachments=list(getattr(result, "attachments", []) or []),
+                        message_payload=dict(
+                            getattr(result, "message_payload", {}) or {}
+                        ),
+                        started_at_ms=prepared.started_at_ms,
+                        completed_at_ms=prepared.now_ms,
+                        orchestration_id=result.orchestration_id,
+                        execution_mode=self._normalize_mode(result.mode),
+                        ux_plan=prepared.ux_plan,
+                        run_id=context.session_run_id,
+                        run_revision=context.session_run_revision,
+                        run_disposition=context.session_run_disposition,
+                        reply_to_message_id=prepared.reply_anchor_message_id,
+                        persona_id=context.active_persona_id,
+                    )
+                )
+                accepted = True
+            else:
+                accepted, prepared.segmented_messages = (
+                    await self._commit_segmented_chat_outcome(
+                        turn_id=prepared.turn_id,
+                        delivery_attempt_no=delivery_identity[0],
+                        command_id=delivery_identity[1],
+                        response_plan=prepared.response_plan,
+                        attachments=list(getattr(result, "attachments", []) or []),
+                        message_payload=dict(
+                            getattr(result, "message_payload", {}) or {}
+                        ),
+                        started_at_ms=prepared.started_at_ms,
+                        completed_at_ms=prepared.now_ms,
+                        orchestration_id=result.orchestration_id,
+                        execution_mode=self._normalize_mode(result.mode),
+                        ux_plan=prepared.ux_plan,
+                        run_id=context.session_run_id,
+                        run_revision=context.session_run_revision,
+                        run_disposition=context.session_run_disposition,
+                        reply_to_message_id=prepared.reply_anchor_message_id,
+                        persona_id=context.active_persona_id,
+                    )
+                )
+            if not accepted:
+                return False
         except Exception as exc:
             logger.warning(
                 "Segmented chat outcome persistence failed; falling back to final message: %s",
                 exc,
             )
-            await self._hide_persisted_rhythm_segments(
+            hidden = await self._hide_persisted_rhythm_segments(
                 session_id=context.session_id,
                 turn_id=prepared.turn_id,
             )
+            if not hidden:
+                raise RuntimeError(
+                    "Failed to clean up a partial segmented response"
+                ) from exc
             prepared.segmented_messages = []
             prepared.response_plan = None
             result.response_plan = None
         if not prepared.segmented_messages:
             prepared.response_plan = None
             result.response_plan = None
+        return True
 
     async def _persist_final_response_outcome(
         self,
         context: ChatRuntimeContext,
         result: ExecutionResult,
         prepared: _PreparedChatPostprocess,
-    ) -> None:
-        await self._persist_final_chat_outcome(
-            turn_id=prepared.turn_id,
-            response_text=prepared.response_text,
-            attachments=list(getattr(result, "attachments", []) or []),
-            message_payload=dict(getattr(result, "message_payload", {}) or {}),
-            started_at_ms=prepared.started_at_ms,
-            completed_at_ms=prepared.now_ms,
-            orchestration_id=result.orchestration_id,
-            execution_mode=self._normalize_mode(result.mode),
-            ux_plan=prepared.ux_plan,
-            run_id=context.session_run_id,
-            run_revision=context.session_run_revision,
-            run_disposition=context.session_run_disposition,
-            reply_to_message_id=prepared.reply_anchor_message_id,
-            persona_id=context.active_persona_id,
+        *,
+        delivery_identity: tuple[int, int] | None,
+    ) -> bool:
+        outcome_kwargs = {
+            "turn_id": prepared.turn_id,
+            "response_text": prepared.response_text,
+            "attachments": list(getattr(result, "attachments", []) or []),
+            "message_payload": dict(getattr(result, "message_payload", {}) or {}),
+            "started_at_ms": prepared.started_at_ms,
+            "completed_at_ms": prepared.now_ms,
+            "orchestration_id": result.orchestration_id,
+            "execution_mode": self._normalize_mode(result.mode),
+            "ux_plan": prepared.ux_plan,
+            "run_id": context.session_run_id,
+            "run_revision": context.session_run_revision,
+            "run_disposition": context.session_run_disposition,
+            "reply_to_message_id": prepared.reply_anchor_message_id,
+            "persona_id": context.active_persona_id,
+        }
+        if delivery_identity is None:
+            await self._persist_final_chat_outcome(**outcome_kwargs)
+            return True
+        return await self._commit_final_chat_outcome(
+            delivery_attempt_no=delivery_identity[0],
+            command_id=delivery_identity[1],
+            **outcome_kwargs,
+        )
+
+    async def _resolve_outcome_delivery_identity(
+        self,
+        *,
+        turn_id: str | None,
+        source_fact: FactRecord | None,
+    ) -> tuple[tuple[int, int] | None, bool]:
+        """Resolve an exact admitted attempt or a terminal rejection."""
+
+        normalized_turn_id = str(turn_id or "").strip()
+        if self._chat_store is None or not normalized_turn_id:
+            return None, False
+        fact_turn_id = ""
+        if isinstance(source_fact, FactRecord) and isinstance(
+            source_fact.payload,
+            dict,
+        ):
+            fact_turn_id = str(source_fact.payload.get("turn_id") or "").strip()
+        if (
+            isinstance(source_fact, FactRecord)
+            and fact_turn_id == normalized_turn_id
+            and source_fact.delivery_attempt_no is not None
+            and source_fact.runtime_command_id is not None
+        ):
+            return (
+                (
+                    int(source_fact.delivery_attempt_no),
+                    int(source_fact.runtime_command_id),
+                ),
+                False,
+            )
+        delivery = await self._chat_store.get_user_turn_delivery(
+            turn_id=normalized_turn_id,
+        )
+        if delivery is None:
+            return None, False
+        if delivery.delivery_state == "terminal":
+            return None, True
+        if (
+            delivery.delivery_state != "admitted"
+            or delivery.current_command_id is None
+        ):
+            return None, False
+        return (
+            (
+                int(delivery.delivery_attempt_no),
+                int(delivery.current_command_id),
+            ),
+            False,
         )
 
     def _schedule_transcript_summary_update(self, context: ChatRuntimeContext) -> None:
@@ -608,6 +879,14 @@ class ChatPostProcessService:
         latest_fact: FactRecord,
         ux_plan: dict[str, Any],
     ) -> bool:
+        if (
+            result.mode == ExecutionMode.FACT_ONLY
+            and str(context.session_run_disposition or "").strip().lower()
+            in _PENDING_INTERJECTION_DISPOSITIONS
+        ):
+            # AUGMENT / STEER / DEFER facts have only been durably accepted by
+            # the active run.  They have not produced a terminal chat outcome.
+            return True
         response_mode = str(ux_plan.get("assistant_surface_mode") or "").strip()
         if response_mode not in {"none", "reaction_only"}:
             return False
@@ -617,25 +896,207 @@ class ChatPostProcessService:
         )
         now_ms = now_wall_ms()
         started_at_ms = self._resolve_started_at_ms(result, latest_fact)
-        await self._persist_final_chat_outcome(
-            turn_id=turn_id,
-            response_text="",
-            started_at_ms=started_at_ms,
-            completed_at_ms=now_ms,
-            orchestration_id=result.orchestration_id,
-            execution_mode=self._normalize_mode(result.mode),
-            ux_plan=ux_plan,
-            run_id=context.session_run_id,
-            run_revision=context.session_run_revision,
-            run_disposition=context.session_run_disposition,
-            reply_to_message_id=await self._resolve_result_reply_anchor_message_id(
-                context=context,
-                turn_id=turn_id,
+        outcome_kwargs = {
+            "turn_id": turn_id,
+            "response_text": "",
+            "started_at_ms": started_at_ms,
+            "completed_at_ms": now_ms,
+            "orchestration_id": result.orchestration_id,
+            "execution_mode": self._normalize_mode(result.mode),
+            "ux_plan": ux_plan,
+            "run_id": context.session_run_id,
+            "run_revision": context.session_run_revision,
+            "run_disposition": context.session_run_disposition,
+            "reply_to_message_id": (
+                await self._resolve_result_reply_anchor_message_id(
+                    context=context,
+                    turn_id=turn_id,
+                )
             ),
-            persona_id=context.active_persona_id,
+            "persona_id": context.active_persona_id,
+        }
+        (
+            delivery_identity,
+            delivery_is_terminal,
+        ) = await self._resolve_outcome_delivery_identity(
+            turn_id=turn_id,
+            source_fact=latest_fact,
+        )
+        if delivery_is_terminal:
+            return True
+        if delivery_identity is None:
+            await self._persist_final_chat_outcome(**outcome_kwargs)
+            accepted = True
+        else:
+            accepted = await self._commit_final_chat_outcome(
+                delivery_attempt_no=delivery_identity[0],
+                command_id=delivery_identity[1],
+                **outcome_kwargs,
+            )
+        if not accepted:
+            return True
+        await self._mark_required_user_turn_delivery_terminal(
+            turn_id=turn_id,
+            source_fact=latest_fact,
         )
         await self._finalize_session_run(context)
+        await self.emit_execution_control_notification(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            turn_id=turn_id,
+            run_id=context.session_run_id,
+            orchestration_id=result.orchestration_id,
+            state="completed",
+            can_cancel=False,
+        )
         return True
+
+    async def _mark_required_user_turn_delivery_terminal(
+        self,
+        *,
+        turn_id: str | None,
+        source_fact: FactRecord | None,
+        required_message_kind: str | None = None,
+        expected_message_count: int = 0,
+    ) -> None:
+        """Require an existing delivery owner to accept the durable outcome."""
+
+        terminal = await self.mark_user_turn_delivery_terminal_if_persisted(
+            turn_id=turn_id,
+            source_fact=source_fact,
+            required_message_kind=required_message_kind,
+            expected_message_count=expected_message_count,
+        )
+        if terminal or self._chat_store is None:
+            return
+        normalized_turn_id = str(turn_id or "").strip()
+        if not normalized_turn_id:
+            return
+        delivery = await self._chat_store.get_user_turn_delivery(
+            turn_id=normalized_turn_id,
+        )
+        if delivery is None:
+            return
+        raise RuntimeError(
+            "Durable chat outcome did not close its user-turn delivery attempt"
+        )
+
+    async def mark_user_turn_delivery_terminal_if_persisted(
+        self,
+        *,
+        turn_id: str | None,
+        source_fact: FactRecord | None,
+        required_message_kind: str | None = None,
+        expected_message_count: int = 0,
+    ) -> bool:
+        """Close delivery only after the matching chat outcome is durable."""
+
+        normalized_turn_id = str(turn_id or "").strip()
+        if self._chat_store is None or not normalized_turn_id:
+            return False
+        turn = await self._chat_store.get_turn(normalized_turn_id)
+        if turn is None:
+            return False
+        status = str(turn.status or "").strip().lower()
+        if status in _TERMINAL_TURN_STATUSES:
+            pass
+        elif status == "completed":
+            response_mode = str(turn.response_mode or "").strip().lower()
+            if required_message_kind is None:
+                if response_mode not in {"none", "reaction_only"}:
+                    return False
+            elif not await self._has_complete_visible_message_set(
+                session_id=turn.session_id,
+                turn_id=normalized_turn_id,
+                message_kind=required_message_kind,
+                expected_count=max(1, int(expected_message_count or 0)),
+            ):
+                return False
+        else:
+            return False
+
+        now_ms = now_wall_ms()
+        fact_turn_id = ""
+        if isinstance(source_fact, FactRecord) and isinstance(source_fact.payload, dict):
+            fact_turn_id = str(source_fact.payload.get("turn_id") or "").strip()
+        if (
+            isinstance(source_fact, FactRecord)
+            and fact_turn_id == normalized_turn_id
+            and source_fact.delivery_attempt_no is not None
+            and source_fact.runtime_command_id is not None
+        ):
+            changed = await self._chat_store.mark_user_turn_delivery_terminal(
+                turn_id=normalized_turn_id,
+                delivery_attempt_no=int(source_fact.delivery_attempt_no),
+                command_id=int(source_fact.runtime_command_id),
+                updated_at_ms=now_ms,
+            )
+            if not changed:
+                current = await self._chat_store.get_user_turn_delivery(
+                    turn_id=normalized_turn_id,
+                )
+                if (
+                    current is not None
+                    and current.delivery_state == "terminal"
+                    and current.delivery_attempt_no
+                    == int(source_fact.delivery_attempt_no)
+                    and current.current_command_id
+                    == int(source_fact.runtime_command_id)
+                ):
+                    return True
+                logger.info(
+                    "Exact user-turn delivery terminal transition was superseded",
+                    turn_id=normalized_turn_id,
+                    delivery_attempt_no=int(source_fact.delivery_attempt_no),
+                    runtime_command_id=int(source_fact.runtime_command_id),
+                )
+            return bool(changed)
+
+        delivery = await self._chat_store.get_user_turn_delivery(
+            turn_id=normalized_turn_id,
+        )
+        if delivery is None or delivery.delivery_state == "terminal":
+            return delivery is not None
+        changed = await self._chat_store.reconcile_user_turn_terminal_surface(
+            turn_id=normalized_turn_id,
+            expected_attempt_no=delivery.delivery_attempt_no,
+            updated_at_ms=now_ms,
+        )
+        if not changed:
+            logger.info(
+                "Recovered user-turn delivery terminal transition was superseded",
+                turn_id=normalized_turn_id,
+                delivery_attempt_no=delivery.delivery_attempt_no,
+            )
+        return bool(changed)
+
+    async def _has_complete_visible_message_set(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        message_kind: str,
+        expected_count: int,
+    ) -> bool:
+        messages = await self._chat_store.list_messages(session_id=session_id)
+        if message_kind == "assistant_rhythm_segment":
+            return (
+                complete_visible_rhythm_segments(
+                    messages,
+                    turn_id=turn_id,
+                    expected_count=expected_count,
+                )
+                is not None
+            )
+        matching = [
+            message
+            for message in messages
+            if message.turn_id == turn_id
+            and message.message_kind == message_kind
+            and message.is_visible
+            and message.is_final
+        ]
+        return len(matching) >= expected_count
 
     def _resolve_turn_id(self, context: ChatRuntimeContext, payload: dict[str, Any]) -> str | None:
         latest_payload = context.latest_payload

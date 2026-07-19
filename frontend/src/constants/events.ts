@@ -12,6 +12,10 @@
 export const APP_EVENTS = {
   /** Dispatched when memory is cleared */
   MEMORY_CLEARED: 'magi-memory-cleared',
+  /** Dispatched after one chat session is durably deleted */
+  CHAT_SESSION_DELETED: 'magi-chat-session-deleted',
+  /** Dispatched after one chat session's history is durably cleared */
+  CHAT_HISTORY_CLEARED: 'magi-chat-history-cleared',
   /** Dispatched when session state changes */
   SESSION_SYNC: 'magi-session-sync',
   /** Dispatched when the installed/connected plugin set changes (install/enable
@@ -33,6 +37,18 @@ export const APP_EVENTS = {
 
 export interface MemoryClearedEvent extends CustomEvent {
   type: typeof APP_EVENTS.MEMORY_CLEARED;
+}
+
+export interface ChatSessionDeletedEvent extends CustomEvent<{
+  sessionId: string;
+}> {
+  type: typeof APP_EVENTS.CHAT_SESSION_DELETED;
+}
+
+export interface ChatHistoryClearedEvent extends CustomEvent<{
+  sessionId: string;
+}> {
+  type: typeof APP_EVENTS.CHAT_HISTORY_CLEARED;
 }
 
 export interface SessionSyncEvent extends CustomEvent {
@@ -76,6 +92,14 @@ export function subscribeToAppEvent(
 
 export const dispatchAppEvent = {
   memoryCleared: () => dispatchCustomAppEvent(APP_EVENTS.MEMORY_CLEARED),
+  chatSessionDeleted: (sessionId: string) => dispatchCustomAppEvent(
+    APP_EVENTS.CHAT_SESSION_DELETED,
+    { sessionId },
+  ),
+  chatHistoryCleared: (sessionId: string) => dispatchCustomAppEvent(
+    APP_EVENTS.CHAT_HISTORY_CLEARED,
+    { sessionId },
+  ),
   sessionSync: () => dispatchCustomAppEvent(APP_EVENTS.SESSION_SYNC),
   pluginsChanged: () => dispatchCustomAppEvent(APP_EVENTS.PLUGINS_CHANGED),
   themeChanged: (theme: 'light' | 'dark' | 'system') =>

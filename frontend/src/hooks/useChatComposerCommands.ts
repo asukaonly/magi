@@ -128,6 +128,7 @@ const isAtMessageStart = (value: string, cursor: number): boolean => {
 interface UseChatComposerCommandsOptions {
   setInputValue: (value: string) => void;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  allowInlineSkills?: boolean;
   onPickInternal: (action: SlashInternalAction) => void | Promise<void>;
   onPickTool: (descriptor: CommandDescriptor) => void;
   onPickSkill: (descriptor: SkillCommandDescriptor) => void;
@@ -136,6 +137,7 @@ interface UseChatComposerCommandsOptions {
 export function useChatComposerCommands({
   setInputValue,
   textareaRef,
+  allowInlineSkills = true,
   onPickInternal,
   onPickTool,
   onPickSkill,
@@ -184,14 +186,18 @@ export function useChatComposerCommands({
         dangerous: t.dangerous,
         descriptor: t,
       })),
-      ...skills.map<SlashCommandItem>((s) => ({
-        source: 'skill',
-        name: s.name,
-        description: s.description,
-        argumentHint: s.argument_hint ?? undefined,
-        contextMode: s.context_mode ?? undefined,
-        descriptor: s,
-      })),
+      ...skills
+        .filter((skill) => (
+          allowInlineSkills || skill.context_mode === 'fork'
+        ))
+        .map<SlashCommandItem>((skill) => ({
+          source: 'skill',
+          name: skill.name,
+          description: skill.description,
+          argumentHint: skill.argument_hint ?? undefined,
+          contextMode: skill.context_mode ?? undefined,
+          descriptor: skill,
+        })),
     ];
     const scored = merged
       .map((item) => ({
@@ -212,7 +218,7 @@ export function useChatComposerCommands({
       return a.item.name.localeCompare(b.item.name);
     });
     return scored.map(({ item }) => item);
-  }, [skills, state, t, tools]);
+  }, [allowInlineSkills, skills, state, t, tools]);
 
   const onValueChange = useCallback(
     (nextValue: string) => {

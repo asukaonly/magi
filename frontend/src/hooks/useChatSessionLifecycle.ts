@@ -4,10 +4,18 @@ import { messagesApi } from '@/api';
 import { configApi } from '@/api/modules/config';
 import { personasApi, type PersonaSummary } from '@/api/modules/personas';
 import { DEFAULT_USER_ID } from '@/constants';
-import { APP_EVENTS } from '@/constants/events';
 import { normalizeHistoryMessages, type ChatTimelineMessage } from '@/domain/chat/state';
+import {
+  resolvePendingTurnFromHistory,
+  type PendingTurnHistoryResolution,
+} from '@/domain/chat/turn-completion';
 import { useProductTourFlag } from '@/hooks/useProductTourFlag';
+import {
+  captureChatHistoryGuard,
+  isChatHistoryGuardCurrent,
+} from './chatRetryInvalidation';
 import { useConversationStore } from '@/stores';
+import { upsertTimelineMessage } from '@/stores/conversation-timeline';
 
 const USER_ID = DEFAULT_USER_ID;
 const BOOTSTRAP_PENDING_TURN_ID = 'bootstrap-init-pending';
@@ -40,22 +48,22 @@ export function shouldFireBootstrap(args: {
   );
 }
 
-type HistoryBootstrapState = {
+export type HistoryBootstrapState = {
   loaded: boolean;
   hasUserMessage: boolean;
+  messages: ChatTimelineMessage[];
+  historyVersion: number | null;
 };
 
 type HistoryRequestOptions = {
   force?: boolean;
   maxAttempts?: number;
   showError?: boolean;
+  commit?: boolean;
 };
 
 type UseChatSessionLifecycleOptions = {
   currentSessionId: string | null;
-  setCurrentSessionId: (sessionId: string | null) => void;
-  resetConversation: () => void;
-  resetTraceDrawer: () => void;
   upsertMessage: (sessionId: string, message: ChatTimelineMessage) => void;
   removeMessage: (sessionId: string, messageId: string) => void;
   translate: (key: string, options?: Record<string, unknown>) => string;
@@ -91,9 +99,6 @@ export type ChatPersonaIdentity = {
 
 export function useChatSessionLifecycle({
   currentSessionId,
-  setCurrentSessionId,
-  resetConversation,
-  resetTraceDrawer,
   upsertMessage,
   removeMessage,
   translate,
@@ -103,7 +108,11 @@ export function useChatSessionLifecycle({
   const [assistantPersonas, setAssistantPersonas] = useState<Record<string, ChatPersonaIdentity>>({});
   const [coreModelSupportsVision, setCoreModelSupportsVision] = useState(false);
   const [coreModelContextWindow, setCoreModelContextWindow] = useState<number | null>(null);
-  const [allowInterjection, setAllowInterjection] = useState(true);
+  const [allowInterjection, setAllowInterjection] = useState(false);
+  const [interjectionSettingLoaded, setInterjectionSettingLoaded] = useState(false);
+  const initialHistoryRequestsRef = useRef(
+    new Map<string, Promise<HistoryBootstrapState>>(),
+  );
   const bootstrappedSessionIdRef = useRef<string | null>(null);
   // Defer the persona's bootstrap opening until the one-time first-run context
   // prompt is resolved. When it completes, the flag flips and the firing effect
@@ -126,14 +135,15 @@ export function useChatSessionLifecycle({
               : null,
           );
           const prefs = response.data?.preferences;
-          if (prefs) {
-            setAllowInterjection(prefs.allow_interjection !== false);
-          }
+          setAllowInterjection(prefs?.allow_interjection === true);
+          setInterjectionSettingLoaded(true);
         }
       } catch {
         if (!cancelled) {
           setCoreModelSupportsVision(false);
           setCoreModelContextWindow(null);
+          setAllowInterjection(false);
+          setInterjectionSettingLoaded(true);
         }
       }
     };
@@ -149,13 +159,24 @@ export function useChatSessionLifecycle({
     options: HistoryRequestOptions = {},
   ): Promise<HistoryBootstrapState> => {
     if (!sessionId) {
-      return { loaded: false, hasUserMessage: false };
+      return {
+        loaded: false,
+        hasUserMessage: false,
+        messages: [],
+        historyVersion: null,
+      };
     }
+    const historyGuard = captureChatHistoryGuard(sessionId);
 
     if (!options.force && hasFreshCachedHistory(sessionId)) {
+      const messages = useConversationStore.getState().messagesBySession[sessionId] || [];
       return {
         loaded: true,
-        hasUserMessage: sessionHasUserMessage(sessionId),
+        hasUserMessage: messages.some((message) => message.role === 'user'),
+        messages,
+        historyVersion: normalizeHistoryVersion(
+          useConversationStore.getState().historyVersionBySession[sessionId],
+        ),
       };
     }
 
@@ -163,37 +184,143 @@ export function useChatSessionLifecycle({
       1,
       Math.floor(options.maxAttempts ?? HISTORY_LOAD_MAX_ATTEMPTS),
     );
+    const messagesAtRequestStart = (
+      useConversationStore.getState().messagesBySession[sessionId] || []
+    );
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
         const history = await messagesApi.getHistory(USER_ID, sessionId);
+        if (!isChatHistoryGuardCurrent(historyGuard)) {
+          return {
+            loaded: false,
+            hasUserMessage: false,
+            messages: [],
+            historyVersion: null,
+          };
+        }
         const rawMessages = Array.isArray(history.messages) ? history.messages : [];
         const normalizedMessages = normalizeHistoryMessages(rawMessages);
+        const messagesAfterRequest = (
+          useConversationStore.getState().messagesBySession[sessionId] || []
+        );
+        const concurrentMessages = messagesAfterRequest.filter(
+          (message) => !messagesAtRequestStart.includes(message),
+        );
+        const messagesToCommit = options.commit === false
+          ? normalizedMessages
+          : concurrentMessages.reduce(
+            (messages, message) => upsertTimelineMessage(messages, message),
+            normalizedMessages,
+          );
         const responseVersion = normalizeHistoryVersion(history.history_version);
         const fallbackVersion = normalizeHistoryVersion(
           useConversationStore.getState().sessionsById[sessionId]?.history_version,
         );
-        useConversationStore.getState().receiveHistory(
-          sessionId,
-          normalizedMessages,
-          responseVersion ?? fallbackVersion,
-        );
+        const historyVersion = responseVersion ?? fallbackVersion;
+        if (options.commit !== false) {
+          useConversationStore.getState().receiveHistory(
+            sessionId,
+            messagesToCommit,
+            historyVersion,
+          );
+        }
         return {
           loaded: true,
-          hasUserMessage: normalizedMessages.some((message) => message.role === 'user'),
+          hasUserMessage: messagesToCommit.some((message) => message.role === 'user'),
+          messages: messagesToCommit,
+          historyVersion,
         };
       } catch {
+        if (!isChatHistoryGuardCurrent(historyGuard)) {
+          return {
+            loaded: false,
+            hasUserMessage: false,
+            messages: [],
+            historyVersion: null,
+          };
+        }
         if (attempt + 1 < maxAttempts) {
           await new Promise<void>((resolve) => {
             window.setTimeout(resolve, HISTORY_LOAD_RETRY_DELAY_MS);
           });
+          if (!isChatHistoryGuardCurrent(historyGuard)) {
+            return {
+              loaded: false,
+              hasUserMessage: false,
+              messages: [],
+              historyVersion: null,
+            };
+          }
         }
       }
     }
     if (options.showError !== false) {
       toast.error(translate('chat.loadHistoryFailed'));
     }
-    return { loaded: false, hasUserMessage: false };
+    return {
+      loaded: false,
+      hasUserMessage: false,
+      messages: [],
+      historyVersion: null,
+    };
   }, [translate]);
+
+  const reconcileTurnFromHistory = useCallback(async (
+    sessionId: string,
+    turnId: string,
+  ): Promise<PendingTurnHistoryResolution> => {
+    const historyState = await requestHistory(sessionId, {
+      force: true,
+      maxAttempts: HISTORY_LOAD_MAX_ATTEMPTS,
+      showError: false,
+      commit: false,
+    });
+    if (!historyState.loaded) {
+      return { resolved: false };
+    }
+    const resolution = resolvePendingTurnFromHistory(
+      historyState.messages,
+      turnId,
+    );
+    if (resolution.safeToCommitHistory) {
+      useConversationStore.getState().receiveHistory(
+        sessionId,
+        historyState.messages,
+        historyState.historyVersion,
+      );
+    }
+    return resolution;
+  }, [requestHistory]);
+
+  const ensureSessionHistoryReady = useCallback((
+    sessionId: string,
+  ): Promise<HistoryBootstrapState> => {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) {
+      return Promise.resolve({
+        loaded: false,
+        hasUserMessage: false,
+        messages: [],
+        historyVersion: null,
+      });
+    }
+    const existing = initialHistoryRequestsRef.current.get(
+      normalizedSessionId,
+    );
+    if (existing) {
+      return existing;
+    }
+    const request = requestHistory(normalizedSessionId).finally(() => {
+      if (
+        initialHistoryRequestsRef.current.get(normalizedSessionId)
+          === request
+      ) {
+        initialHistoryRequestsRef.current.delete(normalizedSessionId);
+      }
+    });
+    initialHistoryRequestsRef.current.set(normalizedSessionId, request);
+    return request;
+  }, [requestHistory]);
 
   const loadPersonality = useCallback(async (
     sessionId: string,
@@ -297,11 +424,16 @@ export function useChatSessionLifecycle({
   }, [removeMessage, requestHistory, translate, tourCompleted, tourLoaded, upsertMessage]);
 
   const requestHistoryRef = useRef(requestHistory);
+  const ensureSessionHistoryReadyRef = useRef(ensureSessionHistoryReady);
   const loadPersonalityRef = useRef(loadPersonality);
 
   useEffect(() => {
     requestHistoryRef.current = requestHistory;
   }, [requestHistory]);
+
+  useEffect(() => {
+    ensureSessionHistoryReadyRef.current = ensureSessionHistoryReady;
+  }, [ensureSessionHistoryReady]);
 
   useEffect(() => {
     loadPersonalityRef.current = loadPersonality;
@@ -313,7 +445,9 @@ export function useChatSessionLifecycle({
     }
 
     let cancelled = false;
-    const historyStatePromise = requestHistoryRef.current(currentSessionId);
+    const historyStatePromise = ensureSessionHistoryReadyRef.current(
+      currentSessionId,
+    );
     void loadPersonalityRef.current(currentSessionId, historyStatePromise, () => cancelled);
     void (async () => {
       const initialState = await historyStatePromise;
@@ -345,18 +479,18 @@ export function useChatSessionLifecycle({
     };
   }, [currentSessionId, tourCompleted, tourLoaded]);
 
-  useEffect(() => {
-    const handleMemoryCleared = () => {
+  const clearSessionLifecycleState = useCallback((sessionId?: string) => {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) {
       bootstrappedSessionIdRef.current = null;
-      setCurrentSessionId(null);
-      resetTraceDrawer();
-      resetConversation();
-      window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
-    };
-
-    window.addEventListener(APP_EVENTS.MEMORY_CLEARED, handleMemoryCleared);
-    return () => window.removeEventListener(APP_EVENTS.MEMORY_CLEARED, handleMemoryCleared);
-  }, [resetConversation, resetTraceDrawer, setCurrentSessionId]);
+      initialHistoryRequestsRef.current.clear();
+      return;
+    }
+    initialHistoryRequestsRef.current.delete(normalizedSessionId);
+    if (bootstrappedSessionIdRef.current === normalizedSessionId) {
+      bootstrappedSessionIdRef.current = null;
+    }
+  }, []);
 
   return {
     aiName,
@@ -365,5 +499,9 @@ export function useChatSessionLifecycle({
     coreModelSupportsVision,
     coreModelContextWindow,
     allowInterjection,
+    interjectionSettingLoaded,
+    clearSessionLifecycleState,
+    ensureSessionHistoryReady,
+    reconcileTurnFromHistory,
   };
 }

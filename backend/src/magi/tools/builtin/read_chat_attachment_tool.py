@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
+from magi.core.chat_assets.io import (
+    open_managed_chat_attachment,
+    open_managed_chat_derived_file,
+)
+from magi.core.chat_assets.paths import (
+    build_chat_derived_path,
+    normalize_chat_asset_component,
+)
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
-from ...utils.runtime import get_runtime_paths
 from ..schema import (
     ParameterType,
     Tool,
@@ -170,11 +176,20 @@ class ReadChatAttachmentTool(Tool):
         if _attachment_kind(attachment) == "image":
             return self._image_result(metadata)
 
-        storage_path = Path(str(attachment.get("storage_path") or "").strip())
-        if not storage_path.is_file():
+        source_turn_id = _source_turn_id(attachment, context)
+        source_handle = open_managed_chat_attachment(
+            attachment.get("storage_path"),
+            session_id=request.session_id,
+            turn_id=source_turn_id,
+            attachment_id=request.attachment_id,
+            original_name=attachment.get("original_name"),
+        )
+        if source_handle is None:
             return _file_not_found_result("Attachment file not found.")
+        source_handle.close()
+        attachment = dict(attachment)
 
-        return self._read_text_attachment(
+        return await self._read_text_attachment(
             request=request,
             context=context,
             attachment=attachment,
@@ -198,6 +213,17 @@ class ReadChatAttachmentTool(Tool):
             return _missing_value_result(
                 "session_id is required in parameters or tool execution context."
             )
+        try:
+            attachment_id = normalize_chat_asset_component(
+                attachment_id,
+                label="attachment_id",
+            )
+            session_id = normalize_chat_asset_component(
+                session_id,
+                label="session_id",
+            )
+        except ValueError as exc:
+            return _invalid_parameters_result(str(exc))
 
         offset = _coerce_int(parameters.get("offset"), default=0, minimum=0)
         limit = _coerce_int(
@@ -256,7 +282,7 @@ class ReadChatAttachmentTool(Tool):
             },
         )
 
-    def _read_text_attachment(
+    async def _read_text_attachment(
         self,
         *,
         request: _AttachmentReadRequest,
@@ -266,7 +292,7 @@ class ReadChatAttachmentTool(Tool):
         chat_port: Any,
     ) -> ToolResult:
         source_turn_id = _source_turn_id(attachment, context)
-        text, prepared_payload = self._load_text_content(
+        text, prepared_payload = await self._load_text_content(
             session_id=request.session_id,
             turn_id=source_turn_id,
             attachment=attachment,
@@ -319,7 +345,7 @@ class ReadChatAttachmentTool(Tool):
             },
         )
 
-    def _load_text_content(
+    async def _load_text_content(
         self,
         *,
         session_id: str,
@@ -327,16 +353,33 @@ class ReadChatAttachmentTool(Tool):
         attachment: dict[str, Any],
         chat_port,
     ) -> tuple[str | None, dict[str, Any]]:
-        derived_path = _derived_text_path(
-            session_id, turn_id, str(attachment.get("attachment_id") or "")
+        attachment_id = str(attachment.get("attachment_id") or "")
+        try:
+            expected_derived_path = build_chat_derived_path(
+                session_id=session_id,
+                turn_id=turn_id,
+                attachment_id=attachment_id,
+            )
+        except ValueError:
+            expected_derived_path = None
+        derived_handle = (
+            open_managed_chat_derived_file(
+                expected_derived_path,
+                session_id=session_id,
+                turn_id=turn_id,
+                attachment_id=attachment_id,
+            )
+            if expected_derived_path is not None
+            else None
         )
-        if derived_path.is_file():
+        if derived_handle is not None:
             try:
-                return derived_path.read_text(encoding="utf-8"), {"parse_status": "parsed"}
-            except OSError:
+                with derived_handle:
+                    return derived_handle.read().decode("utf-8"), {"parse_status": "parsed"}
+            except (OSError, UnicodeError):
                 pass
 
-        prepared = chat_port.prepare_runtime_attachment(
+        prepared = await chat_port.prepare_runtime_attachment(
             session_id=session_id,
             turn_id=turn_id,
             attachment=attachment,
@@ -346,8 +389,16 @@ class ReadChatAttachmentTool(Tool):
         path = str(prepared.get("derived_text_path") or "").strip()
         if path:
             try:
-                return Path(path).read_text(encoding="utf-8"), prepared
-            except OSError:
+                prepared_handle = open_managed_chat_derived_file(
+                    path,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    attachment_id=attachment_id,
+                )
+                if prepared_handle is not None:
+                    with prepared_handle:
+                        return prepared_handle.read().decode("utf-8"), prepared
+            except (OSError, UnicodeError):
                 return None, prepared
         excerpt = str(prepared.get("derived_text_excerpt") or "")
         if excerpt and str(prepared.get("parse_status") or "") == "parsed":
@@ -373,10 +424,6 @@ def _coerce_int(
     if maximum is not None:
         parsed = min(parsed, maximum)
     return parsed
-
-
-def _derived_text_path(session_id: str, turn_id: str, attachment_id: str) -> Path:
-    return get_runtime_paths().chat_derived_dir / session_id / turn_id / f"{attachment_id}.txt"
 
 
 def _public_metadata(attachment: dict[str, Any]) -> dict[str, Any]:

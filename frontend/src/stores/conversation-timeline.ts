@@ -42,6 +42,9 @@ export const canMergeTimelineMessage = (
   existing: ChatTimelineMessage,
   incoming: ChatTimelineMessage,
 ): boolean => {
+  if (existing === incoming) {
+    return true;
+  }
   const existingMessageId = String(existing.messageId || '').trim();
   const incomingMessageId = String(incoming.messageId || '').trim();
   if (existingMessageId && incomingMessageId) {

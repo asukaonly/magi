@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,8 @@ from magi.awareness.sensor_hub import SensorHub
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.events.contracts import (
     RefreshLLMConfigCommand,
+    RuntimeCommandType,
+    RuntimeQueuedCommand,
     SensorStateFlushCommand,
     SensorSyncCommand,
     UserMessageCommand,
@@ -48,7 +51,7 @@ async def test_runtime_command_processor_publishes_user_message_to_local_bus(
     await processor.init()
 
     try:
-        await queue.enqueue_user_message(
+        runtime_command_id = await queue.enqueue_user_message(
             UserMessageCommand(
                 source="api",
                 user_id="user-1",
@@ -76,20 +79,63 @@ async def test_runtime_command_processor_publishes_user_message_to_local_bus(
         assert event.payload["user_id"] == "user-1"
         assert event.payload["attachments"] == [{"kind": "pdf", "attachment_id": "att-1"}]
         assert event.payload["workspace_path"] == "/tmp/magi"
+        assert event.delivery_attempt_no == 0
+        assert event.runtime_command_id == runtime_command_id
 
         for _ in range(100):
             stats = await queue.get_stats()
-            if stats["completed_count"] == 1:
+            if stats["claimed_count"] == 1:
                 break
             await asyncio.sleep(0.02)
 
         stats = await queue.get_stats()
-        assert stats["completed_count"] == 1
+        assert stats["claimed_count"] == 1
+        assert stats["completed_count"] == 0
     finally:
         await processor.shutdown()
         await sensor_hub.stop()
         await message_bus.stop()
         await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_user_message_event_identity_includes_delivery_attempt() -> None:
+    class _RecordingBus:
+        def __init__(self) -> None:
+            self.events = []
+
+        async def publish(self, event):
+            self.events.append(event)
+            return True
+
+    command = RuntimeQueuedCommand(
+        command_id=73,
+        command_type=RuntimeCommandType.USER_MESSAGE,
+        payload=UserMessageCommand(
+            source="api",
+            user_id="user-1",
+            session_id="session-1",
+            turn_id="turn-1",
+            message="hello",
+            correlation_id="user_message:message-1",
+        ).to_payload(),
+        correlation_id="user_message:message-1",
+        delivery_attempt_no=4,
+    )
+    bus = _RecordingBus()
+    processor = RuntimeCommandProcessorModule(RuntimeBootstrapContext())
+
+    assert await processor._publish_user_message_command(command, bus)
+    assert len(bus.events) == 1
+    event = bus.events[0]
+    assert event.correlation_id == "user_message:message-1"
+    assert event.data["delivery_attempt_no"] == 4
+    assert event.data["runtime_command_id"] == 73
+    digest = uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        "magi:runtime-user-message:user_message:message-1:4:73",
+    ).hex
+    assert event.event_id == f"runtime-user-message:4:73:{digest}"
 
 
 @pytest.mark.asyncio
@@ -450,12 +496,6 @@ async def test_runtime_command_processor_requeues_user_messages_without_local_su
             # late in the full suite where leaked aiosqlite worker threads jitter
             # the event loop, so tight 2-3s budgets flake under load.
             for _ in range(300):
-                stats = await queue.get_stats()
-                if stats["completed_count"] == 1:
-                    break
-                await asyncio.sleep(0.02)
-
-            for _ in range(300):
                 batch = await sensor_hub.get_batch(max_items=8, timeout_seconds=0.02)
                 if batch:
                     break
@@ -468,7 +508,8 @@ async def test_runtime_command_processor_requeues_user_messages_without_local_su
         assert batch[0].event_type == EventTypes.USER_MESSAGE
 
         stats = await queue.get_stats()
-        assert stats["completed_count"] == 1
+        assert stats["claimed_count"] == 1
+        assert stats["completed_count"] == 0
     finally:
         await processor.shutdown()
         await message_bus.stop()

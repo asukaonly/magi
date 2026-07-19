@@ -141,20 +141,12 @@ def clone_config_with_update(config: Any, path: str, value: Any) -> Any:
     return clone
 
 
-def get_embedding_rebuild_manager() -> Any:
-    """Resolve the shared rebuild manager without importing it during config startup."""
-
-    from .vector_admin import get_embedding_rebuild_manager as resolve_manager
-
-    return resolve_manager()
-
-
 @asynccontextmanager
 async def pause_rebuilds_for_embedding_config_change(
     *,
     current_config: Any,
     proposed_config: Any,
-    manager_factory: Callable[[], Any] | None = None,
+    manager_factory: Callable[[], Any],
 ) -> AsyncIterator[None]:
     """Pause and drain rebuilds only when a config write changes vector execution."""
 
@@ -164,7 +156,7 @@ async def pause_rebuilds_for_embedding_config_change(
         yield
         return
 
-    manager = (manager_factory or get_embedding_rebuild_manager)()
+    manager = manager_factory()
     await manager.pause_starts_and_cancel_all()
     try:
         async with get_embedding_publication_lock():
@@ -197,6 +189,5 @@ __all__ = [
     "get_embedding_config_update_lock",
     "get_embedding_execution_generation",
     "get_embedding_publication_lock",
-    "get_embedding_rebuild_manager",
     "pause_rebuilds_for_embedding_config_change",
 ]

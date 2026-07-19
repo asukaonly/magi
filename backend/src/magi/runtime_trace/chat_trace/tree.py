@@ -79,6 +79,7 @@ def build_runtime_trace_root(
         root.children.extend(turn_node.children)
     root.children.extend(top_level_nodes)
     deduplicate_response_emit(root)
+    redact_cancelled_response_drafts(root)
     return root
 
 
@@ -167,3 +168,35 @@ def deduplicate_response_emit(root: ExecutionTraceNode) -> None:
     previous_preview = (previous.result_preview or "").strip()[:200]
     if last_preview and previous_preview and last_preview == previous_preview:
         root.children.pop()
+
+
+def redact_cancelled_response_drafts(root: ExecutionTraceNode) -> None:
+    """Keep an uncommitted assistant draft out of a cancelled trace."""
+
+    if str(root.status or "").strip().lower() != "cancelled":
+        return
+    root.result_preview = ""
+
+    def _redact_children(
+        children: list[ExecutionTraceNode],
+    ) -> list[ExecutionTraceNode]:
+        redacted: list[ExecutionTraceNode] = []
+        for node in children:
+            if node.kind in {"response", "rhythm"}:
+                continue
+            if node.kind in {"llm", "iteration"}:
+                node.result_preview = ""
+                metadata = dict(node.metadata)
+                for key in (
+                    "output",
+                    "output_preview",
+                    "response_preview",
+                    "thinking_content",
+                ):
+                    metadata.pop(key, None)
+                node.metadata = metadata
+            node.children = _redact_children(node.children)
+            redacted.append(node)
+        return redacted
+
+    root.children = _redact_children(root.children)

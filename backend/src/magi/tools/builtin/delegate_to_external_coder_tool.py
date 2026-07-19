@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, cast
 
+from ...core.code_agent_artifacts import CodeAgentArtifactPathError
 from ..code_agent.contracts import (
     AdapterName,
     DelegateConstraints,
@@ -219,6 +220,16 @@ class DelegateToExternalCoderTool(Tool):
         if isinstance(delegate_input, ToolResult):
             return delegate_input
 
+        artifact_registry = (
+            getattr(context.capabilities, "delegation_artifacts", None)
+            if context.capabilities
+            else None
+        )
+        if artifact_registry is None:
+            return _invalid_parameters_result(
+                "Code delegation artifact registry is unavailable"
+            )
+
         settings = load_settings(workspace_root=delegate_input.workspace)
         if not settings.enabled:
             return _invalid_parameters_result("External code tools are disabled in settings")
@@ -246,31 +257,53 @@ class DelegateToExternalCoderTool(Tool):
             ),
         )
 
-        req = DelegateRequest(
-            delegation_id=uuid.uuid4().hex,
-            session_id=delegate_input.session_id,
-            adapter=resolved_adapter,
-            prompt=delegate_input.prompt,
-            files_hint=files_hint,
-            workspace_root=str(Path(delegate_input.workspace).resolve()),
-            constraints=constraints,
-            timeout_s=timeout_s,
-            model=(str(parameters.get("model")) if parameters.get("model") else None),
-        )
+        try:
+            req = DelegateRequest(
+                delegation_id=uuid.uuid4().hex,
+                session_id=delegate_input.session_id,
+                turn_id=str((context.env_vars or {}).get("turn_id") or "").strip(),
+                adapter=resolved_adapter,
+                prompt=delegate_input.prompt,
+                files_hint=files_hint,
+                workspace_root=str(
+                    Path(delegate_input.workspace).expanduser().absolute()
+                ),
+                constraints=constraints,
+                timeout_s=timeout_s,
+                model=(str(parameters.get("model")) if parameters.get("model") else None),
+            )
+        except ValueError as exc:
+            return _invalid_parameters_result(str(exc))
 
         service = CodeAgentService(binary_paths=binary_paths, cleanup_worktree=False)
         user_id = str((context.env_vars or {}).get("user_id") or "").strip() or None
-        result = await service.delegate(
-            req,
-            dry_run=bool(parameters.get("dry_run")),
-            user_id=user_id,
-            delegation_events=(
-                context.capabilities.delegation_events if context.capabilities else None
-            ),
-        )
+        try:
+            result = await service.delegate(
+                req,
+                dry_run=bool(parameters.get("dry_run")),
+                user_id=user_id,
+                delegation_events=(
+                    context.capabilities.delegation_events if context.capabilities else None
+                ),
+                artifact_registry=artifact_registry,
+                cancellation=context.cancellation,
+            )
+        except CodeAgentArtifactPathError as exc:
+            return _invalid_parameters_result(str(exc))
+        result_data = result.model_dump()
+        if result.artifact_registered:
+            result_data["assistant_payload"] = {
+                "code_agent_delegations": [
+                    {
+                        "delegation_id": result.delegation_id,
+                        "turn_id": req.turn_id,
+                        "workspace_path": req.workspace_root,
+                    }
+                ],
+            }
         return ToolResult(
             success=result.success,
-            data=result.model_dump(),
+            data=result_data,
             error=result.error,
             error_code=None if result.success else ToolErrorCode.EXECUTION_ERROR.value,
         )

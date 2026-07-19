@@ -141,6 +141,8 @@
     "deleteSessionTitle": "Delete session",
     "deleteSessionDescription": "This permanently removes the session, its messages and attachments, and memories formed from that content. This cannot be undone.",
     "confirmDeleteSession": "Delete session",
+    "deleteSessionFailed": "The session could not be deleted. Nothing was changed.",
+    "deleteSessionCleanupPending": "The session is gone. Remaining local cleanup will finish automatically after Magi restarts.",
     "cancel": "Cancel",
     "noPreview": "No preview",
     "personality": "Personality",
@@ -881,6 +883,8 @@
     "tip": "Tip: Enter to send, Shift+Enter for newline",
     "emptyInput": "Please enter a message",
     "askAttachmentsUnsupported": "Remove attachments before answering this question.",
+    "askChoiceOnlyPlaceholder": "Choose one of the answers above",
+    "askOptionRequired": "Choose one of the available answers.",
     "sessionRequired": "Please choose or create a session first",
     "wsNotConnected": "Not connected to server yet",
     "reply": {
@@ -902,7 +906,8 @@
       "copyPlain": "Copy Plain Text",
       "delete": "Delete Message",
       "copyFailed": "Failed to copy message",
-      "deleteFailed": "Failed to delete message"
+      "deleteFailed": "Failed to delete message",
+      "deleteCleanupPending": "The message is gone. Remaining local cleanup will finish automatically after Magi restarts."
     },
     "workspace": {
       "label": "Conversation Workspace",
@@ -978,9 +983,19 @@
       "backgroundRunning": "Background task running",
       "backgroundPendingBadge": "Pending",
       "backgroundCancel": "Cancel",
-      "backgroundCancelRequested": "Cancellation requested."
+      "backgroundCancelRequested": "Cancellation requested.",
+      "sendUnconfirmed": "Magi could not confirm whether this skill message was received. Run the same skill again to retry it safely.",
+      "pendingAskBlocked": "Answer the current question before running this skill. Background skills are still available.",
+      "argumentsInvalid": "Check the quotation marks in the skill arguments.",
+      "notSent": "The skill message was not sent. Check the chat and try again."
     },
     "sendFailed": "Failed to send message",
+    "sendUnconfirmed": "Magi could not confirm whether this message was received. Your draft is still here; send it again to safely retry.",
+    "askNoLongerPending": "That question is no longer waiting for this answer. Your draft is still here.",
+    "previousSendUnconfirmed": "Magi still cannot confirm the previous message. The draft you can see was not sent; try again when the connection recovers.",
+    "restoredSendResolved": "Magi finished checking the message left from before the refresh. The draft you can see was not sent; send it again when ready.",
+    "waitForCurrentReply": "Wait for the current reply to finish, or stop it before sending another message.",
+    "historyNotReady": "Magi could not verify this chat's latest state yet. Your draft is still here; try again in a moment.",
     "clearFailed": "Failed to clear chat",
     "cleared": "Chat cleared",
     "clearHistoryDialog": {
@@ -990,8 +1005,10 @@
       "close": "Close",
       "cancel": "Cancel",
       "confirm": "Clear chat",
+      "inProgress": "Wait for this chat to finish clearing before sending another message.",
       "retry": "Retry",
       "success": "Chat and related memories cleared",
+      "cleanupPending": "Chat and related memories are gone. Remaining local cleanup will finish automatically after Magi restarts.",
       "error": "Clearing was not confirmed. Please try again; retrying will not delete extra content."
     },
     "createSessionFailed": "Failed to create a new session",
@@ -1619,8 +1636,10 @@
       "cancel": "Keep Editing",
       "confirm": "Discard and Close"
     },
-    "memoryCleared": "Cleared {{count}} memory records",
+    "memoryCleared": "Cleared conversation history and memory ({{count}} items)",
     "memoryClearFailed": "Failed to clear memory",
+    "memoryClearRecoveryPending": "The content is no longer accessible. If chat or external messages remain unavailable, restart the app to finish cleanup.",
+    "memoryClearCompletedWithWarnings": "The clear completed, but some background cleanup did not finish normally. Restart the app and check again.",
     "clearConfirm": {
       "title": "Confirm Clear All Memory?",
       "warning": "This will permanently delete all data from:",
@@ -1686,7 +1705,7 @@
       },
       "dangerZone": {
         "title": "Danger Zone",
-        "description": "Permanently clear all memory data for this instance. This action cannot be undone, and the AI will need to rebuild its memory from scratch.",
+        "description": "Permanently clear chat history, all memory, and pending notifications tied to those conversations. Model settings, plugin accounts, and channel preferences are kept.",
         "clearButton": "Clear All Memory"
       },
       "vector": {
@@ -4159,6 +4178,11 @@
     "searchError": "Search failed: {{message}}",
     "search": "Search",
     "clear": "Clear",
+    "clearSuccess": "Cleared conversation history and memory ({{count}} items)",
+    "clearFailed": "Memory could not be cleared. Please try again.",
+    "clearRefreshFailed": "Memory was cleared, but this view could not refresh yet.",
+    "clearRecoveryPending": "The content is no longer accessible. Restart the app to finish cleanup before starting a new chat or sending external messages.",
+    "clearCompletedWithWarnings": "The clear completed, but some background cleanup did not finish normally. Restart the app and check again.",
     "sources": {
       "chat_projector": "Chat",
       "runtime_event_emitter": "Runtime event emitter",
@@ -4429,13 +4453,15 @@
     },
     "clearConfirm": {
       "title": "Clear All Memory",
-      "description": "This will permanently delete all memory data stored for this instance.",
+      "description": "This permanently deletes chat history, all memory, and data tied to those conversations.",
       "conversations": "Conversation history and session goals",
       "events": "Recorded events and activity traces",
       "relationships": "Extracted relationships, knowledge, and long-term understanding",
       "summaries": "Generated summaries and reflection notes",
       "learnedSkills": "Learned experience and procedural skills",
       "currentContext": "Cached context from the current conversation",
+      "pendingNotifications": "Channel conversation links, delivery records, and unsent task notifications",
+      "preservedSettings": "Model settings, plugin accounts, identity links, and channel preferences are kept.",
       "countdownHint": "Please wait {{seconds}} seconds before confirming.",
       "readyHint": "You can confirm the clear action now.",
       "confirmCountdown": "Confirm in {{seconds}}s",

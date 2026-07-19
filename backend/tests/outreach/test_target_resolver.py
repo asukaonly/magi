@@ -12,14 +12,24 @@ def _intent(session_id="s1"):
 
 
 class _ReadService:
-    def __init__(self, exists: bool): self._exists = exists
+    def __init__(self, exists: bool, *, fail: bool = False):
+        self._exists = exists
+        self._fail = fail
+
     async def aget_session_summary(self, user_id, session_id):
+        if self._fail:
+            raise OSError("chat database unavailable")
         return SimpleNamespace(session_id=session_id) if self._exists else None
 
 
 class _Mapper:
-    def __init__(self, mapping): self._mapping = mapping
+    def __init__(self, mapping, *, fail: bool = False):
+        self._mapping = mapping
+        self._fail = fail
+
     async def lookup_by_session(self, magi_session_id):
+        if self._fail:
+            raise OSError("channel database unavailable")
         return self._mapping
 
 
@@ -49,9 +59,29 @@ async def test_desktop_origin_yields_desktop_only():
 
 
 @pytest.mark.asyncio
-async def test_deleted_session_skips_desktop_keeps_external():
+async def test_deleted_session_skips_all_outreach_targets():
     r = TargetResolver(read_service_factory=lambda: _ReadService(False),
                        session_mapper=_Mapper(_mapping("telegram")))
     out = await r.resolve(_intent())
     assert out.desktop_session_id is None
-    assert out.external is not None
+    assert out.external is None
+
+
+@pytest.mark.asyncio
+async def test_failed_session_check_remains_retryable():
+    r = TargetResolver(
+        read_service_factory=lambda: _ReadService(False, fail=True),
+        session_mapper=_Mapper(_mapping("telegram")),
+    )
+    with pytest.raises(OSError, match="chat database unavailable"):
+        await r.resolve(_intent())
+
+
+@pytest.mark.asyncio
+async def test_failed_session_mapping_check_remains_retryable():
+    r = TargetResolver(
+        read_service_factory=lambda: _ReadService(True),
+        session_mapper=_Mapper(None, fail=True),
+    )
+    with pytest.raises(OSError, match="channel database unavailable"):
+        await r.resolve(_intent())

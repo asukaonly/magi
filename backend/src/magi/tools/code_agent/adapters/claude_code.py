@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from magi_plugin_sdk.subprocess import ManagedSubprocess
+
 from ..contracts import (
     AdapterName,
     CostInfo,
@@ -25,13 +27,18 @@ from ..contracts import (
 )
 from ..probe import probe_one
 from ..runtime_env import build_exec_env
-from .base import AdapterRunOutcome, CancelToken, OnEvent
+from .base import (
+    AdapterRunOutcome,
+    CancelToken,
+    OnEvent,
+    wait_for_run_or_cancel,
+)
 
 
 @dataclass
 class _SpawnedProcess:
     process: asyncio.subprocess.Process
-    managed: Any = None
+    managed: ManagedSubprocess
 
 
 @dataclass
@@ -71,25 +78,41 @@ class ClaudeCodeAdapter:
             argv=argv,
             binary_path=binary_path,
         )
-        await self._write_prompt(spawned.process, req)
-
         state = _ClaudeRunState(stdout_buf=[], stderr_buf=[])
         try:
-            exit_code = await self._drain_until_exit(req, spawned, state, on_event)
+            await self._write_prompt(spawned.process, req)
+            exit_code, cancelled = await wait_for_run_or_cancel(
+                self._drain_until_exit(req, spawned, state, on_event),
+                cancel_token=cancel_token,
+                terminate=lambda: self._terminate(
+                    spawned.process,
+                    managed=spawned.managed,
+                ),
+            )
         except asyncio.TimeoutError:
-            await self._terminate(spawned.process, managed=spawned.managed)
-            self._persist_logs(stdout_path, stderr_path, state)
             return AdapterRunOutcome(
                 exit_code=-1,
                 summary=None,
                 cost=self._state_cost_or_none(state),
                 error=f"adapter timeout after {req.timeout_s}s",
             )
-
-        if cancel_token.cancelled:
+        except BaseException:
             await self._terminate(spawned.process, managed=spawned.managed)
+            raise
+        finally:
+            self._persist_logs(stdout_path, stderr_path, state)
 
-        self._persist_logs(stdout_path, stderr_path, state)
+        if cancelled:
+            reason = cancel_token.reason or "cancelled"
+            return AdapterRunOutcome(
+                exit_code=-1,
+                summary=state.last_assistant_text,
+                cost=self._state_cost_or_none(state),
+                error=f"adapter cancelled: {reason}",
+                cancelled=True,
+            )
+        if exit_code is None:  # pragma: no cover - guarded by helper contract
+            raise RuntimeError("Claude Code adapter exited without a status")
         return await self._outcome_from_exit_code(exit_code, state, on_event)
 
     async def _spawn_process(
@@ -100,30 +123,16 @@ class ClaudeCodeAdapter:
         argv: list[str],
         binary_path: str,
     ) -> _SpawnedProcess:
-        try:
-            from magi_plugin_sdk.subprocess import ManagedSubprocess
-        except ImportError:
-            ManagedSubprocess = None  # type: ignore[assignment]
-        if ManagedSubprocess is not None:
-            managed = await ManagedSubprocess.spawn(
-                argv,
-                label=f"code_agent.claude_code.{req.delegation_id}",
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(cwd),
-                env=self._build_env(binary_path),
-            )
-            return _SpawnedProcess(process=managed.proc, managed=managed)
-        process = await asyncio.create_subprocess_exec(
-            *argv,
+        managed = await ManagedSubprocess.spawn(
+            argv,
+            label=f"code_agent.claude_code.{req.delegation_id}",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
             env=self._build_env(binary_path),
         )
-        return _SpawnedProcess(process=process)
+        return _SpawnedProcess(process=managed.proc, managed=managed)
 
     async def _write_prompt(
         self,
@@ -153,9 +162,7 @@ class ClaudeCodeAdapter:
             ),
             timeout=req.timeout_s,
         )
-        return await (
-            spawned.managed.wait() if spawned.managed is not None else spawned.process.wait()
-        )
+        return await spawned.managed.wait()
 
     async def _drain_stdout(
         self,
@@ -396,25 +403,29 @@ class ClaudeCodeAdapter:
         managed: Any = None,
     ) -> None:
         if process.returncode is not None:
+            if managed is not None:
+                await managed.wait()
             return
         if managed is not None:
-            # Preferred path — ManagedSubprocess.shutdown handles SIGTERM
-            # → SIGKILL escalation AND removes the PID registry entry so
-            # cleanup_orphans on next boot doesn't see a stale row.
             try:
-                await managed.shutdown(sigterm_grace_seconds=5.0, sigkill_grace_seconds=2.0)
+                await managed.shutdown(
+                    sigterm_grace_seconds=1.0,
+                    sigkill_grace_seconds=1.0,
+                )
             except Exception:
                 pass
-            return
+            if process.returncode is not None:
+                await managed.wait()
+                return
         try:
             process.terminate()
             try:
-                await asyncio.wait_for(process.wait(), timeout=5)
+                await asyncio.wait_for(process.wait(), timeout=2)
             except asyncio.TimeoutError:
                 process.kill()
-                await process.wait()
+                await asyncio.wait_for(process.wait(), timeout=2)
         except ProcessLookupError:
-            pass
+            await process.wait()
 
     @staticmethod
     def _persist(path: Path, chunks: list[bytes]) -> None:

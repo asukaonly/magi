@@ -11,6 +11,7 @@ from magi.chat import get_chat_read_service as _get_chat_read_service
 from magi.agent.orchestration import get_orchestration_store
 from magi.core.logger import get_logger
 from magi.core.runtime_bindings import (
+    get_optional_background_task_manager,
     get_optional_agent_runtime,
     require_runtime_command_queue,
 )
@@ -136,6 +137,16 @@ def _resolve_task_agent_manager():
     return runtime.get_task_agent_manager()
 
 
+def _resolve_background_task_manager():
+    override = _package_override(
+        "_resolve_background_task_manager",
+        _resolve_background_task_manager,
+    )
+    if override is not None:
+        return override()
+    return get_optional_background_task_manager()
+
+
 def _resolve_runtime_command_queue():
     override = _package_override(
         "_resolve_runtime_command_queue",
@@ -154,6 +165,55 @@ def _resolve_sensor_hub():
     if runtime is None:
         return None
     return runtime.get_sensor_hub()
+
+
+def _resolve_outreach_service():
+    override = _package_override(
+        "_resolve_outreach_service",
+        _resolve_outreach_service,
+    )
+    if override is not None:
+        return override()
+    try:
+        from magi.core.container import get_container
+
+        context = get_container().runtime_bootstrap_context()
+    except Exception:
+        return None
+    return getattr(getattr(context, "outreach", None), "service", None)
+
+
+def _resolve_channel_session_mapper():
+    override = _package_override(
+        "_resolve_channel_session_mapper",
+        _resolve_channel_session_mapper,
+    )
+    if override is not None:
+        return override()
+    try:
+        from magi.core.container import get_container
+
+        context = get_container().runtime_bootstrap_context()
+    except Exception:
+        return None
+    channels_module = getattr(getattr(context, "channels", None), "module", None)
+    return getattr(channels_module, "session_mapper", None)
+
+
+def _resolve_channels_module():
+    override = _package_override(
+        "_resolve_channels_module",
+        _resolve_channels_module,
+    )
+    if override is not None:
+        return override()
+    try:
+        from magi.core.container import get_container
+
+        context = get_container().runtime_bootstrap_context()
+    except Exception:
+        return None
+    return getattr(getattr(context, "channels", None), "module", None)
 
 
 def _resolve_orchestration_store():

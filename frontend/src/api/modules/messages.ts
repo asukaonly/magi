@@ -209,7 +209,15 @@ export interface ExecutionTraceSnapshot {
   root: ExecutionTraceNode;
 }
 
-type ClearHistoryResponse = { success: boolean; message: string; user_id: string; session_id?: string };
+type ClearHistoryResponse = {
+  success: boolean;
+  message: string;
+  user_id: string;
+  session_id: string;
+  cleared_message_ids: string[];
+  cleared_turn_ids: string[];
+  cleanup_pending: boolean;
+};
 type CreateSessionResponse = {
   success: boolean;
   user_id: string;
@@ -219,8 +227,19 @@ type CreateSessionResponse = {
 type RenameSessionResponse = { success: boolean; user_id: string; session: { session_id: string; title: string } };
 type UpdateSessionWorkspaceResponse = { success: boolean; user_id: string; session: ChatSessionListItem };
 type RecentWorkspacesResponse = { paths: string[] };
-type DeleteMessageResponse = { success: boolean; user_id: string; session_id: string; deleted_message_id: string };
-type DeleteSessionResponse = { success: boolean; user_id: string; deleted_session_id: string };
+type DeleteMessageResponse = {
+  success: boolean;
+  user_id: string;
+  session_id: string;
+  deleted_message_id: string;
+  cleanup_pending: boolean;
+};
+type DeleteSessionResponse = {
+  success: boolean;
+  user_id: string;
+  deleted_session_id: string;
+  cleanup_pending: boolean;
+};
 type TraceResponse = {
   success: boolean;
   user_id: string;
@@ -249,7 +268,7 @@ export const messagesApi = {
     userId: string = DEFAULT_USER_ID,
     sessionId: string
   ): Promise<ClearHistoryResponse> => {
-    const response = await api.post<{ success: boolean; message: string; user_id: string }>('/messages/history/clear', null, {
+    const response = await api.post<ClearHistoryResponse>('/messages/history/clear', null, {
       params: { user_id: userId, session_id: sessionId },
     });
     return unwrapGatewayPayload<ClearHistoryResponse>(response);

@@ -6,6 +6,7 @@ import {
   projectTraceEntryPresentation,
   type ChatTimelineExecutionProjectionInput,
 } from './presentation.execution';
+import { readRhythmSegmentMeta } from './rhythm';
 
 const shouldShowUserTraceStatus = (message: ChatTimelineMessage): boolean => {
   if (message.role !== 'user' || !message.traceSummary) {
@@ -52,21 +53,15 @@ export const projectChatTimelineMessage = (
 
   const isAssistantInterim = message.role === 'assistant' && message.messageKind === 'assistant_interim';
   const isAskRequest = message.messageKind === 'ask_request';
-  const rhythmPayload = message.payload?.rhythm;
-  const rhythmSegmentIndex = rhythmPayload && typeof rhythmPayload === 'object'
-    ? Number((rhythmPayload as Record<string, unknown>).segment_index ?? 0)
-    : 0;
-  const rhythmSegmentCount = rhythmPayload && typeof rhythmPayload === 'object'
-    ? Number((rhythmPayload as Record<string, unknown>).segment_count ?? 0)
-    : 0;
+  const rhythmMeta = readRhythmSegmentMeta(message.payload?.rhythm);
+  const rhythmSegmentIndex = rhythmMeta?.segmentIndex ?? 0;
+  const rhythmSegmentCount = rhythmMeta?.segmentCount ?? 0;
   const isSecondaryRhythmSegment = message.role === 'assistant'
     && message.messageKind === 'assistant_rhythm_segment'
     && rhythmSegmentIndex > 0;
   const isNonTerminalRhythmSegment = message.role === 'assistant'
     && message.messageKind === 'assistant_rhythm_segment'
-    && Number.isInteger(rhythmSegmentIndex)
-    && Number.isInteger(rhythmSegmentCount)
-    && rhythmSegmentCount > 0
+    && rhythmMeta !== null
     && rhythmSegmentIndex < rhythmSegmentCount - 1;
   const hasRecalledMemories = message.role === 'assistant'
     && (

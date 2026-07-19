@@ -19,6 +19,20 @@ _MEMORY_ARCHIVE_FILE_PATTERN = re.compile(
 )
 
 
+class MemoryClearCompletedWithRecoveryError(RuntimeError):
+    """Report operational recovery failure after all clear steps committed."""
+
+    def __init__(
+        self,
+        *,
+        counts: dict[str, int],
+        recovery_error: BaseException,
+    ) -> None:
+        super().__init__(str(recovery_error))
+        self.counts = dict(counts)
+        self.recovery_error = recovery_error
+
+
 class UnifiedMemoryLifecycleMixin:
     """Initialize and shut down enabled L0-L4 stores."""
 
@@ -160,7 +174,17 @@ class UnifiedMemoryLifecycleMixin:
                         )
                     raise clear_failure.with_traceback(clear_traceback)
                 if resume_failure is not None:
-                    raise resume_failure
+                    raise MemoryClearCompletedWithRecoveryError(
+                        counts={
+                            "l0": l0_count,
+                            "l1": l1_count,
+                            "l2": l2_count,
+                            "l3": l3_count,
+                            "l4": l4_count,
+                            "chat_context": context_count,
+                        },
+                        recovery_error=resume_failure,
+                    ) from resume_failure
         return {
             "l0": l0_count,
             "l1": l1_count,

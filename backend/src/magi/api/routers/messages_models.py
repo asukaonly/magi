@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from ...events.recall_feedback import RecallFeedbackKind
 from ...events.first_context import normalize_first_context
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
+from magi.core.chat_assets.paths import SAFE_CHAT_ASSET_COMPONENT_PATTERN
 
 
 class RecallFeedbackRequestModel(BaseModel):
@@ -61,7 +62,13 @@ class UserMessageRequest(BaseModel):
     workspace_path: Optional[str] = Field(
         None, description="Effective workspace path for this turn"
     )
-    client_turn_id: Optional[str] = Field(None, description="Optional client-generated turn id")
+    client_turn_id: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        pattern=SAFE_CHAT_ASSET_COMPONENT_PATTERN,
+        description="Optional client-generated turn id",
+    )
     recall_feedback: Optional[RecallFeedbackRequestModel] = Field(
         None,
         description="Optional one-turn recall correction request",
@@ -98,6 +105,37 @@ class MessageResponse(BaseModel):
     success: bool
     message: str
     data: Optional[Dict[str, Any]] = None
+
+
+class ClearHistoryResponse(BaseModel):
+    """Confirmed immutable transcript snapshot removed by a history clear."""
+
+    success: bool
+    message: str
+    user_id: str
+    session_id: str
+    cleared_message_ids: List[str] = Field(default_factory=list)
+    cleared_turn_ids: List[str] = Field(default_factory=list)
+    cleanup_pending: bool = False
+
+
+class DeleteMessageResponse(BaseModel):
+    """Confirmed message removal and its remaining cleanup state."""
+
+    success: bool
+    user_id: str
+    session_id: str
+    deleted_message_id: str
+    cleanup_pending: bool = False
+
+
+class DeleteSessionResponse(BaseModel):
+    """Confirmed session removal and its remaining cleanup state."""
+
+    success: bool
+    user_id: str
+    deleted_session_id: str
+    cleanup_pending: bool = False
 
 
 class RenameSessionRequest(BaseModel):
@@ -153,7 +191,10 @@ class MessageLabelRequest(BaseModel):
 
 __all__ = [
     "CancelSessionRunRequest",
+    "ClearHistoryResponse",
     "DetachSessionRunRequest",
+    "DeleteMessageResponse",
+    "DeleteSessionResponse",
     "FirstContextStoryRequestModel",
     "MessageLabelRequest",
     "MessageResponse",

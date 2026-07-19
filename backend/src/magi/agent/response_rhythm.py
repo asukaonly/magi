@@ -1,4 +1,4 @@
-"""Conversation rhythm segmentation for chat responses."""
+"""Conversation rhythm segmentation for assistant responses."""
 
 from __future__ import annotations
 

@@ -4,8 +4,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from magi.tools.code_agent.contracts import DiffSnapshot
 from magi.tools.code_agent.diff_collector import collect_diff
 
@@ -43,12 +41,15 @@ def test_modified_file_appears_in_diff(tmp_path: Path) -> None:
     assert snap.stats.deletions >= 1
 
 
-def test_new_file_appears_via_status_porcelain(tmp_path: Path) -> None:
+def test_new_file_appears_in_diff_and_status(tmp_path: Path) -> None:
     repo = _make_repo(tmp_path / "repo")
     (repo / "b.txt").write_text("new\n")
     snap = collect_diff(repo)
     assert "b.txt" in snap.status_porcelain
     assert "?? b.txt" in snap.status_porcelain
+    assert snap.files_changed == ["b.txt"]
+    assert "new file mode" in snap.unified_diff
+    assert "+new" in snap.unified_diff
 
 
 def test_collect_diff_non_repo_returns_empty(tmp_path: Path) -> None:

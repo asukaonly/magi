@@ -77,11 +77,17 @@ async def test_job_done_emits_one_report(store):
         ItemOutcome(item_id=i.item_id, status=BatchItemStatus.DONE) for i in leased
     ])
     intent = await bc.batch_job_intent(_FakeTask(_goal(job.job_id)), job.job_id)
+    repeated = await bc.batch_job_intent(_FakeTask(_goal(job.job_id)), job.job_id)
     assert intent is not None
+    assert repeated is not None
     assert intent.user_id == "alice"
     assert intent.title == "Movies"
     assert "3/3 done" in intent.facts
     assert intent.payload["batch_job_id"] == job.job_id
+    assert intent.correlation_id == repeated.correlation_id
+    assert intent.correlation_id.startswith(f"{job.job_id}:terminal:")
+    assert intent.completed_at_ms == job.updated_at_ms
+    assert intent == repeated
 
 
 @pytest.mark.asyncio

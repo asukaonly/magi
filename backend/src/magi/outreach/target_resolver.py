@@ -34,13 +34,17 @@ class TargetResolver:
                 desktop_session_id = session_id
         except Exception:
             logger.warning("outreach: session validity check failed", exc_info=True)
+            raise
+
+        if desktop_session_id is None:
+            return ResolvedTargets()
 
         external: ChannelTarget | None = None
         try:
             mapping = await self._session_mapper.lookup_by_session(session_id)
         except Exception:
-            mapping = None
             logger.warning("outreach: session mapping lookup failed", exc_info=True)
+            raise
         if mapping is not None and getattr(mapping, "channel_type", None) and mapping.channel_type != "chat_sse":
             external = ChannelTarget(
                 channel_type=mapping.channel_type,

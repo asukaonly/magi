@@ -7,6 +7,13 @@ import {
   type ChatTimelineMessage,
   type ChatTimelineMessageLabel,
 } from '@/domain/chat/state';
+import { readCodeAgentDelegations } from '@/domain/chat/delegations';
+import type { PendingResponseTurnIdentity } from '@/domain/chat/turn-completion';
+import {
+  retireRealtimeChatDelegation,
+  retireRealtimeChatMessage,
+} from '@/realtime/chat-projection-retirement';
+import { useDelegationsStore } from '@/stores/delegations-store';
 
 const USER_ID = DEFAULT_USER_ID;
 
@@ -20,6 +27,9 @@ type UseChatMessageMutationsOptions = {
   activeLabelMessageId: string | null;
   applyMessageLabel: (sessionId: string, messageId: string, label: ChatTimelineMessageLabel) => void;
   removeMessage: (sessionId: string, messageId: string) => void;
+  clearRetryableTurn: (sessionId: string, turnId: string) => void;
+  clearPendingResponseTurn: (expected?: Partial<PendingResponseTurnIdentity>) => void;
+  clearComposerReferenceToMessage: (messageId: string) => void;
   closeLabelPopover: () => void;
   closeMessageContextMenu: () => void;
   normalizeCopyText: (content: string) => string;
@@ -31,6 +41,9 @@ export function useChatMessageMutations({
   activeLabelMessageId,
   applyMessageLabel,
   removeMessage,
+  clearRetryableTurn,
+  clearPendingResponseTurn,
+  clearComposerReferenceToMessage,
   closeLabelPopover,
   closeMessageContextMenu,
   normalizeCopyText,
@@ -71,16 +84,70 @@ export function useChatMessageMutations({
     }
 
     try {
-      await messagesApi.deleteMessage(USER_ID, currentSessionId, messageId);
+      const result = await messagesApi.deleteMessage(
+        USER_ID,
+        currentSessionId,
+        messageId,
+      );
+      if (
+        !result.success
+        || String(result.session_id || '').trim() !== currentSessionId
+        || String(result.deleted_message_id || '').trim() !== messageId
+      ) {
+        throw new Error('Message delete request was not completed');
+      }
+      retireRealtimeChatMessage(currentSessionId, message);
+      for (const { delegationId } of readCodeAgentDelegations(message.payload)) {
+        retireRealtimeChatDelegation(currentSessionId, delegationId);
+        useDelegationsStore.getState().remove(currentSessionId, delegationId);
+      }
+      if (message.turnId) {
+        const delegationIdsForTurn = Object.values(
+          useDelegationsStore.getState().delegationsBySession[currentSessionId]
+          || {},
+        )
+          .filter((card) => card.turn_id === message.turnId)
+          .map((card) => card.delegation_id);
+        for (const turnDelegationId of delegationIdsForTurn) {
+          retireRealtimeChatDelegation(
+            currentSessionId,
+            turnDelegationId,
+          );
+          useDelegationsStore
+            .getState()
+            .remove(currentSessionId, turnDelegationId);
+        }
+      }
       removeMessage(currentSessionId, messageId);
+      clearComposerReferenceToMessage(messageId);
+      if (message.turnId) {
+        clearRetryableTurn(currentSessionId, message.turnId);
+        clearPendingResponseTurn({
+          sessionId: currentSessionId,
+          turnId: message.turnId,
+        });
+      }
       closeMessageContextMenu();
       if (activeLabelMessageId === messageId) {
         closeLabelPopover();
       }
+      if (result.cleanup_pending) {
+        toast.warning(translate('chat.context.deleteCleanupPending'));
+      }
     } catch {
       toast.error(translate('chat.context.deleteFailed'));
     }
-  }, [activeLabelMessageId, closeLabelPopover, closeMessageContextMenu, currentSessionId, removeMessage, translate]);
+  }, [
+    activeLabelMessageId,
+    clearPendingResponseTurn,
+    clearComposerReferenceToMessage,
+    clearRetryableTurn,
+    closeLabelPopover,
+    closeMessageContextMenu,
+    currentSessionId,
+    removeMessage,
+    translate,
+  ]);
 
   const handleCopyMessage = useCallback(async (
     message: ChatTimelineMessage,
