@@ -577,7 +577,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(
       screen.queryByTestId("empty-state-connect-calendar"),
     ).not.toBeInTheDocument();
-    expect(screen.queryByText("firstContext.kicker")).not.toBeInTheDocument();
+    expect(screen.getByText("firstContext.activity.kicker")).toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: "actions.skipContext" }),
     );
@@ -621,8 +621,9 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     const questionRoute = screen.getByTestId("first-context-route-question");
     const activityRoute = screen.getByTestId("first-context-route-activity");
-    expect(questionRoute).toHaveClass("min-h-36");
-    expect(activityRoute).toHaveClass("min-h-36");
+    expect(questionRoute).toHaveClass("min-h-[170px]");
+    expect(activityRoute).toHaveClass("min-h-[170px]");
+    expect(screen.getByText("firstContext.kicker")).toBeInTheDocument();
     expect(
       screen.queryByTestId("empty-state-connect-chrome-history"),
     ).not.toBeInTheDocument();
@@ -829,12 +830,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
     ).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "firstContext.routes.back" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "actions.previous" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "actions.skipContext" }),
     ).toBeDisabled();
     expect(screen.getByTestId("first-context-story-submit")).toBeEnabled();
     expect(

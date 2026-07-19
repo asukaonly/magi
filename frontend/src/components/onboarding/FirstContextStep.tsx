@@ -1,13 +1,9 @@
 import { useEffect, useRef } from "react";
 import {
-  Activity,
   AlertCircle,
-  ArrowLeft,
   CheckCircle2,
-  Loader2,
-  MessageCircleMore,
+  ChevronRight,
   RefreshCw,
-  Send,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -21,10 +17,7 @@ import { Button } from "@/components/ui/button";
 import type { PluginInstallDoneInfo } from "@/stores/pluginInstallPanel";
 import { localizedPluginText } from "@/utils/plugin-display-groups";
 import { getMemoryModelStatus } from "./memoryModelStatus";
-import {
-  ONBOARDING_PRIMARY_ACTION_CLASS,
-  ONBOARDING_SECONDARY_ACTION_CLASS,
-} from "./onboardingStyles";
+import { ONBOARDING_SECONDARY_ACTION_CLASS } from "./onboardingStyles";
 
 export const FIRST_CONTEXT_QUESTION_IDS = [
   "recent_feeling",
@@ -60,7 +53,6 @@ interface FirstContextStepProps {
   onRouteChange: (route: FirstContextRoute) => void;
   onQuestionChange: () => void;
   onStoryDraftChange: (value: string) => void;
-  onStorySubmit: () => void;
   onStoryContinueWithoutConfirmation: () => void;
   installableItems?: InstallableItem[];
   installableCatalogMode?: InstallableCatalogMode | null;
@@ -84,7 +76,6 @@ export function FirstContextStep({
   onRouteChange,
   onQuestionChange,
   onStoryDraftChange,
-  onStorySubmit,
   onStoryContinueWithoutConfirmation,
   installableItems,
   installableCatalogMode,
@@ -130,81 +121,91 @@ export function FirstContextStep({
     });
   }, [route]);
 
-  const routeBackButton = (
-    <Button
-      type="button"
-      variant="ghost"
-      className={`${ONBOARDING_SECONDARY_ACTION_CLASS} min-h-11 self-start px-2`}
-      onClick={() => onRouteChange("choose")}
-      disabled={storySubmitting || storyLocked}
-    >
-      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-      {t("firstContext.routes.back")}
-    </Button>
-  );
-
   const renderRouteChooser = () => (
-    <div className="space-y-5" data-testid="first-context-route-chooser">
-      <div className="space-y-2">
+    <div className="space-y-7" data-testid="first-context-route-chooser">
+      <div className="max-w-[840px]">
+        <p className="mb-3 text-xs font-semibold tracking-[0.08em] text-primary">
+          {t("firstContext.kicker")}
+        </p>
         <h3
           ref={routeHeadingRef}
           tabIndex={-1}
-          className="text-2xl font-semibold leading-8 text-foreground outline-none"
+          className="text-[clamp(1.75rem,2.6vw,2.15rem)] font-semibold leading-[1.25] tracking-[-0.035em] text-foreground outline-none"
         >
           {t("firstContext.title")}
         </h3>
-        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+        <p className="mt-3 max-w-[810px] text-base leading-7 text-muted-foreground">
           {t("firstContext.body")}
         </p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3.5 md:grid-cols-2">
         <button
           type="button"
           data-testid="first-context-route-question"
-          className="group min-h-36 rounded-2xl border border-border/80 bg-card px-5 py-5 text-left transition-[border-color,background-color,transform] duration-200 motion-safe:hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-safe:active:translate-y-0 motion-reduce:transform-none"
+          className="group grid min-h-[170px] grid-cols-[48px_minmax(0,1fr)_24px] items-start gap-3.5 rounded-[15px] border border-border/80 bg-card/65 px-[18px] py-[21px] text-left transition-[border-color,background-color,box-shadow,transform] duration-200 motion-safe:hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card hover:shadow-[0_16px_38px_-30px_hsl(var(--foreground)/0.56)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2 motion-safe:active:translate-y-0 motion-reduce:transform-none"
           onClick={() => onRouteChange("question")}
         >
-          <span className="flex items-start gap-4">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
-              <MessageCircleMore className="h-5 w-5" aria-hidden="true" />
+          <span
+            className="grid h-[46px] w-[46px] place-items-center rounded-[15px] bg-background text-xl font-bold text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.17)]"
+            aria-hidden="true"
+          >
+            {t("firstContext.routes.question.symbol")}
+          </span>
+          <span>
+            <span className="block text-base font-semibold leading-6 tracking-[-0.015em] text-foreground">
+              {t("firstContext.routes.question.title")}
             </span>
-            <span className="space-y-2">
-              <span className="block text-base font-semibold text-foreground">
-                {t("firstContext.routes.question.title")}
+            <span className="mt-1.5 block text-[13px] leading-[1.65] text-muted-foreground">
+              {t("firstContext.routes.question.body")}
+            </span>
+            <span className="mt-3 flex flex-wrap gap-1.5">
+              <span className="rounded-full bg-background px-2 py-1 text-[11px] leading-none text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.75)]">
+                {t("firstContext.routes.optional")}
               </span>
-              <span className="block text-sm leading-6 text-muted-foreground">
-                {t("firstContext.routes.question.body")}
-              </span>
-              <span className="block text-xs font-medium text-primary/80">
+              <span className="rounded-full bg-background px-2 py-1 text-[11px] leading-none text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.75)]">
                 {t("firstContext.routes.question.meta")}
               </span>
             </span>
           </span>
+          <ChevronRight
+            className="mt-0.5 h-5 w-5 text-primary transition-transform duration-200 group-hover:translate-x-0.5"
+            aria-hidden="true"
+          />
         </button>
 
         <button
           type="button"
           data-testid="first-context-route-activity"
-          className="group min-h-36 rounded-2xl border border-border/80 bg-card px-5 py-5 text-left transition-[border-color,background-color,transform] duration-200 motion-safe:hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-safe:active:translate-y-0 motion-reduce:transform-none"
+          className="group grid min-h-[170px] grid-cols-[48px_minmax(0,1fr)_24px] items-start gap-3.5 rounded-[15px] border border-border/80 bg-card/65 px-[18px] py-[21px] text-left transition-[border-color,background-color,box-shadow,transform] duration-200 motion-safe:hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card hover:shadow-[0_16px_38px_-30px_hsl(var(--foreground)/0.56)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2 motion-safe:active:translate-y-0 motion-reduce:transform-none"
           onClick={() => onRouteChange("activity")}
         >
-          <span className="flex items-start gap-4">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
-              <Activity className="h-5 w-5" aria-hidden="true" />
+          <span
+            className="grid h-[46px] w-[46px] place-items-center rounded-[15px] bg-background text-xl font-bold text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.17)]"
+            aria-hidden="true"
+          >
+            {t("firstContext.routes.activity.symbol")}
+          </span>
+          <span>
+            <span className="block text-base font-semibold leading-6 tracking-[-0.015em] text-foreground">
+              {t("firstContext.routes.activity.title")}
             </span>
-            <span className="space-y-2">
-              <span className="block text-base font-semibold text-foreground">
-                {t("firstContext.routes.activity.title")}
+            <span className="mt-1.5 block text-[13px] leading-[1.65] text-muted-foreground">
+              {t("firstContext.routes.activity.body")}
+            </span>
+            <span className="mt-3 flex flex-wrap gap-1.5">
+              <span className="rounded-full bg-background px-2 py-1 text-[11px] leading-none text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.75)]">
+                {t("firstContext.routes.optional")}
               </span>
-              <span className="block text-sm leading-6 text-muted-foreground">
-                {t("firstContext.routes.activity.body")}
-              </span>
-              <span className="block text-xs font-medium text-primary/80">
+              <span className="rounded-full bg-background px-2 py-1 text-[11px] leading-none text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.75)]">
                 {t("firstContext.routes.activity.meta")}
               </span>
             </span>
           </span>
+          <ChevronRight
+            className="mt-0.5 h-5 w-5 text-primary transition-transform duration-200 group-hover:translate-x-0.5"
+            aria-hidden="true"
+          />
         </button>
       </div>
 
@@ -222,141 +223,140 @@ export function FirstContextStep({
       .filter(Boolean)
       .join(" ");
     return (
-      <div className="space-y-4" data-testid="first-context-question-route">
-        {routeBackButton}
-        <div className="space-y-2">
-          <h3
-            ref={routeHeadingRef}
-            tabIndex={-1}
-            className="text-2xl font-semibold leading-8 text-foreground outline-none"
-          >
-            {t("firstContext.story.title")}
-          </h3>
+      <div className="space-y-5" data-testid="first-context-question-route">
+        <div className="flex items-start justify-between gap-5">
+          <div className="max-w-[840px]">
+            <p className="mb-3 text-xs font-semibold tracking-[0.08em] text-primary">
+              {t("firstContext.story.kicker")}
+            </p>
+            <h3
+              ref={routeHeadingRef}
+              tabIndex={-1}
+              className="text-[clamp(1.75rem,2.6vw,2.15rem)] font-semibold leading-[1.25] tracking-[-0.035em] text-foreground outline-none"
+            >
+              {t("firstContext.story.title")}
+            </h3>
+          </div>
+          <span className="hidden shrink-0 rounded-full bg-accent/75 px-3 py-2 text-xs font-semibold text-primary sm:inline-flex">
+            {t("firstContext.story.badge")}
+          </span>
+        </div>
+        <div className="-mt-2">
           <p
             id={descriptionId}
-            className="max-w-2xl text-sm leading-6 text-muted-foreground"
+            className="max-w-[810px] text-base leading-7 text-muted-foreground"
           >
             {t("firstContext.story.body")}
           </p>
         </div>
 
-        <div className="rounded-2xl border border-primary/20 bg-primary/[0.035] px-5 py-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1.5">
-              <span className="text-xs font-medium text-primary/80">
-                {t("firstContext.story.questionLabel")}
-              </span>
+        <div className="overflow-hidden rounded-2xl border border-border/80 bg-card/70">
+          <div className="px-5 py-5 sm:px-6 sm:py-6">
+            <div className="flex items-baseline justify-between gap-4">
               <p
                 id={questionDescriptionId}
-                className="max-w-xl text-lg font-medium leading-7 text-foreground"
+                className="text-sm font-semibold leading-6 text-foreground"
                 aria-live="polite"
                 data-testid={`first-context-question-${questionId}`}
               >
                 {t(`firstContext.story.questions.${questionId}`)}
               </p>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {t("firstContext.story.shortHint")}
+              </span>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="min-h-11 shrink-0"
-              onClick={onQuestionChange}
-              disabled={storySubmitting || storyLocked}
-            >
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              {t("firstContext.story.changeQuestion")}
-            </Button>
-          </div>
 
-          <div className="mt-5 space-y-2">
-            <label
-              htmlFor="first-context-story"
-              className="text-sm font-medium text-foreground"
-            >
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {t("firstContext.story.inputHint")}
+            </p>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 rounded-full px-3 text-xs font-medium text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.9)]"
+                onClick={onQuestionChange}
+                disabled={storySubmitting || storyLocked}
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                {t("firstContext.story.changeQuestion")}
+              </Button>
+            </div>
+
+            <label htmlFor="first-context-story" className="sr-only">
               {t("firstContext.story.inputLabel")}
             </label>
             <textarea
               ref={storyTextareaRef}
               id="first-context-story"
               data-testid="first-context-story-input"
-              rows={5}
+              rows={7}
               value={storyDraft}
               onChange={(event) => onStoryDraftChange(event.target.value)}
               placeholder={t("firstContext.story.placeholder")}
               disabled={storySubmitting || storyLocked}
               aria-invalid={Boolean(storyError)}
               aria-describedby={describedBy || undefined}
-              className="min-h-32 w-full resize-y rounded-xl border border-input bg-background px-4 py-3 text-sm leading-6 text-foreground outline-none transition-colors placeholder:text-muted-foreground/65 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-4 min-h-[205px] w-full resize-y rounded-xl border border-input bg-background px-4 py-3.5 text-sm leading-6 text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/65 focus-visible:border-primary/60 focus-visible:ring-4 focus-visible:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
             />
             {storyError ? (
               <p
                 id="first-context-story-error"
                 role="alert"
-                className="flex items-start gap-2 text-sm leading-5 text-destructive"
+                className="mt-2 flex items-start gap-2 text-sm leading-5 text-destructive"
               >
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                 <span>{storyError}</span>
               </p>
             ) : null}
           </div>
-
-          <div className="mt-4 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs leading-5 text-muted-foreground">
-              {t("firstContext.story.privacyNote")}
-            </p>
-            <div className="flex shrink-0 flex-col-reverse gap-2 sm:flex-row">
-              {storyLocked && !storySubmitted && storyError ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="lg"
-                  data-testid="first-context-story-continue-without-confirmation"
-                  className={`${ONBOARDING_SECONDARY_ACTION_CLASS} min-h-11 shrink-0`}
-                  onClick={onStoryContinueWithoutConfirmation}
-                  disabled={storySubmitting}
-                >
-                  {t("firstContext.story.continueWithoutConfirmation")}
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                size="lg"
-                data-testid="first-context-story-submit"
-                className={`${ONBOARDING_PRIMARY_ACTION_CLASS} min-h-11 shrink-0`}
-                onClick={onStorySubmit}
-                disabled={storySubmitting}
-              >
-                {storySubmitting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                ) : (
-                  <Send className="h-4 w-4" aria-hidden="true" />
-                )}
-                {storySubmitting
-                  ? t("firstContext.story.submitting")
-                  : storySubmitted
-                    ? t("firstContext.story.retryEntering")
-                    : t("firstContext.story.submit")}
-              </Button>
-            </div>
-          </div>
         </div>
+
+        <div className="rounded-xl bg-accent/30 px-4 py-3 text-xs leading-5 text-muted-foreground">
+          <p>{t("firstContext.story.contextNote")}</p>
+          <p className="mt-1 opacity-80">{t("firstContext.story.privacyNote")}</p>
+        </div>
+
+        {storyLocked && !storySubmitted && storyError ? (
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              size="lg"
+              data-testid="first-context-story-continue-without-confirmation"
+              className={`${ONBOARDING_SECONDARY_ACTION_CLASS} min-h-11 shrink-0`}
+              onClick={onStoryContinueWithoutConfirmation}
+              disabled={storySubmitting}
+            >
+              {t("firstContext.story.continueWithoutConfirmation")}
+            </Button>
+          </div>
+        ) : null}
       </div>
     );
   };
 
   const renderActivityRoute = () => (
-    <div className="space-y-4" data-testid="first-context-activity-route">
-      {routeBackButton}
-      <div className="space-y-2">
-        <h3
-          ref={routeHeadingRef}
-          tabIndex={-1}
-          className="text-2xl font-semibold leading-8 text-foreground outline-none"
-        >
-          {t("firstContext.activity.title")}
-        </h3>
-        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-          {t("firstContext.activity.body")}
-        </p>
+    <div className="space-y-5" data-testid="first-context-activity-route">
+      <div className="flex items-start justify-between gap-5">
+        <div className="max-w-[840px]">
+          <p className="mb-3 text-xs font-semibold tracking-[0.08em] text-primary">
+            {t("firstContext.activity.kicker")}
+          </p>
+          <h3
+            ref={routeHeadingRef}
+            tabIndex={-1}
+            className="text-[clamp(1.75rem,2.6vw,2.15rem)] font-semibold leading-[1.25] tracking-[-0.035em] text-foreground outline-none"
+          >
+            {t("firstContext.activity.title")}
+          </h3>
+          <p className="mt-3 max-w-[810px] text-base leading-7 text-muted-foreground">
+            {t("firstContext.activity.body")}
+          </p>
+        </div>
+        <span className="hidden shrink-0 rounded-full bg-accent/75 px-3 py-2 text-xs font-semibold text-primary sm:inline-flex">
+          {t("firstContext.activity.badge")}
+        </span>
       </div>
 
       {memoryModelMissing ? (
@@ -434,7 +434,7 @@ export function FirstContextStep({
 
   return (
     <div className="h-full min-h-0 overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-8 pb-7 pt-0 lg:pb-8 lg:pt-0">
+      <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-5 px-4 pb-8 pt-0 sm:px-5 lg:px-6">
         {route === "choose"
           ? renderRouteChooser()
           : route === "question"

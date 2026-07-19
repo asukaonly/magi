@@ -246,17 +246,20 @@
     "waiting": "Typing…"
   },
   "firstContext": {
-    "kicker": "Optional context source",
+    "kicker": "Before your first conversation · Entirely optional",
     "title": "How would you like Magi to start getting to know you?",
     "body": "Choose whichever feels most natural. This step is optional, and you can add more later.",
     "routes": {
       "back": "Back to choices",
+      "optional": "Optional",
       "question": {
+        "symbol": "You",
         "title": "Answer an everyday question",
         "body": "No full introduction needed—take half a minute to share something from recent life.",
         "meta": "About 30 seconds"
       },
       "activity": {
+        "symbol": "Day",
         "title": "Connect everyday activity",
         "body": "Start with traces you naturally leave in browsing, music, photos, and more.",
         "meta": "Only connect sources you choose"
@@ -264,8 +267,10 @@
       "note": "Neither option comes first, and you can also skip this step."
     },
     "story": {
-      "title": "Start with an everyday question",
-      "body": "It does not need to be complete. Share whatever comes to mind—even one short sentence is enough.",
+      "kicker": "Give Magi one small clue",
+      "title": "Share something recent that might otherwise be easy to forget",
+      "body": "It does not need to be complete or read like a journal entry. A wait, a song on repeat, or a small frustrating or happy moment is enough.",
+      "badge": "Optional · About 30 seconds",
       "questionLabel": "A question for you",
       "questions": {
         "recent_feeling": "What small thing recently changed your mood, even a little?",
@@ -274,8 +279,11 @@
         "reluctant_routine": "What have you kept doing lately, even though you did not really feel like doing it?"
       },
       "changeQuestion": "Try another question",
+      "shortHint": "One sentence is enough",
+      "inputHint": "Not sure where to start? Try another question, or write down the first small moment that came to mind.",
       "inputLabel": "Share something from recent life",
       "placeholder": "For example: I finally found a drink I had wanted on the way home, and it lifted my mood.",
+      "contextNote": "This only helps Magi understand the reasons and feelings behind daily life. You do not need to turn yourself into a complete introduction.",
       "privacyNote": "This becomes your first real conversation with Magi. The chat record is stored on this device and can be deleted at any time.",
       "submit": "Tell Magi",
       "submitting": "Opening your conversation…",
@@ -291,8 +299,10 @@
       }
     },
     "activity": {
+      "kicker": "Everyday sources",
       "title": "Start with everyday activity",
-      "body": "Only connect sources you choose. Magi will first read a small amount of recent history."
+      "body": "Only connect sources you choose. Magi will first read a small amount of recent history.",
+      "badge": "Entirely optional"
     },
     "scopeHint": "This only prepares a small amount of context for the first chat; full history can be backfilled after setup.",
     "note": "Magi only reads sources you enable. You can turn each plugin off or adjust it from Settings.",

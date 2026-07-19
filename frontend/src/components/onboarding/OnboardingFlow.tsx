@@ -1332,6 +1332,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }
 
     if (current === FIRST_CONTEXT_STEP) {
+      if (firstContextProgress.route === "question") {
+        await handleFirstContextStorySubmit();
+        return;
+      }
       finishFirstContextStep();
       return;
     }
@@ -1347,6 +1351,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   };
 
   const handlePrev = () => {
+    if (
+      current === FIRST_CONTEXT_STEP &&
+      firstContextProgress.route !== "choose"
+    ) {
+      handleFirstContextRouteChange("choose");
+      return;
+    }
     const prev = Math.max(0, current - 1);
     saveProgress(form.getFieldsValue(true), seedSlug, customPersonas, prev);
     setCurrent(prev);
@@ -1356,12 +1367,42 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   // active persona in the rail is the selection; Next confirms it). The
   // completion screen uses its own Enter App CTA, so the footer is hidden there.
   const hideFooter = isLastStep;
+  const isFirstContextQuestionRoute =
+    current === FIRST_CONTEXT_STEP &&
+    firstContextProgress.route === "question";
+  const previousLabel =
+    current === FIRST_CONTEXT_STEP && firstContextProgress.route !== "choose"
+      ? t("firstContext.routes.back")
+      : t("actions.previous");
   const nextLabel =
-    current === FIRST_CONTEXT_STEP
+    isFirstContextQuestionRoute
+      ? firstContextStorySubmitting
+        ? t("firstContext.story.submitting")
+        : firstContextProgress.submitted ||
+            firstContextProgress.sendUncertain
+          ? t("firstContext.story.retryEntering")
+          : t("firstContext.story.submit")
+      : current === FIRST_CONTEXT_STEP
       ? firstContextPluginIds.length > 0
         ? t("actions.finishContext")
         : t("actions.skipContext")
       : t("actions.next");
+  const previousDisabled =
+    saving ||
+    firstContextStorySubmitting ||
+    (current === FIRST_CONTEXT_STEP &&
+      (firstContextProgress.submitted ||
+        firstContextProgress.sendUncertain)) ||
+    llmConnectionConfigPending ||
+    (current === PERSONA_STEP &&
+      (personaGenerating || personaConfirming));
+  const nextDisabled =
+    saving ||
+    firstContextStorySubmitting ||
+    llmConnectionConfigPending ||
+    llmConnectionTestState.loading ||
+    (current === LLM_SETUP_STEP && !llmValid) ||
+    (current === PERSONA_STEP && (personaGenerating || personaConfirming));
 
   const renderStepContent = () => {
     if (current === LLM_SETUP_STEP) {
@@ -1436,7 +1477,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           onRouteChange={handleFirstContextRouteChange}
           onQuestionChange={handleFirstContextQuestionChange}
           onStoryDraftChange={handleFirstContextStoryDraftChange}
-          onStorySubmit={() => void handleFirstContextStorySubmit()}
           onStoryContinueWithoutConfirmation={() =>
             void handleFirstContextContinueWithoutConfirmation()
           }
@@ -1524,36 +1564,21 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   size="lg"
                   className={ONBOARDING_SECONDARY_ACTION_CLASS}
                   onClick={handlePrev}
-                  disabled={
-                    saving ||
-                    firstContextStorySubmitting ||
-                    (current === FIRST_CONTEXT_STEP &&
-                      (firstContextProgress.submitted ||
-                        firstContextProgress.sendUncertain)) ||
-                    llmConnectionConfigPending ||
-                    (current === PERSONA_STEP &&
-                      (personaGenerating || personaConfirming))
-                  }
+                  disabled={previousDisabled}
                 >
                   <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                  {t("actions.previous")}
+                  {previousLabel}
                 </Button>
                 <Button
                   size="lg"
+                  data-testid={
+                    isFirstContextQuestionRoute
+                      ? "first-context-story-submit"
+                      : undefined
+                  }
                   className={ONBOARDING_PRIMARY_ACTION_CLASS}
                   onClick={handleNext}
-                  disabled={
-                    saving ||
-                    firstContextStorySubmitting ||
-                    (current === FIRST_CONTEXT_STEP &&
-                      (firstContextProgress.submitted ||
-                        firstContextProgress.sendUncertain)) ||
-                    llmConnectionConfigPending ||
-                    llmConnectionTestState.loading ||
-                    (current === LLM_SETUP_STEP && !llmValid) ||
-                    (current === PERSONA_STEP &&
-                      (personaGenerating || personaConfirming))
-                  }
+                  disabled={nextDisabled}
                 >
                   {current === LLM_SETUP_STEP && llmConnectionTestState.loading
                     ? t("llm.actions.testingConnection")
