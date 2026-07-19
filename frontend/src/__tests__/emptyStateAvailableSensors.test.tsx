@@ -6,6 +6,8 @@ import { EmptyStateAvailableSensors } from "@/components/empty-state/EmptyStateA
 import { useChatShellStore } from "@/stores/chat-shell";
 import { usePluginInstallPanelStore } from "@/stores/pluginInstallPanel";
 
+const SVG_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=";
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
@@ -25,7 +27,7 @@ function item(overrides: Partial<InstallableItem> = {}): InstallableItem {
     name_i18n: { "zh-CN": "Chrome 浏览器历史" },
     description: "Reads Chrome history",
     description_i18n: {},
-    icon: "brand:googlechrome",
+    icon: SVG_ICON,
     category: "browser_history",
     installed: false,
     rationale: { zh: "浏览器建议", en: "Browser suggestion" },
@@ -92,7 +94,7 @@ describe("EmptyStateAvailableSensors", () => {
 
     expect(screen.getByText("Chrome 浏览器历史")).toBeInTheDocument();
     expect(screen.getByText("最近浏览内容")).toBeInTheDocument();
-    expect(screen.getByTestId("plugin-icon-googlechrome")).toBeInTheDocument();
+    expect(screen.getByTestId("plugin-icon-asset")).toHaveAttribute("src", SVG_ICON);
     const buttons = screen.getAllByTestId(/empty-state-connect-/);
     expect(buttons.map((button) => button.dataset.testid)).toEqual([
       "empty-state-connect-chrome-history",
@@ -223,7 +225,7 @@ describe("EmptyStateAvailableSensors", () => {
       open: true,
       pluginId: "chrome-history",
       pluginName: "Chrome 浏览器历史",
-      pluginIcon: "brand:googlechrome",
+      pluginIcon: SVG_ICON,
       installMode: true,
     });
   });

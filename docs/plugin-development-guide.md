@@ -94,6 +94,8 @@ Minimal example:
 
 ```text
 my-plugin/
+├── assets/
+│   └── icon.svg
 ├── plugin.toml
 └── plugin.py
 ```
@@ -109,6 +111,7 @@ name = "Example Plugin"
 version = "0.1.0"
 description = "Sample Magi plugin package"
 author = "Your Name"
+icon = "lucide:package"
 entry_module = "plugin"
 entry_class = "ExamplePlugin"
 official = false
@@ -116,6 +119,23 @@ contribution_types = ["tool", "sensor"]
 ```
 
 You only need to declare the contribution types you actually expose.
+
+### Plugin icons
+
+Choose one of two icon forms:
+
+- use `icon = "lucide:<icon-name>"` for a generic symbol bundled by the host
+- use `icon = "asset:assets/icon.svg"` for a brand or product icon shipped with
+  the plugin
+
+Brand icons belong in the plugin package. This lets marketplace listings,
+installation prompts, installed-plugin pages, and sensor rows use the same
+image without adding brand-specific code to the host.
+
+Packaged icons may be SVG, PNG, or WebP and must be no larger than 64 KiB. SVG
+icons must be self-contained: scripts, embedded remote content, event handlers,
+external links, and styles that load URLs are rejected during registry
+generation and again when the host discovers the installed plugin.
 
 ## 2. Implement the plugin class
 

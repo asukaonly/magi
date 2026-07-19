@@ -63,6 +63,7 @@ async def test_default_uses_cache(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.asyncio
 async def test_registry_response_preserves_plugin_icon(monkeypatch: pytest.MonkeyPatch) -> None:
     registry = _FakeRegistry()
+    icon_data = "data:image/svg+xml;base64,PHN2Zy8+"
     entry = SimpleNamespace(
         kind="plugin",
         plugin_id="github-activity",
@@ -72,7 +73,8 @@ async def test_registry_response_preserves_plugin_icon(monkeypatch: pytest.Monke
         description="Local-only GitHub repository activity sync.",
         description_i18n={"zh-CN": "本机 GitHub 仓库动态同步。"},
         author="Magi Team",
-        icon="brand:github",
+        icon="asset:assets/icon.svg",
+        icon_data=icon_data,
         official=True,
         data_locality="local_only",
         contribution_types=["sensor"],
@@ -95,7 +97,7 @@ async def test_registry_response_preserves_plugin_icon(monkeypatch: pytest.Monke
 
     response = await plugins_registry_routes.list_registry_plugins(include=None, refresh=False)
 
-    assert response.plugins[0].icon == "brand:github"
+    assert response.plugins[0].icon == icon_data
 
 
 @pytest.mark.asyncio

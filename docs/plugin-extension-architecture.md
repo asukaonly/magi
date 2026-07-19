@@ -717,12 +717,21 @@ This keeps summary generation source-aware without splitting L3 into per-plugin 
 
 ## Plugin Display Metadata
 
-Plugin manifests may declare a stable `icon` id for host UI surfaces. The
-recommended format is `brand:<simple-icons-slug>` for recognizable brands and
-`lucide:<icon-name>` for generic capabilities. Plugins only declare the id; the
-host owns rendering, fallback behavior, and trademark-safe copy. Registry
-generation preserves this field so install-first marketplace entries and
-installed sensor status rows use the same visual identity.
+Plugin manifests own their visual identity through one of two icon declarations:
+
+- `asset:assets/icon.svg` for a brand or product image packaged with the plugin
+- `lucide:<icon-name>` for a generic icon from the host's bundled Lucide library
+
+Registry generation validates packaged SVG, PNG, or WebP files, enforces a
+64 KiB size limit, and embeds the safe image as `icon_data` so marketplace and
+consent surfaces can display it before installation. Installed-plugin,
+suggestion, and sensor APIs resolve the same file from the installed package.
+The frontend renders validated image data or looks up any named Lucide icon;
+it does not contain plugin-specific brand mappings.
+
+SVG assets must be self-contained. The registry and runtime reject scripts,
+embedded content, event handlers, external references, entities, and URL-based
+styles. Asset paths must stay inside the plugin package and cannot be symlinks.
 
 ## Settings Surfaces
 
@@ -849,6 +858,8 @@ The marketplace index is a `registry.json` file at the repository root containin
 - `path` - subdirectory path within the repository
 - `description` - short description
 - `author` - plugin author
+- `icon` - packaged asset reference or generic Lucide icon declaration
+- `icon_data` - registry-generated, validated image data for packaged icons
 - `official` - whether the plugin is maintained by the Magi team
 - `contribution_types` - array of declared contribution types supported by the current contracts (`sensor`, `channel`, `tool`, `skill`, `hook`)
 - `capabilities` - user-visible access declarations copied from the plugin manifest

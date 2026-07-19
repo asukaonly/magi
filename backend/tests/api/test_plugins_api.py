@@ -179,6 +179,28 @@ def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     assert queue.refresh_channel_reasons == ["plugin_core-tools_settings_updated"]
 
 
+def test_plugins_api_resolves_packaged_icon(monkeypatch, tmp_path):
+    app = FastAPI()
+    app.include_router(plugins_router, prefix="/api/plugins")
+    manager = _FakeManager()
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "icon.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1v1H0z"/></svg>',
+        encoding="utf-8",
+    )
+    manager.state.manifest.icon = "asset:assets/icon.svg"
+    manager.state.manifest.plugin_dir = str(tmp_path)
+    monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
+
+    response = TestClient(app).get("/api/plugins")
+
+    assert response.status_code == 200
+    assert response.json()["plugins"][0]["manifest"]["icon"].startswith(
+        "data:image/svg+xml;base64,"
+    )
+
+
 def test_plugins_api_supports_enable_disable_reload_rescan_and_settings(monkeypatch):
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")

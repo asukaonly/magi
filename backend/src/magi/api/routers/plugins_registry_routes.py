@@ -88,7 +88,7 @@ async def list_registry_plugins(
                 description=entry.description,
                 description_i18n=entry.description_i18n,
                 author=entry.author,
-                icon=entry.icon,
+                icon=getattr(entry, "icon_data", "") or entry.icon,
                 display_group=getattr(entry, "display_group", None),
                 official=entry.official,
                 data_locality=entry.data_locality,

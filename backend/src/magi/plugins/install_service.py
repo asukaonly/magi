@@ -17,6 +17,7 @@ from .contracts import (
     PluginPermissions,
     PluginRegistryEntry,
 )
+from .discovery import load_plugin_manifest
 from . import package_files
 from .registry_client import PluginRegistryClient
 
@@ -256,6 +257,7 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
         raise ValueError("Directory does not contain a plugin.toml")
 
     plugin_source = manifest_file.parent
+    source_manifest = load_plugin_manifest(manifest_file, source="external")
     user_root = package_files.user_plugins_root()
     user_root.mkdir(parents=True, exist_ok=True)
     dest_dir = user_root / entry.plugin_id
@@ -285,7 +287,7 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
             version=entry.version,
             description=entry.description,
             author=entry.author,
-            icon=entry.icon,
+            icon=source_manifest.icon,
             official=entry.official,
             kind=entry.kind,
             contribution_types=contribution_types,

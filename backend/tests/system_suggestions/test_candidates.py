@@ -1,5 +1,6 @@
+from pathlib import Path
 from types import SimpleNamespace
-from magi.system_suggestions.candidates import build_suggestion_candidates, SuggestionCandidate
+from magi.system_suggestions.candidates import build_suggestion_candidates
 
 
 def _desc(category):
@@ -39,6 +40,32 @@ def test_union_tags_installed_and_dedups():
 
 def test_empty_inputs():
     assert build_suggestion_candidates([], []) == []
+
+
+def test_registry_candidate_uses_embedded_icon_data():
+    entry = _entry("git-activity", _desc("code_activity"))
+    entry.icon = "asset:assets/icon.svg"
+    entry.icon_data = "data:image/svg+xml;base64,PHN2Zy8+"
+
+    [candidate] = build_suggestion_candidates([], [entry])
+
+    assert candidate.icon == entry.icon_data
+
+
+def test_installed_candidate_reads_its_packaged_icon(tmp_path: Path):
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "icon.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1v1H0z"/></svg>',
+        encoding="utf-8",
+    )
+    manifest = _manifest("git-activity", _desc("code_activity"))
+    manifest.icon = "asset:assets/icon.svg"
+    manifest.plugin_dir = str(tmp_path)
+
+    [candidate] = build_suggestion_candidates([manifest], [])
+
+    assert candidate.icon.startswith("data:image/svg+xml;base64,")
 
 
 def _pkg(pid, desc):

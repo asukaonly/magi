@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, status
 
 from ... import i18n as core_i18n
 from ...plugins.install_service import DirectLibraryInstallError, PluginRegistryEntryNotFound
+from ...plugins.icon_assets import resolve_plugin_icon
 from ...plugins.package_files import InvalidPluginArchiveError
 from .plugins_common import (
     _plugin_install_service,
@@ -133,7 +134,7 @@ async def inspect_plugin_upload(file: UploadFile):
         version=manifest.version,
         description=manifest.description,
         author=manifest.author,
-        icon=manifest.icon,
+        icon=resolve_plugin_icon(manifest.icon, manifest.plugin_dir),
         display_group=manifest.display_group,
         official=False,  # sideload is never official
         contribution_types=[c.value for c in manifest.contribution_types],

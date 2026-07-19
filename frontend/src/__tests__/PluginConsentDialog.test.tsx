@@ -3,6 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { PluginConsentDialog } from '@/components/plugins/PluginConsentDialog';
 import type { PluginCapability } from '@/api/modules/plugins';
 
+const SVG_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=';
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string, o?: any) => o?.name ?? k, i18n: { language: 'en' } }),
 }));
@@ -38,7 +40,7 @@ describe('PluginConsentDialog', () => {
         open
         mode="install"
         pluginName="Chrome History"
-        pluginIcon="brand:googlechrome"
+        pluginIcon={SVG_ICON}
         version="1.0.0"
         capabilities={[{
           ...cap('filesystem_read'),
@@ -53,7 +55,7 @@ describe('PluginConsentDialog', () => {
       />,
     );
 
-    expect(screen.getByTestId('plugin-icon-googlechrome')).toBeTruthy();
+    expect(screen.getByTestId('plugin-icon-asset')).toHaveAttribute('src', SVG_ICON);
     expect(screen.getByText('~/Library/Application Support/Google/Chrome').tagName).toBe('CODE');
     expect(screen.getByText('%LOCALAPPDATA%\\Google\\Chrome').tagName).toBe('CODE');
     expect(screen.getByText('~/Library/Application Support/Google/Chrome')).toHaveClass('block');

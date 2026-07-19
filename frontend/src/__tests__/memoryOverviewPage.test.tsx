@@ -271,6 +271,8 @@ const storyPayload = {
   },
 };
 
+const SVG_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=';
+
 const sensorPayload = {
   sources: [
     {
@@ -279,7 +281,7 @@ const sensorPayload = {
       contribution_id: 'chrome-history',
       display_name: 'Chrome History',
       display_name_translated: 'Chrome History',
-      icon: 'brand:googlechrome',
+      icon: SVG_ICON,
       description: '',
       fields: [],
       current_settings: {},
@@ -398,7 +400,7 @@ describe('MemoryOverviewPage', () => {
     expect(screen.getByText('Sync')).toBeInTheDocument();
     expect(screen.getByText('memory.overview.processingBacklog:5')).toBeInTheDocument();
     expect(screen.getByText('Chrome History')).toBeInTheDocument();
-    expect(screen.getByTestId('plugin-icon-googlechrome')).toBeInTheDocument();
+    expect(screen.getByTestId('plugin-icon-asset')).toHaveAttribute('src', SVG_ICON);
     expect(screen.getAllByText('Normal').length).toBeGreaterThan(0);
     expect(screen.getByText('9')).toBeInTheDocument();
     expect(screen.getByText('Chat')).toBeInTheDocument();

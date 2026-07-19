@@ -20,6 +20,7 @@ from .contracts import (
     PluginManifest,
     PluginPackageState,
 )
+from .icon_assets import encode_plugin_icon_asset
 
 
 def resolve_plugin_search_paths() -> list[Path]:
@@ -109,7 +110,7 @@ def load_plugin_manifest(manifest_path: Path, *, source: str) -> PluginManifest:
     with manifest_path.open("rb") as fp:
         raw = tomllib.load(fp)
     plugin_block = raw.get("plugin", raw)
-    return PluginManifest.model_validate(
+    manifest = PluginManifest.model_validate(
         {
             **plugin_block,
             "plugin_dir": str(manifest_path.parent),
@@ -117,6 +118,8 @@ def load_plugin_manifest(manifest_path: Path, *, source: str) -> PluginManifest:
             "source": source,
         }
     )
+    encode_plugin_icon_asset(manifest.icon, manifest_path.parent)
+    return manifest
 
 
 def placeholder_contributions(manifest: PluginManifest) -> list[PluginContribution]:

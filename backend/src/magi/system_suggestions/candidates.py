@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal
 
+from ..plugins.icon_assets import resolve_plugin_icon
+
 
 @dataclass
 class SuggestionCandidate:
@@ -25,6 +27,18 @@ CatalogMode = Literal["full", "installed_only"]
 class CandidateResolution:
     candidates: list[SuggestionCandidate]
     catalog_mode: CatalogMode
+
+
+def _candidate_icon(item: Any, descriptor: Any, *, installed: bool) -> str:
+    descriptor_icon = str(getattr(descriptor, "icon", "") or "")
+    if descriptor_icon:
+        return descriptor_icon
+    if installed:
+        return resolve_plugin_icon(
+            str(getattr(item, "icon", "") or ""),
+            str(getattr(item, "plugin_dir", "") or ""),
+        )
+    return str(getattr(item, "icon_data", "") or getattr(item, "icon", "") or "")
 
 
 def build_suggestion_candidates(
@@ -48,7 +62,7 @@ def build_suggestion_candidates(
                 name_i18n=dict(getattr(m, "name_i18n", {}) or {}),
                 description=getattr(m, "description", ""),
                 description_i18n=dict(getattr(m, "description_i18n", {}) or {}),
-                icon=desc.icon or getattr(m, "icon", ""),
+                icon=_candidate_icon(m, desc, installed=True),
                 descriptor=desc,
                 installed=True,
             )
@@ -65,7 +79,7 @@ def build_suggestion_candidates(
                 name_i18n=dict(getattr(e, "name_i18n", {}) or {}),
                 description=getattr(e, "description", ""),
                 description_i18n=dict(getattr(e, "description_i18n", {}) or {}),
-                icon=desc.icon or getattr(e, "icon", ""),
+                icon=_candidate_icon(e, desc, installed=False),
                 descriptor=desc,
                 installed=False,
             )
@@ -121,9 +135,7 @@ def partition_for_candidates(
         return item.plugin_id in active or _category(item) in active_categories
 
     all_installed_ids = {p.manifest.plugin_id for p in package_list}
-    connect_manifests = [
-        p.manifest for p in package_list if not _is_active_or_covered(p.manifest)
-    ]
+    connect_manifests = [p.manifest for p in package_list if not _is_active_or_covered(p.manifest)]
     not_installed_registry = [
         e
         for e in registry_list

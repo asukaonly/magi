@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ... import i18n as core_i18n
+from ...plugins.icon_assets import resolve_plugin_icon
 from ...scheduler import ScheduledTargetType
 from ...scheduler.contracts import build_sensor_schedule_id, build_sensor_target_key
 from ...scheduler.repository import ScheduleRepository
@@ -227,7 +228,11 @@ def _source_identity_payload(
     plugin_id_normalized: str,
     entry_id: str,
 ) -> dict[str, Any]:
-    package_icon = str(getattr(package.manifest, "icon", "") or "") if package is not None else ""
+    package_icon = (
+        resolve_plugin_icon(package.manifest.icon, package.manifest.plugin_dir)
+        if package is not None
+        else ""
+    )
     return {
         "source_name": source_name,
         "plugin_id": item.plugin_id,

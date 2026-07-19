@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pluginsApi } from '@/api/modules/plugins';
 import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
 
+const SVG_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=';
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,
@@ -41,7 +43,7 @@ describe('PluginMarketplace', () => {
           description: 'Read local photo libraries.',
           description_i18n: { 'zh-CN': '读取本地照片库。' },
           author: 'Magi Team',
-          icon: 'custom:apple-photos',
+          icon: SVG_ICON,
           official: true,
           data_locality: 'local_only',
           contribution_types: ['sensor'],
@@ -61,7 +63,7 @@ describe('PluginMarketplace', () => {
     render(<PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />);
 
     expect(await screen.findByText('照片库')).toBeInTheDocument();
-    expect(screen.getByTestId('plugin-icon-apple-photos')).toBeInTheDocument();
+    expect(screen.getByTestId('plugin-icon-asset')).toHaveAttribute('src', SVG_ICON);
   });
 
   it('groups browser history implementations and lets users choose entries before installing', async () => {

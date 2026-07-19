@@ -14,6 +14,7 @@ from ...plugins.contracts import (
     PluginPackageState,
 )
 from ...plugins.i18n import PluginI18n
+from ...plugins.icon_assets import resolve_plugin_icon
 from ...plugins.provider import resolve_plugin_manager
 from .plugins_schemas import (
     PluginContributionResponse,
@@ -93,7 +94,7 @@ def _serialize_manifest(
         version=manifest.version,
         description=translated_description or manifest.description,
         author=manifest.author,
-        icon=manifest.icon,
+        icon=resolve_plugin_icon(manifest.icon, manifest.plugin_dir),
         display_group=manifest.display_group,
         official=_authoritative_official(manifest, packages=packages),
         contribution_types=[item.value for item in manifest.contribution_types],
@@ -454,7 +455,7 @@ def _serialize_package_lightweight(
             version=manifest.version,
             description=manifest.description,
             author=manifest.author,
-            icon=manifest.icon,
+            icon=resolve_plugin_icon(manifest.icon, manifest.plugin_dir),
             display_group=manifest.display_group,
             official=_authoritative_official(manifest, packages=packages),
             contribution_types=[ct.value for ct in manifest.contribution_types],

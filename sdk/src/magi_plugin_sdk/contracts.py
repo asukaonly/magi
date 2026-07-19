@@ -400,7 +400,8 @@ class PluginManifest(BaseModel):
     description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = "Magi Team"
     icon: str = ""
-    """Optional stable icon id for host UIs, for example ``brand:googlechrome`` or ``lucide:calendar-days``."""
+    """Optional icon declaration: ``asset:assets/icon.svg`` for packaged images
+    or ``lucide:calendar-days`` for a generic host-provided icon."""
     entry_module: str = "plugin"
     entry_class: str = "Plugin"
     official: bool = False
@@ -498,7 +499,9 @@ class PluginRegistryEntry(BaseModel):
     description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = ""
     icon: str = ""
-    """Optional stable icon id for host UIs, copied from the plugin manifest."""
+    """Icon declaration copied from the plugin manifest."""
+    icon_data: str = ""
+    """Validated self-contained icon data for marketplace display before install."""
     official: bool = False
     data_locality: str = ""
     """Mirrors :attr:`PluginManifest.data_locality` — ``"local_only"`` renders a
@@ -523,6 +526,11 @@ class PluginRegistryEntry(BaseModel):
     display_group: PluginDisplayGroupSpec | None = None
     """Optional declaration that this plugin should appear under a shared
     user-facing group instead of a standalone card."""
+
+    @property
+    def display_icon(self) -> str:
+        """Return the install-independent icon value used by host UIs."""
+        return self.icon_data or self.icon
 
 
 class PluginRegistryIndex(BaseModel):
