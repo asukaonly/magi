@@ -14,11 +14,45 @@ describe('PluginIcon', () => {
     expect(icon.querySelector('[data-icon-color="blue"]')).toBeInTheDocument();
   });
 
-  it('renders Photo Library with a dedicated photo icon instead of the generic image fallback', () => {
-    render(<PluginIcon iconId="custom:photo-library" />);
+  it('renders Apple Photos with its multicolor flower icon', () => {
+    render(<PluginIcon iconId="custom:apple-photos" />);
 
-    expect(screen.getByTestId('plugin-icon-photo-library')).toBeInTheDocument();
+    expect(screen.getByTestId('plugin-icon-apple-photos')).toBeInTheDocument();
     expect(screen.queryByTestId('plugin-icon-fallback')).not.toBeInTheDocument();
+  });
+
+  it('renders Codex with its dedicated mark', () => {
+    render(<PluginIcon iconId="custom:codex" />);
+
+    expect(screen.getByTestId('plugin-icon-codex')).toBeInTheDocument();
+    expect(screen.queryByTestId('plugin-icon-fallback')).not.toBeInTheDocument();
+  });
+
+  it('renders Claude Code with its brand icon', () => {
+    render(<PluginIcon iconId="brand:claudecode" />);
+
+    expect(screen.getByTestId('plugin-icon-claudecode')).toBeInTheDocument();
+    expect(screen.queryByTestId('plugin-icon-fallback')).not.toBeInTheDocument();
+  });
+
+  it('renders Microsoft Edge with its dedicated multicolor icon', () => {
+    render(<PluginIcon iconId="custom:microsoft-edge" />);
+
+    expect(screen.getByTestId('plugin-icon-microsoft-edge')).toBeInTheDocument();
+    expect(screen.queryByTestId('plugin-icon-fallback')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['lucide:calendar-days', 'lucide-calendar-days'],
+    ['lucide:chart-no-axes-column', 'lucide-chart-no-axes-column'],
+    ['lucide:gamepad-2', 'lucide-gamepad-2'],
+    ['lucide:images', 'lucide-images'],
+    ['lucide:scan', 'lucide-scan'],
+  ])('renders the supported icon %s', (iconId, className) => {
+    const { container } = render(<PluginIcon iconId={iconId} />);
+
+    expect(container.querySelector(`.${className}`)).toBeInTheDocument();
+    expect(container.querySelector('.lucide-activity')).not.toBeInTheDocument();
   });
 
   it('resolves GitHub Activity to the GitHub brand icon when the registry icon is missing', () => {

@@ -41,7 +41,7 @@ describe('PluginMarketplace', () => {
           description: 'Read local photo libraries.',
           description_i18n: { 'zh-CN': '读取本地照片库。' },
           author: 'Magi Team',
-          icon: 'custom:photo-library',
+          icon: 'custom:apple-photos',
           official: true,
           data_locality: 'local_only',
           contribution_types: ['sensor'],
@@ -61,7 +61,7 @@ describe('PluginMarketplace', () => {
     render(<PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />);
 
     expect(await screen.findByText('照片库')).toBeInTheDocument();
-    expect(screen.getByTestId('plugin-icon-photo-library')).toBeInTheDocument();
+    expect(screen.getByTestId('plugin-icon-apple-photos')).toBeInTheDocument();
   });
 
   it('groups browser history implementations and lets users choose entries before installing', async () => {
