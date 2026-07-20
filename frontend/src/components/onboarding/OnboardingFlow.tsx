@@ -50,6 +50,7 @@ import LLMSetupStep, { type LLMConnectionTestState } from "./LLMSetupStep";
 import {
   PersonaPreviewChat,
   type CustomPersonaDraft,
+  type PersonaCreationDraft,
 } from "./PersonaPreviewChat";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowLeft, ArrowRight } from "lucide-react";
@@ -275,6 +276,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     [],
   );
   const customPersonasRef = useRef<CustomPersonaDraft[]>([]);
+  const [personaCreationDraft, setPersonaCreationDraft] =
+    useState<PersonaCreationDraft | null>(null);
+  const personaCreationDraftRef = useRef<PersonaCreationDraft | null>(null);
   // True while a custom persona is being generated on the persona step.
   const [personaGenerating, setPersonaGenerating] = useState(false);
   const [personaConfirming, setPersonaConfirming] = useState(false);
@@ -321,6 +325,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   currentLlmFingerprintRef.current = currentLlmFingerprint;
   seedSlugRef.current = seedSlug;
   customPersonasRef.current = customPersonas;
+  personaCreationDraftRef.current = personaCreationDraft;
 
   const loadInstallableSources = useCallback(async () => {
     setInstallableLoading(true);
@@ -489,6 +494,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         values?: SystemConfig;
         seedSlug?: string | null;
         customPersonas?: CustomPersonaDraft[];
+        personaCreationDraft?: PersonaCreationDraft | null;
         firstContextPluginIds?: string[];
         firstContextCountsByPluginId?: Record<string, number | null>;
         firstContextProgress?: Partial<FirstContextProgress>;
@@ -507,6 +513,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       }
       if (Array.isArray(parsed.customPersonas)) {
         setCustomPersonas(parsed.customPersonas);
+      }
+      if (
+        parsed.personaCreationDraft &&
+        typeof parsed.personaCreationDraft === "object"
+      ) {
+        setPersonaCreationDraft(parsed.personaCreationDraft);
       }
       if (Array.isArray(parsed.firstContextPluginIds)) {
         setFirstContextPluginIds(
@@ -627,6 +639,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     > = firstContextCountsByPluginId,
     nextFirstContextProgress: FirstContextProgress =
       firstContextProgressRef.current,
+    nextPersonaCreationDraft: PersonaCreationDraft | null =
+      personaCreationDraftRef.current,
   ) => {
     localStorage.setItem(
       STORAGE_KEY,
@@ -635,6 +649,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         values,
         seedSlug: nextSeedSlug,
         customPersonas: nextCustomPersonas,
+        personaCreationDraft: nextPersonaCreationDraft,
         firstContextPluginIds: nextFirstContextPluginIds,
         firstContextCountsByPluginId: nextFirstContextCountsByPluginId,
         firstContextProgress: nextFirstContextProgress,
@@ -1461,6 +1476,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           locale={seedLocale}
           llmConfig={llmValue}
           initialCustomPersonas={customPersonas}
+          initialCreationDraft={personaCreationDraft}
           onActiveSeedChange={(slug) => {
             if (slug === seedSlugRef.current) {
               return;
@@ -1482,6 +1498,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               form.getFieldsValue(true),
               seedSlugRef.current,
               drafts,
+            );
+          }}
+          onCreationDraftChange={(draft) => {
+            personaCreationDraftRef.current = draft;
+            setPersonaCreationDraft(draft);
+            saveProgress(
+              form.getFieldsValue(true),
+              seedSlugRef.current,
+              customPersonasRef.current,
+              current,
+              firstContextPluginIds,
+              firstContextCountsByPluginId,
+              firstContextProgressRef.current,
+              draft,
             );
           }}
           onGeneratingChange={setPersonaGenerating}

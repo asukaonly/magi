@@ -11,6 +11,9 @@ from ... import i18n as core_i18n
 from .personality_config_common import legacy_personality_config_module
 from .personality_config_schemas import (
     AIGenerateRequest,
+    PersonaAdjustmentRequest,
+    PersonaIntentResolveRequest,
+    PersonaIntentResolutionResponse,
     PersonalityCompareResponse,
     PersonalityConfigModel,
     PersonalityResponse,
@@ -323,6 +326,7 @@ async def generate_personality(request: AIGenerateRequest):
             request.target_language,
             current_config=request.current_config,
             llm_override=request.llm_override,
+            intent=request.intent,
         )
         config = result.config
         legacy.logger.info("AI generation successful: name=%s", config.name)
@@ -356,6 +360,9 @@ async def start_personality_generation(request: AIGenerateRequest):
             request.target_language,
             current_config=request.current_config,
             llm_override=request.llm_override,
+            draft_id=request.draft_id,
+            request_id=request.request_id,
+            intent=request.intent,
         )
         return PersonalityResponse(
             success=True,
@@ -370,6 +377,66 @@ async def start_personality_generation(request: AIGenerateRequest):
         raise
     except Exception as exc:
         legacy.logger.error("AI personality generation job start failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@personality_config_core_router.post(
+    "/generation-intents/resolve",
+    response_model=PersonaIntentResolutionResponse,
+    summary="Resolve persona generation intent",
+    description=(
+        "Classify whether a free-text persona description references an existing "
+        "prototype and return editable candidates before full generation."
+    ),
+)
+async def resolve_personality_generation_intent(
+    request: PersonaIntentResolveRequest,
+) -> PersonaIntentResolutionResponse:
+    legacy = legacy_personality_config_module()
+    try:
+        resolution = await legacy.ai_resolve_persona_generation_intent(
+            request.description,
+            request.target_language,
+            llm_override=request.llm_override,
+        )
+        return PersonaIntentResolutionResponse(
+            success=True,
+            message="Persona generation intent resolved",
+            data=resolution,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        legacy.logger.error("Persona generation intent resolution failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@personality_config_core_router.post(
+    "/adjust",
+    response_model=PersonalityResponse,
+    summary="Adjust a personality draft",
+    description="Apply one scoped user adjustment to an unsaved personality configuration.",
+)
+async def adjust_personality(request: PersonaAdjustmentRequest) -> PersonalityResponse:
+    legacy = legacy_personality_config_module()
+    try:
+        config = await legacy.ai_adjust_personality(
+            request.current_config,
+            request.instruction,
+            scope=request.scope,
+            target_language=request.target_language,
+            intent=request.intent,
+            llm_override=request.llm_override,
+        )
+        return PersonalityResponse(
+            success=True,
+            message="Personality draft adjusted",
+            data=config.model_dump(),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        legacy.logger.error("Persona adjustment failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

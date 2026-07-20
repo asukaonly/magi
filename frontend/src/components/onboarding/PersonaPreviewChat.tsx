@@ -6,13 +6,23 @@ import { cn } from '@/lib/utils';
 import { streamChatPreview, type PreviewTurn } from '../../api/modules/chatPreview';
 import {
   personasApi,
+  type PersonaAdaptationMode,
+  type PersonaGenerationIntent,
   type PersonalityConfig,
+  type PersonaIntentResolution,
   type PersonaGenerationStage,
+  type PersonaReferenceKind,
   type SeedPreview,
 } from '../../api/modules/personas';
 import type { LLMConfig } from '../../api/modules/config';
 import { PersonaPreviewStarterChips } from './PersonaPreviewStarterChips';
 import { PersonaProfilePanel } from './PersonaProfilePanel';
+import {
+  candidateToEditableReference,
+  defaultAdaptationMode,
+  PersonaReferenceEditor,
+  type EditablePersonaReference,
+} from './PersonaReferenceEditor';
 
 const MAX_USER_TURNS_PER_PERSONA = 5;
 const PREVIEW_SEGMENT_SENTINEL = '‖';
@@ -27,6 +37,25 @@ export interface CustomPersonaDraft {
   name: string;
   description: string;
   config: PersonalityConfig;
+  originalDescription?: string;
+  intent?: PersonaGenerationIntent;
+  revision?: number;
+}
+
+export interface PersonaCreationDraft {
+  draftId: string;
+  personaId: string;
+  phase: 'editing' | 'resolving' | 'reviewing' | 'generating' | 'failed';
+  description: string;
+  resolution?: PersonaIntentResolution;
+  reference: EditablePersonaReference;
+  referenceConfirmed: boolean;
+  adaptationMode: PersonaAdaptationMode;
+  constraintsText: string;
+  generationRequestId?: string;
+  generationJobId?: string;
+  editingPersonaSlug?: string;
+  revision: number;
 }
 
 export interface PersonaPreviewChatProps {
@@ -56,6 +85,10 @@ export interface PersonaPreviewChatProps {
   initialCustomPersonas?: CustomPersonaDraft[];
   /** Fires whenever the set of custom drafts changes, so the parent can persist them. */
   onCustomPersonasChange?: (drafts: CustomPersonaDraft[]) => void;
+  /** Restores an unfinished custom-persona creation or reference-editing draft. */
+  initialCreationDraft?: PersonaCreationDraft | null;
+  /** Persists the unfinished custom-persona creation state through onboarding reloads. */
+  onCreationDraftChange?: (draft: PersonaCreationDraft | null) => void;
   /**
    * Fires when persona generation starts (true) / finishes (false), so the
    * parent can disable step navigation while a generation is in flight.
@@ -63,10 +96,20 @@ export interface PersonaPreviewChatProps {
   onGeneratingChange?: (generating: boolean) => void;
 }
 
-type TranscriptMap = Record<string, PreviewTurn[]>;
+interface PreviewDisplayTurn extends PreviewTurn {
+  id?: string;
+  kind?: 'message' | 'revision-divider';
+  superseded?: boolean;
+  streamGroupId?: string;
+}
 
-function collapsePreviewHistory(turns: PreviewTurn[]): PreviewTurn[] {
+type TranscriptMap = Record<string, PreviewDisplayTurn[]>;
+
+function collapsePreviewHistory(turns: PreviewDisplayTurn[]): PreviewTurn[] {
   return turns.reduce<PreviewTurn[]>((history, turn) => {
+    if (turn.kind === 'revision-divider' || turn.superseded) {
+      return history;
+    }
     const previous = history[history.length - 1];
     if (turn.role === 'assistant' && previous?.role === 'assistant') {
       history[history.length - 1] = {
@@ -75,7 +118,7 @@ function collapsePreviewHistory(turns: PreviewTurn[]): PreviewTurn[] {
       };
       return history;
     }
-    history.push({ ...turn });
+    history.push({ role: turn.role, content: turn.content });
     return history;
   }, []);
 }
@@ -87,6 +130,85 @@ function splitPreviewReply(content: string): string[] {
     .filter(Boolean);
 }
 
+function createStableId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createEmptyCreationDraft(): PersonaCreationDraft {
+  return {
+    draftId: createStableId(),
+    personaId: createStableId(),
+    phase: 'editing',
+    description: '',
+    reference: {
+      sourceKind: 'original',
+      name: '',
+      workTitle: '',
+      version: '',
+      context: '',
+    },
+    referenceConfirmed: false,
+    adaptationMode: 'original',
+    constraintsText: '',
+    revision: 1,
+  };
+}
+
+function splitConstraints(value: string): string[] {
+  return value
+    .split(/\n|；|;/)
+    .map((item) => item.trim())
+    .filter((item, index, items) => Boolean(item) && items.indexOf(item) === index);
+}
+
+function expressionProfileForMode(
+  mode: PersonaAdaptationMode,
+): PersonaGenerationIntent['expression_profile'] {
+  if (mode === 'fictional_immersive') return 'immersive';
+  if (mode === 'public_expression' || mode === 'public_image') return 'balanced';
+  return 'natural';
+}
+
+function buildGenerationIntent(draft: PersonaCreationDraft): PersonaGenerationIntent {
+  const explicitConstraints = splitConstraints(draft.constraintsText);
+  if (draft.reference.sourceKind === 'original') {
+    return {
+      source_kind: 'original',
+      reference: null,
+      adaptation_mode: 'original',
+      expression_profile: 'natural',
+      explicit_constraints: explicitConstraints,
+    };
+  }
+  return {
+    source_kind: draft.reference.sourceKind,
+    reference: {
+      source_kind: draft.reference.sourceKind,
+      name: draft.reference.name.trim(),
+      work_title: draft.reference.workTitle.trim() || null,
+      version: draft.reference.version.trim() || null,
+      context: draft.reference.context.trim() || null,
+      user_confirmed: true,
+    },
+    adaptation_mode: draft.adaptationMode,
+    expression_profile: expressionProfileForMode(draft.adaptationMode),
+    explicit_constraints: explicitConstraints,
+  };
+}
+
+function referenceSummary(intent?: PersonaGenerationIntent): string {
+  const reference = intent?.reference;
+  if (!reference) return '';
+  return [
+    reference.name,
+    reference.work_title ? `《${reference.work_title}》` : '',
+    reference.version || '',
+  ].filter(Boolean).join(' · ');
+}
+
 interface RailItem {
   slug: string;
   name: string;
@@ -94,6 +216,7 @@ interface RailItem {
   avatar?: string;
   isCustom: boolean;
   config?: PersonalityConfig;
+  customDraft?: CustomPersonaDraft;
 }
 
 interface PresetProfileState {
@@ -182,6 +305,8 @@ export function PersonaPreviewChat({
   confirmationError,
   initialCustomPersonas,
   onCustomPersonasChange,
+  initialCreationDraft,
+  onCreationDraftChange,
   onGeneratingChange,
 }: PersonaPreviewChatProps): JSX.Element {
   const { t, i18n } = useTranslation('onboarding');
@@ -211,6 +336,7 @@ export function PersonaPreviewChat({
         avatar: '',
         isCustom: true,
         config: d.config,
+        customDraft: d,
       })),
     ],
     [sortedPreviews, customDrafts],
@@ -219,14 +345,47 @@ export function PersonaPreviewChat({
   const [transcripts, setTranscripts] = useState<TranscriptMap>({});
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [adjustmentDraft, setAdjustmentDraft] = useState('');
+  const [adjusting, setAdjusting] = useState(false);
+  const [adjustmentError, setAdjustmentError] = useState<string | null>(null);
 
   // Custom-persona creation state.
-  const [mode, setMode] = useState<'chat' | 'profile' | 'create'>('chat');
+  const [mode, setMode] = useState<'chat' | 'profile' | 'create'>(
+    () => initialCreationDraft ? 'create' : 'chat',
+  );
   const [presetProfiles, setPresetProfiles] = useState<Record<string, PresetProfileState>>({});
-  const [customDescription, setCustomDescription] = useState('');
-  const [generating, setGenerating] = useState(false);
+  const [creationDraft, setCreationDraft] = useState<PersonaCreationDraft | null>(
+    () => initialCreationDraft ?? null,
+  );
+  const creationDraftRef = useRef<PersonaCreationDraft | null>(initialCreationDraft ?? null);
   const [genStages, setGenStages] = useState<PersonaGenerationStage[]>([]);
   const [genError, setGenError] = useState<string | null>(null);
+  const resumedGenerationJobIdsRef = useRef(new Set<string>());
+
+  const publishCreationDraft = useCallback(
+    (next: PersonaCreationDraft | null) => {
+      creationDraftRef.current = next;
+      setCreationDraft(next);
+      onCreationDraftChange?.(next);
+    },
+    [onCreationDraftChange],
+  );
+
+  useEffect(() => {
+    const restored = creationDraftRef.current;
+    if (!restored) return;
+    if (restored.phase === 'resolving') {
+      publishCreationDraft({ ...restored, phase: 'editing' });
+      return;
+    }
+    if (restored.phase === 'generating' && !restored.generationJobId) {
+      publishCreationDraft({
+        ...restored,
+        phase: 'failed',
+        generationRequestId: undefined,
+      });
+    }
+  }, [publishCreationDraft]);
 
   // An empty rail can be a temporary async loading state, so it must not clear
   // or replace the parent's selection. Once a non-empty rail arrives, request
@@ -244,9 +403,12 @@ export function PersonaPreviewChat({
 
   const onGeneratingChangeRef = useRef(onGeneratingChange);
   onGeneratingChangeRef.current = onGeneratingChange;
+  const generating =
+    creationDraft?.phase === 'resolving' || creationDraft?.phase === 'generating';
+  const creationInProgress = mode === 'create' && creationDraft !== null;
   useEffect(() => {
-    onGeneratingChangeRef.current?.(generating);
-  }, [generating]);
+    onGeneratingChangeRef.current?.(creationInProgress);
+  }, [creationInProgress]);
 
   const activeItem = railItems.find((i) => i.slug === activeSeed);
   const profileLocale = locale || 'en';
@@ -266,7 +428,7 @@ export function PersonaPreviewChat({
     [t],
   );
 
-  const appendTurn = useCallback((seedSlug: string, turn: PreviewTurn) => {
+  const appendTurn = useCallback((seedSlug: string, turn: PreviewDisplayTurn) => {
     setTranscripts((prev) => {
       const list = prev[seedSlug] ?? [];
       return { ...prev, [seedSlug]: [...list, turn] };
@@ -295,8 +457,45 @@ export function PersonaPreviewChat({
     [],
   );
 
+  const updateAdjustmentStreamContent = useCallback(
+    (seedSlug: string, streamGroupId: string, content: string) => {
+      setTranscripts((prev) => {
+        const list = prev[seedSlug] ?? [];
+        const firstIndex = list.findIndex((turn) => turn.streamGroupId === streamGroupId);
+        if (firstIndex < 0) return prev;
+        const withoutGroup = list.filter((turn) => turn.streamGroupId !== streamGroupId);
+        const segments = splitPreviewReply(content);
+        const assistantTurns = (segments.length > 0 ? segments : [content]).map<PreviewDisplayTurn>(
+          (segment) => ({
+            role: 'assistant',
+            content: segment,
+            streamGroupId,
+          }),
+        );
+        return {
+          ...prev,
+          [seedSlug]: [
+            ...withoutGroup.slice(0, firstIndex),
+            ...assistantTurns,
+            ...withoutGroup.slice(firstIndex),
+          ],
+        };
+      });
+    },
+    [],
+  );
+
   const send = useCallback(async () => {
-    if (disabled || !activeSeed || !draft.trim() || busy || capReached) return;
+    if (
+      disabled ||
+      !activeSeed ||
+      !draft.trim() ||
+      busy ||
+      adjusting ||
+      capReached
+    ) {
+      return;
+    }
     const userTurn: PreviewTurn = { role: 'user', content: draft.trim() };
     const seed = activeSeed;
     const snapshotHistory = collapsePreviewHistory(transcripts[seed] ?? []);
@@ -334,6 +533,7 @@ export function PersonaPreviewChat({
     disabled,
     draft,
     busy,
+    adjusting,
     capReached,
     transcripts,
     locale,
@@ -374,58 +574,438 @@ export function PersonaPreviewChat({
     void loadPresetProfile(activeItem);
   }, [activeItem, loadPresetProfile]);
 
-  const handleGenerate = useCallback(async () => {
-    const description = customDescription.trim();
-    if (disabled || !description || generating) return;
-    setGenerating(true);
+  const runGeneration = useCallback(
+    async (
+      sourceDraft: PersonaCreationDraft,
+      intent: PersonaGenerationIntent,
+      existingJobId?: string,
+    ) => {
+      const description = sourceDraft.description.trim();
+      if (disabled || !description) return;
+      let workingDraft: PersonaCreationDraft = {
+        ...sourceDraft,
+        phase: 'generating',
+        generationRequestId:
+          existingJobId
+            ? sourceDraft.generationRequestId
+            : sourceDraft.generationRequestId || createStableId(),
+        generationJobId: existingJobId || sourceDraft.generationJobId,
+      };
+      publishCreationDraft(workingDraft);
+      setGenError(null);
+      setGenStages([]);
+      try {
+        const targetLanguage = (i18n.language || '').startsWith('zh') ? 'Chinese' : 'English';
+        const resp = await personasApi.generateWithProgress(
+          {
+            description,
+            target_language: targetLanguage,
+            llm_override: llmConfig,
+            draft_id: workingDraft.draftId,
+            request_id: workingDraft.generationRequestId,
+            intent,
+          },
+          (snapshot) => {
+            setGenStages(snapshot.stages ?? []);
+            if (
+              snapshot.job_id &&
+              workingDraft.generationJobId !== snapshot.job_id
+            ) {
+              workingDraft = {
+                ...workingDraft,
+                generationJobId: snapshot.job_id,
+              };
+              publishCreationDraft(workingDraft);
+            }
+          },
+          existingJobId,
+        );
+        const config = resp.data;
+        if (!config) {
+          throw new Error('generation returned no config');
+        }
+        const slug =
+          workingDraft.editingPersonaSlug ||
+          `onboarding-custom-${workingDraft.personaId}`;
+        const newDraft: CustomPersonaDraft = {
+          personaId: workingDraft.personaId,
+          slug,
+          name: config.name || description,
+          description: config.description || description,
+          config,
+          originalDescription: description,
+          intent,
+          revision: workingDraft.revision,
+        };
+        const existingIndex = customDrafts.findIndex(
+          (item) =>
+            item.slug === workingDraft.editingPersonaSlug ||
+            item.personaId === workingDraft.personaId,
+        );
+        const nextDrafts =
+          existingIndex >= 0
+            ? customDrafts.map((item, index) => index === existingIndex ? newDraft : item)
+            : [...customDrafts, newDraft];
+        if (workingDraft.editingPersonaSlug) {
+          setTranscripts((previous) => {
+            const next = { ...previous };
+            delete next[slug];
+            return next;
+          });
+        }
+        setCustomDrafts(nextDrafts);
+        onCustomPersonasChange?.(nextDrafts);
+        onActiveSeedChange(slug);
+        publishCreationDraft(null);
+        setMode('chat');
+      } catch (err) {
+        const message = (err as Error).message;
+        setGenError(
+          message === 'Personality generation timed out'
+            ? t('personaPreview.generationTimedOut')
+            : message || t('personaPreview.generationFailedUnknown'),
+        );
+        publishCreationDraft({
+          ...workingDraft,
+          phase: 'failed',
+          generationRequestId: undefined,
+          generationJobId: undefined,
+        });
+      }
+    },
+    [
+      customDrafts,
+      disabled,
+      i18n.language,
+      llmConfig,
+      onActiveSeedChange,
+      onCustomPersonasChange,
+      publishCreationDraft,
+      t,
+    ],
+  );
+
+  const applyResolution = useCallback(
+    (sourceDraft: PersonaCreationDraft, resolution: PersonaIntentResolution) => {
+      const selected =
+        resolution.candidates.find(
+          (candidate) => candidate.candidate_id === resolution.selected_candidate_id,
+        ) ?? resolution.candidates[0];
+      const reference =
+        resolution.status === 'original'
+          ? {
+              sourceKind: 'original' as const,
+              name: '',
+              workTitle: '',
+              version: '',
+              context: '',
+            }
+          : selected
+            ? candidateToEditableReference(selected)
+            : {
+                sourceKind: 'fictional_reference' as const,
+                name: '',
+                workTitle: '',
+                version: '',
+                context: '',
+              };
+      return {
+        ...sourceDraft,
+        phase: 'reviewing' as const,
+        resolution,
+        reference,
+        referenceConfirmed:
+          resolution.status === 'resolved' || resolution.status === 'original',
+        adaptationMode: defaultAdaptationMode(reference.sourceKind),
+        constraintsText: resolution.explicit_constraints.join('\n'),
+      };
+    },
+    [],
+  );
+
+  const handleResolveOrGenerate = useCallback(async () => {
+    const sourceDraft = creationDraftRef.current;
+    const description = sourceDraft?.description.trim() || '';
+    if (!sourceDraft || disabled || !description || generating) return;
+
+    if (sourceDraft.phase === 'reviewing' || sourceDraft.phase === 'failed') {
+      if (!sourceDraft.referenceConfirmed) return;
+      if (sourceDraft.reference.sourceKind !== 'original' && !sourceDraft.reference.name.trim()) {
+        return;
+      }
+      const retryDraft = {
+        ...sourceDraft,
+        generationRequestId: createStableId(),
+        generationJobId: undefined,
+      };
+      await runGeneration(retryDraft, buildGenerationIntent(retryDraft));
+      return;
+    }
+
+    const resolvingDraft: PersonaCreationDraft = {
+      ...sourceDraft,
+      phase: 'resolving',
+    };
+    publishCreationDraft(resolvingDraft);
     setGenError(null);
-    setGenStages([]);
     try {
       const targetLanguage = (i18n.language || '').startsWith('zh') ? 'Chinese' : 'English';
-      const resp = await personasApi.generateWithProgress(
-        { description, target_language: targetLanguage, llm_override: llmConfig },
-        (snapshot) => setGenStages(snapshot.stages ?? []),
-      );
-      const config = resp.data;
-      if (!config) {
-        throw new Error('generation returned no config');
+      const response = await personasApi.resolveGenerationIntent({
+        description,
+        target_language: targetLanguage,
+        llm_override: llmConfig,
+      });
+      if (!response.data) {
+        throw new Error('Persona intent resolution returned no result');
       }
-      const personaId = crypto.randomUUID();
-      const slug = `onboarding-custom-${personaId}`;
-      const newDraft: CustomPersonaDraft = {
-        personaId,
-        slug,
-        name: config.name || description,
-        description: config.description || description,
-        config,
+      const reviewedDraft = applyResolution(resolvingDraft, response.data);
+      if (response.data.status === 'original') {
+        await runGeneration(reviewedDraft, buildGenerationIntent(reviewedDraft));
+        return;
+      }
+      publishCreationDraft(reviewedDraft);
+    } catch {
+      const fallbackResolution: PersonaIntentResolution = {
+        status: 'unknown',
+        candidates: [],
+        selected_candidate_id: null,
+        confidence: 0,
+        requires_confirmation: true,
+        explicit_constraints: [],
       };
-      const nextDrafts = [...customDrafts, newDraft];
-      setCustomDrafts(nextDrafts);
-      onCustomPersonasChange?.(nextDrafts);
-      onActiveSeedChange(slug);
-      setCustomDescription('');
-      setMode('chat');
-    } catch (err) {
-      const message = (err as Error).message;
-      setGenError(
-        message === 'Personality generation timed out'
-          ? t('personaPreview.generationTimedOut')
-          : message || t('personaPreview.generationFailedUnknown'),
-      );
-    } finally {
-      setGenerating(false);
+      publishCreationDraft(applyResolution(resolvingDraft, fallbackResolution));
+      setGenError(t('personaPreview.reference.resolveFailed'));
     }
   }, [
-    customDescription,
-    customDrafts,
+    applyResolution,
     disabled,
     generating,
     i18n.language,
     llmConfig,
-    onActiveSeedChange,
-    onCustomPersonasChange,
+    publishCreationDraft,
+    runGeneration,
     t,
   ]);
+
+  const editCustomReference = useCallback(
+    (customDraft: CustomPersonaDraft) => {
+      const intent = customDraft.intent;
+      const reference = intent?.reference;
+      const sourceKind = intent?.source_kind ?? 'original';
+      const editableReference: EditablePersonaReference =
+        sourceKind === 'original' || !reference
+          ? {
+              sourceKind: 'original',
+              name: '',
+              workTitle: '',
+              version: '',
+              context: '',
+            }
+          : {
+              sourceKind: sourceKind as PersonaReferenceKind,
+              name: reference.name,
+              workTitle: reference.work_title || '',
+              version: reference.version || '',
+              context: reference.context || '',
+            };
+      const candidate =
+        editableReference.sourceKind === 'original'
+          ? []
+          : [{
+              candidate_id: 'candidate-1',
+              source_kind: editableReference.sourceKind,
+              name: editableReference.name,
+              work_title: editableReference.workTitle || null,
+              version: editableReference.version || null,
+              context: editableReference.context || null,
+              confidence: 1,
+            }];
+      publishCreationDraft({
+        draftId: createStableId(),
+        personaId: customDraft.personaId,
+        phase: 'reviewing',
+        description: customDraft.originalDescription || customDraft.description,
+        resolution: {
+          status: editableReference.sourceKind === 'original' ? 'original' : 'resolved',
+          candidates: candidate,
+          selected_candidate_id: candidate[0]?.candidate_id || null,
+          confidence: 1,
+          requires_confirmation: editableReference.sourceKind !== 'original',
+          explicit_constraints: intent?.explicit_constraints || [],
+        },
+        reference: editableReference,
+        referenceConfirmed: true,
+        adaptationMode: intent?.adaptation_mode || defaultAdaptationMode(editableReference.sourceKind),
+        constraintsText: (intent?.explicit_constraints || []).join('\n'),
+        editingPersonaSlug: customDraft.slug,
+        revision: (customDraft.revision || 1) + 1,
+      });
+      setGenError(null);
+      setGenStages([]);
+      setMode('create');
+    },
+    [publishCreationDraft],
+  );
+
+  const adjustActivePersona = useCallback(async () => {
+    const instruction = adjustmentDraft.trim();
+    const customDraft = activeItem?.customDraft;
+    const seed = activeSeed;
+    if (
+      !instruction ||
+      !customDraft ||
+      !seed ||
+      disabled ||
+      busy ||
+      adjusting
+    ) {
+      return;
+    }
+    setAdjusting(true);
+    setAdjustmentError(null);
+    try {
+      const targetLanguage = (i18n.language || '').startsWith('zh') ? 'Chinese' : 'English';
+      const response = await personasApi.adjust({
+        current_config: customDraft.config,
+        instruction,
+        scope: 'auto',
+        target_language: targetLanguage,
+        intent: customDraft.intent,
+        llm_override: llmConfig,
+      });
+      if (!response.data) {
+        throw new Error('Persona adjustment returned no config');
+      }
+      const updatedDraft: CustomPersonaDraft = {
+        ...customDraft,
+        name: response.data.name || customDraft.name,
+        description: response.data.description || customDraft.description,
+        config: response.data,
+        revision: (customDraft.revision || 1) + 1,
+      };
+      const nextDrafts = customDrafts.map((item) =>
+        item.slug === customDraft.slug ? updatedDraft : item,
+      );
+      setCustomDrafts(nextDrafts);
+      onCustomPersonasChange?.(nextDrafts);
+      setAdjustmentDraft('');
+
+      const currentTurns = transcripts[seed] ?? [];
+      let lastUserIndex = currentTurns.length - 1;
+      while (lastUserIndex >= 0 && currentTurns[lastUserIndex].role !== 'user') {
+        lastUserIndex -= 1;
+      }
+      if (lastUserIndex < 0) {
+        return;
+      }
+
+      const lastUser = currentTurns[lastUserIndex];
+      const history = collapsePreviewHistory(currentTurns.slice(0, lastUserIndex));
+      const streamGroupId = createStableId();
+      setTranscripts((prev) => {
+        const list = prev[seed] ?? [];
+        return {
+          ...prev,
+          [seed]: [
+            ...list.map((turn, index) =>
+              index > lastUserIndex && turn.role === 'assistant'
+                ? { ...turn, superseded: true }
+                : turn,
+            ),
+            {
+              id: createStableId(),
+              kind: 'revision-divider',
+              role: 'assistant',
+              content: '',
+            },
+            {
+              id: createStableId(),
+              role: 'assistant',
+              content: '',
+              streamGroupId,
+            },
+          ],
+        };
+      });
+
+      let responseText = '';
+      try {
+        for await (const chunk of streamChatPreview({
+          persona_override: response.data,
+          history,
+          message: { role: 'user', content: lastUser.content },
+          llm_override: llmConfig,
+          locale,
+        })) {
+          responseText += chunk;
+          updateAdjustmentStreamContent(seed, streamGroupId, responseText);
+        }
+      } catch (error) {
+        const prefix = responseText ? `${responseText}\n` : '';
+        updateAdjustmentStreamContent(
+          seed,
+          streamGroupId,
+          `${prefix}[error: ${(error as Error).message}]`,
+        );
+      }
+    } catch (error) {
+      setAdjustmentError(
+        (error as Error).message || t('personaPreview.adjustment.failed'),
+      );
+    } finally {
+      setAdjusting(false);
+    }
+  }, [
+    activeItem,
+    activeSeed,
+    adjustmentDraft,
+    adjusting,
+    busy,
+    customDrafts,
+    disabled,
+    i18n.language,
+    llmConfig,
+    locale,
+    onCustomPersonasChange,
+    t,
+    transcripts,
+    updateAdjustmentStreamContent,
+  ]);
+
+  useEffect(() => {
+    const restored = creationDraftRef.current;
+    const jobId = restored?.generationJobId;
+    if (
+      !restored ||
+      restored.phase !== 'generating' ||
+      !jobId ||
+      resumedGenerationJobIdsRef.current.has(jobId)
+    ) {
+      return;
+    }
+    resumedGenerationJobIdsRef.current.add(jobId);
+    void runGeneration(restored, buildGenerationIntent(restored), jobId);
+  }, [runGeneration]);
+
+  const creationNeedsConfirmation =
+    creationDraft?.phase === 'reviewing' || creationDraft?.phase === 'failed';
+  const creationReferenceValid =
+    !creationNeedsConfirmation ||
+    (
+      creationDraft.referenceConfirmed &&
+      (
+        creationDraft.reference.sourceKind === 'original' ||
+        Boolean(creationDraft.reference.name.trim())
+      )
+    );
+  const generationButtonLabel =
+    creationDraft?.phase === 'resolving'
+      ? t('personaPreview.reference.resolving')
+      : creationDraft?.phase === 'generating'
+        ? t('personaPreview.generating')
+        : creationNeedsConfirmation
+          ? t('personaPreview.reference.confirmAndGenerate')
+          : t('personaPreview.generate');
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -474,6 +1054,9 @@ export function PersonaPreviewChat({
           type="button"
           data-testid="persona-create-custom"
           onClick={() => {
+            if (!creationDraftRef.current) {
+              publishCreationDraft(createEmptyCreationDraft());
+            }
             setMode('create');
             setGenError(null);
           }}
@@ -499,13 +1082,60 @@ export function PersonaPreviewChat({
             </p>
             <textarea
               data-testid="persona-custom-description"
-              value={customDescription}
-              onChange={(e) => setCustomDescription(e.target.value)}
+              value={creationDraft?.description || ''}
+              onChange={(event) => {
+                const currentDraft = creationDraftRef.current ?? createEmptyCreationDraft();
+                publishCreationDraft({
+                  ...currentDraft,
+                  phase: 'editing',
+                  description: event.target.value,
+                  resolution: undefined,
+                  referenceConfirmed: false,
+                  generationRequestId: undefined,
+                  generationJobId: undefined,
+                });
+                setGenError(null);
+                setGenStages([]);
+              }}
               placeholder={t('personaPreview.customDescriptionPlaceholder')}
               disabled={generating}
               rows={3}
               className="mt-4 w-full rounded-lg border border-border/45 bg-muted/35 px-4 py-3 text-base leading-7 text-foreground shadow-inner shadow-background/40 outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary/35 focus:bg-background/80 focus:ring-2 focus:ring-primary/15 disabled:opacity-70"
             />
+
+            {creationDraft?.resolution && creationNeedsConfirmation && (
+              <PersonaReferenceEditor
+                resolution={creationDraft.resolution}
+                value={creationDraft.reference}
+                adaptationMode={creationDraft.adaptationMode}
+                constraintsText={creationDraft.constraintsText}
+                disabled={generating}
+                onChange={(reference) => {
+                  publishCreationDraft({
+                    ...creationDraft,
+                    reference,
+                    referenceConfirmed: true,
+                    adaptationMode:
+                      reference.sourceKind === creationDraft.reference.sourceKind
+                        ? creationDraft.adaptationMode
+                        : defaultAdaptationMode(reference.sourceKind),
+                  });
+                }}
+                onAdaptationModeChange={(adaptationMode) => {
+                  publishCreationDraft({
+                    ...creationDraft,
+                    adaptationMode,
+                    referenceConfirmed: true,
+                  });
+                }}
+                onConstraintsTextChange={(constraintsText) => {
+                  publishCreationDraft({
+                    ...creationDraft,
+                    constraintsText,
+                  });
+                }}
+              />
+            )}
 
             {generating && (
               <div
@@ -522,7 +1152,11 @@ export function PersonaPreviewChat({
                     )}
                     aria-hidden="true"
                   />
-                  <span>{t('personaPreview.generating')}</span>
+                  <span>
+                    {creationDraft?.phase === 'resolving'
+                      ? t('personaPreview.reference.resolving')
+                      : t('personaPreview.generating')}
+                  </span>
                 </div>
                 {genStages.length > 0 && (
                   <ul className="mt-3 space-y-1.5">
@@ -556,8 +1190,8 @@ export function PersonaPreviewChat({
             )}
 
             {genError && (
-              <p className="mt-3 text-xs text-destructive">
-                {t('personaPreview.generationFailed')}: {genError}
+              <p className="mt-3 text-xs text-destructive" role="alert">
+                {genError}
               </p>
             )}
           </div>
@@ -568,6 +1202,7 @@ export function PersonaPreviewChat({
               onClick={() => {
                 setMode('chat');
                 setGenError(null);
+                publishCreationDraft(null);
               }}
               disabled={generating}
               className="rounded-md px-4 py-2 text-sm text-muted-foreground underline disabled:opacity-50"
@@ -577,16 +1212,43 @@ export function PersonaPreviewChat({
             <button
               type="button"
               data-testid="persona-custom-generate"
-              onClick={handleGenerate}
-              disabled={!customDescription.trim() || generating}
+              onClick={() => void handleResolveOrGenerate()}
+              disabled={
+                !creationDraft?.description.trim() ||
+                generating ||
+                !creationReferenceValid
+              }
               className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
             >
-              {generating ? t('personaPreview.generating') : t('personaPreview.generate')}
+              {generationButtonLabel}
             </button>
           </div>
         </div>
       ) : (
         <div className="flex min-h-0 flex-col gap-3">
+          {activeItem?.customDraft?.intent?.reference && (
+            <div
+              data-testid="persona-reference-summary"
+              className="flex items-center justify-between gap-3 rounded-lg border border-border/55 bg-muted/25 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <div className="text-xs text-muted-foreground">
+                  {t('personaPreview.reference.currentReference')}
+                </div>
+                <div className="truncate text-sm font-medium text-foreground">
+                  {referenceSummary(activeItem.customDraft.intent)}
+                </div>
+              </div>
+              <button
+                type="button"
+                data-testid="persona-reference-edit"
+                onClick={() => editCustomReference(activeItem.customDraft!)}
+                className="shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+              >
+                {t('personaPreview.reference.edit')}
+              </button>
+            </div>
+          )}
           <div
             role="group"
             aria-label={t('personaPreview.modeLabel', { name: activeItem?.name || '' })}
@@ -675,8 +1337,19 @@ export function PersonaPreviewChat({
                   </p>
                 )}
                 {activeTranscript.map((turn, idx) => (
+                  turn.kind === 'revision-divider' ? (
+                    <div
+                      key={turn.id || `divider-${idx}`}
+                      data-testid="persona-adjustment-divider"
+                      className="my-4 flex items-center gap-3 text-xs text-muted-foreground"
+                    >
+                      <span className="h-px flex-1 bg-border" />
+                      <span>{t('personaPreview.adjustment.reanswered')}</span>
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
+                  ) : (
                   <div
-                    key={idx}
+                    key={turn.id || idx}
                     className={`mb-2 flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     <span
@@ -689,7 +1362,7 @@ export function PersonaPreviewChat({
                         turn.role === 'user'
                           ? 'rounded-xl rounded-tr-sm'
                           : 'rounded-xl rounded-tl-sm'
-                      }`}
+                      } ${turn.superseded ? 'opacity-55' : ''}`}
                     >
                       {turn.role === 'assistant' && turn.content === '' ? (
                         <TypingDots
@@ -701,10 +1374,74 @@ export function PersonaPreviewChat({
                       )}
                     </span>
                   </div>
+                  )
                 ))}
               </div>
 
               <PersonaPreviewStarterChips onPick={handleChipPick} />
+
+              {activeItem?.customDraft && (
+                <div
+                  data-testid="persona-adjustment-panel"
+                  className="rounded-lg border border-border/55 bg-muted/20 p-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">
+                        {t('personaPreview.adjustment.title')}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {t('personaPreview.adjustment.hint')}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(['shorter', 'lessPerformative', 'moreNatural'] as const).map((key) => (
+                        <button
+                          key={key}
+                          type="button"
+                          disabled={adjusting}
+                          onClick={() => setAdjustmentDraft(t(`personaPreview.adjustment.quick.${key}`))}
+                          className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                        >
+                          {t(`personaPreview.adjustment.quick.${key}`)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      data-testid="persona-adjustment-input"
+                      value={adjustmentDraft}
+                      disabled={adjusting}
+                      onChange={(event) => setAdjustmentDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !event.shiftKey) {
+                          event.preventDefault();
+                          void adjustActivePersona();
+                        }
+                      }}
+                      placeholder={t('personaPreview.adjustment.placeholder')}
+                      className="min-w-0 flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60"
+                    />
+                    <button
+                      type="button"
+                      data-testid="persona-adjustment-submit"
+                      disabled={!adjustmentDraft.trim() || adjusting || busy}
+                      onClick={() => void adjustActivePersona()}
+                      className="rounded-md border border-primary/40 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+                    >
+                      {adjusting
+                        ? t('personaPreview.adjustment.adjusting')
+                        : t('personaPreview.adjustment.submit')}
+                    </button>
+                  </div>
+                  {adjustmentError && (
+                    <p className="mt-2 text-xs text-destructive" role="alert">
+                      {adjustmentError}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="flex items-center gap-2">
                 <input
@@ -712,7 +1449,7 @@ export function PersonaPreviewChat({
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   placeholder={t('personaPreview.composerPlaceholder')}
-                  disabled={capReached}
+                  disabled={adjusting || capReached}
                   className="flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
@@ -724,7 +1461,7 @@ export function PersonaPreviewChat({
                 <button
                   type="button"
                   onClick={send}
-                  disabled={!draft.trim() || busy || capReached}
+                  disabled={!draft.trim() || busy || adjusting || capReached}
                   className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
                 >
                   {t('personaPreview.send')}

@@ -226,7 +226,7 @@
     "capReached": "You've tried this persona enough — choose it or try another.",
     "createCustom": "Custom persona",
     "createCustomTitle": "Create your own persona",
-    "createCustomHint": "Describe the persona you want in one sentence and AI will generate it.",
+    "createCustomHint": "Describe the persona you want in one sentence. If you reference an existing person or character, you can confirm and edit the source first.",
     "customDescriptionPlaceholder": "e.g. a sharp-tongued but caring coding buddy…",
     "generate": "Generate",
     "generating": "Generating…",
@@ -243,7 +243,83 @@
     "generationFailed": "Generation failed",
     "generationTimedOut": "Generation is taking too long. Please try again in a moment.",
     "generationFailedUnknown": "Generation did not finish. Please try again in a moment.",
-    "waiting": "Typing…"
+    "waiting": "Typing…",
+    "reference": {
+      "resolving": "Understanding the persona you want…",
+      "resolveFailed": "The reference was unclear. Confirm it manually to continue.",
+      "confirmAndGenerate": "Confirm and generate",
+      "ambiguousTitle": "Which person or character do you mean?",
+      "unknownTitle": "Confirm the reference source",
+      "reviewTitle": "Here is the reference I understood",
+      "reviewHint": "This is generation input, not a final judgment. You can edit the name, work, or version directly.",
+      "candidatesLabel": "Possible references",
+      "other": "Other",
+      "sourceKind": "Source type",
+      "sourceKinds": {
+        "original": "Original persona with no reference",
+        "fictional": "Fictional character from an existing work",
+        "publicPerson": "Real public person",
+        "privatePerson": "Private person I know"
+      },
+      "name": "Name",
+      "workTitle": "Work",
+      "version": "Version or period",
+      "versionPlaceholder": "e.g. anime version, later manga",
+      "context": "Additional context",
+      "contextPlaceholder": "Add the version, period, or portrayal that matters to you",
+      "privateDetails": "Traits you know",
+      "privateDetailsPlaceholder": "Add two or three traits or expression habits you know firsthand",
+      "modeTitle": "How should this reference appear in conversation?",
+      "recommended": "Recommended",
+      "constraints": "Anything else it must follow?",
+      "constraintsPlaceholder": "e.g. use catchphrases rarely; do not mention lore constantly",
+      "currentReference": "Current reference",
+      "edit": "Edit",
+      "modes": {
+        "fictionalInspired": {
+          "title": "Someone like them",
+          "description": "Keep the personality foundation, use a new identity, and do not inherit canon history."
+        },
+        "fictionalNatural": {
+          "title": "Them in everyday chat",
+          "description": "Keep the character identity, but chat naturally with fewer catchphrases and lore references."
+        },
+        "fictionalImmersive": {
+          "title": "Them in the original work",
+          "description": "Prioritize canon identity and portrayal while still gating strong traits to relevant moments."
+        },
+        "publicTraits": {
+          "title": "Personality only",
+          "description": "Use publicly visible tendencies to create a new identity."
+        },
+        "publicExpression": {
+          "title": "Personality and public style",
+          "description": "Reference public traits and expression without claiming to be the real person."
+        },
+        "publicImage": {
+          "title": "Close to the public image",
+          "description": "Stay closer to the public-facing impression without inferring private history."
+        },
+        "privateTraits": {
+          "title": "Use the traits I provide",
+          "description": "Use only the traits you write down, without inferring private facts or history."
+        }
+      }
+    },
+    "adjustment": {
+      "title": "Adjust persona",
+      "hint": "This changes the persona settings and is not sent as a chat message.",
+      "placeholder": "e.g. shorter replies with less role-play…",
+      "submit": "Apply",
+      "adjusting": "Adjusting…",
+      "failed": "Persona adjustment failed. Please try again.",
+      "reanswered": "Re-answered after adjustment",
+      "quick": {
+        "shorter": "Shorter replies",
+        "lessPerformative": "Less performative",
+        "moreNatural": "More natural chat"
+      }
+    }
   },
   "firstContext": {
     "kicker": "Before your first conversation · Entirely optional",

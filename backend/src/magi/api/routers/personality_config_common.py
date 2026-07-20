@@ -9,7 +9,12 @@ from typing import Any, Dict, List, Optional
 from ...config.models import LLMSettings
 from ...identity.defaults import CANONICAL_LOCAL_USER
 from ...personality.loader import PersonalityConfig
-from .personality_config_schemas import PersonalityConfigModel, PersonalityDiff
+from .personality_config_schemas import (
+    PersonaGenerationIntentModel,
+    PersonaIntentResolutionModel,
+    PersonalityConfigModel,
+    PersonalityDiff,
+)
 
 
 def legacy_personality_config_module() -> ModuleType:
@@ -172,6 +177,7 @@ async def ai_generate_personality(
     target_language: str = "English",
     current_config: Optional[PersonalityConfigModel] = None,
     llm_override: Optional[LLMSettings] = None,
+    intent: Optional[PersonaGenerationIntentModel] = None,
 ) -> PersonalityConfigModel:
     """Generate personality configuration from description using LLM."""
     result = await ai_generate_personality_result(
@@ -179,6 +185,7 @@ async def ai_generate_personality(
         target_language=target_language,
         current_config=current_config,
         llm_override=llm_override,
+        intent=intent,
     )
     return result.config
 
@@ -188,6 +195,7 @@ async def ai_generate_personality_result(
     target_language: str = "English",
     current_config: Optional[PersonalityConfigModel] = None,
     llm_override: Optional[LLMSettings] = None,
+    intent: Optional[PersonaGenerationIntentModel] = None,
 ):
     """Generate personality configuration plus stage metadata."""
     legacy = legacy_personality_config_module()
@@ -196,6 +204,7 @@ async def ai_generate_personality_result(
         target_language=target_language,
         current_config=current_config,
         llm_override=llm_override,
+        intent=intent,
         adapter_resolver=legacy.resolve_adapter_for_scenario,
         adapter_factory=legacy.create_llm_adapter,
     )
@@ -206,6 +215,9 @@ async def ai_start_personality_generation_job(
     target_language: str = "English",
     current_config: Optional[PersonalityConfigModel] = None,
     llm_override: Optional[LLMSettings] = None,
+    draft_id: Optional[str] = None,
+    request_id: Optional[str] = None,
+    intent: Optional[PersonaGenerationIntentModel] = None,
 ) -> Dict[str, Any]:
     """Start a background personality generation job."""
     legacy = legacy_personality_config_module()
@@ -214,6 +226,9 @@ async def ai_start_personality_generation_job(
         target_language=target_language,
         current_config=current_config,
         llm_override=llm_override,
+        draft_id=draft_id,
+        request_id=request_id,
+        intent=intent,
         adapter_resolver=legacy.resolve_adapter_for_scenario,
         adapter_factory=legacy.create_llm_adapter,
     )
@@ -223,6 +238,45 @@ async def ai_get_personality_generation_job(job_id: str) -> Optional[Dict[str, A
     """Get a background personality generation job snapshot."""
     legacy = legacy_personality_config_module()
     return await legacy.get_personality_generation_job(job_id)
+
+
+async def ai_resolve_persona_generation_intent(
+    description: str,
+    target_language: str = "English",
+    llm_override: Optional[LLMSettings] = None,
+) -> PersonaIntentResolutionModel:
+    """Resolve a free-text persona description into an editable intent draft."""
+    legacy = legacy_personality_config_module()
+    return await legacy.resolve_persona_generation_intent(
+        description,
+        target_language=target_language,
+        llm_override=llm_override,
+        adapter_resolver=legacy.resolve_adapter_for_scenario,
+        adapter_factory=legacy.create_llm_adapter,
+    )
+
+
+async def ai_adjust_personality(
+    current_config: PersonalityConfigModel,
+    instruction: str,
+    *,
+    scope: str = "auto",
+    target_language: str = "English",
+    intent: Optional[PersonaGenerationIntentModel] = None,
+    llm_override: Optional[LLMSettings] = None,
+) -> PersonalityConfigModel:
+    """Apply one scoped adjustment to an unsaved persona draft."""
+    legacy = legacy_personality_config_module()
+    return await legacy.adjust_personality_config(
+        current_config,
+        instruction,
+        scope=scope,
+        target_language=target_language,
+        intent=intent,
+        llm_override=llm_override,
+        adapter_resolver=legacy.resolve_adapter_for_scenario,
+        adapter_factory=legacy.create_llm_adapter,
+    )
 
 
 __all__ = [
@@ -238,9 +292,11 @@ __all__ = [
     "_normalize_generated_personality_payload",
     "_resolve_persona_id",
     "_wait_for_bootstrap_runtime_ready",
+    "ai_adjust_personality",
     "ai_get_personality_generation_job",
     "ai_generate_personality",
     "ai_generate_personality_result",
+    "ai_resolve_persona_generation_intent",
     "ai_start_personality_generation_job",
     "legacy_personality_config_module",
     "sanitize_filename",

@@ -226,7 +226,7 @@
     "capReached": "这个人格试得差不多了 — 选它或换一个。",
     "createCustom": "自定义人格",
     "createCustomTitle": "创建你自己的人格",
-    "createCustomHint": "用一句话描述你想要的人格，AI 会帮你生成。",
+    "createCustomHint": "用一句话描述你想要的人格。涉及现有角色或人物时，你可以先确认并修改原型来源。",
     "customDescriptionPlaceholder": "比如：一个毒舌但贴心的程序员搭子…",
     "generate": "生成",
     "generating": "生成中…",
@@ -243,7 +243,83 @@
     "generationFailed": "生成失败",
     "generationTimedOut": "生成时间太久了，请稍后再试一次。",
     "generationFailedUnknown": "生成没有完成，请稍后再试一次。",
-    "waiting": "正在输入…"
+    "waiting": "正在输入…",
+    "reference": {
+      "resolving": "正在理解你想要的人格…",
+      "resolveFailed": "没有判断清楚人物来源，请手动确认后继续。",
+      "confirmAndGenerate": "确认并生成",
+      "ambiguousTitle": "你说的是哪一个人物？",
+      "unknownTitle": "确认一下人物来源",
+      "reviewTitle": "我理解的是这个人物",
+      "reviewHint": "这是生成依据，不是最终结论。名字、作品和版本都可以直接修改。",
+      "candidatesLabel": "可能的人物原型",
+      "other": "其他",
+      "sourceKind": "来源类型",
+      "sourceKinds": {
+        "original": "原创人格，没有人物原型",
+        "fictional": "现有作品中的虚构人物",
+        "publicPerson": "现实中的公众人物",
+        "privatePerson": "我认识的私人个体"
+      },
+      "name": "人物名称",
+      "workTitle": "所属作品",
+      "version": "版本或时期",
+      "versionPlaceholder": "例如：动画版、漫画后期",
+      "context": "补充说明",
+      "contextPlaceholder": "可以补充你在意的版本、时期或表现",
+      "privateDetails": "你了解的特点",
+      "privateDetailsPlaceholder": "请写两三个你亲自了解的性格或表达特点",
+      "modeTitle": "你希望这个人物怎样出现在聊天里？",
+      "recommended": "推荐",
+      "constraints": "还有哪些必须遵守？",
+      "constraintsPlaceholder": "例如：少说口头禅；不要频繁提作品设定",
+      "currentReference": "当前人物原型",
+      "edit": "修改",
+      "modes": {
+        "fictionalInspired": {
+          "title": "像 TA 的人",
+          "description": "保留性格底色，使用新的身份，不继承原作经历。"
+        },
+        "fictionalNatural": {
+          "title": "日常聊天中的 TA",
+          "description": "保留人物身份，但像平常聊天一样自然，少用口头禅和设定梗。"
+        },
+        "fictionalImmersive": {
+          "title": "原作中的 TA",
+          "description": "更重视原作身份和表现，强烈特征仍只在相关场景出现。"
+        },
+        "publicTraits": {
+          "title": "只参考性格",
+          "description": "提取公开可见的性格倾向，创建一个全新的身份。"
+        },
+        "publicExpression": {
+          "title": "性格和公开表达",
+          "description": "参考公开性格与表达方式，但不声称自己就是本人。"
+        },
+        "publicImage": {
+          "title": "接近公开形象",
+          "description": "更贴近公开呈现的整体感觉，不推断私人经历。"
+        },
+        "privateTraits": {
+          "title": "参考我提供的特点",
+          "description": "只使用你明确写下的特点，不推断对方的隐私和经历。"
+        }
+      }
+    },
+    "adjustment": {
+      "title": "调整人格",
+      "hint": "这里会修改人格设定，不会当作聊天消息发送。",
+      "placeholder": "比如：回复短一点，少一点角色扮演感…",
+      "submit": "应用调整",
+      "adjusting": "调整中…",
+      "failed": "人格调整失败，请稍后再试。",
+      "reanswered": "调整后重新回答",
+      "quick": {
+        "shorter": "回复再短一点",
+        "lessPerformative": "少一点表演感",
+        "moreNatural": "聊天更自然"
+      }
+    }
   },
   "firstContext": {
     "kicker": "第一次对话之前 · 完全可选",

@@ -94,6 +94,18 @@ describe('PersonaPreviewChat', () => {
   beforeEach(() => {
     mockStream.mockReset();
     mockStream.mockImplementation(() => makeAsyncIter(['hello', ' ', 'world']));
+    vi.spyOn(personasApi, 'resolveGenerationIntent').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: {
+        status: 'original',
+        candidates: [],
+        selected_candidate_id: null,
+        confidence: 0.96,
+        requires_confirmation: false,
+        explicit_constraints: [],
+      },
+    });
   });
 
   afterEach(() => {
@@ -556,6 +568,315 @@ describe('PersonaPreviewChat', () => {
         }),
       );
     });
+  });
+
+  it('requires the user to choose between ambiguous character sources', async () => {
+    vi.mocked(personasApi.resolveGenerationIntent).mockResolvedValueOnce({
+      success: true,
+      message: 'ok',
+      data: {
+        status: 'ambiguous',
+        candidates: [
+          {
+            candidate_id: 'candidate-1',
+            source_kind: 'fictional_reference',
+            name: '孙悟空',
+            work_title: '西游记',
+            version: null,
+            context: null,
+            confidence: 0.52,
+          },
+          {
+            candidate_id: 'candidate-2',
+            source_kind: 'fictional_reference',
+            name: '孙悟空',
+            work_title: '龙珠',
+            version: null,
+            context: null,
+            confidence: 0.46,
+          },
+        ],
+        selected_candidate_id: null,
+        confidence: 0.52,
+        requires_confirmation: true,
+        explicit_constraints: [],
+      },
+    });
+    const genSpy = vi
+      .spyOn(personasApi, 'generateWithProgress')
+      .mockResolvedValue({
+        success: true,
+        message: 'ok',
+        data: makeGeneratedConfig(),
+        stages: [],
+      } as any);
+
+    renderPersonaPreview({ previews });
+    await userEvent.click(screen.getByTestId('persona-create-custom'));
+    await userEvent.type(screen.getByTestId('persona-custom-description'), '孙悟空');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    expect(await screen.findByTestId('persona-reference-editor')).toBeInTheDocument();
+    expect(genSpy).not.toHaveBeenCalled();
+    expect(screen.getByTestId('persona-custom-generate')).toBeDisabled();
+
+    await userEvent.click(screen.getByTestId('persona-reference-candidate-candidate-2'));
+    expect(screen.getByTestId('persona-reference-work')).toHaveValue('龙珠');
+    await userEvent.clear(screen.getByTestId('persona-reference-work'));
+    await userEvent.type(screen.getByTestId('persona-reference-work'), '龙珠 Z');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
+    expect(genSpy.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        intent: expect.objectContaining({
+          source_kind: 'fictional_reference',
+          adaptation_mode: 'fictional_natural',
+          expression_profile: 'natural',
+          reference: expect.objectContaining({
+            name: '孙悟空',
+            work_title: '龙珠 Z',
+            user_confirmed: true,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('lets the user edit a resolved work and choose immersive fidelity', async () => {
+    vi.mocked(personasApi.resolveGenerationIntent).mockResolvedValueOnce({
+      success: true,
+      message: 'ok',
+      data: {
+        status: 'resolved',
+        candidates: [
+          {
+            candidate_id: 'candidate-1',
+            source_kind: 'fictional_reference',
+            name: '孙悟空',
+            work_title: '龙珠',
+            version: null,
+            context: null,
+            confidence: 0.96,
+          },
+        ],
+        selected_candidate_id: 'candidate-1',
+        confidence: 0.96,
+        requires_confirmation: true,
+        explicit_constraints: ['少说设定黑话'],
+      },
+    });
+    const generated = makeGeneratedConfig();
+    const genSpy = vi.spyOn(personasApi, 'generateWithProgress').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: generated,
+      stages: [],
+    } as any);
+
+    renderPersonaPreview({ previews });
+    await userEvent.click(screen.getByTestId('persona-create-custom'));
+    await userEvent.type(screen.getByTestId('persona-custom-description'), '龙珠里的孙悟空');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    expect(await screen.findByTestId('persona-reference-work')).toHaveValue('龙珠');
+    expect(screen.getByTestId('persona-reference-constraints')).toHaveValue('少说设定黑话');
+    await userEvent.click(screen.getByTestId('persona-reference-mode-fictional_immersive'));
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
+    expect(genSpy.mock.calls[0][0].intent).toEqual(
+      expect.objectContaining({
+        adaptation_mode: 'fictional_immersive',
+        expression_profile: 'immersive',
+        explicit_constraints: ['少说设定黑话'],
+      }),
+    );
+  });
+
+  it('reopens a generated reference for correction without changing its persona id', async () => {
+    const generated = makeGeneratedConfig();
+    const customDraft: CustomPersonaDraft = {
+      personaId: '11111111-1111-4111-8111-111111111111',
+      slug: 'custom-1',
+      name: 'Goku',
+      description: 'natural Goku',
+      originalDescription: '孙悟空',
+      revision: 1,
+      intent: {
+        source_kind: 'fictional_reference',
+        reference: {
+          source_kind: 'fictional_reference',
+          name: '孙悟空',
+          work_title: '西游记',
+          version: null,
+          context: null,
+          user_confirmed: true,
+        },
+        adaptation_mode: 'fictional_natural',
+        expression_profile: 'natural',
+        explicit_constraints: [],
+      },
+      config: generated,
+    };
+    const onCustomPersonasChange = vi.fn();
+    const genSpy = vi.spyOn(personasApi, 'generateWithProgress').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: { ...generated, name: 'Dragon Goku' },
+      stages: [],
+    } as any);
+
+    renderPersonaPreview({
+      previews,
+      initialActiveSeed: 'custom-1',
+      initialCustomPersonas: [customDraft],
+      onCustomPersonasChange,
+    });
+
+    const composer = screen.getByPlaceholderText(/composerPlaceholder/i);
+    await userEvent.type(composer, 'old source question');
+    await userEvent.click(screen.getByRole('button', { name: /^(personaPreview\.)?send$/i }));
+    expect(await screen.findByText('hello world')).toBeInTheDocument();
+
+    expect(screen.getByTestId('persona-reference-summary')).toHaveTextContent('西游记');
+    await userEvent.click(screen.getByTestId('persona-reference-edit'));
+    await userEvent.clear(screen.getByTestId('persona-reference-work'));
+    await userEvent.type(screen.getByTestId('persona-reference-work'), '龙珠');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('old source question')).not.toBeInTheDocument();
+    expect(screen.queryByText('hello world')).not.toBeInTheDocument();
+    const draftCalls = onCustomPersonasChange.mock.calls;
+    const lastDrafts = draftCalls[draftCalls.length - 1]?.[0] as CustomPersonaDraft[];
+    expect(lastDrafts).toHaveLength(1);
+    expect(lastDrafts[0]).toEqual(
+      expect.objectContaining({
+        personaId: customDraft.personaId,
+        slug: customDraft.slug,
+        revision: 2,
+      }),
+    );
+    expect(lastDrafts[0].intent?.reference?.work_title).toBe('龙珠');
+  });
+
+  it('adjusts a custom persona separately and re-answers the last preview turn', async () => {
+    const originalConfig = makeGeneratedConfig();
+    const adjustedConfig = {
+      ...originalConfig,
+      idiolect: {
+        ...originalConfig.idiolect,
+        sentence_style: 'short and natural',
+        chattiness: 0.2,
+      },
+    };
+    const customDraft: CustomPersonaDraft = {
+      personaId: '11111111-1111-4111-8111-111111111111',
+      slug: 'custom-1',
+      name: 'Sage',
+      description: 'wise mentor',
+      originalDescription: 'a wise mentor',
+      revision: 1,
+      config: originalConfig,
+    };
+    const adjustSpy = vi.spyOn(personasApi, 'adjust').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: adjustedConfig,
+    });
+    const onCustomPersonasChange = vi.fn();
+    mockStream
+      .mockImplementationOnce(() => makeAsyncIter(['old reply']))
+      .mockImplementationOnce(() => makeAsyncIter(['new short reply']))
+      .mockImplementationOnce(() => makeAsyncIter(['next reply']));
+
+    renderPersonaPreview({
+      previews,
+      initialActiveSeed: 'custom-1',
+      initialCustomPersonas: [customDraft],
+      onCustomPersonasChange,
+    });
+
+    const composer = screen.getByPlaceholderText(/composerPlaceholder/i);
+    await userEvent.type(composer, 'first question');
+    await userEvent.click(screen.getByRole('button', { name: /^(personaPreview\.)?send$/i }));
+    expect(await screen.findByText('old reply')).toBeInTheDocument();
+
+    await userEvent.type(
+      screen.getByTestId('persona-adjustment-input'),
+      '回复短一点',
+    );
+    await userEvent.click(screen.getByTestId('persona-adjustment-submit'));
+
+    expect(await screen.findByTestId('persona-adjustment-divider')).toBeInTheDocument();
+    expect(await screen.findByText('new short reply')).toBeInTheDocument();
+    expect(screen.getByText('old reply')).toBeInTheDocument();
+    expect(adjustSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        current_config: originalConfig,
+        instruction: '回复短一点',
+        scope: 'auto',
+      }),
+    );
+    const draftCalls = onCustomPersonasChange.mock.calls;
+    const adjustedDrafts = draftCalls[draftCalls.length - 1][0] as CustomPersonaDraft[];
+    expect(adjustedDrafts[0].revision).toBe(2);
+    expect(adjustedDrafts[0].config).toBe(adjustedConfig);
+
+    await userEvent.type(composer, 'next question');
+    await userEvent.click(screen.getByRole('button', { name: /^(personaPreview\.)?send$/i }));
+    await waitFor(() => expect(mockStream).toHaveBeenCalledTimes(3));
+    expect(mockStream.mock.calls[2][0].history).toEqual([
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'new short reply' },
+    ]);
+    expect(mockStream.mock.calls[2][0].persona_override).toBe(adjustedConfig);
+  });
+
+  it('blocks chat input while a persona adjustment is still running', async () => {
+    const originalConfig = makeGeneratedConfig();
+    const customDraft: CustomPersonaDraft = {
+      personaId: '11111111-1111-4111-8111-111111111111',
+      slug: 'custom-1',
+      name: 'Sage',
+      description: 'wise mentor',
+      revision: 1,
+      config: originalConfig,
+    };
+    let finishAdjustment: (value: unknown) => void = () => {};
+    vi.spyOn(personasApi, 'adjust').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishAdjustment = resolve;
+        }) as any,
+    );
+
+    renderPersonaPreview({
+      previews,
+      initialActiveSeed: 'custom-1',
+      initialCustomPersonas: [customDraft],
+    });
+
+    await userEvent.type(
+      screen.getByTestId('persona-adjustment-input'),
+      '回复短一点',
+    );
+    await userEvent.click(screen.getByTestId('persona-adjustment-submit'));
+
+    const composer = screen.getByPlaceholderText(/composerPlaceholder/i);
+    const sendButton = screen.getByRole('button', {
+      name: /^(personaPreview\.)?send$/i,
+    });
+    expect(composer).toBeDisabled();
+    expect(sendButton).toBeDisabled();
+
+    finishAdjustment({
+      success: true,
+      message: 'ok',
+      data: originalConfig,
+    });
+    await waitFor(() => expect(composer).not.toBeDisabled());
   });
 
   it('reveals rhythm segments over time and collapses them in history', async () => {

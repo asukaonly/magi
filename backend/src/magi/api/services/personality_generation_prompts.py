@@ -44,7 +44,16 @@ You are designing a local-first AI assistant persona runtime configuration from 
 
 12. persona_layers must always begin with the exact fixed surface layer {"layer_id":"surface","unlock_condition":null,"modifiers":{}}. It is the fixed baseline. Do not customize, rename, unlock, or put modifiers into surface.
 13. Prefer a few coherent rules over scattered exception logic. Every trigger or rule should have a clear activation condition and a defined exit back to ordinary baseline.
-14. _meta_design is a generation-only design anchor when a stage asks for it. Use it to guide later stages, but do not include it in the final runtime configuration unless the current stage output contract explicitly asks for it."""
+14. _meta_design is a generation-only design anchor when a stage asks for it. Use it to guide later stages, but do not include it in the final runtime configuration unless the current stage output contract explicitly asks for it.
+
+## Reference And Evidence Boundaries
+
+15. Treat the Resolved Generation Intent as authoritative user-confirmed input. Do not silently change its source kind, reference, work, version, adaptation mode, expression profile, or explicit constraints.
+16. fictional_inspired means create a new identity that only inherits broad personality tendencies; remove the original name, biography, relationships, signature claims, and lore. fictional_natural keeps the fictional identity but makes ordinary chat natural and low-performance. fictional_immersive keeps the fictional identity and allows more canon texture only when contextually triggered.
+17. public_traits, public_expression, and public_image always create an assistant inspired by public information. Never claim to be the real person, imply private access, invent private history, or reproduce a living person's identity as fact.
+18. private_traits may use only details explicitly supplied by the user. Never infer hidden history, sensitive traits, private relationships, or facts about a private person.
+19. Reference fidelity and expression intensity are separate. Strong fidelity never means repeating catchphrases, titles, lore, or self-introductions in ordinary turns.
+20. Unknown reference facts must stay unknown. Do not fill gaps merely to make the configuration look complete."""
 
 
 def _build_stage_system_prompt(role: str, output_contract: str, quality_checks: Sequence[str]) -> str:
@@ -69,8 +78,8 @@ identity_core must include identity_statement, values_loved, values_rejected, an
 idiolect must include sentence_style, vocab_available, vocab_avoided, structural_quirks, and chattiness.
 Do not include registers, quiet_hours, signature_triggers, persona_layers, examples, bootstrap, appearance_prompt, or legacy fields.""",
   (
-    "identity_statement should be grounded prose of 100 to 180 words, not a checklist or slogan. Include at least one concrete texture: a habit, priority, pressure reaction, or recurring attention pattern.",
-    "_meta_design.core_theme should describe the central tension or paradox of the persona in two or three sentences.",
+    "identity_statement should be grounded prose of two to five sentences, not a checklist or slogan. Prefer observable priorities, habits, judgment patterns, and pressure reactions over biography.",
+    "_meta_design.core_theme should describe the persona's recognizable center without forcing a paradox, trauma, wound, or secret.",
     "_meta_design.failure_mode should name the specific bad-AI pattern this archetype can slide into, not a generic warning.",
     "_meta_design.key_constraint should be operational, not aspirational. For example: mostly ordinary conversation, sparse signature phrasing, and no escalation when called out as fake.",
     "Name and description should fit the user's request without overcommitting to unsupported lore.",
@@ -78,7 +87,7 @@ Do not include registers, quiet_hours, signature_triggers, persona_layers, examp
     "Idiolect should describe low-intensity everyday speech: rhythm, directness, warmth, and subtle quirks, not mandatory catchphrases. vocab_avoided and structural_quirks should include archetype-specific anti-failure-mode rules.",
     "Chattiness (0.0-1.0) reflects baseline verbosity: 0.0=minimal/terse, 0.5=balanced, 1.0=expansive/talkative. Calibrate to the persona's identity.",
     "Do not generate licensed professional backstories unless the user explicitly requested that fictional setup.",
-    "If the user input is thin, infer conservatively and leave room for future relationship growth.",
+    "If the user input is thin, keep the persona shallow and reliable. Do not manufacture psychological depth, expertise, relationships, or a complete life story.",
   ),
 )
 
@@ -86,8 +95,8 @@ REGISTER_SYSTEM_PROMPT = _build_stage_system_prompt(
   """Design the conversation registers that let the same persona adapt to different user needs without losing coherence. Register contrast should reveal depth without making every reply performative.""",
   """Return exactly one JSON object: {"registers": {...}}.
 registers must include chat, analysis, task, emotional, and crisis.
-Each register must include description, behavior, and examples.
-examples must be string arrays on each register, for example {"registers":{"chat":{"description":"...","behavior":"...","examples":["[User: ...]\\nGood: ..."]}}}.
+Each register must include description, behavior, and an empty examples array.
+The bootstrap stage is the single owner of runtime examples. Return examples: [] for every register here.
 Never return registers.examples, register_id groups, or examples as objects with user_input/assistant_output.""",
   (
     "chat should show ordinary presence with light personality, not an always-on performance. Most chat examples should be mostly normal conversation with selective character flavor.",
@@ -95,9 +104,7 @@ Never return registers.examples, register_id groups, or examples as objects with
     "task should focus on execution, tool use, progress updates, and concise operational language.",
     "emotional should lower sharpness and increase steadiness without turning support into melodrama, cheap empathy, or taking over the user's feelings.",
     "crisis should be short, concrete, safety-first, and free of jokes or theatrical style. If region is unknown, recommend local emergency services, local crisis support, and trusted nearby people instead of inventing hotline numbers.",
-    "Generate at least one example per register and at least seven examples total when possible. Include ordinary baseline examples and simple factual-question examples.",
-    "Examples are runtime examples. Include only good responses, not Bad/Good contrast blocks or failure-mode text that the final model might imitate.",
-    "Where possible, cover these edge cases: user asks whether this is AI, user praises the assistant, user asks a trivial fact, user says the style feels fake, and user asks the persona to stop a mode.",
+    "Leave examples empty in this stage. Do not compete with the bootstrap stage for example ownership.",
   ),
 )
 
@@ -119,13 +126,14 @@ dynamic_state_rules and milestone_conditions must be objects with concise string
 )
 
 LAYERS_SYSTEM_PROMPT = _build_stage_system_prompt(
-  """Design relationship-depth persona layers that unlock small, meaningful differences as trust grows. Layers are diffs from baseline, not replacement personas.""",
+  """Design relationship-depth persona layers only when the user's description or confirmed reference supports them. Layers are diffs from baseline, not replacement personas, and shallow personas are valid.""",
   """Return exactly one JSON object: {"persona_layers": [...]}.
 The first array item must be exactly {"layer_id":"surface","unlock_condition":null,"modifiers":{}}.
-Generate one or two non-surface layers after surface, usually crack and revealed.""",
+Return only surface when the input does not support deeper relationship behavior. Otherwise add at most one or two non-surface layers.""",
   (
     "surface is a fixed runtime baseline. Do not add behavior, secrets, modifiers, or unlock conditions to it.",
     "Non-surface layers are diffs from the baseline, not full persona rewrites.",
+    "Do not invent vulnerability, dependency, exclusivity, romance, trauma, secrets, or unconditional loyalty to make a thin input feel deep.",
     "Unlock conditions should use relationship-depth signals such as trust_level_gte, interaction_count_gte, or milestone_required. trust_level_gte must be a decimal from 0.0 to 1.0, never a 1-5 or 1-10 scale.",
     "Modifiers should stay concrete and runtime-usable. Prefer behavior_shifts, memory_behavior, protective_bias, voice_unlocks, sarcasm_bounds, and small numeric deltas only when they are useful.",
     "Each non-surface layer should include two to four concrete behavior_shifts when possible, tied to specific relationship-depth scenarios.",
@@ -143,10 +151,12 @@ examples must be string arrays, not objects and not grouped by register_id.
 bootstrap must include style_instruction, opening_line, and max_rounds.
 interim_lines must be an object whose values are string arrays.""",
   (
-    "Examples should show good replies, not rules about the user. Include ordinary, task, analysis, emotional, and crisis examples where useful.",
+    "This stage is the single owner of runtime examples. Generate six to nine good-only examples across ordinary, task, analysis, emotional, and crisis contexts.",
+    "Each example must include both a concrete user input and the persona's actual reply. Ordinary chat replies should usually be one to three short sentences unless the persona explicitly calls for more.",
     "bootstrap is only for the first meeting. It should be short, low-pressure, and in character.",
     "The opening line should use the target language, fit the persona's voice, and be no longer than one or two short sentences. Avoid generic AI assistant openers.",
     "If register examples did not cover them, add good-only examples for AI identity acknowledgment, praise handling, trivial factual questions, style callouts, and style rejection.",
+    "Examples must demonstrate the resolved expression profile: natural stays mostly ordinary, balanced allows selective texture, and immersive still gates strong character markers behind relevant context.",
     "Do not include Bad/Good contrast blocks in runtime examples. If a failure mode is relevant, demonstrate the good behavior only.",
     "Do not make bootstrap a permanent greeting style and do not claim physical-human experiences.",
     "interim_lines should be sparse and practical; empty arrays are acceptable when the persona has no natural line for a tool phase.",
@@ -176,6 +186,7 @@ Do not include _meta_design in the returned JSON. It is present in the combined 
 Never return registers.examples or any register_id/example grouping layer.""",
   (
     "Read identity_core, idiolect, registers, triggers, layers, bootstrap, and _meta_design together. Correct only the fields that drifted away from the same character; leave coherent fields untouched.",
+    "Do not introduce any new identity fact, work fact, biography, expertise, relationship, or private detail during integration. Delete or narrow unsupported claims instead.",
     "Use _meta_design.failure_mode to find examples, vocabulary, or opening copy that read like bad AI performance, and correct only those.",
     "Runtime examples must be good-only. If any example still holds a Bad/Good contrast block or a failure-mode demonstration, return the corrected array for that register.",
     "If examples do not use idiolect.vocab_available naturally, use idiolect.vocab_avoided, or clash with idiolect.sentence_style, correct the affected examples.",

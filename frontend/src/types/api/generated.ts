@@ -3038,6 +3038,26 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/personality/adjust": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Adjust a personality draft
+         * @description Apply one scoped user adjustment to an unsaved personality configuration.
+         */
+        readonly post: operations["adjust_personality_api_personality_adjust_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/personality/bootstrap/init": {
         readonly parameters: {
             readonly query?: never;
@@ -3072,6 +3092,26 @@ export interface paths {
          * @description Generate a structured personality configuration from free-text description via LLM.
          */
         readonly post: operations["generate_personality_api_personality_generate_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/personality/generation-intents/resolve": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Resolve persona generation intent
+         * @description Classify whether a free-text persona description references an existing prototype and return editable candidates before full generation.
+         */
+        readonly post: operations["resolve_personality_generation_intent_api_personality_generation_intents_resolve_post"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -4231,8 +4271,20 @@ export interface components {
              * @description One-sentence description of AI personality
              */
             readonly description: string;
+            /**
+             * Draft Id
+             * @description Stable client draft identifier
+             */
+            readonly draft_id?: string | null;
+            /** @description User-confirmed generation intent from the lightweight resolver */
+            readonly intent?: components["schemas"]["PersonaGenerationIntentModel"] | null;
             /** @description Optional unsaved LLM configuration override */
             readonly llm_override?: components["schemas"]["LLMSettings"] | null;
+            /**
+             * Request Id
+             * @description Idempotency key for starting a generation job
+             */
+            readonly request_id?: string | null;
             /**
              * Target Language
              * @description Concrete target language, such as Chinese, English, or Japanese
@@ -7068,6 +7120,26 @@ export interface components {
          * @enum {string}
          */
         readonly PermissionMode: "all" | "high_only" | "off";
+        /** PersonaAdjustmentRequest */
+        readonly PersonaAdjustmentRequest: {
+            readonly current_config: components["schemas"]["PersonalityConfigModel-Input"];
+            /** Instruction */
+            readonly instruction: string;
+            readonly intent?: components["schemas"]["PersonaGenerationIntentModel"] | null;
+            /** @description Optional unsaved LLM configuration override */
+            readonly llm_override?: components["schemas"]["LLMSettings"] | null;
+            /**
+             * Scope
+             * @default auto
+             * @enum {string}
+             */
+            readonly scope: "auto" | "voice" | "expression" | "behavior";
+            /**
+             * Target Language
+             * @default English
+             */
+            readonly target_language: string;
+        };
         /** PersonaCreateRequest */
         readonly PersonaCreateRequest: {
             /** Config Json */
@@ -7140,6 +7212,72 @@ export interface components {
              */
             readonly success: boolean;
         };
+        /** PersonaGenerationIntentModel */
+        readonly PersonaGenerationIntentModel: {
+            /**
+             * Adaptation Mode
+             * @enum {string}
+             */
+            readonly adaptation_mode: "original" | "fictional_inspired" | "fictional_natural" | "fictional_immersive" | "public_traits" | "public_expression" | "public_image" | "private_traits";
+            /** Explicit Constraints */
+            readonly explicit_constraints?: readonly string[];
+            /**
+             * Expression Profile
+             * @default natural
+             * @enum {string}
+             */
+            readonly expression_profile: "natural" | "balanced" | "immersive";
+            readonly reference?: components["schemas"]["PersonaReferenceModel"] | null;
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            readonly source_kind: "original" | "fictional_reference" | "public_person_reference" | "private_person_reference";
+        };
+        /** PersonaIntentResolutionModel */
+        readonly PersonaIntentResolutionModel: {
+            /** Candidates */
+            readonly candidates?: readonly components["schemas"]["PersonaReferenceCandidateModel"][];
+            /**
+             * Confidence
+             * @default 0
+             */
+            readonly confidence: number;
+            /** Explicit Constraints */
+            readonly explicit_constraints?: readonly string[];
+            /**
+             * Requires Confirmation
+             * @default false
+             */
+            readonly requires_confirmation: boolean;
+            /** Selected Candidate Id */
+            readonly selected_candidate_id?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            readonly status: "original" | "resolved" | "ambiguous" | "unknown";
+        };
+        /** PersonaIntentResolutionResponse */
+        readonly PersonaIntentResolutionResponse: {
+            readonly data: components["schemas"]["PersonaIntentResolutionModel"];
+            /** Message */
+            readonly message: string;
+            /** Success */
+            readonly success: boolean;
+        };
+        /** PersonaIntentResolveRequest */
+        readonly PersonaIntentResolveRequest: {
+            /** Description */
+            readonly description: string;
+            /** @description Optional unsaved LLM configuration override */
+            readonly llm_override?: components["schemas"]["LLMSettings"] | null;
+            /**
+             * Target Language
+             * @default English
+             */
+            readonly target_language: string;
+        };
         /** PersonaLayerModel */
         readonly "PersonaLayerModel-Input": {
             /**
@@ -7175,6 +7313,53 @@ export interface components {
              * @default true
              */
             readonly success: boolean;
+        };
+        /** PersonaReferenceCandidateModel */
+        readonly PersonaReferenceCandidateModel: {
+            /**
+             * Candidate Id
+             * @default
+             */
+            readonly candidate_id: string;
+            /**
+             * Confidence
+             * @default 0
+             */
+            readonly confidence: number;
+            /** Context */
+            readonly context?: string | null;
+            /** Name */
+            readonly name: string;
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            readonly source_kind: "fictional_reference" | "public_person_reference" | "private_person_reference";
+            /** Version */
+            readonly version?: string | null;
+            /** Work Title */
+            readonly work_title?: string | null;
+        };
+        /** PersonaReferenceModel */
+        readonly PersonaReferenceModel: {
+            /** Context */
+            readonly context?: string | null;
+            /** Name */
+            readonly name: string;
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            readonly source_kind: "fictional_reference" | "public_person_reference" | "private_person_reference";
+            /**
+             * User Confirmed
+             * @default true
+             */
+            readonly user_confirmed: boolean;
+            /** Version */
+            readonly version?: string | null;
+            /** Work Title */
+            readonly work_title?: string | null;
         };
         /** PersonaSummaryModel */
         readonly PersonaSummaryModel: {
@@ -14722,6 +14907,39 @@ export interface operations {
             };
         };
     };
+    readonly adjust_personality_api_personality_adjust_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["PersonaAdjustmentRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["PersonalityResponse"];
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     readonly api_bootstrap_init_api_personality_bootstrap_init_post: {
         readonly parameters: {
             readonly query?: never;
@@ -14775,6 +14993,39 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["PersonalityResponse"];
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly resolve_personality_generation_intent_api_personality_generation_intents_resolve_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["PersonaIntentResolveRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["PersonaIntentResolutionResponse"];
                 };
             };
             /** @description Validation Error */

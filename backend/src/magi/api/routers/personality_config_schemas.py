@@ -1,9 +1,9 @@
 """Pydantic schemas for the personality configuration API."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 from ...config.models import LLMSettings
 
@@ -176,10 +176,127 @@ class PersonalityConfigModel(BaseModel):
     bootstrap: Optional[BootstrapConfigModel] = Field(default=None)
 
 
+PersonaReferenceKind = Literal[
+    "fictional_reference",
+    "public_person_reference",
+    "private_person_reference",
+]
+PersonaResolutionStatus = Literal["original", "resolved", "ambiguous", "unknown"]
+PersonaAdaptationMode = Literal[
+    "original",
+    "fictional_inspired",
+    "fictional_natural",
+    "fictional_immersive",
+    "public_traits",
+    "public_expression",
+    "public_image",
+    "private_traits",
+]
+PersonaExpressionProfile = Literal["natural", "balanced", "immersive"]
+
+
+class PersonaReferenceCandidateModel(BaseModel):
+    candidate_id: str = Field(default="")
+    source_kind: PersonaReferenceKind
+    name: str = Field(min_length=1, max_length=160)
+    work_title: Optional[str] = Field(default=None, max_length=240)
+    version: Optional[str] = Field(default=None, max_length=240)
+    context: Optional[str] = Field(default=None, max_length=500)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class PersonaIntentResolutionModel(BaseModel):
+    status: PersonaResolutionStatus
+    candidates: List[PersonaReferenceCandidateModel] = Field(default_factory=list, max_length=4)
+    selected_candidate_id: Optional[str] = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    requires_confirmation: bool = False
+    explicit_constraints: List[str] = Field(default_factory=list)
+
+
+class PersonaReferenceModel(BaseModel):
+    source_kind: PersonaReferenceKind
+    name: str = Field(min_length=1, max_length=160)
+    work_title: Optional[str] = Field(default=None, max_length=240)
+    version: Optional[str] = Field(default=None, max_length=240)
+    context: Optional[str] = Field(default=None, max_length=1000)
+    user_confirmed: bool = True
+
+
+class PersonaGenerationIntentModel(BaseModel):
+    source_kind: Literal[
+        "original",
+        "fictional_reference",
+        "public_person_reference",
+        "private_person_reference",
+    ]
+    reference: Optional[PersonaReferenceModel] = None
+    adaptation_mode: PersonaAdaptationMode
+    expression_profile: PersonaExpressionProfile = "natural"
+    explicit_constraints: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_source_and_mode(self) -> "PersonaGenerationIntentModel":
+        allowed_modes = {
+            "original": {"original"},
+            "fictional_reference": {
+                "fictional_inspired",
+                "fictional_natural",
+                "fictional_immersive",
+            },
+            "public_person_reference": {
+                "public_traits",
+                "public_expression",
+                "public_image",
+            },
+            "private_person_reference": {"private_traits"},
+        }
+        if self.adaptation_mode not in allowed_modes[self.source_kind]:
+            raise ValueError("adaptation_mode is incompatible with source_kind")
+        if self.source_kind == "original":
+            if self.reference is not None:
+                raise ValueError("original personas cannot include a reference")
+            return self
+        if self.reference is None:
+            raise ValueError("referenced personas require a confirmed reference")
+        if self.reference.source_kind != self.source_kind:
+            raise ValueError("reference source_kind must match intent source_kind")
+        if not self.reference.user_confirmed:
+            raise ValueError("referenced personas require user confirmation")
+        return self
+
+
+class PersonaIntentResolveRequest(BaseModel):
+    description: str = Field(min_length=1, max_length=2000)
+    target_language: str = Field(default="English")
+    llm_override: Optional[LLMSettings] = Field(None, description="Optional unsaved LLM configuration override")
+
+
+class PersonaIntentResolutionResponse(BaseModel):
+    success: bool
+    message: str
+    data: PersonaIntentResolutionModel
+
+
 class AIGenerateRequest(BaseModel):
     description: str = Field(..., description="One-sentence description of AI personality")
     target_language: str = Field(default="English", description="Concrete target language, such as Chinese, English, or Japanese")
     current_config: Optional[PersonalityConfigModel] = Field(None, description="Current configuration (optional)")
+    llm_override: Optional[LLMSettings] = Field(None, description="Optional unsaved LLM configuration override")
+    draft_id: Optional[str] = Field(default=None, description="Stable client draft identifier")
+    request_id: Optional[str] = Field(default=None, description="Idempotency key for starting a generation job")
+    intent: Optional[PersonaGenerationIntentModel] = Field(
+        default=None,
+        description="User-confirmed generation intent from the lightweight resolver",
+    )
+
+
+class PersonaAdjustmentRequest(BaseModel):
+    current_config: PersonalityConfigModel
+    instruction: str = Field(min_length=1, max_length=2000)
+    scope: Literal["auto", "voice", "expression", "behavior"] = "auto"
+    target_language: str = Field(default="English")
+    intent: Optional[PersonaGenerationIntentModel] = None
     llm_override: Optional[LLMSettings] = Field(None, description="Optional unsaved LLM configuration override")
 
 

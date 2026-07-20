@@ -285,6 +285,18 @@ describe("OnboardingFlow (linear 5-step)", () => {
       success: true,
       data: stubSeedPreviews(),
     } as any);
+    vi.spyOn(personasApi, "resolveGenerationIntent").mockResolvedValue({
+      success: true,
+      message: "ok",
+      data: {
+        status: "original",
+        candidates: [],
+        selected_candidate_id: null,
+        confidence: 0.96,
+        requires_confirmation: false,
+        explicit_constraints: [],
+      },
+    });
     vi.spyOn(systemSuggestions, "listInstallable").mockResolvedValue({
       catalog_mode: "full",
       items: [{
@@ -2056,6 +2068,38 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
     expect(createSpy).toHaveBeenCalledTimes(1);
     expect(personasApi.setActive).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists an unfinished custom persona description before generation", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterPersonaStep(user);
+    await user.click(screen.getByTestId("persona-create-custom"));
+    await user.type(
+      screen.getByTestId("persona-custom-description"),
+      "孙悟空，但还没选作品",
+    );
+
+    const progressWrites = localStorageMock.setItem.mock.calls.filter(
+      ([key]) => key === "magi_onboarding_state",
+    );
+    const persisted = JSON.parse(
+      progressWrites[progressWrites.length - 1]?.[1] || "{}",
+    );
+
+    expect(persisted.personaCreationDraft).toEqual(
+      expect.objectContaining({
+        phase: "editing",
+        description: "孙悟空，但还没选作品",
+        personaId: expect.any(String),
+        draftId: expect.any(String),
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: "actions.next" }),
+    ).toBeDisabled();
   });
 
   it("reuses one custom persona id when activation fails and the user retries", async () => {

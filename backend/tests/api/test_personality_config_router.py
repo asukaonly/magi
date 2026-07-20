@@ -208,6 +208,116 @@ async def test_personality_generation_job_routes_return_progress_snapshots(monke
 
 
 @pytest.mark.asyncio
+async def test_persona_intent_route_returns_editable_reference_candidates(monkeypatch) -> None:
+    from magi.api.routers import personality_config
+
+    resolution = personality_config.PersonaIntentResolutionModel(
+        status="ambiguous",
+        candidates=[
+            personality_config.PersonaReferenceCandidateModel(
+                candidate_id="candidate-1",
+                source_kind="fictional_reference",
+                name="孙悟空",
+                work_title="西游记",
+                confidence=0.52,
+            ),
+            personality_config.PersonaReferenceCandidateModel(
+                candidate_id="candidate-2",
+                source_kind="fictional_reference",
+                name="孙悟空",
+                work_title="龙珠",
+                confidence=0.46,
+            ),
+        ],
+        confidence=0.52,
+        requires_confirmation=True,
+    )
+
+    async def _fake_resolve(*args, **kwargs):  # type: ignore[no-untyped-def]
+        assert args == ("孙悟空", "Chinese")
+        assert kwargs["llm_override"] is None
+        return resolution
+
+    monkeypatch.setattr(
+        personality_config,
+        "ai_resolve_persona_generation_intent",
+        _fake_resolve,
+    )
+
+    response = await personality_config.resolve_personality_generation_intent(
+        personality_config.PersonaIntentResolveRequest(
+            description="孙悟空",
+            target_language="Chinese",
+        )
+    )
+
+    assert response.success is True
+    assert response.data.status == "ambiguous"
+    assert [candidate.work_title for candidate in response.data.candidates] == ["西游记", "龙珠"]
+
+
+@pytest.mark.asyncio
+async def test_persona_intent_resolver_uses_one_core_json_call() -> None:
+    from magi.api.services.personality_generation_intent import (
+        resolve_persona_generation_intent,
+    )
+
+    adapter = _SequentialLLMAdapter([
+        json.dumps(
+            {
+                "status": "ambiguous",
+                "confidence": 0.55,
+                "candidates": [
+                    {
+                        "source_kind": "fictional_reference",
+                        "name": "孙悟空",
+                        "work_title": "西游记",
+                        "version": None,
+                        "context": "古典小说人物",
+                        "confidence": 0.55,
+                    },
+                    {
+                        "source_kind": "fictional_reference",
+                        "name": "孙悟空",
+                        "work_title": "龙珠",
+                        "version": None,
+                        "context": "日本漫画角色",
+                        "confidence": 0.44,
+                    },
+                ],
+                "explicit_constraints": ["不要频繁自报作品设定"],
+            },
+            ensure_ascii=False,
+        )
+    ])
+    scenarios: list[LLMScenario] = []
+
+    def _resolver(scenario: LLMScenario, **kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        scenarios.append(scenario)
+        return adapter
+
+    result = await resolve_persona_generation_intent(
+        "孙悟空，但不要频繁自报作品设定",
+        target_language="Chinese",
+        adapter_resolver=_resolver,
+        adapter_factory=None,
+    )
+
+    assert scenarios == [LLMScenario.CORE]
+    assert result.status == "ambiguous"
+    assert result.requires_confirmation is True
+    assert [candidate.candidate_id for candidate in result.candidates] == [
+        "candidate-1",
+        "candidate-2",
+    ]
+    assert result.explicit_constraints == ["不要频繁自报作品设定"]
+    assert len(adapter.calls) == 1
+    assert "You resolve a short user description" in str(adapter.calls[0]["system_prompt"])
+    assert adapter.calls[0]["max_tokens"] == 800
+
+
+@pytest.mark.asyncio
 async def test_set_current_personality_missing_name_returns_localized_detail() -> None:
     from magi.api.routers import personality_config
 
@@ -434,7 +544,7 @@ def test_normalize_generated_personality_payload_completes_sparse_payload() -> N
     assert len(payload["quiet_hours"]) == 2
     assert len(payload["signature_triggers"]) == 3
     assert payload["persona_layers"][0]["layer_id"] == "surface"
-    assert [item["layer_id"] for item in payload["persona_layers"]] == ["surface", "crack", "revealed"]
+    assert [item["layer_id"] for item in payload["persona_layers"]] == ["surface"]
     assert payload["bootstrap"]["opening_line"]
     assert set(payload["dynamic_state_rules"]) == {"low_energy", "high_stress", "positive_mood"}
     assert sum(len(item["examples"]) for item in payload["registers"].values()) >= 6
@@ -533,8 +643,8 @@ def test_personality_generation_stage_prompts_share_directives() -> None:
     assert "generation-only design anchor" in personality_generation.BASE_SPINE_SYSTEM_PROMPT
     assert "licensed or regulated professional expertise" in personality_generation.PERSONA_GENERATION_SHARED_DIRECTIVES
     assert "Do not add behavior, secrets, modifiers" in personality_generation.LAYERS_SYSTEM_PROMPT
-    assert "at least seven examples total" in personality_generation.REGISTER_SYSTEM_PROMPT
-    assert "Include only good responses" in personality_generation.REGISTER_SYSTEM_PROMPT
+    assert "single owner of runtime examples" in personality_generation.REGISTER_SYSTEM_PROMPT
+    assert "six to nine good-only examples" in personality_generation.BOOTSTRAP_SYSTEM_PROMPT
     assert "Never return registers.examples" in personality_generation.BOOTSTRAP_SYSTEM_PROMPT
     assert "examples must be string arrays" in personality_generation.BOOTSTRAP_SYSTEM_PROMPT
     assert "few coherent rules" in personality_generation.RULES_SYSTEM_PROMPT
@@ -744,7 +854,164 @@ def test_normalize_generated_personality_payload_keeps_surface_fixed() -> None:
     })
 
     assert payload["persona_layers"][0] == {"layer_id": "surface", "unlock_condition": None, "modifiers": {}}
-    assert [item["layer_id"] for item in payload["persona_layers"]] == ["surface", "crack", "revealed"]
+    assert [item["layer_id"] for item in payload["persona_layers"]] == ["surface", "crack"]
+
+
+def test_persona_generation_intent_rejects_incompatible_reference_mode() -> None:
+    from magi.api.routers.personality_config_schemas import PersonaGenerationIntentModel
+
+    with pytest.raises(ValidationError):
+        PersonaGenerationIntentModel(
+            source_kind="public_person_reference",
+            reference={
+                "source_kind": "public_person_reference",
+                "name": "Public Person",
+                "user_confirmed": True,
+            },
+            adaptation_mode="fictional_immersive",
+            expression_profile="immersive",
+        )
+
+
+def test_personality_generation_prompt_includes_confirmed_reference_intent() -> None:
+    from magi.api.services import personality_generation
+    from magi.api.routers.personality_config_schemas import PersonaGenerationIntentModel
+
+    intent = PersonaGenerationIntentModel(
+        source_kind="fictional_reference",
+        reference={
+            "source_kind": "fictional_reference",
+            "name": "孙悟空",
+            "work_title": "龙珠",
+            "version": "漫画后期",
+            "user_confirmed": True,
+        },
+        adaptation_mode="fictional_natural",
+        expression_profile="natural",
+        explicit_constraints=["少用作品黑话"],
+    )
+
+    prompt = personality_generation._base_user_prompt(
+        "孙悟空",
+        "Chinese",
+        None,
+        intent,
+    )
+
+    assert "# Resolved Generation Intent" in prompt
+    assert '"work_title": "龙珠"' in prompt
+    assert '"adaptation_mode": "fictional_natural"' in prompt
+    assert "少用作品黑话" in prompt
+
+
+@pytest.mark.asyncio
+async def test_personality_generation_request_id_is_idempotent(monkeypatch) -> None:
+    import magi.api.services.personality_generation as personality_generation
+
+    personality_generation._PERSONALITY_GENERATION_JOBS.clear()
+    personality_generation._PERSONALITY_GENERATION_REQUEST_INDEX.clear()
+
+    def _discard_task(coro):  # type: ignore[no-untyped-def]
+        coro.close()
+        return None
+
+    monkeypatch.setattr(personality_generation.asyncio, "create_task", _discard_task)
+
+    first = await personality_generation.start_personality_generation_job(
+        "一个冷静的人格",
+        draft_id="draft-1",
+        request_id="request-1",
+    )
+    second = await personality_generation.start_personality_generation_job(
+        "一个冷静的人格",
+        draft_id="draft-1",
+        request_id="request-1",
+    )
+
+    assert first["job_id"] == second["job_id"]
+    assert second["draft_id"] == "draft-1"
+    assert second["request_id"] == "request-1"
+
+
+@pytest.mark.asyncio
+async def test_persona_adjustment_filters_unrelated_identity_changes() -> None:
+    from magi.api.services.personality_adjustment import adjust_personality_config
+    from magi.api.routers.personality_config_schemas import PersonalityConfigModel
+
+    adapter = _SequentialLLMAdapter([
+        json.dumps(
+            {
+                "name": "Wrong replacement",
+                "identity_core": {"identity_statement": "Wrong identity"},
+                "idiolect": {
+                    "sentence_style": "Use shorter, more natural sentences.",
+                    "chattiness": 0.2,
+                },
+            }
+        )
+    ])
+    current = PersonalityConfigModel(
+        name="Stable Persona",
+        identity_core={"identity_statement": "Keep this identity."},
+        idiolect={"sentence_style": "Long and elaborate", "chattiness": 0.8},
+    )
+
+    adjusted = await adjust_personality_config(
+        current,
+        "回复短一点",
+        scope="voice",
+        target_language="Chinese",
+        adapter_resolver=lambda *args, **kwargs: adapter,
+        adapter_factory=None,
+    )
+
+    assert adjusted.name == "Stable Persona"
+    assert adjusted.identity_core.identity_statement == "Keep this identity."
+    assert adjusted.idiolect.sentence_style == "Use shorter, more natural sentences."
+    assert adjusted.idiolect.chattiness == 0.2
+
+
+@pytest.mark.asyncio
+async def test_persona_adjustment_route_returns_new_draft(monkeypatch) -> None:
+    from magi.api.routers import personality_config
+
+    async def _fake_adjust(current_config, instruction, **kwargs):  # type: ignore[no-untyped-def]
+        assert current_config.name == "Stable Persona"
+        assert instruction == "少一点表演感"
+        assert kwargs["scope"] == "expression"
+        return current_config.model_copy(update={"description": "Adjusted"})
+
+    monkeypatch.setattr(personality_config, "ai_adjust_personality", _fake_adjust)
+
+    response = await personality_config.adjust_personality(
+        personality_config.PersonaAdjustmentRequest(
+            current_config=personality_config.PersonalityConfigModel(name="Stable Persona"),
+            instruction="少一点表演感",
+            scope="expression",
+            target_language="Chinese",
+        )
+    )
+
+    assert response.success is True
+    assert response.data["name"] == "Stable Persona"
+    assert response.data["description"] == "Adjusted"
+
+
+def test_persona_intent_route_is_reachable_through_public_router() -> None:
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+    from magi.api.routers.personality_config import personality_config_router
+
+    public = _build_public_router(
+        personality_config_router,
+        _PUBLIC_ROUTE_METHODS["personality_config"],
+    )
+    methods_by_path = {
+        route.path: set(route.methods or set())
+        for route in public.routes
+    }
+
+    assert methods_by_path["/generation-intents/resolve"] == {"POST"}
+    assert methods_by_path["/adjust"] == {"POST"}
 
 
 def test_personality_config_model_rejects_unknown_layer_modifier_keys() -> None:

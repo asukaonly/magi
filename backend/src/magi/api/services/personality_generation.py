@@ -14,7 +14,12 @@ from ...config.models import LLMScenario, LLMSettings
 from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, create_llm_adapter
 from ...llm.draft import resolve_adapter_for_scenario
-from ..routers.personality_config_schemas import LayerModifiersModel, PersonalityConfigModel, SUPPORTED_LAYER_MODIFIER_KEYS
+from ..routers.personality_config_schemas import (
+  LayerModifiersModel,
+  PersonaGenerationIntentModel,
+  PersonalityConfigModel,
+  SUPPORTED_LAYER_MODIFIER_KEYS,
+)
 from .personality_generation_prompts import (
     APPEARANCE_SYSTEM_PROMPT,
     BASE_SPINE_SYSTEM_PROMPT,
@@ -39,6 +44,7 @@ PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS = 6
 PERSONALITY_GENERATION_JOB_TTL_SECONDS = 30 * 60
 _PERSONALITY_GENERATION_LLM_SEMAPHORE = asyncio.Semaphore(PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS)
 _PERSONALITY_GENERATION_JOBS: dict[str, "PersonalityGenerationJob"] = {}
+_PERSONALITY_GENERATION_REQUEST_INDEX: dict[str, str] = {}
 JSON_DIAGNOSTIC_CONTRACT_CHARS = 2400
 JSON_DIAGNOSTIC_OUTPUT_CHARS = 1600
 JSON_DIAGNOSTIC_LINE_CONTEXT = 2
@@ -74,18 +80,6 @@ REGISTER_ALIASES = {
 JSON_REPAIR_SYSTEM_PROMPT = """You repair invalid JSON from a persona-generation stage.
 Output ONLY one valid JSON object. Do not add markdown fences, comments, or explanation.
 Preserve the original keys and values as much as possible. Only fix syntax and obvious JSON-shape mistakes needed for parsing."""
-DEFAULT_DEEP_LAYERS = (
-  {
-    "layer_id": "crack",
-    "unlock_condition": {"trust_level_gte": 0.45, "interaction_count_gte": 30},
-    "modifiers": {"memory_behavior": "May reference shared context lightly."},
-  },
-  {
-    "layer_id": "revealed",
-    "unlock_condition": {"trust_level_gte": 0.75, "milestone_required": "guard_down"},
-    "modifiers": {"voice_unlocks": ["rare direct sincerity"], "protective_bias": "stronger"},
-  },
-)
 GENERATION_STAGE_DEFINITIONS = (
   {"stage_id": "base", "label": "Understand persona spine"},
   {"stage_id": "registers", "label": "Design conversation registers"},
@@ -114,6 +108,8 @@ class PersonalityGenerationJob:
   stages: list[dict[str, str]]
   created_at: float
   updated_at: float
+  draft_id: Optional[str] = None
+  request_id: Optional[str] = None
   result: Optional[PersonalityGenerationResult] = None
   error: Optional[str] = None
 
@@ -124,6 +120,7 @@ class _GenerationRunContext:
   target_language: str
   current_config: Optional[PersonalityConfigModel]
   llm_override: Optional[LLMSettings]
+  intent: Optional[PersonaGenerationIntentModel]
   adapter_resolver: Callable[..., Any]
   adapter_factory: Callable[..., Any]
   stage_progress_callback: Optional[Callable[[str, str], None]]
@@ -703,17 +700,6 @@ def _complete_persona_layers(payload: Dict[str, Any]) -> None:
     }
     modifiers = LayerModifiersModel.model_validate(filtered_modifiers).model_dump()
     normalized.append({"layer_id": layer_id, "unlock_condition": unlock_condition, "modifiers": dict(modifiers)})
-  for item in DEFAULT_DEEP_LAYERS:
-    if len(normalized) >= 3:
-      break
-    if item["layer_id"] in seen_ids:
-      continue
-    normalized.append({
-      "layer_id": item["layer_id"],
-      "unlock_condition": dict(item["unlock_condition"]),
-      "modifiers": dict(item["modifiers"]),
-    })
-    seen_ids.add(str(item["layer_id"]))
   payload["persona_layers"] = normalized
 
 
@@ -843,12 +829,30 @@ def _current_config_block(current_config: Optional[PersonalityConfigModel]) -> s
   )
 
 
-def _base_user_prompt(description: str, target_language: str, current_config: Optional[PersonalityConfigModel]) -> str:
+def _generation_intent_block(intent: Optional[PersonaGenerationIntentModel]) -> str:
+  if intent is None:
+    return """# Resolved Generation Intent
+No user-confirmed reference resolution was provided. Infer conservatively from the description, do not claim reference fidelity, and do not invent unsupported identity facts."""
+  return "# Resolved Generation Intent\n" + json.dumps(
+    intent.model_dump(),
+    ensure_ascii=False,
+    indent=2,
+  )
+
+
+def _base_user_prompt(
+  description: str,
+  target_language: str,
+  current_config: Optional[PersonalityConfigModel],
+  intent: Optional[PersonaGenerationIntentModel] = None,
+) -> str:
   return f"""# User Context
 Target Language: {target_language}
 
 # User Input
 {description}{_current_config_block(current_config)}
+
+{_generation_intent_block(intent)}
 
 # Task
 Extract the stable persona spine. Preserve explicit user-authored draft fields when they clearly conflict with generated guesses."""
@@ -860,6 +864,7 @@ def _module_user_prompt(
   spine: dict[str, Any],
   current_config: Optional[PersonalityConfigModel],
   task: str,
+  intent: Optional[PersonaGenerationIntentModel] = None,
 ) -> str:
   meta_design = _generation_meta_design(spine)
   return f"""# User Context
@@ -867,6 +872,8 @@ Target Language: {target_language}
 
 # User Input
 {description}{_current_config_block(current_config)}
+
+{_generation_intent_block(intent)}
 
 # Persona Spine
 {json.dumps(spine, ensure_ascii=False, indent=2)}
@@ -884,12 +891,19 @@ If your output drifts toward the failure_mode_to_avoid, revise before returning.
 {task}"""
 
 
-def _integration_user_prompt(description: str, target_language: str, combined: dict[str, Any]) -> str:
+def _integration_user_prompt(
+  description: str,
+  target_language: str,
+  combined: dict[str, Any],
+  intent: Optional[PersonaGenerationIntentModel] = None,
+) -> str:
   return f"""# User Context
 Target Language: {target_language}
 
 # User Input
 {description}
+
+{_generation_intent_block(intent)}
 
 # Combined Draft
 {json.dumps(combined, ensure_ascii=False, indent=2)}
@@ -1041,6 +1055,10 @@ def _personality_generation_job_snapshot(job: PersonalityGenerationJob) -> dict[
     "created_at": job.created_at,
     "updated_at": job.updated_at,
   }
+  if job.draft_id:
+    payload["draft_id"] = job.draft_id
+  if job.request_id:
+    payload["request_id"] = job.request_id
   if job.result is not None:
     payload["data"] = job.result.config.model_dump()
     payload["stages"] = job.result.stages
@@ -1064,6 +1082,11 @@ def _cleanup_personality_generation_jobs(now: Optional[float] = None) -> None:
   ]
   for job_id in expired_ids:
     _PERSONALITY_GENERATION_JOBS.pop(job_id, None)
+  if expired_ids:
+    expired_set = set(expired_ids)
+    for request_id, job_id in list(_PERSONALITY_GENERATION_REQUEST_INDEX.items()):
+      if job_id in expired_set:
+        _PERSONALITY_GENERATION_REQUEST_INDEX.pop(request_id, None)
 
 
 async def start_personality_generation_job(
@@ -1071,12 +1094,20 @@ async def start_personality_generation_job(
   target_language: str = "English",
   current_config: Optional[PersonalityConfigModel] = None,
   llm_override: Optional[LLMSettings] = None,
+  draft_id: Optional[str] = None,
+  request_id: Optional[str] = None,
+  intent: Optional[PersonaGenerationIntentModel] = None,
   *,
   adapter_resolver: Callable[..., Any] = resolve_adapter_for_scenario,
   adapter_factory: Callable[..., Any] = create_llm_adapter,
 ) -> dict[str, Any]:
   """Start a background persona generation job and return its initial snapshot."""
   _cleanup_personality_generation_jobs()
+  if request_id:
+    existing_job_id = _PERSONALITY_GENERATION_REQUEST_INDEX.get(request_id)
+    existing_job = _PERSONALITY_GENERATION_JOBS.get(existing_job_id or "")
+    if existing_job is not None:
+      return _personality_generation_job_snapshot(existing_job)
   now = time.time()
   job = PersonalityGenerationJob(
     job_id=str(uuid.uuid4()),
@@ -1084,14 +1115,19 @@ async def start_personality_generation_job(
     stages=_initial_stage_reports(),
     created_at=now,
     updated_at=now,
+    draft_id=draft_id,
+    request_id=request_id,
   )
   _PERSONALITY_GENERATION_JOBS[job.job_id] = job
+  if request_id:
+    _PERSONALITY_GENERATION_REQUEST_INDEX[request_id] = job.job_id
   asyncio.create_task(_run_personality_generation_job(
     job,
     description=description,
     target_language=target_language,
     current_config=current_config,
     llm_override=llm_override,
+    intent=intent,
     adapter_resolver=adapter_resolver,
     adapter_factory=adapter_factory,
   ))
@@ -1114,6 +1150,7 @@ async def _run_personality_generation_job(
   target_language: str,
   current_config: Optional[PersonalityConfigModel],
   llm_override: Optional[LLMSettings],
+  intent: Optional[PersonaGenerationIntentModel],
   adapter_resolver: Callable[..., Any],
   adapter_factory: Callable[..., Any],
 ) -> None:
@@ -1127,6 +1164,7 @@ async def _run_personality_generation_job(
       target_language=target_language,
       current_config=current_config,
       llm_override=llm_override,
+      intent=intent,
       adapter_resolver=adapter_resolver,
       adapter_factory=adapter_factory,
       stage_progress_callback=update_stage,
@@ -1146,6 +1184,7 @@ async def generate_personality_config_result(
   target_language: str = "English",
   current_config: Optional[PersonalityConfigModel] = None,
   llm_override: Optional[LLMSettings] = None,
+  intent: Optional[PersonaGenerationIntentModel] = None,
   *,
   adapter_resolver: Callable[..., Any] = resolve_adapter_for_scenario,
   adapter_factory: Callable[..., Any] = create_llm_adapter,
@@ -1159,6 +1198,7 @@ async def generate_personality_config_result(
     target_language=resolved_target_language,
     current_config=current_config,
     llm_override=llm_override,
+    intent=intent,
     adapter_resolver=adapter_resolver,
     adapter_factory=adapter_factory,
     stage_progress_callback=stage_progress_callback,
@@ -1186,7 +1226,12 @@ async def _run_base_personality_stage(
 ) -> dict[str, Any]:
   base_data = await _run_generation_stage(
     stage_id="base",
-    prompt=_base_user_prompt(context.description, context.target_language, context.current_config),
+    prompt=_base_user_prompt(
+      context.description,
+      context.target_language,
+      context.current_config,
+      context.intent,
+    ),
     system_prompt=BASE_SPINE_SYSTEM_PROMPT,
     max_tokens=1600,
     temperature=0.55,
@@ -1289,6 +1334,7 @@ def _module_stage_task(
       combined,
       context.current_config,
       task_prompt,
+      context.intent,
     ),
     system_prompt=system_prompt,
     max_tokens=max_tokens,
@@ -1305,7 +1351,12 @@ async def _run_integration_personality_stage(
   try:
     integrated = await _run_generation_stage(
       stage_id="integrate",
-      prompt=_integration_user_prompt(context.description, context.target_language, combined),
+      prompt=_integration_user_prompt(
+        context.description,
+        context.target_language,
+        combined,
+        context.intent,
+      ),
       system_prompt=INTEGRATION_SYSTEM_PROMPT,
       max_tokens=2048,
       temperature=0.4,
@@ -1364,6 +1415,7 @@ async def generate_personality_config(
   target_language: str = "English",
   current_config: Optional[PersonalityConfigModel] = None,
   llm_override: Optional[LLMSettings] = None,
+  intent: Optional[PersonaGenerationIntentModel] = None,
   *,
   adapter_resolver: Callable[..., Any] = resolve_adapter_for_scenario,
   adapter_factory: Callable[..., Any] = create_llm_adapter,
@@ -1374,6 +1426,7 @@ async def generate_personality_config(
     target_language=target_language,
     current_config=current_config,
     llm_override=llm_override,
+    intent=intent,
     adapter_resolver=adapter_resolver,
     adapter_factory=adapter_factory,
   )

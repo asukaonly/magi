@@ -186,7 +186,9 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     },
     "personality_config": {
         "/greeting": {"GET"},
+        "/adjust": {"POST"},
         "/generate": {"POST"},
+        "/generation-intents/resolve": {"POST"},
         "/generation-jobs": {"POST"},
         "/generation-jobs/{job_id}": {"GET"},
         "/bootstrap/init": {"POST"},

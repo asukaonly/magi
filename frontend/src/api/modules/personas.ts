@@ -102,10 +102,83 @@ export interface PersonalityConfig {
   bootstrap: BootstrapConfig | null;
 }
 
+export type PersonaReferenceKind =
+  | 'fictional_reference'
+  | 'public_person_reference'
+  | 'private_person_reference';
+
+export type PersonaResolutionStatus = 'original' | 'resolved' | 'ambiguous' | 'unknown';
+
+export type PersonaAdaptationMode =
+  | 'original'
+  | 'fictional_inspired'
+  | 'fictional_natural'
+  | 'fictional_immersive'
+  | 'public_traits'
+  | 'public_expression'
+  | 'public_image'
+  | 'private_traits';
+
+export type PersonaExpressionProfile = 'natural' | 'balanced' | 'immersive';
+
+export interface PersonaReferenceCandidate {
+  candidate_id: string;
+  source_kind: PersonaReferenceKind;
+  name: string;
+  work_title?: string | null;
+  version?: string | null;
+  context?: string | null;
+  confidence: number;
+}
+
+export interface PersonaIntentResolution {
+  status: PersonaResolutionStatus;
+  candidates: PersonaReferenceCandidate[];
+  selected_candidate_id?: string | null;
+  confidence: number;
+  requires_confirmation: boolean;
+  explicit_constraints: string[];
+}
+
+export interface PersonaReference {
+  source_kind: PersonaReferenceKind;
+  name: string;
+  work_title?: string | null;
+  version?: string | null;
+  context?: string | null;
+  user_confirmed: true;
+}
+
+export interface PersonaGenerationIntent {
+  source_kind: 'original' | PersonaReferenceKind;
+  reference?: PersonaReference | null;
+  adaptation_mode: PersonaAdaptationMode;
+  expression_profile: PersonaExpressionProfile;
+  explicit_constraints: string[];
+}
+
+export interface PersonaIntentResolveRequest {
+  description: string;
+  target_language?: string;
+  llm_override?: LLMConfig;
+}
+
 export interface AIGenerateRequest {
   description: string;
   target_language?: string;
   current_config?: PersonalityConfig;
+  llm_override?: LLMConfig;
+  draft_id?: string;
+  request_id?: string;
+  intent?: PersonaGenerationIntent;
+}
+
+export interface PersonaAdjustmentRequest {
+  current_config: PersonalityConfig;
+  instruction: string;
+  scope?: 'auto' | 'voice' | 'expression' | 'behavior';
+  target_language?: string;
+  intent?: PersonaGenerationIntent;
   llm_override?: LLMConfig;
 }
 
@@ -136,6 +209,8 @@ export interface PersonalityGenerateResponse {
 
 export interface PersonalityGenerationJobSnapshot {
   job_id: string;
+  draft_id?: string;
+  request_id?: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | string;
   stages: PersonaGenerationStage[];
   created_at?: number;
@@ -397,6 +472,22 @@ export const personasApi = {
       timeout: GENERATION_JOB_TIMEOUT_MS,
     }) as Promise<PersonalityGenerateResponse>,
 
+  /** Resolve whether a free-text description refers to an existing prototype. */
+  resolveGenerationIntent: (request: PersonaIntentResolveRequest) =>
+    api.post<PersonaIntentResolution>('/personality/generation-intents/resolve', request, {
+      timeout: 30000,
+    }) as Promise<{
+      success: boolean;
+      message: string;
+      data?: PersonaIntentResolution;
+    }>,
+
+  /** Apply a scoped change to an unsaved persona draft. */
+  adjust: (request: PersonaAdjustmentRequest) =>
+    api.post<PersonalityConfig>('/personality/adjust', request, {
+      timeout: 120000,
+    }) as Promise<PersonalityGenerateResponse>,
+
   /** Start AI personality generation as a background job. */
   startGenerationJob: (request: AIGenerateRequest) =>
     api.post<PersonalityGenerationJobSnapshot>('/personality/generation-jobs', request, {
@@ -413,9 +504,16 @@ export const personasApi = {
   generateWithProgress: async (
     request: AIGenerateRequest,
     onProgress?: PersonalityGenerationProgressCallback,
+    existingJobId?: string,
   ): Promise<PersonalityGenerateResponse> => {
-    const started = await personasApi.startGenerationJob(request);
-    let snapshot = started.data;
+    let snapshot: PersonalityGenerationJobSnapshot | undefined;
+    if (existingJobId) {
+      const existing = await personasApi.getGenerationJob(existingJobId);
+      snapshot = existing.data;
+    } else {
+      const started = await personasApi.startGenerationJob(request);
+      snapshot = started.data;
+    }
     if (!snapshot?.job_id) {
       throw new Error('Personality generation job did not start');
     }
