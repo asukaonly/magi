@@ -245,7 +245,7 @@
     "generationFailedUnknown": "Generation did not finish. Please try again in a moment.",
     "waiting": "Typing…",
     "reference": {
-      "resolving": "Understanding the persona you want…",
+      "resolving": "Checking for a character or person reference…",
       "resolveFailed": "The reference was unclear. Confirm it manually to continue.",
       "confirmAndGenerate": "Confirm and generate",
       "ambiguousTitle": "Which person or character do you mean?",

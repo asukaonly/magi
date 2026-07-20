@@ -1,5 +1,5 @@
 import { useState, type ComponentProps } from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -640,6 +640,83 @@ describe('PersonaPreviewChat', () => {
           }),
         }),
       }),
+    );
+  });
+
+  it('locks persona creation while reference resolution is pending', async () => {
+    let finishResolution: (value: unknown) => void = () => {};
+    const resolutionSpy = vi
+      .mocked(personasApi.resolveGenerationIntent)
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finishResolution = resolve;
+          }) as any,
+      );
+
+    function ParentRerenderHarness(): JSX.Element {
+      const [, setSavedCreationDraft] = useState<unknown>(null);
+      return (
+        <ControlledPersonaPreview
+          previews={previews}
+          onCreationDraftChange={(draft) => setSavedCreationDraft(draft)}
+        />
+      );
+    }
+
+    render(<ParentRerenderHarness />);
+    await userEvent.click(screen.getByTestId('persona-create-custom'));
+    await userEvent.type(screen.getByTestId('persona-custom-description'), '孙悟空');
+
+    const generateButton = screen.getByTestId('persona-custom-generate');
+    await act(async () => {
+      generateButton.click();
+      generateButton.click();
+      await Promise.resolve();
+    });
+
+    expect(resolutionSpy).toHaveBeenCalledTimes(1);
+    expect(generateButton).toBeDisabled();
+    expect(generateButton).toHaveAttribute('aria-busy', 'true');
+    expect(generateButton).toHaveTextContent('personaPreview.reference.resolving');
+    expect(screen.getByTestId('persona-custom-description')).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'personaPreview.cancelCreate' }),
+    ).toBeDisabled();
+
+    finishResolution({
+      success: true,
+      message: 'ok',
+      data: {
+        status: 'ambiguous',
+        candidates: [
+          {
+            candidate_id: 'candidate-1',
+            source_kind: 'fictional_reference',
+            name: '孙悟空',
+            work_title: '西游记',
+            version: null,
+            context: null,
+            confidence: 0.8,
+          },
+          {
+            candidate_id: 'candidate-2',
+            source_kind: 'fictional_reference',
+            name: '孙悟空',
+            work_title: '龙珠',
+            version: null,
+            context: null,
+            confidence: 0.7,
+          },
+        ],
+        selected_candidate_id: null,
+        confidence: 0.8,
+        requires_confirmation: true,
+        explicit_constraints: [],
+      },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('persona-reference-editor')).toBeInTheDocument(),
     );
   });
 

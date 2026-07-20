@@ -361,6 +361,8 @@ export function PersonaPreviewChat({
   const [genStages, setGenStages] = useState<PersonaGenerationStage[]>([]);
   const [genError, setGenError] = useState<string | null>(null);
   const resumedGenerationJobIdsRef = useRef(new Set<string>());
+  const creationSubmissionInFlightRef = useRef(false);
+  const restoredCreationDraftHandledRef = useRef(false);
 
   const publishCreationDraft = useCallback(
     (next: PersonaCreationDraft | null) => {
@@ -372,6 +374,8 @@ export function PersonaPreviewChat({
   );
 
   useEffect(() => {
+    if (restoredCreationDraftHandledRef.current) return;
+    restoredCreationDraftHandledRef.current = true;
     const restored = creationDraftRef.current;
     if (!restored) return;
     if (restored.phase === 'resolving') {
@@ -726,55 +730,68 @@ export function PersonaPreviewChat({
   const handleResolveOrGenerate = useCallback(async () => {
     const sourceDraft = creationDraftRef.current;
     const description = sourceDraft?.description.trim() || '';
-    if (!sourceDraft || disabled || !description || generating) return;
-
-    if (sourceDraft.phase === 'reviewing' || sourceDraft.phase === 'failed') {
-      if (!sourceDraft.referenceConfirmed) return;
-      if (sourceDraft.reference.sourceKind !== 'original' && !sourceDraft.reference.name.trim()) {
-        return;
-      }
-      const retryDraft = {
-        ...sourceDraft,
-        generationRequestId: createStableId(),
-        generationJobId: undefined,
-      };
-      await runGeneration(retryDraft, buildGenerationIntent(retryDraft));
+    if (
+      !sourceDraft ||
+      disabled ||
+      !description ||
+      generating ||
+      creationSubmissionInFlightRef.current
+    ) {
       return;
     }
 
-    const resolvingDraft: PersonaCreationDraft = {
-      ...sourceDraft,
-      phase: 'resolving',
-    };
-    publishCreationDraft(resolvingDraft);
-    setGenError(null);
+    creationSubmissionInFlightRef.current = true;
     try {
-      const targetLanguage = (i18n.language || '').startsWith('zh') ? 'Chinese' : 'English';
-      const response = await personasApi.resolveGenerationIntent({
-        description,
-        target_language: targetLanguage,
-        llm_override: llmConfig,
-      });
-      if (!response.data) {
-        throw new Error('Persona intent resolution returned no result');
-      }
-      const reviewedDraft = applyResolution(resolvingDraft, response.data);
-      if (response.data.status === 'original') {
-        await runGeneration(reviewedDraft, buildGenerationIntent(reviewedDraft));
+      if (sourceDraft.phase === 'reviewing' || sourceDraft.phase === 'failed') {
+        if (!sourceDraft.referenceConfirmed) return;
+        if (sourceDraft.reference.sourceKind !== 'original' && !sourceDraft.reference.name.trim()) {
+          return;
+        }
+        const retryDraft = {
+          ...sourceDraft,
+          generationRequestId: createStableId(),
+          generationJobId: undefined,
+        };
+        await runGeneration(retryDraft, buildGenerationIntent(retryDraft));
         return;
       }
-      publishCreationDraft(reviewedDraft);
-    } catch {
-      const fallbackResolution: PersonaIntentResolution = {
-        status: 'unknown',
-        candidates: [],
-        selected_candidate_id: null,
-        confidence: 0,
-        requires_confirmation: true,
-        explicit_constraints: [],
+
+      const resolvingDraft: PersonaCreationDraft = {
+        ...sourceDraft,
+        phase: 'resolving',
       };
-      publishCreationDraft(applyResolution(resolvingDraft, fallbackResolution));
-      setGenError(t('personaPreview.reference.resolveFailed'));
+      publishCreationDraft(resolvingDraft);
+      setGenError(null);
+      try {
+        const targetLanguage = (i18n.language || '').startsWith('zh') ? 'Chinese' : 'English';
+        const response = await personasApi.resolveGenerationIntent({
+          description,
+          target_language: targetLanguage,
+          llm_override: llmConfig,
+        });
+        if (!response.data) {
+          throw new Error('Persona intent resolution returned no result');
+        }
+        const reviewedDraft = applyResolution(resolvingDraft, response.data);
+        if (response.data.status === 'original') {
+          await runGeneration(reviewedDraft, buildGenerationIntent(reviewedDraft));
+          return;
+        }
+        publishCreationDraft(reviewedDraft);
+      } catch {
+        const fallbackResolution: PersonaIntentResolution = {
+          status: 'unknown',
+          candidates: [],
+          selected_candidate_id: null,
+          confidence: 0,
+          requires_confirmation: true,
+          explicit_constraints: [],
+        };
+        publishCreationDraft(applyResolution(resolvingDraft, fallbackResolution));
+        setGenError(t('personaPreview.reference.resolveFailed'));
+      }
+    } finally {
+      creationSubmissionInFlightRef.current = false;
     }
   }, [
     applyResolution,
@@ -1213,6 +1230,7 @@ export function PersonaPreviewChat({
               type="button"
               data-testid="persona-custom-generate"
               onClick={() => void handleResolveOrGenerate()}
+              aria-busy={generating}
               disabled={
                 !creationDraft?.description.trim() ||
                 generating ||

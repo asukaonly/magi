@@ -245,7 +245,7 @@
     "generationFailedUnknown": "生成没有完成，请稍后再试一次。",
     "waiting": "正在输入…",
     "reference": {
-      "resolving": "正在理解你想要的人格…",
+      "resolving": "正在判断是否有人物原型…",
       "resolveFailed": "没有判断清楚人物来源，请手动确认后继续。",
       "confirmAndGenerate": "确认并生成",
       "ambiguousTitle": "你说的是哪一个人物？",
