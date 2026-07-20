@@ -86,6 +86,7 @@ class L2LLMJsonClientMixin:
         disable_thinking: bool = True,
         priority: LLMRequestPriority | str | int | None = None,
         required_fields: dict[str, type] | None = None,
+        contract_normalizer: Callable[[dict[str, Any]], list[str]] | None = None,
         contract_validator: Callable[[dict[str, Any]], list[str]] | None = None,
     ) -> dict[str, Any]:
         call = _L2JsonCall(
@@ -122,6 +123,7 @@ class L2LLMJsonClientMixin:
                 response.content,
                 completion_context,
                 required_fields=required_fields,
+                contract_normalizer=contract_normalizer,
                 contract_validator=contract_validator,
             )
         except L2InvalidJsonResponseError as exc:
@@ -160,6 +162,7 @@ class L2LLMJsonClientMixin:
             retry_response.content,
             retry_completion_context,
             required_fields=required_fields,
+            contract_normalizer=contract_normalizer,
             contract_validator=contract_validator,
         )
 
@@ -312,6 +315,7 @@ class L2LLMJsonClientMixin:
         completion_context: dict[str, Any],
         *,
         required_fields: dict[str, type] | None = None,
+        contract_normalizer: Callable[[dict[str, Any]], list[str]] | None = None,
         contract_validator: Callable[[dict[str, Any]], list[str]] | None = None,
     ) -> dict[str, Any]:
         try:
@@ -327,6 +331,11 @@ class L2LLMJsonClientMixin:
             invalid_context["response_json_type"] = type(parsed).__name__
             logger.warning("L2 LLM returned non-object JSON", **invalid_context)
             raise L2InvalidJsonResponseError("L2 LLM response is not a JSON object")
+        normalizations = contract_normalizer(parsed) if contract_normalizer is not None else []
+        if normalizations:
+            normalized_context = dict(completion_context)
+            normalized_context["contract_normalizations"] = normalizations
+            logger.info("L2 LLM JSON contract normalized", **normalized_context)
         self._validate_json_contract(
             parsed,
             completion_context=completion_context,

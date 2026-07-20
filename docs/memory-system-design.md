@@ -514,6 +514,14 @@ Profile-signal claims must be grounded in current user-authored text before they
 can produce profile assertions; assistant persona text, recalled history, and
 one-off task phrasing are not sufficient evidence for durable identity or
 communication-profile fields.
+Phase 1 `temporal_cue` records only explicit time wording in the supporting
+quote; it does not decide retention by itself. A missing, unknown, or
+unsupported cue is normalized to an unambiguous cue detected in the evidence
+quote, or to `unspecified` when no cue is present, before contract validation.
+The grounded predicate, assertion family, source strength, and any explicit
+one-off or recent wording determine the host-owned retention horizon. Therefore
+an explicit profile instruction such as a preferred form of address can remain
+durable until corrected even when its source sentence has no lexical time cue.
 Post-turn observers may submit explicit profile candidates from chat, but they
 must not write portrait projections directly. The host validates that the
 candidate is grounded in the user's own text, persists it as an L2 assertion
@@ -819,7 +827,7 @@ The default execution model:
 5. `L2Pipeline` in the `runtime_worker` claims ready jobs and marks them `queued`
 6. Claimed events are batched by batch owner / session / user; the worker marks jobs `running` before extraction
 7. Successful extraction marks jobs `completed`; failures mark them `failed` or requeue to `pending`
-8. Model output must be a JSON object matching the stage's required top-level fields and field types. Invalid output receives one stricter format retry; repeated invalid output, an unavailable model, or a provider failure after transport retries marks the projection job `failed` rather than completing it as an empty extraction or immediately looping. Non-model infrastructure failures may still requeue to `pending`.
+8. Model output must be a JSON object matching the stage's required top-level fields and field types. Repairable auxiliary metadata is normalized before validation; in Phase 1, an absent, unknown, or source-unsupported `temporal_cue` becomes an unambiguous cue detected in the evidence quote, or `unspecified` when no cue is present, without another model call, while exact evidence-quote validation remains strict. Remaining invalid output receives one stricter format retry; repeated invalid output, an unavailable model, or a provider failure after transport retries marks the projection job `failed` rather than completing it as an empty extraction or immediately looping. Non-model infrastructure failures may still requeue to `pending`.
 
 Batch policy:
 

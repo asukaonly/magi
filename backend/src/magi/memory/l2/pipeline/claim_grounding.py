@@ -28,6 +28,12 @@ _TEMPORAL_CUE_PATTERNS: dict[L2TemporalCue, tuple[re.Pattern[str], ...]] = {
         re.compile(r"\b(?:always|long[- ]term|for years|over the years|consistently)\b"),
     ),
 }
+_TEMPORAL_CUE_PRECEDENCE = (
+    L2TemporalCue.ONE_OFF,
+    L2TemporalCue.RECENT,
+    L2TemporalCue.RECURRING,
+    L2TemporalCue.STABLE,
+)
 
 
 def ground_phase1_fact_claims(
@@ -119,10 +125,52 @@ def phase1_claim_evidence_contract_issues(
             if not isinstance(evidence, str) or declared_cue not in _temporal_cues_in_text(
                 evidence
             ):
-                issues.append(
-                    f"{temporal_path} must be grounded in the claim's evidence_text"
-                )
+                issues.append(f"{temporal_path} must be grounded in the claim's evidence_text")
     return issues
+
+
+def normalize_phase1_claim_temporal_cues(
+    payload: dict[str, object],
+) -> list[str]:
+    """Derive explicit temporal cues or default them without discarding claims."""
+    raw_claims = payload.get("fact_claims")
+    if not isinstance(raw_claims, list):
+        return []
+
+    valid_cues = {cue.value for cue in L2TemporalCue}
+    normalizations: list[str] = []
+    for index, claim in enumerate(raw_claims):
+        if not isinstance(claim, dict):
+            continue
+        raw_cue = claim.get("temporal_cue")
+        normalized_cue = raw_cue.strip().casefold() if isinstance(raw_cue, str) else ""
+        evidence = claim.get("evidence_text")
+        grounded_cues = _temporal_cues_in_text(evidence) if isinstance(evidence, str) else set()
+        if normalized_cue in valid_cues and (
+            L2TemporalCue(normalized_cue) in grounded_cues
+            or (
+                normalized_cue == L2TemporalCue.UNSPECIFIED.value
+                and not grounded_cues
+            )
+        ):
+            claim["temporal_cue"] = normalized_cue
+            continue
+
+        if raw_cue is None or (isinstance(raw_cue, str) and not raw_cue.strip()):
+            previous = "missing"
+        elif normalized_cue in valid_cues:
+            previous = normalized_cue
+        else:
+            previous = "invalid"
+        corrected_cue = next(
+            (cue for cue in _TEMPORAL_CUE_PRECEDENCE if cue in grounded_cues),
+            L2TemporalCue.UNSPECIFIED,
+        )
+        claim["temporal_cue"] = corrected_cue.value
+        normalizations.append(
+            f"fact_claims[{index}].temporal_cue: {previous} -> {corrected_cue.value}"
+        )
+    return normalizations
 
 
 def _eligible_evidence_events(
@@ -171,4 +219,8 @@ def _unique_event_ids(values: list[str]) -> list[str]:
     return unique
 
 
-__all__ = ["ground_phase1_fact_claims", "phase1_claim_evidence_contract_issues"]
+__all__ = [
+    "ground_phase1_fact_claims",
+    "normalize_phase1_claim_temporal_cues",
+    "phase1_claim_evidence_contract_issues",
+]

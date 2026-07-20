@@ -166,6 +166,37 @@ def _phase1_response(
     )
 
 
+def _preferred_address_phase1_response(
+    *,
+    evidence_text: str = "叫我明日香",
+    temporal_cue: str | None,
+) -> str:
+    claim = {
+        "subject_ref": "user:self",
+        "subject_type": "user",
+        "predicate": "PREFERRED_FORM_OF_ADDRESS",
+        "object_ref": "明日香",
+        "object_type": "concept",
+        "fact_kind": "explicit_fact",
+        "polarity": "positive",
+        "specificity": "concrete",
+        "evidence_text": evidence_text,
+        "confidence": 0.9,
+        "supporting_event_ids": ["evt-address"],
+    }
+    if temporal_cue is not None:
+        claim["temporal_cue"] = temporal_cue
+    return json.dumps(
+        {
+            "entities": [],
+            "fact_claims": [claim],
+            "resolved_refs": [],
+            "diagnostics": {"entity_status": "none"},
+        },
+        ensure_ascii=False,
+    )
+
+
 def _phase1_event_window():  # type: ignore[no-untyped-def]
     from magi.memory.l2.models import L2BatchEvent, L2EventWindow
 
@@ -921,13 +952,12 @@ def test_phase1_repeated_missing_evidence_quote_raises():
     assert len(adapter.calls) == 2
 
 
-def test_phase1_missing_temporal_cue_triggers_format_retry():
+def test_phase1_missing_temporal_cue_defaults_without_retry():
     from magi.memory.l2.llm_service import L2LLMService
 
     adapter = _FakeAdapter(
         [
             _phase1_response("昨晚我去看了 DIIV 演出", temporal_cue=None),
-            _phase1_response("昨晚我去看了 DIIV 演出", temporal_cue="one_off"),
         ]
     )
     service = L2LLMService(_FakeScenarioPool(adapter))
@@ -940,17 +970,15 @@ def test_phase1_missing_temporal_cue_triggers_format_retry():
     )
 
     assert result.fact_claims[0].temporal_cue.value == "one_off"
-    assert len(adapter.calls) == 2
-    assert "fact_claims[0].temporal_cue" in str(adapter.calls[1]["messages"])
+    assert len(adapter.calls) == 1
 
 
-def test_phase1_invalid_temporal_cue_triggers_format_retry():
+def test_phase1_invalid_temporal_cue_defaults_without_retry():
     from magi.memory.l2.llm_service import L2LLMService
 
     adapter = _FakeAdapter(
         [
             _phase1_response("昨晚我去看了 DIIV 演出", temporal_cue="forever_maybe"),
-            _phase1_response("昨晚我去看了 DIIV 演出", temporal_cue="one_off"),
         ]
     )
     service = L2LLMService(_FakeScenarioPool(adapter))
@@ -963,16 +991,15 @@ def test_phase1_invalid_temporal_cue_triggers_format_retry():
     )
 
     assert result.fact_claims[0].temporal_cue.value == "one_off"
-    assert len(adapter.calls) == 2
+    assert len(adapter.calls) == 1
 
 
-def test_phase1_temporal_cue_must_match_current_message_wording():
+def test_phase1_unsupported_temporal_cue_defaults_without_retry():
     from magi.memory.l2.llm_service import L2LLMService
 
     adapter = _FakeAdapter(
         [
             _phase1_response("昨晚我去看了 DIIV 演出", temporal_cue="stable"),
-            _phase1_response("昨晚我去看了 DIIV 演出", temporal_cue="one_off"),
         ]
     )
     service = L2LLMService(_FakeScenarioPool(adapter))
@@ -985,8 +1012,73 @@ def test_phase1_temporal_cue_must_match_current_message_wording():
     )
 
     assert result.fact_claims[0].temporal_cue.value == "one_off"
-    assert len(adapter.calls) == 2
-    assert "fact_claims[0].temporal_cue" in str(adapter.calls[1]["messages"])
+    assert len(adapter.calls) == 1
+
+
+def test_phase1_preferred_address_stable_cue_defaults_without_retry():
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2BatchEvent, L2EventWindow
+
+    adapter = _FakeAdapter(
+        [
+            _preferred_address_phase1_response(temporal_cue="stable"),
+        ]
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+    event_window = L2EventWindow(
+        events=[
+            L2BatchEvent(
+                event_id="evt-address",
+                content="叫我明日香",
+                author_type="user",
+            )
+        ]
+    )
+
+    result = asyncio.run(
+        service.extract_phase1(
+            event_window=event_window,
+            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+        )
+    )
+
+    assert result.fact_claims[0].predicate == "PREFERRED_FORM_OF_ADDRESS"
+    assert result.fact_claims[0].temporal_cue.value == "unspecified"
+    assert len(adapter.calls) == 1
+
+
+def test_phase1_preferred_address_explicit_one_off_is_preserved_without_retry():
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2BatchEvent, L2EventWindow
+
+    adapter = _FakeAdapter(
+        [
+            _preferred_address_phase1_response(
+                evidence_text="这次叫我明日香",
+                temporal_cue=None,
+            ),
+        ]
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+    event_window = L2EventWindow(
+        events=[
+            L2BatchEvent(
+                event_id="evt-address",
+                content="这次叫我明日香",
+                author_type="user",
+            )
+        ]
+    )
+
+    result = asyncio.run(
+        service.extract_phase1(
+            event_window=event_window,
+            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+        )
+    )
+
+    assert result.fact_claims[0].temporal_cue.value == "one_off"
+    assert len(adapter.calls) == 1
 
 
 def test_wrong_json_field_type_raises_after_format_retry():

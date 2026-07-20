@@ -77,6 +77,38 @@ def test_direct_user_interest_is_durable_without_inventing_a_time_cue() -> None:
     assert decision.horizon is PromotionHorizon.DURABLE
 
 
+def test_direct_user_preferred_address_is_durable_without_time_wording() -> None:
+    decision = evaluate_assertion_promotion(
+        AssertionPromotionInput(
+            trait_family="communication_profile",
+            fact_kind="explicit_fact",
+            predicate="PREFERRED_FORM_OF_ADDRESS",
+            evidence_class="user_self_report",
+            source_strength=SourceStrengthPreset.DIRECT_USER,
+            temporal_cue=L2TemporalCue.UNSPECIFIED,
+        )
+    )
+
+    assert decision.horizon is PromotionHorizon.DURABLE
+    assert decision.expiry.temporal_scope == "stable"
+    assert decision.expiry.ttl_seconds is None
+
+
+def test_direct_user_preferred_address_one_off_wording_is_not_durable() -> None:
+    decision = evaluate_assertion_promotion(
+        AssertionPromotionInput(
+            trait_family="communication_profile",
+            fact_kind="explicit_fact",
+            predicate="PREFERRED_FORM_OF_ADDRESS",
+            evidence_class="user_self_report",
+            source_strength=SourceStrengthPreset.DIRECT_USER,
+            temporal_cue=L2TemporalCue.ONE_OFF,
+        )
+    )
+
+    assert decision.horizon is PromotionHorizon.EVENT_ONLY
+
+
 def test_passive_exposure_can_be_recent_but_never_durable() -> None:
     decision = evaluate_assertion_promotion(
         AssertionPromotionInput(
