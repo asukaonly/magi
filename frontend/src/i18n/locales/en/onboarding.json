@@ -271,6 +271,7 @@
       "privateDetailsPlaceholder": "Add two or three traits or expression habits you know firsthand",
       "modeTitle": "How should this reference appear in conversation?",
       "recommended": "Recommended",
+      "moreSettings": "More settings",
       "constraints": "Anything else it must follow?",
       "constraintsPlaceholder": "e.g. use catchphrases rarely; do not mention lore constantly",
       "currentReference": "Current reference",

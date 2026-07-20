@@ -1,6 +1,14 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type {
   PersonaAdaptationMode,
   PersonaIntentResolution,
@@ -121,31 +129,44 @@ export function PersonaReferenceEditor({
   onConstraintsTextChange,
 }: PersonaReferenceEditorProps): JSX.Element {
   const { t } = useTranslation('onboarding');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const options = useMemo(
     () => value.sourceKind === 'original' ? [] : MODE_OPTIONS[value.sourceKind],
     [value.sourceKind],
   );
+  const hasSelectedCandidate = resolution.candidates.some(
+    (candidate) =>
+      value.sourceKind === candidate.source_kind &&
+      value.name === candidate.name &&
+      value.workTitle === (candidate.work_title || '') &&
+      value.version === (candidate.version || ''),
+  );
+  const otherSelected = resolution.candidates.length > 1 && !hasSelectedCandidate;
 
   return (
     <div
       data-testid="persona-reference-editor"
-      className="mt-4 space-y-4 rounded-lg border border-border/55 bg-background/75 p-4"
+      className="mt-6 space-y-7"
     >
-      <div>
-        <h4 className="text-sm font-semibold text-foreground">
+      <div className="max-w-2xl">
+        <h4 className="text-base font-semibold tracking-[-0.01em] text-foreground">
           {resolution.status === 'ambiguous'
             ? t('personaPreview.reference.ambiguousTitle')
             : resolution.status === 'unknown'
               ? t('personaPreview.reference.unknownTitle')
               : t('personaPreview.reference.reviewTitle')}
         </h4>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+        <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
           {t('personaPreview.reference.reviewHint')}
         </p>
       </div>
 
       {resolution.candidates.length > 1 && (
-        <div className="flex flex-wrap gap-2" role="group" aria-label={t('personaPreview.reference.candidatesLabel')}>
+        <div
+          className="grid gap-1 sm:grid-cols-2"
+          role="radiogroup"
+          aria-label={t('personaPreview.reference.candidatesLabel')}
+        >
           {resolution.candidates.map((candidate) => {
             const selected =
               value.sourceKind === candidate.source_kind &&
@@ -157,27 +178,47 @@ export function PersonaReferenceEditor({
                 key={candidate.candidate_id}
                 type="button"
                 data-testid={`persona-reference-candidate-${candidate.candidate_id}`}
-                aria-pressed={selected}
+                role="radio"
+                aria-checked={selected}
                 disabled={disabled}
                 onClick={() => {
                   const next = candidateToEditableReference(candidate);
                   onChange(next);
                 }}
                 className={cn(
-                  'rounded-full border px-3 py-1.5 text-sm transition-colors',
+                  'group flex min-w-0 items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-[background-color,color] duration-200',
                   selected
-                    ? 'border-primary/50 bg-primary/10 text-foreground'
-                    : 'border-border text-muted-foreground hover:bg-muted',
+                    ? 'bg-muted/70 text-foreground'
+                    : 'text-muted-foreground hover:bg-muted/35 hover:text-foreground',
                 )}
               >
-                {candidateLabel(candidate)}
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    'flex h-4 w-4 shrink-0 items-center justify-center rounded-full ring-1 transition-colors',
+                    selected
+                      ? 'ring-primary/55'
+                      : 'ring-border group-hover:ring-foreground/25',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 rounded-full bg-primary transition-opacity',
+                      selected ? 'opacity-100' : 'opacity-0',
+                    )}
+                  />
+                </span>
+                <span className="min-w-0 truncate font-medium">
+                  {candidateLabel(candidate)}
+                </span>
               </button>
             );
           })}
           <button
             type="button"
             data-testid="persona-reference-other"
-            aria-pressed={false}
+            role="radio"
+            aria-checked={otherSelected}
             disabled={disabled}
             onClick={() => {
               onChange({
@@ -188,57 +229,93 @@ export function PersonaReferenceEditor({
                 context: '',
               });
             }}
-            className="rounded-full border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted"
+            className={cn(
+              'group flex items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-[background-color,color] duration-200',
+              otherSelected
+                ? 'bg-muted/70 text-foreground'
+                : 'text-muted-foreground hover:bg-muted/35 hover:text-foreground',
+            )}
           >
-            {t('personaPreview.reference.other')}
+            <span
+              aria-hidden="true"
+              className={cn(
+                'flex h-4 w-4 shrink-0 items-center justify-center rounded-full ring-1 transition-colors',
+                otherSelected
+                  ? 'ring-primary/55'
+                  : 'ring-border group-hover:ring-foreground/25',
+              )}
+            >
+              <span
+                className={cn(
+                  'h-1.5 w-1.5 rounded-full bg-primary transition-opacity',
+                  otherSelected ? 'opacity-100' : 'opacity-0',
+                )}
+              />
+            </span>
+            <span className="font-medium">{t('personaPreview.reference.other')}</span>
           </button>
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="text-xs font-medium text-muted-foreground">
-          {t('personaPreview.reference.sourceKind')}
-          <select
-            data-testid="persona-reference-source-kind"
-            value={value.sourceKind}
-            disabled={disabled}
-            onChange={(event) => {
-              const sourceKind = event.target.value as EditablePersonaReference['sourceKind'];
-              const keepsFictionalFields =
-                sourceKind === 'fictional_reference' &&
-                value.sourceKind === 'fictional_reference';
-              onChange({
-                ...value,
-                sourceKind,
-                name: sourceKind === 'original' ? '' : value.name,
-                workTitle: keepsFictionalFields ? value.workTitle : '',
-                version: keepsFictionalFields ? value.version : '',
-              });
-            }}
-            className="mt-1.5 w-full rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground"
-          >
-            <option value="original">{t('personaPreview.reference.sourceKinds.original')}</option>
-            <option value="fictional_reference">{t('personaPreview.reference.sourceKinds.fictional')}</option>
-            <option value="public_person_reference">{t('personaPreview.reference.sourceKinds.publicPerson')}</option>
-            <option value="private_person_reference">{t('personaPreview.reference.sourceKinds.privatePerson')}</option>
-          </select>
-        </label>
-
-        {value.sourceKind !== 'original' && (
-          <label className="text-xs font-medium text-muted-foreground">
-            {t('personaPreview.reference.name')}
-            <input
-              data-testid="persona-reference-name"
-              value={value.name}
+      <section className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="text-xs font-medium text-muted-foreground">
+            <span>{t('personaPreview.reference.sourceKind')}</span>
+            <Select
+              value={value.sourceKind}
               disabled={disabled}
-              onChange={(event) => onChange({ ...value, name: event.target.value })}
-              className="mt-1.5 w-full rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground"
-            />
-          </label>
-        )}
+              onValueChange={(nextValue) => {
+                const sourceKind = nextValue as EditablePersonaReference['sourceKind'];
+                const keepsFictionalFields =
+                  sourceKind === 'fictional_reference' &&
+                  value.sourceKind === 'fictional_reference';
+                onChange({
+                  ...value,
+                  sourceKind,
+                  name: sourceKind === 'original' ? '' : value.name,
+                  workTitle: keepsFictionalFields ? value.workTitle : '',
+                  version: keepsFictionalFields ? value.version : '',
+                });
+              }}
+            >
+              <SelectTrigger
+                data-testid="persona-reference-source-kind"
+                aria-label={t('personaPreview.reference.sourceKind')}
+                className="mt-1.5"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="original">
+                  {t('personaPreview.reference.sourceKinds.original')}
+                </SelectItem>
+                <SelectItem value="fictional_reference">
+                  {t('personaPreview.reference.sourceKinds.fictional')}
+                </SelectItem>
+                <SelectItem value="public_person_reference">
+                  {t('personaPreview.reference.sourceKinds.publicPerson')}
+                </SelectItem>
+                <SelectItem value="private_person_reference">
+                  {t('personaPreview.reference.sourceKinds.privatePerson')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-        {value.sourceKind === 'fictional_reference' && (
-          <>
+          {value.sourceKind !== 'original' && (
+            <label className="text-xs font-medium text-muted-foreground">
+              {t('personaPreview.reference.name')}
+              <input
+                data-testid="persona-reference-name"
+                value={value.name}
+                disabled={disabled}
+                onChange={(event) => onChange({ ...value, name: event.target.value })}
+                className="mt-1.5 h-10 w-full rounded-md bg-muted/35 px-3 text-sm text-foreground outline-none transition-[background-color,box-shadow] duration-200 hover:bg-muted/55 focus:bg-background focus:ring-2 focus:ring-primary/15"
+              />
+            </label>
+          )}
+
+          {value.sourceKind === 'fictional_reference' && (
             <label className="text-xs font-medium text-muted-foreground">
               {t('personaPreview.reference.workTitle')}
               <input
@@ -246,95 +323,165 @@ export function PersonaReferenceEditor({
                 value={value.workTitle}
                 disabled={disabled}
                 onChange={(event) => onChange({ ...value, workTitle: event.target.value })}
-                className="mt-1.5 w-full rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground"
+                className="mt-1.5 h-10 w-full rounded-md bg-muted/35 px-3 text-sm text-foreground outline-none transition-[background-color,box-shadow] duration-200 hover:bg-muted/55 focus:bg-background focus:ring-2 focus:ring-primary/15"
               />
             </label>
-            <label className="text-xs font-medium text-muted-foreground">
-              {t('personaPreview.reference.version')}
-              <input
-                data-testid="persona-reference-version"
-                value={value.version}
+          )}
+
+          {value.sourceKind === 'private_person_reference' && (
+            <label className="block text-xs font-medium text-muted-foreground sm:col-span-2">
+              {t('personaPreview.reference.privateDetails')}
+              <textarea
+                data-testid="persona-reference-context"
+                value={value.context}
                 disabled={disabled}
-                onChange={(event) => onChange({ ...value, version: event.target.value })}
-                placeholder={t('personaPreview.reference.versionPlaceholder')}
-                className="mt-1.5 w-full rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60"
+                rows={2}
+                onChange={(event) => onChange({ ...value, context: event.target.value })}
+                placeholder={t('personaPreview.reference.privateDetailsPlaceholder')}
+                className="mt-1.5 w-full resize-none rounded-md bg-muted/35 px-3 py-2 text-sm leading-6 text-foreground outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 hover:bg-muted/55 focus:bg-background focus:ring-2 focus:ring-primary/15"
               />
             </label>
-          </>
-        )}
-      </div>
+          )}
+        </div>
+      </section>
 
-      {value.sourceKind !== 'original' && (
-        <>
-          <label className="block text-xs font-medium text-muted-foreground">
-            {value.sourceKind === 'private_person_reference'
-              ? t('personaPreview.reference.privateDetails')
-              : t('personaPreview.reference.context')}
-            <textarea
-              data-testid="persona-reference-context"
-              value={value.context}
-              disabled={disabled}
-              rows={2}
-              onChange={(event) => onChange({ ...value, context: event.target.value })}
-              placeholder={
-                value.sourceKind === 'private_person_reference'
-                  ? t('personaPreview.reference.privateDetailsPlaceholder')
-                  : t('personaPreview.reference.contextPlaceholder')
-              }
-              className="mt-1.5 w-full rounded-md border border-border/55 bg-background px-3 py-2 text-sm leading-6 text-foreground placeholder:text-muted-foreground/60"
-            />
-          </label>
-
-          <fieldset>
-            <legend className="text-xs font-medium text-muted-foreground">
-              {t('personaPreview.reference.modeTitle')}
-            </legend>
-            <div className="mt-2 grid gap-2 lg:grid-cols-3">
-              {options.map((option) => (
+      {value.sourceKind !== 'original' && options.length > 0 && (
+        <fieldset>
+          <legend className="text-sm font-semibold text-foreground">
+            {t('personaPreview.reference.modeTitle')}
+          </legend>
+          <div className="mt-2 space-y-1" role="radiogroup">
+            {options.map((option) => {
+              const selected = adaptationMode === option.value;
+              return (
                 <button
                   key={option.value}
                   type="button"
+                  role="radio"
                   data-testid={`persona-reference-mode-${option.value}`}
-                  aria-pressed={adaptationMode === option.value}
+                  aria-checked={selected}
                   disabled={disabled}
                   onClick={() => onAdaptationModeChange(option.value)}
                   className={cn(
-                    'rounded-lg border p-3 text-left transition-colors',
-                    adaptationMode === option.value
-                      ? 'border-primary/50 bg-primary/10'
-                      : 'border-border/55 bg-background hover:bg-muted/50',
+                    'group flex w-full items-start gap-3 rounded-md px-3 py-2.5 text-left transition-[background-color,color] duration-200',
+                    selected ? 'bg-muted/70' : 'hover:bg-muted/35',
                   )}
                 >
-                  <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-                    {t(option.titleKey)}
-                    {option.recommended && (
-                      <span className="text-[10px] font-normal text-primary">
-                        {t('personaPreview.reference.recommended')}
-                      </span>
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full ring-1 transition-colors',
+                      selected
+                        ? 'ring-primary/55'
+                        : 'ring-border group-hover:ring-foreground/25',
                     )}
+                  >
+                    <span
+                      className={cn(
+                        'h-1.5 w-1.5 rounded-full bg-primary transition-opacity',
+                        selected ? 'opacity-100' : 'opacity-0',
+                      )}
+                    />
                   </span>
-                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                    {t(option.descriptionKey)}
+                  <span className="min-w-0">
+                    <span className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium text-foreground">
+                      {t(option.titleKey)}
+                      {option.recommended && (
+                        <span className="text-[11px] font-normal text-primary/80">
+                          · {t('personaPreview.reference.recommended')}
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                      {t(option.descriptionKey)}
+                    </span>
                   </span>
                 </button>
-              ))}
-            </div>
-          </fieldset>
-        </>
+              );
+            })}
+          </div>
+        </fieldset>
       )}
 
-      <label className="block text-xs font-medium text-muted-foreground">
-        {t('personaPreview.reference.constraints')}
-        <textarea
-          data-testid="persona-reference-constraints"
-          value={constraintsText}
-          disabled={disabled}
-          rows={2}
-          onChange={(event) => onConstraintsTextChange(event.target.value)}
-          placeholder={t('personaPreview.reference.constraintsPlaceholder')}
-          className="mt-1.5 w-full rounded-md border border-border/55 bg-background px-3 py-2 text-sm leading-6 text-foreground placeholder:text-muted-foreground/60"
-        />
-      </label>
+      <div>
+        <button
+          type="button"
+          data-testid="persona-reference-advanced-toggle"
+          aria-expanded={advancedOpen}
+          onClick={() => setAdvancedOpen((open) => !open)}
+          className="group flex items-center gap-2 rounded-md py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
+        >
+          {t('personaPreview.reference.moreSettings')}
+          <ChevronDown
+            aria-hidden="true"
+            className={cn(
+              'h-4 w-4 transition-transform duration-200 motion-reduce:transition-none',
+              advancedOpen && 'rotate-180',
+            )}
+          />
+        </button>
+        <div
+          aria-hidden={!advancedOpen}
+          className={cn(
+            'grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+            advancedOpen
+              ? 'grid-rows-[1fr] opacity-100'
+              : 'pointer-events-none grid-rows-[0fr] opacity-0',
+          )}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="grid gap-3 pt-3 sm:grid-cols-2">
+              {value.sourceKind === 'fictional_reference' && (
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t('personaPreview.reference.version')}
+                  <input
+                    data-testid="persona-reference-version"
+                    value={value.version}
+                    disabled={disabled || !advancedOpen}
+                    onChange={(event) => onChange({ ...value, version: event.target.value })}
+                    placeholder={t('personaPreview.reference.versionPlaceholder')}
+                    className="mt-1.5 h-10 w-full rounded-md bg-muted/35 px-3 text-sm text-foreground outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 hover:bg-muted/55 focus:bg-background focus:ring-2 focus:ring-primary/15"
+                  />
+                </label>
+              )}
+
+              {value.sourceKind !== 'original' &&
+                value.sourceKind !== 'private_person_reference' && (
+                  <label
+                    className={cn(
+                      'block text-xs font-medium text-muted-foreground',
+                      value.sourceKind !== 'fictional_reference' && 'sm:col-span-2',
+                    )}
+                  >
+                    {t('personaPreview.reference.context')}
+                    <textarea
+                      data-testid="persona-reference-context"
+                      value={value.context}
+                      disabled={disabled || !advancedOpen}
+                      rows={2}
+                      onChange={(event) => onChange({ ...value, context: event.target.value })}
+                      placeholder={t('personaPreview.reference.contextPlaceholder')}
+                      className="mt-1.5 w-full resize-none rounded-md bg-muted/35 px-3 py-2 text-sm leading-6 text-foreground outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 hover:bg-muted/55 focus:bg-background focus:ring-2 focus:ring-primary/15"
+                    />
+                  </label>
+                )}
+
+              <label className="block text-xs font-medium text-muted-foreground sm:col-span-2">
+                {t('personaPreview.reference.constraints')}
+                <textarea
+                  data-testid="persona-reference-constraints"
+                  value={constraintsText}
+                  disabled={disabled || !advancedOpen}
+                  rows={2}
+                  onChange={(event) => onConstraintsTextChange(event.target.value)}
+                  placeholder={t('personaPreview.reference.constraintsPlaceholder')}
+                  className="mt-1.5 w-full resize-none rounded-md bg-muted/35 px-3 py-2 text-sm leading-6 text-foreground outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 hover:bg-muted/55 focus:bg-background focus:ring-2 focus:ring-primary/15"
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

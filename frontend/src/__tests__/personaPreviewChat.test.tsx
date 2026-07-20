@@ -758,6 +758,19 @@ describe('PersonaPreviewChat', () => {
 
     expect(await screen.findByTestId('persona-reference-work')).toHaveValue('龙珠');
     expect(screen.getByTestId('persona-reference-constraints')).toHaveValue('少说设定黑话');
+    expect(screen.getByTestId('persona-custom-description-summary')).toHaveTextContent(
+      '龙珠里的孙悟空',
+    );
+    expect(screen.getByTestId('persona-custom-description')).toBeDisabled();
+    expect(screen.getByTestId('persona-reference-source-kind').tagName).toBe('BUTTON');
+    expect(screen.getByTestId('persona-reference-advanced-toggle')).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    await userEvent.click(screen.getByTestId('persona-reference-advanced-toggle'));
+    expect(screen.getByTestId('persona-reference-constraints')).toBeEnabled();
+    await userEvent.click(screen.getByTestId('persona-custom-description-edit'));
+    expect(screen.getByTestId('persona-custom-description')).toBeEnabled();
     await userEvent.click(screen.getByTestId('persona-reference-mode-fictional_immersive'));
     await userEvent.click(screen.getByTestId('persona-custom-generate'));
 

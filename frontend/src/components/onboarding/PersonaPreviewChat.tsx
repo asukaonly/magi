@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReducedMotion } from 'framer-motion';
-import { CheckCircle2, Circle, Loader2 } from 'lucide-react';
+import { CheckCircle2, Circle, Loader2, PencilLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { streamChatPreview, type PreviewTurn } from '../../api/modules/chatPreview';
@@ -356,6 +356,11 @@ export function PersonaPreviewChat({
   const [presetProfiles, setPresetProfiles] = useState<Record<string, PresetProfileState>>({});
   const [creationDraft, setCreationDraft] = useState<PersonaCreationDraft | null>(
     () => initialCreationDraft ?? null,
+  );
+  const [descriptionExpanded, setDescriptionExpanded] = useState(
+    () =>
+      !initialCreationDraft ||
+      (initialCreationDraft.phase !== 'reviewing' && initialCreationDraft.phase !== 'failed'),
   );
   const creationDraftRef = useRef<PersonaCreationDraft | null>(initialCreationDraft ?? null);
   const [genStages, setGenStages] = useState<PersonaGenerationStage[]>([]);
@@ -777,6 +782,7 @@ export function PersonaPreviewChat({
           await runGeneration(reviewedDraft, buildGenerationIntent(reviewedDraft));
           return;
         }
+        setDescriptionExpanded(false);
         publishCreationDraft(reviewedDraft);
       } catch {
         const fallbackResolution: PersonaIntentResolution = {
@@ -787,6 +793,7 @@ export function PersonaPreviewChat({
           requires_confirmation: true,
           explicit_constraints: [],
         };
+        setDescriptionExpanded(false);
         publishCreationDraft(applyResolution(resolvingDraft, fallbackResolution));
         setGenError(t('personaPreview.reference.resolveFailed'));
       }
@@ -857,6 +864,7 @@ export function PersonaPreviewChat({
         editingPersonaSlug: customDraft.slug,
         revision: (customDraft.revision || 1) + 1,
       });
+      setDescriptionExpanded(false);
       setGenError(null);
       setGenStages([]);
       setMode('create');
@@ -1023,6 +1031,9 @@ export function PersonaPreviewChat({
         : creationNeedsConfirmation
           ? t('personaPreview.reference.confirmAndGenerate')
           : t('personaPreview.generate');
+  const showDescriptionSummary =
+    Boolean(creationDraft?.resolution) && creationNeedsConfirmation;
+  const showDescriptionEditor = !showDescriptionSummary || descriptionExpanded;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -1074,6 +1085,7 @@ export function PersonaPreviewChat({
             if (!creationDraftRef.current) {
               publishCreationDraft(createEmptyCreationDraft());
             }
+            setDescriptionExpanded(true);
             setMode('create');
             setGenError(null);
           }}
@@ -1092,33 +1104,79 @@ export function PersonaPreviewChat({
       {/* Right: either the preview chat or the custom-persona composer. */}
       {mode === 'create' ? (
         <div className="flex min-h-0 flex-col gap-4">
-          <div className="flex-1 overflow-y-auto rounded-lg border border-border/50 bg-muted/10 p-4">
-            <h3 className="text-base font-semibold text-foreground">{t('personaPreview.createCustomTitle')}</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t('personaPreview.createCustomHint')}
-            </p>
-            <textarea
-              data-testid="persona-custom-description"
-              value={creationDraft?.description || ''}
-              onChange={(event) => {
-                const currentDraft = creationDraftRef.current ?? createEmptyCreationDraft();
-                publishCreationDraft({
-                  ...currentDraft,
-                  phase: 'editing',
-                  description: event.target.value,
-                  resolution: undefined,
-                  referenceConfirmed: false,
-                  generationRequestId: undefined,
-                  generationJobId: undefined,
-                });
-                setGenError(null);
-                setGenStages([]);
-              }}
-              placeholder={t('personaPreview.customDescriptionPlaceholder')}
-              disabled={generating}
-              rows={3}
-              className="mt-4 w-full rounded-lg border border-border/45 bg-muted/35 px-4 py-3 text-base leading-7 text-foreground shadow-inner shadow-background/40 outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary/35 focus:bg-background/80 focus:ring-2 focus:ring-primary/15 disabled:opacity-70"
-            />
+          <div className="flex-1 overflow-y-auto rounded-xl bg-muted/10 px-6 py-5">
+            {showDescriptionSummary && !descriptionExpanded && (
+              <div
+                data-testid="persona-custom-description-summary"
+                className="flex items-center justify-between gap-4 rounded-lg bg-muted/45 px-4 py-3"
+              >
+                <p className="min-w-0 truncate text-sm font-medium text-foreground">
+                  {creationDraft?.description}
+                </p>
+                <button
+                  type="button"
+                  data-testid="persona-custom-description-edit"
+                  onClick={() => setDescriptionExpanded(true)}
+                  className="group flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
+                >
+                  <PencilLine className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t('personaPreview.reference.edit')}
+                </button>
+              </div>
+            )}
+
+            <div
+              aria-hidden={!showDescriptionEditor}
+              className={cn(
+                'grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                showDescriptionEditor
+                  ? 'grid-rows-[1fr] opacity-100'
+                  : 'pointer-events-none grid-rows-[0fr] opacity-0',
+              )}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div>
+                  {!showDescriptionSummary && (
+                    <>
+                      <h3 className="text-base font-semibold tracking-[-0.01em] text-foreground">
+                        {t('personaPreview.createCustomTitle')}
+                      </h3>
+                      <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted-foreground">
+                        {t('personaPreview.createCustomHint')}
+                      </p>
+                    </>
+                  )}
+                  <textarea
+                    data-testid="persona-custom-description"
+                    value={creationDraft?.description || ''}
+                    onChange={(event) => {
+                      const currentDraft = creationDraftRef.current ?? createEmptyCreationDraft();
+                      publishCreationDraft({
+                        ...currentDraft,
+                        phase: 'editing',
+                        description: event.target.value,
+                        resolution: undefined,
+                        referenceConfirmed: false,
+                        generationRequestId: undefined,
+                        generationJobId: undefined,
+                      });
+                      setDescriptionExpanded(true);
+                      setGenError(null);
+                      setGenStages([]);
+                    }}
+                    placeholder={t('personaPreview.customDescriptionPlaceholder')}
+                    disabled={generating || !showDescriptionEditor}
+                    tabIndex={showDescriptionEditor ? undefined : -1}
+                    rows={2}
+                    className={cn(
+                      'w-full resize-none rounded-lg bg-muted/35 px-4 py-3 text-base leading-7 text-foreground outline-none transition-[background-color,box-shadow] duration-200',
+                      'placeholder:text-muted-foreground/60 hover:bg-muted/50 focus:bg-background/80 focus:ring-2 focus:ring-primary/15 disabled:opacity-70',
+                      !showDescriptionSummary && 'mt-4',
+                    )}
+                  />
+                </div>
+              </div>
+            </div>
 
             {creationDraft?.resolution && creationNeedsConfirmation && (
               <PersonaReferenceEditor
