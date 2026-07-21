@@ -31,6 +31,7 @@ import { messagesApi } from "@/api/modules/messages";
 import { personasApi } from "@/api/modules/personas";
 import * as systemSuggestions from "@/api/modules/systemSuggestions";
 import OnboardingFlow from "@/components/onboarding/OnboardingFlow";
+import { FIRST_CONTEXT_QUESTION_IDS } from "@/domain/chat/first-context";
 import { useConversationStore } from "@/stores/conversation-store";
 import { usePluginInstallPanelStore } from "@/stores/pluginInstallPanel";
 
@@ -702,6 +703,35 @@ describe("OnboardingFlow (linear 5-step)", () => {
         draft: "叫我小夏就好",
       }),
     );
+  });
+
+  it("keeps changing questions after the whole pool has been shown", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await user.click(screen.getByTestId("first-context-route-question"));
+
+    const activeQuestionId = () => FIRST_CONTEXT_QUESTION_IDS.find(
+      (questionId) => screen.queryByTestId(
+        `first-context-question-${questionId}`,
+      ),
+    );
+    let previousQuestionId = activeQuestionId();
+
+    for (let index = 0; index < FIRST_CONTEXT_QUESTION_IDS.length + 1; index += 1) {
+      await user.click(
+        screen.getByRole("button", {
+          name: "firstContext.story.changeQuestion",
+        }),
+      );
+      const nextQuestionId = activeQuestionId();
+      expect(nextQuestionId).toBeDefined();
+      expect(nextQuestionId).not.toBe(previousQuestionId);
+      previousQuestionId = nextQuestionId;
+    }
   });
 
   it("keeps an empty personal answer on the page instead of creating a chat", async () => {

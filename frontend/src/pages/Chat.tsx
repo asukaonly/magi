@@ -966,13 +966,15 @@ export const ChatPage: React.FC = () => {
     const questionId = chooseAlternativeFirstContextQuestion(
       activeFirstContextQuestion.questionId,
       currentSessionId,
-      [...answeredFirstContextQuestions, ...seenQuestionIds],
+      answeredFirstContextQuestions,
+      seenQuestionIds,
     );
+    const startsNewCycle = seenQuestionIds.includes(questionId);
     updateFirstContextSelection({
       mode: 'active',
       questionId,
-      seenQuestionIds: seenQuestionIds.includes(questionId)
-        ? seenQuestionIds
+      seenQuestionIds: startsNewCycle
+        ? Array.from(new Set([activeFirstContextQuestion.questionId, questionId]))
         : [...seenQuestionIds, questionId],
     });
     window.requestAnimationFrame(() => composerTextareaRef.current?.focus());

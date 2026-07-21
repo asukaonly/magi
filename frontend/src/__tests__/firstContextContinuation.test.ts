@@ -65,6 +65,18 @@ describe("first-context continuation", () => {
     expect(next).not.toBe("easy_topic");
   });
 
+  it("starts a new cycle after every question in the current group was seen", () => {
+    const next = chooseAlternativeFirstContextQuestion(
+      "current_interest",
+      "session-1",
+      ["preferred_name"],
+      ["easy_topic", "current_interest", "repeating_content"],
+    );
+
+    expect(["easy_topic", "repeating_content"]).toContain(next);
+    expect(next).not.toBe("current_interest");
+  });
+
   it("offers another question only after the assistant finishes replying", () => {
     const answer = firstContextAnswer("preferred_name", 1);
     expect(canOfferFirstContextContinuation([answer], false)).toBe(false);

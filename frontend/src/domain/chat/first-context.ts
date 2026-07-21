@@ -132,8 +132,10 @@ export function chooseAlternativeFirstContextQuestion(
   currentQuestionId: FirstContextQuestionId,
   sessionId: string,
   answeredQuestionIds: readonly FirstContextQuestionId[],
+  seenQuestionIds: readonly FirstContextQuestionId[] = [],
 ): FirstContextQuestionId {
   const answered = new Set(answeredQuestionIds);
+  const seen = new Set(seenQuestionIds);
   const pool = FIRST_CONTEXT_INTEREST_QUESTION_IDS.includes(
     currentQuestionId as (typeof FIRST_CONTEXT_INTEREST_QUESTION_IDS)[number],
   )
@@ -145,16 +147,18 @@ export function chooseAlternativeFirstContextQuestion(
       : FIRST_CONTEXT_QUESTION_IDS.filter(
           (questionId) => questionId !== "preferred_name",
         );
-  const alternatives = pool.filter(
+  const eligible = pool.filter(
     (questionId) => questionId !== currentQuestionId && !answered.has(questionId),
   );
+  const unseen = eligible.filter((questionId) => !seen.has(questionId));
+  const alternatives = unseen.length > 0 ? unseen : eligible;
   if (alternatives.length === 0) {
     return currentQuestionId;
   }
   return (
     alternatives[
       stableIndex(
-        `${sessionId}:alternative:${currentQuestionId}`,
+        `${sessionId}:alternative:${currentQuestionId}:${seenQuestionIds.length}`,
         alternatives.length,
       )
     ] ?? alternatives[0]

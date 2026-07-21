@@ -1141,19 +1141,25 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const handleFirstContextQuestionChange = () => {
     setFirstContextStoryError(null);
     updateFirstContextProgress((progress) => {
-      const alternatives = FIRST_CONTEXT_QUESTION_IDS.filter(
+      const unseenAlternatives = FIRST_CONTEXT_QUESTION_IDS.filter(
         (questionId) =>
           questionId !== progress.questionId
           && !progress.seenQuestionIds.includes(questionId),
       );
+      const startsNewCycle = unseenAlternatives.length === 0;
+      const alternatives = startsNewCycle
+        ? FIRST_CONTEXT_QUESTION_IDS.filter(
+          (questionId) => questionId !== progress.questionId,
+        )
+        : unseenAlternatives;
       const questionId =
         alternatives[Math.floor(Math.random() * alternatives.length)]
         ?? progress.questionId;
       return {
         ...progress,
         questionId,
-        seenQuestionIds: progress.seenQuestionIds.includes(questionId)
-          ? progress.seenQuestionIds
+        seenQuestionIds: startsNewCycle
+          ? [progress.questionId, questionId]
           : [...progress.seenQuestionIds, questionId],
         turnId: null,
         messageId: null,
