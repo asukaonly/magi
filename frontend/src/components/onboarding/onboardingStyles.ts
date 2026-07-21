@@ -7,6 +7,10 @@ export const ONBOARDING_SECONDARY_ACTION_CLASS =
 export const ONBOARDING_FIELD_CLASS =
   'rounded-md bg-card text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.72),0_1px_2px_hsl(var(--foreground)/0.035)] outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 hover:shadow-[inset_0_0_0_1px_hsl(var(--border)/0.95),0_1px_2px_hsl(var(--foreground)/0.05)] focus:bg-card focus:ring-2 focus:ring-primary/20 focus:shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.28),0_4px_18px_-14px_hsl(var(--primary)/0.42)] motion-reduce:transition-none';
 
+// 嵌入暖色内容区时的字段样式:和背景相近的 muted 底,而不是纯白卡片。
+export const ONBOARDING_FIELD_MUTED_CLASS =
+  'rounded-md bg-muted/45 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.55)] outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 hover:bg-muted/55 focus:bg-muted/55 focus:ring-2 focus:ring-primary/20 motion-reduce:transition-none';
+
 // 选中态:中性纸面 + 低调的 primary 细描边,不用彩色填充(去「AI 应用」的粉色 surface)。
 export const ONBOARDING_SELECTED_SURFACE_CLASS =
   'bg-card shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.38)]';

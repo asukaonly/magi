@@ -17,9 +17,7 @@ import {
 import type { LLMConfig } from '../../api/modules/config';
 import { PersonaPreviewStarterChips } from './PersonaPreviewStarterChips';
 import { PersonaProfilePanel } from './PersonaProfilePanel';
-import {
-  ONBOARDING_FIELD_CLASS,
-} from './onboardingStyles';
+import { ONBOARDING_FIELD_MUTED_CLASS } from './onboardingStyles';
 import {
   candidateToEditableReference,
   defaultAdaptationMode,
@@ -760,7 +758,11 @@ export function PersonaPreviewChat({
         resolution,
         reference,
         referenceConfirmed:
-          resolution.status === 'resolved' || resolution.status === 'original',
+          // 至多一个候选时,编辑器里的默认值(首选候选 + 默认出场方式)
+          // 无需用户再点一次即可确认;多个候选才要求显式选择。
+          resolution.status === 'resolved' ||
+          resolution.status === 'original' ||
+          resolution.candidates.length <= 1,
         adaptationMode: defaultAdaptationMode(reference.sourceKind),
         constraintsText: resolution.explicit_constraints.join('\n'),
       };
@@ -1333,8 +1335,8 @@ export function PersonaPreviewChat({
                     tabIndex={showDescriptionEditor ? undefined : -1}
                     rows={2}
                     className={cn(
-                      'w-full resize-none px-4 py-3 text-base leading-7 disabled:opacity-70',
-                      ONBOARDING_FIELD_CLASS,
+                      'w-full resize-none rounded-lg px-4 py-3 text-base leading-7 disabled:opacity-70',
+                      ONBOARDING_FIELD_MUTED_CLASS,
                       !showDescriptionSummary && 'mt-4',
                     )}
                   />
@@ -1451,11 +1453,12 @@ export function PersonaPreviewChat({
               type="button"
               onClick={() => {
                 setMode('chat');
+                setStage('picker');
                 setGenError(null);
                 publishCreationDraft(null);
               }}
               disabled={generating}
-              className="rounded-md px-4 py-2 text-sm text-muted-foreground underline disabled:opacity-50"
+              className="rounded-md px-4 py-2 text-sm text-muted-foreground transition-colors duration-200 hover:bg-muted/70 hover:text-foreground disabled:opacity-50 motion-reduce:transition-none"
             >
               {t('personaPreview.cancelCreate')}
             </button>

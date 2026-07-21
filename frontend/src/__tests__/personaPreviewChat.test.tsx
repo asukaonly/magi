@@ -123,6 +123,18 @@ describe('PersonaPreviewChat', () => {
     vi.restoreAllMocks();
   });
 
+  it('returns to the picker when cancelling persona creation', async () => {
+    const user = userEvent.setup();
+    renderPersonaPreview({ previews, stayInPicker: true });
+
+    await user.click(screen.getByTestId('persona-create-custom'));
+    expect(await screen.findByTestId('persona-custom-description')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'personaPreview.cancelCreate' }));
+    expect(await screen.findByTestId('persona-pick-nova')).toBeInTheDocument();
+    expect(screen.queryByTestId('persona-custom-description')).not.toBeInTheDocument();
+  });
+
   it('renders a picker card for every seed preview', () => {
     renderPersonaPreview({ previews, stayInPicker: true });
     expect(screen.getByRole('button', { name: /Nova/i })).toBeInTheDocument();
@@ -607,6 +619,51 @@ describe('PersonaPreviewChat', () => {
         }),
       );
     });
+  });
+
+  it('allows immediate generation when a single candidate is pre-filled', async () => {
+    vi.mocked(personasApi.resolveGenerationIntent).mockResolvedValueOnce({
+      success: true,
+      message: 'ok',
+      data: {
+        status: 'unknown',
+        candidates: [
+          {
+            candidate_id: 'candidate-1',
+            source_kind: 'fictional_reference',
+            name: '明日香',
+            work_title: '新世纪福音战士',
+            version: null,
+            context: null,
+            confidence: 0.7,
+          },
+        ],
+        selected_candidate_id: null,
+        confidence: 0.7,
+        requires_confirmation: true,
+        explicit_constraints: [],
+      },
+    });
+    const genSpy = vi
+      .spyOn(personasApi, 'generateWithProgress')
+      .mockResolvedValue({
+        success: true,
+        message: 'ok',
+        data: makeGeneratedConfig(),
+        stages: [],
+      } as any);
+
+    renderPersonaPreview({ previews, stayInPicker: true });
+    await userEvent.click(screen.getByTestId('persona-create-custom'));
+    await userEvent.type(screen.getByTestId('persona-custom-description'), 'eva里的明日香');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    // 单候选默认值无需再点一次出场方式,确认按钮直接可用。
+    expect(await screen.findByTestId('persona-reference-editor')).toBeInTheDocument();
+    expect(screen.getByTestId('persona-custom-generate')).toBeEnabled();
+
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+    await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
   });
 
   it('requires the user to choose between ambiguous character sources', async () => {

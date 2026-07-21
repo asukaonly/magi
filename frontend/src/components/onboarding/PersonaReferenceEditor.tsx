@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import {
-  ONBOARDING_FIELD_CLASS,
+  ONBOARDING_FIELD_MUTED_CLASS,
   ONBOARDING_SELECTED_SURFACE_CLASS,
 } from './onboardingStyles';
 import {
@@ -316,7 +316,7 @@ export function PersonaReferenceEditor({
               <SelectTrigger
                 data-testid="persona-reference-source-kind"
                 aria-label={t('personaPreview.reference.sourceKind')}
-                className={cn('mt-1.5', ONBOARDING_FIELD_CLASS)}
+                className={cn('mt-1.5', ONBOARDING_FIELD_MUTED_CLASS)}
               >
                 <SelectValue />
               </SelectTrigger>
@@ -345,7 +345,7 @@ export function PersonaReferenceEditor({
                 value={value.name}
                 disabled={disabled}
                 onChange={(event) => onChange({ ...value, name: event.target.value })}
-                className={cn('mt-1.5 h-10 w-full px-3 text-sm', ONBOARDING_FIELD_CLASS)}
+                className={cn('mt-1.5 h-10 w-full px-3 text-sm', ONBOARDING_FIELD_MUTED_CLASS)}
               />
             </label>
           )}
@@ -358,7 +358,7 @@ export function PersonaReferenceEditor({
                 value={value.workTitle}
                 disabled={disabled}
                 onChange={(event) => onChange({ ...value, workTitle: event.target.value })}
-                className={cn('mt-1.5 h-10 w-full px-3 text-sm', ONBOARDING_FIELD_CLASS)}
+                className={cn('mt-1.5 h-10 w-full px-3 text-sm', ONBOARDING_FIELD_MUTED_CLASS)}
               />
             </label>
           )}
@@ -373,7 +373,7 @@ export function PersonaReferenceEditor({
                 rows={2}
                 onChange={(event) => onChange({ ...value, context: event.target.value })}
                 placeholder={t('personaPreview.reference.privateDetailsPlaceholder')}
-                className={cn('mt-1.5 w-full resize-none px-3 py-2 text-sm leading-6', ONBOARDING_FIELD_CLASS)}
+                className={cn('mt-1.5 w-full resize-none px-3 py-2 text-sm leading-6', ONBOARDING_FIELD_MUTED_CLASS)}
               />
             </label>
           )}
@@ -483,7 +483,7 @@ export function PersonaReferenceEditor({
                     disabled={disabled || !advancedOpen}
                     onChange={(event) => onChange({ ...value, version: event.target.value })}
                     placeholder={t('personaPreview.reference.versionPlaceholder')}
-                    className={cn('mt-1.5 h-10 w-full px-3 text-sm', ONBOARDING_FIELD_CLASS)}
+                    className={cn('mt-1.5 h-10 w-full px-3 text-sm', ONBOARDING_FIELD_MUTED_CLASS)}
                   />
                 </label>
               )}
@@ -504,7 +504,7 @@ export function PersonaReferenceEditor({
                       rows={2}
                       onChange={(event) => onChange({ ...value, context: event.target.value })}
                       placeholder={t('personaPreview.reference.contextPlaceholder')}
-                      className={cn('mt-1.5 w-full resize-none px-3 py-2 text-sm leading-6', ONBOARDING_FIELD_CLASS)}
+                      className={cn('mt-1.5 w-full resize-none px-3 py-2 text-sm leading-6', ONBOARDING_FIELD_MUTED_CLASS)}
                     />
                   </label>
                 )}
@@ -518,7 +518,7 @@ export function PersonaReferenceEditor({
                   rows={2}
                   onChange={(event) => onConstraintsTextChange(event.target.value)}
                   placeholder={t('personaPreview.reference.constraintsPlaceholder')}
-                  className={cn('mt-1.5 w-full resize-none px-3 py-2 text-sm leading-6', ONBOARDING_FIELD_CLASS)}
+                  className={cn('mt-1.5 w-full resize-none px-3 py-2 text-sm leading-6', ONBOARDING_FIELD_MUTED_CLASS)}
                 />
               </label>
             </div>
