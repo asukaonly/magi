@@ -459,7 +459,7 @@ describe('PluginInstallPanel', () => {
         screen.getByText(/settings\.marketplace\.consent\.title\.install/),
       ).toBeInTheDocument(),
     );
-    expect(screen.getByTestId('plugin-icon-neteasecloudmusic')).toBeInTheDocument();
+    expect(screen.getByTestId('plugin-icon-fallback')).toBeInTheDocument();
     expect(installSpy).not.toHaveBeenCalled();
 
     // Confirming consent proceeds to the install.
