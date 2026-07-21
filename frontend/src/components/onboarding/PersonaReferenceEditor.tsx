@@ -1,7 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import {
+  ONBOARDING_FIELD_CLASS,
+  ONBOARDING_SELECTED_SURFACE_CLASS,
+} from './onboardingStyles';
 import {
   Select,
   SelectContent,
@@ -129,7 +134,9 @@ export function PersonaReferenceEditor({
   onConstraintsTextChange,
 }: PersonaReferenceEditorProps): JSX.Element {
   const { t } = useTranslation('onboarding');
+  const shouldReduceMotion = useReducedMotion() ?? false;
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const advancedSectionRef = useRef<HTMLDivElement | null>(null);
   const options = useMemo(
     () => value.sourceKind === 'original' ? [] : MODE_OPTIONS[value.sourceKind],
     [value.sourceKind],
@@ -142,6 +149,17 @@ export function PersonaReferenceEditor({
       value.version === (candidate.version || ''),
   );
   const otherSelected = resolution.candidates.length > 1 && !hasSelectedCandidate;
+
+  useEffect(() => {
+    if (!advancedOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      advancedSectionRef.current?.scrollIntoView?.({
+        behavior: shouldReduceMotion ? 'auto' : 'smooth',
+        block: 'nearest',
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [advancedOpen, shouldReduceMotion]);
 
   return (
     <div
@@ -162,8 +180,9 @@ export function PersonaReferenceEditor({
       </div>
 
       {resolution.candidates.length > 1 && (
-        <div
-          className="grid gap-1 sm:grid-cols-2"
+        <motion.div
+          layout
+          className="grid gap-2 sm:grid-cols-2"
           role="radiogroup"
           aria-label={t('personaPreview.reference.candidatesLabel')}
         >
@@ -186,29 +205,37 @@ export function PersonaReferenceEditor({
                   onChange(next);
                 }}
                 className={cn(
-                  'group flex min-w-0 items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-[background-color,color] duration-200',
+                  'group relative flex min-w-0 items-center gap-3 overflow-hidden rounded-lg px-3 py-3 text-left text-sm transition-colors duration-200 motion-reduce:transition-none',
                   selected
-                    ? 'bg-muted/70 text-foreground'
-                    : 'text-muted-foreground hover:bg-muted/35 hover:text-foreground',
+                    ? 'text-foreground'
+                    : 'text-muted-foreground hover:bg-muted/55 hover:text-foreground',
                 )}
               >
+                {selected ? (
+                  <motion.span
+                    aria-hidden="true"
+                    layoutId={shouldReduceMotion ? undefined : 'persona-reference-candidate-selection'}
+                    className={cn('absolute inset-0 rounded-lg', ONBOARDING_SELECTED_SURFACE_CLASS)}
+                    transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  />
+                ) : null}
                 <span
                   aria-hidden="true"
                   className={cn(
-                    'flex h-4 w-4 shrink-0 items-center justify-center rounded-full ring-1 transition-colors',
+                    'relative flex h-4 w-4 shrink-0 items-center justify-center rounded-full ring-1 transition-colors duration-200',
                     selected
-                      ? 'ring-primary/55'
+                      ? 'bg-primary ring-primary'
                       : 'ring-border group-hover:ring-foreground/25',
                   )}
                 >
                   <span
                     className={cn(
-                      'h-1.5 w-1.5 rounded-full bg-primary transition-opacity',
+                      'h-1.5 w-1.5 rounded-full bg-primary-foreground transition-opacity',
                       selected ? 'opacity-100' : 'opacity-0',
                     )}
                   />
                 </span>
-                <span className="min-w-0 truncate font-medium">
+                <span className="relative min-w-0 truncate font-semibold">
                   {candidateLabel(candidate)}
                 </span>
               </button>
@@ -230,34 +257,42 @@ export function PersonaReferenceEditor({
               });
             }}
             className={cn(
-              'group flex items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-[background-color,color] duration-200',
+              'group relative flex items-center gap-3 overflow-hidden rounded-lg px-3 py-3 text-left text-sm transition-colors duration-200 motion-reduce:transition-none',
               otherSelected
-                ? 'bg-muted/70 text-foreground'
-                : 'text-muted-foreground hover:bg-muted/35 hover:text-foreground',
+                ? 'text-foreground'
+                : 'text-muted-foreground hover:bg-muted/55 hover:text-foreground',
             )}
           >
+            {otherSelected ? (
+              <motion.span
+                aria-hidden="true"
+                layoutId={shouldReduceMotion ? undefined : 'persona-reference-candidate-selection'}
+                className={cn('absolute inset-0 rounded-lg', ONBOARDING_SELECTED_SURFACE_CLASS)}
+                transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }}
+              />
+            ) : null}
             <span
               aria-hidden="true"
               className={cn(
-                'flex h-4 w-4 shrink-0 items-center justify-center rounded-full ring-1 transition-colors',
+                'relative flex h-4 w-4 shrink-0 items-center justify-center rounded-full ring-1 transition-colors duration-200',
                 otherSelected
-                  ? 'ring-primary/55'
+                  ? 'bg-primary ring-primary'
                   : 'ring-border group-hover:ring-foreground/25',
               )}
             >
               <span
                 className={cn(
-                  'h-1.5 w-1.5 rounded-full bg-primary transition-opacity',
+                  'h-1.5 w-1.5 rounded-full bg-primary-foreground transition-opacity',
                   otherSelected ? 'opacity-100' : 'opacity-0',
                 )}
               />
             </span>
-            <span className="font-medium">{t('personaPreview.reference.other')}</span>
+            <span className="relative font-semibold">{t('personaPreview.reference.other')}</span>
           </button>
-        </div>
+        </motion.div>
       )}
 
-      <section className="space-y-3">
+      <motion.section layout className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="text-xs font-medium text-muted-foreground">
             <span>{t('personaPreview.reference.sourceKind')}</span>
@@ -281,7 +316,7 @@ export function PersonaReferenceEditor({
               <SelectTrigger
                 data-testid="persona-reference-source-kind"
                 aria-label={t('personaPreview.reference.sourceKind')}
-                className="mt-1.5"
+                className={cn('mt-1.5', ONBOARDING_FIELD_CLASS)}
               >
                 <SelectValue />
               </SelectTrigger>
@@ -310,7 +345,7 @@ export function PersonaReferenceEditor({
                 value={value.name}
                 disabled={disabled}
                 onChange={(event) => onChange({ ...value, name: event.target.value })}
-                className="mt-1.5 h-10 w-full rounded-md bg-muted/35 px-3 text-sm text-foreground outline-none transition-[background-color,box-shadow] duration-200 hover:bg-muted/55 focus:bg-background focus:ring-2 focus:ring-primary/15"
+                className={cn('mt-1.5 h-10 w-full px-3 text-sm', ONBOARDING_FIELD_CLASS)}
               />
             </label>
           )}
@@ -323,7 +358,7 @@ export function PersonaReferenceEditor({
                 value={value.workTitle}
                 disabled={disabled}
                 onChange={(event) => onChange({ ...value, workTitle: event.target.value })}
-                className="mt-1.5 h-10 w-full rounded-md bg-muted/35 px-3 text-sm text-foreground outline-none transition-[background-color,box-shadow] duration-200 hover:bg-muted/55 focus:bg-background focus:ring-2 focus:ring-primary/15"
+                className={cn('mt-1.5 h-10 w-full px-3 text-sm', ONBOARDING_FIELD_CLASS)}
               />
             </label>
           )}
@@ -338,19 +373,19 @@ export function PersonaReferenceEditor({
                 rows={2}
                 onChange={(event) => onChange({ ...value, context: event.target.value })}
                 placeholder={t('personaPreview.reference.privateDetailsPlaceholder')}
-                className="mt-1.5 w-full resize-none rounded-md bg-muted/35 px-3 py-2 text-sm leading-6 text-foreground outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 hover:bg-muted/55 focus:bg-background focus:ring-2 focus:ring-primary/15"
+                className={cn('mt-1.5 w-full resize-none px-3 py-2 text-sm leading-6', ONBOARDING_FIELD_CLASS)}
               />
             </label>
           )}
         </div>
-      </section>
+      </motion.section>
 
       {value.sourceKind !== 'original' && options.length > 0 && (
         <fieldset>
           <legend className="text-sm font-semibold text-foreground">
             {t('personaPreview.reference.modeTitle')}
           </legend>
-          <div className="mt-2 space-y-1" role="radiogroup">
+          <div className="mt-2 space-y-2" role="radiogroup">
             {options.map((option) => {
               const selected = adaptationMode === option.value;
               return (
@@ -363,28 +398,36 @@ export function PersonaReferenceEditor({
                   disabled={disabled}
                   onClick={() => onAdaptationModeChange(option.value)}
                   className={cn(
-                    'group flex w-full items-start gap-3 rounded-md px-3 py-2.5 text-left transition-[background-color,color] duration-200',
-                    selected ? 'bg-muted/70' : 'hover:bg-muted/35',
+                    'group relative flex w-full items-start gap-3 overflow-hidden rounded-lg px-3 py-3 text-left transition-colors duration-200 hover:bg-muted/55 motion-reduce:transition-none',
+                    selected && 'text-foreground',
                   )}
                 >
+                  {selected ? (
+                    <motion.span
+                      aria-hidden="true"
+                      layoutId={shouldReduceMotion ? undefined : 'persona-reference-mode-selection'}
+                      className={cn('absolute inset-0 rounded-lg', ONBOARDING_SELECTED_SURFACE_CLASS)}
+                      transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }}
+                    />
+                  ) : null}
                   <span
                     aria-hidden="true"
                     className={cn(
-                      'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full ring-1 transition-colors',
+                      'relative mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full ring-1 transition-colors duration-200',
                       selected
-                        ? 'ring-primary/55'
+                        ? 'bg-primary ring-primary'
                         : 'ring-border group-hover:ring-foreground/25',
                     )}
                   >
                     <span
                       className={cn(
-                        'h-1.5 w-1.5 rounded-full bg-primary transition-opacity',
+                        'h-1.5 w-1.5 rounded-full bg-primary-foreground transition-opacity',
                         selected ? 'opacity-100' : 'opacity-0',
                       )}
                     />
                   </span>
-                  <span className="min-w-0">
-                    <span className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium text-foreground">
+                  <span className="relative min-w-0">
+                    <span className="flex flex-wrap items-baseline gap-x-2 text-sm font-semibold text-foreground">
                       {t(option.titleKey)}
                       {option.recommended && (
                         <span className="text-[11px] font-normal text-primary/80">
@@ -403,7 +446,7 @@ export function PersonaReferenceEditor({
         </fieldset>
       )}
 
-      <div>
+      <div ref={advancedSectionRef} className="scroll-mt-6">
         <button
           type="button"
           data-testid="persona-reference-advanced-toggle"
@@ -440,7 +483,7 @@ export function PersonaReferenceEditor({
                     disabled={disabled || !advancedOpen}
                     onChange={(event) => onChange({ ...value, version: event.target.value })}
                     placeholder={t('personaPreview.reference.versionPlaceholder')}
-                    className="mt-1.5 h-10 w-full rounded-md bg-muted/35 px-3 text-sm text-foreground outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 hover:bg-muted/55 focus:bg-background focus:ring-2 focus:ring-primary/15"
+                    className={cn('mt-1.5 h-10 w-full px-3 text-sm', ONBOARDING_FIELD_CLASS)}
                   />
                 </label>
               )}
@@ -461,7 +504,7 @@ export function PersonaReferenceEditor({
                       rows={2}
                       onChange={(event) => onChange({ ...value, context: event.target.value })}
                       placeholder={t('personaPreview.reference.contextPlaceholder')}
-                      className="mt-1.5 w-full resize-none rounded-md bg-muted/35 px-3 py-2 text-sm leading-6 text-foreground outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 hover:bg-muted/55 focus:bg-background focus:ring-2 focus:ring-primary/15"
+                      className={cn('mt-1.5 w-full resize-none px-3 py-2 text-sm leading-6', ONBOARDING_FIELD_CLASS)}
                     />
                   </label>
                 )}
@@ -475,7 +518,7 @@ export function PersonaReferenceEditor({
                   rows={2}
                   onChange={(event) => onConstraintsTextChange(event.target.value)}
                   placeholder={t('personaPreview.reference.constraintsPlaceholder')}
-                  className="mt-1.5 w-full resize-none rounded-md bg-muted/35 px-3 py-2 text-sm leading-6 text-foreground outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 hover:bg-muted/55 focus:bg-background focus:ring-2 focus:ring-primary/15"
+                  className={cn('mt-1.5 w-full resize-none px-3 py-2 text-sm leading-6', ONBOARDING_FIELD_CLASS)}
                 />
               </label>
             </div>

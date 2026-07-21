@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useReducedMotion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { CheckCircle2, Circle, Loader2, PencilLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
@@ -17,6 +17,10 @@ import {
 import type { LLMConfig } from '../../api/modules/config';
 import { PersonaPreviewStarterChips } from './PersonaPreviewStarterChips';
 import { PersonaProfilePanel } from './PersonaProfilePanel';
+import {
+  ONBOARDING_FIELD_CLASS,
+  ONBOARDING_SELECTED_SURFACE_CLASS,
+} from './onboardingStyles';
 import {
   candidateToEditableReference,
   defaultAdaptationMode,
@@ -1047,36 +1051,50 @@ export function PersonaPreviewChat({
       )}
       <fieldset
         disabled={disabled}
-        className="m-0 grid min-h-0 min-w-0 flex-1 grid-cols-[200px_1fr] gap-4 border-0 p-0"
+        className="m-0 grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 border-0 p-0 md:grid-cols-[13.5rem_minmax(0,1fr)] md:gap-6"
       >
         <legend className="sr-only">{t('steps.personaPreview')}</legend>
       {/* Left: avatar rail — clicking selects the persona (the active one is
           confirmed by the footer "Next" button). */}
-      <div className="flex flex-col gap-2 overflow-y-auto border-r border-border/55 pr-2">
-        {railItems.map((p) => (
-          <button
-            key={p.slug}
-            type="button"
-            onClick={() => {
-              onActiveSeedChange(p.slug);
-              setMode('chat');
-            }}
-            aria-pressed={activeSeed === p.slug && mode !== 'create'}
-            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-left transition ${
-              activeSeed === p.slug && mode !== 'create'
-                ? 'bg-muted'
-                : 'hover:bg-muted/50'
-            }`}
-          >
-            <PreviewAvatar name={p.name} avatar={p.avatar} />
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-foreground">{p.name}</div>
-              <div className="truncate text-xs text-muted-foreground">
-                {p.description}
-              </div>
-            </div>
-          </button>
-        ))}
+      <div className="flex gap-2 overflow-x-auto rounded-xl bg-muted/55 p-2 md:flex-col md:overflow-x-hidden md:overflow-y-auto md:rounded-2xl">
+        {railItems.map((p) => {
+          const selected = activeSeed === p.slug && mode !== 'create';
+          return (
+            <button
+              key={p.slug}
+              type="button"
+              onClick={() => {
+                onActiveSeedChange(p.slug);
+                setMode('chat');
+              }}
+              aria-pressed={selected}
+              className={cn(
+                'group relative flex min-w-[11.5rem] items-center gap-3 overflow-hidden rounded-lg px-3 py-2 text-left transition-colors duration-200 motion-reduce:transition-none md:min-w-0',
+                selected
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:bg-background/55 hover:text-foreground',
+              )}
+            >
+              {selected ? (
+                <motion.span
+                  aria-hidden="true"
+                  layoutId={shouldReduceMotion ? undefined : 'persona-rail-selection'}
+                  className={cn('absolute inset-0 rounded-lg', ONBOARDING_SELECTED_SURFACE_CLASS)}
+                  transition={{ duration: shouldReduceMotion ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] }}
+                />
+              ) : null}
+              <span className="relative flex min-w-0 items-center gap-3">
+                <PreviewAvatar name={p.name} avatar={p.avatar} />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold text-foreground">{p.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {p.description}
+                  </span>
+                </span>
+              </span>
+            </button>
+          );
+        })}
 
         <button
           type="button"
@@ -1090,42 +1108,62 @@ export function PersonaPreviewChat({
             setGenError(null);
           }}
           aria-pressed={mode === 'create'}
-          className={`flex items-center gap-3 rounded-lg border border-dashed border-border px-3 py-2 text-left text-sm text-muted-foreground transition hover:bg-muted/50 ${
-            mode === 'create' ? 'bg-muted' : ''
-          }`}
+          className={cn(
+            'group relative flex min-w-[11.5rem] items-center gap-3 overflow-hidden rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition-colors duration-200 hover:bg-background/55 hover:text-foreground motion-reduce:transition-none md:min-w-0',
+            mode === 'create' && 'text-foreground',
+          )}
         >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-lg">
-            +
+          {mode === 'create' ? (
+            <motion.span
+              aria-hidden="true"
+              layoutId={shouldReduceMotion ? undefined : 'persona-rail-selection'}
+              className={cn('absolute inset-0 rounded-lg', ONBOARDING_SELECTED_SURFACE_CLASS)}
+              transition={{ duration: shouldReduceMotion ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] }}
+            />
+          ) : null}
+          <span className="relative flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background/75 text-lg shadow-[inset_0_0_0_1px_hsl(var(--border)/0.65)] transition-colors group-hover:text-foreground">
+              +
+            </span>
+            <span className="truncate font-semibold">{t('personaPreview.createCustom')}</span>
           </span>
-          <span className="truncate font-medium">{t('personaPreview.createCustom')}</span>
         </button>
       </div>
 
       {/* Right: either the preview chat or the custom-persona composer. */}
       {mode === 'create' ? (
         <div className="flex min-h-0 flex-col gap-4">
-          <div className="flex-1 overflow-y-auto rounded-xl bg-muted/10 px-6 py-5">
-            {showDescriptionSummary && !descriptionExpanded && (
-              <div
-                data-testid="persona-custom-description-summary"
-                className="flex items-center justify-between gap-4 rounded-lg bg-muted/45 px-4 py-3"
-              >
-                <p className="min-w-0 truncate text-sm font-medium text-foreground">
-                  {creationDraft?.description}
-                </p>
-                <button
-                  type="button"
-                  data-testid="persona-custom-description-edit"
-                  onClick={() => setDescriptionExpanded(true)}
-                  className="group flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
+          <motion.div layout className="flex-1 overflow-y-auto px-1 py-1 sm:px-4 sm:py-3 lg:px-7">
+            <AnimatePresence initial={false} mode="popLayout">
+              {showDescriptionSummary && !descriptionExpanded ? (
+                <motion.div
+                  layout
+                  key="description-summary"
+                  data-testid="persona-custom-description-summary"
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={shouldReduceMotion ? undefined : { opacity: 0, y: -5 }}
+                  transition={{ duration: shouldReduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex items-center justify-between gap-4 rounded-lg bg-accent/75 px-4 py-3 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.12)]"
                 >
-                  <PencilLine className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('personaPreview.reference.edit')}
-                </button>
-              </div>
-            )}
+                  <p className="min-w-0 truncate text-sm font-semibold text-foreground">
+                    {creationDraft?.description}
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="persona-custom-description-edit"
+                    onClick={() => setDescriptionExpanded(true)}
+                    className="group flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-background/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15 motion-reduce:transition-none"
+                  >
+                    <PencilLine className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t('personaPreview.reference.edit')}
+                  </button>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
 
-            <div
+            <motion.div
+              layout
               aria-hidden={!showDescriptionEditor}
               className={cn(
                 'grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
@@ -1169,48 +1207,59 @@ export function PersonaPreviewChat({
                     tabIndex={showDescriptionEditor ? undefined : -1}
                     rows={2}
                     className={cn(
-                      'w-full resize-none rounded-lg bg-muted/35 px-4 py-3 text-base leading-7 text-foreground outline-none transition-[background-color,box-shadow] duration-200',
-                      'placeholder:text-muted-foreground/60 hover:bg-muted/50 focus:bg-background/80 focus:ring-2 focus:ring-primary/15 disabled:opacity-70',
+                      'w-full resize-none px-4 py-3 text-base leading-7 disabled:opacity-70',
+                      ONBOARDING_FIELD_CLASS,
                       !showDescriptionSummary && 'mt-4',
                     )}
                   />
                 </div>
               </div>
-            </div>
+            </motion.div>
 
-            {creationDraft?.resolution && creationNeedsConfirmation && (
-              <PersonaReferenceEditor
-                resolution={creationDraft.resolution}
-                value={creationDraft.reference}
-                adaptationMode={creationDraft.adaptationMode}
-                constraintsText={creationDraft.constraintsText}
-                disabled={generating}
-                onChange={(reference) => {
-                  publishCreationDraft({
-                    ...creationDraft,
-                    reference,
-                    referenceConfirmed: true,
-                    adaptationMode:
-                      reference.sourceKind === creationDraft.reference.sourceKind
-                        ? creationDraft.adaptationMode
-                        : defaultAdaptationMode(reference.sourceKind),
-                  });
-                }}
-                onAdaptationModeChange={(adaptationMode) => {
-                  publishCreationDraft({
-                    ...creationDraft,
-                    adaptationMode,
-                    referenceConfirmed: true,
-                  });
-                }}
-                onConstraintsTextChange={(constraintsText) => {
-                  publishCreationDraft({
-                    ...creationDraft,
-                    constraintsText,
-                  });
-                }}
-              />
-            )}
+            <AnimatePresence initial={false}>
+              {creationDraft?.resolution && creationNeedsConfirmation ? (
+                <motion.div
+                  layout
+                  key="persona-reference-editor"
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={shouldReduceMotion ? undefined : { opacity: 0, y: 8 }}
+                  transition={{ duration: shouldReduceMotion ? 0 : 0.28, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <PersonaReferenceEditor
+                    resolution={creationDraft.resolution}
+                    value={creationDraft.reference}
+                    adaptationMode={creationDraft.adaptationMode}
+                    constraintsText={creationDraft.constraintsText}
+                    disabled={generating}
+                    onChange={(reference) => {
+                      publishCreationDraft({
+                        ...creationDraft,
+                        reference,
+                        referenceConfirmed: true,
+                        adaptationMode:
+                          reference.sourceKind === creationDraft.reference.sourceKind
+                            ? creationDraft.adaptationMode
+                            : defaultAdaptationMode(reference.sourceKind),
+                      });
+                    }}
+                    onAdaptationModeChange={(adaptationMode) => {
+                      publishCreationDraft({
+                        ...creationDraft,
+                        adaptationMode,
+                        referenceConfirmed: true,
+                      });
+                    }}
+                    onConstraintsTextChange={(constraintsText) => {
+                      publishCreationDraft({
+                        ...creationDraft,
+                        constraintsText,
+                      });
+                    }}
+                  />
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
 
             {generating && (
               <div
@@ -1269,7 +1318,7 @@ export function PersonaPreviewChat({
                 {genError}
               </p>
             )}
-          </div>
+          </motion.div>
 
           <div className="flex items-center justify-end gap-2">
             <button

@@ -1603,12 +1603,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   // Guided phase: step-by-step config
   return (
-    <div className="fixed inset-0 flex items-center justify-center overflow-y-auto bg-background p-[4vh_4vw]">
-      <div className="h-full w-full max-h-[960px] max-w-[1400px]">
+    <div className="fixed inset-0 overflow-hidden bg-muted/25">
+      <div className="h-full w-full">
         <GuidedConfigFrame
           className="h-full"
           layoutClassName="h-full"
-          sidebarClassName="lg:w-44"
+          contentClassName={
+            current === LLM_SETUP_STEP ? "overflow-y-auto" : "overflow-hidden"
+          }
           sidebar={
             <StepIndicator
               steps={guidedSteps}
@@ -1664,12 +1666,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               <motion.div
                 className="flex h-full min-h-0 flex-1 flex-col"
                 key={`${renderLanguage}-${current}`}
-                initial={shouldReduceMotion ? false : { opacity: 0, x: 24 }}
+                initial={shouldReduceMotion ? false : { opacity: 0, x: 16 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={shouldReduceMotion ? undefined : { opacity: 0, x: -24 }}
+                exit={shouldReduceMotion ? undefined : { opacity: 0, x: -12 }}
                 transition={{
-                  duration: shouldReduceMotion ? 0 : 0.22,
-                  ease: "easeOut",
+                  duration: shouldReduceMotion ? 0 : 0.26,
+                  ease: [0.22, 1, 0.36, 1],
                 }}
               >
                 {renderStepContent()}

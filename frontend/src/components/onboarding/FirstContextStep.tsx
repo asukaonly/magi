@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertCircle,
   CheckCircle2,
@@ -24,7 +25,10 @@ import {
   type FirstContextQuestionId,
 } from "@/domain/chat/first-context";
 import { getMemoryModelStatus } from "./memoryModelStatus";
-import { ONBOARDING_SECONDARY_ACTION_CLASS } from "./onboardingStyles";
+import {
+  ONBOARDING_FIELD_CLASS,
+  ONBOARDING_SECONDARY_ACTION_CLASS,
+} from "./onboardingStyles";
 
 export {
   FIRST_CONTEXT_QUESTION_IDS,
@@ -66,7 +70,7 @@ function RouteOptionCard({
     <button
       type="button"
       data-testid={testId}
-      className="group flex h-full flex-col rounded-2xl border border-border/60 bg-card p-5 text-left transition-colors duration-200 hover:border-primary/35 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2"
+      className="group flex h-full flex-col rounded-2xl bg-card p-5 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.62),0_14px_32px_-30px_hsl(var(--foreground)/0.28)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-accent/45 hover:shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18),0_18px_36px_-30px_hsl(var(--foreground)/0.34)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none"
       onClick={onSelect}
     >
       <span className="flex items-center justify-between">
@@ -147,6 +151,7 @@ export function FirstContextStep({
   onConnectDone,
 }: FirstContextStepProps): JSX.Element {
   const { t, i18n } = useTranslation("onboarding");
+  const shouldReduceMotion = useReducedMotion() ?? false;
   const storyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const routeHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const previousRouteRef = useRef<FirstContextRoute>(route);
@@ -250,7 +255,7 @@ export function FirstContextStep({
           </p>
         </div>
 
-        <div className="rounded-2xl border border-border/60 bg-card p-5 sm:p-6">
+        <div className="rounded-2xl bg-muted/45 p-5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.48)] sm:p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p
@@ -292,7 +297,7 @@ export function FirstContextStep({
             disabled={storySubmitting || storyLocked}
             aria-invalid={Boolean(storyError)}
             aria-describedby={describedBy || undefined}
-            className="mt-4 min-h-[132px] w-full resize-y rounded-xl border border-input bg-background px-4 py-3 text-sm leading-6 text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus-visible:border-primary/60 focus-visible:ring-4 focus-visible:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+            className={`mt-4 min-h-[132px] w-full resize-y px-4 py-3 text-sm leading-6 disabled:cursor-not-allowed disabled:opacity-60 ${ONBOARDING_FIELD_CLASS}`}
           />
           {storyError ? (
             <p
@@ -426,21 +431,31 @@ export function FirstContextStep({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
-      <div
-        className={`mx-auto my-auto flex w-full flex-col px-4 py-6 sm:px-5 lg:px-6 ${
-          route === "activity"
-            ? "max-w-[860px]"
+      <AnimatePresence initial={false} mode="popLayout">
+        <motion.div
+          key={route}
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={shouldReduceMotion ? undefined : { opacity: 0, y: -6 }}
+          transition={{
+            duration: shouldReduceMotion ? 0 : 0.24,
+            ease: [0.22, 1, 0.36, 1],
+          }}
+          className={`mx-auto my-auto flex w-full flex-col px-4 py-6 sm:px-5 lg:px-6 ${
+            route === "activity"
+              ? "max-w-[860px]"
+              : route === "question"
+                ? "max-w-[800px]"
+                : "max-w-[840px]"
+          }`}
+        >
+          {route === "choose"
+            ? renderRouteChooser()
             : route === "question"
-              ? "max-w-[800px]"
-              : "max-w-[840px]"
-        }`}
-      >
-        {route === "choose"
-          ? renderRouteChooser()
-          : route === "question"
-            ? renderQuestionRoute()
-            : renderActivityRoute()}
-      </div>
+              ? renderQuestionRoute()
+              : renderActivityRoute()}
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 }

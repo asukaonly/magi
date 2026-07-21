@@ -29,6 +29,10 @@ import {
 } from '@/components/config-forms/llm-form-state';
 import { cn } from '@/lib/utils';
 import { getMemoryModelStatus } from './memoryModelStatus';
+import {
+  ONBOARDING_FIELD_CLASS,
+  ONBOARDING_SELECTED_SURFACE_CLASS,
+} from './onboardingStyles';
 
 export interface LLMSetupStepProps {
   value: LLMConfig;
@@ -66,7 +70,7 @@ const QUICK_PROVIDER_PRIORITY = [
 ];
 
 const fieldClassName =
-  'h-10 w-full rounded-lg bg-background px-3 text-sm ring-1 ring-inset ring-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
+  cn('h-10 w-full px-3 text-sm', ONBOARDING_FIELD_CLASS);
 
 const secretFieldButtonClassName =
   'absolute inset-y-0 right-2 inline-flex items-center justify-center text-muted-foreground transition hover:text-foreground';
@@ -701,8 +705,8 @@ export function LLMSetupStep({
                     whileTap={shouldReduceMotion ? undefined : { scale: 0.985 }}
                     transition={{ duration: shouldReduceMotion ? 0 : 0.14 }}
                     className={cn(
-                      'flex min-h-[64px] items-center gap-3 rounded-xl bg-muted/30 px-4 py-3 text-left shadow-none transition-[background-color,box-shadow,color] duration-200 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
-                      selected && 'bg-accent/75 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.2)]'
+                      'flex min-h-[64px] items-center gap-3 rounded-xl bg-card/85 px-4 py-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.58)] transition-[background-color,box-shadow,color] duration-200 hover:bg-card hover:shadow-[inset_0_0_0_1px_hsl(var(--border)/0.9),0_8px_24px_-22px_hsl(var(--foreground)/0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 motion-reduce:transition-none',
+                      selected && ONBOARDING_SELECTED_SURFACE_CLASS,
                     )}
                   >
                     <ProviderIcon
@@ -736,7 +740,7 @@ export function LLMSetupStep({
             <div
               data-testid="llm-setup-provider-summary"
               aria-live="polite"
-              className="flex min-h-[52px] items-center justify-between gap-4 rounded-xl bg-accent/45 px-3.5 py-2"
+              className="flex min-h-[52px] items-center justify-between gap-4 rounded-xl bg-accent/75 px-3.5 py-2 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.1)]"
             >
               <div className="flex min-w-0 items-center gap-3">
                 <ProviderIcon

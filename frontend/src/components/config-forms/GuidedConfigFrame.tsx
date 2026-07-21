@@ -23,16 +23,22 @@ export const GuidedConfigFrame: React.FC<GuidedConfigFrameProps> = ({
   footerClassName,
 }) => (
   <div
+    data-testid="guided-config-frame"
     className={cn(
-      'max-h-[calc(100vh-2rem)] overflow-hidden rounded-3xl border border-border/50 bg-background shadow-lg',
+      'h-full w-full overflow-hidden bg-muted/25',
       className
     )}
   >
-    <div className={cn('flex min-h-0 min-w-0 flex-col lg:flex-row', layoutClassName)}>
+    <div
+      className={cn(
+        'grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[11.5rem_minmax(0,1fr)] lg:grid-rows-1',
+        layoutClassName,
+      )}
+    >
       {sidebar ? (
         <aside
           className={cn(
-            'shrink-0 overflow-y-auto border-b border-border/40 bg-muted/30 px-5 py-6 lg:w-52 lg:border-b-0 lg:border-r',
+            'shrink-0 overflow-x-auto bg-muted/70 px-4 py-3 lg:w-auto lg:overflow-x-hidden lg:overflow-y-auto lg:px-5 lg:py-8',
             sidebarClassName
           )}
         >
@@ -41,13 +47,24 @@ export const GuidedConfigFrame: React.FC<GuidedConfigFrameProps> = ({
       ) : null}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-        <div className={cn('flex h-full min-h-0 flex-1 flex-col overflow-y-auto p-5 sm:p-6 lg:p-7', contentClassName)}>
+        <main
+          data-testid="guided-config-content"
+          className={cn(
+            'flex h-full min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-6 lg:px-8 lg:py-7 xl:px-10',
+            contentClassName,
+          )}
+        >
           {children}
-        </div>
+        </main>
         {footer ? (
-          <div className={cn('shrink-0 border-t border-border/40 px-5 py-4 sm:px-6 lg:px-7', footerClassName)}>
+          <footer
+            className={cn(
+              'relative z-10 shrink-0 bg-background px-4 py-4 shadow-[0_-18px_36px_-30px_hsl(var(--foreground)/0.32)] sm:px-6 lg:px-8 xl:px-10',
+              footerClassName,
+            )}
+          >
             {footer}
-          </div>
+          </footer>
         ) : null}
       </div>
     </div>

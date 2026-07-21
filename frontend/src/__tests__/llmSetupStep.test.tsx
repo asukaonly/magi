@@ -326,7 +326,7 @@ describe('LLMSetupStep', () => {
     await user.click(screen.getByRole('button', { name: 'llmSetup.changeProvider' }));
     const selectedOpenAiCard = await screen.findByTestId('llm-setup-provider-openai');
     expect(selectedOpenAiCard).toHaveAttribute('aria-pressed', 'true');
-    expect(selectedOpenAiCard).toHaveClass('bg-accent/75');
+    expect(selectedOpenAiCard).toHaveClass('bg-accent/90');
   });
 
   it('returns to the current setup without losing entered credentials', async () => {
