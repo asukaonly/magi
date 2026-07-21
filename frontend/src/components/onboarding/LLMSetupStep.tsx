@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, ArrowLeft, ChevronDown, ChevronsUpDown, Eye, EyeOff, Info, Loader2 } from 'lucide-react';
+import { Activity, ArrowLeft, ChevronDown, ChevronRight, Eye, EyeOff, Info, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
@@ -740,13 +740,14 @@ export function LLMSetupStep({
             <div
               data-testid="llm-setup-provider-summary"
               aria-live="polite"
-              className="flex min-h-[52px] items-center justify-between gap-4 rounded-xl bg-accent/75 px-3.5 py-2 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.1)]"
+              className="flex min-h-[48px] items-center justify-between gap-4 py-1"
             >
               <div className="flex min-w-0 items-center gap-3">
                 <ProviderIcon
                   providerId={String(activeProvider.provider_type)}
                   iconName={activeProviderCard?.iconName}
                   displayName={activeProviderTitle}
+                  className="h-8 w-8 rounded-sm bg-transparent shadow-none"
                 />
                 <span className="min-w-0">
                   <span className="block text-xs text-muted-foreground">{t('llmSetup.selectedProvider')}</span>
@@ -758,11 +759,11 @@ export function LLMSetupStep({
                 data-testid="llm-setup-provider-change"
                 aria-expanded="false"
                 aria-controls="llm-provider-chooser"
-                className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:bg-background/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                className="inline-flex h-9 shrink-0 items-center gap-1 px-0 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:text-foreground focus-visible:underline motion-reduce:transition-none"
                 onClick={() => setProviderChooserOpen(true)}
               >
-                <ChevronsUpDown className="h-4 w-4" aria-hidden="true" />
                 {t('llmSetup.changeProvider')}
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </div>
 

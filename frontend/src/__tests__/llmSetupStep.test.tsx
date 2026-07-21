@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { configApi, DEFAULT_SYSTEM_CONFIG, type LLMConfig } from '@/api/modules/config';
@@ -315,8 +315,14 @@ describe('LLMSetupStep', () => {
 
     await user.click(openAiCard);
 
-    expect(await screen.findByTestId('llm-setup-provider-summary')).toHaveTextContent(
+    const providerSummary = await screen.findByTestId('llm-setup-provider-summary');
+    expect(providerSummary).toHaveTextContent(
       'llm.providers.openai.name',
+    );
+    expect(providerSummary).not.toHaveClass('rounded-xl', 'bg-accent/75');
+    expect(within(providerSummary).getByTestId('llm-provider-icon-openai')).toHaveClass(
+      'rounded-sm',
+      'shadow-none',
     );
     expect(screen.getByRole('button', { name: 'llmSetup.changeProvider' })).toBeInTheDocument();
     await waitFor(() => {

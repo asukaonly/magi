@@ -59,7 +59,7 @@ export const GuidedConfigFrame: React.FC<GuidedConfigFrameProps> = ({
         {footer ? (
           <footer
             className={cn(
-              'relative z-10 shrink-0 bg-background px-4 py-4 shadow-[0_-18px_36px_-30px_hsl(var(--foreground)/0.32)] sm:px-6 lg:px-8 xl:px-10',
+              'relative z-10 shrink-0 bg-background px-4 py-4 sm:px-6 lg:px-8 xl:px-10',
               footerClassName,
             )}
           >

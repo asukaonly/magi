@@ -57,7 +57,8 @@ describe('onboarding visual controls', () => {
     const activeStep = screen.getByText('配置模型').closest('li');
     expect(activeStep).toHaveAttribute('aria-current', 'step');
     expect(activeStep).toHaveClass('min-w-[8.25rem]', 'lg:min-w-0');
-    expect(activeStep?.querySelector('.absolute.inset-0')).toHaveClass('bg-accent/90');
+    expect(activeStep?.querySelector('[aria-hidden="true"]')).toHaveClass('h-px', 'lg:w-px');
+    expect(activeStep).not.toHaveClass('rounded-xl', 'bg-accent/90');
     expect(screen.getByText('01')).toBeInTheDocument();
     expect(screen.getByText('04')).toBeInTheDocument();
     expect(screen.queryByText('欢迎')).not.toBeInTheDocument();
@@ -79,5 +80,6 @@ describe('onboarding visual controls', () => {
     expect(sidebar).toHaveClass('bg-muted/70', 'overflow-x-auto', 'lg:overflow-y-auto');
     expect(screen.getByTestId('guided-config-content')).toHaveClass('overflow-hidden');
     expect(screen.getByRole('contentinfo')).toHaveClass('bg-background');
+    expect(screen.getByRole('contentinfo').className).not.toContain('shadow-[');
   });
 });
