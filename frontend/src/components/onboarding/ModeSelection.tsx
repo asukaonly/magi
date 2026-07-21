@@ -29,7 +29,7 @@ export const ModeSelection: React.FC<ModeSelectionProps> = ({ value, onChange })
             aria-label={t('mode.quick')}
             type="button"
             className={cn(
-              'flex min-h-[132px] w-full flex-col rounded-xl border bg-background p-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+              'flex min-h-[132px] w-full flex-col rounded-lg border bg-background p-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
               value === 'quick' ? 'border-primary bg-primary/5 shadow-sm' : 'border-border hover:border-primary/40'
             )}
           >
@@ -49,7 +49,7 @@ export const ModeSelection: React.FC<ModeSelectionProps> = ({ value, onChange })
             aria-label={t('mode.expert')}
             type="button"
             className={cn(
-              'flex min-h-[132px] w-full flex-col rounded-xl border bg-background p-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+              'flex min-h-[132px] w-full flex-col rounded-lg border bg-background p-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
               value === 'expert' ? 'border-primary bg-primary/5 shadow-sm' : 'border-border hover:border-primary/40'
             )}
           >

@@ -12,7 +12,7 @@ export const StepIndicator: React.FC<StepIndicatorProps> = ({ steps, current }) 
   const shouldReduceMotion = useReducedMotion();
 
   return (
-    <ol className="grid min-w-max grid-cols-4 gap-1 lg:min-w-0 lg:grid-cols-1">
+    <ol className="grid min-w-max grid-cols-4 gap-1 lg:min-w-0 lg:grid-cols-1 lg:gap-1.5">
       {steps.map((title, index) => {
         const done = index < current;
         const active = index === current;
@@ -22,7 +22,7 @@ export const StepIndicator: React.FC<StepIndicatorProps> = ({ steps, current }) 
             key={`${title}-${index}`}
             aria-current={active ? 'step' : undefined}
             className={cn(
-              'relative flex min-h-11 min-w-[8.25rem] items-center gap-3 px-3 transition-colors duration-200 motion-reduce:transition-none lg:min-w-0',
+              'relative flex min-h-11 min-w-[8.25rem] items-center gap-3 px-3 transition-colors duration-200 motion-reduce:transition-none lg:min-h-12 lg:min-w-0',
               active ? 'text-foreground' : 'text-muted-foreground',
               !done && !active && 'text-muted-foreground/55',
             )}
@@ -37,12 +37,12 @@ export const StepIndicator: React.FC<StepIndicatorProps> = ({ steps, current }) 
             ) : null}
             <span
               className={cn(
-                'relative flex w-5 shrink-0 items-center justify-center text-[0.68rem] font-semibold tabular-nums',
-                active && 'text-primary',
+                'relative flex w-7 shrink-0 items-center justify-center font-onboarding-display text-[1.05rem] leading-none tabular-nums',
+                active && 'font-semibold text-primary',
                 done && 'text-muted-foreground',
               )}
             >
-              {done ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : String(index + 1).padStart(2, '0')}
+              {done ? <Check className="h-4 w-4" aria-hidden="true" /> : String(index + 1).padStart(2, '0')}
             </span>
             <span className={cn('relative text-sm', active && 'font-semibold')}>{title}</span>
           </li>

@@ -1,5 +1,5 @@
 import { useState, type ComponentProps } from 'react';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -86,8 +86,19 @@ function ControlledPersonaPreview({
   );
 }
 
-function renderPersonaPreview(props: ControlledPersonaPreviewProps) {
-  return render(<ControlledPersonaPreview {...props} />);
+function renderPersonaPreview(props: ControlledPersonaPreviewProps & { stayInPicker?: boolean }) {
+  const { stayInPicker, ...rest } = props;
+  const utils = render(<ControlledPersonaPreview {...rest} />);
+  // The step is now two-stage (picker → detail); most tests exercise the
+  // detail view, so enter it by clicking the active seed's picker card.
+  if (!stayInPicker) {
+    const seed = rest.initialActiveSeed ?? 'nova';
+    const card = screen.queryByTestId(`persona-pick-${seed}`);
+    if (card) {
+      fireEvent.click(card);
+    }
+  }
+  return utils;
 }
 
 describe('PersonaPreviewChat', () => {
@@ -112,14 +123,38 @@ describe('PersonaPreviewChat', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders a rail entry for every seed preview', () => {
-    renderPersonaPreview({ previews });
+  it('renders a picker card for every seed preview', () => {
+    renderPersonaPreview({ previews, stayInPicker: true });
     expect(screen.getByRole('button', { name: /Nova/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Ember/i })).toBeInTheDocument();
   });
 
+  it('opens in the picker stage with large persona cards and no chat composer', () => {
+    renderPersonaPreview({ previews, stayInPicker: true });
+
+    expect(screen.getByTestId('persona-pick-nova')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('persona-pick-ember')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('persona-create-custom')).toBeInTheDocument();
+    expect(screen.queryByTestId('persona-back-to-picker')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('persona-mode-chat')).not.toBeInTheDocument();
+  });
+
+  it('enters the detail stage after picking a persona and returns via the back button', async () => {
+    const user = userEvent.setup();
+    renderPersonaPreview({ previews, stayInPicker: true });
+
+    await user.click(screen.getByTestId('persona-pick-ember'));
+    expect(await screen.findByTestId('persona-back-to-picker')).toBeInTheDocument();
+    expect(screen.getByTestId('persona-mode-chat')).toBeInTheDocument();
+    expect(screen.queryByTestId('persona-pick-nova')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('persona-back-to-picker'));
+    expect(await screen.findByTestId('persona-pick-ember')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('persona-mode-chat')).not.toBeInTheDocument();
+  });
+
   it('keeps the parent-selected persona active', () => {
-    renderPersonaPreview({ previews, initialActiveSeed: 'ember' });
+    renderPersonaPreview({ previews, initialActiveSeed: 'ember', stayInPicker: true });
 
     expect(screen.getByRole('button', { name: /Ember/i })).toHaveAttribute(
       'aria-pressed',
@@ -389,7 +424,6 @@ describe('PersonaPreviewChat', () => {
   it('streams the persona reply and forwards the locale + llm_override', async () => {
     const llmConfig = { providers: {}, selections: {} } as any;
     renderPersonaPreview({ previews, locale: 'zh', llmConfig });
-    await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
     const input = screen.getByPlaceholderText(/composerPlaceholder/i);
     await userEvent.type(input, 'hi');
     await userEvent.click(screen.getByRole('button', { name: /^(personaPreview\.)?send$/i }));
@@ -420,7 +454,6 @@ describe('PersonaPreviewChat', () => {
     );
 
     renderPersonaPreview({ previews });
-    await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
     await userEvent.type(screen.getByPlaceholderText(/composerPlaceholder/i), 'hi');
     await userEvent.click(screen.getByRole('button', { name: /^(personaPreview\.)?send$/i }));
 
@@ -437,7 +470,6 @@ describe('PersonaPreviewChat', () => {
   it('preserves each persona transcript when switching back and forth', async () => {
     renderPersonaPreview({ previews });
     // Send a message to Nova
-    await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
     await userEvent.type(
       screen.getByPlaceholderText(/composerPlaceholder/i),
       'nova-msg',
@@ -446,18 +478,20 @@ describe('PersonaPreviewChat', () => {
     await waitFor(() => expect(screen.getByText('nova-msg')).toBeInTheDocument());
 
     // Switch to Ember, then back to Nova — nova-msg must still be there
-    await userEvent.click(screen.getByRole('button', { name: /Ember/i }));
+    await userEvent.click(screen.getByTestId('persona-back-to-picker'));
+    await userEvent.click(await screen.findByTestId('persona-pick-ember'));
     expect(screen.queryByText('nova-msg')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
+    await userEvent.click(screen.getByTestId('persona-back-to-picker'));
+    await userEvent.click(await screen.findByTestId('persona-pick-nova'));
     expect(screen.getByText('nova-msg')).toBeInTheDocument();
   });
 
   it('reports a persona slug when the user changes the selection', async () => {
     const onActiveSeedChange = vi.fn();
-    renderPersonaPreview({ previews, onActiveSeedChange });
+    renderPersonaPreview({ previews, onActiveSeedChange, stayInPicker: true });
 
     expect(onActiveSeedChange).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole('button', { name: /Ember/i }));
+    await userEvent.click(screen.getByTestId('persona-pick-ember'));
     await waitFor(() =>
       expect(onActiveSeedChange).toHaveBeenLastCalledWith('ember'),
     );
@@ -529,7 +563,7 @@ describe('PersonaPreviewChat', () => {
     const onCustomPersonasChange = vi.fn();
     const llmConfig = { providers: {}, selections: {} } as any;
 
-    renderPersonaPreview({ previews, llmConfig, onCustomPersonasChange });
+    renderPersonaPreview({ previews, llmConfig, onCustomPersonasChange, stayInPicker: true });
 
     // Open the custom composer, describe, and generate.
     await userEvent.click(screen.getByTestId('persona-create-custom'));
@@ -611,7 +645,7 @@ describe('PersonaPreviewChat', () => {
         stages: [],
       } as any);
 
-    renderPersonaPreview({ previews });
+    renderPersonaPreview({ previews, stayInPicker: true });
     await userEvent.click(screen.getByTestId('persona-create-custom'));
     await userEvent.type(screen.getByTestId('persona-custom-description'), '孙悟空');
     await userEvent.click(screen.getByTestId('persona-custom-generate'));
@@ -751,7 +785,7 @@ describe('PersonaPreviewChat', () => {
       stages: [],
     } as any);
 
-    renderPersonaPreview({ previews });
+    renderPersonaPreview({ previews, stayInPicker: true });
     await userEvent.click(screen.getByTestId('persona-create-custom'));
     await userEvent.type(screen.getByTestId('persona-custom-description'), '龙珠里的孙悟空');
     await userEvent.click(screen.getByTestId('persona-custom-generate'));
@@ -1024,7 +1058,8 @@ describe('PersonaPreviewChat', () => {
     expect(screen.getByRole('button', { name: /Nova/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Ember/i })).toBeDisabled();
     expect(screen.getByTestId('persona-create-custom')).toBeDisabled();
-    expect(screen.getByPlaceholderText(/composerPlaceholder/i)).toBeDisabled();
+    // 禁用状态下 picker 卡片不可点,无法进入 detail。
+    expect(screen.queryByTestId('persona-back-to-picker')).not.toBeInTheDocument();
   });
 
   it('shows a generation progress indicator while the persona is being built', async () => {
@@ -1033,7 +1068,7 @@ describe('PersonaPreviewChat', () => {
       () => new Promise((resolve) => { resolveGen = resolve; }),
     );
 
-    renderPersonaPreview({ previews });
+    renderPersonaPreview({ previews, stayInPicker: true });
     await userEvent.click(screen.getByTestId('persona-create-custom'));
     await userEvent.type(screen.getByTestId('persona-custom-description'), 'x');
     await userEvent.click(screen.getByTestId('persona-custom-generate'));
@@ -1066,7 +1101,7 @@ describe('PersonaPreviewChat', () => {
       },
     );
 
-    renderPersonaPreview({ previews });
+    renderPersonaPreview({ previews, stayInPicker: true });
     await userEvent.click(screen.getByTestId('persona-create-custom'));
     await userEvent.type(screen.getByTestId('persona-custom-description'), 'x');
     await userEvent.click(screen.getByTestId('persona-custom-generate'));
@@ -1094,7 +1129,7 @@ describe('PersonaPreviewChat', () => {
       },
     );
 
-    renderPersonaPreview({ previews });
+    renderPersonaPreview({ previews, stayInPicker: true });
     await userEvent.click(screen.getByTestId('persona-create-custom'));
     await userEvent.type(screen.getByTestId('persona-custom-description'), 'x');
     await userEvent.click(screen.getByTestId('persona-custom-generate'));
@@ -1113,7 +1148,7 @@ describe('PersonaPreviewChat', () => {
     );
     const onGeneratingChange = vi.fn();
 
-    renderPersonaPreview({ previews, onGeneratingChange });
+    renderPersonaPreview({ previews, onGeneratingChange, stayInPicker: true });
     await userEvent.click(screen.getByTestId('persona-create-custom'));
     await userEvent.type(screen.getByTestId('persona-custom-description'), 'x');
     await userEvent.click(screen.getByTestId('persona-custom-generate'));
@@ -1126,7 +1161,6 @@ describe('PersonaPreviewChat', () => {
 
   it('disables input once the 5-turn cap is hit for the active persona', async () => {
     renderPersonaPreview({ previews });
-    await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
     for (let i = 0; i < 5; i++) {
       await userEvent.type(
         screen.getByPlaceholderText(/composerPlaceholder/i),

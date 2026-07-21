@@ -1612,10 +1612,21 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             current === LLM_SETUP_STEP ? "overflow-y-auto" : "overflow-hidden"
           }
           sidebar={
-            <StepIndicator
-              steps={guidedSteps}
-              current={current - LLM_SETUP_STEP}
-            />
+            <div className="flex min-w-max items-center lg:h-full lg:min-w-0 lg:flex-col lg:items-stretch">
+              <div
+                className="hidden select-none px-3 pb-10 pt-1 lg:block"
+                aria-hidden="true"
+              >
+                <span className="font-onboarding-display text-2xl font-bold tracking-[0.22em] text-foreground/85">
+                  Magi
+                </span>
+              </div>
+              <StepIndicator
+                steps={guidedSteps}
+                current={current - LLM_SETUP_STEP}
+              />
+              <div className="hidden lg:block lg:flex-1" aria-hidden="true" />
+            </div>
           }
           footer={
             hideFooter ? null : (
@@ -1674,6 +1685,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   ease: [0.22, 1, 0.36, 1],
                 }}
               >
+                {current === LLM_SETUP_STEP ? (
+                  <header className="mb-4 shrink-0 px-1 sm:mb-5">
+                    <h1 className="font-onboarding-display text-[1.9rem] font-bold leading-snug text-foreground">
+                      {steps[current]}
+                    </h1>
+                  </header>
+                ) : null}
                 {renderStepContent()}
               </motion.div>
             </AnimatePresence>

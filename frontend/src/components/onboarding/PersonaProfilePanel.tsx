@@ -51,7 +51,7 @@ function ProfileSection({
       data-testid={`persona-profile-section-${sectionId}`}
       data-state={open ? 'open' : 'closed'}
       className={cn(
-        'scroll-mt-3 rounded-xl transition-[background-color,box-shadow] duration-200',
+        'scroll-mt-3 rounded-lg transition-[background-color,box-shadow] duration-200',
         open
           ? 'bg-background/80 shadow-[0_14px_34px_-32px_hsl(var(--foreground)/0.38)]'
           : 'bg-transparent',
@@ -60,7 +60,7 @@ function ProfileSection({
       <button
         type="button"
         aria-expanded={open}
-        className="group flex min-h-12 w-full items-center justify-between gap-4 rounded-xl px-4 py-3.5 text-left transition-colors duration-200 hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+        className="group flex min-h-12 w-full items-center justify-between gap-4 rounded-lg px-4 py-3.5 text-left transition-colors duration-200 hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
         onClick={() => {
           if (sectionRef.current) {
             onOpenChange(sectionId, !open, sectionRef.current);
@@ -331,7 +331,7 @@ export function PersonaProfilePanel({ config }: PersonaProfilePanelProps): JSX.E
     <div
       ref={scrollContainerRef}
       data-testid="persona-profile-panel"
-      className="min-h-0 flex-1 overflow-y-auto rounded-xl bg-muted/20"
+      className="min-h-0 flex-1 overflow-y-auto rounded-lg bg-muted/20"
     >
       <div className="px-7 pb-6 pt-7 sm:px-8">
         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">

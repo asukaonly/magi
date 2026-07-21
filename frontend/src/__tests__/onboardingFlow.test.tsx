@@ -445,8 +445,11 @@ describe("OnboardingFlow (linear 5-step)", () => {
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
     );
 
-    const modelStep = await screen.findByText("steps.llmSetup");
-    expect(modelStep.closest("li")).toHaveAttribute("aria-current", "step");
+    // 步骤名同时出现在 display 标题和 rail 里,rail 项是 <li>。
+    const modelStep = (await screen.findAllByText("steps.llmSetup")).find(
+      (el) => el.closest("li"),
+    );
+    expect(modelStep?.closest("li")).toHaveAttribute("aria-current", "step");
     expect(screen.queryByText("steps.welcome")).not.toBeInTheDocument();
     expect(screen.getByText("01")).toBeInTheDocument();
     expect(screen.getByText("04")).toBeInTheDocument();
@@ -637,8 +640,9 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     const questionRoute = screen.getByTestId("first-context-route-question");
     const activityRoute = screen.getByTestId("first-context-route-activity");
-    expect(questionRoute).toHaveClass("h-full");
-    expect(activityRoute).toHaveClass("h-full");
+    // 选项改为纵向行布局(单列),为后续更多选项做准备。
+    expect(questionRoute.parentElement).toHaveClass("grid-cols-1");
+    expect(activityRoute.parentElement).toHaveClass("grid-cols-1");
     expect(screen.getByText("firstContext.kicker")).toBeInTheDocument();
     expect(
       screen.queryByTestId("empty-state-connect-chrome-history"),
@@ -1101,7 +1105,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     const ember = await screen.findByRole("button", { name: /Ember/i });
     await user.click(ember);
-    expect(ember).toHaveAttribute("aria-pressed", "true");
+    // 点击后进入 detail 阶段,头部显示选中的人格名。
+    expect(await screen.findByRole("heading", { name: /Ember/i })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "actions.next" }));
 
     await screen.findByText("firstContext.title");
@@ -1843,7 +1848,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "messages.personaActivationFailed",
     );
-    expect(screen.getByRole("button", { name: /Ember/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Ember/i })).toBeInTheDocument();
     expect(configApi.updateOnboardingDraft).not.toHaveBeenCalled();
     expect(completeOnboarding).not.toHaveBeenCalled();
 
@@ -1923,8 +1928,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(screen.getByRole("button", { name: "actions.next" }));
     await waitFor(() => expect(personasApi.setActive).toHaveBeenCalled());
 
-    expect(screen.getByRole("button", { name: /Ember/i })).toBeDisabled();
-    expect(screen.getByTestId("persona-create-custom")).toBeDisabled();
+    expect(screen.getByTestId("persona-back-to-picker")).toBeDisabled();
     expect(screen.getByPlaceholderText(/composerPlaceholder/i)).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "actions.previous" }),
@@ -1966,7 +1970,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "messages.personaSetupTimedOut",
     );
-    await user.click(screen.getByRole("button", { name: /Nova/i }));
+    await user.click(screen.getByTestId("persona-back-to-picker"));
+    await user.click(await screen.findByTestId("persona-pick-nova"));
     await user.click(screen.getByRole("button", { name: "actions.next" }));
     await screen.findByText("firstContext.title");
     expect(personasApi.setActive).toHaveBeenCalledTimes(1);

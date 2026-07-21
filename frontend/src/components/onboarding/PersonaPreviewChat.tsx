@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { CheckCircle2, Circle, Loader2, PencilLine } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, Circle, Loader2, PencilLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { streamChatPreview, type PreviewTurn } from '../../api/modules/chatPreview';
@@ -19,7 +19,6 @@ import { PersonaPreviewStarterChips } from './PersonaPreviewStarterChips';
 import { PersonaProfilePanel } from './PersonaProfilePanel';
 import {
   ONBOARDING_FIELD_CLASS,
-  ONBOARDING_SELECTED_SURFACE_CLASS,
 } from './onboardingStyles';
 import {
   candidateToEditableReference,
@@ -245,14 +244,16 @@ function stageStatusIcon(status: string, shouldReduceMotion: boolean): JSX.Eleme
 }
 
 /** Avatar with graceful fallback to the persona's initial when the image fails. */
-function PreviewAvatar({ name, avatar }: { name: string; avatar?: string }): JSX.Element {
+function PreviewAvatar({ name, avatar, size = 'md' }: { name: string; avatar?: string; size?: 'md' | 'lg' }): JSX.Element {
   const [failed, setFailed] = useState(false);
   const url = avatar ? personasApi.getAvatarUrl(avatar) : '';
   const initial = name.trim().charAt(0).toUpperCase() || '?';
+  const boxClass = size === 'lg' ? 'h-16 w-16' : 'h-10 w-10';
+  const textClass = size === 'lg' ? 'text-lg' : 'text-sm';
 
   if (!url || failed) {
     return (
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground">
+      <div className={cn('flex shrink-0 items-center justify-center rounded-full bg-muted font-semibold text-muted-foreground', boxClass, textClass)}>
         {initial}
       </div>
     );
@@ -262,7 +263,7 @@ function PreviewAvatar({ name, avatar }: { name: string; avatar?: string }): JSX
       src={url}
       alt=""
       onError={() => setFailed(true)}
-      className="h-10 w-10 shrink-0 rounded-full object-cover"
+      className={cn('shrink-0 rounded-full object-cover', boxClass)}
     />
   );
 }
@@ -356,6 +357,11 @@ export function PersonaPreviewChat({
   // Custom-persona creation state.
   const [mode, setMode] = useState<'chat' | 'profile' | 'create'>(
     () => initialCreationDraft ? 'create' : 'chat',
+  );
+  // Two-stage flow: picker grid → detail (preview / composer). Restoring an
+  // unfinished creation lands directly in the detail composer.
+  const [stage, setStage] = useState<'picker' | 'detail'>(
+    () => initialCreationDraft ? 'detail' : 'picker',
   );
   const [presetProfiles, setPresetProfiles] = useState<Record<string, PresetProfileState>>({});
   const [creationDraft, setCreationDraft] = useState<PersonaCreationDraft | null>(
@@ -586,6 +592,23 @@ export function PersonaPreviewChat({
     setMode('profile');
     void loadPresetProfile(activeItem);
   }, [activeItem, loadPresetProfile]);
+
+  // Picker entry point: select the persona and jump straight into chat or
+  // profile detail. Profile loading uses the clicked item directly because
+  // `activeItem` still reflects the previous selection in this render cycle.
+  const enterPersona = useCallback(
+    (item: RailItem, nextMode: 'chat' | 'profile') => {
+      onActiveSeedChange(item.slug);
+      if (nextMode === 'profile') {
+        setMode('profile');
+        void loadPresetProfile(item);
+      } else {
+        setMode('chat');
+      }
+      setStage('detail');
+    },
+    [loadPresetProfile, onActiveSeedChange],
+  );
 
   const runGeneration = useCallback(
     async (
@@ -1040,7 +1063,7 @@ export function PersonaPreviewChat({
   const showDescriptionEditor = !showDescriptionSummary || descriptionExpanded;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       {confirmationError && (
         <div
           role="alert"
@@ -1049,88 +1072,182 @@ export function PersonaPreviewChat({
           {confirmationError}
         </div>
       )}
-      <fieldset
-        disabled={disabled}
-        className="m-0 grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 border-0 p-0 md:grid-cols-[13.5rem_minmax(0,1fr)] md:gap-6"
-      >
-        <legend className="sr-only">{t('steps.personaPreview')}</legend>
-      {/* Left: avatar rail — clicking selects the persona (the active one is
-          confirmed by the footer "Next" button). */}
-      <div className="flex gap-2 overflow-x-auto rounded-xl bg-muted/55 p-2 md:flex-col md:overflow-x-hidden md:overflow-y-auto md:rounded-2xl">
-        {railItems.map((p) => {
-          const selected = activeSeed === p.slug && mode !== 'create';
-          return (
+      {/* 标题与模式 tab 同行:让左 rail 和右内容区顶部对齐。detail 阶段左侧带返回 picker 的按钮。 */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {stage === 'detail' ? (
             <button
-              key={p.slug}
               type="button"
-              onClick={() => {
-                onActiveSeedChange(p.slug);
-                setMode('chat');
-              }}
-              aria-pressed={selected}
+              data-testid="persona-back-to-picker"
+              onClick={() => setStage('picker')}
+              disabled={disabled}
+              aria-label={t('personaPreview.backToPicker')}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-40 motion-reduce:transition-none"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            </button>
+          ) : null}
+          {stage === 'detail' && mode !== 'create' && activeItem ? (
+            <div className="flex min-w-0 items-center gap-3">
+              <PreviewAvatar name={activeItem.name} avatar={activeItem.avatar} />
+              <h1 className="truncate font-onboarding-display text-[1.65rem] font-bold leading-snug text-foreground">
+                {activeItem.name}
+              </h1>
+            </div>
+          ) : (
+            <h1 className="font-onboarding-display text-[1.9rem] font-bold leading-snug text-foreground">
+              {stage === 'detail' && mode === 'create'
+                ? t('personaPreview.createCustomTitle')
+                : t('steps.personaPreview')}
+            </h1>
+          )}
+        </div>
+        {stage === 'detail' && mode !== 'create' ? (
+          <div
+            role="group"
+            aria-label={t('personaPreview.modeLabel', { name: activeItem?.name || '' })}
+            className="flex w-fit shrink-0 items-center gap-1 rounded-lg bg-muted/45 p-1"
+          >
+            <button
+              type="button"
+              data-testid="persona-mode-chat"
+              aria-pressed={mode === 'chat'}
+              onClick={() => setMode('chat')}
               className={cn(
-                'group relative flex min-w-[11.5rem] items-center gap-3 overflow-hidden rounded-lg px-3 py-2 text-left transition-colors duration-200 motion-reduce:transition-none md:min-w-0',
-                selected
-                  ? 'text-foreground'
-                  : 'text-muted-foreground hover:bg-background/55 hover:text-foreground',
+                'rounded-md px-3 py-1.5 text-sm transition-colors',
+                mode === 'chat'
+                  ? 'bg-background font-medium text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {selected ? (
-                <motion.span
-                  aria-hidden="true"
-                  layoutId={shouldReduceMotion ? undefined : 'persona-rail-selection'}
-                  className={cn('absolute inset-0 rounded-lg', ONBOARDING_SELECTED_SURFACE_CLASS)}
-                  transition={{ duration: shouldReduceMotion ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] }}
-                />
-              ) : null}
-              <span className="relative flex min-w-0 items-center gap-3">
-                <PreviewAvatar name={p.name} avatar={p.avatar} />
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-semibold text-foreground">{p.name}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {p.description}
-                  </span>
-                </span>
-              </span>
+              {t('personaPreview.talkWith', { name: activeItem?.name || '' })}
             </button>
-          );
-        })}
-
-        <button
-          type="button"
-          data-testid="persona-create-custom"
-          onClick={() => {
-            if (!creationDraftRef.current) {
-              publishCreationDraft(createEmptyCreationDraft());
-            }
-            setDescriptionExpanded(true);
-            setMode('create');
-            setGenError(null);
-          }}
-          aria-pressed={mode === 'create'}
-          className={cn(
-            'group relative flex min-w-[11.5rem] items-center gap-3 overflow-hidden rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition-colors duration-200 hover:bg-background/55 hover:text-foreground motion-reduce:transition-none md:min-w-0',
-            mode === 'create' && 'text-foreground',
-          )}
-        >
-          {mode === 'create' ? (
-            <motion.span
-              aria-hidden="true"
-              layoutId={shouldReduceMotion ? undefined : 'persona-rail-selection'}
-              className={cn('absolute inset-0 rounded-lg', ONBOARDING_SELECTED_SURFACE_CLASS)}
-              transition={{ duration: shouldReduceMotion ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] }}
-            />
-          ) : null}
-          <span className="relative flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background/75 text-lg shadow-[inset_0_0_0_1px_hsl(var(--border)/0.65)] transition-colors group-hover:text-foreground">
-              +
-            </span>
-            <span className="truncate font-semibold">{t('personaPreview.createCustom')}</span>
-          </span>
-        </button>
+            <button
+              type="button"
+              data-testid="persona-mode-profile"
+              aria-pressed={mode === 'profile'}
+              onClick={showActiveProfile}
+              disabled={!activeItem}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm transition-colors disabled:opacity-50',
+                mode === 'profile'
+                  ? 'bg-background font-medium text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {t('personaPreview.learnAbout', { name: activeItem?.name || '' })}
+            </button>
+          </div>
+        ) : null}
       </div>
-
-      {/* Right: either the preview chat or the custom-persona composer. */}
+      <AnimatePresence initial={false} mode="wait">
+        {stage === 'picker' ? (
+          <motion.div
+            key="persona-picker"
+            className="min-h-0 flex-1 overflow-y-auto"
+            initial={shouldReduceMotion ? false : { opacity: 0, x: -16 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: shouldReduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {/* Picker: 大卡片网格,先看全貌再进入单个预览。卡片主体点击=选中并开聊;
+                hover/聚焦时底部浮现「和我聊聊 / 看看简介」两个入口。 */}
+            <div className="grid grid-cols-2 gap-3 p-1 sm:grid-cols-3 xl:grid-cols-4">
+              {railItems.map((p) => {
+                const selected = activeSeed === p.slug;
+                return (
+                  <div
+                    key={p.slug}
+                    className="group relative flex flex-col items-center gap-3 rounded-xl bg-card px-4 py-6 text-center shadow-[inset_0_0_0_1px_hsl(var(--border)/0.58)] transition-[box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.35),0_10px_28px_-24px_hsl(var(--foreground)/0.3)] motion-reduce:transform-none motion-reduce:transition-none"
+                  >
+                    <button
+                      type="button"
+                      data-testid={`persona-pick-${p.slug}`}
+                      aria-pressed={selected}
+                      aria-label={p.name}
+                      disabled={disabled}
+                      onClick={() => enterPersona(p, 'chat')}
+                      className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                    />
+                    {selected ? (
+                      <span
+                        aria-hidden="true"
+                        className="absolute right-3 top-3 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground"
+                      >
+                        <Check className="h-3 w-3" />
+                      </span>
+                    ) : null}
+                    <span className="pointer-events-none flex min-w-0 flex-col items-center gap-3">
+                      <PreviewAvatar name={p.name} avatar={p.avatar} size="lg" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-foreground">{p.name}</span>
+                      </span>
+                    </span>
+                    <span className="relative flex h-9 w-full items-center justify-center">
+                      <span className="pointer-events-none absolute inset-0 flex items-start justify-center text-xs leading-5 text-muted-foreground transition-opacity duration-200 line-clamp-2 group-hover:opacity-0 group-focus-within:opacity-0 motion-reduce:transition-none">
+                        {p.description}
+                      </span>
+                      <span className="absolute inset-0 z-10 flex items-center justify-center gap-1.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
+                        <button
+                          type="button"
+                          data-testid={`persona-chat-${p.slug}`}
+                          disabled={disabled}
+                          onClick={() => enterPersona(p, 'chat')}
+                          className="rounded-md bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+                        >
+                          {t('personaPreview.chatAction')}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`persona-profile-${p.slug}`}
+                          disabled={disabled}
+                          onClick={() => enterPersona(p, 'profile')}
+                          className="rounded-md bg-muted px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                        >
+                          {t('personaPreview.profileAction')}
+                        </button>
+                      </span>
+                    </span>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                data-testid="persona-create-custom"
+                aria-pressed={false}
+                disabled={disabled}
+                onClick={() => {
+                  if (!creationDraftRef.current) {
+                    publishCreationDraft(createEmptyCreationDraft());
+                  }
+                  setDescriptionExpanded(true);
+                  setMode('create');
+                  setGenError(null);
+                  setStage('detail');
+                }}
+                className="group flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border px-4 py-6 text-center text-muted-foreground transition-colors duration-200 hover:border-primary/45 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 motion-reduce:transition-none"
+              >
+                <span className="flex h-16 w-16 items-center justify-center rounded-full bg-muted/70 text-2xl shadow-[inset_0_0_0_1px_hsl(var(--border)/0.65)] transition-colors group-hover:text-foreground">
+                  +
+                </span>
+                <span className="text-sm font-semibold">{t('personaPreview.createCustom')}</span>
+              </button>
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="persona-detail"
+            className="flex min-h-0 flex-1 flex-col"
+            initial={shouldReduceMotion ? false : { opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: shouldReduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}
+          >
+      <fieldset
+        disabled={disabled}
+        className="m-0 flex min-h-0 min-w-0 flex-1 flex-col border-0 p-0"
+      >
+        <legend className="sr-only">{t('steps.personaPreview')}</legend>
+      {/* Detail: either the preview chat or the custom-persona composer.
+          人格切换统一回到 picker 完成,这里不再有左侧 rail。 */}
       {mode === 'create' ? (
         <div className="flex min-h-0 flex-col gap-4">
           <motion.div layout className="flex-1 overflow-y-auto px-1 py-1 sm:px-4 sm:py-3 lg:px-7">
@@ -1374,42 +1491,6 @@ export function PersonaPreviewChat({
               </button>
             </div>
           )}
-          <div
-            role="group"
-            aria-label={t('personaPreview.modeLabel', { name: activeItem?.name || '' })}
-            className="flex w-fit shrink-0 self-end items-center gap-1 rounded-xl bg-muted/45 p-1"
-          >
-            <button
-              type="button"
-              data-testid="persona-mode-chat"
-              aria-pressed={mode === 'chat'}
-              onClick={() => setMode('chat')}
-              className={cn(
-                'rounded-md px-3 py-1.5 text-sm transition-colors',
-                mode === 'chat'
-                  ? 'bg-background font-medium text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {t('personaPreview.talkWith', { name: activeItem?.name || '' })}
-            </button>
-            <button
-              type="button"
-              data-testid="persona-mode-profile"
-              aria-pressed={mode === 'profile'}
-              onClick={showActiveProfile}
-              disabled={!activeItem}
-              className={cn(
-                'rounded-md px-3 py-1.5 text-sm transition-colors disabled:opacity-50',
-                mode === 'profile'
-                  ? 'bg-background font-medium text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {t('personaPreview.learnAbout', { name: activeItem?.name || '' })}
-            </button>
-          </div>
-
           {mode === 'profile' ? (
             activeProfileConfig ? (
               <PersonaProfilePanel
@@ -1603,6 +1684,9 @@ export function PersonaPreviewChat({
         </div>
       )}
       </fieldset>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

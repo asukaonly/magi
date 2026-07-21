@@ -26,7 +26,7 @@ describe('onboarding visual controls', () => {
     expect(primaryAction).toHaveClass(
       'h-12',
       'min-w-[9.5rem]',
-      'rounded-xl',
+      'rounded-lg',
       'bg-primary',
       'text-primary-foreground',
     );

@@ -166,7 +166,7 @@ export const ScenarioSelection: React.FC<ScenarioSelectionProps> = ({ value, onC
             animate={{ opacity: 1, y: 0 }}
             exit={shouldReduceMotion ? undefined : { opacity: 0, y: 8 }}
             transition={{ duration: shouldReduceMotion ? 0 : 0.18 }}
-            className="rounded-xl border border-border bg-muted/30 p-5"
+            className="rounded-lg border border-border bg-muted/30 p-5"
           >
             {features.length > 0 ? (
               <>

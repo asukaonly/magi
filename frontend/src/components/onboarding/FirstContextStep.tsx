@@ -44,7 +44,7 @@ export function isFirstContextRoute(value: unknown): value is FirstContextRoute 
 
 const KICKER_CLASS = "text-xs font-semibold tracking-[0.08em] text-primary";
 const HEADING_CLASS =
-  "text-[1.65rem] sm:text-3xl font-semibold leading-[1.3] tracking-[-0.01em] text-foreground outline-none";
+  "font-onboarding-display text-[1.65rem] sm:text-3xl font-semibold leading-[1.3] tracking-[-0.01em] text-foreground outline-none";
 const BODY_CLASS = "mt-3 text-[15px] leading-7 text-muted-foreground";
 const BADGE_CLASS =
   "rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary";
@@ -70,37 +70,37 @@ function RouteOptionCard({
     <button
       type="button"
       data-testid={testId}
-      className="group flex h-full flex-col rounded-2xl bg-card p-5 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.62),0_14px_32px_-30px_hsl(var(--foreground)/0.28)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-accent/45 hover:shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18),0_18px_36px_-30px_hsl(var(--foreground)/0.34)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none"
+      className="group flex items-center gap-4 rounded-xl bg-card p-5 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.62),0_14px_32px_-30px_hsl(var(--foreground)/0.28)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-accent/45 hover:shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18),0_18px_36px_-30px_hsl(var(--foreground)/0.34)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none"
       onClick={onSelect}
     >
-      <span className="flex items-center justify-between">
-        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-          {icon}
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-semibold leading-6 text-foreground">
+          {title}
         </span>
-        <ChevronRight
-          className="h-4 w-4 text-muted-foreground/50 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-primary"
-          aria-hidden="true"
-        />
+        <span className="mt-1 block text-sm leading-6 text-muted-foreground">
+          {body}
+        </span>
+        <span className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground/75">
+          {meta.map((entry, index) => (
+            <span key={entry} className="inline-flex items-center gap-2">
+              {index > 0 ? (
+                <span
+                  aria-hidden="true"
+                  className="h-0.5 w-0.5 rounded-full bg-current opacity-70"
+                />
+              ) : null}
+              {entry}
+            </span>
+          ))}
+        </span>
       </span>
-      <span className="mt-4 block text-[15px] font-semibold leading-6 text-foreground">
-        {title}
-      </span>
-      <span className="mt-1.5 block text-sm leading-6 text-muted-foreground">
-        {body}
-      </span>
-      <span className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-4 text-xs text-muted-foreground/75">
-        {meta.map((entry, index) => (
-          <span key={entry} className="inline-flex items-center gap-2">
-            {index > 0 ? (
-              <span
-                aria-hidden="true"
-                className="h-0.5 w-0.5 rounded-full bg-current opacity-70"
-              />
-            ) : null}
-            {entry}
-          </span>
-        ))}
-      </span>
+      <ChevronRight
+        className="h-4 w-4 shrink-0 text-muted-foreground/50 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-primary"
+        aria-hidden="true"
+      />
     </button>
   );
 }
@@ -198,7 +198,7 @@ export function FirstContextStep({
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="mx-auto grid w-full max-w-2xl grid-cols-1 gap-4">
         <RouteOptionCard
           testId="first-context-route-question"
           icon={<MessageCircleQuestion className="h-5 w-5" aria-hidden="true" />}
@@ -315,7 +315,7 @@ export function FirstContextStep({
           )}
         </div>
 
-        <div className="rounded-xl bg-accent/40 px-4 py-3 text-xs leading-5 text-muted-foreground">
+        <div className="rounded-lg bg-accent/40 px-4 py-3 text-xs leading-5 text-muted-foreground">
           <p>{t("firstContext.story.contextNote")}</p>
           <p className="mt-1 opacity-80">{t("firstContext.story.privacyNote")}</p>
         </div>
@@ -359,7 +359,7 @@ export function FirstContextStep({
       {memoryModelMissing ? (
         <div
           data-testid="first-context-memory-warning"
-          className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/80 px-3.5 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
+          className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/80 px-3.5 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
         >
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <span className="space-y-1">
@@ -381,7 +381,7 @@ export function FirstContextStep({
       </p>
 
       {connectedCount > 0 ? (
-        <div className="flex items-start gap-3 rounded-xl border border-primary/18 bg-primary/5 px-3.5 py-3 text-sm">
+        <div className="flex items-start gap-3 rounded-lg border border-primary/18 bg-primary/5 px-3.5 py-3 text-sm">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <span className="space-y-2">
             <span className="block font-medium text-foreground">

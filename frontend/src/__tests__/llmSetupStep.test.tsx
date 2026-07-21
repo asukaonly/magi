@@ -332,7 +332,11 @@ describe('LLMSetupStep', () => {
     await user.click(screen.getByRole('button', { name: 'llmSetup.changeProvider' }));
     const selectedOpenAiCard = await screen.findByTestId('llm-setup-provider-openai');
     expect(selectedOpenAiCard).toHaveAttribute('aria-pressed', 'true');
-    expect(selectedOpenAiCard).toHaveClass('bg-accent/90');
+    // 选中态:中性纸面 + 低调的 primary 细描边(不再用彩色填充)。
+    expect(selectedOpenAiCard).toHaveClass(
+      'bg-card',
+      'shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.38)]',
+    );
   });
 
   it('returns to the current setup without losing entered credentials', async () => {
