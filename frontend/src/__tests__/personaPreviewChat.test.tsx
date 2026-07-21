@@ -93,9 +93,9 @@ function renderPersonaPreview(props: ControlledPersonaPreviewProps & { stayInPic
   // detail view, so enter it by clicking the active seed's picker card.
   if (!stayInPicker) {
     const seed = rest.initialActiveSeed ?? 'nova';
-    const card = screen.queryByTestId(`persona-pick-${seed}`);
-    if (card) {
-      fireEvent.click(card);
+    const action = screen.queryByTestId(`persona-chat-${seed}`);
+    if (action) {
+      fireEvent.click(action);
     }
   }
   return utils;
@@ -144,6 +144,11 @@ describe('PersonaPreviewChat', () => {
     renderPersonaPreview({ previews, stayInPicker: true });
 
     await user.click(screen.getByTestId('persona-pick-ember'));
+    // 点卡片只选中,不跳转。
+    expect(screen.getByTestId('persona-pick-ember')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('persona-back-to-picker')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('persona-chat-ember'));
     expect(await screen.findByTestId('persona-back-to-picker')).toBeInTheDocument();
     expect(screen.getByTestId('persona-mode-chat')).toBeInTheDocument();
     expect(screen.queryByTestId('persona-pick-nova')).not.toBeInTheDocument();
@@ -479,10 +484,10 @@ describe('PersonaPreviewChat', () => {
 
     // Switch to Ember, then back to Nova — nova-msg must still be there
     await userEvent.click(screen.getByTestId('persona-back-to-picker'));
-    await userEvent.click(await screen.findByTestId('persona-pick-ember'));
+    await userEvent.click(await screen.findByTestId('persona-chat-ember'));
     expect(screen.queryByText('nova-msg')).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId('persona-back-to-picker'));
-    await userEvent.click(await screen.findByTestId('persona-pick-nova'));
+    await userEvent.click(await screen.findByTestId('persona-chat-nova'));
     expect(screen.getByText('nova-msg')).toBeInTheDocument();
   });
 

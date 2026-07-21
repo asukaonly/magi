@@ -437,6 +437,15 @@ export function PersonaPreviewChat({
   const activeProfileState = activeProfileKey ? presetProfiles[activeProfileKey] : undefined;
   const activeProfileConfig = activeItem?.config ?? activeProfileState?.config;
   const activeTranscript = activeSeed ? transcripts[activeSeed] ?? [] : [];
+  const transcriptScrollRef = useRef<HTMLDivElement | null>(null);
+
+  // 新消息/流式更新时把消息区滚到底部,行为对齐真实聊天。
+  useEffect(() => {
+    const el = transcriptScrollRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [activeTranscript]);
   const userTurnCount = activeTranscript.filter((m) => m.role === 'user').length;
   const capReached = userTurnCount >= MAX_USER_TURNS_PER_PERSONA;
   const getGenerationStageLabel = useCallback(
@@ -1165,7 +1174,7 @@ export function PersonaPreviewChat({
                       aria-pressed={selected}
                       aria-label={p.name}
                       disabled={disabled}
-                      onClick={() => enterPersona(p, 'chat')}
+                      onClick={() => onActiveSeedChange(p.slug)}
                       className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                     />
                     {selected ? (
@@ -1192,7 +1201,7 @@ export function PersonaPreviewChat({
                           data-testid={`persona-chat-${p.slug}`}
                           disabled={disabled}
                           onClick={() => enterPersona(p, 'chat')}
-                          className="rounded-md bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+                          className="rounded-md bg-muted px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                         >
                           {t('personaPreview.chatAction')}
                         </button>
@@ -1201,7 +1210,7 @@ export function PersonaPreviewChat({
                           data-testid={`persona-profile-${p.slug}`}
                           disabled={disabled}
                           onClick={() => enterPersona(p, 'profile')}
-                          className="rounded-md bg-muted px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                          className="rounded-md bg-muted px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                         >
                           {t('personaPreview.profileAction')}
                         </button>
@@ -1249,7 +1258,7 @@ export function PersonaPreviewChat({
       {/* Detail: either the preview chat or the custom-persona composer.
           人格切换统一回到 picker 完成,这里不再有左侧 rail。 */}
       {mode === 'create' ? (
-        <div className="flex min-h-0 flex-col gap-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
           <motion.div layout className="flex-1 overflow-y-auto px-1 py-1 sm:px-4 sm:py-3 lg:px-7">
             <AnimatePresence initial={false} mode="popLayout">
               {showDescriptionSummary && !descriptionExpanded ? (
@@ -1467,7 +1476,7 @@ export function PersonaPreviewChat({
           </div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-col gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
           {activeItem?.customDraft?.intent?.reference && (
             <div
               data-testid="persona-reference-summary"
@@ -1536,11 +1545,16 @@ export function PersonaPreviewChat({
               {/* Mirrors the real chat surface: bg-background scroll area with
                   bg-card bubbles, so the preview reads like the app you're about
                   to enter. */}
-              <div className="flex-1 overflow-y-auto rounded-lg border border-border/55 bg-background p-4">
+              <div
+                ref={transcriptScrollRef}
+                className="flex-1 overflow-y-auto rounded-xl bg-muted/40 p-4"
+              >
                 {activeTranscript.length === 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    {t('personaPreview.emptyHint')}
-                  </p>
+                  <div className="flex h-full items-center justify-center">
+                    <p className="max-w-sm text-center text-sm leading-6 text-muted-foreground">
+                      {t('personaPreview.emptyHint')}
+                    </p>
+                  </div>
                 )}
                 {activeTranscript.map((turn, idx) => (
                   turn.kind === 'revision-divider' ? (
@@ -1627,7 +1641,7 @@ export function PersonaPreviewChat({
                         }
                       }}
                       placeholder={t('personaPreview.adjustment.placeholder')}
-                      className="min-w-0 flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60"
+                      className="min-w-0 flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 focus-visible:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/15"
                     />
                     <button
                       type="button"
@@ -1656,7 +1670,7 @@ export function PersonaPreviewChat({
                   onChange={(e) => setDraft(e.target.value)}
                   placeholder={t('personaPreview.composerPlaceholder')}
                   disabled={adjusting || capReached}
-                  className="flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground"
+                  className="flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-200 focus-visible:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/15"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();

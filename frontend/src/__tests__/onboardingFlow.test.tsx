@@ -1105,8 +1105,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     const ember = await screen.findByRole("button", { name: /Ember/i });
     await user.click(ember);
-    // 点击后进入 detail 阶段,头部显示选中的人格名。
-    expect(await screen.findByRole("heading", { name: /Ember/i })).toBeInTheDocument();
+    // 点卡片只选中不跳转,仍停留在 picker。
+    expect(ember).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "actions.next" }));
 
     await screen.findByText("firstContext.title");
@@ -1152,7 +1152,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await user.click(screen.getByRole("button", { name: "actions.next" }));
 
-    await user.click(await screen.findByRole("button", { name: /Ember/i }));
+    await user.click(await screen.findByTestId("persona-chat-ember"));
     await user.type(
       screen.getByPlaceholderText(/composerPlaceholder/i),
       "hello",
@@ -1848,7 +1848,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "messages.personaActivationFailed",
     );
-    expect(screen.getByRole("heading", { name: /Ember/i })).toBeInTheDocument();
+    expect(screen.getByTestId("persona-pick-ember")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     expect(configApi.updateOnboardingDraft).not.toHaveBeenCalled();
     expect(completeOnboarding).not.toHaveBeenCalled();
 
@@ -1928,8 +1931,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(screen.getByRole("button", { name: "actions.next" }));
     await waitFor(() => expect(personasApi.setActive).toHaveBeenCalled());
 
-    expect(screen.getByTestId("persona-back-to-picker")).toBeDisabled();
-    expect(screen.getByPlaceholderText(/composerPlaceholder/i)).toBeDisabled();
+    expect(screen.getByTestId("persona-pick-ember")).toBeDisabled();
+    expect(screen.getByTestId("persona-create-custom")).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "actions.previous" }),
     ).toBeDisabled();
@@ -1970,8 +1973,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "messages.personaSetupTimedOut",
     );
-    await user.click(screen.getByTestId("persona-back-to-picker"));
-    await user.click(await screen.findByTestId("persona-pick-nova"));
+    await user.click(screen.getByTestId("persona-pick-nova"));
     await user.click(screen.getByRole("button", { name: "actions.next" }));
     await screen.findByText("firstContext.title");
     expect(personasApi.setActive).toHaveBeenCalledTimes(1);
