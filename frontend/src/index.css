@@ -115,7 +115,7 @@
     --trace-error-bg: 10 56% 94%;
     --trace-error-border: 10 36% 80%;
     --trace-error-foreground: 6 46% 39%;
-    --radius: 0.9rem;
+    --radius: 0.625rem;
   }
 
   .dark {
@@ -229,7 +229,7 @@
     --trace-error-bg: 7 20% 22%;
     --trace-error-border: 7 16% 32%;
     --trace-error-foreground: 7 52% 72%;
-    --radius: 0.9rem;
+    --radius: 0.625rem;
   }
 
   .theme-mist {
@@ -265,6 +265,177 @@
     --memory-accent-soft: 30 18% 88%;
     --memory-accent-foreground: 35 32% 97%;
     --trace-selected-border: 29 24% 74%;
+  }
+
+  /* 抹茶 — 奶油纸底 + 深抹茶绿,安静的陪伴感(默认主题) */
+  .theme-matcha {
+    --background: 40 38% 96%;
+    --foreground: 30 18% 17%;
+    --card: 42 45% 99%;
+    --card-foreground: 30 18% 17%;
+    --primary: 100 20% 36%;
+    --primary-foreground: 45 40% 97%;
+    --secondary: 45 20% 92%;
+    --secondary-foreground: 40 18% 26%;
+    --muted: 42 18% 94%;
+    --muted-foreground: 35 10% 42%;
+    --accent: 55 20% 92%;
+    --accent-foreground: 65 18% 24%;
+    --border: 40 14% 86%;
+    --input: 40 14% 86%;
+    --ring: 100 18% 40%;
+    --app-chrome-surface: 42 30% 96%;
+    --app-chrome-elevated: 46 36% 98%;
+    --app-chrome-divider: 42 14% 85%;
+    --composer-background: 46 32% 98%;
+    --composer-border: 42 14% 84%;
+    --chat-surface: var(--app-chrome-surface);
+    --chat-surface-elevated: 46 34% 98%;
+    --chat-assistant-background: 46 34% 98%;
+    --chat-assistant-border: 42 14% 87%;
+    --chat-user-background: 72 20% 90%;
+    --chat-user-foreground: var(--foreground);
+    --chat-user-border: 72 16% 81%;
+    --sidebar-background-start: var(--app-chrome-surface);
+    --sidebar-background-end: var(--app-chrome-surface);
+    --sidebar-border: var(--app-chrome-divider);
+    --sidebar-foreground: 35 16% 26%;
+    --sidebar-muted: 40 10% 46%;
+    --sidebar-hover: 52 18% 90%;
+    --sidebar-active: 72 22% 86%;
+    --sidebar-active-foreground: 80 24% 22%;
+    --sidebar-subactive: 62 16% 89%;
+    --sidebar-tool: 52 14% 90%;
+    --sidebar-tool-hover: 56 16% 86%;
+    --sidebar-menu: 50 18% 92%;
+    --sidebar-shadow: 40 20% 20%;
+    --sidebar-badge: 100 20% 36%;
+    --sidebar-badge-foreground: 45 40% 97%;
+    --sidebar-divider: 42 14% 84%;
+    --sidebar-ring: 100 18% 40%;
+    --settings-accent: 60 18% 90%;
+    --settings-accent-foreground: 70 18% 26%;
+    --settings-nav-active: 65 18% 88%;
+    --settings-nav-active-foreground: 70 20% 24%;
+    --settings-nav-hover: 60 14% 91%;
+    --memory-accent: 100 20% 36%;
+    --memory-accent-soft: 65 18% 88%;
+    --memory-accent-foreground: 45 40% 97%;
+    --trace-selected-border: 80 18% 76%;
+  }
+
+  /* 柿子 — 奶油纸底 + 饱和柿子红,编辑感与仪式感 */
+  .theme-persimmon {
+    --background: 36 40% 96%;
+    --foreground: 26 20% 16%;
+    --card: 40 48% 99%;
+    --card-foreground: 26 20% 16%;
+    --primary: 14 70% 45%;
+    --primary-foreground: 40 45% 97%;
+    --secondary: 34 22% 92%;
+    --secondary-foreground: 26 20% 28%;
+    --muted: 36 20% 94%;
+    --muted-foreground: 28 12% 42%;
+    --accent: 38 26% 92%;
+    --accent-foreground: 24 24% 26%;
+    --border: 32 14% 85%;
+    --input: 32 14% 85%;
+    --ring: 14 60% 48%;
+    --app-chrome-surface: 36 32% 96%;
+    --app-chrome-elevated: 40 38% 98%;
+    --app-chrome-divider: 32 14% 84%;
+    --composer-background: 40 34% 98%;
+    --composer-border: 32 14% 83%;
+    --chat-surface: var(--app-chrome-surface);
+    --chat-surface-elevated: 40 36% 98%;
+    --chat-assistant-background: 40 36% 98%;
+    --chat-assistant-border: 34 16% 86%;
+    --chat-user-background: 16 42% 91%;
+    --chat-user-foreground: var(--foreground);
+    --chat-user-border: 16 30% 82%;
+    --sidebar-background-start: var(--app-chrome-surface);
+    --sidebar-background-end: var(--app-chrome-surface);
+    --sidebar-border: var(--app-chrome-divider);
+    --sidebar-foreground: 28 18% 26%;
+    --sidebar-muted: 30 10% 46%;
+    --sidebar-hover: 36 20% 90%;
+    --sidebar-active: 16 38% 88%;
+    --sidebar-active-foreground: 14 42% 28%;
+    --sidebar-subactive: 30 20% 89%;
+    --sidebar-tool: 36 16% 90%;
+    --sidebar-tool-hover: 34 18% 86%;
+    --sidebar-menu: 38 20% 92%;
+    --sidebar-shadow: 24 20% 20%;
+    --sidebar-badge: 14 70% 45%;
+    --sidebar-badge-foreground: 40 45% 97%;
+    --sidebar-divider: 32 14% 83%;
+    --sidebar-ring: 14 60% 48%;
+    --settings-accent: 20 32% 90%;
+    --settings-accent-foreground: 16 34% 28%;
+    --settings-nav-active: 18 34% 88%;
+    --settings-nav-active-foreground: 16 38% 26%;
+    --settings-nav-hover: 30 20% 91%;
+    --memory-accent: 14 70% 45%;
+    --memory-accent-soft: 20 36% 89%;
+    --memory-accent-foreground: 40 45% 97%;
+    --trace-selected-border: 16 32% 76%;
+  }
+
+  /* 杏子 — 奶油底 + 杏子橙,最软最甜的陪伴感 */
+  .theme-apricot {
+    --background: 36 45% 96%;
+    --foreground: 28 22% 18%;
+    --card: 40 55% 99%;
+    --card-foreground: 28 22% 18%;
+    --primary: 24 82% 46%;
+    --primary-foreground: 40 50% 97%;
+    --secondary: 38 26% 92%;
+    --secondary-foreground: 28 20% 28%;
+    --muted: 38 24% 94%;
+    --muted-foreground: 30 12% 42%;
+    --accent: 40 40% 93%;
+    --accent-foreground: 28 28% 26%;
+    --border: 34 18% 86%;
+    --input: 34 18% 86%;
+    --ring: 24 70% 48%;
+    --app-chrome-surface: 38 36% 96%;
+    --app-chrome-elevated: 42 42% 98%;
+    --app-chrome-divider: 34 16% 85%;
+    --composer-background: 42 38% 98%;
+    --composer-border: 34 16% 84%;
+    --chat-surface: var(--app-chrome-surface);
+    --chat-surface-elevated: 42 40% 98%;
+    --chat-assistant-background: 42 40% 98%;
+    --chat-assistant-border: 36 18% 87%;
+    --chat-user-background: 32 55% 90%;
+    --chat-user-foreground: var(--foreground);
+    --chat-user-border: 30 35% 82%;
+    --sidebar-background-start: var(--app-chrome-surface);
+    --sidebar-background-end: var(--app-chrome-surface);
+    --sidebar-border: var(--app-chrome-divider);
+    --sidebar-foreground: 30 18% 27%;
+    --sidebar-muted: 32 10% 46%;
+    --sidebar-hover: 40 26% 90%;
+    --sidebar-active: 32 45% 87%;
+    --sidebar-active-foreground: 26 45% 30%;
+    --sidebar-subactive: 38 24% 89%;
+    --sidebar-tool: 40 20% 90%;
+    --sidebar-tool-hover: 38 22% 86%;
+    --sidebar-menu: 42 24% 92%;
+    --sidebar-shadow: 28 22% 22%;
+    --sidebar-badge: 24 82% 46%;
+    --sidebar-badge-foreground: 40 50% 97%;
+    --sidebar-divider: 34 16% 84%;
+    --sidebar-ring: 24 70% 48%;
+    --settings-accent: 34 38% 90%;
+    --settings-accent-foreground: 26 36% 28%;
+    --settings-nav-active: 32 40% 88%;
+    --settings-nav-active-foreground: 26 42% 26%;
+    --settings-nav-hover: 38 22% 91%;
+    --memory-accent: 24 82% 46%;
+    --memory-accent-soft: 34 42% 89%;
+    --memory-accent-foreground: 40 50% 97%;
+    --trace-selected-border: 28 36% 77%;
   }
 
   * {
@@ -303,11 +474,31 @@
       linear-gradient(180deg, hsl(30 25% 97%) 0%, hsl(25 20% 95%) 100%);
   }
 
+  .theme-matcha body {
+    background:
+      linear-gradient(180deg, hsl(42 34% 97%) 0%, hsl(50 26% 94%) 100%);
+  }
+
+  .theme-persimmon body {
+    background:
+      linear-gradient(180deg, hsl(38 38% 97%) 0%, hsl(28 28% 94%) 100%);
+  }
+
+  .theme-apricot body {
+    background:
+      linear-gradient(180deg, hsl(40 44% 97%) 0%, hsl(34 32% 94%) 100%);
+  }
+
 }
 
 @layer utilities {
   .page-enter {
     animation: page-fade-in 280ms ease-out;
+  }
+
+  /* 引导页 display 衬线:纯系统字体栈,不打包字体 */
+  .font-onboarding-display {
+    font-family: 'Songti SC', 'Noto Serif SC', 'Source Han Serif SC', 'STSong', 'SimSun', serif;
   }
 
   .desktop-surface {

@@ -1628,7 +1628,10 @@
       "light": "Light",
       "dark": "Dark",
       "system": "System",
-      "mist": "Soft Mist"
+      "mist": "Soft Mist",
+      "matcha": "Matcha",
+      "persimmon": "Persimmon",
+      "apricot": "Apricot"
     },
     "themeDesc": "Choose an interface palette, preview it, then save",
     "actions": {

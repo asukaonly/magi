@@ -6,7 +6,7 @@
 // Theme Types
 // ============================================================================
 
-export type ThemeMode = 'light' | 'dark' | 'system' | 'mist';
+export type { ThemeMode } from '@/stores/theme';
 
 // ============================================================================
 // Language Types

@@ -15,7 +15,7 @@ describe('theme store initialization', () => {
     document.documentElement.className = '';
   });
 
-  it('defaults to system mode and resolves to light when system preference is light', async () => {
+  it('defaults new users to apricot mode resolved as light', async () => {
     vi.stubGlobal(
       'localStorage',
       {
@@ -28,11 +28,35 @@ describe('theme store initialization', () => {
     const { useThemeStore } = await import('@/stores/theme');
     const state = useThemeStore.getState();
 
-    expect(state.mode).toBe('system');
+    expect(state.mode).toBe('apricot');
     expect(state.resolvedTheme).toBe('light');
     expect(document.documentElement.classList.contains('light')).toBe(true);
+    expect(document.documentElement.classList.contains('theme-apricot')).toBe(true);
     expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
+
+  it.each(['matcha', 'persimmon', 'apricot'] as const)(
+    'applies the %s palette class from stored theme mode',
+    async (mode) => {
+      vi.stubGlobal(
+        'localStorage',
+        {
+          getItem: vi.fn(() => mode),
+          setItem: vi.fn(),
+        }
+      );
+      vi.stubGlobal('matchMedia', createMatchMedia(false));
+
+      const { useThemeStore } = await import('@/stores/theme');
+      const state = useThemeStore.getState();
+
+      expect(state.mode).toBe(mode);
+      expect(state.resolvedTheme).toBe('light');
+      expect(document.documentElement.classList.contains('light')).toBe(true);
+      expect(document.documentElement.classList.contains(`theme-${mode}`)).toBe(true);
+      expect(document.documentElement.classList.contains('dark')).toBe(false);
+    },
+  );
 
   it('applies the soft mist palette class from stored theme mode', async () => {
     vi.stubGlobal(

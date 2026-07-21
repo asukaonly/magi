@@ -1627,7 +1627,10 @@
       "light": "浅色",
       "dark": "深色",
       "system": "跟随系统",
-      "mist": "雾灰"
+      "mist": "雾灰",
+      "matcha": "抹茶",
+      "persimmon": "柿子",
+      "apricot": "杏子"
     },
     "themeDesc": "选择界面主题配色方案，可先预览再保存",
     "actions": {

@@ -5,6 +5,9 @@ export const THEME_MODE_OPTIONS = [
   'light',
   'dark',
   'system',
+  'apricot',
+  'matcha',
+  'persimmon',
   'mist',
 ] as const;
 
@@ -21,6 +24,9 @@ const STORAGE_KEY = 'magi-theme-mode';
 const THEME_CLASS_NAMES = ['light', 'dark', ...THEME_MODE_OPTIONS.map((mode) => `theme-${mode}`)] as const;
 const CUSTOM_THEME_CLASS_BY_MODE: Partial<Record<ThemeMode, string>> = {
   mist: 'theme-mist',
+  matcha: 'theme-matcha',
+  persimmon: 'theme-persimmon',
+  apricot: 'theme-apricot',
 };
 
 const isThemeMode = (value: string | null): value is ThemeMode => (
@@ -96,7 +102,8 @@ const applyTheme = (mode: ThemeMode, resolvedTheme = resolveTheme(mode)): void =
 
 export const initializeTheme = (): { mode: ThemeMode; resolvedTheme: ResolvedTheme } => {
   const storedMode = safeGetItem(STORAGE_KEY);
-  const mode: ThemeMode = isThemeMode(storedMode) ? storedMode : 'system';
+  // 新用户(无存储偏好)默认 apricot(主浅色);老用户保留已存储的选择。
+  const mode: ThemeMode = isThemeMode(storedMode) ? storedMode : 'apricot';
   const resolvedTheme = resolveTheme(mode);
 
   if (typeof window !== 'undefined') {
