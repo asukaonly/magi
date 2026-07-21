@@ -51,9 +51,9 @@ function ProfileSection({
       data-testid={`persona-profile-section-${sectionId}`}
       data-state={open ? 'open' : 'closed'}
       className={cn(
-        'scroll-mt-3 rounded-lg transition-[background-color,box-shadow] duration-200',
+        'scroll-mt-3 rounded-xl transition-[background-color,box-shadow] duration-200',
         open
-          ? 'bg-background/80 shadow-[0_14px_34px_-32px_hsl(var(--foreground)/0.38)]'
+          ? 'bg-card shadow-[inset_0_0_0_1px_hsl(var(--border)/0.55),0_14px_34px_-32px_hsl(var(--foreground)/0.3)]'
           : 'bg-transparent',
       )}
     >
@@ -84,7 +84,7 @@ function ProfileSection({
             duration: shouldReduceMotion ? 0 : 0.22,
             ease: [0.22, 1, 0.36, 1],
           }}
-          className="px-4 pb-7 pt-2"
+          className="px-5 pb-8 pt-3"
         >
           {children}
         </motion.div>
@@ -97,7 +97,7 @@ function TextField({ label, value }: { label: string; value?: string | null }): 
   if (!value?.trim()) return null;
   return (
     <div className="max-w-3xl">
-      <div className="text-xs font-medium tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">{label}</div>
       <p className="mt-2 whitespace-pre-wrap text-[0.9375rem] leading-7 text-foreground/90">{value}</p>
     </div>
   );
@@ -116,8 +116,8 @@ function ListField({
   if (items.length === 0) return null;
   return (
     <div className={className}>
-      <div className="text-xs font-medium tracking-wide text-muted-foreground">{label}</div>
-      <ul className="mt-2.5 space-y-2 text-[0.9375rem] leading-7 text-foreground/90">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">{label}</div>
+      <ul className="mt-3 space-y-2.5 text-[0.9375rem] leading-7 text-foreground/90">
         {items.map((item, index) => (
           <li key={`${item}-${index}`} className="flex items-start gap-2.5">
             <span className="mt-[0.72rem] h-1 w-1 shrink-0 rounded-full bg-primary/65" aria-hidden="true" />
@@ -144,7 +144,7 @@ function MappingField({ label, value }: { label: string; value?: Record<string, 
   if (entries.length === 0) return null;
   return (
     <div>
-      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">{label}</div>
       <dl className="mt-2 grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[minmax(9rem,auto)_1fr]">
         {entries.map(([key, item]) => (
           <div key={key} className="contents">
@@ -331,26 +331,26 @@ export function PersonaProfilePanel({ config }: PersonaProfilePanelProps): JSX.E
     <div
       ref={scrollContainerRef}
       data-testid="persona-profile-panel"
-      className="min-h-0 flex-1 overflow-y-auto rounded-lg bg-muted/20"
+      className="min-h-0 flex-1 overflow-y-auto rounded-xl bg-muted/25"
     >
       <div className="px-7 pb-6 pt-7 sm:px-8">
         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           {t('personaPreview.profile.eyebrow')}
         </div>
-        <h3 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{config.name}</h3>
+        <h3 className="mt-2 font-onboarding-display text-[1.75rem] font-bold tracking-tight text-foreground">{config.name}</h3>
         {config.description ? (
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{config.description}</p>
         ) : null}
       </div>
 
-      <div className="space-y-1 px-4 pb-8 sm:px-5">
+      <div className="space-y-2 px-4 pb-8 sm:px-5">
         <ProfileSection
           sectionId="identity"
           title={t('personality.sections.identityCore')}
           open={openSection === 'identity'}
           onOpenChange={handleSectionOpenChange}
         >
-          <div className="space-y-7">
+          <div className="space-y-8">
             <TextField label={t('personality.fields.identityStatement')} value={identity?.identity_statement} />
             <div className="grid gap-x-10 gap-y-7 lg:grid-cols-2">
               <ListField label={t('personality.fields.valuesLoved')} values={identity?.values_loved} />
@@ -370,7 +370,7 @@ export function PersonaProfilePanel({ config }: PersonaProfilePanelProps): JSX.E
           open={openSection === 'voice'}
           onOpenChange={handleSectionOpenChange}
         >
-          <div className="space-y-7">
+          <div className="space-y-8">
             <TextField label={t('personality.fields.sentenceStyle')} value={voice?.sentence_style} />
             <div className="grid gap-x-10 gap-y-7 lg:grid-cols-2">
               <ListField label={t('personality.fields.vocabAvailable')} values={voice?.vocab_available} />

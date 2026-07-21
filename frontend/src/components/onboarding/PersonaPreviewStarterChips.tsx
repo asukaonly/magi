@@ -1,3 +1,4 @@
+import { MessageCircleQuestion } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export interface PersonaPreviewStarterChipsProps {
@@ -18,7 +19,7 @@ export function PersonaPreviewStarterChips({
   return (
     <div
       data-testid="persona-preview-starter-prompts"
-      className="grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2"
+      className="grid grid-cols-1 gap-2 sm:grid-cols-2"
     >
       {CHIP_KEYS.map((key) => {
         const label = t(key);
@@ -27,13 +28,13 @@ export function PersonaPreviewStarterChips({
             type="button"
             key={key}
             onClick={() => onPick(label)}
-            className="group flex min-w-0 items-start gap-2.5 rounded-md px-2 py-2 text-left text-[13px] leading-5 text-muted-foreground transition-[background-color,color] duration-200 hover:bg-muted/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
+            className="group flex min-w-0 items-center gap-2.5 rounded-lg border border-border/60 bg-card px-3 py-2.5 text-left text-[13px] leading-5 text-muted-foreground shadow-[0_1px_2px_hsl(var(--foreground)/0.04)] transition-[border-color,color,box-shadow] duration-200 hover:border-primary/35 hover:text-foreground hover:shadow-[0_4px_14px_-10px_hsl(var(--foreground)/0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15 motion-reduce:transition-none"
           >
-            <span
+            <MessageCircleQuestion
               aria-hidden
-              className="mt-2.5 h-px w-3 shrink-0 origin-left scale-x-75 bg-border transition-[background-color,transform] duration-200 group-hover:scale-x-100 group-hover:bg-primary/55"
+              className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-colors duration-200 group-hover:text-primary"
             />
-            <span>{label}</span>
+            <span className="min-w-0">{label}</span>
           </button>
         );
       })}

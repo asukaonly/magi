@@ -1614,18 +1614,19 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           sidebar={
             <div className="flex min-w-max items-center lg:h-full lg:min-w-0 lg:flex-col lg:items-stretch">
               <div
-                className="hidden select-none px-3 pb-10 pt-1 lg:block"
+                className="hidden select-none px-3 pt-1 lg:block"
                 aria-hidden="true"
               >
                 <span className="font-onboarding-display text-2xl font-bold tracking-[0.22em] text-foreground/85">
                   Magi
                 </span>
               </div>
-              <StepIndicator
-                steps={guidedSteps}
-                current={current - LLM_SETUP_STEP}
-              />
-              <div className="hidden lg:block lg:flex-1" aria-hidden="true" />
+              <div className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:justify-center">
+                <StepIndicator
+                  steps={guidedSteps}
+                  current={current - LLM_SETUP_STEP}
+                />
+              </div>
             </div>
           }
           footer={
