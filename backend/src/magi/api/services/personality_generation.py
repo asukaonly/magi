@@ -27,6 +27,7 @@ from .personality_generation_prompts import (
     INTEGRATION_SYSTEM_PROMPT,
     LAYERS_SYSTEM_PROMPT,
     PERSONA_GENERATION_SHARED_DIRECTIVES,
+    REFERENCE_PROFILE_SYSTEM_PROMPT,
     REGISTER_SYSTEM_PROMPT,
     RULES_SYSTEM_PROMPT,
 )
@@ -923,6 +924,94 @@ No user-confirmed reference resolution was provided. Infer conservatively from t
   )
 
 
+def _should_prepare_reference_profile(intent: Optional[PersonaGenerationIntentModel]) -> bool:
+  return bool(
+    intent is not None
+    and intent.reference is not None
+    and intent.reference.user_confirmed
+    and intent.source_kind in {"fictional_reference", "public_person_reference"}
+  )
+
+
+def _normalize_reference_profile_payload(
+  payload: dict[str, Any],
+  intent: PersonaGenerationIntentModel,
+) -> dict[str, Any]:
+  reference = intent.reference
+  if reference is None:
+    raise ValueError("Referenced persona profile requires a confirmed reference")
+  raw_dimensions = payload.get("dimensions")
+  if not isinstance(raw_dimensions, dict):
+    raw_dimensions = {}
+  dimensions = {
+    key: _string_list(raw_dimensions.get(key))[:8]
+    for key in REFERENCE_PROFILE_DIMENSIONS
+  }
+  raw_confidence = payload.get("confidence_by_dimension")
+  if not isinstance(raw_confidence, dict):
+    raw_confidence = {}
+  confidence_by_dimension: dict[str, str] = {}
+  for key in REFERENCE_PROFILE_DIMENSIONS:
+    value = str(raw_confidence.get(key) or "").strip().lower()
+    if value in REFERENCE_PROFILE_CONFIDENCE_VALUES:
+      confidence_by_dimension[key] = value
+  return {
+    "provenance_kind": "parametric_prior",
+    "reference": {
+      "source_kind": reference.source_kind,
+      "name": reference.name,
+      "work_title": reference.work_title,
+      "version": reference.version,
+    },
+    "dimensions": dimensions,
+    "unknowns": _string_list(payload.get("unknowns"))[:12],
+    "confidence_by_dimension": confidence_by_dimension,
+  }
+
+
+def _reference_profile_user_prompt(
+  description: str,
+  target_language: str,
+  intent: PersonaGenerationIntentModel,
+) -> str:
+  return f"""# User Context
+Target Language: {target_language}
+
+# User Input
+{description}
+
+{_generation_intent_block(intent)}
+
+# Task
+Prepare the unverified parametric-prior reference profile described in the system prompt. Keep uncertainty explicit and do not design the final persona."""
+
+
+def _reference_profile_block(
+  reference_profile: Optional[dict[str, Any]],
+  stage_id: str,
+) -> str:
+  if not reference_profile:
+    return ""
+  dimension_keys = REFERENCE_PROFILE_STAGE_DIMENSIONS.get(stage_id, REFERENCE_PROFILE_DIMENSIONS)
+  dimensions = reference_profile.get("dimensions")
+  if not isinstance(dimensions, dict):
+    dimensions = {}
+  sliced = {
+    "provenance_kind": "parametric_prior",
+    "reference": reference_profile.get("reference", {}),
+    "dimensions": {key: dimensions.get(key, []) for key in dimension_keys},
+    "unknowns": reference_profile.get("unknowns", []),
+    "confidence_by_dimension": {
+      key: value
+      for key, value in dict(reference_profile.get("confidence_by_dimension") or {}).items()
+      if key in dimension_keys
+    },
+  }
+  return "\n\n# Unverified Reference Profile\n" + json.dumps(sliced, ensure_ascii=False, indent=2) + """
+
+This profile comes from model parametric memory. It is not verified evidence and has no sources. Use it as a behavioral prior only. Never turn uncertain biography, relationships, expertise, or private details into facts. User-confirmed input overrides it."""
+
+
 ASSISTANT_ROLE_TERMS = ("助手", "陪伴者", "客服", "assistant", "companion", "helper")
 CONFIG_VOCAB_TERMS = (
   "自然交流模式",
@@ -941,6 +1030,25 @@ CONFIG_VOCAB_TERMS = (
   "public_image",
   "private_traits",
 )
+REFERENCE_PROFILE_DIMENSIONS = (
+  "ordinary_baseline",
+  "judgment_patterns",
+  "speech_rhythm",
+  "interaction_patterns",
+  "signature_markers",
+  "contrast_contexts",
+  "version_notes",
+)
+REFERENCE_PROFILE_STAGE_DIMENSIONS = {
+  "base": ("ordinary_baseline", "judgment_patterns", "speech_rhythm", "version_notes"),
+  "registers": ("ordinary_baseline", "speech_rhythm", "interaction_patterns", "contrast_contexts"),
+  "rules": ("signature_markers", "contrast_contexts"),
+  "layers": ("interaction_patterns", "contrast_contexts"),
+  "bootstrap": ("ordinary_baseline", "speech_rhythm", "interaction_patterns", "signature_markers"),
+  "appearance": (),
+  "integrate": REFERENCE_PROFILE_DIMENSIONS,
+}
+REFERENCE_PROFILE_CONFIDENCE_VALUES = {"low", "medium", "high"}
 
 
 def _display_field_texts(combined: dict[str, Any]) -> list[tuple[str, str]]:
@@ -1014,6 +1122,7 @@ def _base_user_prompt(
   target_language: str,
   current_config: Optional[PersonalityConfigModel],
   intent: Optional[PersonaGenerationIntentModel] = None,
+  reference_profile: Optional[dict[str, Any]] = None,
 ) -> str:
   return f"""# User Context
 Target Language: {target_language}
@@ -1021,7 +1130,7 @@ Target Language: {target_language}
 # User Input
 {description}{_current_config_block(current_config)}
 
-{_generation_intent_block(intent)}
+{_generation_intent_block(intent)}{_reference_profile_block(reference_profile, "base")}
 
 # Task
 Extract the stable persona spine. Preserve explicit user-authored draft fields when they clearly conflict with generated guesses."""
@@ -1034,6 +1143,8 @@ def _module_user_prompt(
   current_config: Optional[PersonalityConfigModel],
   task: str,
   intent: Optional[PersonaGenerationIntentModel] = None,
+  reference_profile: Optional[dict[str, Any]] = None,
+  stage_id: str = "",
 ) -> str:
   meta_design = _generation_meta_design(spine)
   return f"""# User Context
@@ -1042,7 +1153,7 @@ Target Language: {target_language}
 # User Input
 {description}{_current_config_block(current_config)}
 
-{_generation_intent_block(intent)}
+{_generation_intent_block(intent)}{_reference_profile_block(reference_profile, stage_id)}
 
 # Persona Spine
 {json.dumps(spine, ensure_ascii=False, indent=2)}
@@ -1066,6 +1177,7 @@ def _integration_user_prompt(
   combined: dict[str, Any],
   intent: Optional[PersonaGenerationIntentModel] = None,
   findings: Optional[Sequence[str]] = None,
+  reference_profile: Optional[dict[str, Any]] = None,
 ) -> str:
   return f"""# User Context
 Target Language: {target_language}
@@ -1073,7 +1185,7 @@ Target Language: {target_language}
 # User Input
 {description}
 
-{_generation_intent_block(intent)}{_quality_findings_block(findings)}
+{_generation_intent_block(intent)}{_reference_profile_block(reference_profile, "integrate")}{_quality_findings_block(findings)}
 
 # Combined Draft
 {json.dumps(combined, ensure_ascii=False, indent=2)}
@@ -1374,9 +1486,10 @@ async def generate_personality_config_result(
     stage_progress_callback=stage_progress_callback,
   )
   try:
-    combined = await _run_base_personality_stage(context, stage_status)
-    await _run_module_personality_stages(context, stage_status, combined)
-    await _run_integration_personality_stage(context, stage_status, combined)
+    reference_profile = await _run_reference_profile_stage(context)
+    combined = await _run_base_personality_stage(context, stage_status, reference_profile)
+    await _run_module_personality_stages(context, stage_status, combined, reference_profile)
+    await _run_integration_personality_stage(context, stage_status, combined, reference_profile)
     return _build_personality_generation_result(
       combined,
       stage_status,
@@ -1390,9 +1503,40 @@ async def generate_personality_config_result(
     raise
 
 
+async def _run_reference_profile_stage(
+  context: _GenerationRunContext,
+) -> Optional[dict[str, Any]]:
+  if not _should_prepare_reference_profile(context.intent):
+    return None
+  intent = context.intent
+  if intent is None:
+    return None
+  try:
+    payload = await _run_generation_stage(
+      stage_id="reference_profile",
+      prompt=_reference_profile_user_prompt(
+        context.description,
+        context.target_language,
+        intent,
+      ),
+      system_prompt=REFERENCE_PROFILE_SYSTEM_PROMPT,
+      max_tokens=1300,
+      temperature=0.2,
+      llm_override=context.llm_override,
+      adapter_resolver=context.adapter_resolver,
+      adapter_factory=context.adapter_factory,
+      stage_progress_callback=None,
+    )
+    return _normalize_reference_profile_payload(payload, intent)
+  except Exception as exc:  # noqa: BLE001 - the existing generation path remains available
+    logger.warning("[AI Generate Personality] Reference profile stage failed: %s", exc)
+    return None
+
+
 async def _run_base_personality_stage(
   context: _GenerationRunContext,
   stage_status: list[dict[str, str]],
+  reference_profile: Optional[dict[str, Any]],
 ) -> dict[str, Any]:
   base_data = await _run_generation_stage(
     stage_id="base",
@@ -1401,6 +1545,7 @@ async def _run_base_personality_stage(
       context.target_language,
       context.current_config,
       context.intent,
+      reference_profile,
     ),
     system_prompt=BASE_SPINE_SYSTEM_PROMPT,
     max_tokens=1600,
@@ -1420,6 +1565,7 @@ async def _run_module_personality_stages(
   context: _GenerationRunContext,
   stage_status: list[dict[str, str]],
   combined: dict[str, Any],
+  reference_profile: Optional[dict[str, Any]],
 ) -> None:
   module_tasks = [
     _module_stage_task(
@@ -1432,6 +1578,7 @@ async def _run_module_personality_stages(
       max_tokens=2000,
       temperature=0.7,
       task_prompt="Design all required registers with good-only runtime examples that match the spine and respect the persona's design anchors.",
+      reference_profile=reference_profile,
     ),
     _module_stage_task(
       context,
@@ -1443,6 +1590,7 @@ async def _run_module_personality_stages(
       max_tokens=1500,
       temperature=0.7,
       task_prompt="Design the persona's trigger signatures, quiet-hour clamps, and state convergence rules using _meta_design as the source of persona-specific trigger ideas.",
+      reference_profile=reference_profile,
     ),
     _module_stage_task(
       context,
@@ -1454,6 +1602,7 @@ async def _run_module_personality_stages(
       max_tokens=1300,
       temperature=0.7,
       task_prompt="Design only the fixed surface baseline and non-surface deep persona layers as concrete diffs from the same _meta_design core theme.",
+      reference_profile=reference_profile,
     ),
     _module_stage_task(
       context,
@@ -1465,6 +1614,7 @@ async def _run_module_personality_stages(
       max_tokens=1800,
       temperature=0.72,
       task_prompt="Write good-only register examples, bootstrap first-contact copy that fits _meta_design, and sparse interim lines.",
+      reference_profile=reference_profile,
     ),
     _module_stage_task(
       context,
@@ -1476,6 +1626,7 @@ async def _run_module_personality_stages(
       max_tokens=350,
       temperature=0.55,
       task_prompt="Write the portrait prompt only.",
+      reference_profile=reference_profile,
     ),
   ]
   for fragment in await asyncio.gather(*module_tasks):
@@ -1493,6 +1644,7 @@ def _module_stage_task(
   max_tokens: int,
   temperature: float,
   task_prompt: str,
+  reference_profile: Optional[dict[str, Any]],
 ):
   return _run_optional_generation_stage(
     stages=stage_status,
@@ -1505,6 +1657,8 @@ def _module_stage_task(
       context.current_config,
       task_prompt,
       context.intent,
+      reference_profile,
+      stage_id,
     ),
     system_prompt=system_prompt,
     max_tokens=max_tokens,
@@ -1517,8 +1671,10 @@ async def _run_integration_personality_stage(
   context: _GenerationRunContext,
   stage_status: list[dict[str, str]],
   combined: dict[str, Any],
+  reference_profile: Optional[dict[str, Any]],
 ) -> None:
   findings = _generation_quality_findings(combined, context.description, context.intent)
+  integration_completed = False
   if findings:
     logger.info(
       "[AI Generate Personality] Quality findings before integration: %s",
@@ -1533,6 +1689,7 @@ async def _run_integration_personality_stage(
         combined,
         context.intent,
         findings,
+        reference_profile,
       ),
       system_prompt=INTEGRATION_SYSTEM_PROMPT,
       max_tokens=2048,
@@ -1541,12 +1698,55 @@ async def _run_integration_personality_stage(
       **_generation_stage_dependencies(context),
     )
     _deep_merge_payload(combined, integrated)
-    _record_completed_generation_stage(stage_status, context, "integrate")
+    integration_completed = True
   except Exception as exc:  # noqa: BLE001 - normalization can still complete the combined draft
     logger.warning("[AI Generate Personality] Integration stage failed: %s", exc)
     if context.stage_progress_callback is not None:
       context.stage_progress_callback("integrate", "failed")
     stage_status.append({"stage_id": "integrate", "status": "failed"})
+
+  remaining_findings = _generation_quality_findings(combined, context.description, context.intent)
+  if not remaining_findings:
+    if integration_completed:
+      _record_completed_generation_stage(stage_status, context, "integrate")
+    return
+  logger.info(
+    "[AI Generate Personality] Quality findings after integration: %s",
+    remaining_findings,
+  )
+  try:
+    repair = await _run_generation_stage(
+      stage_id="integrate_quality_repair",
+      prompt=_integration_user_prompt(
+        context.description,
+        context.target_language,
+        combined,
+        context.intent,
+        remaining_findings,
+        reference_profile,
+      ),
+      system_prompt=INTEGRATION_SYSTEM_PROMPT,
+      max_tokens=1536,
+      temperature=0.2,
+      llm_override=context.llm_override,
+      adapter_resolver=context.adapter_resolver,
+      adapter_factory=context.adapter_factory,
+      stage_progress_callback=None,
+      retry_on_json_error=True,
+    )
+    _deep_merge_payload(combined, repair)
+  except Exception as exc:  # noqa: BLE001 - a known-bad draft must not be returned as successful
+    raise ValueError("Persona quality repair failed after integration") from exc
+
+  final_findings = _generation_quality_findings(combined, context.description, context.intent)
+  if final_findings:
+    logger.warning(
+      "[AI Generate Personality] Quality findings remain after repair: %s",
+      final_findings,
+    )
+    raise ValueError("Persona quality checks still fail after repair")
+  if integration_completed:
+    _record_completed_generation_stage(stage_status, context, "integrate")
 
 
 def _record_completed_generation_stage(

@@ -313,6 +313,9 @@ Design expectations:
 - persona behavior should be planned per turn by the Personality Layer before prompt rendering; final response prompts should receive only the selected register, quiet-hour clamps, active triggers, relationship modifiers, and dynamic-state modulations for that turn
 - onboarding persona preview should reuse normal first-turn persona prompt assembly and reply rhythm for both presets and unsaved generated personas; it should omit tools and durable writes, while unavailable history, memory, and relationship inputs remain naturally empty
 - ordinary low-performance persona expression should be valid most of the time; personality should usually appear through attention bias, judgment, and conversational stance rather than constant catchphrases
+- after the user confirms a fictional or public reference, generation should first prepare a structured, explicitly unverified reference profile from model knowledge; this profile is a behavioral prior rather than source-backed evidence, must never run for private-person references, and must not be shown as a verified source
+- referenced generation should pass only the relevant slice of that profile into each generation stage, keep user-confirmed constraints authoritative, and leave uncertain biography, relationships, expertise, and private details unknown
+- final generation quality checks must run again after integration; known assistant-role framing or configuration-language leakage should receive one focused repair and must not be returned as a successful result if it remains
 - state-transition behavior should be replaced by signature triggers and quiet-hour clamps; analysis, worker, and tool-result rendering should use task or analysis registers instead of inheriting casual-chat performance
 - first-run persona setup should stay simpler than the full editor
 

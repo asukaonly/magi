@@ -56,7 +56,7 @@ class _FakeLLMAdapter:
                         "key_constraint": "Keep most replies ordinary and let precision carry the personality."
                     },
                     "identity_core": {
-                        "identity_statement": "A calm assistant shaped by careful observation and consistent support for users in difficult moments.",
+                        "identity_statement": "A calm character shaped by careful observation and steady judgment in difficult moments.",
                         "values_loved": ["clarity"],
                         "values_rejected": ["panic"],
                         "attention_biases": ["user need"]
@@ -76,7 +76,7 @@ class _NumericAgeLLMAdapter(_FakeLLMAdapter):
                     "description": "Helpful",
                     "avatar": "",
                     "identity_core": {
-                        "identity_statement": "A thoughtful assistant persona shaped by observation, duty, and a strong desire to protect the user through precise answers.",
+                        "identity_statement": "A thoughtful character shaped by observation, duty, and a strong desire to act with precision.",
                         "values_loved": ["precision"],
                         "values_rejected": ["carelessness"],
                         "attention_biases": ["risk"]
@@ -689,6 +689,282 @@ def test_generation_quality_findings_respect_user_requested_assistant_role() -> 
     findings = personality_generation._generation_quality_findings(combined, "一个冷静可靠的助手", None)
 
     assert findings == []
+
+
+@pytest.mark.parametrize(
+    ("source_kind", "adaptation_mode", "expected"),
+    [
+        ("original", "original", False),
+        ("fictional_reference", "fictional_natural", True),
+        ("public_person_reference", "public_expression", True),
+        ("private_person_reference", "private_traits", False),
+    ],
+)
+def test_reference_profile_stage_only_runs_for_confirmed_public_references(
+    source_kind: str,
+    adaptation_mode: str,
+    expected: bool,
+) -> None:
+    from magi.api.routers.personality_config_schemas import PersonaReferenceModel
+    from magi.api.services import personality_generation
+
+    reference = None
+    if source_kind != "original":
+        reference = PersonaReferenceModel(
+            source_kind=source_kind,
+            name="Reference",
+            user_confirmed=True,
+        )
+    intent = personality_generation.PersonaGenerationIntentModel(
+        source_kind=source_kind,
+        reference=reference,
+        adaptation_mode=adaptation_mode,
+    )
+
+    assert personality_generation._should_prepare_reference_profile(intent) is expected
+
+
+def test_reference_profile_normalization_preserves_unverified_provenance() -> None:
+    from magi.api.routers.personality_config_schemas import PersonaReferenceModel
+    from magi.api.services import personality_generation
+
+    intent = personality_generation.PersonaGenerationIntentModel(
+        source_kind="fictional_reference",
+        reference=PersonaReferenceModel(
+            source_kind="fictional_reference",
+            name="明日香",
+            work_title="新世纪福音战士",
+            version="TV版",
+            user_confirmed=True,
+        ),
+        adaptation_mode="fictional_natural",
+    )
+
+    profile = personality_generation._normalize_reference_profile_payload(
+        {
+            "provenance_kind": "verified_source",
+            "reference": {"name": "Wrong reference"},
+            "dimensions": {
+                "ordinary_baseline": ["平时直接，但不持续表演高强度情绪。"],
+                "signature_markers": "强烈表达只在被挑战时出现。",
+                "invented_dimension": ["must be discarded"],
+            },
+            "unknowns": ["不同版本的细节差异"],
+            "confidence_by_dimension": {
+                "ordinary_baseline": "high",
+                "signature_markers": "uncertain",
+                "invented_dimension": "high",
+            },
+        },
+        intent,
+    )
+
+    assert profile["provenance_kind"] == "parametric_prior"
+    assert profile["reference"] == {
+        "source_kind": "fictional_reference",
+        "name": "明日香",
+        "work_title": "新世纪福音战士",
+        "version": "TV版",
+    }
+    assert profile["dimensions"]["signature_markers"] == ["强烈表达只在被挑战时出现。"]
+    assert "invented_dimension" not in profile["dimensions"]
+    assert profile["confidence_by_dimension"] == {"ordinary_baseline": "high"}
+
+
+def test_reference_profile_slices_match_generation_stage_needs() -> None:
+    from magi.api.services import personality_generation
+
+    profile = {
+        "provenance_kind": "parametric_prior",
+        "reference": {"name": "Reference"},
+        "dimensions": {
+            key: [f"{key} observation"]
+            for key in personality_generation.REFERENCE_PROFILE_DIMENSIONS
+        },
+        "unknowns": ["version unclear"],
+        "confidence_by_dimension": {
+            key: "medium"
+            for key in personality_generation.REFERENCE_PROFILE_DIMENSIONS
+        },
+    }
+
+    base_block = personality_generation._reference_profile_block(profile, "base")
+    rules_block = personality_generation._reference_profile_block(profile, "rules")
+
+    assert "ordinary_baseline observation" in base_block
+    assert "judgment_patterns observation" in base_block
+    assert "signature_markers observation" not in base_block
+    assert "signature_markers observation" in rules_block
+    assert "ordinary_baseline observation" not in rules_block
+    assert "not verified evidence" in base_block
+
+
+@pytest.mark.asyncio
+async def test_reference_profile_stage_uses_one_unverified_profile_call() -> None:
+    from magi.api.routers.personality_config_schemas import PersonaReferenceModel
+    from magi.api.services import personality_generation
+
+    adapter = _SequentialLLMAdapter([
+        json.dumps(
+            {
+                "provenance_kind": "parametric_prior",
+                "reference": {"name": "明日香"},
+                "dimensions": {
+                    "ordinary_baseline": ["普通状态更克制。"],
+                    "judgment_patterns": ["重视能力与自尊。"],
+                    "speech_rhythm": ["直接、短促。"],
+                    "interaction_patterns": [],
+                    "signature_markers": [],
+                    "contrast_contexts": [],
+                    "version_notes": [],
+                },
+                "unknowns": ["版本差异"],
+                "confidence_by_dimension": {"ordinary_baseline": "medium"},
+            },
+            ensure_ascii=False,
+        )
+    ])
+    intent = personality_generation.PersonaGenerationIntentModel(
+        source_kind="fictional_reference",
+        reference=PersonaReferenceModel(
+            source_kind="fictional_reference",
+            name="明日香",
+            work_title="新世纪福音战士",
+            user_confirmed=True,
+        ),
+        adaptation_mode="fictional_natural",
+    )
+    context = personality_generation._GenerationRunContext(
+        description="EVA里的明日香，日常一点",
+        target_language="Chinese",
+        current_config=None,
+        llm_override=None,
+        intent=intent,
+        adapter_resolver=lambda *args, **kwargs: adapter,
+        adapter_factory=lambda **kwargs: adapter,
+        stage_progress_callback=None,
+    )
+
+    profile = await personality_generation._run_reference_profile_stage(context)
+
+    assert profile is not None
+    assert profile["provenance_kind"] == "parametric_prior"
+    assert profile["reference"]["work_title"] == "新世纪福音战士"
+    assert len(adapter.calls) == 1
+    assert "unverified reference profile" in str(adapter.calls[0]["system_prompt"])
+    assert adapter.calls[0]["max_tokens"] == 1300
+
+
+@pytest.mark.asyncio
+async def test_referenced_persona_generation_injects_profile_before_base() -> None:
+    from magi.api.routers.personality_config_schemas import PersonaReferenceModel
+    from magi.api.services import personality_generation
+
+    adapter = _FakeLLMAdapter()
+    intent = personality_generation.PersonaGenerationIntentModel(
+        source_kind="fictional_reference",
+        reference=PersonaReferenceModel(
+            source_kind="fictional_reference",
+            name="明日香",
+            work_title="新世纪福音战士",
+            user_confirmed=True,
+        ),
+        adaptation_mode="fictional_natural",
+    )
+
+    result = await personality_generation.generate_personality_config_result(
+        "EVA里的明日香，日常一点",
+        target_language="Chinese",
+        intent=intent,
+        adapter_resolver=lambda *args, **kwargs: adapter,
+        adapter_factory=lambda **kwargs: adapter,
+    )
+
+    assert result.config.name == "Astra"
+    assert "unverified reference profile" in str(adapter.calls[0]["system_prompt"])
+    base_call = next(
+        call
+        for call in adapter.calls
+        if str(call["system_prompt"]) == personality_generation.BASE_SPINE_SYSTEM_PROMPT
+    )
+    assert "# Unverified Reference Profile" in str(base_call["prompt"])
+    assert '"provenance_kind": "parametric_prior"' in str(base_call["prompt"])
+    assert "not verified evidence" in str(base_call["prompt"])
+
+
+@pytest.mark.asyncio
+async def test_post_integration_quality_check_repairs_and_rechecks(monkeypatch) -> None:
+    from magi.api.services import personality_generation
+
+    responses = iter([
+        {},
+        {
+            "description": "一位自信、直接且好胜的角色。",
+            "identity_core": {"identity_statement": "她重视能力、自尊与直接判断。"},
+        },
+    ])
+    stage_ids: list[str] = []
+
+    async def _fake_stage(**kwargs):  # type: ignore[no-untyped-def]
+        stage_ids.append(str(kwargs["stage_id"]))
+        return next(responses)
+
+    monkeypatch.setattr(personality_generation, "_run_generation_stage", _fake_stage)
+    context = personality_generation._GenerationRunContext(
+        description="EVA里的明日香",
+        target_language="Chinese",
+        current_config=None,
+        llm_override=None,
+        intent=None,
+        adapter_resolver=lambda *args, **kwargs: _FakeLLMAdapter(),
+        adapter_factory=lambda **kwargs: _FakeLLMAdapter(),
+        stage_progress_callback=None,
+    )
+    combined = {
+        "description": "一位自信、直接且好胜的助手。",
+        "identity_core": {"identity_statement": "她是陪伴用户的角色。"},
+    }
+    stages: list[dict[str, str]] = []
+
+    await personality_generation._run_integration_personality_stage(
+        context,
+        stages,
+        combined,
+        None,
+    )
+
+    assert stage_ids == ["integrate", "integrate_quality_repair"]
+    assert personality_generation._generation_quality_findings(combined, context.description, None) == []
+
+
+@pytest.mark.asyncio
+async def test_post_integration_quality_check_rejects_known_bad_result(monkeypatch) -> None:
+    from magi.api.services import personality_generation
+
+    async def _fake_stage(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return {}
+
+    monkeypatch.setattr(personality_generation, "_run_generation_stage", _fake_stage)
+    context = personality_generation._GenerationRunContext(
+        description="EVA里的明日香",
+        target_language="Chinese",
+        current_config=None,
+        llm_override=None,
+        intent=None,
+        adapter_resolver=lambda *args, **kwargs: _FakeLLMAdapter(),
+        adapter_factory=lambda **kwargs: _FakeLLMAdapter(),
+        stage_progress_callback=None,
+    )
+    combined = {"description": "一位自信但通用的助手。"}
+
+    with pytest.raises(ValueError, match="quality checks still fail"):
+        await personality_generation._run_integration_personality_stage(
+            context,
+            [],
+            combined,
+            None,
+        )
 
 
 def test_integration_prompt_includes_quality_findings_block() -> None:

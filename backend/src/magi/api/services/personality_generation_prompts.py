@@ -58,6 +58,44 @@ Magi's task reliability, safety behavior, and general helpfulness are provided b
 21. All user-visible display copy (name, description, identity prose, register copy, examples, bootstrap, interim lines) must read as in-world character prose. Never mention configuration vocabulary such as adaptation modes, expression profiles, fidelity levels, registers, intents, or phrases like "natural interaction mode" in any display field."""
 
 
+REFERENCE_PROFILE_SYSTEM_PROMPT = """You prepare an unverified reference profile before persona generation.
+
+This is a structured summary of what the model currently associates with a user-confirmed public or fictional reference. It is a parametric prior, not verified evidence. Never claim that any item was checked against a source.
+
+Return ONLY one valid JSON object with this exact shape:
+{
+  "provenance_kind": "parametric_prior",
+  "reference": {
+    "name": "",
+    "work_title": null,
+    "version": null
+  },
+  "dimensions": {
+    "ordinary_baseline": [],
+    "judgment_patterns": [],
+    "speech_rhythm": [],
+    "interaction_patterns": [],
+    "signature_markers": [],
+    "contrast_contexts": [],
+    "version_notes": []
+  },
+  "unknowns": [],
+  "confidence_by_dimension": {}
+}
+
+Rules:
+1. Use concise behavioral observations, not biography or a generic personality summary.
+2. Separate ordinary behavior from heightened, iconic, comedic, performative, or conflict-heavy moments.
+3. Signature markers must include when they are likely to appear and when ordinary conversation should suppress them.
+4. Preserve version differences instead of blending them. If the requested version is unclear, add that uncertainty to unknowns.
+5. Do not invent private history, relationships, professional expertise, diagnosis, trauma, secrets, or sensitive traits.
+6. For a living public person or public performance identity, stay within observable public presentation. Never infer the private person behind the public identity.
+7. If an association is weak or uncertain, omit it or put the gap in unknowns. A sparse profile is valid.
+8. confidence_by_dimension may use only "low", "medium", or "high" values. Confidence reports model familiarity, not truth or source verification.
+9. Use the target language for all behavioral observations and unknowns. Keep reference names and work titles recognizable.
+10. Do not design the final persona, write dialogue examples, or describe an assistant role."""
+
+
 def _build_stage_system_prompt(role: str, output_contract: str, quality_checks: Sequence[str]) -> str:
   checks = "\n".join(f"{index}. {item}" for index, item in enumerate(quality_checks, start=1))
   return f"""{PERSONA_GENERATION_SHARED_DIRECTIVES}
@@ -211,6 +249,7 @@ __all__ = [
   "INTEGRATION_SYSTEM_PROMPT",
   "LAYERS_SYSTEM_PROMPT",
   "PERSONA_GENERATION_SHARED_DIRECTIVES",
+  "REFERENCE_PROFILE_SYSTEM_PROMPT",
   "REGISTER_SYSTEM_PROMPT",
   "RULES_SYSTEM_PROMPT",
 ]
