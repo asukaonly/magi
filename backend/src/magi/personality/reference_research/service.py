@@ -260,11 +260,36 @@ async def _fetch_sources(
     *,
     limit: int,
 ) -> list[dict[str, Any]]:
-    selected = sorted(
+    ranked = sorted(
         sources,
         key=lambda item: (item.user_provided, item.authority + item.directness),
         reverse=True,
-    )[:limit]
+    )
+    selected: list[ReferenceSource] = []
+    selected_ids: set[str] = set()
+    selected_domains: set[str] = set()
+
+    def append_source(source: ReferenceSource) -> None:
+        selected.append(source)
+        selected_ids.add(source.source_id)
+        selected_domains.add(source.domain.casefold().removeprefix("www."))
+
+    for source in ranked:
+        if source.user_provided and len(selected) < limit:
+            append_source(source)
+    for source in ranked:
+        domain = source.domain.casefold().removeprefix("www.")
+        if (
+            len(selected) < limit
+            and source.source_id not in selected_ids
+            and domain not in selected_domains
+        ):
+            append_source(source)
+    for source in ranked:
+        if len(selected) >= limit:
+            break
+        if source.source_id not in selected_ids:
+            append_source(source)
     fetched = await asyncio.gather(
         *(fetch_port.fetch(item.url, max_chars=12000) for item in selected),
         return_exceptions=True,
@@ -470,15 +495,28 @@ def _apply_source_assessments(
         ][:8]
 
 
-def _dossier_sufficiency(level: ReferenceResearchLevel, coverage: float, source_count: int) -> bool:
+def _dossier_sufficiency(
+    level: ReferenceResearchLevel,
+    coverage: float,
+    sources: list[ReferenceSource],
+) -> bool:
     thresholds = {
-        "identity": (0.0, 1),
-        "representative": (0.55, 2),
-        "full": (0.72, 3),
-        "none": (0.0, 0),
+        "identity": (0.0, 1, 1),
+        "representative": (0.55, 2, 2),
+        "full": (0.72, 3, 2),
+        "none": (0.0, 0, 0),
     }
-    required_coverage, required_sources = thresholds[level]
-    return coverage >= required_coverage and source_count >= required_sources
+    required_coverage, required_sources, required_domains = thresholds[level]
+    independent_domains = {
+        source.domain.casefold().removeprefix("www.")
+        for source in sources
+        if source.domain.strip()
+    }
+    return (
+        coverage >= required_coverage
+        and len(sources) >= required_sources
+        and len(independent_domains) >= required_domains
+    )
 
 
 async def research_reference(
@@ -568,7 +606,7 @@ async def research_reference(
     if volatility not in {"stable", "evolving", "current", "unknown"}:
         volatility = "unknown"
     canonical = _normalize_identity(payload.get("canonical_identity"), identity)
-    sufficient = _dossier_sufficiency(research_level, coverage, len(documents))
+    sufficient = _dossier_sufficiency(research_level, coverage, used_sources)
     dossier = ReferenceDossier(
         reference_fingerprint=build_reference_fingerprint(canonical),
         identity_status=identity_status,

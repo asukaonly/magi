@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from magi.personality.reference_research.models import ReferenceIdentity
+from magi.personality.reference_research.models import ReferenceIdentity, ReferenceSource
 from magi.personality.reference_research import service
 
 
@@ -41,6 +41,19 @@ class _FetchPort:
     async def fetch(self, url: str, *, max_chars: int = 12000) -> dict[str, Any]:
         self.urls.append(url)
         return {} if self.empty else {"title": "Fetched source", "content": f"Evidence from {url}"}
+
+
+class _SameDomainSearchPort:
+    async def search(self, query: str, *, limit: int = 6) -> list[dict[str, Any]]:
+        _ = query
+        return [
+            {
+                "title": f"Reference source {index}",
+                "url": f"https://example.com/source-{index}",
+                "snippet": "Behavioral evidence.",
+            }
+            for index in range(1, 5)
+        ][:limit]
 
 
 @pytest.mark.asyncio
@@ -164,6 +177,87 @@ async def test_research_dossier_reports_unavailable_fetches(monkeypatch) -> None
     assert result.grounding_status == "unavailable"
     assert result.sufficient is False
     assert result.warning
+
+
+@pytest.mark.asyncio
+async def test_source_fetch_prefers_independent_domains() -> None:
+    sources = [
+        ReferenceSource(
+            source_id="source-1",
+            url="https://example.com/one",
+            domain="example.com",
+            authority=0.9,
+            directness=0.9,
+        ),
+        ReferenceSource(
+            source_id="source-2",
+            url="https://example.com/two",
+            domain="example.com",
+            authority=0.8,
+            directness=0.8,
+        ),
+        ReferenceSource(
+            source_id="source-3",
+            url="https://example.org/three",
+            domain="example.org",
+            authority=0.5,
+            directness=0.5,
+        ),
+    ]
+    fetch = _FetchPort()
+
+    await service._fetch_sources(sources, fetch, limit=2)
+
+    assert fetch.urls == ["https://example.com/one", "https://example.org/three"]
+
+
+@pytest.mark.asyncio
+async def test_full_dossier_requires_more_than_one_source_domain(monkeypatch) -> None:
+    evidence = [
+        {
+            "dimension": dimension,
+            "claim": f"Supported {dimension} claim.",
+            "source_ids": [f"source-{(index % 3) + 1}"],
+            "confidence": 0.8,
+        }
+        for index, dimension in enumerate(service._PROFILE_DIMENSIONS)
+    ]
+    responses = [
+        {"queries": ["Reference profile", "Reference interview"]},
+        {
+            "canonical_identity": {
+                "source_kind": "fictional_reference",
+                "name": "Reference",
+            },
+            "identity_status": "verified",
+            "volatility": "stable",
+            "evidence": evidence,
+            "unknowns": [],
+            "contradictions": [],
+        },
+    ]
+
+    async def fake_llm(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return responses.pop(0)
+
+    monkeypatch.setattr(service, "_run_json_llm", fake_llm)
+    result = await service.research_reference(
+        ReferenceIdentity(
+            source_kind="fictional_reference",
+            name="Reference",
+        ),
+        research_level="full",
+        target_language="English",
+        search_port=_SameDomainSearchPort(),
+        fetch_port=_FetchPort(),
+        force_refresh=True,
+    )
+
+    assert result.coverage == 1.0
+    assert len(result.sources) >= 3
+    assert result.sufficient is False
+    assert result.grounding_status == "insufficient"
 
 
 def test_reference_fingerprint_changes_with_work_identity() -> None:
