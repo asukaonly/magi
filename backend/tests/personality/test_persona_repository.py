@@ -11,6 +11,7 @@ import pytest
 import pytest_asyncio
 
 from magi.personality.persona_repository import PersonaRepository, PersonaSummary
+from magi.personality.reference_research.models import ReferenceDossier, ReferenceIdentity
 from magi.personality import persona_seed
 
 
@@ -21,6 +22,21 @@ _SAMPLE_CONFIG = json.dumps({
     "avatar": "test.jpg",
     "identity_core": {"identity_statement": "A test persona."},
 })
+
+
+def _reference_dossier() -> ReferenceDossier:
+    return ReferenceDossier(
+        reference_fingerprint="reference-fingerprint",
+        identity_status="verified",
+        grounding_status="verified",
+        research_level="representative",
+        canonical_identity=ReferenceIdentity(
+            source_kind="fictional_reference",
+            name="Reference",
+            work_title="Example Work",
+        ),
+        sufficient=True,
+    )
 
 
 @pytest_asyncio.fixture
@@ -208,6 +224,37 @@ class TestPersonaRepository:
         assert record.config.name == "Test Persona"
         roundtrip = record.config.to_dict()
         assert roundtrip["name"] == "Test Persona"
+
+    @pytest.mark.asyncio
+    async def test_reference_dossier_roundtrip_and_idempotent_refresh(
+        self,
+        repo: PersonaRepository,
+    ) -> None:
+        persona_id = str(uuid.uuid4())
+        dossier = _reference_dossier()
+        await repo.create(
+            _SAMPLE_CONFIG,
+            slug="grounded",
+            persona_id=persona_id,
+            reference_dossier_json=dossier.model_dump_json(),
+        )
+
+        stored = await repo.get_reference_dossier(persona_id)
+        assert stored is not None
+        assert stored.reference_fingerprint == "reference-fingerprint"
+
+        refreshed = dossier.model_copy(update={"grounding_status": "insufficient", "sufficient": False})
+        await repo.create(
+            _SAMPLE_CONFIG,
+            slug="grounded",
+            persona_id=persona_id,
+            reference_dossier_json=refreshed.model_dump_json(),
+        )
+
+        stored = await repo.get_reference_dossier(persona_id)
+        assert stored is not None
+        assert stored.grounding_status == "insufficient"
+        assert await repo.count() == 1
 
 
 @pytest.mark.asyncio

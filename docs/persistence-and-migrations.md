@@ -20,7 +20,7 @@ state across multiple SQLite files, grouped by lifecycle ownership:
 | `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | working memory, knowledge graph, ToM, correction history, stable context identities, summaries, procedural skills |
 | `runtime/runtime_trace.db` | runtime trace | trace turns / spans / llm calls / tools, plugin ingress events |
 | `runtime/llm_usage.db` | llm | per-request usage + cost telemetry, daily rollups |
-| `data/app/persona_registry.db` | personality | personas, active persona |
+| `data/app/persona_registry.db` | personality | personas, active persona, source-linked reference dossiers for generated personas |
 | `data/memory/behavior_evolution.db` | personality | task interactions, category statistics, behavior profiles |
 | `data/memory/emotional_state.db` | personality | emotional state KV + events |
 | `data/memory/growth_memory.db` | personality | milestones, relationships, personality evolution |
@@ -48,6 +48,14 @@ correction and preserve evidence added after the correction was created.
 
 Each subsystem owns the schema for its own file. There is no
 cross-file foreign-key enforcement.
+
+The persona registry stores reference research separately from the runtime persona
+configuration. `persona_reference_dossiers` is keyed by stable `persona_id` and
+keeps the canonical reference fingerprint, grounding status, structured evidence,
+source metadata, coverage, contradictions, and unknowns as one validated JSON
+document. It does not store fetched page bodies. Builtin, original, and private-
+person personas need no dossier row. Repeated onboarding creation with the same
+persona ID may refresh the dossier without creating a second persona.
 
 The runtime command queue provides durable **at-least-once handoff through chat
 agent admission**. Publishing a user message to the process-local bus does not

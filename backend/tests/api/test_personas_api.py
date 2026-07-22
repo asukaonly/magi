@@ -466,6 +466,18 @@ def test_create_persona_with_same_id_is_idempotent(tmp_path, monkeypatch) -> Non
         "config_json": _SAMPLE_CONFIG,
         "locale": "en",
         "slug": "onboarding-custom-stable",
+        "reference_dossier": {
+            "reference_fingerprint": "stable-reference",
+            "identity_status": "verified",
+            "grounding_status": "verified",
+            "research_level": "representative",
+            "canonical_identity": {
+                "source_kind": "fictional_reference",
+                "name": "Reference",
+                "work_title": "Example Work",
+            },
+            "sufficient": True,
+        },
     }
 
     first_response = client.post("/api/personas/", json=payload)
@@ -475,6 +487,8 @@ def test_create_persona_with_same_id_is_idempotent(tmp_path, monkeypatch) -> Non
     assert repeated_response.status_code == 201
     assert first_response.json()["data"]["persona_id"] == persona_id
     assert repeated_response.json()["data"]["persona_id"] == persona_id
+    assert repeated_response.json()["data"]["reference_dossier"]["grounding_status"] == "verified"
+    assert asyncio.run(repo.get_reference_dossier(persona_id)) is not None
     assert asyncio.run(repo.count()) == 1
 
 

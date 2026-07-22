@@ -17,6 +17,7 @@ from ..core.logger import get_logger
 from ..core.sqlite import sqlite_connection_async
 from ..utils.runtime import get_runtime_paths
 from .loader import PersonalityConfig
+from .reference_research.models import ReferenceDossier
 
 logger = get_logger(__name__)
 
@@ -46,6 +47,15 @@ CREATE TABLE IF NOT EXISTS persona_active (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_personas_active_builtin_seed
 ON personas(seed_slug)
 WHERE is_builtin = 1 AND seed_slug IS NOT NULL AND deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS persona_reference_dossiers (
+    persona_id             TEXT PRIMARY KEY REFERENCES personas(persona_id),
+    reference_fingerprint  TEXT NOT NULL,
+    grounding_status       TEXT NOT NULL,
+    dossier_json           TEXT NOT NULL,
+    created_at             REAL NOT NULL,
+    updated_at             REAL NOT NULL
+);
 """
 
 
@@ -121,6 +131,7 @@ class PersonaRepository:
         is_builtin: bool = False,
         seed_slug: str | None = None,
         persona_id: str | None = None,
+        reference_dossier_json: str | None = None,
     ) -> str:
         """Insert a new persona and return its persona_id."""
         data = json.loads(config_json)
@@ -144,6 +155,12 @@ class PersonaRepository:
                 )
                 if existing:
                     if existing[0]["deleted_at"] is None:
+                        if reference_dossier_json is not None:
+                            await self._upsert_reference_dossier(
+                                db,
+                                persona_id,
+                                reference_dossier_json,
+                            )
                         await db.commit()
                         return persona_id
                     await db.rollback()
@@ -172,6 +189,12 @@ class PersonaRepository:
                     now, now,
                 ),
             )
+            if reference_dossier_json is not None:
+                await self._upsert_reference_dossier(
+                    db,
+                    resolved_persona_id,
+                    reference_dossier_json,
+                )
             await db.commit()
 
         logger.info(
@@ -308,6 +331,37 @@ class PersonaRepository:
             if not row:
                 return None
             return self._row_to_record(row[0])
+
+    async def get_reference_dossier(self, persona_id: str) -> ReferenceDossier | None:
+        """Return the stored reference dossier for one persona, if present."""
+        async with sqlite_connection_async(self._db_path) as db:
+            rows = await db.execute_fetchall(
+                "SELECT dossier_json FROM persona_reference_dossiers WHERE persona_id = ?",
+                (persona_id,),
+            )
+            if not rows:
+                return None
+            return ReferenceDossier.model_validate_json(rows[0]["dossier_json"])
+
+    async def save_reference_dossier(
+        self,
+        persona_id: str,
+        dossier: ReferenceDossier,
+    ) -> None:
+        """Replace the traceable reference dossier for an existing persona."""
+        async with sqlite_connection_async(self._db_path) as db:
+            exists = await db.execute_fetchall(
+                "SELECT 1 FROM personas WHERE persona_id = ? AND deleted_at IS NULL",
+                (persona_id,),
+            )
+            if not exists:
+                raise KeyError(f"Persona not found: {persona_id}")
+            await self._upsert_reference_dossier(
+                db,
+                persona_id,
+                dossier.model_dump_json(),
+            )
+            await db.commit()
 
     async def list_all(self, *, include_deleted: bool = False) -> list[PersonaSummary]:
         """Return all personas in display order."""
@@ -465,6 +519,29 @@ class PersonaRepository:
             return rows[0]["cnt"]
 
     # ---- helpers ----
+
+    @staticmethod
+    async def _upsert_reference_dossier(db, persona_id: str, dossier_json: str) -> None:
+        dossier = ReferenceDossier.model_validate_json(dossier_json)
+        now = time.time()
+        await db.execute(
+            """INSERT INTO persona_reference_dossiers
+               (persona_id, reference_fingerprint, grounding_status, dossier_json, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(persona_id) DO UPDATE SET
+                 reference_fingerprint = excluded.reference_fingerprint,
+                 grounding_status = excluded.grounding_status,
+                 dossier_json = excluded.dossier_json,
+                 updated_at = excluded.updated_at""",
+            (
+                persona_id,
+                dossier.reference_fingerprint,
+                dossier.grounding_status,
+                dossier.model_dump_json(),
+                now,
+                now,
+            ),
+        )
 
     @staticmethod
     def _row_to_record(row) -> PersonaRecord:

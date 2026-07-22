@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from ...core.logger import get_logger
 from ...personality.persona_repository import PersonaRecord, PersonaRepository
+from ...personality.reference_research.models import ReferenceDossier
 from ... import i18n as core_i18n
 from ...personality.persona_seed import list_seed_previews, resolve_locale, seed_builtin_personas
 from ...utils.runtime import get_runtime_paths
@@ -56,6 +57,7 @@ class PersonaDetailModel(BaseModel):
     created_at: float = 0
     updated_at: float = 0
     deleted_at: Optional[float] = None
+    reference_dossier: Optional[ReferenceDossier] = None
 
 
 class PersonaListResponse(BaseModel):
@@ -73,6 +75,7 @@ class PersonaCreateRequest(BaseModel):
     config_json: str
     locale: str = "en"
     slug: Optional[str] = None
+    reference_dossier: Optional[ReferenceDossier] = None
 
 
 class PersonaUpdateRequest(BaseModel):
@@ -81,6 +84,7 @@ class PersonaUpdateRequest(BaseModel):
     slug: Optional[str] = None
     avatar_path: Optional[str] = None
     sort_order: Optional[int] = None
+    reference_dossier: Optional[ReferenceDossier] = None
 
 
 class ActivePersonaRequest(BaseModel):
@@ -310,8 +314,14 @@ async def create_persona(request: Request, payload: PersonaCreateRequest):
         locale=payload.locale,
         slug=payload.slug,
         persona_id=str(payload.persona_id) if payload.persona_id is not None else None,
+        reference_dossier_json=(
+            payload.reference_dossier.model_dump_json()
+            if payload.reference_dossier is not None
+            else None
+        ),
     )
     record = await repo.get(persona_id)
+    reference_dossier = await repo.get_reference_dossier(persona_id)
     return PersonaDetailResponse(
         data=PersonaDetailModel(
             persona_id=record.persona_id,
@@ -327,6 +337,7 @@ async def create_persona(request: Request, payload: PersonaCreateRequest):
             created_at=record.created_at,
             updated_at=record.updated_at,
             deleted_at=record.deleted_at,
+            reference_dossier=reference_dossier,
         ),
     )
 
@@ -347,6 +358,7 @@ async def get_persona(request: Request, persona_id: str, include_deleted: bool =
                 fallback="Persona not found",
             ),
         )
+    reference_dossier = await repo.get_reference_dossier(persona_id)
     return PersonaDetailResponse(
         data=PersonaDetailModel(
             persona_id=record.persona_id,
@@ -362,6 +374,7 @@ async def get_persona(request: Request, persona_id: str, include_deleted: bool =
             created_at=record.created_at,
             updated_at=record.updated_at,
             deleted_at=record.deleted_at,
+            reference_dossier=reference_dossier,
         ),
     )
 
@@ -380,6 +393,8 @@ async def update_persona(request: Request, persona_id: str, payload: PersonaUpda
             avatar_path=payload.avatar_path,
             sort_order=payload.sort_order,
         )
+        if payload.reference_dossier is not None:
+            await repo.save_reference_dossier(persona_id, payload.reference_dossier)
         record = await repo.get(persona_id)
     except KeyError:
         raise HTTPException(
@@ -390,6 +405,7 @@ async def update_persona(request: Request, persona_id: str, payload: PersonaUpda
                 fallback="Persona not found",
             ),
         )
+    reference_dossier = await repo.get_reference_dossier(persona_id)
     return PersonaDetailResponse(
         data=PersonaDetailModel(
             persona_id=record.persona_id,
@@ -405,6 +421,7 @@ async def update_persona(request: Request, persona_id: str, payload: PersonaUpda
             created_at=record.created_at,
             updated_at=record.updated_at,
             deleted_at=record.deleted_at,
+            reference_dossier=reference_dossier,
         ),
     )
 
