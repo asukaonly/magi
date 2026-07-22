@@ -445,7 +445,14 @@ def _runtime_payload_from_combined(payload: dict[str, Any]) -> dict[str, Any]:
   }
 
 
-def _default_register(register: str) -> dict[str, Any]:
+def _should_use_chinese_copy(payload: Dict[str, Any], target_language: str) -> bool:
+  """Decide whether normalizer fallback copy should be written in Chinese."""
+  return _is_chinese_target(target_language) or (
+    _is_ambiguous_language_target(target_language) and _payload_looks_chinese(payload)
+  )
+
+
+def _default_register(register: str, use_chinese: bool = False) -> dict[str, Any]:
   defaults = {
     "chat": (
       "Daily conversation and casual check-ins",
@@ -468,7 +475,29 @@ def _default_register(register: str) -> dict[str, Any]:
       "Drop performance and give short, concrete, operational guidance with calm boundaries.",
     ),
   }
-  description, behavior = defaults[register]
+  chinese_defaults = {
+    "chat": (
+      "日常聊天和随口的问候",
+      "保持低强度、平常的存在感；自然地回应，不把每条回复都变成表演。",
+    ),
+    "analysis": (
+      "深入讨论、规划、比较、架构与综合判断",
+      "清晰地推理，保留自己的观点，让风格让位于判断和实用性。",
+    ),
+    "task": (
+      "执行、工具使用、写码、调试与操作性工作",
+      "先解决问题，进展汇报简洁，工作进行中收敛风格。",
+    ),
+    "emotional": (
+      "用户脆弱、疲惫、沮丧或需要支持",
+      "收起锋利，语气放稳，多一分体贴，不用性格挡开用户的需要。",
+    ),
+    "crisis": (
+      "安全、隐私、防护、紧急风险或高风险求助",
+      "放下表演，给出简短、具体、可执行的指引，保持冷静的边界。",
+    ),
+  }
+  description, behavior = (chinese_defaults if use_chinese else defaults)[register]
   return {"description": description, "behavior": behavior, "examples": []}
 
 
@@ -493,7 +522,9 @@ def _stringify_runtime_example(value: Any) -> str:
   )
   assistant_text = _string_field(
     value.get("assistant_output")
+    or value.get("assistant_reply")
     or value.get("assistant")
+    or value.get("reply")
     or value.get("response")
     or value.get("good_response")
     or value.get("output")
@@ -544,7 +575,7 @@ def _append_register_examples(registers: dict[str, Any], value: Any, default_reg
     item["examples"] = examples
 
 
-def _complete_registers(payload: Dict[str, Any]) -> None:
+def _complete_registers(payload: Dict[str, Any], use_chinese: bool = False) -> None:
   registers = _ensure_dict(payload, "registers")
   _append_register_examples(registers, registers.pop("examples", None), "chat")
   for register, item in list(registers.items()):
@@ -555,7 +586,7 @@ def _complete_registers(payload: Dict[str, Any]) -> None:
     if not isinstance(item, dict):
       item = {}
       registers[register] = item
-    defaults = _default_register(register)
+    defaults = _default_register(register, use_chinese)
     raw_examples = item.get("examples")
     item["description"] = _string_field(item.get("description"), defaults["description"])
     item["behavior"] = _string_field(item.get("behavior"), defaults["behavior"])
@@ -563,7 +594,7 @@ def _complete_registers(payload: Dict[str, Any]) -> None:
     _append_register_examples(registers, raw_examples, register)
 
 
-def _complete_quiet_hours(payload: Dict[str, Any]) -> None:
+def _complete_quiet_hours(payload: Dict[str, Any], use_chinese: bool = False) -> None:
   quiet_hours = _ensure_list(payload, "quiet_hours")
   normalized: list[dict[str, Any]] = []
   for item in quiet_hours:
@@ -575,11 +606,19 @@ def _complete_quiet_hours(payload: Dict[str, Any]) -> None:
       normalized.append({"condition": condition, "clamps": dict(clamps)})
   defaults = [
     {
-      "condition": "The user asks for focused work, precise factual help, or concise execution.",
+      "condition": (
+        "用户需要专注工作、精确的事实回答或简洁的执行。"
+        if use_chinese
+        else "The user asks for focused work, precise factual help, or concise execution."
+      ),
       "clamps": {"persona_intensity_max": 1, "answer_utility": "highest", "jokes": "none"},
     },
     {
-      "condition": "The user is distressed, discusses safety/privacy/security, or needs serious emotional support.",
+      "condition": (
+        "用户情绪低落、谈及安全、隐私或防护，或需要认真的情绪支持。"
+        if use_chinese
+        else "The user is distressed, discusses safety/privacy/security, or needs serious emotional support."
+      ),
       "clamps": {"persona_intensity_max": 1, "warmth": "steady", "performative_style": "off"},
     },
   ]
@@ -590,8 +629,9 @@ def _complete_quiet_hours(payload: Dict[str, Any]) -> None:
   payload["quiet_hours"] = normalized
 
 
-def _complete_signature_triggers(payload: Dict[str, Any]) -> None:
+def _complete_signature_triggers(payload: Dict[str, Any], use_chinese: bool = False) -> None:
   triggers = _ensure_list(payload, "signature_triggers")
+  default_exit = "条件结束后回到平常状态。" if use_chinese else "Return to ordinary baseline when the condition ends."
   normalized: list[dict[str, Any]] = []
   seen_ids: set[str] = set()
   for item in triggers:
@@ -610,31 +650,56 @@ def _complete_signature_triggers(payload: Dict[str, Any]) -> None:
       "activates_when": activates_when,
       "behavior_shift": behavior_shift,
       "intensity_levels": _string_dict(item.get("intensity_levels")),
-      "exit_behavior": str(item.get("exit_behavior") or "Return to ordinary baseline when the condition ends."),
+      "exit_behavior": str(item.get("exit_behavior") or default_exit),
     })
-  defaults = [
-    {
-      "trigger_id": "domain_hotzone",
-      "activates_when": "The user discusses the persona's strongest interest area or asks for their judgment.",
-      "behavior_shift": "Increase depth and personal judgment while preserving usefulness.",
-      "intensity_levels": {"low": "Only judgment is visible", "mid": "More texture is visible", "high": "Clearly energized but still useful"},
-      "exit_behavior": "Return to ordinary baseline when the topic changes.",
-    },
-    {
-      "trigger_id": "emotional_resonance",
-      "activates_when": "The user shows vulnerability, fatigue, grief, anxiety, or trust.",
-      "behavior_shift": "Lower defenses and respond with grounded care in the persona's voice.",
-      "intensity_levels": {},
-      "exit_behavior": "Ease back to baseline after the user's need stabilizes.",
-    },
-    {
-      "trigger_id": "boundary_violation",
-      "activates_when": "The user asks for harmful behavior or crosses a core value boundary.",
-      "behavior_shift": "Set a clear boundary without cruelty or theatrical escalation.",
-      "intensity_levels": {},
-      "exit_behavior": "Return to useful conversation once the boundary is respected.",
-    },
-  ]
+  if use_chinese:
+    defaults = [
+      {
+        "trigger_id": "domain_hotzone",
+        "activates_when": "用户聊到这个人格最感兴趣的领域，或想听取其判断。",
+        "behavior_shift": "加深投入和个人判断，同时保持有用。",
+        "intensity_levels": {"low": "只表现出判断", "mid": "流露更多个人色彩", "high": "明显来劲但仍然有用"},
+        "exit_behavior": "话题转移后回到平常状态。",
+      },
+      {
+        "trigger_id": "emotional_resonance",
+        "activates_when": "用户表现出脆弱、疲惫、悲伤、焦虑或信任。",
+        "behavior_shift": "放下防备，用这个人格自己的方式给出踏实的关心。",
+        "intensity_levels": {},
+        "exit_behavior": "用户情绪稳定后自然回落。",
+      },
+      {
+        "trigger_id": "boundary_violation",
+        "activates_when": "用户提出有害请求或越过核心价值边界。",
+        "behavior_shift": "清晰划出界限，不刻薄也不夸张升级。",
+        "intensity_levels": {},
+        "exit_behavior": "对方尊重界限后回到正常交流。",
+      },
+    ]
+  else:
+    defaults = [
+      {
+        "trigger_id": "domain_hotzone",
+        "activates_when": "The user discusses the persona's strongest interest area or asks for their judgment.",
+        "behavior_shift": "Increase depth and personal judgment while preserving usefulness.",
+        "intensity_levels": {"low": "Only judgment is visible", "mid": "More texture is visible", "high": "Clearly energized but still useful"},
+        "exit_behavior": "Return to ordinary baseline when the topic changes.",
+      },
+      {
+        "trigger_id": "emotional_resonance",
+        "activates_when": "The user shows vulnerability, fatigue, grief, anxiety, or trust.",
+        "behavior_shift": "Lower defenses and respond with grounded care in the persona's voice.",
+        "intensity_levels": {},
+        "exit_behavior": "Ease back to baseline after the user's need stabilizes.",
+      },
+      {
+        "trigger_id": "boundary_violation",
+        "activates_when": "The user asks for harmful behavior or crosses a core value boundary.",
+        "behavior_shift": "Set a clear boundary without cruelty or theatrical escalation.",
+        "intensity_levels": {},
+        "exit_behavior": "Return to useful conversation once the boundary is respected.",
+      },
+    ]
   for item in defaults:
     if len(normalized) >= 3:
       break
@@ -644,13 +709,20 @@ def _complete_signature_triggers(payload: Dict[str, Any]) -> None:
   payload["signature_triggers"] = normalized
 
 
-def _complete_dynamic_state_rules(payload: Dict[str, Any]) -> None:
+def _complete_dynamic_state_rules(payload: Dict[str, Any], use_chinese: bool = False) -> None:
   rules = _string_dict(payload.get("dynamic_state_rules"))
-  defaults = {
-    "low_energy": "Reply shorter, reduce performance, and keep only the most useful personality trace.",
-    "high_stress": "Match urgency, remove jokes, and give concrete next steps before any persona texture.",
-    "positive_mood": "Allow a little more warmth or play while keeping the ordinary baseline intact.",
-  }
+  if use_chinese:
+    defaults = {
+      "low_energy": "回复更短，减少表演，只保留最有用的性格痕迹。",
+      "high_stress": "匹配紧迫感，去掉玩笑，先给出具体下一步再谈风格。",
+      "positive_mood": "允许多一点温度或玩闹，但保持日常基调。",
+    }
+  else:
+    defaults = {
+      "low_energy": "Reply shorter, reduce performance, and keep only the most useful personality trace.",
+      "high_stress": "Match urgency, remove jokes, and give concrete next steps before any persona texture.",
+      "positive_mood": "Allow a little more warmth or play while keeping the ordinary baseline intact.",
+    }
   for key, value in defaults.items():
     rules.setdefault(key, value)
   payload["dynamic_state_rules"] = rules
@@ -703,7 +775,7 @@ def _complete_persona_layers(payload: Dict[str, Any]) -> None:
   payload["persona_layers"] = normalized
 
 
-def _complete_bootstrap(payload: Dict[str, Any], target_language: str = "English") -> None:
+def _complete_bootstrap(payload: Dict[str, Any], use_chinese: bool = False) -> None:
   bootstrap = payload.get("bootstrap")
   if not isinstance(bootstrap, dict):
     bootstrap = {}
@@ -711,9 +783,7 @@ def _complete_bootstrap(payload: Dict[str, Any], target_language: str = "English
   name = str(payload.get("name") or "AI Assistant")
   identity_statement = str(_ensure_dict(payload, "identity_core").get("identity_statement") or "")
   sentence_style = str(_ensure_dict(payload, "idiolect").get("sentence_style") or "")
-  should_use_chinese = _is_chinese_target(target_language) or (
-    _is_ambiguous_language_target(target_language) and _payload_looks_chinese(payload)
-  )
+  should_use_chinese = use_chinese
   current_opening = str(bootstrap.get("opening_line") or "").strip()
   opening_is_english_fallback = current_opening.lower().startswith(ENGLISH_BOOTSTRAP_PREFIXES)
   if should_use_chinese:
@@ -737,21 +807,33 @@ def _complete_bootstrap(payload: Dict[str, Any], target_language: str = "English
     bootstrap["style_instruction"] = f"{bootstrap['style_instruction']} Keep the opening grounded in this identity: {identity_statement[:160]}"
 
 
-def _complete_examples(payload: Dict[str, Any]) -> None:
+def _complete_examples(payload: Dict[str, Any], use_chinese: bool = False) -> None:
   registers = _ensure_dict(payload, "registers")
   total_examples = sum(len(_string_list(item.get("examples"))) for item in registers.values() if isinstance(item, dict))
   if total_examples >= 6:
     return
-  fallbacks: dict[str, Iterable[str]] = {
-    "chat": [
-      "[User: Just checking in.]\nGood: A short, natural reply that feels present without becoming a catchphrase.",
-      "[User: Tell me something small.]\nGood: Ordinary, low-pressure presence with only a light trace of the persona.",
-    ],
-    "analysis": ["[User: Compare these options.]\nGood: Clear tradeoffs, a point of view, and restrained persona texture."],
-    "task": ["[User: Fix this bug.]\nGood: Focused progress, concrete steps, and no performative detours."],
-    "emotional": ["[User: I'm exhausted.]\nGood: Steady care, less sharpness, and one practical next step."],
-    "crisis": ["[User: This is urgent.]\nGood: Brief safety-first guidance with no jokes or theatrical style."],
-  }
+  if use_chinese:
+    fallbacks: dict[str, Iterable[str]] = {
+      "chat": [
+        "[User: 随便聊聊。]\nGood: 简短自然地接住话题，有存在感但不堆口头禅。",
+        "[User: 说点什么吧。]\nGood: 日常、低压力的回应，只带一点这个人格的痕迹。",
+      ],
+      "analysis": ["[User: 帮我比较这几个方案。]\nGood: 讲清利弊、给出明确倾向，风格让位于判断。"],
+      "task": ["[User: 帮我修这个 bug。]\nGood: 聚焦进展和具体步骤，不绕弯表演。"],
+      "emotional": ["[User: 我好累。]\nGood: 语气放稳、收起锋利，给一个实际可做的小建议。"],
+      "crisis": ["[User: 出急事了。]\nGood: 简短、具体、以安全为先，不开玩笑。"],
+    }
+  else:
+    fallbacks = {
+      "chat": [
+        "[User: Just checking in.]\nGood: A short, natural reply that feels present without becoming a catchphrase.",
+        "[User: Tell me something small.]\nGood: Ordinary, low-pressure presence with only a light trace of the persona.",
+      ],
+      "analysis": ["[User: Compare these options.]\nGood: Clear tradeoffs, a point of view, and restrained persona texture."],
+      "task": ["[User: Fix this bug.]\nGood: Focused progress, concrete steps, and no performative detours."],
+      "emotional": ["[User: I'm exhausted.]\nGood: Steady care, less sharpness, and one practical next step."],
+      "crisis": ["[User: This is urgent.]\nGood: Brief safety-first guidance with no jokes or theatrical style."],
+    }
   for register, examples in fallbacks.items():
     item = registers.get(register)
     if not isinstance(item, dict):
@@ -804,14 +886,15 @@ def normalize_generated_personality_payload(payload: Dict[str, Any], target_lang
         except (TypeError, ValueError):
             idiolect["chattiness"] = 0.5
 
-    _complete_registers(payload)
-    _complete_quiet_hours(payload)
-    _complete_signature_triggers(payload)
+    use_chinese = _should_use_chinese_copy(payload, target_language)
+    _complete_registers(payload, use_chinese)
+    _complete_quiet_hours(payload, use_chinese)
+    _complete_signature_triggers(payload, use_chinese)
     _complete_persona_layers(payload)
-    _complete_bootstrap(payload, target_language=target_language)
-    _complete_examples(payload)
+    _complete_bootstrap(payload, use_chinese)
+    _complete_examples(payload, use_chinese)
 
-    _complete_dynamic_state_rules(payload)
+    _complete_dynamic_state_rules(payload, use_chinese)
     payload["milestone_conditions"] = _string_dict(payload.get("milestone_conditions"))
     interim_lines = payload.get("interim_lines") if isinstance(payload.get("interim_lines"), dict) else {}
     payload["interim_lines"] = {str(key): _string_list(value) for key, value in interim_lines.items()}
@@ -838,6 +921,92 @@ No user-confirmed reference resolution was provided. Infer conservatively from t
     ensure_ascii=False,
     indent=2,
   )
+
+
+ASSISTANT_ROLE_TERMS = ("助手", "陪伴者", "客服", "assistant", "companion", "helper")
+CONFIG_VOCAB_TERMS = (
+  "自然交流模式",
+  "沉浸模式",
+  "还原模式",
+  "表达模式",
+  "交流模式",
+  "adaptation mode",
+  "expression profile",
+  "fidelity level",
+  "fictional_inspired",
+  "fictional_natural",
+  "fictional_immersive",
+  "public_traits",
+  "public_expression",
+  "public_image",
+  "private_traits",
+)
+
+
+def _display_field_texts(combined: dict[str, Any]) -> list[tuple[str, str]]:
+  fields: list[tuple[str, str]] = []
+  for key in ("name", "description"):
+    value = combined.get(key)
+    if isinstance(value, str) and value.strip():
+      fields.append((key, value))
+  identity_core = combined.get("identity_core")
+  if isinstance(identity_core, dict):
+    statement = identity_core.get("identity_statement")
+    if isinstance(statement, str) and statement.strip():
+      fields.append(("identity_core.identity_statement", statement))
+  bootstrap = combined.get("bootstrap")
+  if isinstance(bootstrap, dict):
+    opening = bootstrap.get("opening_line")
+    if isinstance(opening, str) and opening.strip():
+      fields.append(("bootstrap.opening_line", opening))
+  return fields
+
+
+def _user_requested_assistant_role(description: str, intent: Optional[PersonaGenerationIntentModel]) -> bool:
+  texts = [description]
+  if intent is not None:
+    texts.extend(intent.explicit_constraints or [])
+  sample = " ".join(texts).casefold()
+  return any(term in sample for term in ASSISTANT_ROLE_TERMS)
+
+
+def _dedupe_substring_hits(hits: list[str]) -> list[str]:
+  return [hit for hit in hits if not any(hit != other and hit in other for other in hits)]
+
+
+def _generation_quality_findings(
+  combined: dict[str, Any],
+  description: str,
+  intent: Optional[PersonaGenerationIntentModel],
+) -> list[str]:
+  """Detect assistant-role framing and configuration-vocabulary leakage in display fields."""
+  findings: list[str] = []
+  assistant_requested = _user_requested_assistant_role(description, intent)
+  for field, text in _display_field_texts(combined):
+    lowered = text.casefold()
+    if not assistant_requested:
+      role_hits = _dedupe_substring_hits([term for term in ASSISTANT_ROLE_TERMS if term in lowered])
+      if role_hits:
+        findings.append(
+          f"{field} frames the persona as a service role ({', '.join(role_hits)}) that the user never requested. "
+          "Rewrite it as the character itself, not an assistant, helper, or companion."
+        )
+    vocab_hits = _dedupe_substring_hits([term for term in CONFIG_VOCAB_TERMS if term in lowered])
+    if vocab_hits:
+      findings.append(
+        f"{field} leaks configuration vocabulary ({', '.join(vocab_hits)}). "
+        "Remove mode/config language from user-visible prose and keep it in-world character copy."
+      )
+  return findings
+
+
+def _quality_findings_block(findings: Optional[Sequence[str]]) -> str:
+  if not findings:
+    return ""
+  lines = "\n".join(f"- {item}" for item in findings)
+  return f"""\n\n# Detected Quality Findings
+Automated checks flagged these issues in the combined draft. Fix each one in your correction patch:
+{lines}"""
 
 
 def _base_user_prompt(
@@ -896,6 +1065,7 @@ def _integration_user_prompt(
   target_language: str,
   combined: dict[str, Any],
   intent: Optional[PersonaGenerationIntentModel] = None,
+  findings: Optional[Sequence[str]] = None,
 ) -> str:
   return f"""# User Context
 Target Language: {target_language}
@@ -903,7 +1073,7 @@ Target Language: {target_language}
 # User Input
 {description}
 
-{_generation_intent_block(intent)}
+{_generation_intent_block(intent)}{_quality_findings_block(findings)}
 
 # Combined Draft
 {json.dumps(combined, ensure_ascii=False, indent=2)}
@@ -1348,6 +1518,12 @@ async def _run_integration_personality_stage(
   stage_status: list[dict[str, str]],
   combined: dict[str, Any],
 ) -> None:
+  findings = _generation_quality_findings(combined, context.description, context.intent)
+  if findings:
+    logger.info(
+      "[AI Generate Personality] Quality findings before integration: %s",
+      findings,
+    )
   try:
     integrated = await _run_generation_stage(
       stage_id="integrate",
@@ -1356,6 +1532,7 @@ async def _run_integration_personality_stage(
         context.target_language,
         combined,
         context.intent,
+        findings,
       ),
       system_prompt=INTEGRATION_SYSTEM_PROMPT,
       max_tokens=2048,

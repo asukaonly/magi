@@ -620,6 +620,109 @@ def test_normalize_generated_personality_payload_absorbs_misnested_register_exam
     PersonalityConfigModel(**payload)
 
 
+def test_normalize_generated_personality_payload_accepts_assistant_reply_examples() -> None:
+    from magi.api.routers.personality_config import normalize_generated_personality_payload
+
+    payload = normalize_generated_personality_payload(
+        {
+            "name": "明日香",
+            "registers": {
+                "chat": {
+                    "description": "日常交流",
+                    "behavior": "短句直接",
+                    "examples": [
+                        {"user_input": "你好", "assistant_reply": "哼，有事快说。"},
+                        {"user_input": "在忙吗", "reply": "在，说重点。"},
+                    ],
+                },
+            },
+        },
+        target_language="Chinese",
+    )
+
+    chat_examples = payload["registers"]["chat"]["examples"]
+    assert any("有事快说" in example for example in chat_examples)
+    assert any("说重点" in example for example in chat_examples)
+
+
+def test_normalize_generated_personality_payload_uses_chinese_fallback_copy() -> None:
+    import re
+
+    from magi.api.routers.personality_config import normalize_generated_personality_payload
+
+    payload = normalize_generated_personality_payload({"name": "明日香"}, target_language="Chinese")
+
+    cjk = re.compile(r"[\u3400-\u9fff]")
+    assert all(cjk.search(item["condition"]) for item in payload["quiet_hours"])
+    assert all(cjk.search(value) for value in payload["dynamic_state_rules"].values())
+    for register in payload["registers"].values():
+        assert cjk.search(register["description"])
+        assert cjk.search(register["behavior"])
+        for example in register["examples"]:
+            assert cjk.search(example)
+    for trigger in payload["signature_triggers"]:
+        assert cjk.search(trigger["activates_when"])
+        assert cjk.search(trigger["exit_behavior"])
+
+
+def test_generation_quality_findings_flags_assistantized_identity() -> None:
+    from magi.api.services import personality_generation
+
+    combined = {
+        "name": "明日香",
+        "description": "一位自信、直率且好胜的助手，在自然交流模式下提供帮助。",
+        "identity_core": {"identity_statement": "她是被公开形象启发的陪伴者。"},
+    }
+
+    findings = personality_generation._generation_quality_findings(combined, "eva里的明日香", None)
+
+    assert any("助手" in item and "description" in item for item in findings)
+    assert any("自然交流模式" in item for item in findings)
+    assert any("陪伴者" in item and "identity_statement" in item for item in findings)
+
+
+def test_generation_quality_findings_respect_user_requested_assistant_role() -> None:
+    from magi.api.services import personality_generation
+
+    combined = {"name": "Echo", "description": "一个冷静可靠的助手。"}
+
+    findings = personality_generation._generation_quality_findings(combined, "一个冷静可靠的助手", None)
+
+    assert findings == []
+
+
+def test_integration_prompt_includes_quality_findings_block() -> None:
+    from magi.api.services import personality_generation
+
+    prompt = personality_generation._integration_user_prompt(
+        "eva里的明日香",
+        "Chinese",
+        {"name": "明日香"},
+        None,
+        findings=["description frames the persona as a service role."],
+    )
+
+    assert "# Detected Quality Findings" in prompt
+    assert "service role" in prompt
+
+    clean_prompt = personality_generation._integration_user_prompt(
+        "eva里的明日香",
+        "Chinese",
+        {"name": "明日香"},
+        None,
+    )
+    assert "# Detected Quality Findings" not in clean_prompt
+
+
+def test_persona_generation_shared_directives_avoid_assistant_framing() -> None:
+    from magi.api.services import personality_generation
+
+    directives = personality_generation.PERSONA_GENERATION_SHARED_DIRECTIVES
+    assert "always create an assistant" not in directives
+    assert "not part of any persona's identity" in directives
+    assert "configuration vocabulary" in directives
+
+
 def test_personality_generation_stage_prompts_share_directives() -> None:
     from magi.api.services import personality_generation
 

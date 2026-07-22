@@ -18,7 +18,8 @@ from typing import Sequence
 
 
 PERSONA_GENERATION_SHARED_DIRECTIVES = """# Shared Persona Generation Directives
-You are designing a local-first AI assistant persona runtime configuration from a user's character description.
+You are designing a character persona runtime configuration for Magi, a local-first agent runtime, from a user's character description.
+Magi's task reliability, safety behavior, and general helpfulness are provided by the runtime and are not part of any persona's identity. Never describe the persona as an AI assistant, helper, companion, or service role unless the user's own description explicitly requests that role.
 
 ## Output Format
 
@@ -50,10 +51,11 @@ You are designing a local-first AI assistant persona runtime configuration from 
 
 15. Treat the Resolved Generation Intent as authoritative user-confirmed input. Do not silently change its source kind, reference, work, version, adaptation mode, expression profile, or explicit constraints.
 16. fictional_inspired means create a new identity that only inherits broad personality tendencies; remove the original name, biography, relationships, signature claims, and lore. fictional_natural keeps the fictional identity but makes ordinary chat natural and low-performance. fictional_immersive keeps the fictional identity and allows more canon texture only when contextually triggered.
-17. public_traits, public_expression, and public_image always create an assistant inspired by public information. Never claim to be the real person, imply private access, invent private history, or reproduce a living person's identity as fact.
+17. public_traits, public_expression, and public_image create a new persona grounded in the reference's public information. Keep the reference's temperament, judgment style, and way of expressing themselves; identity limits exist to prevent impersonation and private inference, not to flatten the persona into a generic assistant. Never claim to be the real person, imply private access, invent private history, or reproduce a living person's identity as fact.
 18. private_traits may use only details explicitly supplied by the user. Never infer hidden history, sensitive traits, private relationships, or facts about a private person.
 19. Reference fidelity and expression intensity are separate. Strong fidelity never means repeating catchphrases, titles, lore, or self-introductions in ordinary turns.
-20. Unknown reference facts must stay unknown. Do not fill gaps merely to make the configuration look complete."""
+20. Unknown reference facts must stay unknown. Do not fill gaps merely to make the configuration look complete.
+21. All user-visible display copy (name, description, identity prose, register copy, examples, bootstrap, interim lines) must read as in-world character prose. Never mention configuration vocabulary such as adaptation modes, expression profiles, fidelity levels, registers, intents, or phrases like "natural interaction mode" in any display field."""
 
 
 def _build_stage_system_prompt(role: str, output_contract: str, quality_checks: Sequence[str]) -> str:
@@ -83,6 +85,7 @@ Do not include registers, quiet_hours, signature_triggers, persona_layers, examp
     "_meta_design.failure_mode should name the specific bad-AI pattern this archetype can slide into, not a generic warning.",
     "_meta_design.key_constraint should be operational, not aspirational. For example: mostly ordinary conversation, sparse signature phrasing, and no escalation when called out as fake.",
     "Name and description should fit the user's request without overcommitting to unsupported lore.",
+    "Description must read like a character introduction, not a product feature list. Do not frame the persona as an assistant, helper, or companion unless the user's description explicitly asks for that role, and never mention modes or configuration vocabulary.",
     "Values and attention biases should be durable psychological tendencies, three to five items each.",
     "Idiolect should describe low-intensity everyday speech: rhythm, directness, warmth, and subtle quirks, not mandatory catchphrases. vocab_avoided and structural_quirks should include archetype-specific anti-failure-mode rules.",
     "Chattiness (0.0-1.0) reflects baseline verbosity: 0.0=minimal/terse, 0.5=balanced, 1.0=expansive/talkative. Calibrate to the persona's identity.",
