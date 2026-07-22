@@ -117,6 +117,25 @@ describe('PersonaPreviewChat', () => {
         explicit_constraints: [],
       },
     });
+    vi.spyOn(personasApi, 'verifyReferenceIdentity').mockImplementation(async (request) => ({
+      success: true,
+      message: 'ok',
+      data: {
+        status: 'verified',
+        canonical_identity: {
+          source_kind: request.reference.source_kind as 'fictional_reference' | 'public_person_reference',
+          name: request.reference.name,
+          work_title: request.reference.work_title,
+          version: request.reference.version,
+          context: request.reference.context,
+        },
+        alternatives: [],
+        confidence: 0.95,
+        requires_confirmation: false,
+        reference_fingerprint: 'verified-reference',
+        sources: [],
+      },
+    }));
   });
 
   afterEach(() => {
@@ -727,8 +746,12 @@ describe('PersonaPreviewChat', () => {
       expect.objectContaining({
         intent: expect.objectContaining({
           source_kind: 'fictional_reference',
-          adaptation_mode: 'fictional_natural',
-          expression_profile: 'natural',
+          fidelity_level: 'natural',
+          expression_level: 'balanced',
+          research: expect.objectContaining({
+            preference: 'auto',
+            identity_verified: true,
+          }),
           reference: expect.objectContaining({
             name: '孙悟空',
             work_title: '龙珠 Z',
@@ -816,6 +839,76 @@ describe('PersonaPreviewChat', () => {
     );
   });
 
+  it('locks persona creation while public reference verification is pending', async () => {
+    vi.mocked(personasApi.resolveGenerationIntent).mockResolvedValueOnce({
+      success: true,
+      message: 'ok',
+      data: {
+        status: 'resolved',
+        candidates: [{
+          candidate_id: 'candidate-1',
+          source_kind: 'public_person_reference',
+          name: 'Public Reference',
+          work_title: null,
+          version: null,
+          context: null,
+          confidence: 0.92,
+        }],
+        selected_candidate_id: 'candidate-1',
+        confidence: 0.92,
+        requires_confirmation: true,
+        explicit_constraints: [],
+      },
+    });
+    let finishVerification: (value: unknown) => void = () => {};
+    const verificationSpy = vi
+      .mocked(personasApi.verifyReferenceIdentity)
+      .mockImplementationOnce(
+        () => new Promise((resolve) => {
+          finishVerification = resolve;
+        }) as any,
+      );
+    const generationSpy = vi.spyOn(personasApi, 'generateWithProgress').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: makeGeneratedConfig(),
+      stages: [],
+    } as any);
+
+    renderPersonaPreview({ previews, stayInPicker: true });
+    await userEvent.click(screen.getByTestId('persona-create-custom'));
+    await userEvent.type(screen.getByTestId('persona-custom-description'), 'Public Reference');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+    await screen.findByTestId('persona-reference-editor');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    expect(screen.getByTestId('persona-custom-generate')).toBeDisabled();
+    expect(verificationSpy).toHaveBeenCalledTimes(1);
+    expect(generationSpy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishVerification({
+        success: true,
+        message: 'ok',
+        data: {
+          status: 'verified',
+          canonical_identity: {
+            source_kind: 'public_person_reference',
+            name: 'Public Reference',
+          },
+          alternatives: [],
+          confidence: 0.96,
+          requires_confirmation: false,
+          reference_fingerprint: 'verified-public-reference',
+          sources: [],
+        },
+      });
+    });
+
+    await waitFor(() => expect(generationSpy).toHaveBeenCalledTimes(1));
+    expect(verificationSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('lets the user edit a resolved work and choose immersive fidelity', async () => {
     vi.mocked(personasApi.resolveGenerationIntent).mockResolvedValueOnce({
       success: true,
@@ -867,15 +960,83 @@ describe('PersonaPreviewChat', () => {
     expect(screen.getByTestId('persona-reference-constraints')).toBeEnabled();
     await userEvent.click(screen.getByTestId('persona-custom-description-edit'));
     expect(screen.getByTestId('persona-custom-description')).toBeEnabled();
-    await userEvent.click(screen.getByTestId('persona-reference-mode-fictional_immersive'));
+    await userEvent.click(screen.getByTestId('persona-reference-fidelity-faithful'));
     await userEvent.click(screen.getByTestId('persona-custom-generate'));
 
     await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
     expect(genSpy.mock.calls[0][0].intent).toEqual(
       expect.objectContaining({
-        adaptation_mode: 'fictional_immersive',
-        expression_profile: 'immersive',
+        fidelity_level: 'faithful',
+        expression_level: 'high_contextual',
         explicit_constraints: ['少说设定黑话'],
+      }),
+    );
+  });
+
+  it('validates optional source links and drops them when research is disabled', async () => {
+    vi.mocked(personasApi.resolveGenerationIntent).mockResolvedValueOnce({
+      success: true,
+      message: 'ok',
+      data: {
+        status: 'resolved',
+        candidates: [{
+          candidate_id: 'candidate-1',
+          source_kind: 'fictional_reference',
+          name: 'Reference',
+          work_title: 'Example Work',
+          version: null,
+          context: null,
+          confidence: 0.95,
+        }],
+        selected_candidate_id: 'candidate-1',
+        confidence: 0.95,
+        requires_confirmation: true,
+        explicit_constraints: [],
+      },
+    });
+    const generationSpy = vi.spyOn(personasApi, 'generateWithProgress').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: makeGeneratedConfig(),
+      stages: [],
+    } as any);
+
+    renderPersonaPreview({ previews, stayInPicker: true });
+    await userEvent.click(screen.getByTestId('persona-create-custom'));
+    await userEvent.type(screen.getByTestId('persona-custom-description'), 'Reference');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+    await screen.findByTestId('persona-reference-editor');
+    await userEvent.click(screen.getByTestId('persona-reference-advanced-toggle'));
+
+    const links = screen.getByTestId('persona-reference-urls');
+    fireEvent.change(links, { target: { value: 'ftp://example.com/source' } });
+    expect(screen.getByTestId('persona-reference-urls-error')).toBeInTheDocument();
+    expect(screen.getByTestId('persona-custom-generate')).toBeDisabled();
+
+    fireEvent.change(links, {
+      target: {
+        value: Array.from(
+          { length: 5 },
+          (_, index) => `https://example${index}.com/source`,
+        ).join('\n'),
+      },
+    });
+    expect(screen.getByTestId('persona-custom-generate')).toBeDisabled();
+
+    fireEvent.change(links, { target: { value: 'https://example.com/source' } });
+    expect(screen.queryByTestId('persona-reference-urls-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('persona-custom-generate')).toBeEnabled();
+
+    await userEvent.click(screen.getByTestId('persona-reference-research-toggle'));
+    expect(screen.queryByTestId('persona-reference-urls')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    await waitFor(() => expect(generationSpy).toHaveBeenCalledTimes(1));
+    expect(generationSpy.mock.calls[0][0].intent?.research).toEqual(
+      expect.objectContaining({
+        preference: 'disabled',
+        force_refresh: false,
+        reference_urls: [],
       }),
     );
   });
@@ -899,8 +1060,18 @@ describe('PersonaPreviewChat', () => {
           context: null,
           user_confirmed: true,
         },
-        adaptation_mode: 'fictional_natural',
-        expression_profile: 'natural',
+        fidelity_level: 'natural',
+        expression_level: 'balanced',
+        research: {
+          preference: 'disabled',
+          force_refresh: false,
+          reference_urls: [],
+          identity_confidence: 1,
+          identity_ambiguous: false,
+          identity_verified: false,
+          reference_modified: false,
+          verification_fingerprint: null,
+        },
         explicit_constraints: [],
       },
       config: generated,
@@ -945,6 +1116,102 @@ describe('PersonaPreviewChat', () => {
       }),
     );
     expect(lastDrafts[0].intent?.reference?.work_title).toBe('龙珠');
+  });
+
+  it('shows traceable sources and refreshes them without changing the persona id', async () => {
+    const generated = makeGeneratedConfig();
+    const customDraft: CustomPersonaDraft = {
+      personaId: '22222222-2222-4222-8222-222222222222',
+      slug: 'custom-grounded',
+      name: 'Grounded',
+      description: 'Grounded reference',
+      originalDescription: 'Reference',
+      revision: 1,
+      intent: {
+        source_kind: 'fictional_reference',
+        reference: {
+          source_kind: 'fictional_reference',
+          name: 'Reference',
+          work_title: 'Example Work',
+          version: null,
+          context: null,
+          user_confirmed: true,
+        },
+        fidelity_level: 'natural',
+        expression_level: 'balanced',
+        research: {
+          preference: 'auto',
+          force_refresh: false,
+          reference_urls: [],
+          identity_confidence: 1,
+          identity_ambiguous: false,
+          identity_verified: true,
+          reference_modified: false,
+          verification_fingerprint: 'reference-fingerprint',
+        },
+        explicit_constraints: [],
+      },
+      referenceDossier: {
+        schema_version: 1,
+        reference_fingerprint: 'reference-fingerprint',
+        identity_status: 'verified',
+        grounding_status: 'verified',
+        research_level: 'representative',
+        canonical_identity: {
+          source_kind: 'fictional_reference',
+          name: 'Reference',
+          work_title: 'Example Work',
+        },
+        profile_dimensions: {},
+        evidence: [],
+        unknowns: [],
+        contradictions: [],
+        sources: [{
+          source_id: 'source-1',
+          url: 'https://example.com/reference',
+          title: 'Reference source',
+          domain: 'example.com',
+          source_type: 'official',
+          authority: 0.9,
+          directness: 0.9,
+          summary: 'Public source',
+          retrieved_at: '2026-07-22T00:00:00Z',
+          user_provided: false,
+          warnings: [],
+        }],
+        coverage: 0.8,
+        volatility: 'stable',
+        sufficient: true,
+      },
+      config: generated,
+    };
+    const generationSpy = vi.spyOn(personasApi, 'generateWithProgress').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: generated,
+      stages: [],
+      reference_dossier: customDraft.referenceDossier,
+    } as any);
+
+    renderPersonaPreview({
+      previews,
+      initialActiveSeed: 'custom-grounded',
+      initialCustomPersonas: [customDraft],
+    });
+
+    expect(screen.getByTestId('persona-reference-sources')).toBeInTheDocument();
+    fireEvent.click(within(screen.getByTestId('persona-reference-sources')).getByText('personaPreview.reference.sourcesVerified'));
+    expect(screen.getByRole('link', { name: /Reference source/i })).toHaveAttribute(
+      'href',
+      'https://example.com/reference',
+    );
+    await userEvent.click(screen.getByTestId('persona-reference-refresh'));
+    expect(await screen.findByTestId('persona-reference-editor')).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    await waitFor(() => expect(generationSpy).toHaveBeenCalledTimes(1));
+    expect(generationSpy.mock.calls[0][0].intent?.research.force_refresh).toBe(true);
+    expect(generationSpy.mock.calls[0][0].draft_id).toBeDefined();
   });
 
   it('adjusts a custom persona separately and re-answers the last preview turn', async () => {

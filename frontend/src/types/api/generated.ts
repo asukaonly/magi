@@ -3118,6 +3118,26 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/personality/generation-intents/verify": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Verify persona reference identity
+         * @description Verify a selected public or fictional reference using public sources before generation.
+         */
+        readonly post: operations["verify_personality_reference_identity_api_personality_generation_intents_verify_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/personality/generation-jobs": {
         readonly parameters: {
             readonly query?: never;
@@ -7151,6 +7171,7 @@ export interface components {
             readonly locale: string;
             /** Persona Id */
             readonly persona_id?: string | null;
+            readonly reference_dossier?: components["schemas"]["ReferenceDossier"] | null;
             /** Slug */
             readonly slug?: string | null;
         };
@@ -7188,6 +7209,7 @@ export interface components {
             readonly name: string;
             /** Persona Id */
             readonly persona_id: string;
+            readonly reference_dossier?: components["schemas"]["ReferenceDossier"] | null;
             /** Seed Slug */
             readonly seed_slug?: string | null;
             /** Slug */
@@ -7214,25 +7236,48 @@ export interface components {
         };
         /** PersonaGenerationIntentModel */
         readonly PersonaGenerationIntentModel: {
-            /**
-             * Adaptation Mode
-             * @enum {string}
-             */
-            readonly adaptation_mode: "original" | "fictional_inspired" | "fictional_natural" | "fictional_immersive" | "public_traits" | "public_expression" | "public_image" | "private_traits";
             /** Explicit Constraints */
             readonly explicit_constraints?: readonly string[];
             /**
-             * Expression Profile
-             * @default natural
+             * Expression Level
              * @enum {string}
              */
-            readonly expression_profile: "natural" | "balanced" | "immersive";
+            readonly expression_level: "low" | "balanced" | "high_contextual";
+            /**
+             * Fidelity Level
+             * @enum {string}
+             */
+            readonly fidelity_level: "traits" | "natural" | "faithful";
             readonly reference?: components["schemas"]["PersonaReferenceModel"] | null;
+            readonly research: components["schemas"]["PersonaResearchOptionsModel"];
             /**
              * Source Kind
              * @enum {string}
              */
             readonly source_kind: "original" | "fictional_reference" | "public_person_reference" | "private_person_reference";
+        };
+        /** PersonaIdentityVerifyRequest */
+        readonly PersonaIdentityVerifyRequest: {
+            /** Description */
+            readonly description: string;
+            /** @description Optional unsaved LLM configuration override */
+            readonly llm_override?: components["schemas"]["LLMSettings"] | null;
+            readonly reference: components["schemas"]["PersonaReferenceModel"];
+            /** Reference Urls */
+            readonly reference_urls?: readonly string[];
+            /**
+             * Target Language
+             * @default English
+             */
+            readonly target_language: string;
+        };
+        /** PersonaIdentityVerifyResponse */
+        readonly PersonaIdentityVerifyResponse: {
+            readonly data: components["schemas"]["ReferenceIdentityVerification"];
+            /** Message */
+            readonly message: string;
+            /** Success */
+            readonly success: boolean;
         };
         /** PersonaIntentResolutionModel */
         readonly PersonaIntentResolutionModel: {
@@ -7361,6 +7406,44 @@ export interface components {
             /** Work Title */
             readonly work_title?: string | null;
         };
+        /** PersonaResearchOptionsModel */
+        readonly PersonaResearchOptionsModel: {
+            /**
+             * Force Refresh
+             * @default false
+             */
+            readonly force_refresh: boolean;
+            /**
+             * Identity Ambiguous
+             * @default false
+             */
+            readonly identity_ambiguous: boolean;
+            /**
+             * Identity Confidence
+             * @default 1
+             */
+            readonly identity_confidence: number;
+            /**
+             * Identity Verified
+             * @default false
+             */
+            readonly identity_verified: boolean;
+            /**
+             * Preference
+             * @default auto
+             * @enum {string}
+             */
+            readonly preference: "auto" | "disabled" | "required";
+            /**
+             * Reference Modified
+             * @default false
+             */
+            readonly reference_modified: boolean;
+            /** Reference Urls */
+            readonly reference_urls?: readonly string[];
+            /** Verification Fingerprint */
+            readonly verification_fingerprint?: string | null;
+        };
         /** PersonaSummaryModel */
         readonly PersonaSummaryModel: {
             /**
@@ -7409,6 +7492,7 @@ export interface components {
             readonly config_json?: string | null;
             /** Name */
             readonly name?: string | null;
+            readonly reference_dossier?: components["schemas"]["ReferenceDossier"] | null;
             /** Slug */
             readonly slug?: string | null;
             /** Sort Order */
@@ -7587,6 +7671,10 @@ export interface components {
             } | null;
             /** Message */
             readonly message: string;
+            /** Reference Dossier */
+            readonly reference_dossier?: {
+                readonly [key: string]: unknown;
+            } | null;
             /** Stages */
             readonly stages?: readonly {
                 readonly [key: string]: unknown;
@@ -8135,6 +8223,187 @@ export interface components {
             readonly kind: components["schemas"]["RecallFeedbackKind"];
             /** Target Message Id */
             readonly target_message_id: string;
+        };
+        /**
+         * ReferenceDossier
+         * @description Traceable reference material used by persona generation.
+         */
+        readonly ReferenceDossier: {
+            readonly canonical_identity?: components["schemas"]["ReferenceIdentity"] | null;
+            /** Contradictions */
+            readonly contradictions?: readonly string[];
+            /**
+             * Coverage
+             * @default 0
+             */
+            readonly coverage: number;
+            /** Evidence */
+            readonly evidence?: readonly components["schemas"]["ReferenceEvidenceItem"][];
+            /**
+             * Grounding Status
+             * @enum {string}
+             */
+            readonly grounding_status: "disabled" | "model_prior" | "verified" | "unavailable" | "insufficient";
+            /**
+             * Identity Status
+             * @enum {string}
+             */
+            readonly identity_status: "verified" | "ambiguous" | "unverified";
+            /** Profile Dimensions */
+            readonly profile_dimensions?: {
+                readonly [key: string]: readonly string[];
+            };
+            /** Reference Fingerprint */
+            readonly reference_fingerprint: string;
+            /**
+             * Research Level
+             * @enum {string}
+             */
+            readonly research_level: "none" | "identity" | "representative" | "full";
+            /**
+             * Schema Version
+             * @default 1
+             */
+            readonly schema_version: number;
+            /** Sources */
+            readonly sources?: readonly components["schemas"]["ReferenceSource"][];
+            /**
+             * Sufficient
+             * @default false
+             */
+            readonly sufficient: boolean;
+            /** Unknowns */
+            readonly unknowns?: readonly string[];
+            /**
+             * Volatility
+             * @default unknown
+             * @enum {string}
+             */
+            readonly volatility: "stable" | "evolving" | "current" | "unknown";
+            /** Warning */
+            readonly warning?: string | null;
+        };
+        /**
+         * ReferenceEvidenceItem
+         * @description A bounded behavioral claim with explicit provenance.
+         */
+        readonly ReferenceEvidenceItem: {
+            /** Claim */
+            readonly claim: string;
+            /**
+             * Confidence
+             * @default 0.5
+             */
+            readonly confidence: number;
+            /**
+             * Dimension
+             * @enum {string}
+             */
+            readonly dimension: "identity" | "ordinary_baseline" | "judgment_patterns" | "speech_rhythm" | "interaction_patterns" | "signature_markers" | "contrast_contexts" | "version_notes";
+            /** Source Ids */
+            readonly source_ids?: readonly string[];
+        };
+        /**
+         * ReferenceIdentity
+         * @description Canonical identity fields that can be reviewed by the user.
+         */
+        readonly ReferenceIdentity: {
+            /** Context */
+            readonly context?: string | null;
+            /** Name */
+            readonly name: string;
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            readonly source_kind: "fictional_reference" | "public_person_reference";
+            /** Version */
+            readonly version?: string | null;
+            /** Work Title */
+            readonly work_title?: string | null;
+        };
+        /**
+         * ReferenceIdentityVerification
+         * @description Reviewable identity verification result returned before generation.
+         */
+        readonly ReferenceIdentityVerification: {
+            /** Alternatives */
+            readonly alternatives?: readonly components["schemas"]["ReferenceIdentity"][];
+            readonly canonical_identity?: components["schemas"]["ReferenceIdentity"] | null;
+            /**
+             * Confidence
+             * @default 0
+             */
+            readonly confidence: number;
+            /** Reference Fingerprint */
+            readonly reference_fingerprint?: string | null;
+            /**
+             * Requires Confirmation
+             * @default true
+             */
+            readonly requires_confirmation: boolean;
+            /** Sources */
+            readonly sources?: readonly components["schemas"]["ReferenceSource"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            readonly status: "verified" | "ambiguous" | "unverified";
+            /** Warning */
+            readonly warning?: string | null;
+        };
+        /**
+         * ReferenceSource
+         * @description One public source used to verify identity or behavioral evidence.
+         */
+        readonly ReferenceSource: {
+            /**
+             * Authority
+             * @default 0.5
+             */
+            readonly authority: number;
+            /**
+             * Directness
+             * @default 0.5
+             */
+            readonly directness: number;
+            /**
+             * Domain
+             * @default
+             */
+            readonly domain: string;
+            /**
+             * Retrieved At
+             * @default
+             */
+            readonly retrieved_at: string;
+            /** Source Id */
+            readonly source_id: string;
+            /**
+             * Source Type
+             * @default search_snippet
+             * @enum {string}
+             */
+            readonly source_type: "official" | "first_party" | "reputable_secondary" | "community" | "search_snippet" | "user_provided";
+            /**
+             * Summary
+             * @default
+             */
+            readonly summary: string;
+            /**
+             * Title
+             * @default
+             */
+            readonly title: string;
+            /** Url */
+            readonly url: string;
+            /**
+             * User Provided
+             * @default false
+             */
+            readonly user_provided: boolean;
+            /** Warnings */
+            readonly warnings?: readonly string[];
         };
         /** RegisterModel */
         readonly RegisterModel: {
@@ -15026,6 +15295,39 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["PersonaIntentResolutionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly verify_personality_reference_identity_api_personality_generation_intents_verify_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["PersonaIdentityVerifyRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["PersonaIdentityVerifyResponse"];
                 };
             };
             /** @description Validation Error */

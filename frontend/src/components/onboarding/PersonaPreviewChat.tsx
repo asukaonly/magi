@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ArrowLeft, Check, CheckCircle2, Circle, Loader2, PencilLine } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, Circle, ExternalLink, Loader2, PencilLine, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { streamChatPreview, type PreviewTurn } from '../../api/modules/chatPreview';
 import {
   personasApi,
-  type PersonaAdaptationMode,
+  type PersonaFidelityLevel,
   type PersonaGenerationIntent,
+  type PersonaReferenceDossier,
+  type PersonaReferenceSource,
+  type PersonaResearchPreference,
   type PersonalityConfig,
   type PersonaIntentResolution,
   type PersonaGenerationStage,
@@ -20,7 +23,7 @@ import { PersonaProfilePanel } from './PersonaProfilePanel';
 import { ONBOARDING_FIELD_MUTED_CLASS } from './onboardingStyles';
 import {
   candidateToEditableReference,
-  defaultAdaptationMode,
+  defaultFidelityLevel,
   PersonaReferenceEditor,
   type EditablePersonaReference,
 } from './PersonaReferenceEditor';
@@ -40,18 +43,27 @@ export interface CustomPersonaDraft {
   config: PersonalityConfig;
   originalDescription?: string;
   intent?: PersonaGenerationIntent;
+  referenceDossier?: PersonaReferenceDossier;
   revision?: number;
 }
 
 export interface PersonaCreationDraft {
   draftId: string;
   personaId: string;
-  phase: 'editing' | 'resolving' | 'reviewing' | 'generating' | 'failed';
+  phase: 'editing' | 'resolving' | 'reviewing' | 'verifying' | 'generating' | 'failed';
   description: string;
   resolution?: PersonaIntentResolution;
   reference: EditablePersonaReference;
   referenceConfirmed: boolean;
-  adaptationMode: PersonaAdaptationMode;
+  fidelityLevel: PersonaFidelityLevel;
+  researchPreference: PersonaResearchPreference;
+  referenceUrlsText: string;
+  referenceModified: boolean;
+  identityVerified: boolean;
+  verificationFingerprint?: string;
+  verificationSources: PersonaReferenceSource[];
+  verificationWarning?: string;
+  forceResearchRefresh: boolean;
   constraintsText: string;
   generationRequestId?: string;
   generationJobId?: string;
@@ -152,7 +164,13 @@ function createEmptyCreationDraft(): PersonaCreationDraft {
       context: '',
     },
     referenceConfirmed: false,
-    adaptationMode: 'original',
+    fidelityLevel: 'natural',
+    researchPreference: 'disabled',
+    referenceUrlsText: '',
+    referenceModified: false,
+    identityVerified: false,
+    verificationSources: [],
+    forceResearchRefresh: false,
     constraintsText: '',
     revision: 1,
   };
@@ -165,12 +183,32 @@ function splitConstraints(value: string): string[] {
     .filter((item, index, items) => Boolean(item) && items.indexOf(item) === index);
 }
 
-function expressionProfileForMode(
-  mode: PersonaAdaptationMode,
-): PersonaGenerationIntent['expression_profile'] {
-  if (mode === 'fictional_immersive') return 'immersive';
-  if (mode === 'public_expression' || mode === 'public_image') return 'balanced';
-  return 'natural';
+function expressionLevelForFidelity(
+  fidelityLevel: PersonaFidelityLevel,
+): PersonaGenerationIntent['expression_level'] {
+  if (fidelityLevel === 'traits') return 'low';
+  if (fidelityLevel === 'faithful') return 'high_contextual';
+  return 'balanced';
+}
+
+function splitReferenceUrls(value: string): string[] {
+  return value
+    .split(/\n|,|，/)
+    .map((item) => item.trim())
+    .filter((item, index, items) => Boolean(item) && items.indexOf(item) === index);
+}
+
+function referenceUrlsAreValid(value: string): boolean {
+  const urls = splitReferenceUrls(value);
+  if (urls.length > 4) return false;
+  return urls.every((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  });
 }
 
 function buildGenerationIntent(draft: PersonaCreationDraft): PersonaGenerationIntent {
@@ -179,8 +217,18 @@ function buildGenerationIntent(draft: PersonaCreationDraft): PersonaGenerationIn
     return {
       source_kind: 'original',
       reference: null,
-      adaptation_mode: 'original',
-      expression_profile: 'natural',
+      fidelity_level: 'natural',
+      expression_level: 'balanced',
+      research: {
+        preference: 'disabled',
+        force_refresh: false,
+        reference_urls: [],
+        identity_confidence: 1,
+        identity_ambiguous: false,
+        identity_verified: false,
+        reference_modified: false,
+        verification_fingerprint: null,
+      },
       explicit_constraints: explicitConstraints,
     };
   }
@@ -194,8 +242,26 @@ function buildGenerationIntent(draft: PersonaCreationDraft): PersonaGenerationIn
       context: draft.reference.context.trim() || null,
       user_confirmed: true,
     },
-    adaptation_mode: draft.adaptationMode,
-    expression_profile: expressionProfileForMode(draft.adaptationMode),
+    fidelity_level: draft.fidelityLevel,
+    expression_level: expressionLevelForFidelity(draft.fidelityLevel),
+    research: {
+      preference:
+        draft.reference.sourceKind === 'private_person_reference'
+          ? 'disabled'
+          : draft.researchPreference,
+      force_refresh:
+        draft.researchPreference === 'disabled' ? false : draft.forceResearchRefresh,
+      reference_urls:
+        draft.reference.sourceKind === 'private_person_reference' ||
+        draft.researchPreference === 'disabled'
+          ? []
+          : splitReferenceUrls(draft.referenceUrlsText),
+      identity_confidence: draft.resolution?.confidence ?? 0,
+      identity_ambiguous: draft.resolution?.status === 'ambiguous',
+      identity_verified: draft.identityVerified,
+      reference_modified: draft.referenceModified,
+      verification_fingerprint: draft.verificationFingerprint || null,
+    },
     explicit_constraints: explicitConstraints,
   };
 }
@@ -391,7 +457,7 @@ export function PersonaPreviewChat({
     restoredCreationDraftHandledRef.current = true;
     const restored = creationDraftRef.current;
     if (!restored) return;
-    if (restored.phase === 'resolving') {
+    if (restored.phase === 'resolving' || restored.phase === 'verifying') {
       publishCreationDraft({ ...restored, phase: 'editing' });
       return;
     }
@@ -421,7 +487,9 @@ export function PersonaPreviewChat({
   const onGeneratingChangeRef = useRef(onGeneratingChange);
   onGeneratingChangeRef.current = onGeneratingChange;
   const generating =
-    creationDraft?.phase === 'resolving' || creationDraft?.phase === 'generating';
+    creationDraft?.phase === 'resolving' ||
+    creationDraft?.phase === 'verifying' ||
+    creationDraft?.phase === 'generating';
   const creationInProgress = mode === 'create' && creationDraft !== null;
   useEffect(() => {
     onGeneratingChangeRef.current?.(creationInProgress);
@@ -678,6 +746,7 @@ export function PersonaPreviewChat({
           config,
           originalDescription: description,
           intent,
+          referenceDossier: resp.reference_dossier,
           revision: workingDraft.revision,
         };
         const existingIndex = customDrafts.findIndex(
@@ -729,7 +798,7 @@ export function PersonaPreviewChat({
   );
 
   const applyResolution = useCallback(
-    (sourceDraft: PersonaCreationDraft, resolution: PersonaIntentResolution) => {
+    (sourceDraft: PersonaCreationDraft, resolution: PersonaIntentResolution): PersonaCreationDraft => {
       const selected =
         resolution.candidates.find(
           (candidate) => candidate.candidate_id === resolution.selected_candidate_id,
@@ -763,11 +832,132 @@ export function PersonaPreviewChat({
           resolution.status === 'resolved' ||
           resolution.status === 'original' ||
           resolution.candidates.length <= 1,
-        adaptationMode: defaultAdaptationMode(reference.sourceKind),
+        fidelityLevel: defaultFidelityLevel(reference.sourceKind),
+        researchPreference:
+          reference.sourceKind === 'original' || reference.sourceKind === 'private_person_reference'
+            ? 'disabled'
+            : 'auto',
+        referenceUrlsText: '',
+        referenceModified: false,
+        identityVerified: false,
+        verificationFingerprint: undefined,
+        verificationSources: [],
+        verificationWarning: undefined,
+        forceResearchRefresh: false,
         constraintsText: resolution.explicit_constraints.join('\n'),
       };
     },
     [],
+  );
+
+  const verifyDraftReference = useCallback(
+    async (sourceDraft: PersonaCreationDraft): Promise<PersonaCreationDraft | null> => {
+      if (
+        sourceDraft.reference.sourceKind === 'original' ||
+        sourceDraft.reference.sourceKind === 'private_person_reference' ||
+        sourceDraft.researchPreference === 'disabled' ||
+        sourceDraft.identityVerified
+      ) {
+        return sourceDraft;
+      }
+      const verifyingDraft: PersonaCreationDraft = {
+        ...sourceDraft,
+        phase: 'verifying',
+      };
+      publishCreationDraft(verifyingDraft);
+      try {
+        const targetLanguage = (i18n.language || '').startsWith('zh') ? 'Chinese' : 'English';
+        const response = await personasApi.verifyReferenceIdentity({
+          description: sourceDraft.description,
+          reference: {
+            source_kind: sourceDraft.reference.sourceKind,
+            name: sourceDraft.reference.name.trim(),
+            work_title: sourceDraft.reference.workTitle.trim() || null,
+            version: sourceDraft.reference.version.trim() || null,
+            context: sourceDraft.reference.context.trim() || null,
+            user_confirmed: true,
+          },
+          target_language: targetLanguage,
+          reference_urls: splitReferenceUrls(sourceDraft.referenceUrlsText),
+          llm_override: llmConfig,
+        });
+        const verification = response.data;
+        if (!verification) {
+          throw new Error('Reference verification returned no result');
+        }
+        const canonical = verification.canonical_identity;
+        const reference: EditablePersonaReference = canonical
+          ? {
+              sourceKind: canonical.source_kind,
+              name: canonical.name,
+              workTitle: canonical.work_title || '',
+              version: canonical.version || '',
+              context: canonical.context || '',
+            }
+          : sourceDraft.reference;
+        if (verification.requires_confirmation || verification.status === 'ambiguous') {
+          const identities = [
+            ...(canonical ? [canonical] : []),
+            ...verification.alternatives,
+          ];
+          const candidates = identities.map((identity, index) => ({
+            candidate_id: `verified-candidate-${index + 1}`,
+            source_kind: identity.source_kind,
+            name: identity.name,
+            work_title: identity.work_title || null,
+            version: identity.version || null,
+            context: identity.context || null,
+            confidence: verification.confidence,
+          }));
+          publishCreationDraft({
+            ...sourceDraft,
+            phase: 'reviewing',
+            reference,
+            referenceConfirmed: false,
+            resolution: {
+              status: candidates.length > 1 ? 'ambiguous' : 'resolved',
+              candidates,
+              selected_candidate_id: candidates[0]?.candidate_id || null,
+              confidence: verification.confidence,
+              requires_confirmation: true,
+              explicit_constraints: splitConstraints(sourceDraft.constraintsText),
+            },
+            identityVerified: verification.status === 'verified',
+            verificationFingerprint: verification.reference_fingerprint || undefined,
+            verificationSources: verification.sources,
+            verificationWarning: verification.warning || undefined,
+          });
+          setGenError(verification.warning || t('personaPreview.reference.verificationNeedsReview'));
+          return null;
+        }
+        const verifiedDraft: PersonaCreationDraft = {
+          ...sourceDraft,
+          phase: 'reviewing',
+          reference,
+          identityVerified: verification.status === 'verified',
+          verificationFingerprint: verification.reference_fingerprint || undefined,
+          verificationSources: verification.sources,
+          verificationWarning: verification.warning || undefined,
+        };
+        publishCreationDraft(verifiedDraft);
+        return verifiedDraft;
+      } catch (error) {
+        const warning = (error as Error).message || t('personaPreview.reference.verificationUnavailable');
+        const fallbackDraft: PersonaCreationDraft = {
+          ...sourceDraft,
+          phase: sourceDraft.fidelityLevel === 'faithful' ? 'failed' : 'reviewing',
+          identityVerified: false,
+          verificationWarning: warning,
+        };
+        publishCreationDraft(fallbackDraft);
+        if (sourceDraft.fidelityLevel === 'faithful') {
+          setGenError(t('personaPreview.reference.faithfulVerificationRequired'));
+          return null;
+        }
+        return fallbackDraft;
+      }
+    },
+    [i18n.language, llmConfig, publishCreationDraft, t],
   );
 
   const handleResolveOrGenerate = useCallback(async () => {
@@ -790,12 +980,14 @@ export function PersonaPreviewChat({
         if (sourceDraft.reference.sourceKind !== 'original' && !sourceDraft.reference.name.trim()) {
           return;
         }
-        const retryDraft = {
+        const retryDraft: PersonaCreationDraft = {
           ...sourceDraft,
           generationRequestId: createStableId(),
           generationJobId: undefined,
         };
-        await runGeneration(retryDraft, buildGenerationIntent(retryDraft));
+        const verifiedDraft = await verifyDraftReference(retryDraft);
+        if (!verifiedDraft) return;
+        await runGeneration(verifiedDraft, buildGenerationIntent(verifiedDraft));
         return;
       }
 
@@ -847,10 +1039,11 @@ export function PersonaPreviewChat({
     publishCreationDraft,
     runGeneration,
     t,
+    verifyDraftReference,
   ]);
 
   const editCustomReference = useCallback(
-    (customDraft: CustomPersonaDraft) => {
+    (customDraft: CustomPersonaDraft, forceResearchRefresh = false) => {
       const intent = customDraft.intent;
       const reference = intent?.reference;
       const sourceKind = intent?.source_kind ?? 'original';
@@ -897,7 +1090,19 @@ export function PersonaPreviewChat({
         },
         reference: editableReference,
         referenceConfirmed: true,
-        adaptationMode: intent?.adaptation_mode || defaultAdaptationMode(editableReference.sourceKind),
+        fidelityLevel: intent?.fidelity_level || defaultFidelityLevel(editableReference.sourceKind),
+        researchPreference:
+          intent?.research.preference ||
+          (editableReference.sourceKind === 'original' || editableReference.sourceKind === 'private_person_reference'
+            ? 'disabled'
+            : 'auto'),
+        referenceUrlsText: intent?.research.reference_urls.join('\n') || '',
+        referenceModified: false,
+        identityVerified: forceResearchRefresh ? false : intent?.research.identity_verified || false,
+        verificationFingerprint: forceResearchRefresh ? undefined : intent?.research.verification_fingerprint || undefined,
+        verificationSources: forceResearchRefresh ? [] : customDraft.referenceDossier?.sources || [],
+        verificationWarning: forceResearchRefresh ? undefined : customDraft.referenceDossier?.warning || undefined,
+        forceResearchRefresh,
         constraintsText: (intent?.explicit_constraints || []).join('\n'),
         editingPersonaSlug: customDraft.slug,
         revision: (customDraft.revision || 1) + 1,
@@ -1059,11 +1264,19 @@ export function PersonaPreviewChat({
       (
         creationDraft.reference.sourceKind === 'original' ||
         Boolean(creationDraft.reference.name.trim())
+      ) &&
+      (
+        creationDraft.reference.sourceKind === 'original' ||
+        creationDraft.reference.sourceKind === 'private_person_reference' ||
+        creationDraft.researchPreference === 'disabled' ||
+        referenceUrlsAreValid(creationDraft.referenceUrlsText)
       )
     );
   const generationButtonLabel =
     creationDraft?.phase === 'resolving'
       ? t('personaPreview.reference.resolving')
+      : creationDraft?.phase === 'verifying'
+        ? t('personaPreview.reference.verifying')
       : creationDraft?.phase === 'generating'
         ? t('personaPreview.generating')
         : creationNeedsConfirmation
@@ -1357,24 +1570,42 @@ export function PersonaPreviewChat({
                   <PersonaReferenceEditor
                     resolution={creationDraft.resolution}
                     value={creationDraft.reference}
-                    adaptationMode={creationDraft.adaptationMode}
+                    fidelityLevel={creationDraft.fidelityLevel}
                     constraintsText={creationDraft.constraintsText}
+                    researchPreference={creationDraft.researchPreference}
+                    referenceUrlsText={creationDraft.referenceUrlsText}
+                    referenceUrlsValid={referenceUrlsAreValid(creationDraft.referenceUrlsText)}
                     disabled={generating}
                     onChange={(reference) => {
                       publishCreationDraft({
                         ...creationDraft,
                         reference,
                         referenceConfirmed: true,
-                        adaptationMode:
+                        referenceModified: true,
+                        identityVerified: false,
+                        verificationFingerprint: undefined,
+                        verificationSources: [],
+                        verificationWarning: undefined,
+                        fidelityLevel:
                           reference.sourceKind === creationDraft.reference.sourceKind
-                            ? creationDraft.adaptationMode
-                            : defaultAdaptationMode(reference.sourceKind),
+                            ? creationDraft.fidelityLevel
+                            : defaultFidelityLevel(reference.sourceKind),
+                        researchPreference:
+                          reference.sourceKind === 'original' || reference.sourceKind === 'private_person_reference'
+                            ? 'disabled'
+                            : creationDraft.researchPreference === 'disabled'
+                              ? 'auto'
+                              : creationDraft.researchPreference,
+                        referenceUrlsText:
+                          reference.sourceKind === 'original' || reference.sourceKind === 'private_person_reference'
+                            ? ''
+                            : creationDraft.referenceUrlsText,
                       });
                     }}
-                    onAdaptationModeChange={(adaptationMode) => {
+                    onFidelityLevelChange={(fidelityLevel) => {
                       publishCreationDraft({
                         ...creationDraft,
-                        adaptationMode,
+                        fidelityLevel,
                         referenceConfirmed: true,
                       });
                     }}
@@ -1384,7 +1615,53 @@ export function PersonaPreviewChat({
                         constraintsText,
                       });
                     }}
+                    onResearchPreferenceChange={(researchPreference) => {
+                      publishCreationDraft({
+                        ...creationDraft,
+                        researchPreference,
+                        identityVerified: false,
+                        verificationFingerprint: undefined,
+                        verificationSources: [],
+                        verificationWarning: undefined,
+                      });
+                    }}
+                    onReferenceUrlsTextChange={(referenceUrlsText) => {
+                      publishCreationDraft({
+                        ...creationDraft,
+                        referenceUrlsText,
+                        identityVerified: false,
+                        verificationFingerprint: undefined,
+                        verificationSources: [],
+                        verificationWarning: undefined,
+                      });
+                    }}
                   />
+                  {creationDraft.verificationSources.length > 0 && (
+                    <details
+                      data-testid="persona-reference-verification-sources"
+                      className="mt-4 rounded-lg border border-border/45 bg-muted/20 px-3 py-2"
+                    >
+                      <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                        {t('personaPreview.reference.verificationSources', {
+                          count: creationDraft.verificationSources.length,
+                        })}
+                      </summary>
+                      <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
+                        {creationDraft.verificationSources.map((source) => (
+                          <a
+                            key={source.source_id}
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-xs hover:bg-background"
+                          >
+                            <span className="truncate">{source.title || source.domain}</span>
+                            <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                          </a>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </motion.div>
               ) : null}
             </AnimatePresence>
@@ -1407,7 +1684,9 @@ export function PersonaPreviewChat({
                   <span>
                     {creationDraft?.phase === 'resolving'
                       ? t('personaPreview.reference.resolving')
-                      : t('personaPreview.generating')}
+                      : creationDraft?.phase === 'verifying'
+                        ? t('personaPreview.reference.verifying')
+                        : t('personaPreview.generating')}
                   </span>
                 </div>
                 {genStages.length > 0 && (
@@ -1481,26 +1760,77 @@ export function PersonaPreviewChat({
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           {activeItem?.customDraft?.intent?.reference && (
-            <div
-              data-testid="persona-reference-summary"
-              className="flex items-center justify-between gap-3 rounded-lg border border-border/55 bg-muted/25 px-3 py-2"
-            >
-              <div className="min-w-0">
-                <div className="text-xs text-muted-foreground">
-                  {t('personaPreview.reference.currentReference')}
-                </div>
-                <div className="truncate text-sm font-medium text-foreground">
-                  {referenceSummary(activeItem.customDraft.intent)}
-                </div>
-              </div>
-              <button
-                type="button"
-                data-testid="persona-reference-edit"
-                onClick={() => editCustomReference(activeItem.customDraft!)}
-                className="shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+            <div className="space-y-2">
+              <div
+                data-testid="persona-reference-summary"
+                className="flex items-center justify-between gap-3 rounded-lg border border-border/55 bg-muted/25 px-3 py-2"
               >
-                {t('personaPreview.reference.edit')}
-              </button>
+                <div className="min-w-0">
+                  <div className="text-xs text-muted-foreground">
+                    {t('personaPreview.reference.currentReference')}
+                  </div>
+                  <div className="truncate text-sm font-medium text-foreground">
+                    {referenceSummary(activeItem.customDraft.intent)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  data-testid="persona-reference-edit"
+                  onClick={() => editCustomReference(activeItem.customDraft!)}
+                  className="shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                >
+                  {t('personaPreview.reference.edit')}
+                </button>
+              </div>
+              <details
+                data-testid="persona-reference-sources"
+                className="rounded-lg border border-border/45 bg-background/60 px-3 py-2"
+              >
+                <summary className="cursor-pointer list-none text-xs text-muted-foreground">
+                  {activeItem.customDraft.referenceDossier?.grounding_status === 'verified'
+                    ? t('personaPreview.reference.sourcesVerified', {
+                        count: activeItem.customDraft.referenceDossier.sources.length,
+                      })
+                    : activeItem.customDraft.referenceDossier?.grounding_status === 'unavailable'
+                      ? t('personaPreview.reference.sourcesUnavailable')
+                      : activeItem.customDraft.referenceDossier?.grounding_status === 'insufficient'
+                        ? t('personaPreview.reference.sourcesInsufficient')
+                        : t('personaPreview.reference.sourcesUnverified')}
+                </summary>
+                <div className="mt-2 space-y-2 border-t border-border/40 pt-2">
+                  {activeItem.customDraft.referenceDossier?.sources.map((source) => (
+                    <a
+                      key={source.source_id}
+                      href={source.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-start justify-between gap-3 rounded-md px-2 py-1.5 text-xs hover:bg-muted/55"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-foreground">
+                          {source.title || source.domain}
+                        </span>
+                        <span className="block truncate text-muted-foreground">{source.domain}</span>
+                      </span>
+                      <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    </a>
+                  ))}
+                  {activeItem.customDraft.referenceDossier?.warning && (
+                    <p className="px-2 text-xs leading-5 text-muted-foreground">
+                      {activeItem.customDraft.referenceDossier.warning}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    data-testid="persona-reference-refresh"
+                    onClick={() => editCustomReference(activeItem.customDraft!, true)}
+                    className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t('personaPreview.reference.refreshSources')}
+                  </button>
+                </div>
+              </details>
             </div>
           )}
           {mode === 'profile' ? (

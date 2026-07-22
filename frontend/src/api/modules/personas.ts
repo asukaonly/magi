@@ -109,17 +109,9 @@ export type PersonaReferenceKind =
 
 export type PersonaResolutionStatus = 'original' | 'resolved' | 'ambiguous' | 'unknown';
 
-export type PersonaAdaptationMode =
-  | 'original'
-  | 'fictional_inspired'
-  | 'fictional_natural'
-  | 'fictional_immersive'
-  | 'public_traits'
-  | 'public_expression'
-  | 'public_image'
-  | 'private_traits';
-
-export type PersonaExpressionProfile = 'natural' | 'balanced' | 'immersive';
+export type PersonaFidelityLevel = 'traits' | 'natural' | 'faithful';
+export type PersonaExpressionLevel = 'low' | 'balanced' | 'high_contextual';
+export type PersonaResearchPreference = 'auto' | 'disabled' | 'required';
 
 export interface PersonaReferenceCandidate {
   candidate_id: string;
@@ -149,17 +141,99 @@ export interface PersonaReference {
   user_confirmed: true;
 }
 
+export type ReferenceIdentityStatus = 'verified' | 'ambiguous' | 'unverified';
+export type ReferenceGroundingStatus =
+  | 'disabled'
+  | 'model_prior'
+  | 'verified'
+  | 'unavailable'
+  | 'insufficient';
+
+export interface PersonaReferenceIdentity {
+  source_kind: 'fictional_reference' | 'public_person_reference';
+  name: string;
+  work_title?: string | null;
+  version?: string | null;
+  context?: string | null;
+}
+
+export interface PersonaReferenceSource {
+  source_id: string;
+  url: string;
+  title: string;
+  domain: string;
+  source_type: string;
+  authority: number;
+  directness: number;
+  summary: string;
+  retrieved_at: string;
+  user_provided: boolean;
+  warnings: string[];
+}
+
+export interface PersonaReferenceDossier {
+  schema_version: number;
+  reference_fingerprint: string;
+  identity_status: ReferenceIdentityStatus;
+  grounding_status: ReferenceGroundingStatus;
+  research_level: 'none' | 'identity' | 'representative' | 'full';
+  canonical_identity?: PersonaReferenceIdentity | null;
+  profile_dimensions: Record<string, string[]>;
+  evidence: Array<{
+    dimension: string;
+    claim: string;
+    source_ids: string[];
+    confidence: number;
+  }>;
+  unknowns: string[];
+  contradictions: string[];
+  sources: PersonaReferenceSource[];
+  coverage: number;
+  volatility: 'stable' | 'evolving' | 'current' | 'unknown';
+  sufficient: boolean;
+  warning?: string | null;
+}
+
+export interface PersonaIdentityVerification {
+  status: ReferenceIdentityStatus;
+  canonical_identity?: PersonaReferenceIdentity | null;
+  alternatives: PersonaReferenceIdentity[];
+  confidence: number;
+  requires_confirmation: boolean;
+  reference_fingerprint?: string | null;
+  sources: PersonaReferenceSource[];
+  warning?: string | null;
+}
+
 export interface PersonaGenerationIntent {
   source_kind: 'original' | PersonaReferenceKind;
   reference?: PersonaReference | null;
-  adaptation_mode: PersonaAdaptationMode;
-  expression_profile: PersonaExpressionProfile;
+  fidelity_level: PersonaFidelityLevel;
+  expression_level: PersonaExpressionLevel;
+  research: {
+    preference: PersonaResearchPreference;
+    force_refresh: boolean;
+    reference_urls: string[];
+    identity_confidence: number;
+    identity_ambiguous: boolean;
+    identity_verified: boolean;
+    reference_modified: boolean;
+    verification_fingerprint?: string | null;
+  };
   explicit_constraints: string[];
 }
 
 export interface PersonaIntentResolveRequest {
   description: string;
   target_language?: string;
+  llm_override?: LLMConfig;
+}
+
+export interface PersonaIdentityVerifyRequest {
+  description: string;
+  reference: PersonaReference;
+  target_language?: string;
+  reference_urls?: string[];
   llm_override?: LLMConfig;
 }
 
@@ -205,6 +279,7 @@ export interface PersonalityGenerateResponse {
   message: string;
   data?: PersonalityConfig;
   stages?: PersonaGenerationStage[];
+  reference_dossier?: PersonaReferenceDossier;
 }
 
 export interface PersonalityGenerationJobSnapshot {
@@ -217,6 +292,7 @@ export interface PersonalityGenerationJobSnapshot {
   updated_at?: number;
   data?: PersonalityConfig;
   error?: string;
+  reference_dossier?: PersonaReferenceDossier;
 }
 
 export interface PersonalityGenerationJobResponse {
@@ -318,6 +394,7 @@ export interface PersonaDetail {
   created_at: number;
   updated_at: number;
   deleted_at?: number | null;
+  reference_dossier?: PersonaReferenceDossier | null;
 }
 
 export interface PersonaListResponse {
@@ -398,6 +475,7 @@ export const personasApi = {
     config_json: string;
     locale?: string;
     slug?: string;
+    reference_dossier?: PersonaReferenceDossier;
   }) =>
     api.post<PersonaDetail>('/personas/', payload),
 
@@ -410,6 +488,7 @@ export const personasApi = {
       slug?: string;
       avatar_path?: string;
       sort_order?: number;
+      reference_dossier?: PersonaReferenceDossier;
     },
   ) => api.put<PersonaDetail>('/personas/' + personaId, payload),
 
@@ -482,6 +561,16 @@ export const personasApi = {
       data?: PersonaIntentResolution;
     }>,
 
+  /** Verify a selected public or fictional reference using public sources. */
+  verifyReferenceIdentity: (request: PersonaIdentityVerifyRequest) =>
+    api.post<PersonaIdentityVerification>('/personality/generation-intents/verify', request, {
+      timeout: 90000,
+    }) as Promise<{
+      success: boolean;
+      message: string;
+      data?: PersonaIdentityVerification;
+    }>,
+
   /** Apply a scoped change to an unsaved persona draft. */
   adjust: (request: PersonaAdjustmentRequest) =>
     api.post<PersonalityConfig>('/personality/adjust', request, {
@@ -544,6 +633,7 @@ export const personasApi = {
       message: 'AI personality configuration generated successfully',
       data: snapshot.data,
       stages: snapshot.stages,
+      reference_dossier: snapshot.reference_dossier,
     };
   },
 

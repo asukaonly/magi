@@ -61,6 +61,7 @@ import {
 } from "./onboardingStyles";
 
 const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
+const PERSONA_GENERATION_DRAFT_VERSION = 2;
 const RUNTIME_READY_WAIT_INTERVAL_MS = 500;
 const RUNTIME_READY_WAIT_TIMEOUT_MS = 12_000;
 const ONBOARDING_SAVE_TIMEOUT_MS = 20_000;
@@ -495,6 +496,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         seedSlug?: string | null;
         customPersonas?: CustomPersonaDraft[];
         personaCreationDraft?: PersonaCreationDraft | null;
+        personaGenerationDraftVersion?: number;
         firstContextPluginIds?: string[];
         firstContextCountsByPluginId?: Record<string, number | null>;
         firstContextProgress?: Partial<FirstContextProgress>;
@@ -508,13 +510,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           recoveredStep > LLM_SETUP_STEP ? LLM_SETUP_STEP : recoveredStep,
         );
       }
-      if (parsed.seedSlug) {
+      if (
+        parsed.seedSlug &&
+        (
+          !parsed.seedSlug.startsWith('onboarding-custom-') ||
+          parsed.personaGenerationDraftVersion === PERSONA_GENERATION_DRAFT_VERSION
+        )
+      ) {
         setSeedSlug(parsed.seedSlug);
       }
-      if (Array.isArray(parsed.customPersonas)) {
+      if (
+        parsed.personaGenerationDraftVersion === PERSONA_GENERATION_DRAFT_VERSION &&
+        Array.isArray(parsed.customPersonas)
+      ) {
         setCustomPersonas(parsed.customPersonas);
       }
       if (
+        parsed.personaGenerationDraftVersion === PERSONA_GENERATION_DRAFT_VERSION &&
         parsed.personaCreationDraft &&
         typeof parsed.personaCreationDraft === "object"
       ) {
@@ -646,6 +658,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       STORAGE_KEY,
       JSON.stringify({
         current: nextCurrent,
+        personaGenerationDraftVersion: PERSONA_GENERATION_DRAFT_VERSION,
         values,
         seedSlug: nextSeedSlug,
         customPersonas: nextCustomPersonas,
@@ -845,6 +858,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           slug: customDraft.slug,
           config_json: JSON.stringify(customDraft.config),
           locale: seedLocale,
+          reference_dossier: customDraft.referenceDossier,
         });
         assertCurrentRequest();
         if (created?.data?.persona_id !== customDraft.personaId) {

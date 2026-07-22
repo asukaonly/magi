@@ -2202,6 +2202,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       if (key !== "magi_onboarding_state") return null;
       return JSON.stringify({
         current: 2,
+        personaGenerationDraftVersion: 2,
         values: DEFAULT_SYSTEM_CONFIG,
         seedSlug: slug,
         customPersonas: [

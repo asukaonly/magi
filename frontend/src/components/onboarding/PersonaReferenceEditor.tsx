@@ -15,8 +15,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type {
-  PersonaAdaptationMode,
+  PersonaFidelityLevel,
   PersonaIntentResolution,
+  PersonaResearchPreference,
   PersonaReferenceCandidate,
   PersonaReferenceKind,
 } from '../../api/modules/personas';
@@ -32,16 +33,21 @@ export interface EditablePersonaReference {
 interface PersonaReferenceEditorProps {
   resolution: PersonaIntentResolution;
   value: EditablePersonaReference;
-  adaptationMode: PersonaAdaptationMode;
+  fidelityLevel: PersonaFidelityLevel;
   constraintsText: string;
+  researchPreference: PersonaResearchPreference;
+  referenceUrlsText: string;
+  referenceUrlsValid: boolean;
   disabled: boolean;
   onChange: (value: EditablePersonaReference) => void;
-  onAdaptationModeChange: (mode: PersonaAdaptationMode) => void;
+  onFidelityLevelChange: (level: PersonaFidelityLevel) => void;
   onConstraintsTextChange: (value: string) => void;
+  onResearchPreferenceChange: (preference: PersonaResearchPreference) => void;
+  onReferenceUrlsTextChange: (value: string) => void;
 }
 
 interface ModeOption {
-  value: PersonaAdaptationMode;
+  value: PersonaFidelityLevel;
   titleKey: string;
   descriptionKey: string;
   recommended?: boolean;
@@ -50,43 +56,43 @@ interface ModeOption {
 const MODE_OPTIONS: Record<PersonaReferenceKind, ModeOption[]> = {
   fictional_reference: [
     {
-      value: 'fictional_inspired',
+      value: 'traits',
       titleKey: 'personaPreview.reference.modes.fictionalInspired.title',
       descriptionKey: 'personaPreview.reference.modes.fictionalInspired.description',
     },
     {
-      value: 'fictional_natural',
+      value: 'natural',
       titleKey: 'personaPreview.reference.modes.fictionalNatural.title',
       descriptionKey: 'personaPreview.reference.modes.fictionalNatural.description',
       recommended: true,
     },
     {
-      value: 'fictional_immersive',
+      value: 'faithful',
       titleKey: 'personaPreview.reference.modes.fictionalImmersive.title',
       descriptionKey: 'personaPreview.reference.modes.fictionalImmersive.description',
     },
   ],
   public_person_reference: [
     {
-      value: 'public_traits',
+      value: 'traits',
       titleKey: 'personaPreview.reference.modes.publicTraits.title',
       descriptionKey: 'personaPreview.reference.modes.publicTraits.description',
     },
     {
-      value: 'public_expression',
+      value: 'natural',
       titleKey: 'personaPreview.reference.modes.publicExpression.title',
       descriptionKey: 'personaPreview.reference.modes.publicExpression.description',
       recommended: true,
     },
     {
-      value: 'public_image',
+      value: 'faithful',
       titleKey: 'personaPreview.reference.modes.publicImage.title',
       descriptionKey: 'personaPreview.reference.modes.publicImage.description',
     },
   ],
   private_person_reference: [
     {
-      value: 'private_traits',
+      value: 'traits',
       titleKey: 'personaPreview.reference.modes.privateTraits.title',
       descriptionKey: 'personaPreview.reference.modes.privateTraits.description',
       recommended: true,
@@ -102,13 +108,11 @@ function candidateLabel(candidate: PersonaReferenceCandidate): string {
   ].filter(Boolean).join(' · ');
 }
 
-export function defaultAdaptationMode(
+export function defaultFidelityLevel(
   sourceKind: EditablePersonaReference['sourceKind'],
-): PersonaAdaptationMode {
-  if (sourceKind === 'fictional_reference') return 'fictional_natural';
-  if (sourceKind === 'public_person_reference') return 'public_expression';
-  if (sourceKind === 'private_person_reference') return 'private_traits';
-  return 'original';
+): PersonaFidelityLevel {
+  if (sourceKind === 'private_person_reference') return 'traits';
+  return 'natural';
 }
 
 export function candidateToEditableReference(
@@ -126,12 +130,17 @@ export function candidateToEditableReference(
 export function PersonaReferenceEditor({
   resolution,
   value,
-  adaptationMode,
+  fidelityLevel,
   constraintsText,
+  researchPreference,
+  referenceUrlsText,
+  referenceUrlsValid,
   disabled,
   onChange,
-  onAdaptationModeChange,
+  onFidelityLevelChange,
   onConstraintsTextChange,
+  onResearchPreferenceChange,
+  onReferenceUrlsTextChange,
 }: PersonaReferenceEditorProps): JSX.Element {
   const { t } = useTranslation('onboarding');
   const shouldReduceMotion = useReducedMotion() ?? false;
@@ -387,16 +396,16 @@ export function PersonaReferenceEditor({
           </legend>
           <div className="mt-2 space-y-2" role="radiogroup">
             {options.map((option) => {
-              const selected = adaptationMode === option.value;
+              const selected = fidelityLevel === option.value;
               return (
                 <button
                   key={option.value}
                   type="button"
                   role="radio"
-                  data-testid={`persona-reference-mode-${option.value}`}
+                  data-testid={`persona-reference-fidelity-${option.value}`}
                   aria-checked={selected}
                   disabled={disabled}
-                  onClick={() => onAdaptationModeChange(option.value)}
+                  onClick={() => onFidelityLevelChange(option.value)}
                   className={cn(
                     'group relative flex w-full items-start gap-3 overflow-hidden rounded-lg px-3 py-3 text-left transition-colors duration-200 hover:bg-muted/55 motion-reduce:transition-none',
                     selected && 'text-foreground',
@@ -507,6 +516,69 @@ export function PersonaReferenceEditor({
                       className={cn('mt-1.5 w-full resize-none px-3 py-2 text-sm leading-6', ONBOARDING_FIELD_MUTED_CLASS)}
                     />
                   </label>
+                )}
+
+              {value.sourceKind !== 'original' &&
+                value.sourceKind !== 'private_person_reference' && (
+                  <div className="sm:col-span-2">
+                    <button
+                      type="button"
+                      role="switch"
+                      data-testid="persona-reference-research-toggle"
+                      aria-checked={researchPreference !== 'disabled'}
+                      disabled={disabled || !advancedOpen}
+                      onClick={() => onResearchPreferenceChange(
+                        researchPreference === 'disabled' ? 'auto' : 'disabled',
+                      )}
+                      className="flex w-full items-center justify-between gap-4 rounded-lg border border-border/55 bg-muted/25 px-3 py-2.5 text-left"
+                    >
+                      <span>
+                        <span className="block text-xs font-semibold text-foreground">
+                          {t('personaPreview.reference.webResearch')}
+                        </span>
+                        <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                          {t('personaPreview.reference.webResearchHint')}
+                        </span>
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'relative h-5 w-9 shrink-0 rounded-full transition-colors',
+                          researchPreference !== 'disabled' ? 'bg-primary' : 'bg-muted-foreground/25',
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'absolute top-0.5 h-4 w-4 rounded-full bg-background shadow-sm transition-transform',
+                            researchPreference !== 'disabled' ? 'translate-x-[18px]' : 'translate-x-0.5',
+                          )}
+                        />
+                      </span>
+                    </button>
+                    {researchPreference !== 'disabled' && (
+                      <label className="mt-3 block text-xs font-medium text-muted-foreground">
+                        {t('personaPreview.reference.referenceUrls')}
+                        <textarea
+                          data-testid="persona-reference-urls"
+                          value={referenceUrlsText}
+                          disabled={disabled || !advancedOpen}
+                          rows={2}
+                          onChange={(event) => onReferenceUrlsTextChange(event.target.value)}
+                          placeholder={t('personaPreview.reference.referenceUrlsPlaceholder')}
+                          className={cn('mt-1.5 w-full resize-none px-3 py-2 text-sm leading-6', ONBOARDING_FIELD_MUTED_CLASS)}
+                        />
+                        {!referenceUrlsValid && (
+                          <span
+                            data-testid="persona-reference-urls-error"
+                            className="mt-1 block text-xs font-normal text-destructive"
+                            role="alert"
+                          >
+                            {t('personaPreview.reference.referenceUrlsInvalid')}
+                          </span>
+                        )}
+                      </label>
+                    )}
+                  </div>
                 )}
 
               <label className="block text-xs font-medium text-muted-foreground sm:col-span-2">
