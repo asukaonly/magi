@@ -78,11 +78,27 @@ def test_research_policy_uses_representative_research_for_low_coverage() -> None
     assert "profile_coverage_low" in decision.reason_codes
 
 
-def test_research_policy_does_not_use_unknown_count_as_sole_trigger() -> None:
+def test_research_policy_grounds_natural_fidelity_even_with_a_complete_stable_prior() -> None:
     decision = decide_reference_research(
         ReferenceResearchPolicyInput(
             source_kind="fictional_reference",
             fidelity_level="natural",
+            profile_coverage=0.9,
+            volatility="stable",
+            identity_confidence=0.95,
+        )
+    )
+
+    assert decision.level == "representative"
+    assert decision.requires_network is True
+    assert "natural_fidelity_requested" in decision.reason_codes
+
+
+def test_research_policy_can_skip_traits_when_identity_and_prior_are_sufficient() -> None:
+    decision = decide_reference_research(
+        ReferenceResearchPolicyInput(
+            source_kind="fictional_reference",
+            fidelity_level="traits",
             profile_coverage=0.9,
             volatility="stable",
             identity_confidence=0.95,

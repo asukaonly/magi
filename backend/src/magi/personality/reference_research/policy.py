@@ -80,13 +80,13 @@ def decide_reference_research(
     needs_representative_research = any(
         (
             policy_input.has_user_reference_urls,
-            policy_input.fidelity_level == "natural"
-            and policy_input.profile_coverage < _PROFILE_COVERAGE_THRESHOLD,
-            policy_input.fidelity_level == "natural"
-            and policy_input.volatility in {"evolving", "current"},
+            policy_input.fidelity_level == "natural",
+            policy_input.volatility in {"evolving", "current"},
         )
     )
     if needs_representative_research:
+        if policy_input.fidelity_level == "natural":
+            reasons.append("natural_fidelity_requested")
         if policy_input.profile_coverage < _PROFILE_COVERAGE_THRESHOLD:
             reasons.append("profile_coverage_low")
         if policy_input.volatility in {"evolving", "current"}:

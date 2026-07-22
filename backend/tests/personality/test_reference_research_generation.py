@@ -112,6 +112,47 @@ async def test_generation_uses_representative_research_for_sparse_natural_prior(
 
 
 @pytest.mark.asyncio
+async def test_generation_still_researches_natural_reference_when_model_prior_is_complete(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_research(identity, **kwargs):  # type: ignore[no-untyped-def]
+        captured["identity"] = identity
+        captured.update(kwargs)
+        return ReferenceDossier(
+            reference_fingerprint="fingerprint",
+            identity_status="verified",
+            grounding_status="verified",
+            research_level="representative",
+            canonical_identity=identity,
+            sufficient=True,
+        )
+
+    monkeypatch.setattr(personality_generation, "research_reference", fake_research)
+    complete_prior = {
+        "dimensions": {
+            dimension: [f"Model-prior {dimension} claim"]
+            for dimension in (
+                "ordinary_baseline",
+                "judgment_patterns",
+                "speech_rhythm",
+                "interaction_patterns",
+                "signature_markers",
+                "contrast_contexts",
+                "version_notes",
+            )
+        },
+        "volatility": "stable",
+    }
+
+    await personality_generation._run_reference_research_stage(
+        _context(_intent()),
+        complete_prior,
+    )
+
+    assert captured["research_level"] == "representative"
+
+
+@pytest.mark.asyncio
 async def test_faithful_generation_never_silently_downgrades_without_network() -> None:
     with pytest.raises(ValueError, match="requires public-source verification"):
         await personality_generation._run_reference_research_stage(
