@@ -33,6 +33,7 @@ from magi.memory.l3.models import L3Candidate
 from magi.memory.source_event_governance import (
     business_source_references,
     chat_session_source_reference,
+    memory_event_source_references,
 )
 from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
 from magi.utils.runtime import RuntimePaths
@@ -61,6 +62,38 @@ def test_business_source_references_match_owner_and_idempotency_scopes() -> None
     assert user_message[0] == assistant_message[0]
     assert user_message[1] != assistant_message[1]
     assert set(user_message).isdisjoint(case_distinct_source)
+
+
+def test_runtime_session_without_user_keeps_event_scoped_references() -> None:
+    event = MemoryEvent(
+        event_id="event-runtime",
+        correlation_id="correlation-runtime",
+        timestamp=1_720_000_000.0,
+        created_at=1_720_000_000.0,
+        event_type="ActionExecuted",
+        source="persona_generation",
+        source_item_id=None,
+        memory_domain=MemoryDomain.RUNTIME_TELEMETRY,
+        ingest_target=IngestTarget.L0_ONLY,
+        cognition_eligible=False,
+        tom_depth=TomDepth.NONE,
+        retention_class=RetentionClass.DISPOSABLE,
+        session_id="persona_generation",
+        turn_id="turn-runtime",
+        user_id=None,
+        task_id=None,
+        content="web-search",
+        author_type="tool",
+        content_type="tool_result",
+        importance_score=0.1,
+        level=20,
+        idempotency_key=None,
+    )
+
+    assert memory_event_source_references(event) == (
+        "event-runtime",
+        "turn-runtime",
+    )
 
 
 def _memory_event(

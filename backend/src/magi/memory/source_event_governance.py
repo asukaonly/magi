@@ -144,11 +144,13 @@ def chat_session_source_reference(*, user_id: str, session_id: str) -> str:
 def memory_event_source_references(event: MemoryEvent) -> tuple[str, ...]:
     """Return every durable identity that can govern one memory event replay."""
     references = [event.event_id, event.turn_id]
-    if str(event.session_id or "").strip():
+    session_id = str(event.session_id or "").strip()
+    user_id = str(event.user_id or "").strip()
+    if session_id and user_id:
         references.append(
             chat_session_source_reference(
-                user_id=str(event.user_id or ""),
-                session_id=str(event.session_id),
+                user_id=user_id,
+                session_id=session_id,
             )
         )
     references.extend(
