@@ -692,17 +692,17 @@ def test_generation_quality_findings_respect_user_requested_assistant_role() -> 
 
 
 @pytest.mark.parametrize(
-    ("source_kind", "adaptation_mode", "expected"),
+    ("source_kind", "fidelity_level", "expected"),
     [
-        ("original", "original", False),
-        ("fictional_reference", "fictional_natural", True),
-        ("public_person_reference", "public_expression", True),
-        ("private_person_reference", "private_traits", False),
+        ("original", "natural", False),
+        ("fictional_reference", "natural", True),
+        ("public_person_reference", "natural", True),
+        ("private_person_reference", "traits", False),
     ],
 )
 def test_reference_profile_stage_only_runs_for_confirmed_public_references(
     source_kind: str,
-    adaptation_mode: str,
+    fidelity_level: str,
     expected: bool,
 ) -> None:
     from magi.api.routers.personality_config_schemas import PersonaReferenceModel
@@ -718,7 +718,9 @@ def test_reference_profile_stage_only_runs_for_confirmed_public_references(
     intent = personality_generation.PersonaGenerationIntentModel(
         source_kind=source_kind,
         reference=reference,
-        adaptation_mode=adaptation_mode,
+        fidelity_level=fidelity_level,
+        expression_level="low" if fidelity_level == "traits" else "balanced",
+        research={"preference": "disabled"},
     )
 
     assert personality_generation._should_prepare_reference_profile(intent) is expected
@@ -737,7 +739,9 @@ def test_reference_profile_normalization_preserves_unverified_provenance() -> No
             version="TV版",
             user_confirmed=True,
         ),
-        adaptation_mode="fictional_natural",
+        fidelity_level="natural",
+        expression_level="balanced",
+        research={"preference": "disabled"},
     )
 
     profile = personality_generation._normalize_reference_profile_payload(
@@ -832,7 +836,9 @@ async def test_reference_profile_stage_uses_one_unverified_profile_call() -> Non
             work_title="新世纪福音战士",
             user_confirmed=True,
         ),
-        adaptation_mode="fictional_natural",
+        fidelity_level="natural",
+        expression_level="balanced",
+        research={"preference": "disabled"},
     )
     context = personality_generation._GenerationRunContext(
         description="EVA里的明日香，日常一点",
@@ -869,7 +875,9 @@ async def test_referenced_persona_generation_injects_profile_before_base() -> No
             work_title="新世纪福音战士",
             user_confirmed=True,
         ),
-        adaptation_mode="fictional_natural",
+        fidelity_level="natural",
+        expression_level="balanced",
+        research={"preference": "disabled"},
     )
 
     result = await personality_generation.generate_personality_config_result(
@@ -1236,19 +1244,20 @@ def test_normalize_generated_personality_payload_keeps_surface_fixed() -> None:
     assert [item["layer_id"] for item in payload["persona_layers"]] == ["surface", "crack"]
 
 
-def test_persona_generation_intent_rejects_incompatible_reference_mode() -> None:
+def test_persona_generation_intent_rejects_private_reference_faithful_fidelity() -> None:
     from magi.api.routers.personality_config_schemas import PersonaGenerationIntentModel
 
     with pytest.raises(ValidationError):
         PersonaGenerationIntentModel(
-            source_kind="public_person_reference",
+            source_kind="private_person_reference",
             reference={
-                "source_kind": "public_person_reference",
-                "name": "Public Person",
+                "source_kind": "private_person_reference",
+                "name": "Private Person",
                 "user_confirmed": True,
             },
-            adaptation_mode="fictional_immersive",
-            expression_profile="immersive",
+            fidelity_level="faithful",
+            expression_level="high_contextual",
+            research={"preference": "disabled"},
         )
 
 
@@ -1265,8 +1274,9 @@ def test_personality_generation_prompt_includes_confirmed_reference_intent() -> 
             "version": "漫画后期",
             "user_confirmed": True,
         },
-        adaptation_mode="fictional_natural",
-        expression_profile="natural",
+        fidelity_level="natural",
+        expression_level="balanced",
+        research={"preference": "disabled"},
         explicit_constraints=["少用作品黑话"],
     )
 
@@ -1279,7 +1289,7 @@ def test_personality_generation_prompt_includes_confirmed_reference_intent() -> 
 
     assert "# Resolved Generation Intent" in prompt
     assert '"work_title": "龙珠"' in prompt
-    assert '"adaptation_mode": "fictional_natural"' in prompt
+    assert '"fidelity_level": "natural"' in prompt
     assert "少用作品黑话" in prompt
 
 
@@ -1390,6 +1400,7 @@ def test_persona_intent_route_is_reachable_through_public_router() -> None:
     }
 
     assert methods_by_path["/generation-intents/resolve"] == {"POST"}
+    assert methods_by_path["/generation-intents/verify"] == {"POST"}
     assert methods_by_path["/adjust"] == {"POST"}
 
 

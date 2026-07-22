@@ -6,6 +6,12 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 from ...config.models import LLMSettings
+from ...personality.reference_research import (
+    PersonaExpressionLevel,
+    PersonaFidelityLevel,
+    PersonaResearchPreference,
+    ReferenceIdentityVerification,
+)
 
 
 SUPPORTED_LAYER_MODIFIER_KEYS = (
@@ -182,19 +188,6 @@ PersonaReferenceKind = Literal[
     "private_person_reference",
 ]
 PersonaResolutionStatus = Literal["original", "resolved", "ambiguous", "unknown"]
-PersonaAdaptationMode = Literal[
-    "original",
-    "fictional_inspired",
-    "fictional_natural",
-    "fictional_immersive",
-    "public_traits",
-    "public_expression",
-    "public_image",
-    "private_traits",
-]
-PersonaExpressionProfile = Literal["natural", "balanced", "immersive"]
-
-
 class PersonaReferenceCandidateModel(BaseModel):
     candidate_id: str = Field(default="")
     source_kind: PersonaReferenceKind
@@ -223,6 +216,31 @@ class PersonaReferenceModel(BaseModel):
     user_confirmed: bool = True
 
 
+class PersonaResearchOptionsModel(BaseModel):
+    preference: PersonaResearchPreference = "auto"
+    force_refresh: bool = False
+    reference_urls: List[str] = Field(default_factory=list, max_length=4)
+    identity_confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    identity_ambiguous: bool = False
+    identity_verified: bool = False
+    reference_modified: bool = False
+    verification_fingerprint: Optional[str] = Field(default=None, max_length=160)
+
+    @field_validator("reference_urls")
+    @classmethod
+    def _validate_reference_urls(cls, values: List[str]) -> List[str]:
+        normalized: List[str] = []
+        for value in values:
+            url = str(value).strip()
+            if not url.startswith(("https://", "http://")):
+                raise ValueError("reference_urls must use http or https")
+            if len(url) > 2000:
+                raise ValueError("reference_urls cannot exceed 2000 characters")
+            if url not in normalized:
+                normalized.append(url)
+        return normalized
+
+
 class PersonaGenerationIntentModel(BaseModel):
     source_kind: Literal[
         "original",
@@ -231,31 +249,22 @@ class PersonaGenerationIntentModel(BaseModel):
         "private_person_reference",
     ]
     reference: Optional[PersonaReferenceModel] = None
-    adaptation_mode: PersonaAdaptationMode
-    expression_profile: PersonaExpressionProfile = "natural"
+    fidelity_level: PersonaFidelityLevel
+    expression_level: PersonaExpressionLevel
+    research: PersonaResearchOptionsModel
     explicit_constraints: List[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _validate_source_and_mode(self) -> "PersonaGenerationIntentModel":
-        allowed_modes = {
-            "original": {"original"},
-            "fictional_reference": {
-                "fictional_inspired",
-                "fictional_natural",
-                "fictional_immersive",
-            },
-            "public_person_reference": {
-                "public_traits",
-                "public_expression",
-                "public_image",
-            },
-            "private_person_reference": {"private_traits"},
-        }
-        if self.adaptation_mode not in allowed_modes[self.source_kind]:
-            raise ValueError("adaptation_mode is incompatible with source_kind")
+    def _validate_source_and_research(self) -> "PersonaGenerationIntentModel":
         if self.source_kind == "original":
             if self.reference is not None:
                 raise ValueError("original personas cannot include a reference")
+            if (
+                self.research.preference != "disabled"
+                or self.research.reference_urls
+                or self.research.force_refresh
+            ):
+                raise ValueError("original personas cannot use reference research")
             return self
         if self.reference is None:
             raise ValueError("referenced personas require a confirmed reference")
@@ -263,6 +272,15 @@ class PersonaGenerationIntentModel(BaseModel):
             raise ValueError("reference source_kind must match intent source_kind")
         if not self.reference.user_confirmed:
             raise ValueError("referenced personas require user confirmation")
+        if self.source_kind == "private_person_reference":
+            if self.fidelity_level != "traits":
+                raise ValueError("private-person references support traits fidelity only")
+            if (
+                self.research.preference != "disabled"
+                or self.research.reference_urls
+                or self.research.force_refresh
+            ):
+                raise ValueError("private-person references cannot use web research")
         return self
 
 
@@ -276,6 +294,28 @@ class PersonaIntentResolutionResponse(BaseModel):
     success: bool
     message: str
     data: PersonaIntentResolutionModel
+
+
+class PersonaIdentityVerifyRequest(BaseModel):
+    description: str = Field(min_length=1, max_length=2000)
+    reference: PersonaReferenceModel
+    target_language: str = Field(default="English")
+    reference_urls: List[str] = Field(default_factory=list, max_length=4)
+    llm_override: Optional[LLMSettings] = Field(None, description="Optional unsaved LLM configuration override")
+
+    @model_validator(mode="after")
+    def _validate_public_reference(self) -> "PersonaIdentityVerifyRequest":
+        if self.reference.source_kind == "private_person_reference":
+            raise ValueError("private-person references cannot use identity verification")
+        validated = PersonaResearchOptionsModel(reference_urls=self.reference_urls)
+        self.reference_urls = validated.reference_urls
+        return self
+
+
+class PersonaIdentityVerifyResponse(BaseModel):
+    success: bool
+    message: str
+    data: ReferenceIdentityVerification
 
 
 class AIGenerateRequest(BaseModel):
@@ -305,6 +345,7 @@ class PersonalityResponse(BaseModel):
     message: str
     data: Optional[Dict[str, Any]] = None
     stages: Optional[List[Dict[str, Any]]] = None
+    reference_dossier: Optional[Dict[str, Any]] = None
 
 
 class BootstrapInitRequest(BaseModel):

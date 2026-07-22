@@ -14,6 +14,22 @@ from ...config.models import LLMScenario, LLMSettings
 from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, create_llm_adapter
 from ...llm.draft import resolve_adapter_for_scenario
+from ...personality.reference_research import (
+  ReferenceDossier,
+  ReferenceIdentity,
+  ReferenceResearchPolicyInput,
+  decide_reference_research,
+)
+from ...personality.reference_research.ports import ReferenceFetchPort, ReferenceSearchPort
+from ...personality.reference_research.service import (
+  build_reference_fingerprint,
+  calculate_profile_coverage,
+  research_reference,
+)
+from ...personality.reference_research.tool_ports import (
+  ToolReferenceFetchPort,
+  ToolReferenceSearchPort,
+)
 from ..routers.personality_config_schemas import (
   LayerModifiersModel,
   PersonaGenerationIntentModel,
@@ -82,6 +98,7 @@ JSON_REPAIR_SYSTEM_PROMPT = """You repair invalid JSON from a persona-generation
 Output ONLY one valid JSON object. Do not add markdown fences, comments, or explanation.
 Preserve the original keys and values as much as possible. Only fix syntax and obvious JSON-shape mistakes needed for parsing."""
 GENERATION_STAGE_DEFINITIONS = (
+  {"stage_id": "reference", "label": "Verify reference material"},
   {"stage_id": "base", "label": "Understand persona spine"},
   {"stage_id": "registers", "label": "Design conversation registers"},
   {"stage_id": "rules", "label": "Design triggers and quiet hours"},
@@ -98,6 +115,7 @@ class PersonalityGenerationResult:
 
   config: PersonalityConfigModel
   stages: list[dict[str, str]]
+  reference_dossier: Optional[ReferenceDossier] = None
 
 
 @dataclass
@@ -125,6 +143,8 @@ class _GenerationRunContext:
   adapter_resolver: Callable[..., Any]
   adapter_factory: Callable[..., Any]
   stage_progress_callback: Optional[Callable[[str, str], None]]
+  search_port: Optional[ReferenceSearchPort] = None
+  fetch_port: Optional[ReferenceFetchPort] = None
 
 
 def _is_chinese_target(target_language: str) -> bool:
@@ -964,6 +984,9 @@ def _normalize_reference_profile_payload(
       "version": reference.version,
     },
     "dimensions": dimensions,
+    "volatility": str(payload.get("volatility") or "unknown")
+      if str(payload.get("volatility") or "unknown") in {"stable", "evolving", "current", "unknown"}
+      else "unknown",
     "unknowns": _string_list(payload.get("unknowns"))[:12],
     "confidence_by_dimension": confidence_by_dimension,
   }
@@ -997,7 +1020,7 @@ def _reference_profile_block(
   if not isinstance(dimensions, dict):
     dimensions = {}
   sliced = {
-    "provenance_kind": "parametric_prior",
+    "provenance_kind": reference_profile.get("provenance_kind", "parametric_prior"),
     "reference": reference_profile.get("reference", {}),
     "dimensions": {key: dimensions.get(key, []) for key in dimension_keys},
     "unknowns": reference_profile.get("unknowns", []),
@@ -1006,10 +1029,18 @@ def _reference_profile_block(
       for key, value in dict(reference_profile.get("confidence_by_dimension") or {}).items()
       if key in dimension_keys
     },
+    "source_ids": reference_profile.get("source_ids", []),
+    "grounding_status": reference_profile.get("grounding_status", "model_prior"),
+    "contradictions": reference_profile.get("contradictions", []),
   }
-  return "\n\n# Unverified Reference Profile\n" + json.dumps(sliced, ensure_ascii=False, indent=2) + """
-
-This profile comes from model parametric memory. It is not verified evidence and has no sources. Use it as a behavioral prior only. Never turn uncertain biography, relationships, expertise, or private details into facts. User-confirmed input overrides it."""
+  provenance = str(sliced["provenance_kind"])
+  if provenance == "public_sources":
+    boundary = """This profile contains public-source-backed behavioral evidence. Use only the distilled claims and their source IDs. Do not extend them into unsupported biography, private facts, relationships, expertise, or verbatim imitation. Contradictions and unknowns remain unresolved. User-confirmed input overrides it."""
+    title = "Source-backed Reference Profile"
+  else:
+    boundary = """This profile comes from model parametric memory. It is not verified evidence and has no sources. Use it as a behavioral prior only. Never turn uncertain biography, relationships, expertise, or private details into facts. User-confirmed input overrides it."""
+    title = "Unverified Reference Profile"
+  return f"\n\n# {title}\n" + json.dumps(sliced, ensure_ascii=False, indent=2) + f"\n\n{boundary}"
 
 
 ASSISTANT_ROLE_TERMS = ("助手", "陪伴者", "客服", "assistant", "companion", "helper")
@@ -1022,6 +1053,11 @@ CONFIG_VOCAB_TERMS = (
   "adaptation mode",
   "expression profile",
   "fidelity level",
+  "expression level",
+  "research preference",
+  "fidelity_level",
+  "expression_level",
+  "research_preference",
   "fictional_inspired",
   "fictional_natural",
   "fictional_immersive",
@@ -1344,6 +1380,8 @@ def _personality_generation_job_snapshot(job: PersonalityGenerationJob) -> dict[
   if job.result is not None:
     payload["data"] = job.result.config.model_dump()
     payload["stages"] = job.result.stages
+    if job.result.reference_dossier is not None:
+      payload["reference_dossier"] = job.result.reference_dossier.model_dump()
   if job.error:
     payload["error"] = job.error
   return payload
@@ -1382,6 +1420,8 @@ async def start_personality_generation_job(
   *,
   adapter_resolver: Callable[..., Any] = resolve_adapter_for_scenario,
   adapter_factory: Callable[..., Any] = create_llm_adapter,
+  search_port: Optional[ReferenceSearchPort] = None,
+  fetch_port: Optional[ReferenceFetchPort] = None,
 ) -> dict[str, Any]:
   """Start a background persona generation job and return its initial snapshot."""
   _cleanup_personality_generation_jobs()
@@ -1412,6 +1452,8 @@ async def start_personality_generation_job(
     intent=intent,
     adapter_resolver=adapter_resolver,
     adapter_factory=adapter_factory,
+    search_port=search_port,
+    fetch_port=fetch_port,
   ))
   return _personality_generation_job_snapshot(job)
 
@@ -1435,6 +1477,8 @@ async def _run_personality_generation_job(
   intent: Optional[PersonaGenerationIntentModel],
   adapter_resolver: Callable[..., Any],
   adapter_factory: Callable[..., Any],
+  search_port: Optional[ReferenceSearchPort],
+  fetch_port: Optional[ReferenceFetchPort],
 ) -> None:
   def update_stage(stage_id: str, status: str) -> None:
     _set_stage_status(job.stages, stage_id, status)
@@ -1449,6 +1493,8 @@ async def _run_personality_generation_job(
       intent=intent,
       adapter_resolver=adapter_resolver,
       adapter_factory=adapter_factory,
+      search_port=search_port,
+      fetch_port=fetch_port,
       stage_progress_callback=update_stage,
     )
     job.result = result
@@ -1471,6 +1517,8 @@ async def generate_personality_config_result(
   adapter_resolver: Callable[..., Any] = resolve_adapter_for_scenario,
   adapter_factory: Callable[..., Any] = create_llm_adapter,
   stage_progress_callback: Optional[Callable[[str, str], None]] = None,
+  search_port: Optional[ReferenceSearchPort] = None,
+  fetch_port: Optional[ReferenceFetchPort] = None,
 ) -> PersonalityGenerationResult:
   """Generate personality configuration through staged LLM calls."""
   stage_status: list[dict[str, str]] = []
@@ -1484,16 +1532,24 @@ async def generate_personality_config_result(
     adapter_resolver=adapter_resolver,
     adapter_factory=adapter_factory,
     stage_progress_callback=stage_progress_callback,
+    search_port=search_port,
+    fetch_port=fetch_port,
   )
   try:
+    if context.stage_progress_callback is not None:
+      context.stage_progress_callback("reference", "running")
     reference_profile = await _run_reference_profile_stage(context)
-    combined = await _run_base_personality_stage(context, stage_status, reference_profile)
-    await _run_module_personality_stages(context, stage_status, combined, reference_profile)
-    await _run_integration_personality_stage(context, stage_status, combined, reference_profile)
+    reference_dossier = await _run_reference_research_stage(context, reference_profile)
+    grounded_profile = _merge_reference_profile_with_dossier(reference_profile, reference_dossier)
+    _record_completed_generation_stage(stage_status, context, "reference")
+    combined = await _run_base_personality_stage(context, stage_status, grounded_profile)
+    await _run_module_personality_stages(context, stage_status, combined, grounded_profile)
+    await _run_integration_personality_stage(context, stage_status, combined, grounded_profile)
     return _build_personality_generation_result(
       combined,
       stage_status,
       target_language=context.target_language,
+      reference_dossier=reference_dossier,
     )
   except json.JSONDecodeError as exc:
     logger.error("[AI Generate Personality] JSON decode failed: %s", exc)
@@ -1531,6 +1587,157 @@ async def _run_reference_profile_stage(
   except Exception as exc:  # noqa: BLE001 - the existing generation path remains available
     logger.warning("[AI Generate Personality] Reference profile stage failed: %s", exc)
     return None
+
+
+def _reference_identity_from_intent(
+  intent: Optional[PersonaGenerationIntentModel],
+) -> Optional[ReferenceIdentity]:
+  if (
+    intent is None
+    or intent.reference is None
+    or intent.source_kind not in {"fictional_reference", "public_person_reference"}
+  ):
+    return None
+  reference = intent.reference
+  return ReferenceIdentity(
+    source_kind=reference.source_kind,
+    name=reference.name,
+    work_title=reference.work_title,
+    version=reference.version,
+    context=reference.context,
+  )
+
+
+def _prior_reference_dossier(
+  identity: ReferenceIdentity,
+  reference_profile: Optional[dict[str, Any]],
+  *,
+  research_level: str = "none",
+  grounding_status: str = "model_prior",
+  warning: Optional[str] = None,
+) -> ReferenceDossier:
+  dimensions = reference_profile.get("dimensions") if isinstance(reference_profile, dict) else {}
+  if not isinstance(dimensions, dict):
+    dimensions = {}
+  normalized_dimensions = {
+    key: _string_list(dimensions.get(key))[:8]
+    for key in REFERENCE_PROFILE_DIMENSIONS
+  }
+  return ReferenceDossier(
+    reference_fingerprint=build_reference_fingerprint(identity),
+    identity_status="unverified",
+    grounding_status=grounding_status,
+    research_level=research_level,
+    canonical_identity=identity,
+    profile_dimensions=normalized_dimensions,
+    unknowns=_string_list(reference_profile.get("unknowns"))[:16]
+      if isinstance(reference_profile, dict)
+      else [],
+    coverage=calculate_profile_coverage(reference_profile),
+    volatility=(reference_profile or {}).get("volatility", "unknown"),
+    sufficient=False,
+    warning=warning,
+  )
+
+
+async def _run_reference_research_stage(
+  context: _GenerationRunContext,
+  reference_profile: Optional[dict[str, Any]],
+) -> Optional[ReferenceDossier]:
+  """Apply one policy to all public and fictional references."""
+  identity = _reference_identity_from_intent(context.intent)
+  intent = context.intent
+  if identity is None or intent is None:
+    return None
+  profile_coverage = calculate_profile_coverage(reference_profile)
+  volatility = str((reference_profile or {}).get("volatility") or "unknown")
+  decision = decide_reference_research(
+    ReferenceResearchPolicyInput(
+      source_kind=intent.source_kind,
+      fidelity_level=intent.fidelity_level,
+      research_preference=intent.research.preference,
+      identity_confidence=intent.research.identity_confidence,
+      identity_ambiguous=intent.research.identity_ambiguous,
+      identity_verified=intent.research.identity_verified,
+      reference_modified=intent.research.reference_modified,
+      profile_coverage=profile_coverage,
+      volatility=volatility,
+      has_user_reference_urls=bool(intent.research.reference_urls),
+    )
+  )
+  if decision.blocked_reason == "faithful_requires_research":
+    raise ValueError("Faithful reference generation requires public-source verification")
+  if not decision.requires_network:
+    grounding_status = "disabled" if intent.research.preference == "disabled" else "model_prior"
+    return _prior_reference_dossier(
+      identity,
+      reference_profile,
+      research_level=decision.level,
+      grounding_status=grounding_status,
+      warning=(
+        "Public-source verification was disabled."
+        if grounding_status == "disabled"
+        else "Generated from the model's unverified prior knowledge."
+      ),
+    )
+
+  search_port = context.search_port or ToolReferenceSearchPort()
+  fetch_port = context.fetch_port or ToolReferenceFetchPort()
+  dossier = await research_reference(
+    identity,
+    research_level=decision.level,
+    target_language=context.target_language,
+    search_port=search_port,
+    fetch_port=fetch_port,
+    reference_urls=intent.research.reference_urls,
+    force_refresh=intent.research.force_refresh,
+    llm_override=context.llm_override,
+    adapter_resolver=context.adapter_resolver,
+    adapter_factory=context.adapter_factory,
+  )
+  if intent.fidelity_level == "faithful" and not dossier.sufficient:
+    raise ValueError("Public sources are insufficient for faithful reference generation")
+  return dossier
+
+
+def _merge_reference_profile_with_dossier(
+  reference_profile: Optional[dict[str, Any]],
+  dossier: Optional[ReferenceDossier],
+) -> Optional[dict[str, Any]]:
+  if dossier is None:
+    return reference_profile
+  prior_dimensions = reference_profile.get("dimensions") if isinstance(reference_profile, dict) else {}
+  if not isinstance(prior_dimensions, dict):
+    prior_dimensions = {}
+  source_dimensions = dossier.profile_dimensions
+  dimensions = {
+    key: (
+      list(source_dimensions.get(key) or [])
+      if source_dimensions.get(key)
+      else _string_list(prior_dimensions.get(key))[:8]
+    )
+    for key in REFERENCE_PROFILE_DIMENSIONS
+  }
+  canonical = dossier.canonical_identity
+  return {
+    "provenance_kind": (
+      "public_sources"
+      if dossier.sources and dossier.grounding_status in {"verified", "insufficient"}
+      else "parametric_prior"
+    ),
+    "reference": canonical.model_dump() if canonical is not None else {},
+    "dimensions": dimensions,
+    "unknowns": dossier.unknowns,
+    "contradictions": dossier.contradictions,
+    "confidence_by_dimension": {
+      key: "high" if source_dimensions.get(key) else "medium"
+      for key in REFERENCE_PROFILE_DIMENSIONS
+      if dimensions.get(key)
+    },
+    "source_ids": [source.source_id for source in dossier.sources],
+    "grounding_status": dossier.grounding_status,
+    "volatility": dossier.volatility,
+  }
 
 
 async def _run_base_personality_stage(
@@ -1773,6 +1980,7 @@ def _build_personality_generation_result(
   stage_status: list[dict[str, str]],
   *,
   target_language: str,
+  reference_dossier: Optional[ReferenceDossier] = None,
 ) -> PersonalityGenerationResult:
   data = normalize_generated_personality_payload(
     _runtime_payload_from_combined(combined),
@@ -1784,6 +1992,7 @@ def _build_personality_generation_result(
   return PersonalityGenerationResult(
     config=PersonalityConfigModel(**data),
     stages=_stage_reports(status_by_id),
+    reference_dossier=reference_dossier,
   )
 
 
@@ -1796,6 +2005,8 @@ async def generate_personality_config(
   *,
   adapter_resolver: Callable[..., Any] = resolve_adapter_for_scenario,
   adapter_factory: Callable[..., Any] = create_llm_adapter,
+  search_port: Optional[ReferenceSearchPort] = None,
+  fetch_port: Optional[ReferenceFetchPort] = None,
 ) -> PersonalityConfigModel:
   """Generate personality configuration from description using LLM."""
   result = await generate_personality_config_result(
@@ -1806,6 +2017,8 @@ async def generate_personality_config(
     intent=intent,
     adapter_resolver=adapter_resolver,
     adapter_factory=adapter_factory,
+    search_port=search_port,
+    fetch_port=fetch_port,
   )
   return result.config
 

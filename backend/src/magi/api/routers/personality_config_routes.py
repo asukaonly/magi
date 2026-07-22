@@ -12,6 +12,8 @@ from .personality_config_common import legacy_personality_config_module
 from .personality_config_schemas import (
     AIGenerateRequest,
     PersonaAdjustmentRequest,
+    PersonaIdentityVerifyRequest,
+    PersonaIdentityVerifyResponse,
     PersonaIntentResolveRequest,
     PersonaIntentResolutionResponse,
     PersonalityCompareResponse,
@@ -338,6 +340,11 @@ async def generate_personality(request: AIGenerateRequest):
             ),
             data=legacy._normalize_avatar_in_payload(config.model_dump()),
             stages=result.stages,
+            reference_dossier=(
+                result.reference_dossier.model_dump()
+                if result.reference_dossier is not None
+                else None
+            ),
         )
     except HTTPException:
         raise
@@ -408,6 +415,35 @@ async def resolve_personality_generation_intent(
         raise
     except Exception as exc:
         legacy.logger.error("Persona generation intent resolution failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@personality_config_core_router.post(
+    "/generation-intents/verify",
+    response_model=PersonaIdentityVerifyResponse,
+    summary="Verify persona reference identity",
+    description="Verify a selected public or fictional reference using public sources before generation.",
+)
+async def verify_personality_reference_identity(
+    request: PersonaIdentityVerifyRequest,
+) -> PersonaIdentityVerifyResponse:
+    legacy = legacy_personality_config_module()
+    try:
+        verification = await legacy.ai_verify_persona_reference_identity(
+            request.reference,
+            target_language=request.target_language,
+            reference_urls=request.reference_urls,
+            llm_override=request.llm_override,
+        )
+        return PersonaIdentityVerifyResponse(
+            success=True,
+            message="Persona reference identity verified",
+            data=verification,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        legacy.logger.error("Persona reference identity verification failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -603,4 +639,5 @@ __all__ = [
     "list_personalities",
     "personality_config_core_router",
     "update_personality",
+    "verify_personality_reference_identity",
 ]

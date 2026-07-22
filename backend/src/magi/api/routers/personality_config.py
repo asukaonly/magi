@@ -25,6 +25,12 @@ from ...personality.growth_memory import GrowthMemoryEngine
 from ...personality.loader import PersonalityConfig
 from ...personality.persona_journal_service import PersonaJournalService
 from ...personality.persona_repository import PersonaRepository
+from ...personality.reference_research.models import ReferenceIdentity
+from ...personality.reference_research.service import verify_reference_identity
+from ...personality.reference_research.tool_ports import (
+    ToolReferenceFetchPort,
+    ToolReferenceSearchPort,
+)
 from ...utils.runtime import get_runtime_paths
 from ..avatar_paths import resolve_avatar_public_url
 from ..services.personality_bootstrap_messages import (
@@ -60,6 +66,7 @@ from .personality_config_common import (
     ai_generate_personality_result,
     ai_adjust_personality,
     ai_resolve_persona_generation_intent,
+    ai_verify_persona_reference_identity,
     ai_start_personality_generation_job,
     sanitize_filename,
     save_personality_to_registry,
@@ -78,6 +85,7 @@ from .personality_config_routes import (
     list_personalities,
     personality_config_core_router,
     resolve_personality_generation_intent,
+    verify_personality_reference_identity,
     start_personality_generation,
     update_personality,
 )
@@ -93,6 +101,8 @@ from .personality_config_schemas import (
     PersonaIntentResolveRequest,
     PersonaIntentResolutionModel,
     PersonaIntentResolutionResponse,
+    PersonaIdentityVerifyRequest,
+    PersonaIdentityVerifyResponse,
     PersonaReferenceCandidateModel,
     PersonaReferenceModel,
     PersonaLayerModel,
@@ -150,6 +160,8 @@ __all__ = [
     "PersonaAdjustmentRequest",
     "PersonaJournalService",
     "PersonaGenerationIntentModel",
+    "PersonaIdentityVerifyRequest",
+    "PersonaIdentityVerifyResponse",
     "PersonaIntentResolveRequest",
     "PersonaIntentResolutionModel",
     "PersonaIntentResolutionResponse",
@@ -157,6 +169,7 @@ __all__ = [
     "PersonaReferenceCandidateModel",
     "PersonaReferenceModel",
     "PersonaRepository",
+    "ReferenceIdentity",
     "PersonalityCompareResponse",
     "PersonalityConfig",
     "PersonalityConfigModel",
@@ -186,6 +199,7 @@ __all__ = [
     "ai_generate_personality",
     "ai_generate_personality_result",
     "ai_resolve_persona_generation_intent",
+    "ai_verify_persona_reference_identity",
     "ai_start_personality_generation_job",
     "api_bootstrap_init",
     "api_get_current_personality",
@@ -217,6 +231,8 @@ __all__ = [
     "resolve_adapter_for_scenario",
     "resolve_persona_generation_intent",
     "resolve_personality_generation_intent",
+    "verify_personality_reference_identity",
+    "verify_reference_identity",
     "resolve_avatar_public_url",
     "resolve_persona_config",
     "sanitize_filename",
@@ -226,6 +242,8 @@ __all__ = [
     "set_current_personality_name",
     "start_personality_generation_job",
     "start_personality_generation",
+    "ToolReferenceFetchPort",
+    "ToolReferenceSearchPort",
     "create_personality",
     "update_personality",
 ]

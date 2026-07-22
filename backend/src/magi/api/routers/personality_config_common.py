@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from ...config.models import LLMSettings
 from ...identity.defaults import CANONICAL_LOCAL_USER
 from ...personality.loader import PersonalityConfig
+from ...personality.reference_research.models import ReferenceIdentityVerification
 from .personality_config_schemas import (
     PersonaGenerationIntentModel,
     PersonaIntentResolutionModel,
@@ -256,6 +257,34 @@ async def ai_resolve_persona_generation_intent(
     )
 
 
+async def ai_verify_persona_reference_identity(
+    reference: Any,
+    *,
+    target_language: str = "English",
+    reference_urls: Optional[list[str]] = None,
+    llm_override: Optional[LLMSettings] = None,
+) -> ReferenceIdentityVerification:
+    """Verify one user-selected public or fictional reference."""
+    legacy = legacy_personality_config_module()
+    identity = legacy.ReferenceIdentity(
+        source_kind=reference.source_kind,
+        name=reference.name,
+        work_title=reference.work_title,
+        version=reference.version,
+        context=reference.context,
+    )
+    return await legacy.verify_reference_identity(
+        identity,
+        target_language=target_language,
+        search_port=legacy.ToolReferenceSearchPort(),
+        fetch_port=legacy.ToolReferenceFetchPort(),
+        reference_urls=reference_urls,
+        llm_override=llm_override,
+        adapter_resolver=legacy.resolve_adapter_for_scenario,
+        adapter_factory=legacy.create_llm_adapter,
+    )
+
+
 async def ai_adjust_personality(
     current_config: PersonalityConfigModel,
     instruction: str,
@@ -297,6 +326,7 @@ __all__ = [
     "ai_generate_personality",
     "ai_generate_personality_result",
     "ai_resolve_persona_generation_intent",
+    "ai_verify_persona_reference_identity",
     "ai_start_personality_generation_job",
     "legacy_personality_config_module",
     "sanitize_filename",

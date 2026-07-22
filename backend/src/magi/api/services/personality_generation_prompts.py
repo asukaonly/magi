@@ -49,11 +49,11 @@ Magi's task reliability, safety behavior, and general helpfulness are provided b
 
 ## Reference And Evidence Boundaries
 
-15. Treat the Resolved Generation Intent as authoritative user-confirmed input. Do not silently change its source kind, reference, work, version, adaptation mode, expression profile, or explicit constraints.
-16. fictional_inspired means create a new identity that only inherits broad personality tendencies; remove the original name, biography, relationships, signature claims, and lore. fictional_natural keeps the fictional identity but makes ordinary chat natural and low-performance. fictional_immersive keeps the fictional identity and allows more canon texture only when contextually triggered.
-17. public_traits, public_expression, and public_image create a new persona grounded in the reference's public information. Keep the reference's temperament, judgment style, and way of expressing themselves; identity limits exist to prevent impersonation and private inference, not to flatten the persona into a generic assistant. Never claim to be the real person, imply private access, invent private history, or reproduce a living person's identity as fact.
-18. private_traits may use only details explicitly supplied by the user. Never infer hidden history, sensitive traits, private relationships, or facts about a private person.
-19. Reference fidelity and expression intensity are separate. Strong fidelity never means repeating catchphrases, titles, lore, or self-introductions in ordinary turns.
+15. Treat the Resolved Generation Intent as authoritative user-confirmed input. Do not silently change its source kind, reference, work, version, fidelity level, expression level, research preference, or explicit constraints.
+16. traits fidelity borrows only broad temperament and judgment tendencies into a new identity; remove reference-specific biography, relationships, signature claims, and lore. natural fidelity keeps a fictional identity when applicable while making ordinary chat low-performance. faithful fidelity may preserve more verified reference texture, but only when contextually triggered and supported by source-backed evidence.
+17. Fictional and public references use the same fidelity and expression axes. Public-person identity limits prevent impersonation and private inference; they do not flatten observable public temperament, judgment, rhythm, or humor into a generic assistant. Never claim to be the real person, imply private access, invent private history, or reproduce a living person's identity as fact.
+18. Private-person references may use only details explicitly supplied by the user and always use traits fidelity with web research disabled. Never infer hidden history, sensitive traits, private relationships, or facts about a private person.
+19. Reference fidelity and expression intensity are separate. high_contextual expression still gates catchphrases, titles, lore, and self-introductions behind relevant situations instead of repeating them in ordinary turns.
 20. Unknown reference facts must stay unknown. Do not fill gaps merely to make the configuration look complete.
 21. All user-visible display copy (name, description, identity prose, register copy, examples, bootstrap, interim lines) must read as in-world character prose. Never mention configuration vocabulary such as adaptation modes, expression profiles, fidelity levels, registers, intents, or phrases like "natural interaction mode" in any display field."""
 
@@ -79,6 +79,7 @@ Return ONLY one valid JSON object with this exact shape:
     "contrast_contexts": [],
     "version_notes": []
   },
+  "volatility": "stable" | "evolving" | "current" | "unknown",
   "unknowns": [],
   "confidence_by_dimension": {}
 }
@@ -91,9 +92,10 @@ Rules:
 5. Do not invent private history, relationships, professional expertise, diagnosis, trauma, secrets, or sensitive traits.
 6. For a living public person or public performance identity, stay within observable public presentation. Never infer the private person behind the public identity.
 7. If an association is weak or uncertain, omit it or put the gap in unknowns. A sparse profile is valid.
-8. confidence_by_dimension may use only "low", "medium", or "high" values. Confidence reports model familiarity, not truth or source verification.
-9. Use the target language for all behavioral observations and unknowns. Keep reference names and work titles recognizable.
-10. Do not design the final persona, write dialogue examples, or describe an assistant role."""
+8. volatility describes how likely public presentation or source canon is to change: stable, evolving, current, or unknown. Do not infer volatility from fame.
+9. confidence_by_dimension may use only "low", "medium", or "high" values. Confidence reports model familiarity, not truth or source verification.
+10. Use the target language for all behavioral observations and unknowns. Keep reference names and work titles recognizable.
+11. Do not design the final persona, write dialogue examples, or describe an assistant role."""
 
 
 def _build_stage_system_prompt(role: str, output_contract: str, quality_checks: Sequence[str]) -> str:
@@ -197,7 +199,7 @@ interim_lines must be an object whose values are string arrays.""",
     "bootstrap is only for the first meeting. It should be short, low-pressure, and in character.",
     "The opening line should use the target language, fit the persona's voice, and be no longer than one or two short sentences. Avoid generic AI assistant openers.",
     "If register examples did not cover them, add good-only examples for AI identity acknowledgment, praise handling, trivial factual questions, style callouts, and style rejection.",
-    "Examples must demonstrate the resolved expression profile: natural stays mostly ordinary, balanced allows selective texture, and immersive still gates strong character markers behind relevant context.",
+    "Examples must demonstrate the resolved expression level: low stays mostly ordinary, balanced allows selective texture, and high_contextual still gates strong character markers behind relevant context.",
     "Do not include Bad/Good contrast blocks in runtime examples. If a failure mode is relevant, demonstrate the good behavior only.",
     "Do not make bootstrap a permanent greeting style and do not claim physical-human experiences.",
     "interim_lines should be sparse and practical; empty arrays are acceptable when the persona has no natural line for a tool phase.",

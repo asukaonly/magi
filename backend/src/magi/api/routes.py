@@ -189,6 +189,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/adjust": {"POST"},
         "/generate": {"POST"},
         "/generation-intents/resolve": {"POST"},
+        "/generation-intents/verify": {"POST"},
         "/generation-jobs": {"POST"},
         "/generation-jobs/{job_id}": {"GET"},
         "/bootstrap/init": {"POST"},
