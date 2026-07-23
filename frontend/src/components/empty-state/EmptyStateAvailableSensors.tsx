@@ -87,6 +87,8 @@ export interface EmptyStateAvailableSensorsProps {
  * "Browse all plugins" marketplace exit rather than growing the list.
  */
 const MAX_EMPTY_STATE_CARDS = 5;
+const MAX_FIRST_CONTEXT_CARDS = 5;
+const MAX_SOURCE_PAGE_CARDS = 3;
 
 export function EmptyStateAvailableSensors({
   variant = "standard",
@@ -201,7 +203,12 @@ export function EmptyStateAvailableSensors({
       if (a.installed !== b.installed) return a.installed ? -1 : 1;
       return a.setup_time_estimate_seconds - b.setup_time_estimate_seconds;
     });
-    return representatives.slice(0, firstContext || sourcePage ? 3 : MAX_EMPTY_STATE_CARDS);
+    const limit = firstContext
+      ? MAX_FIRST_CONTEXT_CARDS
+      : sourcePage
+        ? MAX_SOURCE_PAGE_CARDS
+        : MAX_EMPTY_STATE_CARDS;
+    return representatives.slice(0, limit);
   }, [items, excluded, firstContext, sourcePage]);
 
   if (firstContext && loading && visible.length === 0) {

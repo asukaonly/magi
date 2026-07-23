@@ -135,7 +135,7 @@ describe("EmptyStateAvailableSensors", () => {
     expect(screen.queryByTestId("empty-state-connect-chrome-history")).not.toBeInTheDocument();
   });
 
-  it("shows at most three first-context categories with declared scope", () => {
+  it("shows one featured and four alternative first-context categories", () => {
     const candidates = [
       item(),
       item({
@@ -156,6 +156,18 @@ describe("EmptyStateAvailableSensors", () => {
         category: "photos",
         surfaces: { first_context: { order: 40 } },
       }),
+      item({
+        plugin_id: "media-history",
+        name: "Media History",
+        category: "media_history",
+        surfaces: { first_context: { order: 50 } },
+      }),
+      item({
+        plugin_id: "terminal-history",
+        name: "Terminal History",
+        category: "terminal_history",
+        surfaces: { first_context: { order: 60 } },
+      }),
     ];
     render(
       <EmptyStateAvailableSensors
@@ -167,8 +179,10 @@ describe("EmptyStateAvailableSensors", () => {
     );
     expect(screen.getByText("从最近浏览开始")).toBeInTheDocument();
     expect(screen.getByText("最近 7 天")).toBeInTheDocument();
-    expect(screen.getAllByTestId(/empty-state-connect-/)).toHaveLength(3);
-    expect(screen.queryByTestId("empty-state-connect-photo-library")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId(/empty-state-connect-/)).toHaveLength(5);
+    expect(screen.getByTestId("empty-state-connect-photo-library")).toBeInTheDocument();
+    expect(screen.getByTestId("empty-state-connect-media-history")).toBeInTheDocument();
+    expect(screen.queryByTestId("empty-state-connect-terminal-history")).not.toBeInTheDocument();
   });
 
   it("explains when the marketplace is unavailable and no local source exists", () => {
