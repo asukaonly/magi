@@ -448,6 +448,9 @@ def _tool_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "tools.web_search.enabled": config.tools.builtIn.webSearch.enabled,
         "tools.web_search.default_provider": config.tools.builtIn.webSearch.provider,
         "tools.web_fetch.enabled": config.tools.builtIn.webFetch.enabled,
+        "tools.web_fetch.allow_rfc2544_benchmark_range": (
+            config.tools.builtIn.webFetch.allowRfc2544BenchmarkRange
+        ),
         "tools.web_fetch.allow_private_network": config.tools.builtIn.webFetch.allowPrivateNetworkFetch,
         "tools.web_fetch.private_network_allowlist": config.tools.builtIn.webFetch.privateNetworkAllowlist,
     }

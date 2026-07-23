@@ -7,6 +7,16 @@ import ipaddress
 import socket
 from urllib.parse import urlparse
 
+RFC2544_BENCHMARK_NETWORK = ipaddress.ip_network("198.18.0.0/15")
+RFC2544_FAKE_IP_COMPATIBILITY_REQUIRED = "FAKE_IP_COMPATIBILITY_REQUIRED"
+
+
+def is_rfc2544_benchmark_address(
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    """Return whether an address belongs to the RFC 2544 benchmark range."""
+    return isinstance(ip, ipaddress.IPv4Address) and ip in RFC2544_BENCHMARK_NETWORK
+
 
 def _normalize_allowlist_entry(entry: str) -> tuple[str, int | None] | None:
     text = str(entry or "").strip().lower().rstrip("/")
@@ -73,6 +83,8 @@ def _allowlist_matches_ip(
 
 def blocked_ip_reason(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str | None:
     """Return a policy reason when an IP is not safe for generic web fetch."""
+    if is_rfc2544_benchmark_address(ip):
+        return "address is in the RFC 2544 benchmark range used by TUN fake-IP proxies"
     if not ip.is_global:
         return "address is not globally routable"
     return None
@@ -83,6 +95,7 @@ async def blocked_url_target_reason(
     *,
     allow_private_network: bool = False,
     private_network_allowlist: list[str] | tuple[str, ...] | None = None,
+    allow_rfc2544_benchmark_range: bool = False,
 ) -> str | None:
     """Return a policy reason when a URL targets local/private networks."""
     parsed = urlparse(url)
@@ -135,12 +148,14 @@ async def blocked_url_target_reason(
             resolved_ip = ipaddress.ip_address(address)
         except ValueError:
             continue
-            if allow_private_network and _allowlist_matches_ip(
-                ip=resolved_ip,
-                port=port,
-                allowlist=private_network_allowlist,
-            ):
-                continue
+        if allow_private_network and _allowlist_matches_ip(
+            ip=resolved_ip,
+            port=port,
+            allowlist=private_network_allowlist,
+        ):
+            continue
+        if allow_rfc2544_benchmark_range and is_rfc2544_benchmark_address(resolved_ip):
+            continue
         reason = blocked_ip_reason(resolved_ip)
         if reason:
             return f"host '{host}' resolved to blocked address {resolved_ip} ({reason})."

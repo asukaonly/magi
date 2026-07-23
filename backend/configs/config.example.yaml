@@ -229,6 +229,7 @@ tools:
   web_fetch:
     enabled: true
     default_provider: "http"
+    allow_rfc2544_benchmark_range: false
     allow_private_network: false
     private_network_allowlist: []
     providers:

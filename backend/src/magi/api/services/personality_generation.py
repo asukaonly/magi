@@ -131,6 +131,7 @@ class PersonalityGenerationJob:
   request_id: Optional[str] = None
   result: Optional[PersonalityGenerationResult] = None
   error: Optional[str] = None
+  error_code: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -1384,6 +1385,8 @@ def _personality_generation_job_snapshot(job: PersonalityGenerationJob) -> dict[
       payload["reference_dossier"] = job.result.reference_dossier.model_dump()
   if job.error:
     payload["error"] = job.error
+  if job.error_code:
+    payload["error_code"] = job.error_code
   return payload
 
 
@@ -1503,6 +1506,7 @@ async def _run_personality_generation_job(
     job.updated_at = time.time()
   except Exception as exc:  # noqa: BLE001 - surfaced through job status endpoint
     job.error = str(exc)
+    job.error_code = getattr(exc, "code", None)
     job.status = "failed"
     job.updated_at = time.time()
 

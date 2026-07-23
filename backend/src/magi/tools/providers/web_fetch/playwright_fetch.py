@@ -42,6 +42,9 @@ class PlaywrightFetchProvider(Provider):
         url = str(params["url"]).strip()
         timeout_ms = int(params.get("timeout_ms", 15000))
         proxy_url = str(params.get("proxy_url") or "").strip() or None
+        allow_rfc2544_benchmark_range = bool(
+            params.get("allow_rfc2544_benchmark_range", False)
+        )
         allow_private_network = bool(params.get("allow_private_network", False))
         private_network_allowlist = list(params.get("private_network_allowlist") or [])
         wait_until = str(params.get("wait_until", "networkidle")).strip().lower()
@@ -69,6 +72,7 @@ class PlaywrightFetchProvider(Provider):
                         request.url,
                         allow_private_network=allow_private_network,
                         private_network_allowlist=private_network_allowlist,
+                        allow_rfc2544_benchmark_range=allow_rfc2544_benchmark_range,
                     )
                     if reason:
                         await route.abort()

@@ -1381,6 +1381,13 @@
     "autoStartLabel": "Launch at login",
     "startMinimizedLabel": "Start minimized to tray",
     "proxyOff": "Direct (proxy off)",
+    "fakeIpCompatibility": "Support TUN proxy fake IPs",
+    "fakeIpCompatibilityDesc": "Enable only when you trust the TUN mode in Clash, Surge, or sing-box. This permits only proxy-owned 198.18.x.x addresses and does not expose your LAN.",
+    "fakeIpCompatibilityPromptTitle": "TUN proxy compatibility issue detected",
+    "fakeIpCompatibilityPromptDesc": "Your system proxy mapped a public website to a fake IP, so the safety check blocked source retrieval. You can enable compatibility only for that proxy range and retry.",
+    "fakeIpCompatibilityEnableRetry": "Enable and retry",
+    "fakeIpCompatibilityEnabling": "Enabling…",
+    "fakeIpCompatibilityEnableFailed": "Could not enable proxy compatibility: {{message}}",
     "defaultChatWorkspaceDesc": "Set the default working directory for new desktop conversations. You can still choose a different directory inside a specific conversation.",
     "control": {
       "title": "Safety and execution",

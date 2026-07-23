@@ -885,6 +885,35 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('saves TUN fake-IP compatibility without enabling private network fetch', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+    const compatibilitySwitch = screen.getByRole('switch', {
+      name: 'settings.fakeIpCompatibility',
+    });
+    expect(compatibilitySwitch).toHaveAttribute('data-state', 'unchecked');
+
+    await user.click(compatibilitySwitch);
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tools: expect.objectContaining({
+            builtIn: expect.objectContaining({
+              webFetch: expect.objectContaining({
+                allowRfc2544BenchmarkRange: true,
+                allowPrivateNetworkFetch: false,
+              }),
+            }),
+          }),
+        })
+      )
+    );
+  });
+
   it('does not mark provider settings dirty when llm form normalizes mounted values', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({

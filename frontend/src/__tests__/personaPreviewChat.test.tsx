@@ -6,6 +6,7 @@ import {
   PersonaPreviewChat,
   type CustomPersonaDraft,
 } from '../components/onboarding/PersonaPreviewChat';
+import { configApi, DEFAULT_SYSTEM_CONFIG } from '../api/modules/config';
 import { personasApi, type SeedPreview, type PersonalityConfig } from '../api/modules/personas';
 
 vi.mock('react-i18next', () => ({
@@ -907,6 +908,81 @@ describe('PersonaPreviewChat', () => {
 
     await waitFor(() => expect(generationSpy).toHaveBeenCalledTimes(1));
     expect(verificationSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a narrow fake-IP compatibility retry for reference generation', async () => {
+    vi.mocked(personasApi.resolveGenerationIntent).mockResolvedValueOnce({
+      success: true,
+      message: 'ok',
+      data: {
+        status: 'resolved',
+        candidates: [{
+          candidate_id: 'candidate-1',
+          source_kind: 'public_person_reference',
+          name: 'Public Reference',
+          work_title: null,
+          version: null,
+          context: null,
+          confidence: 0.92,
+        }],
+        selected_candidate_id: 'candidate-1',
+        confidence: 0.92,
+        requires_confirmation: true,
+        explicit_constraints: [],
+      },
+    });
+    const compatibilityError = Object.assign(
+      new Error('Blocked web-fetch URL'),
+      { code: 'FAKE_IP_COMPATIBILITY_REQUIRED' },
+    );
+    const generationSpy = vi
+      .spyOn(personasApi, 'generateWithProgress')
+      .mockRejectedValueOnce(compatibilityError)
+      .mockResolvedValueOnce({
+        success: true,
+        message: 'ok',
+        data: makeGeneratedConfig(),
+        stages: [],
+      } as any);
+    const configSnapshot = structuredClone(DEFAULT_SYSTEM_CONFIG);
+    const getConfigSpy = vi.spyOn(configApi, 'get').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: configSnapshot,
+    });
+    const updateConfigSpy = vi.spyOn(configApi, 'update').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: configSnapshot,
+    });
+
+    renderPersonaPreview({ previews, stayInPicker: true });
+    await userEvent.click(screen.getByTestId('persona-create-custom'));
+    await userEvent.type(screen.getByTestId('persona-custom-description'), 'Public Reference');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+    await screen.findByTestId('persona-reference-editor');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    expect(await screen.findByTestId('persona-fake-ip-compatibility')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', {
+      name: 'settings.fakeIpCompatibilityEnableRetry',
+    }));
+
+    await waitFor(() => expect(getConfigSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(updateConfigSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.objectContaining({
+          builtIn: expect.objectContaining({
+            webFetch: expect.objectContaining({
+              allowRfc2544BenchmarkRange: true,
+              allowPrivateNetworkFetch: false,
+            }),
+          }),
+        }),
+      }),
+    ));
+    await waitFor(() => expect(generationSpy).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId('persona-fake-ip-compatibility')).not.toBeInTheDocument();
   });
 
   it('lets the user edit a resolved work and choose immersive fidelity', async () => {

@@ -129,6 +129,9 @@ function extractResponseMessage(data: unknown, fallback: string): string {
   if (detailMessage) {
     return detailMessage;
   }
+  if (isRecord(data.detail) && typeof data.detail.message === 'string') {
+    return data.detail.message;
+  }
   if (typeof data.error === 'string') {
     return data.error;
   }
@@ -144,6 +147,9 @@ function extractErrorCode(data: unknown): string | undefined {
   }
   if (typeof data.code === 'string') {
     return data.code;
+  }
+  if (isRecord(data.detail) && typeof data.detail.error_code === 'string') {
+    return data.detail.error_code;
   }
   return undefined;
 }

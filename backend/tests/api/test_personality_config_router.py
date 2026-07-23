@@ -208,6 +208,42 @@ async def test_personality_generation_job_routes_return_progress_snapshots(monke
 
 
 @pytest.mark.asyncio
+async def test_reference_verification_returns_stable_fake_ip_error_code(monkeypatch) -> None:
+    from magi.api.routers import personality_config
+
+    class FakeIpCompatibilityError(RuntimeError):
+        code = "FAKE_IP_COMPATIBILITY_REQUIRED"
+
+    async def _blocked_verification(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        raise FakeIpCompatibilityError("TUN fake-IP compatibility is required")
+
+    monkeypatch.setattr(
+        personality_config,
+        "ai_verify_persona_reference_identity",
+        _blocked_verification,
+    )
+
+    request = personality_config.PersonaIdentityVerifyRequest(
+        description="Reference",
+        reference=personality_config.PersonaReferenceModel(
+            source_kind="fictional_reference",
+            name="Reference",
+            user_confirmed=True,
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await personality_config.verify_personality_reference_identity(request)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == {
+        "message": "TUN fake-IP compatibility is required",
+        "error_code": "FAKE_IP_COMPATIBILITY_REQUIRED",
+    }
+
+
+@pytest.mark.asyncio
 async def test_persona_intent_route_returns_editable_reference_candidates(monkeypatch) -> None:
     from magi.api.routers import personality_config
 
@@ -1226,6 +1262,24 @@ def test_personality_generation_cleanup_uses_lifecycle_ttl(monkeypatch) -> None:
     personality_generation._cleanup_personality_generation_jobs(now=100)
 
     assert set(personality_generation._PERSONALITY_GENERATION_JOBS) == {"recent"}
+
+
+def test_personality_generation_job_snapshot_preserves_error_code() -> None:
+    from magi.api.services import personality_generation
+
+    snapshot = personality_generation._personality_generation_job_snapshot(
+        personality_generation.PersonalityGenerationJob(
+            job_id="failed-job",
+            status="failed",
+            stages=[],
+            created_at=0,
+            updated_at=1,
+            error="TUN fake-IP compatibility is required",
+            error_code="FAKE_IP_COMPATIBILITY_REQUIRED",
+        )
+    )
+
+    assert snapshot["error_code"] == "FAKE_IP_COMPATIBILITY_REQUIRED"
 
 
 def test_normalize_generated_personality_payload_keeps_surface_fixed() -> None:

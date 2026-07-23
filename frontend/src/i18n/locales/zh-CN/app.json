@@ -1380,6 +1380,13 @@
     "autoStartLabel": "开机自动启动",
     "startMinimizedLabel": "启动后最小化到托盘",
     "proxyOff": "直连（关闭代理）",
+    "fakeIpCompatibility": "兼容 TUN 代理的 Fake-IP",
+    "fakeIpCompatibilityDesc": "仅在你信任 Clash、Surge 或 sing-box 的 TUN 模式时开启。只允许代理使用的 198.18.x.x 地址，不会放开局域网。",
+    "fakeIpCompatibilityPromptTitle": "检测到 TUN 代理兼容问题",
+    "fakeIpCompatibilityPromptDesc": "系统代理把公开网站映射成了 Fake-IP，导致资料抓取被安全检查拦截。可以只为这类代理地址开启兼容后重试。",
+    "fakeIpCompatibilityEnableRetry": "开启兼容并重试",
+    "fakeIpCompatibilityEnabling": "正在开启…",
+    "fakeIpCompatibilityEnableFailed": "无法开启代理兼容：{{message}}",
     "defaultChatWorkspaceDesc": "设置桌面端新对话默认使用的工作目录。进入具体会话后，仍然可以单独改成别的目录。",
     "control": {
       "title": "安全与执行",

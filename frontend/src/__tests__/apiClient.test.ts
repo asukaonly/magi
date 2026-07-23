@@ -55,6 +55,29 @@ describe('api client helpers', () => {
     });
   });
 
+  it('reads stable error details nested by FastAPI', () => {
+    const error = toApiClientError({
+      isAxiosError: true,
+      message: 'Request failed with status code 409',
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            message: 'TUN fake-IP compatibility is required',
+            error_code: 'FAKE_IP_COMPATIBILITY_REQUIRED',
+          },
+        },
+      },
+    });
+
+    expect(error).toMatchObject({
+      message: 'TUN fake-IP compatibility is required',
+      code: 'FAKE_IP_COMPATIBILITY_REQUIRED',
+      kind: 'http',
+      status: 409,
+    });
+  });
+
   it('normalizes cancellation into a stable error kind', () => {
     const error = toApiClientError({
       isAxiosError: true,

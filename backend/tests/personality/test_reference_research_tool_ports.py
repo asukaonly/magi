@@ -8,6 +8,7 @@ from magi.personality.reference_research.tool_ports import (
     ToolReferenceFetchPort,
     ToolReferenceSearchPort,
 )
+from magi.personality.reference_research.ports import ReferenceFetchError
 
 
 class _InvocationService:
@@ -65,3 +66,18 @@ async def test_tool_ports_surface_web_failures() -> None:
 
     with pytest.raises(RuntimeError, match="Network unavailable"):
         await ToolReferenceSearchPort(invocation).search("reference query")
+
+@pytest.mark.asyncio
+async def test_fetch_port_preserves_fake_ip_compatibility_code() -> None:
+    invocation = _InvocationService(
+        SimpleNamespace(
+            success=False,
+            error="Blocked web-fetch URL",
+            data={"reason_code": "FAKE_IP_COMPATIBILITY_REQUIRED"},
+        )
+    )
+
+    with pytest.raises(ReferenceFetchError) as exc_info:
+        await ToolReferenceFetchPort(invocation).fetch("https://example.com")
+
+    assert exc_info.value.code == "FAKE_IP_COMPATIBILITY_REQUIRED"

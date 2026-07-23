@@ -187,6 +187,7 @@ def build_tools(raw: Dict[str, Any], runtime_config: Any) -> ToolsConfigModel:
             ),
             webFetch=WebFetchToolConfigModel(
                 enabled=web_fetch_runtime.enabled,
+                allowRfc2544BenchmarkRange=(web_fetch_runtime.allow_rfc2544_benchmark_range),
                 allowPrivateNetworkFetch=web_fetch_runtime.allow_private_network,
                 privateNetworkAllowlist=list(web_fetch_runtime.private_network_allowlist),
             ),

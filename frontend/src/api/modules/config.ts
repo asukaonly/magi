@@ -419,6 +419,7 @@ export interface WebSearchToolConfig {
 
 export interface WebFetchToolConfig {
   enabled: boolean;
+  allowRfc2544BenchmarkRange?: boolean;
   allowPrivateNetworkFetch?: boolean;
   privateNetworkAllowlist?: string[];
 }
@@ -830,7 +831,12 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     builtIn: {
       weather: { enabled: true, provider: 'openmeteo' },
       webSearch: { enabled: true, provider: 'duckduckgo' },
-      webFetch: { enabled: true, allowPrivateNetworkFetch: false, privateNetworkAllowlist: [] },
+      webFetch: {
+        enabled: true,
+        allowRfc2544BenchmarkRange: false,
+        allowPrivateNetworkFetch: false,
+        privateNetworkAllowlist: [],
+      },
     },
     skills: [],
   },

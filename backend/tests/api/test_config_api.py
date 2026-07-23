@@ -1641,6 +1641,16 @@ def test_unrelated_config_change_does_not_interrupt_embedding_rebuild(
     assert response.status_code == 200
 
 
+def test_fake_ip_compatibility_persists_separately_from_private_network_access() -> None:
+    config = SystemConfigModel()
+    config.tools.builtIn.webFetch.allowRfc2544BenchmarkRange = True
+
+    updates = _build_update_paths(config)
+
+    assert updates["tools.web_fetch.allow_rfc2544_benchmark_range"] is True
+    assert updates.get("tools.web_fetch.allow_private_network", False) is False
+
+
 def test_embedding_config_save_failure_still_resumes_rebuild_starts(
     monkeypatch: pytest.MonkeyPatch,
 ):

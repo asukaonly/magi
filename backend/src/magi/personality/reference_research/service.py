@@ -21,7 +21,7 @@ from .models import (
     ReferenceResearchLevel,
     ReferenceSource,
 )
-from .ports import ReferenceFetchPort, ReferenceSearchPort
+from .ports import ReferenceFetchError, ReferenceFetchPort, ReferenceSearchPort
 
 _PROFILE_DIMENSIONS = (
     "ordinary_baseline",
@@ -295,7 +295,11 @@ async def _fetch_sources(
         return_exceptions=True,
     )
     documents: list[dict[str, Any]] = []
+    fetch_errors: list[ReferenceFetchError] = []
     for source, result in zip(selected, fetched):
+        if isinstance(result, ReferenceFetchError):
+            fetch_errors.append(result)
+            continue
         if not isinstance(result, dict):
             continue
         content = str(result.get("content") or "").strip()
@@ -312,6 +316,10 @@ async def _fetch_sources(
         source.title = str(result.get("title") or source.title)[:500]
         source.summary = content[:1200]
         source.source_type = "user_provided" if source.user_provided else "reputable_secondary"
+    if not documents:
+        coded_error = next((error for error in fetch_errors if error.code), None)
+        if coded_error is not None:
+            raise coded_error
     return documents
 
 

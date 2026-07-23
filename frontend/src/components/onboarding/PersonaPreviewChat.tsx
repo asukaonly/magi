@@ -17,7 +17,7 @@ import {
   type PersonaReferenceKind,
   type SeedPreview,
 } from '../../api/modules/personas';
-import type { LLMConfig } from '../../api/modules/config';
+import { configApi, type LLMConfig } from '../../api/modules/config';
 import { PersonaPreviewStarterChips } from './PersonaPreviewStarterChips';
 import { PersonaProfilePanel } from './PersonaProfilePanel';
 import { ONBOARDING_FIELD_MUTED_CLASS } from './onboardingStyles';
@@ -30,6 +30,19 @@ import {
 
 const MAX_USER_TURNS_PER_PERSONA = 5;
 const PREVIEW_SEGMENT_SENTINEL = '‖';
+const FAKE_IP_COMPATIBILITY_REQUIRED = 'FAKE_IP_COMPATIBILITY_REQUIRED';
+
+type FakeIpCompatibilityRetry =
+  | { kind: 'verification'; draft: PersonaCreationDraft }
+  | { kind: 'generation'; draft: PersonaCreationDraft; intent: PersonaGenerationIntent };
+
+function errorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('code' in error)) {
+    return undefined;
+  }
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
 
 /**
  * An onboarding-generated persona draft with its final stable registry ID.
@@ -439,6 +452,9 @@ export function PersonaPreviewChat({
   const creationDraftRef = useRef<PersonaCreationDraft | null>(initialCreationDraft ?? null);
   const [genStages, setGenStages] = useState<PersonaGenerationStage[]>([]);
   const [genError, setGenError] = useState<string | null>(null);
+  const [fakeIpCompatibilityRetry, setFakeIpCompatibilityRetry] =
+    useState<FakeIpCompatibilityRetry | null>(null);
+  const [enablingFakeIpCompatibility, setEnablingFakeIpCompatibility] = useState(false);
   const resumedGenerationJobIdsRef = useRef(new Set<string>());
   const creationSubmissionInFlightRef = useRef(false);
   const restoredCreationDraftHandledRef = useRef(false);
@@ -704,6 +720,7 @@ export function PersonaPreviewChat({
       };
       publishCreationDraft(workingDraft);
       setGenError(null);
+      setFakeIpCompatibilityRetry(null);
       setGenStages([]);
       try {
         const targetLanguage = (i18n.language || '').startsWith('zh') ? 'Chinese' : 'English';
@@ -772,17 +789,27 @@ export function PersonaPreviewChat({
         setMode('chat');
       } catch (err) {
         const message = (err as Error).message;
-        setGenError(
-          message === 'Personality generation timed out'
-            ? t('personaPreview.generationTimedOut')
-            : message || t('personaPreview.generationFailedUnknown'),
-        );
-        publishCreationDraft({
+        const failedDraft: PersonaCreationDraft = {
           ...workingDraft,
           phase: 'failed',
           generationRequestId: undefined,
           generationJobId: undefined,
-        });
+        };
+        if (errorCode(err) === FAKE_IP_COMPATIBILITY_REQUIRED) {
+          setGenError(t('settings.fakeIpCompatibilityPromptDesc', { ns: 'app' }));
+          setFakeIpCompatibilityRetry({
+            kind: 'generation',
+            draft: failedDraft,
+            intent,
+          });
+        } else {
+          setGenError(
+            message === 'Personality generation timed out'
+              ? t('personaPreview.generationTimedOut')
+              : message || t('personaPreview.generationFailedUnknown'),
+          );
+        }
+        publishCreationDraft(failedDraft);
       }
     },
     [
@@ -865,6 +892,7 @@ export function PersonaPreviewChat({
         phase: 'verifying',
       };
       publishCreationDraft(verifyingDraft);
+      setFakeIpCompatibilityRetry(null);
       try {
         const targetLanguage = (i18n.language || '').startsWith('zh') ? 'Chinese' : 'English';
         const response = await personasApi.verifyReferenceIdentity({
@@ -942,6 +970,18 @@ export function PersonaPreviewChat({
         publishCreationDraft(verifiedDraft);
         return verifiedDraft;
       } catch (error) {
+        if (errorCode(error) === FAKE_IP_COMPATIBILITY_REQUIRED) {
+          const failedDraft: PersonaCreationDraft = {
+            ...sourceDraft,
+            phase: 'failed',
+            generationRequestId: undefined,
+            generationJobId: undefined,
+          };
+          publishCreationDraft(failedDraft);
+          setGenError(t('settings.fakeIpCompatibilityPromptDesc', { ns: 'app' }));
+          setFakeIpCompatibilityRetry({ kind: 'verification', draft: failedDraft });
+          return null;
+        }
         const warning = (error as Error).message || t('personaPreview.reference.verificationUnavailable');
         const fallbackDraft: PersonaCreationDraft = {
           ...sourceDraft,
@@ -1037,6 +1077,45 @@ export function PersonaPreviewChat({
     i18n.language,
     llmConfig,
     publishCreationDraft,
+    runGeneration,
+    t,
+    verifyDraftReference,
+  ]);
+
+  const enableFakeIpCompatibilityAndRetry = useCallback(async () => {
+    const pendingRetry = fakeIpCompatibilityRetry;
+    if (!pendingRetry || enablingFakeIpCompatibility) {
+      return;
+    }
+    setEnablingFakeIpCompatibility(true);
+    setGenError(null);
+    try {
+      const response = await configApi.get();
+      if (!response.data) {
+        throw new Error(t('personaPreview.generationFailedUnknown'));
+      }
+      const nextConfig = structuredClone(response.data);
+      nextConfig.tools.builtIn.webFetch.allowRfc2544BenchmarkRange = true;
+      await configApi.update(nextConfig);
+      setFakeIpCompatibilityRetry(null);
+
+      if (pendingRetry.kind === 'verification') {
+        const verifiedDraft = await verifyDraftReference(pendingRetry.draft);
+        if (verifiedDraft) {
+          await runGeneration(verifiedDraft, buildGenerationIntent(verifiedDraft));
+        }
+        return;
+      }
+      await runGeneration(pendingRetry.draft, pendingRetry.intent);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setGenError(t('settings.fakeIpCompatibilityEnableFailed', { ns: 'app', message }));
+    } finally {
+      setEnablingFakeIpCompatibility(false);
+    }
+  }, [
+    enablingFakeIpCompatibility,
+    fakeIpCompatibilityRetry,
     runGeneration,
     t,
     verifyDraftReference,
@@ -1720,11 +1799,36 @@ export function PersonaPreviewChat({
               </div>
             )}
 
-            {genError && (
+            {fakeIpCompatibilityRetry ? (
+              <div
+                className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2.5"
+                role="alert"
+                data-testid="persona-fake-ip-compatibility"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium text-foreground">
+                    {t('settings.fakeIpCompatibilityPromptTitle', { ns: 'app' })}
+                  </div>
+                  <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                    {genError || t('settings.fakeIpCompatibilityPromptDesc', { ns: 'app' })}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void enableFakeIpCompatibilityAndRetry()}
+                  disabled={enablingFakeIpCompatibility}
+                  className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {enablingFakeIpCompatibility
+                    ? t('settings.fakeIpCompatibilityEnabling', { ns: 'app' })
+                    : t('settings.fakeIpCompatibilityEnableRetry', { ns: 'app' })}
+                </button>
+              </div>
+            ) : genError ? (
               <p className="mt-3 text-xs text-destructive" role="alert">
                 {genError}
               </p>
-            )}
+            ) : null}
           </motion.div>
 
           <div className="flex items-center justify-end gap-2">
@@ -1734,6 +1838,7 @@ export function PersonaPreviewChat({
                 setMode('chat');
                 setStage('picker');
                 setGenError(null);
+                setFakeIpCompatibilityRetry(null);
                 publishCreationDraft(null);
               }}
               disabled={generating}

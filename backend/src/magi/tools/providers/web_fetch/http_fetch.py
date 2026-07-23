@@ -34,6 +34,9 @@ class HttpFetchProvider(Provider):
         url = str(params["url"]).strip()
         timeout_ms = int(params.get("timeout_ms", 15000))
         proxy_url = str(params.get("proxy_url") or "").strip() or None
+        allow_rfc2544_benchmark_range = bool(
+            params.get("allow_rfc2544_benchmark_range", False)
+        )
         allow_private_network = bool(params.get("allow_private_network", False))
         private_network_allowlist = list(params.get("private_network_allowlist") or [])
         user_agent = str(
@@ -58,6 +61,7 @@ class HttpFetchProvider(Provider):
                     current_url,
                     allow_private_network=allow_private_network,
                     private_network_allowlist=private_network_allowlist,
+                    allow_rfc2544_benchmark_range=allow_rfc2544_benchmark_range,
                 )
                 if block_reason:
                     raise RuntimeError(f"Blocked web-fetch redirect target: {block_reason}")

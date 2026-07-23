@@ -292,6 +292,7 @@ export interface PersonalityGenerationJobSnapshot {
   updated_at?: number;
   data?: PersonalityConfig;
   error?: string;
+  error_code?: string;
   reference_dossier?: PersonaReferenceDossier;
 }
 
@@ -623,7 +624,11 @@ export const personasApi = {
     }
 
     if (snapshot.status === 'failed') {
-      throw new Error(snapshot.error || 'Personality generation failed');
+      const error = new Error(snapshot.error || 'Personality generation failed') as Error & {
+        code?: string;
+      };
+      error.code = snapshot.error_code;
+      throw error;
     }
     if (!snapshot.data) {
       throw new Error('Personality generation completed without a result');

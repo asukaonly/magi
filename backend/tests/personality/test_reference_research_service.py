@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from magi.personality.reference_research.models import ReferenceIdentity, ReferenceSource
+from magi.personality.reference_research.ports import ReferenceFetchError
 from magi.personality.reference_research import service
 
 
@@ -54,6 +55,15 @@ class _SameDomainSearchPort:
             }
             for index in range(1, 5)
         ][:limit]
+
+
+class _FakeIpBlockedFetchPort:
+    async def fetch(self, url: str, *, max_chars: int = 12000) -> dict[str, Any]:
+        _ = (url, max_chars)
+        raise ReferenceFetchError(
+            "TUN fake-IP compatibility is required",
+            code="FAKE_IP_COMPATIBILITY_REQUIRED",
+        )
 
 
 @pytest.mark.asyncio
@@ -177,6 +187,30 @@ async def test_research_dossier_reports_unavailable_fetches(monkeypatch) -> None
     assert result.grounding_status == "unavailable"
     assert result.sufficient is False
     assert result.warning
+
+
+@pytest.mark.asyncio
+async def test_research_dossier_surfaces_fake_ip_compatibility_failure(monkeypatch) -> None:
+    async def fake_llm(**kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return {"queries": ["Reference identity"]}
+
+    monkeypatch.setattr(service, "_run_json_llm", fake_llm)
+
+    with pytest.raises(ReferenceFetchError) as exc_info:
+        await service.research_reference(
+            ReferenceIdentity(
+                source_kind="fictional_reference",
+                name="Reference",
+            ),
+            research_level="full",
+            target_language="English",
+            search_port=_SearchPort(),
+            fetch_port=_FakeIpBlockedFetchPort(),
+            force_refresh=True,
+        )
+
+    assert exc_info.value.code == "FAKE_IP_COMPATIBILITY_REQUIRED"
 
 
 @pytest.mark.asyncio

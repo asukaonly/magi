@@ -444,6 +444,12 @@ async def verify_personality_reference_identity(
         raise
     except Exception as exc:
         legacy.logger.error("Persona reference identity verification failed: %s", exc)
+        error_code = getattr(exc, "code", None)
+        if error_code:
+            raise HTTPException(
+                status_code=409,
+                detail={"message": str(exc), "error_code": error_code},
+            ) from exc
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

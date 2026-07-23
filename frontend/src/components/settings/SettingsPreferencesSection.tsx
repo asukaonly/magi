@@ -26,16 +26,25 @@ const settingsInputClassName =
 
 function PreferenceToggleRow({
   label,
+  description,
   checked,
   onCheckedChange,
 }: {
   label: string;
+  description?: string;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
     <div className="flex min-h-10 items-center justify-between gap-6 rounded-lg px-1 py-1.5 transition-colors duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.34)]">
-      <span className="text-sm font-medium leading-6 text-foreground/85">{label}</span>
+      <div className="min-w-0">
+        <div className="text-sm font-medium leading-6 text-foreground/85">{label}</div>
+        {description ? (
+          <div className="max-w-2xl text-xs leading-5 text-muted-foreground">
+            {description}
+          </div>
+        ) : null}
+      </div>
       <Switch
         aria-label={label}
         checked={checked}
@@ -236,6 +245,16 @@ export function SettingsPreferencesSection({
               </div>
             </div>
           )}
+          <PreferenceToggleRow
+            label={t('settings.fakeIpCompatibility')}
+            description={t('settings.fakeIpCompatibilityDesc')}
+            checked={Boolean(
+              draftConfig.tools.builtIn.webFetch.allowRfc2544BenchmarkRange
+            )}
+            onCheckedChange={(checked) => patchDraftConfig((draft) => {
+              draft.tools.builtIn.webFetch.allowRfc2544BenchmarkRange = checked;
+            })}
+          />
         </div>
       </SettingsGroup>
 

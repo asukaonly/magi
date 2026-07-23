@@ -13,6 +13,7 @@ from ...agent.execution.tool_invocation_service import (
 from ...events.domain_payloads import TaskContext
 from ...tools.registry import tool_registry
 from ...tools.schema import ToolExecutionContext
+from .ports import ReferenceFetchError
 
 
 def _invocation_context(task_id: str) -> InvocationContext:
@@ -79,7 +80,16 @@ class ToolReferenceFetchPort:
             _invocation_context(task_id),
         )
         if not bool(getattr(result, "success", False)):
-            raise RuntimeError(str(getattr(result, "error", "Web fetch failed")))
+            data = getattr(result, "data", None)
+            reason_code = (
+                str(data.get("reason_code"))
+                if isinstance(data, dict) and data.get("reason_code")
+                else None
+            )
+            raise ReferenceFetchError(
+                str(getattr(result, "error", "Web fetch failed")),
+                code=reason_code,
+            )
         data = getattr(result, "data", None)
         return dict(data) if isinstance(data, dict) else {}
 

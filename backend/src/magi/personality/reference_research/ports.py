@@ -5,6 +5,14 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 
+class ReferenceFetchError(RuntimeError):
+    """Represent a governed source-fetch failure with a stable product code."""
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class ReferenceSearchPort(Protocol):
     """Discover public source candidates for one query."""
 
@@ -19,4 +27,4 @@ class ReferenceFetchPort(Protocol):
         """Return normalized page content and metadata."""
 
 
-__all__ = ["ReferenceFetchPort", "ReferenceSearchPort"]
+__all__ = ["ReferenceFetchError", "ReferenceFetchPort", "ReferenceSearchPort"]

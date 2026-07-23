@@ -300,6 +300,7 @@ class WebSearchToolConfigModel(BaseModel):
 
 class WebFetchToolConfigModel(BaseModel):
     enabled: bool = Field(default=True)
+    allowRfc2544BenchmarkRange: bool = Field(default=False)
     allowPrivateNetworkFetch: bool = Field(default=False)
     privateNetworkAllowlist: List[str] = Field(default_factory=list)
 

@@ -3,6 +3,7 @@ Web Fetch Tool - Fetch and extract web page content
 """
 
 import copy
+import ipaddress
 import re
 import time
 from dataclasses import dataclass
@@ -22,7 +23,10 @@ from ..schema import (
     ToolSchema,
     ToolErrorCode,
 )
-from ..utils.network_safety import blocked_url_target_reason
+from ..utils.network_safety import (
+    RFC2544_FAKE_IP_COMPATIBILITY_REQUIRED,
+    blocked_url_target_reason,
+)
 from ...config import get_config, save_config
 
 _FETCH_CACHE_TTL_SECONDS = 900.0
@@ -37,6 +41,7 @@ class _FetchRequest:
     timeout_ms: int
     max_chars: int
     include_metadata: bool
+    allow_rfc2544_benchmark_range: bool
     allow_private_network: bool
     private_network_allowlist: list[str]
     proxy_url: str | None
@@ -273,6 +278,7 @@ class WebFetchTool(MultiProviderTool):
             request.url,
             allow_private_network=request.allow_private_network,
             private_network_allowlist=request.private_network_allowlist,
+            allow_rfc2544_benchmark_range=request.allow_rfc2544_benchmark_range,
         )
         if block_reason:
             return self._blocked_url_result(request.url, block_reason)
@@ -301,6 +307,9 @@ class WebFetchTool(MultiProviderTool):
             wait_until=str(parameters.get("wait_until", "networkidle")).strip().lower(),
             max_chars=int(parameters.get("max_chars", 20000)),
             include_metadata=bool(parameters.get("include_metadata", True)),
+            allow_rfc2544_benchmark_range=bool(
+                getattr(web_fetch_config, "allow_rfc2544_benchmark_range", False)
+            ),
             allow_private_network=bool(getattr(web_fetch_config, "allow_private_network", False)),
             private_network_allowlist=list(
                 getattr(web_fetch_config, "private_network_allowlist", []) or []
@@ -310,6 +319,23 @@ class WebFetchTool(MultiProviderTool):
 
     @staticmethod
     def _blocked_url_result(url: str, block_reason: str) -> ToolResult:
+        parsed_host = (urlparse(url).hostname or "").strip().strip("[]")
+        try:
+            ipaddress.ip_address(parsed_host)
+            is_domain = False
+        except ValueError:
+            is_domain = True
+        fake_ip_compatibility_available = is_domain and "RFC 2544 benchmark range" in block_reason
+        guidance = (
+            "Ask the user to enable trusted TUN fake-IP compatibility, then retry once. "
+            "Do not enable private-network fetch or broaden the private allowlist."
+            if fake_ip_compatibility_available
+            else (
+                "Do not retry this URL with web-fetch. Ask the user to provide "
+                "a public URL or use an explicit local tool/workspace path if "
+                "they intended to inspect local resources."
+            )
+        )
         return ToolResult(
             success=False,
             error=f"Blocked web-fetch URL: {block_reason}",
@@ -317,11 +343,12 @@ class WebFetchTool(MultiProviderTool):
             data={
                 "url": url,
                 "reason": block_reason,
-                "llm_guidance": (
-                    "Do not retry this URL with web-fetch. Ask the user to provide "
-                    "a public URL or use an explicit local tool/workspace path if "
-                    "they intended to inspect local resources."
+                "reason_code": (
+                    RFC2544_FAKE_IP_COMPATIBILITY_REQUIRED
+                    if fake_ip_compatibility_available
+                    else ToolErrorCode.POLICY_BLOCKED.value
                 ),
+                "llm_guidance": guidance,
             },
         )
 
@@ -332,6 +359,7 @@ class WebFetchTool(MultiProviderTool):
             "timeout_ms": request.timeout_ms,
             "wait_until": request.wait_until,
             "proxy_url": request.proxy_url,
+            "allow_rfc2544_benchmark_range": request.allow_rfc2544_benchmark_range,
             "allow_private_network": request.allow_private_network,
             "private_network_allowlist": request.private_network_allowlist,
         }

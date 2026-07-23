@@ -1,6 +1,9 @@
 """
 Tests for web-fetch tool behavior and fallback logic.
 """
+
+import asyncio
+import socket
 from types import MethodType, SimpleNamespace
 
 import pytest
@@ -17,7 +20,13 @@ def _context() -> ToolExecutionContext:
 
 
 def _allow_tool_network_safety(monkeypatch) -> None:
-    async def allow(_url, *, allow_private_network=False, private_network_allowlist=None):
+    async def allow(
+        _url,
+        *,
+        allow_private_network=False,
+        private_network_allowlist=None,
+        allow_rfc2544_benchmark_range=False,
+    ):
         return None
 
     monkeypatch.setattr(
@@ -55,6 +64,51 @@ async def test_network_safety_allows_explicit_private_allowlist():
         "http://localhost:4000",
         allow_private_network=True,
         private_network_allowlist=["localhost:3000"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_network_safety_allows_rfc2544_only_for_hostname_resolution(monkeypatch):
+    loop = asyncio.get_running_loop()
+
+    async def fake_getaddrinfo(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("198.18.0.42", 443))]
+
+    monkeypatch.setattr(loop, "getaddrinfo", fake_getaddrinfo)
+
+    blocked = await blocked_url_target_reason("https://example.com")
+    allowed = await blocked_url_target_reason(
+        "https://example.com",
+        allow_rfc2544_benchmark_range=True,
+    )
+    literal = await blocked_url_target_reason(
+        "https://198.18.0.42",
+        allow_rfc2544_benchmark_range=True,
+    )
+
+    assert blocked and "RFC 2544 benchmark range" in blocked
+    assert allowed is None
+    assert literal and "RFC 2544 benchmark range" in literal
+
+
+@pytest.mark.asyncio
+async def test_network_safety_applies_private_allowlist_to_resolved_addresses(monkeypatch):
+    loop = asyncio.get_running_loop()
+
+    async def fake_getaddrinfo(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.12", 443))]
+
+    monkeypatch.setattr(loop, "getaddrinfo", fake_getaddrinfo)
+
+    assert (
+        await blocked_url_target_reason(
+            "https://service.example",
+            allow_private_network=True,
+            private_network_allowlist=["10.0.0.0/24"],
+        )
+        is None
     )
 
 
@@ -113,6 +167,7 @@ async def test_private_network_allowlist_passes_policy_to_provider(monkeypatch):
         network=SimpleNamespace(proxy_url=lambda: None),
         tools=SimpleNamespace(
             web_fetch=SimpleNamespace(
+                allow_rfc2544_benchmark_range=True,
                 allow_private_network=True,
                 private_network_allowlist=["localhost:3000"],
             )
@@ -141,8 +196,41 @@ async def test_private_network_allowlist_passes_policy_to_provider(monkeypatch):
     result = await tool.execute({"url": "http://localhost:3000", "mode": "http"}, _context())
 
     assert result.success is True
+    assert captured["params"]["allow_rfc2544_benchmark_range"] is True
     assert captured["params"]["allow_private_network"] is True
     assert captured["params"]["private_network_allowlist"] == ["localhost:3000"]
+
+
+@pytest.mark.asyncio
+async def test_fake_ip_policy_block_exposes_retryable_reason_code(monkeypatch):
+    tool = WebFetchTool()
+
+    async def fake_block(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        return (
+            "host 'example.com' resolved to blocked address 198.18.0.42 "
+            "(address is in the RFC 2544 benchmark range used by TUN fake-IP proxies)."
+        )
+
+    monkeypatch.setattr(
+        "magi.tools.builtin.web_fetch_tool.blocked_url_target_reason",
+        fake_block,
+    )
+
+    result = await tool.execute({"url": "https://example.com"}, _context())
+
+    assert result.success is False
+    assert result.error_code == ToolErrorCode.POLICY_BLOCKED.value
+    assert result.data["reason_code"] == "FAKE_IP_COMPATIBILITY_REQUIRED"
+
+
+def test_literal_fake_ip_policy_block_is_not_retryable() -> None:
+    result = WebFetchTool._blocked_url_result(
+        "https://198.18.0.42",
+        "address is in the RFC 2544 benchmark range used by TUN fake-IP proxies",
+    )
+
+    assert result.data["reason_code"] == ToolErrorCode.POLICY_BLOCKED.value
 
 
 @pytest.mark.asyncio
