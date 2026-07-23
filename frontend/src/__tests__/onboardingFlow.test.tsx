@@ -2139,6 +2139,33 @@ describe("OnboardingFlow (linear 5-step)", () => {
     ).toBeDisabled();
   });
 
+  it("allows continuing with a preset after returning from custom persona creation", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterPersonaStep(user);
+    await user.click(screen.getByTestId("persona-create-custom"));
+    await user.type(
+      screen.getByTestId("persona-custom-description"),
+      "a draft worth keeping",
+    );
+    expect(
+      screen.getByRole("button", { name: "actions.next" }),
+    ).toBeDisabled();
+
+    await user.click(screen.getByTestId("persona-back-to-picker"));
+    await user.click(screen.getByTestId("persona-pick-ember"));
+
+    expect(screen.getByTestId("persona-pick-ember")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: "actions.next" }),
+    ).toBeEnabled();
+  });
+
   it("reuses one custom persona id when activation fails and the user retries", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
@@ -2274,6 +2301,11 @@ describe("OnboardingFlow (linear 5-step)", () => {
         screen.getByRole("button", { name: "actions.next" }),
       ).toBeDisabled(),
     );
+    await user.click(screen.getByTestId("persona-back-to-picker"));
+    await user.click(screen.getByTestId("persona-pick-ember"));
+    expect(
+      screen.getByRole("button", { name: "actions.next" }),
+    ).toBeDisabled();
 
     // ...and re-enabled once it resolves.
     resolveGen({

@@ -506,10 +506,12 @@ export function PersonaPreviewChat({
     creationDraft?.phase === 'resolving' ||
     creationDraft?.phase === 'verifying' ||
     creationDraft?.phase === 'generating';
-  const creationInProgress = mode === 'create' && creationDraft !== null;
+  const creationBlocksNavigation =
+    generating ||
+    (stage === 'detail' && mode === 'create' && creationDraft !== null);
   useEffect(() => {
-    onGeneratingChangeRef.current?.(creationInProgress);
-  }, [creationInProgress]);
+    onGeneratingChangeRef.current?.(creationBlocksNavigation);
+  }, [creationBlocksNavigation]);
 
   const activeItem = railItems.find((i) => i.slug === activeSeed);
   const profileLocale = locale || 'en';
