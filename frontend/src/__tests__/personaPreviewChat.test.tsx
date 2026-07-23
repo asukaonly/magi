@@ -945,6 +945,7 @@ describe('PersonaPreviewChat', () => {
         stages: [],
       } as any);
     const configSnapshot = structuredClone(DEFAULT_SYSTEM_CONFIG);
+    configSnapshot.tools.builtIn.webFetch.allowRfc2544BenchmarkRange = false;
     const getConfigSpy = vi.spyOn(configApi, 'get').mockResolvedValue({
       success: true,
       message: 'ok',

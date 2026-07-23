@@ -1641,13 +1641,14 @@ def test_unrelated_config_change_does_not_interrupt_embedding_rebuild(
     assert response.status_code == 200
 
 
-def test_fake_ip_compatibility_persists_separately_from_private_network_access() -> None:
+def test_fake_ip_compatibility_defaults_on_and_can_be_disabled_separately() -> None:
     config = SystemConfigModel()
-    config.tools.builtIn.webFetch.allowRfc2544BenchmarkRange = True
+    assert config.tools.builtIn.webFetch.allowRfc2544BenchmarkRange is True
+    config.tools.builtIn.webFetch.allowRfc2544BenchmarkRange = False
 
     updates = _build_update_paths(config)
 
-    assert updates["tools.web_fetch.allow_rfc2544_benchmark_range"] is True
+    assert updates["tools.web_fetch.allow_rfc2544_benchmark_range"] is False
     assert updates.get("tools.web_fetch.allow_private_network", False) is False
 
 

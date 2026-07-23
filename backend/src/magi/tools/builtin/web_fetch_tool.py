@@ -308,7 +308,7 @@ class WebFetchTool(MultiProviderTool):
             max_chars=int(parameters.get("max_chars", 20000)),
             include_metadata=bool(parameters.get("include_metadata", True)),
             allow_rfc2544_benchmark_range=bool(
-                getattr(web_fetch_config, "allow_rfc2544_benchmark_range", False)
+                getattr(web_fetch_config, "allow_rfc2544_benchmark_range", True)
             ),
             allow_private_network=bool(getattr(web_fetch_config, "allow_private_network", False)),
             private_network_allowlist=list(

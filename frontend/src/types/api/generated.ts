@@ -9524,7 +9524,7 @@ export interface components {
             readonly allowPrivateNetworkFetch: boolean;
             /**
              * Allowrfc2544Benchmarkrange
-             * @default false
+             * @default true
              */
             readonly allowRfc2544BenchmarkRange: boolean;
             /**

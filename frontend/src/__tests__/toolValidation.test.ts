@@ -9,7 +9,7 @@ describe('validateToolsConfig', () => {
         builtIn: {
           weather: { enabled: true, provider: 'openmeteo' },
           webSearch: { enabled: false, provider: 'duckduckgo' },
-          webFetch: { enabled: true },
+          webFetch: { enabled: true, allowRfc2544BenchmarkRange: true },
         },
         skills: [],
       },
@@ -24,7 +24,7 @@ describe('validateToolsConfig', () => {
         builtIn: {
           weather: { enabled: true, provider: 'qweather' },
           webSearch: { enabled: false, provider: 'duckduckgo' },
-          webFetch: { enabled: true },
+          webFetch: { enabled: true, allowRfc2544BenchmarkRange: true },
         },
         skills: [],
       },
@@ -39,7 +39,7 @@ describe('validateToolsConfig', () => {
         builtIn: {
           weather: { enabled: false, provider: 'openmeteo' },
           webSearch: { enabled: true, provider: 'searxng' },
-          webFetch: { enabled: true },
+          webFetch: { enabled: true, allowRfc2544BenchmarkRange: true },
         },
         skills: [],
       },
@@ -50,7 +50,7 @@ describe('validateToolsConfig', () => {
         builtIn: {
           weather: { enabled: false, provider: 'openmeteo' },
           webSearch: { enabled: true, provider: 'searxng', apiUrl: 'https://search.example.com' },
-          webFetch: { enabled: true },
+          webFetch: { enabled: true, allowRfc2544BenchmarkRange: true },
         },
         skills: [],
       },

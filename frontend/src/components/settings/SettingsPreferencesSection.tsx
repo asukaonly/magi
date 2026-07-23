@@ -248,9 +248,7 @@ export function SettingsPreferencesSection({
           <PreferenceToggleRow
             label={t('settings.fakeIpCompatibility')}
             description={t('settings.fakeIpCompatibilityDesc')}
-            checked={Boolean(
-              draftConfig.tools.builtIn.webFetch.allowRfc2544BenchmarkRange
-            )}
+            checked={draftConfig.tools.builtIn.webFetch.allowRfc2544BenchmarkRange}
             onCheckedChange={(checked) => patchDraftConfig((draft) => {
               draft.tools.builtIn.webFetch.allowRfc2544BenchmarkRange = checked;
             })}

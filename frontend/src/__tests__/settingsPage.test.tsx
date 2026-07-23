@@ -885,7 +885,7 @@ describe('settings page draft saving', () => {
     );
   });
 
-  it('saves TUN fake-IP compatibility without enabling private network fetch', async () => {
+  it('defaults TUN fake-IP compatibility on and can disable it independently', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
@@ -893,7 +893,7 @@ describe('settings page draft saving', () => {
     const compatibilitySwitch = screen.getByRole('switch', {
       name: 'settings.fakeIpCompatibility',
     });
-    expect(compatibilitySwitch).toHaveAttribute('data-state', 'unchecked');
+    expect(compatibilitySwitch).toHaveAttribute('data-state', 'checked');
 
     await user.click(compatibilitySwitch);
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
@@ -904,7 +904,7 @@ describe('settings page draft saving', () => {
           tools: expect.objectContaining({
             builtIn: expect.objectContaining({
               webFetch: expect.objectContaining({
-                allowRfc2544BenchmarkRange: true,
+                allowRfc2544BenchmarkRange: false,
                 allowPrivateNetworkFetch: false,
               }),
             }),

@@ -419,7 +419,7 @@ export interface WebSearchToolConfig {
 
 export interface WebFetchToolConfig {
   enabled: boolean;
-  allowRfc2544BenchmarkRange?: boolean;
+  allowRfc2544BenchmarkRange: boolean;
   allowPrivateNetworkFetch?: boolean;
   privateNetworkAllowlist?: string[];
 }
@@ -833,7 +833,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       webSearch: { enabled: true, provider: 'duckduckgo' },
       webFetch: {
         enabled: true,
-        allowRfc2544BenchmarkRange: false,
+        allowRfc2544BenchmarkRange: true,
         allowPrivateNetworkFetch: false,
         privateNetworkAllowlist: [],
       },

@@ -52,7 +52,7 @@ class WebFetchToolSettings(BaseModel):
     """Web fetch tool configuration."""
     enabled: bool = Field(default=True)
     default_provider: str = Field(default="http")
-    allow_rfc2544_benchmark_range: bool = Field(default=False)
+    allow_rfc2544_benchmark_range: bool = Field(default=True)
     allow_private_network: bool = Field(default=False)
     private_network_allowlist: List[str] = Field(default_factory=list)
     providers: Dict[str, ProviderConfig] = Field(
