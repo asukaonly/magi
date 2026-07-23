@@ -1462,7 +1462,12 @@ export function PersonaPreviewChat({
                 return (
                   <div
                     key={p.slug}
-                    className="group relative flex flex-col items-center gap-3 rounded-xl bg-card px-4 py-6 text-center shadow-[inset_0_0_0_1px_hsl(var(--border)/0.58)] transition-[box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.35),0_10px_28px_-24px_hsl(var(--foreground)/0.3)] motion-reduce:transform-none motion-reduce:transition-none"
+                    className={cn(
+                      'group relative flex flex-col items-center gap-3 rounded-xl px-4 py-6 text-center shadow-[inset_0_0_0_1px_hsl(var(--border)/0.58)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-card hover:shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.35),0_10px_28px_-24px_hsl(var(--foreground)/0.3)] motion-reduce:transform-none motion-reduce:transition-none',
+                      selected
+                        ? 'bg-card shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.38)]'
+                        : 'bg-transparent',
+                    )}
                   >
                     <button
                       type="button"

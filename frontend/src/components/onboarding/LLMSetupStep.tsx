@@ -705,7 +705,7 @@ export function LLMSetupStep({
                     whileTap={shouldReduceMotion ? undefined : { scale: 0.985 }}
                     transition={{ duration: shouldReduceMotion ? 0 : 0.14 }}
                     className={cn(
-                      'flex min-h-[64px] items-center gap-3 rounded-lg bg-card/85 px-4 py-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.58)] transition-[background-color,box-shadow,color] duration-200 hover:bg-card hover:shadow-[inset_0_0_0_1px_hsl(var(--border)/0.9),0_8px_24px_-22px_hsl(var(--foreground)/0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 motion-reduce:transition-none',
+                      'flex min-h-[64px] items-center gap-3 rounded-lg bg-transparent px-4 py-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.58)] transition-[background-color,box-shadow,color] duration-200 hover:bg-card hover:shadow-[inset_0_0_0_1px_hsl(var(--border)/0.9),0_8px_24px_-22px_hsl(var(--foreground)/0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 motion-reduce:transition-none',
                       selected && ONBOARDING_SELECTED_SURFACE_CLASS,
                     )}
                   >
