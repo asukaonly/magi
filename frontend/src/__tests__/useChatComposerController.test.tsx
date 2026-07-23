@@ -1,7 +1,10 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { PendingAskSendContext } from '@/hooks/useChatSendMessage';
+import type {
+  PendingAskSendContext,
+  UseChatSendMessageOptions,
+} from '@/hooks/useChatSendMessage';
 import { useChatComposerController } from '@/hooks/useChatComposerController';
 
 const {
@@ -51,13 +54,15 @@ const ask = (
 const renderController = (
   currentSessionId: string,
   pendingAsk: PendingAskSendContext | null,
+  firstContextQuestion: UseChatSendMessageOptions['firstContextQuestion'] = null,
 ) => renderHook(
-  ({ session, currentAsk }) => useChatComposerController({
+  ({ session, currentAsk, currentFirstContextQuestion }) => useChatComposerController({
     currentSessionId: session,
     currentWorkspacePath: null,
     allowInterjection: false,
     coreModelSupportsVision: true,
     pendingAsk: currentAsk,
+    firstContextQuestion: currentFirstContextQuestion,
     appendPendingTurn: vi.fn(),
     removePendingMessage: vi.fn(),
     setCurrentSessionId: vi.fn(),
@@ -77,9 +82,15 @@ const renderController = (
     initialProps: {
       session: currentSessionId,
       currentAsk: pendingAsk,
+      currentFirstContextQuestion: firstContextQuestion,
     },
   },
 );
+
+const latestSendOptions = (): UseChatSendMessageOptions => {
+  const calls = useChatSendMessageMock.mock.calls;
+  return calls[calls.length - 1]?.[0] as UseChatSendMessageOptions;
+};
 
 describe('useChatComposerController pending ask drafts', () => {
   beforeEach(() => {
@@ -106,12 +117,14 @@ describe('useChatComposerController pending ask drafts', () => {
     hook.rerender({
       session: 'session-b',
       currentAsk: null,
+      currentFirstContextQuestion: null,
     });
     expect(hook.result.current.inputValue).toBe('');
 
     hook.rerender({
       session: 'session-a',
       currentAsk: firstAsk,
+      currentFirstContextQuestion: null,
     });
     expect(hook.result.current.inputValue).toBe('');
   });
@@ -125,6 +138,7 @@ describe('useChatComposerController pending ask drafts', () => {
     hook.rerender({
       session: 'session-a',
       currentAsk: ask('session-a', 'ask-a'),
+      currentFirstContextQuestion: null,
     });
     expect(hook.result.current.inputValue).toBe('');
 
@@ -136,6 +150,7 @@ describe('useChatComposerController pending ask drafts', () => {
     hook.rerender({
       session: 'session-a',
       currentAsk: null,
+      currentFirstContextQuestion: null,
     });
     expect(hook.result.current.inputValue).toBe('Keep this ordinary draft');
   });
@@ -154,5 +169,81 @@ describe('useChatComposerController pending ask drafts', () => {
       hook.result.current.clearHistoryBoundDraftState();
     });
     expect(hook.result.current.inputValue).toBe('');
+  });
+
+  it('clears an accepted first-context answer after the prompt advances', () => {
+    const firstContextQuestion = {
+      questionId: 'repeating_content' as const,
+      questionText: 'What have you been listening to repeatedly?',
+    };
+    const hook = renderController(
+      'session-a',
+      null,
+      firstContextQuestion,
+    );
+
+    act(() => {
+      hook.result.current.setInputValue('DIIV');
+    });
+    const submittedOptions = latestSendOptions();
+    const submittedIdentity = submittedOptions.composerDraftIdentity;
+    const submittedSignature = submittedOptions.composerDraftSignature;
+
+    hook.rerender({
+      session: 'session-a',
+      currentAsk: null,
+      currentFirstContextQuestion: null,
+    });
+    const acceptedOptions = latestSendOptions();
+
+    expect(acceptedOptions.composerDraftSignature).not.toBe(
+      submittedSignature,
+    );
+    expect(acceptedOptions.composerDraftIdentity).toBe(submittedIdentity);
+
+    act(() => {
+      acceptedOptions.clearComposerDraftIfUnchanged(
+        submittedIdentity,
+        'first_context',
+      );
+    });
+
+    expect(hook.result.current.inputValue).toBe('');
+  });
+
+  it('preserves new text typed after a first-context answer was submitted', () => {
+    const firstContextQuestion = {
+      questionId: 'repeating_content' as const,
+      questionText: 'What have you been listening to repeatedly?',
+    };
+    const hook = renderController(
+      'session-a',
+      null,
+      firstContextQuestion,
+    );
+
+    act(() => {
+      hook.result.current.setInputValue('DIIV');
+    });
+    const submittedOptions = latestSendOptions();
+
+    hook.rerender({
+      session: 'session-a',
+      currentAsk: null,
+      currentFirstContextQuestion: null,
+    });
+    act(() => {
+      hook.result.current.setInputValue('A new message');
+    });
+    const acceptedOptions = latestSendOptions();
+
+    act(() => {
+      acceptedOptions.clearComposerDraftIfUnchanged(
+        submittedOptions.composerDraftIdentity,
+        'first_context',
+      );
+    });
+
+    expect(hook.result.current.inputValue).toBe('A new message');
   });
 });

@@ -85,6 +85,9 @@ defineChatPageSuite("ChatPage first-context continuation", () => {
         }),
       );
     });
+    await waitFor(() => {
+      expect(input).toHaveValue("");
+    });
     const optimisticAnswer = useConversationStore
       .getState()
       .messagesBySession["session-1"]?.find(

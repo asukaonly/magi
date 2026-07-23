@@ -75,7 +75,6 @@ export type UseChatSendMessageOptions = {
   composerDraftSignature: string;
   clearComposerDraftIfUnchanged: (
     expectedIdentity: string,
-    expectedSignature: string,
     kind: ComposerSendDraftKind,
   ) => void;
   onPendingResponseTurn: (sessionId: string, turnId: string) => void;
@@ -309,7 +308,6 @@ export function useChatSendMessage({
       if (isOriginSessionCurrent()) {
         clearComposerDraftIfUnchanged(
           operation.draftIdentity,
-          operation.draftSignature,
           operation.draftKind,
         );
       }

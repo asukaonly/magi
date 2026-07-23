@@ -144,14 +144,37 @@ export function useChatComposerController({
           currentWorkspacePath || null,
         ],
   );
+  const composerClearSignature = JSON.stringify(
+    recallFeedbackDraft
+      ? [
+        'recall_feedback',
+        inputValue,
+        recallFeedbackDraft.kind,
+        recallFeedbackDraft.targetMessageId,
+        recallFeedbackDraft.findingRef || null,
+        currentWorkspacePath || null,
+      ]
+      : pendingAsk
+        ? [
+          'pending_ask',
+          inputValue,
+          pendingAsk.requestId,
+          currentWorkspacePath || null,
+        ]
+        : [
+          'message',
+          inputValue,
+          draftAttachments.map((attachment) => [attachment.kind, attachment.id]),
+          replyTarget?.messageId || null,
+          currentWorkspacePath || null,
+        ],
+  );
   const composerDraftIdentity = JSON.stringify([
     composerSessionRevisionRef.current,
-    composerDraftSignature,
+    composerClearSignature,
   ]);
   const composerDraftIdentityRef = useRef(composerDraftIdentity);
   composerDraftIdentityRef.current = composerDraftIdentity;
-  const composerDraftSignatureRef = useRef(composerDraftSignature);
-  composerDraftSignatureRef.current = composerDraftSignature;
 
   const setInputValue = useCallback((value: string) => {
     if (recallFeedbackDraft) {
@@ -227,12 +250,10 @@ export function useChatComposerController({
 
   const clearComposerDraftIfUnchanged = useCallback((
     expectedIdentity: string,
-    expectedSignature: string,
     kind: ComposerSendDraftKind,
   ) => {
     if (
       composerDraftIdentityRef.current !== expectedIdentity
-      || composerDraftSignatureRef.current !== expectedSignature
     ) {
       return;
     }

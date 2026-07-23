@@ -232,7 +232,6 @@ describe('useChatSendMessage', () => {
     }));
     expect(hook.clearComposerDraftIfUnchanged).toHaveBeenCalledWith(
       'current-identity',
-      'current-signature',
       'normal',
     );
     expect(window.sessionStorage.getItem(
