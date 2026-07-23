@@ -114,17 +114,36 @@ function ListField({
 }): JSX.Element | null {
   const items = (values ?? []).map((value) => String(value).trim()).filter(Boolean);
   if (items.length === 0) return null;
+
+  // 全是短词条时(词汇表这类)用 tag 云,避免一个词占一行又稀又挤;
+  // 含长句的列表保持逐条 bullet。
+  const compact =
+    items.length > 1 && items.every((item) => item.length <= 14);
+
   return (
     <div className={className}>
       <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">{label}</div>
-      <ul className="mt-3 space-y-2.5 text-[0.9375rem] leading-7 text-foreground/90">
-        {items.map((item, index) => (
-          <li key={`${item}-${index}`} className="flex items-start gap-2.5">
-            <span className="mt-[0.72rem] h-1 w-1 shrink-0 rounded-full bg-primary/65" aria-hidden="true" />
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
+      {compact ? (
+        <ul className="mt-3 flex flex-wrap gap-1.5">
+          {items.map((item, index) => (
+            <li
+              key={`${item}-${index}`}
+              className="rounded-full bg-primary/8 px-2.5 py-1 text-[13px] leading-5 text-foreground/85 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.12)]"
+            >
+              {item}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className="mt-3 space-y-2.5 text-[0.9375rem] leading-7 text-foreground/90">
+          {items.map((item, index) => (
+            <li key={`${item}-${index}`} className="flex items-start gap-2.5">
+              <span className="mt-[0.72rem] h-1 w-1 shrink-0 rounded-full bg-primary/65" aria-hidden="true" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

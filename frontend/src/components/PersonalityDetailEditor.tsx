@@ -378,13 +378,15 @@ const StackedTextareaField: React.FC<{
   help?: string;
   value: string;
   minHeight?: number;
+  placeholder?: string;
   onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
-}> = ({ label, help, value, minHeight = 76, onChange }) => (
+}> = ({ label, help, value, minHeight = 76, placeholder, onChange }) => (
   <label className="block space-y-2 rounded-md bg-muted/20 px-3 py-3 transition-colors duration-200 focus-within:bg-muted/30">
     <FieldLabel label={label} help={help} />
     <AutoResizeTextarea
       value={value}
       minHeight={minHeight}
+      placeholder={placeholder}
       className="w-full bg-background/80 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.22)]"
       onChange={onChange}
     />
@@ -705,18 +707,21 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
         <div className="grid gap-3">
           <StackedTextareaField
             label={t('personality.fields.valuesLoved')}
+            placeholder={t('personality.placeholders.onePerLine')}
             help={t('personality.fieldHelp.valuesLoved')}
             value={toLines(config.identity_core.values_loved)}
             onChange={(event) => patch((draft) => { draft.identity_core.values_loved = parseLines(event.target.value); })}
           />
           <StackedTextareaField
             label={t('personality.fields.valuesRejected')}
+            placeholder={t('personality.placeholders.onePerLine')}
             help={t('personality.fieldHelp.valuesRejected')}
             value={toLines(config.identity_core.values_rejected)}
             onChange={(event) => patch((draft) => { draft.identity_core.values_rejected = parseLines(event.target.value); })}
           />
           <StackedTextareaField
             label={t('personality.fields.attentionBiases')}
+            placeholder={t('personality.placeholders.onePerLine')}
             help={t('personality.fieldHelp.attentionBiases')}
             value={toLines(config.identity_core.attention_biases)}
             onChange={(event) => patch((draft) => { draft.identity_core.attention_biases = parseLines(event.target.value); })}
@@ -740,18 +745,21 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
         <div className="grid gap-3">
           <StackedTextareaField
             label={t('personality.fields.vocabAvailable')}
+            placeholder={t('personality.placeholders.onePerLine')}
             help={t('personality.fieldHelp.vocabAvailable')}
             value={toLines(config.idiolect.vocab_available)}
             onChange={(event) => patch((draft) => { draft.idiolect.vocab_available = parseLines(event.target.value); })}
           />
           <StackedTextareaField
             label={t('personality.fields.vocabAvoided')}
+            placeholder={t('personality.placeholders.onePerLine')}
             help={t('personality.fieldHelp.vocabAvoided')}
             value={toLines(config.idiolect.vocab_avoided)}
             onChange={(event) => patch((draft) => { draft.idiolect.vocab_avoided = parseLines(event.target.value); })}
           />
           <StackedTextareaField
             label={t('personality.fields.structuralQuirks')}
+            placeholder={t('personality.placeholders.onePerLine')}
             help={t('personality.fieldHelp.structuralQuirks')}
             value={toLines(config.idiolect.structural_quirks)}
             onChange={(event) => patch((draft) => { draft.idiolect.structural_quirks = parseLines(event.target.value); })}
