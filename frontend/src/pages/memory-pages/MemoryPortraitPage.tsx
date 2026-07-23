@@ -32,10 +32,10 @@ const PortraitEmptyState = () => {
           {t('memory.portrait.empty.body')}
         </p>
         <div className="mt-7 flex flex-wrap items-center gap-2">
-          <Button asChild size="sm" variant="secondary" className="rounded-lg px-4">
+          <Button asChild size="sm" variant="secondary" className="rounded-mem-sm px-4">
             <Link to="/chat">{t('memory.portrait.empty.actions.chat')}</Link>
           </Button>
-          <Button asChild size="sm" variant="ghost" className="rounded-lg px-4">
+          <Button asChild size="sm" variant="ghost" className="rounded-mem-sm px-4">
             <Link to="/memory/sources">{t('memory.portrait.empty.actions.sources')}</Link>
           </Button>
         </div>
@@ -172,7 +172,7 @@ export const MemoryPortraitPage = () => {
 
   return (
     <MemoryPageFrame title={t('memory.portrait.title')} description={t('memory.portrait.subtitle')} hideHeader>
-      <div className="mx-auto max-w-5xl space-y-14 px-2 pb-10 pt-3">
+      <div className="mx-auto max-w-5xl space-y-16 px-2 pb-10 pt-3">
         {viewModel ? (
           <>
             <PortraitWorldMap

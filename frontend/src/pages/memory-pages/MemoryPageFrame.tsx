@@ -1,6 +1,11 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
+export {
+  MEMORY_GHOST_ACTION_CLASS,
+  MEMORY_PRIMARY_ACTION_CLASS,
+} from '@/components/memory/memoryActionStyles';
+
 interface MemoryPageFrameProps {
   title: string;
   description: string;
@@ -37,12 +42,12 @@ export const MemoryPageFrame = ({
     {!hideHeader ? (
       <section
         data-testid="memory-page-header"
-        className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-4 py-4"
+        className="rounded-mem-lg bg-[hsl(var(--memory-panel-elevated)/0.6)] px-5 py-5 shadow-[0_14px_36px_hsl(var(--memory-shadow)/0.035)]"
       >
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 space-y-1.5">
             <h1 className="text-[1.85rem] font-semibold tracking-[-0.03em] text-[hsl(var(--memory-title))]">{title}</h1>
-            <p className="max-w-3xl text-sm leading-6 text-[hsl(var(--memory-body))]">{description}</p>
+            <p className="max-w-3xl text-sm leading-7 text-[hsl(var(--memory-body))]">{description}</p>
           </div>
           {actions || headerMeta ? (
             <div className="flex flex-col gap-2 lg:min-w-fit lg:self-stretch lg:items-end lg:justify-between">
@@ -55,7 +60,7 @@ export const MemoryPageFrame = ({
         {filters ? (
           <div
             data-testid="memory-page-filters"
-            className="mt-3 border-t border-[hsl(var(--memory-divider)/0.68)] pt-3"
+            className="mt-5"
           >
             {filters}
           </div>
@@ -78,14 +83,14 @@ export const MemoryHeroStat = ({
 }) => (
   <div
     className={cn(
-      'rounded-xl border px-4 py-3',
+      'rounded-mem-md px-4 py-3',
       tone === 'accent'
-        ? 'border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-accent-soft)/0.7)]'
-        : 'border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.68)]'
+        ? 'bg-[hsl(var(--memory-accent-soft)/0.55)]'
+        : 'bg-[hsl(var(--memory-panel-elevated)/0.6)]'
     )}
   >
     <div className="text-xs text-[hsl(var(--memory-muted))]">{label}</div>
-    <div className="mt-1.5 text-xl font-semibold text-[hsl(var(--memory-title))]">{value}</div>
+    <div className="mt-1.5 text-xl font-semibold tabular-nums text-[hsl(var(--memory-title))]">{value}</div>
   </div>
 );
 
@@ -105,46 +110,46 @@ export const MemoryWorkspacePanel = ({
   <section
     data-testid={testId}
     className={cn(
-      'rounded-2xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.72)] px-5 py-4',
+      'rounded-mem-lg bg-[hsl(var(--memory-panel-elevated)/0.6)] px-5 py-5 shadow-[0_14px_36px_hsl(var(--memory-shadow)/0.035)] sm:px-6',
       className
     )}
   >
     <div className="space-y-1.5">
-      <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">{title}</h2>
-      {description ? <p className="text-sm leading-6 text-[hsl(var(--memory-body))]">{description}</p> : null}
+      <h2 className="text-lg font-semibold tracking-[-0.015em] text-[hsl(var(--memory-title))]">{title}</h2>
+      {description ? <p className="text-sm leading-7 text-[hsl(var(--memory-body))]">{description}</p> : null}
     </div>
-    <div className={cn(description ? 'mt-4' : 'mt-3')}>{children}</div>
+    <div className={cn(description ? 'mt-5' : 'mt-4')}>{children}</div>
   </section>
 );
 
 export const MemoryTag = ({ children }: { children: ReactNode }) => (
-  <span className="inline-flex items-center rounded-md bg-[hsl(var(--memory-panel-subtle)/0.76)] px-2.5 py-1 text-xs text-[hsl(var(--memory-body))]">
+  <span className="inline-flex items-center rounded-mem-sm bg-[hsl(var(--memory-panel-subtle)/0.66)] px-2.5 py-1 text-xs text-[hsl(var(--memory-body))]">
     {children}
   </span>
 );
 
 export const MEMORY_FILTER_INPUT_CLASS =
-  'h-9 rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 text-sm text-[hsl(var(--memory-title))] placeholder:text-[hsl(var(--memory-input-placeholder))] placeholder:text-sm focus-visible:ring-[hsl(var(--memory-accent)/0.12)]';
+  'h-9 rounded-mem-sm border-transparent bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 text-sm text-[hsl(var(--memory-title))] placeholder:text-[hsl(var(--memory-input-placeholder))] placeholder:text-sm transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] focus-visible:bg-[hsl(var(--memory-panel-elevated))] focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.16)] focus-visible:ring-offset-0';
 
 export const MEMORY_FILTER_SELECT_CLASS =
-  'flex h-9 w-full rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-none focus:border-[hsl(var(--memory-accent)/0.22)] focus:ring-2 focus:ring-[hsl(var(--memory-accent-soft)/0.24)]';
+  'flex h-9 w-full rounded-mem-sm border border-transparent bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-none transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] focus:bg-[hsl(var(--memory-panel-elevated))] focus:ring-2 focus:ring-[hsl(var(--memory-accent)/0.16)]';
 
 export const MEMORY_ACTION_BUTTON_CLASS =
-  'h-9 rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-4 text-sm text-[hsl(var(--memory-title))] hover:bg-[hsl(var(--memory-panel-subtle)/0.82)]';
+  'h-9 rounded-mem-sm border-transparent bg-[hsl(var(--memory-panel-subtle)/0.55)] px-4 text-sm font-medium text-[hsl(var(--memory-title))] transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.9)]';
 
 export const MEMORY_INFO_PANEL_CLASS =
-  'rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.38)] px-4 py-3 text-sm leading-6 text-[hsl(var(--memory-body))] shadow-[inset_0_0_0_1px_hsl(var(--memory-divider)/0.22)]';
+  'rounded-mem-md bg-[hsl(var(--memory-panel-subtle)/0.38)] px-5 py-4 text-sm leading-7 text-[hsl(var(--memory-body))]';
 
 export const MEMORY_EMPTY_PANEL_CLASS =
-  'rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.32)] px-4 py-3 text-sm leading-6 text-[hsl(var(--memory-muted))] shadow-[inset_0_0_0_1px_hsl(var(--memory-divider)/0.2)]';
+  'rounded-mem-md bg-[hsl(var(--memory-panel-subtle)/0.32)] px-5 py-4 text-sm leading-7 text-[hsl(var(--memory-muted))]';
 
 export const MEMORY_SECTION_CARD_CLASS =
-  'rounded-2xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.68)] p-4';
+  'rounded-mem-lg bg-[hsl(var(--memory-panel-elevated)/0.6)] p-5 shadow-[0_14px_36px_hsl(var(--memory-shadow)/0.035)]';
 
 export const MEMORY_SECTION_SURFACE_CLASS =
-  'rounded-2xl bg-[hsl(var(--memory-panel-elevated)/0.58)] px-5 py-5 shadow-[0_14px_36px_hsl(var(--memory-shadow)/0.035)] sm:px-6';
+  'rounded-mem-lg bg-[hsl(var(--memory-panel-elevated)/0.58)] px-5 py-5 shadow-[0_14px_36px_hsl(var(--memory-shadow)/0.035)] sm:px-6';
 
 export const MEMORY_INTERACTIVE_CARD_CLASS =
-  'group flex items-center justify-between rounded-2xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-4 py-3 transition-colors duration-200 hover:border-[hsl(var(--memory-accent)/0.28)] hover:bg-[hsl(var(--memory-panel-elevated)/0.86)]';
+  'group flex items-center justify-between rounded-mem-lg bg-[hsl(var(--memory-panel-elevated)/0.6)] px-5 py-4 shadow-[0_14px_36px_hsl(var(--memory-shadow)/0.035)] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-elevated)/0.85)]';
 
 export default MemoryPageFrame;

@@ -61,7 +61,7 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="min-h-9 shrink-0 px-2.5 text-[hsl(var(--memory-body))]"
+                            className="min-h-9 shrink-0 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))]"
                             onClick={() => onCorrect(item)}
                             aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
                           >
@@ -74,7 +74,7 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
                   )}
                   {detailItems.length > 0 ? (
                     <details className="group/details pt-1">
-                      <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-[hsl(var(--memory-muted))] outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]">
+                      <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-[hsl(var(--memory-muted))] outline-none transition-colors duration-200 hover:text-[hsl(var(--memory-title))] focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]">
                         {t('memory.portrait.world.inspectItems', {
                           defaultValue: '查看 {{count}} 条具体信息',
                           count: detailItems.length,
@@ -83,14 +83,14 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
                       </summary>
                       <div className="mt-2 space-y-2">
                         {detailItems.map((item) => (
-                          <div key={item.id} className="flex items-start justify-between gap-3 rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.4)] px-3 py-2.5">
+                          <div key={item.id} className="flex items-start justify-between gap-3 rounded-mem-sm bg-[hsl(var(--memory-panel-subtle)/0.32)] px-3 py-2.5">
                             <p className="min-w-0 flex-1 text-sm leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
                             {item.assertionId && item.correctionValue != null ? (
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className="min-h-9 shrink-0 px-2.5 text-[hsl(var(--memory-body))]"
+                                className="min-h-9 shrink-0 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))]"
                                 onClick={() => onCorrect(item)}
                                 aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
                               >
@@ -102,7 +102,7 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className="min-h-9 shrink-0 px-2.5 text-[hsl(var(--memory-body))]"
+                                className="min-h-9 shrink-0 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))]"
                                 onClick={onEditProfile}
                               >
                                 {t('memory.portrait.world.editProfile', { defaultValue: '修改个人资料' })}

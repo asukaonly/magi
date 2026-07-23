@@ -5,7 +5,7 @@ import type { StoryItem } from '@/api/modules/memoryStories';
 import type { NotificationItem } from '@/api/modules/notifications';
 import { Button } from '@/components/ui/button';
 import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
-import { MEMORY_ACTION_BUTTON_CLASS } from '../MemoryPageFrame';
+import { MEMORY_GHOST_ACTION_CLASS, MEMORY_PRIMARY_ACTION_CLASS } from '../MemoryPageFrame';
 import {
   ConflictActions,
   PendingCard,
@@ -135,8 +135,9 @@ export function PendingReviewGroups({
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="button"
+                      variant="ghost"
                       size="sm"
-                      className={MEMORY_ACTION_BUTTON_CLASS}
+                      className={MEMORY_PRIMARY_ACTION_CLASS}
                       disabled={busy}
                       onClick={() => onSeed(seed, 'promote')}
                     >
@@ -145,9 +146,9 @@ export function PendingReviewGroups({
                     </Button>
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
-                      className={MEMORY_ACTION_BUTTON_CLASS}
+                      className={MEMORY_GHOST_ACTION_CLASS}
                       disabled={busy}
                       onClick={() => onSeed(seed, 'reject')}
                     >

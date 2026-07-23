@@ -141,7 +141,7 @@ export const MemoryPendingPage = () => {
       description=""
       hideHeader
       className="max-w-[900px]"
-      contentClassName="space-y-3"
+      contentClassName="space-y-6"
     >
       {loading ? (
         <section className={`${MEMORY_EMPTY_PANEL_CLASS} flex items-center gap-2`}>
@@ -153,7 +153,7 @@ export const MemoryPendingPage = () => {
           <p className="mt-1 text-sm">{t('memory.pending.emptyBody')}</p>
         </section>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-6">
           <PendingFilterTabs
             options={filterOptions}
             activeFilter={activeFilter}

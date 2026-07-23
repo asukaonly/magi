@@ -24,10 +24,10 @@ export const PortraitRecentState = ({ items }: PortraitRecentStateProps) => {
         <p className="text-sm text-[hsl(var(--memory-muted))]">{t('memory.portrait.recent.meta')}</p>
       </div>
 
-      <div className="mt-5 max-w-3xl space-y-4">
+      <div className="mt-6 max-w-3xl space-y-5">
         {items.slice(0, 6).map((item) => (
           <article key={item.id}>
-            <p className="text-sm leading-7 text-[hsl(var(--memory-title))]">
+            <p className="text-sm leading-8 text-[hsl(var(--memory-title))]">
               {item.claimKind
                 ? t(`memory.portrait.recent.kinds.${item.claimKind}`, {
                     value: item.text,

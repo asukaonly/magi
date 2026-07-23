@@ -2,6 +2,10 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { PortraitDisplayItem } from './portraitGrouping';
 import { Button } from '@/components/ui/button';
+import {
+  MEMORY_GHOST_ACTION_CLASS,
+  MEMORY_PRIMARY_ACTION_CLASS,
+} from '@/components/memory/memoryActionStyles';
 
 interface PortraitReviewQueueProps {
   items: PortraitDisplayItem[];
@@ -37,38 +41,38 @@ export const PortraitReviewQueue = ({
   return (
     <section
       data-testid="portrait-review-queue"
-      className="rounded-2xl bg-[hsl(var(--memory-panel-elevated)/0.58)] px-5 py-5 shadow-[0_14px_36px_hsl(var(--memory-shadow)/0.035)] sm:px-6"
+      className="rounded-mem-lg bg-[hsl(var(--memory-panel-elevated)/0.58)] px-6 py-6 shadow-[0_14px_36px_hsl(var(--memory-shadow)/0.035)] sm:px-7"
     >
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-lg font-semibold tracking-[-0.015em] text-[hsl(var(--memory-title))]">
           {t('memory.portrait.review.title')}
         </h2>
-        <span className="text-sm text-[hsl(var(--memory-muted))]">
+        <span className="text-sm tabular-nums text-[hsl(var(--memory-muted))]">
           {t('memory.portrait.review.count', { count: items.length })}
         </span>
       </div>
 
-      <div className="mt-4 space-y-2">
+      <div className="mt-5 space-y-5">
         {items.map((item) => {
           const source = sourceText(item, t);
           const isConfirming = item.assertionId === confirmingAssertionId;
           const correctionUnavailable = !item.assertionId || item.correctionValue == null;
           return (
-            <article key={item.id} className="flex flex-col gap-4 rounded-xl bg-[hsl(var(--memory-panel-subtle)/0.34)] px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
+            <article key={item.id} className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
               <div className="min-w-0 flex-1 space-y-1">
-                <p className="text-sm font-medium leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
-                {source ? <p className="text-xs text-[hsl(var(--memory-muted))]">{source}</p> : null}
+                <p className="text-[0.95rem] font-medium leading-7 text-[hsl(var(--memory-title))]">{item.text}</p>
+                {source ? <p className="text-xs leading-5 text-[hsl(var(--memory-muted))]">{source}</p> : null}
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              <div className="flex flex-wrap items-center gap-1.5 lg:justify-end">
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="ghost"
                     size="sm"
                     onClick={() => item.assertionId && void onConfirm(item.assertionId)}
                     disabled={!item.assertionId || confirmingAssertionId !== null}
                     aria-busy={isConfirming}
-                    className="min-h-9 rounded-lg px-3 text-[hsl(var(--memory-title))]"
+                    className={MEMORY_PRIMARY_ACTION_CLASS}
                   >
                     {t('memory.portrait.review.actions.confirm')}
                   </Button>
@@ -78,7 +82,7 @@ export const PortraitReviewQueue = ({
                     size="sm"
                     onClick={() => item.assertionId && onRequestCorrection(item, 'remove')}
                     disabled={correctionUnavailable || confirmingAssertionId !== null}
-                    className="min-h-9 rounded-lg px-3 text-[hsl(var(--memory-body))]"
+                    className={MEMORY_GHOST_ACTION_CLASS}
                   >
                     {t('memory.portrait.review.actions.reject')}
                   </Button>
@@ -88,7 +92,7 @@ export const PortraitReviewQueue = ({
                     size="sm"
                     onClick={() => item.assertionId && onRequestCorrection(item, 'replace')}
                     disabled={correctionUnavailable || confirmingAssertionId !== null}
-                    className="min-h-9 rounded-lg px-3 text-[hsl(var(--memory-body))]"
+                    className={MEMORY_GHOST_ACTION_CLASS}
                   >
                     {t('memory.portrait.review.actions.edit')}
                   </Button>

@@ -51,6 +51,10 @@ export default {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+        // Memory 域三档圆角原子:sm=控件/chip, md=列表项/分段控件, lg=页面级卡片
+        'mem-sm': '6px',
+        'mem-md': '10px',
+        'mem-lg': '16px',
       },
       opacity: {
         92: '0.92',
