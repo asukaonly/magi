@@ -4,13 +4,14 @@ import type { ExtensionFieldSpec } from '@/api/modules/plugins';
 export type DynamicConfigSpec = ToolConfigSpec | ExtensionFieldSpec;
 
 export type NormalizedDynamicConfigSpec = {
-  inputKind: 'boolean' | 'select' | 'secret' | 'number' | 'string' | 'array' | 'json' | 'path_list' | 'checkbox_group';
+  inputKind: 'boolean' | 'select' | 'secret' | 'number' | 'string' | 'array' | 'json' | 'path' | 'path_list' | 'checkbox_group';
   label: string;
   description?: string;
   required: boolean;
   placeholder?: string;
   readOnly: boolean;
   sensitive: boolean;
+  pathKind?: 'file' | 'directory';
   defaultValue?: any;
   enumValues?: any[];
 };
@@ -40,7 +41,10 @@ export const normalizeDynamicSpec = (
         case 'tags':
           return spec.options.length > 0 ? 'checkbox_group' : 'array';
         case 'path':
-          return Array.isArray(spec.default) ? 'path_list' : 'string';
+          if (Array.isArray(spec.default)) {
+            return 'path_list';
+          }
+          return spec.path_kind ? 'path' : 'string';
         case 'input':
           return 'string';
         default:
@@ -55,6 +59,7 @@ export const normalizeDynamicSpec = (
       placeholder: spec.placeholder ?? undefined,
       readOnly: false,
       sensitive: spec.type === 'secret',
+      pathKind: spec.path_kind ?? undefined,
       defaultValue: spec.default,
       enumValues,
     };

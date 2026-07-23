@@ -30,6 +30,7 @@ class ExtensionFieldSpec(BaseModel):
 
     key: str
     type: Literal["switch", "select", "input", "number", "secret", "path", "tags"] = "input"
+    path_kind: Literal["file", "directory"] | None = None
     label: str
     description: str = ""
     default: Any = None

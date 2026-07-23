@@ -742,6 +742,9 @@ Supported field types:
 Important conventions:
 
 - use stable dot-notated keys such as `sensors.photo_library.source_path`
+- for a scalar `path` field, set `path_kind="directory"` or
+  `path_kind="file"` so the host renders the matching native picker; keep an
+  array default for fields that accept multiple directories
 - group fields with `section`
 - choose the correct `surface`
 - order fields explicitly with `order`

@@ -1,12 +1,12 @@
 import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Eye, EyeOff, FolderOpen, Plus, X } from 'lucide-react';
+import { Eye, EyeOff, File, FolderOpen, Plus, X } from 'lucide-react';
 
 import { SelectField } from '@/components/config-forms/fields';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { normalizeDynamicSpec, type DynamicConfigSpec } from '@/components/config-forms/dynamic-config-specs';
-import { pickDirectory } from '@/runtime/desktop';
+import { pickDirectory, pickFile } from '@/runtime/desktop';
 
 interface DynamicConfigFieldProps {
   spec: DynamicConfigSpec;
@@ -121,6 +121,65 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
             className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
           />
         </label>
+      );
+    }
+
+    if (normalized.inputKind === 'path') {
+      const selectedPath = typeof value === 'string' ? value : '';
+      const isDirectory = normalized.pathKind === 'directory';
+      const browseLabel = t(isDirectory ? 'settings.browseFolder' : 'settings.browseFile');
+      const emptyLabel = t(isDirectory ? 'settings.noFolderSelected' : 'settings.noFileSelected');
+      const clearLabel = t(
+        isDirectory ? 'settings.clearFolderSelection' : 'settings.clearFileSelection',
+      );
+      const PathIcon = isDirectory ? FolderOpen : File;
+      const handleBrowse = async () => {
+        try {
+          const selected = isDirectory
+            ? await pickDirectory(selectedPath || undefined)
+            : await pickFile(selectedPath || undefined);
+          if (selected) {
+            handleChange(selected);
+          }
+        } catch {
+          // Native browsing is unavailable outside the desktop runtime.
+        }
+      };
+
+      return (
+        <div className="space-y-2">
+          {renderLabel()}
+          <div className="flex min-w-0 gap-2">
+            <button
+              type="button"
+              onClick={handleBrowse}
+              disabled={disabled || normalized.readOnly}
+              aria-label={`${normalized.label}: ${browseLabel}`}
+              className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-background px-3 text-left text-sm transition-colors hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <PathIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span
+                className={selectedPath ? 'min-w-0 flex-1 truncate' : 'min-w-0 flex-1 text-muted-foreground'}
+                title={selectedPath || undefined}
+              >
+                {selectedPath || emptyLabel}
+              </span>
+              <span className="shrink-0 text-xs font-medium text-primary">
+                {browseLabel}
+              </span>
+            </button>
+            {selectedPath && !normalized.required && !disabled && !normalized.readOnly ? (
+              <button
+                type="button"
+                onClick={() => handleChange('')}
+                aria-label={`${normalized.label}: ${clearLabel}`}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-input text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+        </div>
       );
     }
 
@@ -315,5 +374,14 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     );
   };
 
-  return <div className="space-y-1">{renderField()}</div>;
+  return (
+    <div className="space-y-1.5">
+      {renderField()}
+      {normalized.description ? (
+        <p className="text-xs leading-5 text-muted-foreground">
+          {normalized.description}
+        </p>
+      ) : null}
+    </div>
+  );
 };

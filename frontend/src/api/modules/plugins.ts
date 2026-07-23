@@ -38,6 +38,8 @@ export interface ExtensionFieldOption {
 export interface ExtensionFieldSpec {
   key: string;
   type: ExtensionFieldType;
+  /** Opens the matching native picker for scalar path fields when declared. */
+  path_kind?: 'file' | 'directory' | null;
   label: string;
   /**
    * Plugin-i18n-sourced label (from the plugin's own ``i18n/<lang>.json``).

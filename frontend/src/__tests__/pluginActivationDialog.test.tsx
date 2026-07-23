@@ -1,9 +1,19 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PluginActivationDialog } from '@/components/plugins/PluginActivationDialog';
 import type { ActivationFlowSpec, ExtensionFieldSpec } from '@/api/modules/plugins';
+
+const { pickDirectoryMock, pickFileMock } = vi.hoisted(() => ({
+  pickDirectoryMock: vi.fn(),
+  pickFileMock: vi.fn(),
+}));
+
+vi.mock('@/runtime/desktop', () => ({
+  pickDirectory: pickDirectoryMock,
+  pickFile: pickFileMock,
+}));
 
 vi.mock('react-i18next', async () => {
   const actual: any = await vi.importActual('react-i18next');
@@ -45,6 +55,13 @@ const fakeFlow: ActivationFlowSpec = {
 };
 
 describe('PluginActivationDialog', () => {
+  beforeEach(() => {
+    pickDirectoryMock.mockReset();
+    pickDirectoryMock.mockResolvedValue(undefined);
+    pickFileMock.mockReset();
+    pickFileMock.mockResolvedValue(undefined);
+  });
+
   it('does not render when open is false', () => {
     render(
       <PluginActivationDialog
@@ -111,6 +128,49 @@ describe('PluginActivationDialog', () => {
     await user.click(screen.getByRole('button', { name: /confirm|connect|启用|确认/i }));
     await waitFor(() =>
       expect(onConfirm).toHaveBeenCalledWith({ source_path: '/path' }),
+    );
+  });
+
+  it('uses a native folder picker for a localized scalar directory field', async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn().mockResolvedValue(undefined);
+    pickDirectoryMock.mockResolvedValue('/Users/example/My Vault');
+    const vaultField: ExtensionFieldSpec = {
+      ...profilePathField,
+      key: 'sensors.obsidian_vault.vault_path',
+      type: 'path',
+      path_kind: 'directory',
+      label: 'Obsidian Vault Folder',
+      label_translated: 'Obsidian 笔记库文件夹',
+      description: 'Choose the root folder of your Obsidian vault.',
+      description_translated: '选择包含 .obsidian 文件夹的笔记库根目录。',
+    };
+
+    render(
+      <PluginActivationDialog
+        open={true}
+        onClose={() => {}}
+        flow={{ ...fakeFlow, fields: [vaultField] }}
+        initialValues={{}}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    expect(
+      screen.getByText('选择包含 .obsidian 文件夹的笔记库根目录。'),
+    ).toBeInTheDocument();
+    const picker = screen.getByRole('button', {
+      name: 'Obsidian 笔记库文件夹: settings.browseFolder',
+    });
+    await user.click(picker);
+
+    expect(pickDirectoryMock).toHaveBeenCalledWith(undefined);
+    expect(screen.getByText('/Users/example/My Vault')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /confirm|connect|启用|确认/i }));
+    await waitFor(() =>
+      expect(onConfirm).toHaveBeenCalledWith({
+        'sensors.obsidian_vault.vault_path': '/Users/example/My Vault',
+      }),
     );
   });
 

@@ -6,6 +6,7 @@ from magi.plugins import Plugin
 from magi_plugin_sdk import (
     ActivationFlowSpec,
     DerivedAssertionRuleSpec,
+    ExtensionFieldSpec,
     ExtractionProfileSpec,
     PluginI18n,
     PluginSettingsActionResult,
@@ -108,6 +109,17 @@ def test_activation_flow_preserves_first_context_overrides() -> None:
 
     assert dumped["first_context"]["max_items_per_sync"] == 75
     assert dumped["first_context"]["settings_overrides"] == {"sensors.example.lookback_days": 7}
+
+
+def test_path_field_preserves_native_picker_kind() -> None:
+    field = ExtensionFieldSpec(
+        key="sensors.example.root",
+        type="path",
+        path_kind="directory",
+        label="Root folder",
+    )
+
+    assert field.model_dump()["path_kind"] == "directory"
 
 
 def test_plugin_i18n_defaults_to_current_language(tmp_path) -> None:

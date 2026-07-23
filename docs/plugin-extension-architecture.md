@@ -579,6 +579,9 @@ Important field attributes:
 
 - `key`
 - `type`
+- `path_kind` (`file` or `directory`) for a scalar `path` field that should use
+  a native picker; array-valued path fields continue to use the multi-directory
+  picker
 - `label`
 - `description`
 - `default`
