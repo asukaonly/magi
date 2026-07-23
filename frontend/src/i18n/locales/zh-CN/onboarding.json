@@ -376,13 +376,13 @@
         "reluctant_routine": "最近有什么事，明明不太想做，却还是一直在做？"
       },
       "placeholders": {
-        "preferred_name": "比如：叫我明日香就好。",
-        "easy_topic": "比如：聊动漫、音乐和旅行，我一般都会很有话说。",
-        "current_interest": "比如：最近总在看城市徒步路线，想找周末能去的地方。",
-        "repeating_content": "比如：最近又把同一张专辑从头听了好几遍。",
-        "recent_feeling": "比如：回家路上买到了一直想喝的饮料，那一刻心情很好。",
-        "personal_time": "比如：洗完澡关掉消息提醒，躺着听歌的时候。",
-        "reluctant_routine": "比如：每天都嫌收拾房间麻烦，但看到桌面干净又会舒服。"
+        "preferred_name": "请输入你希望 Magi 使用的称呼或昵称",
+        "easy_topic": "请输入一个你感兴趣或愿意聊的话题",
+        "current_interest": "请输入你最近关注或感兴趣的内容",
+        "repeating_content": "请输入你最近反复观看、收听或阅读的内容",
+        "recent_feeling": "请输入最近影响你情绪的一件事",
+        "personal_time": "请输入你通常感到放松或自在的时刻",
+        "reluctant_routine": "请输入一件你不太喜欢但仍会经常做的事"
       },
       "changeQuestion": "换一个问题",
       "shortHint": "一句话也可以",

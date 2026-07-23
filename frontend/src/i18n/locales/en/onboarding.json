@@ -376,13 +376,13 @@
         "reluctant_routine": "What have you kept doing lately, even though you did not really feel like doing it?"
       },
       "placeholders": {
-        "preferred_name": "For example: You can call me Asuka.",
-        "easy_topic": "For example: I can always talk about anime, music, and travel.",
-        "current_interest": "For example: I keep looking at city walks for somewhere to go this weekend.",
-        "repeating_content": "For example: I have played the same album from start to finish several times lately.",
-        "recent_feeling": "For example: I finally found a drink I had wanted on the way home, and it lifted my mood.",
-        "personal_time": "For example: Right after a shower, with notifications off and music playing.",
-        "reluctant_routine": "For example: I complain about tidying up, but I still like seeing a clear desk."
+        "preferred_name": "Enter the name or nickname you would like Magi to use",
+        "easy_topic": "Enter a topic you are interested in or enjoy discussing",
+        "current_interest": "Enter something you have been interested in recently",
+        "repeating_content": "Enter something you have recently watched, listened to, or read more than once",
+        "recent_feeling": "Enter a recent event that affected your mood",
+        "personal_time": "Enter a time when you usually feel relaxed or comfortable",
+        "reluctant_routine": "Enter something you do regularly even if you do not enjoy it"
       },
       "changeQuestion": "Try another question",
       "shortHint": "One sentence is enough",

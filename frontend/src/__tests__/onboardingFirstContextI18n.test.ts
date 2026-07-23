@@ -139,6 +139,20 @@ describe("first-context onboarding copy", () => {
     );
   });
 
+  it("uses neutral instructional placeholders for every question", () => {
+    for (const questionId of QUESTION_IDS) {
+      const zhPlaceholder =
+        zhCnOnboarding.firstContext.story.placeholders[questionId];
+      const enPlaceholder =
+        enOnboarding.firstContext.story.placeholders[questionId];
+
+      expect(zhPlaceholder).toMatch(/^请输入/);
+      expect(zhPlaceholder).not.toContain("比如");
+      expect(enPlaceholder).toMatch(/^Enter /);
+      expect(enPlaceholder).not.toMatch(/for example/i);
+    }
+  });
+
   it("only promises local storage for the chat record", () => {
     expect(zhCnOnboarding.firstContext.story.privacyNote).toContain(
       "聊天记录保存在本机",
