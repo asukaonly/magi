@@ -93,14 +93,14 @@ class ChatReadService(
         self,
         user_id: str,
         workspace_path: str | None = None,
-        client_session_id: str | None = None,
+        idempotency_key: str | None = None,
     ) -> str:
         """Create a session without blocking the event loop."""
         return await self._run_threaded(
             "create_new_session",
             user_id,
             workspace_path,
-            client_session_id,
+            idempotency_key,
         )
 
     async def aget_worker_result(self, worker_id: str) -> Optional[dict[str, Any]]:

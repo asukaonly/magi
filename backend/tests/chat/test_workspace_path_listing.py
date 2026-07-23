@@ -36,31 +36,31 @@ def test_workspace_path_listing_is_complete_and_keeps_archived_sessions(
             service.create_new_session(
                 "local_user",
                 workspace_path,
-                client_session_id=f"session-{index:03d}",
+                idempotency_key=f"workspace-session-{index:03d}",
             )
-        service.create_new_session(
+        archived_session_id = service.create_new_session(
             "local_user",
             archived_path,
-            client_session_id="archived-session",
+            idempotency_key="archived-session",
         )
-        service.create_new_session(
+        deleted_session_id = service.create_new_session(
             "local_user",
             deleted_path,
-            client_session_id="deleted-session",
+            idempotency_key="deleted-session",
         )
         service.create_new_session(
             "other_user",
             other_user_path,
-            client_session_id="other-user-session",
+            idempotency_key="other-user-session",
         )
         with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as connection:
             connection.execute(
                 "UPDATE chat_sessions SET archived_at_ms = 1 WHERE session_id = ?",
-                ("archived-session",),
+                (archived_session_id,),
             )
             connection.execute(
                 "UPDATE chat_sessions SET deleted_at_ms = 1 WHERE session_id = ?",
-                ("deleted-session",),
+                (deleted_session_id,),
             )
             connection.commit()
 
@@ -88,7 +88,7 @@ def test_session_claim_keeps_a_copied_workspace_isolated_after_source_deletion(
         service.create_new_session(
             "local_user",
             str(original),
-            client_session_id="original-session",
+            idempotency_key="original-session",
         )
         original_context_id = context_id_for_workspace(str(original))
         shutil.copytree(original, copied)
@@ -98,7 +98,7 @@ def test_session_claim_keeps_a_copied_workspace_isolated_after_source_deletion(
         service.create_new_session(
             "local_user",
             str(copied),
-            client_session_id="copied-session",
+            idempotency_key="copied-session",
         )
         copied_context_id = context_id_for_workspace(str(copied))
         assert copied_context_id != temporary_copied_context_id
@@ -124,7 +124,7 @@ def test_session_workspace_switch_after_source_deletion_gets_a_new_identity(
         session_id = service.create_new_session(
             "local_user",
             str(original),
-            client_session_id="move-session",
+            idempotency_key="move-session",
         )
         original_context_id = context_id_for_workspace(str(original))
         shutil.move(str(original), str(moved))
@@ -137,7 +137,7 @@ def test_session_workspace_switch_after_source_deletion_gets_a_new_identity(
         service.create_new_session(
             "local_user",
             str(original),
-            client_session_id="new-project-at-old-path",
+            idempotency_key="new-project-at-old-path",
         )
 
         restored_path_context_id = context_id_for_workspace(str(original))
@@ -162,7 +162,7 @@ def test_session_workspace_switch_does_not_reuse_a_live_project_identity(
         session_id = service.create_new_session(
             "local_user",
             str(original),
-            client_session_id="switch-session",
+            idempotency_key="switch-session",
         )
         original_context_id = context_id_for_workspace(str(original))
         shutil.copytree(original, switched)
@@ -203,7 +203,7 @@ def test_workspace_claim_failure_does_not_block_session_creation(
         session_id = service.create_new_session(
             "local_user",
             str(workspace),
-            client_session_id="claim-failure-session",
+            idempotency_key="claim-failure-session",
         )
 
         assert service.get_session_summary("local_user", session_id) is not None
@@ -238,7 +238,7 @@ async def test_failed_claim_stays_global_until_a_successful_retry(
         session_id = service.create_new_session(
             "local_user",
             str(workspace),
-            client_session_id="temporary-claim-failure",
+            idempotency_key="temporary-claim-failure",
         )
         catalog = ContextCatalog(str(runtime_paths_with_schema.memory_db_path))
         paths = service.list_workspace_paths("local_user")
@@ -293,12 +293,12 @@ def test_idempotent_session_retry_does_not_claim_a_different_workspace(
         session_id = service.create_new_session(
             "local_user",
             str(original),
-            client_session_id="idempotent-session",
+            idempotency_key="idempotent-session",
         )
         retried_id = service.create_new_session(
             "local_user",
             str(unexpected),
-            client_session_id="idempotent-session",
+            idempotency_key="idempotent-session",
         )
 
         assert retried_id == session_id
@@ -489,7 +489,7 @@ async def test_chat_bootstrap_claims_existing_session_workspaces(
     service.create_new_session(
         "local_user",
         str(original),
-        client_session_id="legacy-original-session",
+        idempotency_key="legacy-original-session",
     )
     shutil.copytree(original, copied)
     temporary_copied_context_id = context_id_for_workspace(str(copied))
@@ -502,7 +502,7 @@ async def test_chat_bootstrap_claims_existing_session_workspaces(
     service.create_new_session(
         "local_user",
         str(copied),
-        client_session_id="legacy-copy-session",
+        idempotency_key="legacy-copy-session",
     )
     service.close()
     monkeypatch.setattr(

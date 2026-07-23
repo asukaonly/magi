@@ -1,7 +1,7 @@
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::Json;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
@@ -19,47 +19,151 @@ fn open_chat_db_rw() -> Option<Connection> {
 #[derive(Deserialize)]
 pub struct NewSessionQuery {
     pub user_id: Option<String>,
+    pub idempotency_key: Option<String>,
 }
 
 /// POST /api/messages/session/new — create a new chat session.
 pub async fn create_session(Query(q): Query<NewSessionQuery>) -> (StatusCode, Json<Value>) {
-    let user_id = q.user_id.unwrap_or_else(|| DEFAULT_USER_ID.to_string());
-    let result = tokio::task::spawn_blocking(move || insert_session(&user_id))
-        .await
-        .unwrap_or(None);
+    let user_id = q
+        .user_id
+        .unwrap_or_else(|| DEFAULT_USER_ID.to_string())
+        .trim()
+        .to_string();
+    if user_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"detail": "User ID is required"})),
+        );
+    }
+    let idempotency_key = match normalize_idempotency_key(q.idempotency_key) {
+        Ok(value) => value,
+        Err(detail) => return (StatusCode::BAD_REQUEST, Json(json!({"detail": detail}))),
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        insert_or_return_session(&user_id, idempotency_key.as_deref())
+    })
+    .await
+    .unwrap_or(Err(CreateSessionError::Storage));
     match result {
-        Some(v) => (StatusCode::CREATED, Json(v)),
-        None => (
+        Ok(value) => (StatusCode::CREATED, Json(value)),
+        Err(CreateSessionError::Conflict) => (
+            StatusCode::CONFLICT,
+            Json(json!({"detail": "Idempotency key is not available"})),
+        ),
+        Err(CreateSessionError::Storage) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"detail": "Failed to create session"})),
         ),
     }
 }
 
-fn insert_session(user_id: &str) -> Option<Value> {
-    let conn = open_chat_db_rw()?;
+#[derive(Debug)]
+enum CreateSessionError {
+    Conflict,
+    Storage,
+}
+
+fn normalize_idempotency_key(value: Option<String>) -> Result<Option<String>, &'static str> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let normalized = value.trim();
+    if normalized.is_empty()
+        || normalized.len() > 128
+        || !normalized
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+    {
+        return Err("Idempotency key is invalid");
+    }
+    Ok(Some(normalized.to_string()))
+}
+
+fn insert_or_return_session(
+    user_id: &str,
+    idempotency_key: Option<&str>,
+) -> Result<Value, CreateSessionError> {
+    let mut conn = open_chat_db_rw().ok_or(CreateSessionError::Storage)?;
+    let transaction = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| CreateSessionError::Storage)?;
+
+    if let Some(idempotency_key) = idempotency_key {
+        let existing = transaction
+            .query_row(
+                "SELECT request.session_id, session.user_id, session.archived_at_ms, \
+                 session.deleted_at_ms \
+                 FROM chat_session_creation_requests AS request \
+                 LEFT JOIN chat_sessions AS session ON session.session_id = request.session_id \
+                 WHERE request.user_id = ?1 AND request.idempotency_key = ?2 \
+                 LIMIT 1",
+                rusqlite::params![user_id, idempotency_key],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                        row.get::<_, Option<i64>>(3)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|_| CreateSessionError::Storage)?;
+        if let Some((session_id, owner_user_id, archived_at_ms, deleted_at_ms)) = existing {
+            if owner_user_id.as_deref() == Some(user_id)
+                && archived_at_ms.is_none()
+                && deleted_at_ms.is_none()
+            {
+                transaction
+                    .commit()
+                    .map_err(|_| CreateSessionError::Storage)?;
+                return Ok(session_response(user_id, &session_id));
+            }
+            return Err(CreateSessionError::Conflict);
+        }
+    }
+
     let session_id = format!("session_{}", uuid::Uuid::new_v4());
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
+        .map_err(|_| CreateSessionError::Storage)?
         .as_millis() as i64;
 
-    conn.execute(
-        "INSERT INTO chat_sessions (session_id, user_id, title, title_overridden, summary, \
+    transaction
+        .execute(
+            "INSERT INTO chat_sessions (session_id, user_id, title, title_overridden, summary, \
          created_at_ms, updated_at_ms, last_message_at_ms, last_user_message_at_ms, \
          last_message_preview, last_user_message_preview, message_count, workspace_path, \
          history_version) \
          VALUES (?1, ?2, 'New Session', 0, '', ?3, ?4, NULL, NULL, '', '', 0, NULL, 0)",
-        rusqlite::params![session_id, user_id, now_ms, now_ms],
-    )
-    .ok()?;
+            rusqlite::params![session_id, user_id, now_ms, now_ms],
+        )
+        .map_err(|_| CreateSessionError::Storage)?;
 
-    Some(json!({
+    if let Some(idempotency_key) = idempotency_key {
+        transaction
+            .execute(
+                "INSERT INTO chat_session_creation_requests (\
+                 user_id, idempotency_key, session_id, created_at_ms\
+                 ) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![user_id, idempotency_key, session_id, now_ms],
+            )
+            .map_err(|_| CreateSessionError::Storage)?;
+    }
+
+    transaction
+        .commit()
+        .map_err(|_| CreateSessionError::Storage)?;
+    Ok(session_response(user_id, &session_id))
+}
+
+fn session_response(user_id: &str, session_id: &str) -> Value {
+    json!({
         "success": true,
         "user_id": user_id,
         "session_id": session_id,
         "workspace_path": null,
-    }))
+    })
 }
 
 #[derive(Deserialize)]

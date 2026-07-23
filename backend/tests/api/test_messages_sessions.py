@@ -23,6 +23,7 @@ from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService  # n
 
 FACT_EVENTS_TABLE = "fact_events"
 CHAT_SESSIONS_TABLE = "chat_sessions"
+CHAT_SESSION_CREATION_REQUESTS_TABLE = "chat_session_creation_requests"
 CHAT_TURNS_TABLE = "chat_turns"
 CHAT_MESSAGES_TABLE = "chat_messages"
 CHAT_CONTEXT_SUMMARIES_TABLE = "chat_context_summaries"
@@ -518,6 +519,11 @@ def test_clear_all_sessions_removes_chat_traces_but_preserves_other_runtime_data
     )
     chat_conn = sqlite3.connect(str(service._chat_db_path))
     chat_conn.execute(f"""
+        INSERT INTO {CHAT_SESSION_CREATION_REQUESTS_TABLE} (
+            user_id, idempotency_key, session_id, created_at_ms
+        ) VALUES ('u1', 'first-context-request', 's1', 1)
+        """)
+    chat_conn.execute(f"""
         INSERT INTO {CHAT_CONTEXT_SUMMARIES_TABLE} (
             summary_id, session_id, status, summary_kind, summary_text,
             prompt_profile, created_at_ms, updated_at_ms
@@ -592,6 +598,7 @@ def test_clear_all_sessions_removes_chat_traces_but_preserves_other_runtime_data
     assert removed == 1
     for table in (
         CHAT_SESSIONS_TABLE,
+        CHAT_SESSION_CREATION_REQUESTS_TABLE,
         CHAT_TURNS_TABLE,
         CHAT_MESSAGES_TABLE,
         CHAT_CONTEXT_SUMMARIES_TABLE,
@@ -781,22 +788,26 @@ def test_create_new_session_persists_workspace_path(tmp_path):
     assert sessions[0].workspace_path == "/tmp/magi"
 
 
-def test_create_new_session_with_client_session_id_is_idempotent(tmp_path):
+def test_create_new_session_with_idempotency_key_returns_server_id_and_is_idempotent(
+    tmp_path,
+):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)
 
     first = service.create_new_session(
         "u1",
         workspace_path="/tmp/magi",
-        client_session_id="onboarding_session_1",
+        idempotency_key="first_context_1",
     )
     second = service.create_new_session(
         "u1",
         workspace_path="/tmp/changed",
-        client_session_id="onboarding_session_1",
+        idempotency_key="first_context_1",
     )
 
-    assert first == second == "onboarding_session_1"
+    assert first == second
+    assert first.startswith("session_")
+    assert first != "first_context_1"
     with sqlite3.connect(service._chat_db_path) as conn:
         assert conn.execute(
             "SELECT COUNT(*) FROM chat_sessions WHERE session_id = ?",
@@ -806,24 +817,34 @@ def test_create_new_session_with_client_session_id_is_idempotent(tmp_path):
             "SELECT workspace_path FROM chat_sessions WHERE session_id = ?",
             (first,),
         ).fetchone() == ("/tmp/magi",)
+        assert conn.execute(
+            """
+            SELECT session_id
+            FROM chat_session_creation_requests
+            WHERE user_id = ? AND idempotency_key = ?
+            """,
+            ("u1", "first_context_1"),
+        ).fetchone() == (first,)
 
 
-def test_create_new_session_rejects_case_variant_client_session_id(tmp_path):
+def test_create_new_session_scopes_idempotency_key_by_user(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)
-    service.create_new_session(
+    first = service.create_new_session(
         "u1",
-        client_session_id="Onboarding_Session_1",
+        idempotency_key="first_context_1",
+    )
+    second = service.create_new_session(
+        "u2",
+        idempotency_key="first_context_1",
     )
 
-    with pytest.raises(ValueError, match="not available"):
-        service.create_new_session(
-            "u1",
-            client_session_id="onboarding_session_1",
-        )
+    assert first != second
 
 
-def test_create_new_session_with_client_session_id_is_idempotent_under_concurrency(tmp_path):
+def test_create_new_session_with_idempotency_key_is_idempotent_under_concurrency(
+    tmp_path,
+):
     first_service = _build_service(tmp_path)
     second_service = _build_service(tmp_path)
     _init_chat_session_store(first_service._chat_db_path)
@@ -833,7 +854,7 @@ def test_create_new_session_with_client_session_id_is_idempotent_under_concurren
             return service.create_new_session(
                 "u1",
                 "/tmp/magi",
-                "onboarding_session_1",
+                "first_context_1",
             )
         finally:
             service.close()
@@ -845,11 +866,20 @@ def test_create_new_session_with_client_session_id_is_idempotent_under_concurren
         ]
         session_ids = [future.result(timeout=2) for future in futures]
 
-    assert session_ids == ["onboarding_session_1", "onboarding_session_1"]
+    assert session_ids[0] == session_ids[1]
+    assert session_ids[0].startswith("session_")
     with sqlite3.connect(first_service._chat_db_path) as conn:
         assert conn.execute(
             "SELECT COUNT(*) FROM chat_sessions WHERE session_id = ?",
-            ("onboarding_session_1",),
+            (session_ids[0],),
+        ).fetchone() == (1,)
+        assert conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM chat_session_creation_requests
+            WHERE user_id = ? AND idempotency_key = ?
+            """,
+            ("u1", "first_context_1"),
         ).fetchone() == (1,)
 
 
@@ -859,7 +889,7 @@ def test_create_new_session_rejects_reuse_after_terminal_state(tmp_path, termina
     _init_chat_session_store(service._chat_db_path)
     session_id = service.create_new_session(
         "u1",
-        client_session_id="onboarding_session_1",
+        idempotency_key="first_context_1",
     )
     with sqlite3.connect(service._chat_db_path) as conn:
         conn.execute(
@@ -871,35 +901,20 @@ def test_create_new_session_rejects_reuse_after_terminal_state(tmp_path, termina
     with pytest.raises(ValueError, match="not available"):
         service.create_new_session(
             "u1",
-            client_session_id="onboarding_session_1",
-        )
-
-
-def test_create_new_session_rejects_client_session_id_owned_by_another_user(tmp_path):
-    service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
-    service.create_new_session(
-        "u1",
-        client_session_id="onboarding_session_1",
-    )
-
-    with pytest.raises(ValueError, match="not available"):
-        service.create_new_session(
-            "u2",
-            client_session_id="onboarding_session_1",
+            idempotency_key="first_context_1",
         )
 
 
 @pytest.mark.parametrize(
-    "client_session_id",
+    "idempotency_key",
     ["contains space", "slash/value", "x" * 129],
 )
-def test_create_new_session_rejects_invalid_client_session_id(tmp_path, client_session_id):
+def test_create_new_session_rejects_invalid_idempotency_key(tmp_path, idempotency_key):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)
 
-    with pytest.raises(ValueError, match="Client session ID"):
-        service.create_new_session("u1", client_session_id=client_session_id)
+    with pytest.raises(ValueError, match="Idempotency key"):
+        service.create_new_session("u1", idempotency_key=idempotency_key)
 
 
 def test_get_display_history_returns_attachment_metadata_for_user_message(tmp_path):

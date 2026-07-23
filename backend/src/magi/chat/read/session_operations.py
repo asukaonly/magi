@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+import uuid
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -11,7 +13,6 @@ from ...core.chat_cleanup import ChatSurfaceCleanupPendingError
 from ...core.code_agent_artifacts import CodeAgentDelegationReference
 from ...core.logger import get_logger
 from ...memory.l1.chat_sessions import ChatSessionRecord, create_chat_session_record
-from magi.core.chat_assets.paths import normalize_chat_asset_component
 from ..workspace_identity import claim_workspace_identity
 from .asset_ownership import (
     assert_unambiguous_session_asset_scope,
@@ -47,12 +48,16 @@ from .schema import (
     CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE,
     CHAT_MESSAGES_TABLE,
     CHAT_RUN_CONSUMED_EVENTS_TABLE,
+    CHAT_SESSION_CREATION_REQUESTS_TABLE,
     CHAT_SESSIONS_TABLE,
     CHAT_TURNS_TABLE,
     CHAT_USER_TURN_DELIVERY_TABLE,
 )
 
 logger = get_logger(__name__)
+_SESSION_CREATION_IDEMPOTENCY_KEY_PATTERN = re.compile(
+    r"^[A-Za-z0-9_-]{1,128}$"
+)
 
 
 def _rhythm_segment_index(payload_json: object) -> int | None:
@@ -203,43 +208,37 @@ def _insert_or_return_session(
     host: _ChatSessionOperationsHost,
     record: ChatSessionRecord,
     normalized_user_id: str,
-    normalized_client_session_id: str | None,
+    normalized_idempotency_key: str | None,
 ) -> tuple[str, bool]:
     conn = host._get_conn()
     conn.execute("BEGIN IMMEDIATE")
     try:
-        if normalized_client_session_id is not None:
-            cleared = conn.execute(
+        if normalized_idempotency_key is not None:
+            existing = conn.execute(
                 f"""
-                SELECT 1
-                FROM {CHAT_CLEARED_SESSION_SCOPES_TABLE}
-                WHERE session_id = ? COLLATE NOCASE
+                SELECT
+                    request.session_id,
+                    session.user_id,
+                    session.archived_at_ms,
+                    session.deleted_at_ms
+                FROM {CHAT_SESSION_CREATION_REQUESTS_TABLE} AS request
+                LEFT JOIN {CHAT_SESSIONS_TABLE} AS session
+                  ON session.session_id = request.session_id
+                WHERE request.user_id = ?
+                  AND request.idempotency_key = ?
                 LIMIT 1
                 """,
-                (normalized_client_session_id,),
+                (normalized_user_id, normalized_idempotency_key),
             ).fetchone()
-            if cleared is not None:
-                raise ValueError("Client session ID is not available")
-            existing_rows = conn.execute(
-                f"""
-                SELECT session_id, user_id, archived_at_ms, deleted_at_ms
-                FROM {CHAT_SESSIONS_TABLE}
-                WHERE session_id = ? COLLATE NOCASE
-                """,
-                (normalized_client_session_id,),
-            ).fetchall()
-            if existing_rows:
-                existing = existing_rows[0]
+            if existing is not None:
                 if (
-                    len(existing_rows) == 1
-                    and str(existing["session_id"]) == normalized_client_session_id
-                    and str(existing["user_id"]) == normalized_user_id
+                    str(existing["user_id"] or "") == normalized_user_id
                     and existing["archived_at_ms"] is None
                     and existing["deleted_at_ms"] is None
                 ):
                     conn.commit()
-                    return normalized_client_session_id, False
-                raise ValueError("Client session ID is not available")
+                    return str(existing["session_id"]), False
+                raise ValueError("Idempotency key is not available")
 
         conn.execute(
             f"""
@@ -271,6 +270,23 @@ def _insert_or_return_session(
                 int(record.deleted_at * 1000) if record.deleted_at is not None else None,
             ),
         )
+        if normalized_idempotency_key is not None:
+            conn.execute(
+                f"""
+                INSERT INTO {CHAT_SESSION_CREATION_REQUESTS_TABLE} (
+                    user_id,
+                    idempotency_key,
+                    session_id,
+                    created_at_ms
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    normalized_user_id,
+                    normalized_idempotency_key,
+                    record.session_id,
+                    int(record.created_at * 1000),
+                ),
+            )
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -571,28 +587,31 @@ class ChatSessionOperationsMixin:
         self,
         user_id: str,
         workspace_path: str | None = None,
-        client_session_id: str | None = None,
+        idempotency_key: str | None = None,
     ) -> str:
         host = cast(_ChatSessionOperationsHost, self)
         normalized_user_id = str(user_id).strip()
         if not normalized_user_id:
             raise ValueError("User ID is required")
-        normalized_client_session_id = str(client_session_id or "").strip() or None
-        if normalized_client_session_id is not None:
-            normalized_client_session_id = normalize_chat_asset_component(
-                normalized_client_session_id,
-                label="Client session ID",
+        normalized_idempotency_key = str(idempotency_key or "").strip() or None
+        if (
+            normalized_idempotency_key is not None
+            and _SESSION_CREATION_IDEMPOTENCY_KEY_PATTERN.fullmatch(
+                normalized_idempotency_key
             )
+            is None
+        ):
+            raise ValueError("Idempotency key is invalid")
         record = create_chat_session_record(
             user_id=normalized_user_id,
-            session_id=normalized_client_session_id,
+            session_id=f"session_{uuid.uuid4()}",
             workspace_path=host._normalize_workspace_path(workspace_path),
         )
         session_id, created = _insert_or_return_session(
             host=host,
             record=record,
             normalized_user_id=normalized_user_id,
-            normalized_client_session_id=normalized_client_session_id,
+            normalized_idempotency_key=normalized_idempotency_key,
         )
         if created:
             claim_workspace_identity(record.workspace_path)
@@ -1145,6 +1164,9 @@ class ChatSessionOperationsMixin:
             )
             conn.execute(f"DELETE FROM {CHAT_MESSAGES_TABLE}")
             conn.execute(f"DELETE FROM {CHAT_TURNS_TABLE}")
+            conn.execute(
+                f"DELETE FROM {CHAT_SESSION_CREATION_REQUESTS_TABLE}"
+            )
             conn.execute(f"DELETE FROM {CHAT_SESSIONS_TABLE}")
             conn.commit()
         except BaseException:

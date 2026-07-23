@@ -365,12 +365,21 @@ describe("OnboardingFlow (linear 5-step)", () => {
         },
       },
     } as any);
+    const sessionIdsByCreationKey = new Map<string, string>();
     vi.spyOn(messagesApi, "createNewSession").mockImplementation(
-      async (userId, clientSessionId) => ({
-        success: true,
-        user_id: userId || "local_user",
-        session_id: clientSessionId || "first-context-session",
-      }),
+      async (userId, idempotencyKey) => {
+        const key = idempotencyKey || `unkeyed-${sessionIdsByCreationKey.size + 1}`;
+        let sessionId = sessionIdsByCreationKey.get(key);
+        if (!sessionId) {
+          sessionId = `session-server-${sessionIdsByCreationKey.size + 1}`;
+          sessionIdsByCreationKey.set(key, sessionId);
+        }
+        return {
+          success: true,
+          user_id: userId || "local_user",
+          session_id: sessionId,
+        };
+      },
     );
     vi.spyOn(messagesApi, "sendMessage").mockImplementation(
       async (request) => ({
@@ -774,17 +783,20 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "firstContext.story.errors.sessionFailed",
     );
-    const stableSessionId = vi.mocked(messagesApi.createNewSession).mock
+    const stableCreationKey = vi.mocked(messagesApi.createNewSession).mock
       .calls[0][1] as string;
-    expect(stableSessionId).toMatch(/^session_/);
+    expect(stableCreationKey).toMatch(/^first_context_/);
     expect(messagesApi.sendMessage).not.toHaveBeenCalled();
 
     await user.click(screen.getByTestId("first-context-story-submit"));
 
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/chat"));
-    expect(messagesApi.createNewSession).toHaveBeenCalledTimes(1);
+    expect(messagesApi.createNewSession).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(messagesApi.createNewSession).mock.calls[1][1]).toBe(
+      stableCreationKey,
+    );
     expect(messagesApi.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ session_id: stableSessionId }),
+      expect.objectContaining({ session_id: "session-server-1" }),
     );
   });
 
@@ -808,14 +820,14 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/chat"));
     expect(messagesApi.createNewSession).toHaveBeenCalledWith(
       "local_user",
-      expect.stringMatching(/^session_/),
+      expect.stringMatching(/^first_context_/),
     );
     expect(messagesApi.sendMessage).toHaveBeenCalledTimes(1);
     const request = vi.mocked(messagesApi.sendMessage).mock.calls[0][0];
     expect(request).toEqual(
       expect.objectContaining({
         user_id: "local_user",
-        session_id: expect.stringMatching(/^session_/),
+        session_id: expect.stringMatching(/^session-server-/),
         message: "明日香",
         client_turn_id: expect.stringMatching(/^turn_/),
         interaction_kind: "first_context_story",
@@ -826,6 +838,9 @@ describe("OnboardingFlow (linear 5-step)", () => {
       }),
     );
     expect(request.metadata).toBeUndefined();
+    expect(request.session_id).not.toBe(
+      vi.mocked(messagesApi.createNewSession).mock.calls[0][1],
+    );
     expect(completeOnboarding).toHaveBeenCalledTimes(1);
     expect(
       vi.mocked(messagesApi.sendMessage).mock.invocationCallOrder[0],
@@ -1097,6 +1112,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
           route: "question",
           questionId: "personal_time",
           draft: "晚上洗完澡以后最像自己的时间",
+          sessionCreationKey: "first_context_restored",
           sessionId: "restored-session",
           turnId: "restored-turn",
           submitted: false,

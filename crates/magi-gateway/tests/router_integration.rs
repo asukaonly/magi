@@ -971,6 +971,91 @@ async fn attachment_upload_proxy_rejects_stream_over_limit_without_ipc_or_temp_l
 }
 
 #[tokio::test]
+async fn native_session_creation_uses_server_identity_and_deduplicates_retries() {
+    let home = isolated_home("session-creation-idempotency");
+    let chat_dir = home.path().join(".magi").join("data").join("chat");
+    std::fs::create_dir_all(&chat_dir).unwrap();
+    let conn = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE chat_sessions (
+            session_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            title_overridden INTEGER NOT NULL DEFAULT 0,
+            summary TEXT NOT NULL DEFAULT '',
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            last_message_at_ms INTEGER,
+            last_user_message_at_ms INTEGER,
+            last_message_preview TEXT NOT NULL DEFAULT '',
+            last_user_message_preview TEXT NOT NULL DEFAULT '',
+            message_count INTEGER NOT NULL DEFAULT 0,
+            workspace_path TEXT,
+            history_version INTEGER NOT NULL DEFAULT 0,
+            archived_at_ms INTEGER,
+            deleted_at_ms INTEGER
+        );
+        CREATE TABLE chat_session_creation_requests (
+            user_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            session_id TEXT NOT NULL UNIQUE,
+            created_at_ms INTEGER NOT NULL,
+            PRIMARY KEY (user_id, idempotency_key)
+        );",
+    )
+    .unwrap();
+    drop(conn);
+
+    let state = test_state().await;
+    let router = api::build_router(state);
+    let uri = "/api/messages/session/new?user_id=u1&idempotency_key=first_context_request_1";
+    let (first_status, first) = request_json(router.clone(), "POST", uri, None).await;
+    let (retry_status, retry) = request_json(router.clone(), "POST", uri, None).await;
+
+    assert_eq!(first_status, 201, "first={first:?} home={:?}", home.path());
+    assert_eq!(retry_status, 201, "retry={retry:?} home={:?}", home.path());
+    assert_eq!(first["session_id"], retry["session_id"]);
+    assert!(first["session_id"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("session_")));
+    assert_ne!(first["session_id"], "first_context_request_1");
+
+    let (other_user_status, other_user) = request_json(
+        router.clone(),
+        "POST",
+        "/api/messages/session/new?user_id=u2&idempotency_key=first_context_request_1",
+        None,
+    )
+    .await;
+    assert_eq!(other_user_status, 201, "other_user={other_user:?}");
+    assert_ne!(first["session_id"], other_user["session_id"]);
+
+    let (invalid_status, invalid) = request_json(
+        router,
+        "POST",
+        "/api/messages/session/new?user_id=u1&idempotency_key=contains%20space",
+        None,
+    )
+    .await;
+    assert_eq!(invalid_status, 400, "invalid={invalid:?}");
+
+    let conn = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
+    let session_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM chat_sessions", [], |row| row.get(0))
+        .unwrap();
+    let request_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM chat_session_creation_requests",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(session_count, 2);
+    assert_eq!(request_count, 2);
+    drop(home);
+}
+
+#[tokio::test]
 async fn native_message_routes_return_history_versions() {
     let home = isolated_home("message-history-version");
     let chat_dir = home.path().join(".magi").join("data").join("chat");

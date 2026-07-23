@@ -74,11 +74,11 @@ const LLM_SETUP_STEP = 1;
 const PERSONA_STEP = 2;
 const FIRST_CONTEXT_STEP = 3;
 const COMPLETE_STEP = 4;
-const createFirstContextSessionId = (): string => {
+const createFirstContextSessionCreationKey = (): string => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `session_${crypto.randomUUID()}`;
+    return `first_context_${crypto.randomUUID()}`;
   }
-  return `session_${Date.now().toString(36)}_${Math.random()
+  return `first_context_${Date.now().toString(36)}_${Math.random()
     .toString(36)
     .slice(2, 10)}`;
 };
@@ -88,6 +88,7 @@ interface FirstContextProgress {
   questionId: FirstContextQuestionId;
   seenQuestionIds: FirstContextQuestionId[];
   draft: string;
+  sessionCreationKey: string | null;
   sessionId: string | null;
   turnId: string | null;
   messageId: string | null;
@@ -100,6 +101,7 @@ const DEFAULT_FIRST_CONTEXT_PROGRESS: FirstContextProgress = {
   questionId: FIRST_CONTEXT_QUESTION_IDS[0],
   seenQuestionIds: [FIRST_CONTEXT_QUESTION_IDS[0]],
   draft: "",
+  sessionCreationKey: null,
   sessionId: null,
   turnId: null,
   messageId: null,
@@ -561,7 +563,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         typeof parsed.firstContextProgress === "object"
       ) {
         const rawProgress = parsed.firstContextProgress;
-        const sessionId =
+        const sessionCreationKey =
+          typeof rawProgress.sessionCreationKey === "string" &&
+          rawProgress.sessionCreationKey.trim()
+            ? rawProgress.sessionCreationKey.trim()
+            : null;
+        const sessionId = sessionCreationKey &&
           typeof rawProgress.sessionId === "string" &&
           rawProgress.sessionId.trim()
             ? rawProgress.sessionId.trim()
@@ -593,6 +600,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             : [...seenQuestionIds, questionId],
           draft:
             typeof rawProgress.draft === "string" ? rawProgress.draft : "",
+          sessionCreationKey,
           sessionId,
           turnId,
           messageId,
@@ -1217,13 +1225,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
       let sessionId = String(progress.sessionId || "").trim();
       if (!sessionId) {
-        sessionId = createFirstContextSessionId();
-        progress = updateFirstContextProgress({ sessionId });
+        let sessionCreationKey = String(
+          progress.sessionCreationKey || "",
+        ).trim();
+        if (!sessionCreationKey) {
+          sessionCreationKey = createFirstContextSessionCreationKey();
+          progress = updateFirstContextProgress({ sessionCreationKey });
+        }
         let created: Awaited<ReturnType<typeof messagesApi.createNewSession>>;
         try {
           created = await messagesApi.createNewSession(
             DEFAULT_USER_ID,
-            sessionId,
+            sessionCreationKey,
           );
         } catch {
           setFirstContextStoryError(
@@ -1234,14 +1247,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         const createdSessionId = String(created.session_id || "").trim();
         if (
           !created.success ||
-          !createdSessionId ||
-          createdSessionId !== sessionId
+          !createdSessionId
         ) {
           setFirstContextStoryError(
             t("firstContext.story.errors.sessionFailed"),
           );
           return;
         }
+        sessionId = createdSessionId;
+        progress = updateFirstContextProgress({ sessionId });
         activateRealtimeChatSession(createdSessionId);
       }
 

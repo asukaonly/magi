@@ -23,6 +23,14 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
     ON chat_sessions(user_id, updated_at_ms DESC);
 
+CREATE TABLE IF NOT EXISTS chat_session_creation_requests (
+    user_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    session_id TEXT NOT NULL UNIQUE,
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (user_id, idempotency_key)
+);
+
 CREATE TABLE IF NOT EXISTS chat_turns (
     turn_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,

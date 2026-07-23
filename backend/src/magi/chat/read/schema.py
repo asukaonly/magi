@@ -6,6 +6,7 @@ only re-exports table names referenced by query code.
 from __future__ import annotations
 
 CHAT_SESSIONS_TABLE = "chat_sessions"
+CHAT_SESSION_CREATION_REQUESTS_TABLE = "chat_session_creation_requests"
 CHAT_TURNS_TABLE = "chat_turns"
 CHAT_MESSAGES_TABLE = "chat_messages"
 CHAT_ATTACHMENTS_TABLE = "chat_attachments"

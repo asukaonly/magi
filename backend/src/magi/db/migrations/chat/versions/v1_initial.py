@@ -29,6 +29,14 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     deleted_at_ms INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS chat_session_creation_requests (
+    user_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    session_id TEXT NOT NULL UNIQUE,
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (user_id, idempotency_key)
+);
+
 CREATE TABLE IF NOT EXISTS chat_turns (
     turn_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
@@ -536,6 +544,8 @@ DROP TABLE IF EXISTS chat_attachments;
 DROP TABLE IF EXISTS chat_messages;
 
 DROP TABLE IF EXISTS chat_turns;
+
+DROP TABLE IF EXISTS chat_session_creation_requests;
 
 DROP TABLE IF EXISTS chat_sessions;
 """

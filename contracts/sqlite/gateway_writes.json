@@ -10,6 +10,12 @@
     },
     {
       "file": "crates/magi-gateway/src/api/messages/mutations.rs",
+      "operation": "insert",
+      "table": "chat_session_creation_requests",
+      "purpose": "Persist idempotency keys for native chat session creation."
+    },
+    {
+      "file": "crates/magi-gateway/src/api/messages/mutations.rs",
       "operation": "update",
       "table": "chat_sessions",
       "purpose": "Update session presentation fields such as title, workspace, and history version."

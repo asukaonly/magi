@@ -2272,17 +2272,14 @@ async def test_unknown_or_wrong_owner_session_never_creates_a_delete_barrier(
             ) as cursor:
                 assert await cursor.fetchall() == []
 
-        assert (
-            read_service.create_new_session(
-                "u1",
-                client_session_id="reusable-session",
-            )
-            == "reusable-session"
+        reused_session_id = read_service.create_new_session(
+            "u1",
+            idempotency_key="reusable-session",
         )
         ingest = await memory.ingest_event(
             _memory_event(
                 "event-reused-session",
-                session_id="reusable-session",
+                session_id=reused_session_id,
                 turn_id="turn-reused-session",
                 message_id="message-reused-session",
                 content="this new session must remain usable",

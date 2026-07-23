@@ -14481,7 +14481,7 @@ export interface operations {
         readonly parameters: {
             readonly query?: {
                 readonly user_id?: string;
-                readonly client_session_id?: string | null;
+                readonly idempotency_key?: string | null;
             };
             readonly header?: never;
             readonly path?: never;

@@ -972,11 +972,11 @@ async def test_create_new_session_uses_default_workspace_path(
             self,
             user_id: str,
             workspace_path: str | None = None,
-            client_session_id: str | None = None,
+            idempotency_key: str | None = None,
         ):
             captured["user_id"] = user_id
             captured["workspace_path"] = workspace_path
-            captured["client_session_id"] = client_session_id
+            captured["idempotency_key"] = idempotency_key
             return "session-1"
 
     monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
@@ -988,11 +988,11 @@ async def test_create_new_session_uses_default_workspace_path(
     assert response["session_id"] == "session-1"
     assert response["workspace_path"] == "/tmp/magi"
     assert captured["workspace_path"] == "/tmp/magi"
-    assert captured["client_session_id"] is None
+    assert captured["idempotency_key"] is None
 
 
 @pytest.mark.asyncio
-async def test_create_new_session_forwards_client_session_id(
+async def test_create_new_session_forwards_idempotency_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -1002,43 +1002,43 @@ async def test_create_new_session_forwards_client_session_id(
             self,
             user_id: str,
             workspace_path: str | None = None,
-            client_session_id: str | None = None,
+            idempotency_key: str | None = None,
         ):
             captured.update(
                 user_id=user_id,
                 workspace_path=workspace_path,
-                client_session_id=client_session_id,
+                idempotency_key=idempotency_key,
             )
-            return str(client_session_id)
+            return "session-server-1"
 
     monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
     monkeypatch.setattr(messages_sessions, "get_default_chat_workspace_path", lambda: "/tmp/magi")
 
     response = await messages_router.create_new_session(
         user_id="u1",
-        client_session_id="onboarding_session_1",
+        idempotency_key="first_context_1",
     )
 
     assert response["success"] is True
-    assert response["session_id"] == "onboarding_session_1"
-    assert captured["client_session_id"] == "onboarding_session_1"
+    assert response["session_id"] == "session-server-1"
+    assert captured["idempotency_key"] == "first_context_1"
 
 
 @pytest.mark.asyncio
-async def test_create_new_session_maps_client_session_conflict_to_400(
+async def test_create_new_session_maps_idempotency_conflict_to_400(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _FakeReadService:
         async def acreate_new_session(self, *args, **kwargs):  # type: ignore[no-untyped-def]
             _ = (args, kwargs)
-            raise ValueError("Client session ID is not available")
+            raise ValueError("Idempotency key is not available")
 
     monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
 
     with pytest.raises(HTTPException) as exc_info:
         await messages_router.create_new_session(
             user_id="u2",
-            client_session_id="onboarding_session_1",
+            idempotency_key="first_context_1",
         )
 
     assert exc_info.value.status_code == 400

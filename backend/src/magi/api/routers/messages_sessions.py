@@ -26,7 +26,7 @@ message_sessions_router = APIRouter()
 @message_sessions_router.post("/session/new", response_model=Dict[str, Any])
 async def create_new_session(
     user_id: str = DEFAULT_USER_ID,
-    client_session_id: Annotated[
+    idempotency_key: Annotated[
         str | None,
         Query(
             min_length=1,
@@ -42,7 +42,7 @@ async def create_new_session(
         session_id = await read_service.acreate_new_session(
             user_id,
             workspace_path,
-            client_session_id,
+            idempotency_key,
         )
         return {
             "success": True,

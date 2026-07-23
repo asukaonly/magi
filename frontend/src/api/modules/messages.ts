@@ -276,12 +276,12 @@ export const messagesApi = {
 
   createNewSession: async (
     userId: string = DEFAULT_USER_ID,
-    clientSessionId?: string,
+    idempotencyKey?: string,
   ): Promise<CreateSessionResponse> => {
     const response = await api.post<CreateSessionResponse>('/messages/session/new', null, {
       params: {
         user_id: userId,
-        client_session_id: clientSessionId,
+        idempotency_key: idempotencyKey,
       },
     });
     return unwrapGatewayPayload(response);
