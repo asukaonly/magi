@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from .....core.logger import get_logger
 from ....event_contracts import MemoryEvent
+from ...llm_json_client import L2LLMJsonError
 from ...models import (
     L2BatchEntityResolutionItem,
     L2ClaimEvidenceMode,
@@ -103,6 +104,13 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             llm_batch_items,
             source=event.source,
         )
+        if llm_results is None:
+            degraded_stages = phase1_result.diagnostics.get("degraded_stages")
+            if not isinstance(degraded_stages, list):
+                degraded_stages = []
+                phase1_result.diagnostics["degraded_stages"] = degraded_stages
+            if "entity_resolution" not in degraded_stages:
+                degraded_stages.append("entity_resolution")
 
         resolved_mentions = list(context_only_mentions)
         for pending_item in pending:
@@ -387,21 +395,34 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         llm_batch_items: list[L2BatchEntityResolutionItem],
         *,
         source: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         if not llm_batch_items or self._llm_service is None:
             return {}
-        return await self._llm_service.resolve_entities_batch(
-            items=llm_batch_items,
-            source=source,
-        )
+        try:
+            return await self._llm_service.resolve_entities_batch(
+                items=llm_batch_items,
+                source=source,
+            )
+        except L2LLMJsonError as exc:
+            logger.warning(
+                "L2 Phase 1 entity resolution degraded",
+                source=source,
+                mention_count=len(llm_batch_items),
+                error_type=type(exc).__name__,
+            )
+            return None
 
     async def _finalize_phase1_entity_resolution(
         self,
         pending_item: _PendingPhase1EntityResolution,
         *,
-        llm_results: dict[str, Any],
+        llm_results: dict[str, Any] | None,
     ) -> None:
         if pending_item.llm_mention_key is not None:
+            if llm_results is None:
+                pending_item.resolved_entity_id = None
+                pending_item.resolved_confidence = 0.0
+                return
             await self._apply_phase1_llm_resolution(
                 pending_item,
                 llm_results=llm_results,

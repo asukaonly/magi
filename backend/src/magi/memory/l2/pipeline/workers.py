@@ -181,6 +181,7 @@ class L2PipelineWorkerMixin:
             relation_count=int(result["relation_count"]),
             assertion_count=int(result["assertion_count"]),
             contradiction_hint_count=int(result.get("contradiction_hint_count", 0)),
+            degraded_stages=result.get("degraded_stages", []),
             touched_entity_count=len(result.get("touched_entity_ids", [])),
             queue_size=host._extract_queue.qsize(),
         )

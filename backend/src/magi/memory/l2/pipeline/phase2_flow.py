@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ....core.logger import get_logger
+from ..llm_json_client import L2LLMJsonError
 from ..models import L2ConflictArbitrationResult, L2FocalEntityRef
 from .event_entity_map import build_event_entity_map
 from .extraction_contracts import (
@@ -15,6 +16,29 @@ from .extraction_contracts import (
 )
 
 logger = get_logger("magi.memory.l2.pipeline")
+
+
+def _degraded_stages(phase1_flow: _Phase1ExtractionFlow) -> list[str]:
+    raw_stages = phase1_flow.phase1_result.diagnostics.get("degraded_stages", [])
+    if not isinstance(raw_stages, list):
+        return []
+    return list(
+        dict.fromkeys(
+            stage.strip()
+            for stage in raw_stages
+            if isinstance(stage, str) and stage.strip()
+        )
+    )
+
+
+def _record_degraded_stage(
+    phase1_flow: _Phase1ExtractionFlow,
+    stage: str,
+) -> None:
+    degraded_stages = _degraded_stages(phase1_flow)
+    if stage not in degraded_stages:
+        degraded_stages.append(stage)
+    phase1_flow.phase1_result.diagnostics["degraded_stages"] = degraded_stages
 
 
 def _phase1_only_result_payload(
@@ -57,6 +81,7 @@ def _phase1_only_result_payload(
         "contradiction_hint_count": 0,
         "conflict_arbitration_decision": None,
         "fast_tracked": True,
+        "degraded_stages": _degraded_stages(phase1_flow),
     }
 
 
@@ -96,6 +121,7 @@ def _phase2_result_payload(
         "contradiction_hint_count": len(candidates.contradiction_hints),
         "conflict_arbitration_decision": conflict_decision,
         "fast_tracked": False,
+        "degraded_stages": _degraded_stages(phase1_flow),
     }
 
 
@@ -176,11 +202,21 @@ class L2Phase2FlowMixin:
             batch,
             focal_entities=focal_entities,
         )
-        phase2_result = await self._run_phase2_integration(
-            batch,
-            phase1_flow,
-            phase2_context,
-        )
+        try:
+            phase2_result = await self._run_phase2_integration(
+                batch,
+                phase1_flow,
+                phase2_context,
+            )
+        except L2LLMJsonError as exc:
+            return await self._persist_degraded_phase1(
+                batch=batch,
+                phase1_flow=phase1_flow,
+                graph_candidates=graph_candidates,
+                rejected_graph_count=rejected_graph_count,
+                stage="phase2",
+                exc=exc,
+            )
         phase2_candidates = self._validate_phase2_outputs(
             batch=batch,
             phase1_flow=phase1_flow,
@@ -189,10 +225,20 @@ class L2Phase2FlowMixin:
             graph_candidates=graph_candidates,
             rejected_graph_count=rejected_graph_count,
         )
-        conflict_arbitration = await self._apply_phase2_conflict_arbitration(
-            batch,
-            phase2_candidates,
-        )
+        try:
+            conflict_arbitration = await self._apply_phase2_conflict_arbitration(
+                batch,
+                phase2_candidates,
+            )
+        except L2LLMJsonError as exc:
+            return await self._persist_degraded_phase1(
+                batch=batch,
+                phase1_flow=phase1_flow,
+                graph_candidates=graph_candidates,
+                rejected_graph_count=rejected_graph_count,
+                stage="conflict_arbitration",
+                exc=exc,
+            )
         return await self._persist_phase2_result(
             batch=batch,
             phase1_flow=phase1_flow,
@@ -256,6 +302,33 @@ class L2Phase2FlowMixin:
             relation_count=relation_count,
             rejected_graph_candidate_count=rejected_graph_count,
         )
+
+    async def _persist_degraded_phase1(
+        self: Any,
+        *,
+        batch: _PreparedExtractionBatch,
+        phase1_flow: _Phase1ExtractionFlow,
+        graph_candidates: list[dict[str, Any]],
+        rejected_graph_count: int,
+        stage: str,
+        exc: L2LLMJsonError,
+    ) -> dict[str, Any]:
+        logger.warning(
+            "L2 optional inference degraded to Phase 1",
+            event_id=batch.stored_event.event_id,
+            profile_id=batch.extraction_profile.profile_id,
+            degraded_stage=stage,
+            error_type=type(exc).__name__,
+        )
+        _record_degraded_stage(phase1_flow, stage)
+        result = await self._persist_phase1_only(
+            batch=batch,
+            phase1_flow=phase1_flow,
+            graph_candidates=graph_candidates,
+            rejected_graph_count=rejected_graph_count,
+        )
+        result["fast_tracked"] = False
+        return result
 
     async def _run_phase2_integration(
         self: Any,

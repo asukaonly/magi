@@ -1383,6 +1383,143 @@ async def test_short_reply_context_error_does_not_fail_or_create_false_mentions(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure_stage", "followup_responses", "expected_call_count"),
+    [
+        ("phase2", ["not-json", "still-not-json"], 3),
+        (
+            "conflict_arbitration",
+            [json.dumps({"claim_assessments": [], "assertion_candidates": []})],
+            2,
+        ),
+    ],
+)
+async def test_optional_inference_failure_persists_phase1_and_completes(
+    caplog,
+    monkeypatch,
+    failure_stage,
+    followup_responses,
+    expected_call_count,
+):
+    phase1_response = json.dumps(
+        {
+            "entities": [
+                {
+                    "surface": "魔都",
+                    "normalized_name": "上海",
+                    "entity_type": "place",
+                    "specificity": "concrete",
+                    "resolved_id": "place:shanghai",
+                    "is_new": False,
+                    "alias_signals": ["魔都"],
+                    "confidence": 0.96,
+                }
+            ],
+            "fact_claims": [
+                {
+                    "subject_ref": "user:self",
+                    "predicate": "LIKES",
+                    "object_ref": "魔都",
+                    "object_type": "place",
+                    "fact_kind": "stable_preference",
+                    "temporal_cue": "unspecified",
+                    "polarity": "positive",
+                    "specificity": "concrete",
+                    "evidence_text": "我好喜欢魔都",
+                    "confidence": 0.96,
+                    "supporting_event_ids": ["evt-phase2-degraded"],
+                }
+            ],
+            "resolved_refs": [],
+            "diagnostics": {"entity_status": "found"},
+        },
+        ensure_ascii=False,
+    )
+    adapter = _FakeAdapter([phase1_response, *followup_responses])
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            assert store.l2 is not None
+            assert store.l2_entity_catalog is not None
+            await store.l2_entity_catalog.upsert_entity(
+                entity_id="place:shanghai",
+                canonical_name="Shanghai",
+                entity_type="place",
+            )
+            await store.l2_entity_catalog.add_alias(
+                entity_id="place:shanghai",
+                alias_text="魔都",
+                confidence=0.98,
+            )
+            if failure_stage == "conflict_arbitration":
+                from magi.memory.l2.llm_json_client import (
+                    L2InvalidJsonResponseError,
+                )
+
+                async def _fail_conflict_arbitration(_batch, _candidates):
+                    raise L2InvalidJsonResponseError(
+                        "invalid conflict arbitration JSON"
+                    )
+
+                assert store.l2_pipeline is not None
+                monkeypatch.setattr(
+                    store.l2_pipeline,
+                    "_apply_phase2_conflict_arbitration",
+                    _fail_conflict_arbitration,
+                )
+
+            with caplog.at_level(logging.INFO, logger="magi.memory.l2.pipeline"):
+                await store.ingest_event(
+                    {
+                        "id": "evt-phase2-degraded",
+                        "type": EventTypes.USER_MESSAGE,
+                        "timestamp": time.time(),
+                        "source": "chat",
+                        "level": EventLevel.INFO.value,
+                        "data": {
+                            "user_id": "u1",
+                            "session_id": "s-phase2-degraded",
+                            "content": "我好喜欢魔都",
+                        },
+                    }
+                )
+
+                for _ in range(50):
+                    stats = store.get_l2_pipeline_stats()
+                    if stats["extract_completed"] >= 1 or stats["extract_failed"] >= 1:
+                        break
+                    await asyncio.sleep(0.01)
+
+            stats = store.get_l2_pipeline_stats()
+            relationships = await store.l2.get_relationships(subject_id="user:u1")
+
+            assert stats["extract_completed"] == 1
+            assert stats["extract_failed"] == 0
+            assert len(adapter.calls) == expected_call_count
+            assert any(
+                "L2 optional inference degraded to Phase 1" in record.getMessage()
+                and failure_stage in record.getMessage()
+                for record in caplog.records
+            )
+            assert any(
+                edge["predicate"] == "LIKES"
+                and edge["object_id"] == "place:shanghai"
+                for edge in relationships
+            )
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
     """The extract worker passes place + type hints into episode formation.
 
