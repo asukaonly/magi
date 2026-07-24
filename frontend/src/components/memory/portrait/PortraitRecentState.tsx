@@ -21,7 +21,7 @@ export const PortraitRecentState = ({ items }: PortraitRecentStateProps) => {
         <p className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.portrait.recent.meta')}</p>
       </header>
 
-      <div className="mt-3">
+      <div className="mt-3 max-w-3xl">
         {items.slice(0, 6).map((item) => (
           <article key={item.id} className="py-2.5">
             <p className="text-sm leading-7 text-[hsl(var(--memory-body))]">

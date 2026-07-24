@@ -172,7 +172,7 @@ export const MemoryPortraitPage = () => {
 
   return (
     <MemoryPageFrame title={t('memory.portrait.title')} description={t('memory.portrait.subtitle')} hideHeader>
-      <div className="mx-auto max-w-[720px] space-y-14 px-2 pb-10 pt-6">
+      <div className="mx-auto max-w-5xl px-2 pb-10 pt-6 [&>section+section]:mt-10 [&>section+section]:border-t [&>section+section]:border-[hsl(var(--memory-divider)/0.5)] [&>section+section]:pt-10">
         {viewModel ? (
           <>
             <PortraitReviewQueue

@@ -140,8 +140,8 @@ export const MemoryPendingPage = () => {
       title=""
       description=""
       hideHeader
-      className="max-w-[680px]"
-      contentClassName="space-y-10 pt-4"
+      className="max-w-[900px]"
+      contentClassName="pt-4"
     >
       {loading ? (
         <section className={`${MEMORY_EMPTY_PANEL_CLASS} flex items-center gap-2`}>
@@ -153,29 +153,31 @@ export const MemoryPendingPage = () => {
           <p className="mt-1 text-sm">{t('memory.pending.emptyBody')}</p>
         </section>
       ) : (
-        <div className="space-y-12">
+        <div>
           <PendingFilterTabs
             options={filterOptions}
             activeFilter={activeFilter}
             onChange={setActiveFilter}
           />
-          <PendingReviewGroups
-            assertions={assertions}
-            stories={stories}
-            seeds={seeds}
-            conflicts={conflicts}
-            actionId={actionId}
-            memoryCount={memoryCount}
-            experienceCount={experienceCount}
-            observationCount={observationCount}
-            showMemory={showMemory}
-            showExperiences={showExperiences}
-            showObservations={showObservations}
-            onAssertion={handleAssertion}
-            onStory={handleStory}
-            onSeed={handleSeed}
-            onConflict={handleConflict}
-          />
+          <div className="mt-10 [&>section+section]:mt-10 [&>section+section]:border-t [&>section+section]:border-[hsl(var(--memory-divider)/0.5)] [&>section+section]:pt-10">
+            <PendingReviewGroups
+              assertions={assertions}
+              stories={stories}
+              seeds={seeds}
+              conflicts={conflicts}
+              actionId={actionId}
+              memoryCount={memoryCount}
+              experienceCount={experienceCount}
+              observationCount={observationCount}
+              showMemory={showMemory}
+              showExperiences={showExperiences}
+              showObservations={showObservations}
+              onAssertion={handleAssertion}
+              onStory={handleStory}
+              onSeed={handleSeed}
+              onConflict={handleConflict}
+            />
+          </div>
         </div>
       )}
       <MemoryCorrectionDialog
