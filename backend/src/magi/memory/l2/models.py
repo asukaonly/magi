@@ -41,6 +41,7 @@ from .entities.models import (
 from .episode_models import EpisodeCandidateJob, EpisodeConsolidationStats, EpisodeWrite
 from .phase_models import (
     ContradictionHint,
+    L2ClaimEvidenceMode,
     L2Phase1Entity,
     L2Phase1FactClaim,
     L2Phase1ResolvedRef,
@@ -66,6 +67,7 @@ __all__ = [
     "L2BatchJob",
     "L2CandidateSet",
     "L2ConflictArbitrationResult",
+    "L2ClaimEvidenceMode",
     "L2EntityCandidate",
     "L2EntityResolution",
     "L2EntityResolutionMention",

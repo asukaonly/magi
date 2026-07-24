@@ -25,6 +25,35 @@ DEFAULT_L2_HISTORY_CONTEXT_LIMIT = 3
 DEFAULT_L2_HISTORY_SEARCH_LIMIT = 4
 
 
+def _context_row_precedes_event(row: dict[str, Any], event: MemoryEvent) -> bool:
+    row_session_seq = row.get("session_seq")
+    if event.session_id and event.session_seq is not None and row_session_seq is not None:
+        return int(row_session_seq) < int(event.session_seq)
+
+    row_timestamp = float(row.get("timestamp", 0.0) or 0.0)
+    if row_timestamp != float(event.timestamp):
+        return row_timestamp < float(event.timestamp)
+
+    row_created_at = float(row.get("created_at", row_timestamp) or row_timestamp)
+    if row_created_at != float(event.created_at):
+        return row_created_at < float(event.created_at)
+
+    row_id = row.get("id")
+    if row_id is not None and event.id is not None:
+        return int(row_id) < int(event.id)
+    return False
+
+
+def _context_row_order_key(row: dict[str, Any]) -> tuple[float, float, int, str]:
+    session_seq = row.get("session_seq")
+    return (
+        float(session_seq) if session_seq is not None else float("-inf"),
+        float(row.get("timestamp", 0.0) or 0.0),
+        int(row.get("id", 0) or 0),
+        str(row.get("event_id") or ""),
+    )
+
+
 class _L2PipelineContextHostProtocol(Protocol):
     _l1_store: L1EventStore | None
     _entity_catalog: L2EntityCatalog | None
@@ -78,6 +107,11 @@ class L2PipelineContextMixin:
             ),
             session_id=host._non_empty_text(payload.get("session_id")),
             turn_id=host._non_empty_text(payload.get("turn_id")),
+            session_seq=(
+                int(payload["session_seq"])
+                if payload.get("session_seq") is not None
+                else None
+            ),
             user_id=host._non_empty_text(payload.get("user_id")),
             task_id=host._non_empty_text(payload.get("task_id")),
             content=str(payload.get("content") or ""),
@@ -91,29 +125,11 @@ class L2PipelineContextMixin:
     async def _load_context_texts(
         self, event: MemoryEvent, *, exclude_event_ids: list[str] | None = None
     ) -> list[str]:
-        host = self._context_host()
-        if host._l1_store is None:
-            return []
-
-        query_args: dict[str, Any] = {
-            "cognition_eligible": True,
-            "limit": max(4, len(exclude_event_ids or []) + 4),
-        }
-        if event.session_id:
-            query_args["session_id"] = event.session_id
-        elif event.user_id and _allows_user_context_fallback(event):
-            query_args["user_id"] = event.user_id
-        else:
-            return []
-
-        rows = await host._l1_store.query_events(**query_args)
-        excluded = set(exclude_event_ids or [])
-        excluded.add(event.event_id)
-        context_rows = [row for row in rows if row["event_id"] not in excluded]
-        context_texts = [
-            str(row["content"]) for row in reversed(context_rows) if str(row["content"]).strip()
-        ]
-        return context_texts[:3]
+        messages = await self._load_context_messages(
+            event,
+            exclude_event_ids=exclude_event_ids,
+        )
+        return [str(message["content"]) for message in messages]
 
     async def _load_context_messages(
         self,
@@ -126,29 +142,61 @@ class L2PipelineContextMixin:
         if host._l1_store is None:
             return []
 
-        query_args: dict[str, Any] = {
-            "cognition_eligible": True,
-            "limit": max(4, len(exclude_event_ids or []) + 4),
-        }
-        if event.session_id:
-            query_args["session_id"] = event.session_id
+        context_limit = 3
+        search_radius = max(4, len(exclude_event_ids or []) + 4)
+        if event.session_id and event.session_seq is not None:
+            rows = await host._l1_store.query_session_event_window(
+                session_id=event.session_id,
+                center_session_seq=event.session_seq,
+                window=search_radius,
+                user_id=event.user_id,
+                limit=(search_radius * 2) + 1,
+                include_metadata_json=False,
+                include_embedding_fields=False,
+            )
         elif event.user_id and _allows_user_context_fallback(event):
-            query_args["user_id"] = event.user_id
+            rows = await host._l1_store.query_events(
+                user_id=event.user_id,
+                cognition_eligible=True,
+                end_time=event.timestamp,
+                limit=search_radius,
+                include_metadata_json=False,
+                include_embedding_fields=False,
+                order_by="timestamp_desc",
+            )
         else:
             return []
 
-        rows = await host._l1_store.query_events(**query_args)
         excluded = set(exclude_event_ids or [])
         excluded.add(event.event_id)
-        context_rows = [row for row in rows if row["event_id"] not in excluded]
+        context_rows = [
+            row
+            for row in rows
+            if str(row.get("event_id") or "") not in excluded
+            and bool(row.get("cognition_eligible", True))
+            and _context_row_precedes_event(row, event)
+            and str(row.get("author_type") or "").strip().casefold()
+            in {"assistant", "user"}
+            and str(row.get("content") or "").strip()
+        ]
+        context_rows.sort(key=_context_row_order_key)
+        context_rows = context_rows[-context_limit:]
         messages: list[dict[str, Any]] = []
-        for row in reversed(context_rows):
+        for row in context_rows:
             content = str(row.get("content", "")).strip()
             if not content:
                 continue
             role = str(row.get("author_type", "user")).strip() or "user"
-            messages.append({"role": role, "content": content})
-        return messages[:3]
+            messages.append(
+                {
+                    "event_id": str(row.get("event_id") or "").strip(),
+                    "session_seq": row.get("session_seq"),
+                    "timestamp": float(row.get("timestamp", 0.0) or 0.0),
+                    "role": role,
+                    "content": content,
+                }
+            )
+        return messages
 
     async def _load_existing_graph_context(
         self,

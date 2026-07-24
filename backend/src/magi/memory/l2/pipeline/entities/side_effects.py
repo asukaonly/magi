@@ -39,7 +39,7 @@ class L2EntitySideEffectMixin:
         for mention in resolved_mentions:
             if not mention.resolved_entity_id:
                 continue
-            scoped_event_ids = normalize_event_ids(mention.evidence_event_ids or batch_event_ids)
+            scoped_event_ids = normalize_event_ids(mention.evidence_event_ids)
             for event_id in scoped_event_ids:
                 entity_mappings.append(
                     (event_id, mention.resolved_entity_id, mention.entity_type, mention.confidence)
@@ -70,7 +70,7 @@ class L2EntitySideEffectMixin:
             {
                 mention.resolved_entity_id
                 for mention in resolved_mentions
-                if mention.resolved_entity_id
+                if mention.resolved_entity_id and mention.evidence_event_ids
             }
         )
         if not resolved_entity_ids:

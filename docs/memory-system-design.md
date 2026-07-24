@@ -522,6 +522,16 @@ The grounded predicate, assertion family, source strength, and any explicit
 one-off or recent wording determine the host-owned retention horizon. Therefore
 an explicit profile instruction such as a preferred form of address can remain
 durable until corrected even when its source sentence has no lexical time cue.
+Same-session dialogue context is a bounded interpretation frame, not free-form
+evidence. The frame contains at most the three closest messages that precede
+the current event by session sequence; future messages are excluded. Direct
+claims remain fully grounded in the current quote. A short reply may use
+`clarification` only when it cites the nearest user statement and intervening
+assistant question, or `confirmation` only when the current user gives an
+unambiguous confirmation of the immediately preceding assistant proposition.
+Weak acknowledgements and older context cannot authorize a claim. Contextual
+claims keep the current user quote as their evidence, carry antecedent event IDs
+separately, and receive a lower confidence cap.
 Post-turn observers may submit explicit profile candidates from chat, but they
 must not write portrait projections directly. The host validates that the
 candidate is grounded in the user's own text, persists it as an L2 assertion
@@ -827,7 +837,7 @@ The default execution model:
 5. `L2Pipeline` in the `runtime_worker` claims ready jobs and marks them `queued`
 6. Claimed events are batched by batch owner / session / user; the worker marks jobs `running` before extraction
 7. Successful extraction marks jobs `completed`; failures mark them `failed` or requeue to `pending`
-8. Model output must be a JSON object matching the stage's required top-level fields and field types. Repairable auxiliary metadata is normalized before validation; in Phase 1, an absent, unknown, or source-unsupported `temporal_cue` becomes an unambiguous cue detected in the evidence quote, or `unspecified` when no cue is present, without another model call, while exact evidence-quote validation remains strict. Remaining invalid output receives one stricter format retry; repeated invalid output, an unavailable model, or a provider failure after transport retries marks the projection job `failed` rather than completing it as an empty extraction or immediately looping. Non-model infrastructure failures may still requeue to `pending`.
+8. Model output must be a JSON object matching the stage's required top-level fields and field types. Repairable auxiliary metadata is normalized before validation; in Phase 1, an absent, unknown, or source-unsupported `temporal_cue` becomes an unambiguous cue detected in the evidence quote, or `unspecified` when no cue is present, without another model call. A semantically invalid Phase 1 claim is rejected individually so one bad candidate cannot discard valid peers or fail the projection job. Invalid top-level JSON or stage structure still receives one stricter format retry; repeated invalid structure, an unavailable model, or a provider failure after transport retries marks the projection job `failed` rather than completing it as an empty extraction or immediately looping. Non-model infrastructure failures may still requeue to `pending`.
 
 Batch policy:
 
@@ -848,7 +858,8 @@ Batch policy:
 Extraction flow:
 
 - L2 microbatches are profile-isolated. Session events stay session-scoped; events without a session are separated by source, optional plugin batch owner, and user. Structured hints are admitted and written per event under that event's evidence policy rather than inheriting the last event's batch context.
-- Phase 1 extracts current-batch entities, facts, and candidate observations from admitted events, using source-owned hints and extraction-profile instructions as anchors. Each fact includes a grounded linguistic temporal cue (`one_off`, `recent`, `recurring`, `stable`, or `unspecified`) that reflects explicit source wording only; it never owns retention policy. The host then assigns each retained fact a deterministic claim reference and verifies its quoted evidence and temporal cue contract against the exact current events. Missing, out-of-batch, or unmatchable support triggers one schema-correction retry and is rejected if the retry remains invalid; it is never expanded to the whole batch.
+- Phase 1 extracts current-batch entities, facts, and candidate observations from admitted events, using source-owned hints and extraction-profile instructions as anchors. Each fact includes a grounded linguistic temporal cue (`one_off`, `recent`, `recurring`, `stable`, or `unspecified`) that reflects explicit source wording only; it never owns retention policy. The host then assigns each retained fact a deterministic claim reference and verifies its current quote, evidence mode, and bounded antecedent IDs. Missing, out-of-batch, context-only, or unmatchable support rejects that candidate without retrying the full response and without expanding evidence to the whole batch.
+- Extracted entity mentions are attributed only to events that literally contain the surface or normalized name. A context-only entity may be used transiently only for a validated contextual claim when its exact catalog ID and canonical name already exist, but it cannot create catalog records, aliases, event-entity links, or mention evidence for the current event. Underspecified entities are not registered.
 - Grounded Phase 1 claims are projected deterministically into graph candidates. The graph store owns merge, corroboration, exclusivity, and opposite-predicate handling; Phase 2 never restates those facts as graph writes.
 - Before Phase 2, the pipeline may build a deterministic evidence packet from current Phase 1 output, bounded L1 history contexts, existing L2 graph edges, and existing assertion state. This retrieval step must not call an LLM; it is a cost-controlled recall step that gives Phase 2 corroboration, conflict, and prior-state context. The packet also reports how many prior history contexts support each current candidate, so Phase 2 can distinguish a one-off mention from a recurring signal without adding another LLM recall step.
 - Phase 1 resolved entities may be used to fetch directly linked L1 event text through the event-entity index; this is preferred over asking the model to rediscover history. External sensor events without a session must not fall back to arbitrary same-user recent chat context.

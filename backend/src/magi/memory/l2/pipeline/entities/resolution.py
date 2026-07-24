@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -9,6 +10,7 @@ from .....core.logger import get_logger
 from ....event_contracts import MemoryEvent
 from ...models import (
     L2BatchEntityResolutionItem,
+    L2ClaimEvidenceMode,
     L2EntityCandidate,
     L2EntityResolutionMention,
     L2Phase1Entity,
@@ -85,9 +87,15 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         if self._entity_catalog is None:
             return []
 
-        pending, llm_batch_items = await self._prepare_phase1_entity_resolution_plan(
+        (
+            pending,
+            llm_batch_items,
+            context_only_mentions,
+        ) = await self._prepare_phase1_entity_resolution_plan(
             event=event,
             phase1_result=phase1_result,
+            evidence_event_ids=evidence_event_ids,
+            evidence_events=evidence_events,
             allowed_entity_types=allowed_entity_types,
             profile_signal_object_refs=profile_signal_object_refs,
         )
@@ -96,16 +104,8 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             source=event.source,
         )
 
-        resolved_mentions: list[ResolvedEntityMention] = []
+        resolved_mentions = list(context_only_mentions)
         for pending_item in pending:
-            pending_item.source_event_ids = tuple(
-                self._resolve_entity_mention_event_ids(
-                    mention_text=pending_item.mention_text,
-                    normalized_surface=pending_item.normalized_surface,
-                    evidence_events=evidence_events,
-                    fallback_event_ids=evidence_event_ids,
-                )
-            )
             await self._finalize_phase1_entity_resolution(
                 pending_item,
                 llm_results=llm_results,
@@ -124,11 +124,18 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         *,
         event: MemoryEvent,
         phase1_result: L2Phase1Result,
+        evidence_event_ids: list[str],
+        evidence_events: list[MemoryEvent] | None,
         allowed_entity_types: frozenset[str] | None,
         profile_signal_object_refs: set[str] | None,
-    ) -> tuple[list[_PendingPhase1EntityResolution], list[L2BatchEntityResolutionItem]]:
+    ) -> tuple[
+        list[_PendingPhase1EntityResolution],
+        list[L2BatchEntityResolutionItem],
+        list[ResolvedEntityMention],
+    ]:
         pending: list[_PendingPhase1EntityResolution] = []
         llm_batch_items: list[L2BatchEntityResolutionItem] = []
+        context_only_mentions: list[ResolvedEntityMention] = []
         for entity in phase1_result.entities:
             pending_item = self._build_phase1_entity_resolution_candidate(
                 entity=entity,
@@ -138,13 +145,67 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             )
             if pending_item is None:
                 continue
+            pending_item.source_event_ids = tuple(
+                self._resolve_entity_mention_event_ids(
+                    mention_text=pending_item.mention_text,
+                    normalized_surface=pending_item.normalized_surface,
+                    evidence_events=evidence_events,
+                    fallback_event_ids=evidence_event_ids,
+                )
+            )
+            if not pending_item.source_event_ids:
+                context_only_mention = await self._resolve_context_only_existing_entity(
+                    pending_item,
+                    phase1_result=phase1_result,
+                )
+                if context_only_mention is not None:
+                    context_only_mentions.append(context_only_mention)
+                continue
             await self._resolve_phase1_entity_candidate_locally(
                 pending_item,
                 event=event,
                 llm_batch_items=llm_batch_items,
             )
             pending.append(pending_item)
-        return pending, llm_batch_items
+        return pending, llm_batch_items, context_only_mentions
+
+    async def _resolve_context_only_existing_entity(
+        self,
+        pending_item: _PendingPhase1EntityResolution,
+        *,
+        phase1_result: L2Phase1Result,
+    ) -> ResolvedEntityMention | None:
+        proposed_entity_id = str(pending_item.entity.resolved_id or "").strip()
+        if not proposed_entity_id or self._entity_catalog is None:
+            return None
+        entity_refs = {
+            pending_item.mention_text.strip().casefold(),
+            pending_item.normalized_surface.strip().casefold(),
+            proposed_entity_id.casefold(),
+        }
+        has_grounded_contextual_claim = any(
+            claim.evidence_mode is not L2ClaimEvidenceMode.DIRECT
+            and str(claim.object_ref or "").strip().casefold() in entity_refs
+            for claim in phase1_result.fact_claims
+        )
+        if not has_grounded_contextual_claim:
+            return None
+        existing_entities = await self._entity_catalog.find_by_canonical_name(
+            pending_item.normalized_surface
+        )
+        if not any(
+            str(item.get("entity_id") or "").strip() == proposed_entity_id
+            for item in existing_entities
+        ):
+            return None
+        return ResolvedEntityMention(
+            mention_text=pending_item.mention_text,
+            normalized_surface=pending_item.normalized_surface,
+            entity_type=pending_item.entity_type,
+            resolved_entity_id=proposed_entity_id,
+            confidence=min(pending_item.mention_confidence, 0.75),
+            evidence_event_ids=[],
+        )
 
     def _build_phase1_entity_resolution_candidate(
         self,
@@ -155,6 +216,14 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         profile_signal_object_refs: set[str] | None,
     ) -> _PendingPhase1EntityResolution | None:
         if not entity.surface:
+            return None
+        if str(entity.specificity or "").strip().casefold() != "concrete":
+            logger.debug(
+                "L2 Phase 1 entity filtered as underspecified",
+                mention_text=entity.surface,
+                entity_type=entity.entity_type,
+                event_id=event.event_id,
+            )
             return None
         mention_text = entity.surface
         normalized_surface = entity.normalized_name or mention_text
@@ -244,7 +313,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 entity_type=pending_item.entity_type,
                 mention_text=pending_item.mention_text,
                 confidence=pending_item.mention_confidence,
-                source_event_ids=(event.event_id,),
+                source_event_ids=pending_item.source_event_ids,
             )
             pending_item.resolved_confidence = pending_item.entity.confidence
             return
@@ -458,10 +527,15 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
     ) -> list[str]:
         matched_event_ids: list[str] = []
         mention_candidates = {
-            text.strip() for text in (mention_text, normalized_surface) if str(text or "").strip()
+            unicodedata.normalize("NFKC", str(text)).strip().casefold()
+            for text in (mention_text, normalized_surface)
+            if str(text or "").strip()
         }
         for evidence_event in evidence_events or []:
-            content = str(getattr(evidence_event, "content", "") or "")
+            content = unicodedata.normalize(
+                "NFKC",
+                str(getattr(evidence_event, "content", "") or ""),
+            ).casefold()
             if any(candidate in content for candidate in mention_candidates):
                 event_id = str(getattr(evidence_event, "event_id", "") or "").strip()
                 if event_id:
@@ -470,8 +544,6 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             return normalize_event_ids(matched_event_ids)
         normalized_fallback_ids = normalize_event_ids(fallback_event_ids)
         if evidence_events is None:
-            return normalized_fallback_ids
-        if len(evidence_events or []) == 1 and len(normalized_fallback_ids) == 1:
             return normalized_fallback_ids
         return []
 

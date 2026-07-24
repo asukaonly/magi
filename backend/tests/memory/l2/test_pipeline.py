@@ -1264,6 +1264,125 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
 
 
 @pytest.mark.asyncio
+async def test_short_reply_context_error_does_not_fail_or_create_false_mentions():
+    phase1_response = json.dumps(
+        {
+            "entities": [
+                {
+                    "surface": "DIIV",
+                    "normalized_name": "DIIV",
+                    "entity_type": "group",
+                    "specificity": "concrete",
+                    "resolved_id": "group:diiv",
+                    "is_new": False,
+                    "confidence": 0.95,
+                },
+                {
+                    "surface": "新专",
+                    "normalized_name": "新专",
+                    "entity_type": "media",
+                    "specificity": "underspecified",
+                    "resolved_id": None,
+                    "is_new": True,
+                    "confidence": 0.9,
+                },
+            ],
+            "fact_claims": [
+                {
+                    "subject_ref": "user:self",
+                    "subject_type": "user",
+                    "predicate": "LIKES",
+                    "object_ref": "DIIV",
+                    "object_type": "group",
+                    "fact_kind": "stable_preference",
+                    "temporal_cue": "recent",
+                    "polarity": "positive",
+                    "specificity": "concrete",
+                    "evidence_text": "我最近在听 DIIV 的专辑，好好听",
+                    "confidence": 0.95,
+                    "supporting_event_ids": ["evt-user-prior"],
+                }
+            ],
+            "resolved_refs": [],
+            "diagnostics": {"entity_status": "found"},
+        },
+        ensure_ascii=False,
+    )
+    adapter = _FakeAdapter(phase1_response)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            assert store.l1 is not None
+            assert store.l2 is not None
+            assert store.l2_entity_catalog is not None
+            await store.l2_entity_catalog.upsert_entity(
+                entity_id="group:diiv",
+                canonical_name="DIIV",
+                entity_type="group",
+            )
+
+            prior_user = _make_memory_event(
+                event_id="evt-user-prior",
+                session_id="s-short-reply",
+                user_id="u1",
+                timestamp=100.0,
+                content="我最近在听 DIIV 的专辑，好好听",
+            )
+            prior_assistant = _make_memory_event(
+                event_id="evt-assistant-prior",
+                session_id="s-short-reply",
+                user_id="u1",
+                timestamp=101.0,
+                content="是《Oshin》还是新专？",
+            )
+            prior_assistant.author_type = "assistant"
+            await store.l1.store(prior_user)
+            await store.l1.store(prior_assistant)
+
+            await store.ingest_event(
+                {
+                    "id": "evt-current-short-reply",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": 102.0,
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s-short-reply",
+                        "content": "是新专",
+                    },
+                }
+            )
+
+            for _ in range(50):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 1 or stats["extract_failed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            stats = store.get_l2_pipeline_stats()
+            mentions = await store.l2_entity_catalog.list_mentions(limit=10)
+            relationships = await store.l2.get_relationships(subject_id="user:u1")
+
+            assert stats["extract_completed"] == 1
+            assert stats["extract_failed"] == 0
+            assert len(adapter.calls) == 1
+            assert mentions == []
+            assert relationships == []
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
     """The extract worker passes place + type hints into episode formation.
 
@@ -1823,7 +1942,7 @@ async def test_phase2_uses_phase1_entities_to_recall_l1_entity_history():
                             "temporal_cue": "one_off",
                             "specificity": "concrete",
                             "confidence": 0.9,
-                            "evidence_text": "That band was great last night.",
+                            "evidence_text": "DIIV was great last night.",
                             "supporting_event_ids": ["evt-current-band"],
                         }
                     ],
@@ -1876,7 +1995,7 @@ async def test_phase2_uses_phase1_entities_to_recall_l1_entity_history():
                     "data": {
                         "user_id": "u1",
                         "session_id": "s-new",
-                        "content": "That band was great last night.",
+                        "content": "DIIV was great last night.",
                     },
                 }
             )
@@ -4878,7 +4997,10 @@ class TestEntityTypeFiltering:
             "resolved_refs": [],
         }
         phase1_result = L2Phase1Result.from_dict(phase1_payload)
-        event = _make_memory_event(event_id="evt-profile-signal", content="叫我哈基米或者子涵都行吧")
+        event = _make_memory_event(
+            event_id="evt-profile-signal",
+            content="叫我哈基米或者子涵都行吧，我还在用 GitHub",
+        )
 
         resolved = await pipeline._resolve_phase1_entities(
             event,
@@ -4947,19 +5069,23 @@ class TestEntityTypeFiltering:
                 {"surface": "他", "normalized_name": "德克萨斯", "entity_type": "person", "confidence": 0.95},
                 {"surface": "那个", "normalized_name": "that one", "entity_type": "other", "confidence": 0.95},
                 {"surface": "app", "normalized_name": "app", "entity_type": "software", "confidence": 0.95},
+                {"surface": "新专", "normalized_name": "新专", "entity_type": "media", "specificity": "underspecified", "confidence": 0.95},
                 {"surface": "GitHub", "normalized_name": "GitHub", "entity_type": "software", "confidence": 0.95},
             ],
             "fact_claims": [],
             "resolved_refs": [],
         })
-        event = _make_memory_event(event_id="evt-vague-entity", content="他和那个 app 是什么")
+        event = _make_memory_event(
+            event_id="evt-vague-entity",
+            content="他和那个 app 是 GitHub 吗",
+        )
 
         resolved = await pipeline._resolve_phase1_entities(
             event,
             phase1_result,
             evidence_event_ids=["evt-vague-entity"],
             evidence_events=[event],
-            allowed_entity_types=frozenset({"person", "other", "software"}),
+            allowed_entity_types=frozenset({"person", "other", "software", "media"}),
         )
 
         assert [mention.normalized_surface for mention in resolved] == ["GitHub"]

@@ -5,8 +5,37 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from ..models import L2BatchEvent, L2EventWindow, L2Phase1FactClaim, L2Phase1Result
+from ..models import (
+    L2BatchEvent,
+    L2ClaimEvidenceMode,
+    L2EventWindow,
+    L2Phase1FactClaim,
+    L2Phase1Result,
+)
 from ..phase1_models import L2TemporalCue
+
+_CONTEXTUAL_CLAIM_CONFIDENCE_CAP = 0.75
+_EXPLICIT_CONFIRMATIONS = frozenset(
+    {
+        "yes",
+        "no",
+        "correct",
+        "exactly",
+        "right",
+        "true",
+        "是",
+        "是的",
+        "对",
+        "对的",
+        "没错",
+        "就是",
+        "确定",
+        "当然",
+        "不是",
+        "不对",
+        "没有",
+    }
+)
 
 _TEMPORAL_CUE_PATTERNS: dict[L2TemporalCue, tuple[re.Pattern[str], ...]] = {
     L2TemporalCue.ONE_OFF: (
@@ -39,10 +68,13 @@ _TEMPORAL_CUE_PRECEDENCE = (
 def ground_phase1_fact_claims(
     phase1_result: L2Phase1Result,
     event_window: L2EventWindow,
+    *,
+    context_messages: list[dict[str, object]] | None = None,
 ) -> dict[str, int]:
     """Keep only claims grounded in exact current-window evidence."""
     eligible_events = _eligible_evidence_events(event_window)
     event_ids = {event.event_id for event, _content in eligible_events}
+    context_frame = _normalized_context_frame(context_messages)
     grounded_claims: list[L2Phase1FactClaim] = []
     rejected_count = 0
     rebound_count = 0
@@ -54,7 +86,12 @@ def ground_phase1_fact_claims(
             claim=claim,
             eligible_events=eligible_events,
         )
-        if not grounded_event_ids:
+        if not grounded_event_ids or _contextual_claim_rejection_reason(
+            claim,
+            eligible_events=eligible_events,
+            grounded_event_ids=grounded_event_ids,
+            context_frame=context_frame,
+        ):
             rejected_count += 1
             continue
         if grounded_event_ids != valid_original_ids and original_event_ids:
@@ -86,47 +123,76 @@ def _grounded_event_ids(
     ]
 
 
-def phase1_claim_evidence_contract_issues(
+def normalize_phase1_claim_contract(
     payload: dict[str, object],
     event_window: L2EventWindow,
+    *,
+    context_messages: list[dict[str, object]] | None = None,
 ) -> list[str]:
-    """Describe Phase 1 claims that lack exact current-event evidence."""
-    eligible_contents = [content for _event, content in _eligible_evidence_events(event_window)]
-    issues: list[str] = []
+    """Normalize safe metadata and drop invalid claims without failing the batch."""
+    normalizations = normalize_phase1_claim_temporal_cues(payload)
     raw_claims = payload.get("fact_claims")
     if not isinstance(raw_claims, list):
-        return issues
+        return normalizations
+
+    eligible_events = _eligible_evidence_events(event_window)
+    context_frame = _normalized_context_frame(context_messages)
+    kept_claims: list[dict[str, object]] = []
+    rejected_count = 0
     for index, claim in enumerate(raw_claims):
         if not isinstance(claim, dict):
-            issues.append(f"fact_claims[{index}] must be an object")
+            rejected_count += 1
+            normalizations.append(f"fact_claims[{index}]: dropped non-object candidate")
             continue
-        field_path = f"fact_claims[{index}].evidence_text"
-        evidence = claim.get("evidence_text")
-        if not isinstance(evidence, str) or not evidence.strip():
-            issues.append(f"{field_path} is required")
-        else:
-            normalized_evidence = _normalize_evidence_text(evidence)
-            if not any(
-                normalized_evidence in _normalize_evidence_text(content)
-                for content in eligible_contents
-            ):
-                issues.append(f"{field_path} must be an exact quote from a current message")
-
-        temporal_path = f"fact_claims[{index}].temporal_cue"
-        temporal_cue = claim.get("temporal_cue")
-        if not isinstance(temporal_cue, str) or not temporal_cue.strip():
-            issues.append(f"{temporal_path} is required")
-        elif temporal_cue.strip().casefold() not in {cue.value for cue in L2TemporalCue}:
-            issues.append(
-                f"{temporal_path} must be one_off, recent, recurring, stable, or unspecified"
+        candidate = dict(claim)
+        candidate["evidence_mode"] = str(
+            candidate.get("evidence_mode") or L2ClaimEvidenceMode.DIRECT.value
+        ).strip().casefold()
+        if not isinstance(candidate.get("supporting_event_ids"), list):
+            candidate["supporting_event_ids"] = []
+        if not isinstance(candidate.get("antecedent_event_ids"), list):
+            candidate["antecedent_event_ids"] = []
+        try:
+            typed_claim = L2Phase1FactClaim.from_dict(candidate)
+        except (TypeError, ValueError):
+            rejected_count += 1
+            normalizations.append(f"fact_claims[{index}]: dropped malformed candidate")
+            continue
+        grounded_event_ids = _grounded_event_ids(
+            claim=typed_claim,
+            eligible_events=eligible_events,
+        )
+        rejection_reason = (
+            "missing exact current evidence"
+            if not grounded_event_ids
+            else _contextual_claim_rejection_reason(
+                typed_claim,
+                eligible_events=eligible_events,
+                grounded_event_ids=grounded_event_ids,
+                context_frame=context_frame,
             )
-        elif temporal_cue.strip().casefold() != L2TemporalCue.UNSPECIFIED.value:
-            declared_cue = L2TemporalCue(temporal_cue.strip().casefold())
-            if not isinstance(evidence, str) or declared_cue not in _temporal_cues_in_text(
-                evidence
-            ):
-                issues.append(f"{temporal_path} must be grounded in the claim's evidence_text")
-    return issues
+        )
+        if rejection_reason:
+            rejected_count += 1
+            normalizations.append(
+                f"fact_claims[{index}]: dropped candidate ({rejection_reason})"
+            )
+            continue
+        if typed_claim.evidence_mode is not L2ClaimEvidenceMode.DIRECT:
+            candidate["confidence"] = min(
+                float(typed_claim.confidence),
+                _CONTEXTUAL_CLAIM_CONFIDENCE_CAP,
+            )
+        kept_claims.append(candidate)
+
+    payload["fact_claims"] = kept_claims
+    diagnostics = payload.get("diagnostics")
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+        payload["diagnostics"] = diagnostics
+    if rejected_count:
+        diagnostics["rejected_fact_claim_count"] = rejected_count
+    return normalizations
 
 
 def normalize_phase1_claim_temporal_cues(
@@ -171,6 +237,106 @@ def normalize_phase1_claim_temporal_cues(
             f"fact_claims[{index}].temporal_cue: {previous} -> {corrected_cue.value}"
         )
     return normalizations
+
+
+def _contextual_claim_rejection_reason(
+    claim: L2Phase1FactClaim,
+    *,
+    eligible_events: list[tuple[L2BatchEvent, str]],
+    grounded_event_ids: list[str],
+    context_frame: list[dict[str, object]],
+) -> str | None:
+    mode = L2ClaimEvidenceMode.from_value(claim.evidence_mode)
+    antecedent_ids = _unique_event_ids(claim.antecedent_event_ids)
+    if mode is L2ClaimEvidenceMode.DIRECT:
+        if antecedent_ids:
+            return "direct claim cites context"
+        claim.antecedent_event_ids = []
+        return None
+
+    grounded_by_user = any(
+        event.event_id in grounded_event_ids
+        and str(event.author_type or "").strip().casefold() == "user"
+        for event, _content in eligible_events
+    )
+    if not grounded_by_user:
+        return "contextual claim lacks current user authority"
+
+    if mode is L2ClaimEvidenceMode.CONFIRMATION:
+        required_ids = _required_confirmation_antecedent_ids(context_frame)
+        if not required_ids or antecedent_ids != required_ids:
+            return "confirmation does not cite the immediate assistant message"
+        if not _is_explicit_confirmation(claim.evidence_text):
+            return "confirmation is ambiguous"
+    else:
+        required_ids = _required_clarification_antecedent_ids(context_frame)
+        if not required_ids or antecedent_ids != required_ids:
+            return "clarification does not cite the immediate context frame"
+        if len(_normalize_evidence_text(claim.evidence_text)) > 200:
+            return "clarification is not a short reply"
+
+    claim.antecedent_event_ids = required_ids
+    claim.confidence = min(claim.confidence, _CONTEXTUAL_CLAIM_CONFIDENCE_CAP)
+    return None
+
+
+def _normalized_context_frame(
+    context_messages: list[dict[str, object]] | None,
+) -> list[dict[str, object]]:
+    frame: list[dict[str, object]] = []
+    for message in context_messages or []:
+        event_id = str(message.get("event_id") or "").strip()
+        content = str(message.get("content") or "").strip()
+        role = str(message.get("role") or message.get("author_type") or "").strip().casefold()
+        if not event_id or not content or role not in {"assistant", "user"}:
+            continue
+        frame.append(
+            {
+                "event_id": event_id,
+                "role": role,
+                "content": content,
+                "session_seq": message.get("session_seq"),
+                "timestamp": message.get("timestamp"),
+            }
+        )
+    return frame[-3:]
+
+
+def _required_confirmation_antecedent_ids(
+    context_frame: list[dict[str, object]],
+) -> list[str]:
+    if not context_frame or context_frame[-1]["role"] != "assistant":
+        return []
+    return [str(context_frame[-1]["event_id"])]
+
+
+def _required_clarification_antecedent_ids(
+    context_frame: list[dict[str, object]],
+) -> list[str]:
+    if not context_frame:
+        return []
+    last_message = context_frame[-1]
+    if last_message["role"] == "user":
+        return [str(last_message["event_id"])]
+    if last_message["role"] != "assistant":
+        return []
+    prior_user = next(
+        (
+            message
+            for message in reversed(context_frame[:-1])
+            if message["role"] == "user"
+        ),
+        None,
+    )
+    if prior_user is None:
+        return []
+    return [str(prior_user["event_id"]), str(last_message["event_id"])]
+
+
+def _is_explicit_confirmation(value: object) -> bool:
+    normalized = _normalize_evidence_text(value)
+    normalized = normalized.strip(".,!?;:，。！？；：")
+    return normalized in _EXPLICIT_CONFIRMATIONS
 
 
 def _eligible_evidence_events(
@@ -221,6 +387,6 @@ def _unique_event_ids(values: list[str]) -> list[str]:
 
 __all__ = [
     "ground_phase1_fact_claims",
+    "normalize_phase1_claim_contract",
     "normalize_phase1_claim_temporal_cues",
-    "phase1_claim_evidence_contract_issues",
 ]

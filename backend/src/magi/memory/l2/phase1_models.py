@@ -29,6 +29,27 @@ class L2TemporalCue(str, Enum):
             raise ValueError(f"Unsupported L2 temporal cue: {value}") from exc
 
 
+class L2ClaimEvidenceMode(str, Enum):
+    """How current user text supplies authority for a claim."""
+
+    DIRECT = "direct"
+    CLARIFICATION = "clarification"
+    CONFIRMATION = "confirmation"
+
+    @classmethod
+    def from_value(
+        cls,
+        value: "L2ClaimEvidenceMode | str | None",
+    ) -> "L2ClaimEvidenceMode":
+        if isinstance(value, cls):
+            return value
+        normalized = str(value or "").strip().casefold() or cls.DIRECT.value
+        try:
+            return cls(normalized)
+        except ValueError as exc:
+            raise ValueError(f"Unsupported L2 claim evidence mode: {value}") from exc
+
+
 @dataclass(slots=True)
 class L2Phase1Entity:
     """Entity extracted and resolved during Phase 1."""
@@ -86,6 +107,8 @@ class L2Phase1FactClaim:
     evidence_text: str = ""
     confidence: float = 0.0
     supporting_event_ids: list[str] = field(default_factory=list)
+    evidence_mode: L2ClaimEvidenceMode | str = L2ClaimEvidenceMode.DIRECT
+    antecedent_event_ids: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "L2Phase1FactClaim":
@@ -103,6 +126,11 @@ class L2Phase1FactClaim:
             evidence_text=payload.get("evidence_text", ""),
             confidence=payload.get("confidence", 0.0),
             supporting_event_ids=payload.get("supporting_event_ids", []),
+            evidence_mode=payload.get(
+                "evidence_mode",
+                L2ClaimEvidenceMode.DIRECT.value,
+            ),
+            antecedent_event_ids=payload.get("antecedent_event_ids", []),
         )
 
     def __post_init__(self) -> None:
@@ -121,10 +149,18 @@ class L2Phase1FactClaim:
         self.supporting_event_ids = [
             str(s).strip() for s in self.supporting_event_ids if str(s).strip()
         ]
+        self.evidence_mode = L2ClaimEvidenceMode.from_value(self.evidence_mode)
+        self.antecedent_event_ids = [
+            str(s).strip() for s in self.antecedent_event_ids if str(s).strip()
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["temporal_cue"] = cast(L2TemporalCue, self.temporal_cue).value
+        payload["evidence_mode"] = cast(
+            L2ClaimEvidenceMode,
+            self.evidence_mode,
+        ).value
         return payload
 
 
@@ -234,6 +270,7 @@ class L2Phase1Result:
 
 
 __all__ = [
+    "L2ClaimEvidenceMode",
     "L2Phase1Entity",
     "L2Phase1FactClaim",
     "L2Phase1ResolvedRef",

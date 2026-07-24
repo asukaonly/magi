@@ -623,6 +623,7 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
         claim_grounding_stats = ground_phase1_fact_claims(
             phase1_result,
             batch.event_window,
+            context_messages=batch.context_messages,
         )
         if claim_grounding_stats["rejected"] or claim_grounding_stats["rebound"]:
             logger.info(

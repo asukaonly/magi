@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
-from magi.memory.l2.phase1_models import L2Phase1FactClaim, L2TemporalCue
+from magi.memory.l2.phase1_models import (
+    L2ClaimEvidenceMode,
+    L2Phase1FactClaim,
+    L2TemporalCue,
+)
 
 
 def test_phase1_prompt_requires_claim_objects_as_entities():
@@ -17,7 +21,11 @@ def test_phase1_prompt_allows_external_observation_facts():
 
 def test_phase1_prompt_requires_exact_current_event_evidence():
     assert "exact quote copied from a current message" in PHASE1_EXTRACT_SYSTEM_PROMPT
-    assert "Never cite Recent Context or History Context" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "evidence_mode" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "antecedent_event_ids" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "Recent Context is interpretation context, not standalone evidence" in (
+        PHASE1_EXTRACT_SYSTEM_PROMPT
+    )
 
 
 def test_phase1_fact_claim_exposes_grounded_temporal_cue_enum() -> None:
@@ -30,6 +38,19 @@ def test_phase1_fact_claim_exposes_grounded_temporal_cue_enum() -> None:
 
     assert claim.temporal_cue is L2TemporalCue.RECURRING
     assert claim.to_dict()["temporal_cue"] == "recurring"
+
+
+def test_phase1_fact_claim_exposes_context_evidence_contract() -> None:
+    claim = L2Phase1FactClaim.from_dict(
+        {
+            "evidence_mode": "confirmation",
+            "antecedent_event_ids": ["evt-assistant"],
+        }
+    )
+
+    assert claim.evidence_mode is L2ClaimEvidenceMode.CONFIRMATION
+    assert claim.antecedent_event_ids == ["evt-assistant"]
+    assert claim.to_dict()["evidence_mode"] == "confirmation"
 
 
 def test_phase1_prompt_keeps_linguistic_cue_separate_from_lifecycle_policy() -> None:

@@ -2,6 +2,7 @@
 
 from magi.memory.l2.models import (
     L2BatchEvent,
+    L2ClaimEvidenceMode,
     L2EventWindow,
     L2Phase1FactClaim,
     L2Phase1Result,
@@ -126,3 +127,112 @@ def test_ground_phase1_claim_ids_are_deterministic_and_claim_specific() -> None:
 
     assert first_ids == [claim.claim_id for claim in replay_result.fact_claims]
     assert len(set(first_ids)) == 2
+
+
+def test_ground_phase1_clarification_uses_only_immediate_context() -> None:
+    result = L2Phase1Result(
+        fact_claims=[
+            _claim(
+                object_ref="DIIV 新专",
+                object_type="media",
+                evidence_text="是新专",
+                evidence_mode="clarification",
+                antecedent_event_ids=["evt-user-prior", "evt-assistant-prior"],
+            )
+        ]
+    )
+
+    stats = ground_phase1_fact_claims(
+        result,
+        _window(("evt-current", "是新专")),
+        context_messages=[
+            {
+                "event_id": "evt-user-prior",
+                "session_seq": 2,
+                "role": "user",
+                "content": "我最近在听 DIIV 的专辑",
+            },
+            {
+                "event_id": "evt-assistant-prior",
+                "session_seq": 3,
+                "role": "assistant",
+                "content": "是 Oshin 还是新专？",
+            },
+        ],
+    )
+
+    assert stats == {"kept": 1, "rejected": 0, "rebound": 0}
+    assert result.fact_claims[0].evidence_mode is L2ClaimEvidenceMode.CLARIFICATION
+    assert result.fact_claims[0].supporting_event_ids == ["evt-current"]
+    assert result.fact_claims[0].antecedent_event_ids == [
+        "evt-user-prior",
+        "evt-assistant-prior",
+    ]
+
+
+def test_ground_phase1_clarification_rejects_non_immediate_history() -> None:
+    result = L2Phase1Result(
+        fact_claims=[
+            _claim(
+                evidence_text="是新专",
+                evidence_mode="clarification",
+                antecedent_event_ids=["evt-old-user"],
+            )
+        ]
+    )
+
+    stats = ground_phase1_fact_claims(
+        result,
+        _window(("evt-current", "是新专")),
+        context_messages=[
+            {
+                "event_id": "evt-old-user",
+                "session_seq": 1,
+                "role": "user",
+                "content": "我最近在听 DIIV 的专辑",
+            },
+            {
+                "event_id": "evt-other-user",
+                "session_seq": 2,
+                "role": "user",
+                "content": "顺便帮我看看天气",
+            },
+            {
+                "event_id": "evt-assistant-prior",
+                "session_seq": 3,
+                "role": "assistant",
+                "content": "是 Oshin 还是新专？",
+            },
+        ],
+    )
+
+    assert stats == {"kept": 0, "rejected": 1, "rebound": 0}
+    assert result.fact_claims == []
+
+
+def test_ground_phase1_confirmation_rejects_weak_acknowledgement() -> None:
+    result = L2Phase1Result(
+        fact_claims=[
+            _claim(
+                evidence_text="可能吧",
+                evidence_mode="confirmation",
+                antecedent_event_ids=["evt-assistant-prior"],
+            )
+        ]
+    )
+
+    stats = ground_phase1_fact_claims(
+        result,
+        _window(("evt-current", "可能吧")),
+        context_messages=[
+            {
+                "event_id": "evt-assistant-prior",
+                "session_seq": 3,
+                "role": "assistant",
+                "content": "所以你喜欢 DIIV，对吗？",
+            }
+        ],
+    )
+
+    assert stats == {"kept": 0, "rejected": 1, "rebound": 0}
+    assert result.fact_claims == []

@@ -37,7 +37,7 @@ def test_entity_mention_uses_only_matching_events() -> None:
     assert event_ids == ["evt-a"]
 
 
-def test_entity_mention_single_event_is_an_exact_fallback() -> None:
+def test_entity_mention_single_event_requires_surface_evidence() -> None:
     resolver = L2EntityResolutionMixin()
 
     event_ids = resolver._resolve_entity_mention_event_ids(
@@ -47,4 +47,4 @@ def test_entity_mention_single_event_is_an_exact_fallback() -> None:
         fallback_event_ids=["evt-only"],
     )
 
-    assert event_ids == ["evt-only"]
+    assert event_ids == []

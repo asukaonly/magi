@@ -889,15 +889,10 @@ def test_missing_required_json_fields_trigger_format_retry():
     assert len(adapter.calls) == 2
 
 
-def test_phase1_missing_evidence_quote_triggers_format_retry():
+def test_phase1_missing_evidence_quote_drops_only_the_candidate():
     from magi.memory.l2.llm_service import L2LLMService
 
-    adapter = _FakeAdapter(
-        [
-            _phase1_response(None),
-            _phase1_response("昨晚我去看了 DIIV 演出"),
-        ]
-    )
+    adapter = _FakeAdapter(_phase1_response(None))
     service = L2LLMService(_FakeScenarioPool(adapter))
 
     result = asyncio.run(
@@ -907,20 +902,15 @@ def test_phase1_missing_evidence_quote_triggers_format_retry():
         )
     )
 
-    assert result.fact_claims[0].evidence_text == "昨晚我去看了 DIIV 演出"
-    assert len(adapter.calls) == 2
-    assert "fact_claims[0].evidence_text" in str(adapter.calls[1]["messages"])
+    assert result.fact_claims == []
+    assert result.diagnostics["rejected_fact_claim_count"] == 1
+    assert len(adapter.calls) == 1
 
 
-def test_phase1_nonmatching_evidence_quote_triggers_format_retry():
+def test_phase1_nonmatching_evidence_quote_drops_only_the_candidate():
     from magi.memory.l2.llm_service import L2LLMService
 
-    adapter = _FakeAdapter(
-        [
-            _phase1_response("我很喜欢 DIIV"),
-            _phase1_response("昨晚我去看了 DIIV 演出"),
-        ]
-    )
+    adapter = _FakeAdapter(_phase1_response("我很喜欢 DIIV"))
     service = L2LLMService(_FakeScenarioPool(adapter))
 
     result = asyncio.run(
@@ -930,26 +920,96 @@ def test_phase1_nonmatching_evidence_quote_triggers_format_retry():
         )
     )
 
-    assert result.fact_claims[0].evidence_text == "昨晚我去看了 DIIV 演出"
-    assert len(adapter.calls) == 2
+    assert result.fact_claims == []
+    assert result.diagnostics["rejected_fact_claim_count"] == 1
+    assert len(adapter.calls) == 1
 
 
-def test_phase1_repeated_missing_evidence_quote_raises():
-    from magi.memory.l2.llm_json_client import L2InvalidJsonResponseError
+def test_phase1_keeps_valid_claim_when_a_peer_claim_has_bad_evidence():
     from magi.memory.l2.llm_service import L2LLMService
 
-    adapter = _FakeAdapter([_phase1_response(None), _phase1_response(None)])
+    payload = json.loads(_phase1_response("昨晚我去看了 DIIV 演出"))
+    invalid_claim = dict(payload["fact_claims"][0])
+    invalid_claim["predicate"] = "ATTENDED"
+    invalid_claim["evidence_text"] = "模型自己概括的句子"
+    payload["fact_claims"].append(invalid_claim)
+    adapter = _FakeAdapter(json.dumps(payload, ensure_ascii=False))
     service = L2LLMService(_FakeScenarioPool(adapter))
 
-    with pytest.raises(L2InvalidJsonResponseError):
-        asyncio.run(
-            service.extract_phase1(
-                event_window=_phase1_event_window(),
-                focal_subject={"entity_ref": "user:self", "entity_type": "user"},
-            )
+    result = asyncio.run(
+        service.extract_phase1(
+            event_window=_phase1_event_window(),
+            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
         )
+    )
 
-    assert len(adapter.calls) == 2
+    assert [claim.evidence_text for claim in result.fact_claims] == [
+        "昨晚我去看了 DIIV 演出"
+    ]
+    assert result.diagnostics["rejected_fact_claim_count"] == 1
+    assert len(adapter.calls) == 1
+
+
+def test_phase1_short_reply_does_not_reuse_prior_user_text_as_current_evidence():
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2BatchEvent, L2EventWindow
+
+    payload = json.loads(_phase1_response("我最近在听 DIIV 的专辑", temporal_cue="recent"))
+    payload["entities"] = [
+        {
+            "surface": "DIIV",
+            "normalized_name": "DIIV",
+            "entity_type": "group",
+            "specificity": "concrete",
+            "resolved_id": "group:diiv",
+            "is_new": False,
+            "confidence": 0.95,
+        },
+        {
+            "surface": "新专",
+            "normalized_name": "新专",
+            "entity_type": "media",
+            "specificity": "underspecified",
+            "resolved_id": None,
+            "is_new": True,
+            "confidence": 0.9,
+        },
+    ]
+    adapter = _FakeAdapter(json.dumps(payload, ensure_ascii=False))
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    result = asyncio.run(
+        service.extract_phase1(
+            event_window=L2EventWindow(
+                events=[
+                    L2BatchEvent(
+                        event_id="evt-current",
+                        content="是新专",
+                        author_type="user",
+                    )
+                ]
+            ),
+            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+            context_messages=[
+                {
+                    "event_id": "evt-user-prior",
+                    "session_seq": 2,
+                    "role": "user",
+                    "content": "我最近在听 DIIV 的专辑，好好听",
+                },
+                {
+                    "event_id": "evt-assistant-prior",
+                    "session_seq": 3,
+                    "role": "assistant",
+                    "content": "是《Oshin》还是新专？",
+                },
+            ],
+        )
+    )
+
+    assert result.fact_claims == []
+    assert result.diagnostics["rejected_fact_claim_count"] == 1
+    assert len(adapter.calls) == 1
 
 
 def test_phase1_missing_temporal_cue_defaults_without_retry():

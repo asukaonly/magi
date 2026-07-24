@@ -50,7 +50,7 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
 2. For [EXTERNAL] messages, never use user:self. Treat them as third-party observations. If the text says `Caroline said, "I ..."` or `Melanie said, "my ..."`, resolve first-person pronouns inside the quote to the named speaker, and use that person as the subject.
 3. Do NOT extract preferences from questions, recall requests, or hypothetical statements (e.g., "你记得我喜欢什么吗？", "What if I liked X?").
 4. Do NOT create preference facts for generic/category-level objects (e.g., "天气", "food", "music", "地方"). Only create preference facts when a specific liked/disliked value is explicitly stated.
-5. If a pronoun or vague reference appears (e.g., "那个", "它", "这种", "the one", "there"), resolve it using the Existing Entities or Recent Context sections. If unresolvable, mark as unresolved.
+5. If a pronoun, short answer, or vague reference appears (e.g., "那个", "它", "这种", "the one", "there"), use only the bounded Recent Context frame to interpret it. Recent Context is interpretation context, not standalone evidence. History Context may help identify an already known entity, but it must never supply a new claim.
 6. If a mentioned entity matches an Existing Entity by name, alias, or clear semantic equivalence, use its canonical ID. Otherwise mark as new.
 7. Each entity must include a specificity rating: "concrete" for specific items, "underspecified" for vague/category-level references.
 8. Preserve entity language and script. `surface` must be the original text span, and `normalized_name` must keep the source language/script unless the source itself uses a translated name. Do NOT translate Chinese, Japanese, Korean, Cyrillic, or other non-Latin proper nouns into English; do NOT romanize or slugify them. Put known translations, romanizations, or alternate spellings in `alias_signals` only.
@@ -58,8 +58,12 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
 10. For web pages and external-source metadata, never use a URL domain/path slug as the canonical entity name when the title or source text contains a readable subject name. Treat domains and platforms as provenance or separate platform entities, not as replacements for the content entity.
 11. Addressing instructions such as "叫我子涵" or "call me Zihan" are communication-profile signals. Emit one fact claim with `predicate = "PREFERRED_FORM_OF_ADDRESS"`, `object_ref` set to the requested name, and `object_type = "concept"`. Do NOT turn the requested name into a LIKES, DISLIKES, INTERESTED_IN, KNOWS, or other graph relationship.
 12. Explicit self-profile facts such as real name, birthday, birth year, age, preferred language, or preferred communication style should use the matching profile-signal predicate, not graph predicates.
-13. Every concrete object_ref used in fact_claims must also appear in entities with a matching surface or normalized_name and matching entity_type, unless object_ref is exactly an Existing Entity ID. This includes activities, events, plans, media, products, groups, and concepts. Do not emit orphan fact claims whose object cannot later be resolved to an entity.
-14. Every fact claim must include `evidence_text` as an exact quote copied from a current message under Messages to Analyze. `supporting_event_ids` must contain only the current message IDs that contain that exact quote. Never cite Recent Context or History Context as new claim evidence. If no current message directly supports the claim, omit it.
+13. Every concrete object_ref used in fact_claims must also appear in entities with a matching surface or normalized_name and matching entity_type, unless object_ref is exactly an Existing Entity ID. This includes activities, events, plans, media, products, groups, and concepts. A context-only entity may be used only by its Existing Entity ID; do not create a new entity from Recent Context or History Context.
+14. Every fact claim must include `evidence_text` as an exact quote copied from a current message under Messages to Analyze. `supporting_event_ids` must contain only the current message IDs that contain that exact quote. Every claim must also declare one `evidence_mode`:
+    - `direct`: the current quote states the complete claim. `antecedent_event_ids` must be empty.
+    - `confirmation`: the current user quote is an explicit, unambiguous yes/no confirmation of the immediately preceding assistant proposition. Cite exactly that assistant event in `antecedent_event_ids`. Weak acknowledgements such as "嗯", "maybe", or "可能吧" are not confirmation.
+    - `clarification`: the current short reply adds a concrete detail to the immediately preceding user statement, optionally through the immediately following assistant question. Cite the nearest user event and the immediately preceding assistant event, in chronological order, in `antecedent_event_ids`.
+   Recent Context is interpretation context, not standalone evidence. Never use older context, History Context, or assistant wording without explicit current user confirmation. If the current message does not authorize the claim under one of these modes, omit it.
 15. Every fact claim must include `temporal_cue`, grounded in explicit wording only: `one_off` for explicitly single-use wording, `recent` for wording such as recently/currently/these days, `recurring` for often/every week/repeatedly, `stable` for always/for years/long-term, and `unspecified` when no linguistic time cue is present. Do not infer a stable cue from the predicate or fact kind. Do not use temporal_cue to choose retention, expiry, or lifecycle; the host owns that policy.
 
 ## Output Format
@@ -91,7 +95,9 @@ Return JSON only:
       "specificity": "concrete|underspecified",
       "evidence_text": "supporting quote",
       "confidence": 0.0,
-      "supporting_event_ids": ["event IDs"]
+      "supporting_event_ids": ["current event IDs"],
+      "evidence_mode": "direct|clarification|confirmation",
+      "antecedent_event_ids": ["bounded Recent Context event IDs"]
     }
   ],
   "resolved_refs": [
@@ -296,8 +302,12 @@ def render_phase1_extract_prompt(
         for msg in context_messages:
             role = str(msg.get("role", "user")).upper()
             content = str(msg.get("content", "")).strip()
+            event_id = str(msg.get("event_id", "")).strip()
+            sequence = msg.get("session_seq")
             if content:
-                parts.append(f"- [{role}] {content}")
+                event_label = f" [#{event_id}]" if event_id else ""
+                sequence_label = f" [seq={sequence}]" if sequence is not None else ""
+                parts.append(f"- [{role}]{event_label}{sequence_label} {content}")
         parts.append("")
 
     # History contexts (cross-session)
@@ -400,6 +410,7 @@ def _append_phase1_fact_claims(
         obj_type = claim.get("object_type", "?")
         fact_kind = claim.get("fact_kind", "?")
         temporal_cue = claim.get("temporal_cue", "unspecified")
+        evidence_mode = claim.get("evidence_mode", "direct")
         specificity = claim.get("specificity", "concrete")
         conf = claim.get("confidence", 0.0)
         object_id_hint = _find_phase1_entity_id_for_claim(
@@ -412,7 +423,8 @@ def _append_phase1_fact_claims(
         parts.append(
             f"{i}.{claim_label} {subj} → {pred} → {obj} "
             f"[{obj_type}, {specificity}, fact_kind={fact_kind}, "
-            f"temporal_cue={temporal_cue}{hint_text}] (confidence: {conf})"
+            f"temporal_cue={temporal_cue}, evidence_mode={evidence_mode}{hint_text}] "
+            f"(confidence: {conf})"
         )
         _append_fact_claim_evidence(parts, claim)
     parts.append("")
@@ -425,6 +437,9 @@ def _append_fact_claim_evidence(parts: list[str], claim: dict[str, Any]) -> None
     event_ids = claim.get("supporting_event_ids", [])
     if event_ids:
         parts.append(f"   Events: {', '.join(event_ids)}")
+    antecedent_event_ids = claim.get("antecedent_event_ids", [])
+    if antecedent_event_ids:
+        parts.append(f"   Antecedents: {', '.join(antecedent_event_ids)}")
 
 
 def _append_phase1_resolved_refs(

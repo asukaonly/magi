@@ -9,8 +9,7 @@ from ...core.logger import get_logger
 from .models import L2EventWindow, L2Phase1Result, L2Phase2Result
 from .llm_priority import l2_llm_priority_for_event_window
 from .pipeline.claim_grounding import (
-    normalize_phase1_claim_temporal_cues,
-    phase1_claim_evidence_contract_issues,
+    normalize_phase1_claim_contract,
 )
 from .pipeline.evidence_packet import build_phase2_evidence_packet
 from .pipeline.prompts import (
@@ -75,10 +74,10 @@ class L2LLMExtractionMixin:
                 "fact_claims": list,
                 "resolved_refs": list,
             },
-            contract_normalizer=normalize_phase1_claim_temporal_cues,
-            contract_validator=lambda response: phase1_claim_evidence_contract_issues(
+            contract_normalizer=lambda response: normalize_phase1_claim_contract(
                 response,
                 event_window,
+                context_messages=context_messages,
             ),
         )
         result = L2Phase1Result.from_dict(payload)
