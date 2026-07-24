@@ -172,9 +172,15 @@ export const MemoryPortraitPage = () => {
 
   return (
     <MemoryPageFrame title={t('memory.portrait.title')} description={t('memory.portrait.subtitle')} hideHeader>
-      <div className="mx-auto max-w-5xl space-y-16 px-2 pb-10 pt-3">
+      <div className="mx-auto max-w-[720px] space-y-14 px-2 pb-10 pt-6">
         {viewModel ? (
           <>
+            <PortraitReviewQueue
+              items={viewModel.reviewItems}
+              onConfirm={handleConfirm}
+              confirmingAssertionId={confirmingAssertionId}
+              onRequestCorrection={openCorrection}
+            />
             <PortraitWorldMap
               groups={viewModel.worldGroups}
               totalCount={viewModel.totalUnderstandingCount}
@@ -183,12 +189,6 @@ export const MemoryPortraitPage = () => {
                 setSettingsNavigationIntent({ section: 'personalProfile' });
                 setActivePanel('settings');
               }}
-            />
-            <PortraitReviewQueue
-              items={viewModel.reviewItems}
-              onConfirm={handleConfirm}
-              confirmingAssertionId={confirmingAssertionId}
-              onRequestCorrection={openCorrection}
             />
             <PortraitRecentState items={viewModel.recentItems} />
           </>

@@ -1,4 +1,4 @@
-import { BookOpen, Check, FileText, Loader2, UserRound, X } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { L2Assertion, L2ExperienceSeed } from '@/api/modules/memory';
 import type { StoryItem } from '@/api/modules/memoryStories';
@@ -63,7 +63,6 @@ export function PendingReviewGroups({
         <PendingSection
           title={t('memory.pending.groups.memory.title')}
           description={t('memory.pending.groups.memory.description')}
-          icon={<UserRound className="h-4 w-4" aria-hidden="true" />}
           count={memoryCount}
           tone="amber"
         >
@@ -117,7 +116,6 @@ export function PendingReviewGroups({
         <PendingSection
           title={t('memory.pending.groups.experiences.title')}
           description={t('memory.pending.groups.experiences.description')}
-          icon={<BookOpen className="h-4 w-4" aria-hidden="true" />}
           count={experienceCount}
           tone="green"
         >
@@ -132,7 +130,7 @@ export function PendingReviewGroups({
                 body={seedBody(seed)}
                 meta={t('memory.pending.fragmentCount', { count: seed.evidence_count ?? 0 })}
                 actions={(
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1">
                     <Button
                       type="button"
                       variant="ghost"
@@ -141,7 +139,7 @@ export function PendingReviewGroups({
                       disabled={busy}
                       onClick={() => onSeed(seed, 'promote')}
                     >
-                      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                       {t('memory.pending.actions.promoteExperience')}
                     </Button>
                     <Button
@@ -152,7 +150,6 @@ export function PendingReviewGroups({
                       disabled={busy}
                       onClick={() => onSeed(seed, 'reject')}
                     >
-                      <X className="h-3.5 w-3.5" />
                       {t('memory.pending.actions.rejectExperience')}
                     </Button>
                   </div>
@@ -167,7 +164,6 @@ export function PendingReviewGroups({
         <PendingSection
           title={t('memory.pending.groups.observations.title')}
           description={t('memory.pending.groups.observations.description')}
-          icon={<FileText className="h-4 w-4" aria-hidden="true" />}
           count={observationCount}
           tone="blue"
         >

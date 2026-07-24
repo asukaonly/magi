@@ -39,32 +39,33 @@ export const PortraitReviewQueue = ({
   }
 
   return (
-    <section
-      data-testid="portrait-review-queue"
-      className="rounded-mem-lg bg-[hsl(var(--memory-panel-elevated)/0.58)] px-6 py-6 shadow-[0_14px_36px_hsl(var(--memory-shadow)/0.035)] sm:px-7"
-    >
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-lg font-semibold tracking-[-0.015em] text-[hsl(var(--memory-title))]">
+    <section data-testid="portrait-review-queue">
+      <header className="flex items-baseline justify-between gap-4">
+        <h2 className="flex items-center gap-2 text-[13px] font-semibold text-[hsl(var(--memory-title))]">
+          <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[hsl(var(--memory-accent))]" />
           {t('memory.portrait.review.title')}
         </h2>
-        <span className="text-sm tabular-nums text-[hsl(var(--memory-muted))]">
+        <span className="shrink-0 text-xs tabular-nums text-[hsl(var(--memory-muted))]">
           {t('memory.portrait.review.count', { count: items.length })}
         </span>
-      </div>
+      </header>
 
-      <div className="mt-5 space-y-5">
+      <div>
         {items.map((item) => {
           const source = sourceText(item, t);
           const isConfirming = item.assertionId === confirmingAssertionId;
           const correctionUnavailable = !item.assertionId || item.correctionValue == null;
           return (
-            <article key={item.id} className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
-              <div className="min-w-0 flex-1 space-y-1">
-                <p className="text-[0.95rem] font-medium leading-7 text-[hsl(var(--memory-title))]">{item.text}</p>
-                {source ? <p className="text-xs leading-5 text-[hsl(var(--memory-muted))]">{source}</p> : null}
+            <article
+              key={item.id}
+              className="grid gap-3 py-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-8"
+            >
+              <div className="min-w-0">
+                <p className="text-[15px] font-medium leading-7 text-[hsl(var(--memory-title))]">{item.text}</p>
+                {source ? <p className="mt-1 text-xs leading-5 text-[hsl(var(--memory-muted))]">{source}</p> : null}
               </div>
 
-              <div className="flex flex-wrap items-center gap-1.5 lg:justify-end">
+              <div className="flex flex-wrap items-center gap-1 md:justify-self-end">
                   <Button
                     type="button"
                     variant="ghost"

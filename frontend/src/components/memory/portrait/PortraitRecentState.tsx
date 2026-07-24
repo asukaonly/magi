@@ -13,21 +13,18 @@ export const PortraitRecentState = ({ items }: PortraitRecentStateProps) => {
   }
 
   return (
-    <section
-      data-testid="portrait-recent-state"
-      className="px-1 py-1"
-    >
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <h2 className="text-lg font-semibold tracking-[-0.015em] text-[hsl(var(--memory-title))]">
+    <section data-testid="portrait-recent-state">
+      <header className="flex items-baseline justify-between gap-4">
+        <h2 className="text-[13px] font-semibold text-[hsl(var(--memory-title))]">
           {t('memory.portrait.recent.title')}
         </h2>
-        <p className="text-sm text-[hsl(var(--memory-muted))]">{t('memory.portrait.recent.meta')}</p>
-      </div>
+        <p className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.portrait.recent.meta')}</p>
+      </header>
 
-      <div className="mt-6 max-w-3xl space-y-5">
+      <div className="mt-3">
         {items.slice(0, 6).map((item) => (
-          <article key={item.id}>
-            <p className="text-sm leading-8 text-[hsl(var(--memory-title))]">
+          <article key={item.id} className="py-2.5">
+            <p className="text-sm leading-7 text-[hsl(var(--memory-body))]">
               {item.claimKind
                 ? t(`memory.portrait.recent.kinds.${item.claimKind}`, {
                     value: item.text,

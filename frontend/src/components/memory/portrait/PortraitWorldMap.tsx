@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, SlidersHorizontal } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { PortraitDisplayItem, PortraitWorldGroup } from './portraitGrouping';
 
@@ -17,25 +17,20 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
   return (
     <section
       data-testid="portrait-world-map"
-      className="pt-3"
     >
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <h1 className="text-[clamp(1.7rem,2.8vw,2.25rem)] font-semibold tracking-[-0.035em] text-[hsl(var(--memory-title))]">
-          {t('memory.portrait.world.title')}
-        </h1>
-        {totalCount > 0 ? (
-          <p className="pb-1 text-xs text-[hsl(var(--memory-muted))]">
-            {t('memory.portrait.world.meta', { count: totalCount })}
-          </p>
-        ) : null}
-      </div>
-
       {visibleGroups.length > 0 ? (
-        <div className="mt-12">
-          <h2 className="text-lg font-semibold tracking-[-0.015em] text-[hsl(var(--memory-title))]">
-            {t('memory.portrait.world.summaryTitle')}
-          </h2>
-          <div className="mt-8 grid gap-x-14 gap-y-10 md:grid-cols-2" data-testid="portrait-world-groups">
+        <div>
+          <header className="flex items-baseline justify-between gap-4">
+            <h2 className="text-[13px] font-semibold text-[hsl(var(--memory-title))]">
+              {t('memory.portrait.world.summaryTitle')}
+            </h2>
+            {totalCount > 0 ? (
+              <p className="text-xs tabular-nums text-[hsl(var(--memory-muted))]">
+                {t('memory.portrait.world.meta', { count: totalCount })}
+              </p>
+            ) : null}
+          </header>
+          <div className="mt-6 grid gap-x-14 gap-y-10 md:grid-cols-2" data-testid="portrait-world-groups">
             {visibleGroups.map((group) => {
               const detailItems = group.summary ? group.items : group.items.slice(4);
               return (
@@ -65,7 +60,6 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
                             onClick={() => onCorrect(item)}
                             aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
                           >
-                            <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
                             {t('memory.portrait.world.correct', { defaultValue: '修正' })}
                           </Button>
                         ) : null}
@@ -94,7 +88,6 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
                                 onClick={() => onCorrect(item)}
                                 aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
                               >
-                                <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
                                 {t('memory.portrait.world.correct', { defaultValue: '修正' })}
                               </Button>
                             ) : item.sourceKey === 'user_profile_projection' ? (

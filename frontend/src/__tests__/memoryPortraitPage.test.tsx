@@ -228,8 +228,9 @@ describe('MemoryPortraitPage', () => {
     });
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: '关于你' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Magi 目前这样理解你' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Magi 目前这样理解你' })).toBeInTheDocument();
+    // 页面不再渲染「关于你」大标题,导航定位由侧栏承担
+    expect(screen.queryByRole('heading', { name: '关于你' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-groups')).toBeInTheDocument();
     expect(screen.queryByTestId('portrait-world-branch-identity')).not.toBeInTheDocument();
