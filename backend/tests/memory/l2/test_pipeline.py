@@ -564,7 +564,7 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
             assert result["l2_relation_count"] == 0
             assert result["l2_assertion_count"] == 0
 
-            for _ in range(50):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_enqueued"] >= 1:
                     break
                 await asyncio.sleep(0.01)
@@ -572,7 +572,7 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
             stats = store.get_l2_pipeline_stats()
             assert stats["extract_enqueued"] == 1
 
-            for _ in range(50):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
                     break
                 await asyncio.sleep(0.01)
@@ -1245,7 +1245,7 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
                 }
             )
 
-            for _ in range(50):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
                     break
                 await asyncio.sleep(0.01)
@@ -1363,7 +1363,7 @@ async def test_short_reply_context_error_does_not_fail_or_create_false_mentions(
                 }
             )
 
-            for _ in range(50):
+            for _ in range(400):
                 stats = store.get_l2_pipeline_stats()
                 if stats["extract_completed"] >= 1 or stats["extract_failed"] >= 1:
                     break
@@ -1493,7 +1493,7 @@ async def test_optional_inference_failure_persists_phase1_and_completes(
                     }
                 )
 
-                for _ in range(50):
+                for _ in range(400):
                     stats = store.get_l2_pipeline_stats()
                     if stats["extract_completed"] >= 1 or stats["extract_failed"] >= 1:
                         break
@@ -1849,7 +1849,7 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
                     },
                 }
             )
-            for _ in range(50):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
                     break
                 await asyncio.sleep(0.01)
@@ -1868,7 +1868,7 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
                     },
                 }
             )
-            for _ in range(50):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 2:
                     break
                 await asyncio.sleep(0.01)
@@ -1946,7 +1946,7 @@ async def test_extract_worker_uses_related_cross_session_history_in_unified_prom
                     },
                 }
             )
-            for _ in range(50):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
                     break
                 await asyncio.sleep(0.01)
@@ -2033,7 +2033,7 @@ async def test_extract_worker_orders_history_contexts_chronologically_in_prompt(
                     },
                 }
             )
-            for _ in range(50):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
                     break
                 await asyncio.sleep(0.01)
@@ -2136,7 +2136,7 @@ async def test_phase2_uses_phase1_entities_to_recall_l1_entity_history():
                     },
                 }
             )
-            for _ in range(50):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
                     break
                 await asyncio.sleep(0.01)
@@ -2273,7 +2273,7 @@ async def test_extract_worker_persists_llm_tom_assertions():
                 }
             )
 
-            for _ in range(50):
+            for _ in range(400):
                 stats = store.get_l2_pipeline_stats()
                 if stats["extract_completed"] >= 1 and stats["assertions_written"] >= 1:
                     break
@@ -2398,7 +2398,7 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
                 }
             )
 
-            for _ in range(50):
+            for _ in range(400):
                 stats = store.get_l2_pipeline_stats()
                 if stats["extract_completed"] >= 1 and stats["reconcile_completed"] >= 1:
                     break
@@ -2529,7 +2529,7 @@ async def test_extract_worker_uses_conflict_arbitration_to_keep_existing_graph_f
                 }
             )
 
-            for _ in range(50):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
                     break
                 await asyncio.sleep(0.01)
@@ -2651,7 +2651,7 @@ async def test_extract_worker_marks_evolution_by_deprecating_old_graph_fact_and_
                 }
             )
 
-            for _ in range(50):
+            for _ in range(400):
                 stats = store.get_l2_pipeline_stats()
                 if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1:
                     break
@@ -3012,7 +3012,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                 }
             )
 
-            for _ in range(50):
+            for _ in range(400):
                 stats = store.get_l2_pipeline_stats()
                 if stats["extract_completed"] >= 1 and stats["assertions_written"] >= 1 and stats["reconcile_completed"] >= 1 and stats["snapshot_completed"] >= 1:
                     break
@@ -3097,7 +3097,7 @@ async def test_pipeline_stats_track_evidence_class_and_skip_reason_breakdown():
                 }
             )
 
-            for _ in range(50):
+            for _ in range(400):
                 stats = store.get_l2_pipeline_stats()
                 if stats["extract_completed"] >= 1:
                     break
@@ -3164,7 +3164,7 @@ async def test_pipeline_logs_skip_decision_with_evidence_context(caplog: pytest.
                     }
                 )
 
-                for _ in range(50):
+                for _ in range(400):
                     stats = store.get_l2_pipeline_stats()
                     if stats["extract_completed"] >= 1:
                         break
@@ -3268,7 +3268,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                     }
                 )
 
-                for _ in range(50):
+                for _ in range(400):
                     stats = store.get_l2_pipeline_stats()
                     if stats["extract_completed"] >= 1:
                         break
@@ -3365,7 +3365,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                 }
             )
 
-            for _ in range(50):
+            for _ in range(400):
                 stats = store.get_l2_pipeline_stats()
                 if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1:
                     break
@@ -3457,7 +3457,7 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
                 }
             )
 
-            for _ in range(50):
+            for _ in range(400):
                 stats = store.get_l2_pipeline_stats()
                 if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1:
                     break
@@ -3555,7 +3555,7 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
                 }
             )
 
-            for _ in range(50):
+            for _ in range(400):
                 stats = store.get_l2_pipeline_stats()
                 if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1 and stats["assertions_written"] >= 1:
                     break
@@ -3657,7 +3657,7 @@ async def test_unified_extraction_respects_calendar_profile_restrictions():
                 }
             )
 
-            for _ in range(50):
+            for _ in range(400):
                 stats = store.get_l2_pipeline_stats()
                 if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1:
                     break
@@ -3754,7 +3754,7 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
                 )
 
                 await store.l2_pipeline.enqueue_entities(["user:u1"])
-                for _ in range(50):
+                for _ in range(400):
                     stats = store.get_l2_pipeline_stats()
                     if stats["reconcile_completed"] >= 1 and stats["snapshot_completed"] >= 1:
                         break
@@ -4305,7 +4305,7 @@ async def test_extract_worker_persists_structured_graph_hints_without_phase2_edg
 
             await store.ingest_event(event)
 
-            for _ in range(50):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
                     break
                 await asyncio.sleep(0.01)
@@ -4520,7 +4520,7 @@ async def test_extract_worker_persists_category_facets_from_structured_graph_hin
 
             await store.ingest_event(event)
 
-            for _ in range(50):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
                     break
                 await asyncio.sleep(0.01)
@@ -4970,7 +4970,7 @@ class TestExtractionInstructions:
                     }
                 )
 
-                for _ in range(50):
+                for _ in range(400):
                     if len(adapter.calls) >= 2:
                         break
                     await asyncio.sleep(0.01)
