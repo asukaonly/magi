@@ -175,6 +175,38 @@ class ChatContextSummaryRecord:
     updated_at_ms: int
 
 
+@dataclass(frozen=True, slots=True)
+class ChatContextUsageSnapshot:
+    """Durable provider-input usage for one accepted visible assistant turn."""
+
+    turn_id: str
+    session_id: str
+    user_id: str
+    used_tokens: int
+    context_window: int
+    input_capacity: int
+    compaction_threshold: int
+    measurement: str
+    model_provider: str | None
+    model_id: str | None
+    updated_at_ms: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "turn_id": self.turn_id,
+            "session_id": self.session_id,
+            "user_id": self.user_id,
+            "used_tokens": self.used_tokens,
+            "window_size": self.context_window,
+            "input_capacity": self.input_capacity,
+            "threshold": self.compaction_threshold,
+            "measurement": self.measurement,
+            "model_provider": self.model_provider,
+            "model_id": self.model_id,
+            "updated_at_ms": self.updated_at_ms,
+        }
+
+
 @dataclass(slots=True)
 class ChatReplyPreview:
     """Compact display preview for one replied-to message."""

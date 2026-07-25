@@ -165,6 +165,12 @@ Key properties:
 
 `L0` should only hold what the current turn genuinely needs, not everything the system has ever seen.
 
+L0 may expose chat-owned state in a workbench view, but it does not become the
+owner of that state. In particular, context-window usage belongs to the accepted
+chat turn in `chat.db`: it must survive an L0 timeout, restore after restart, and
+follow visible-answer deletion semantics. L0 can compose that snapshot for
+inspection, while prompts and the chat meter read the durable chat record.
+
 Examples:
 
 - Active goals for the current session

@@ -387,6 +387,11 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             response_text=execution_outcome.content,
             attachments=list(getattr(execution_outcome, "attachments", []) or []),
             message_payload=dict(getattr(execution_outcome, "message_payload", {}) or {}),
+            context_usage=(
+                dict(execution_outcome.context_usage)
+                if isinstance(getattr(execution_outcome, "context_usage", None), dict)
+                else None
+            ),
             root_user_message=request.context.latest_user_message,
             execution_outcome=execution_outcome.to_dict(),
             turn_id=turn_id,

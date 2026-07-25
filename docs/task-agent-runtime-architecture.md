@@ -352,6 +352,16 @@ Summary-model failures use whole-group rule fallback immediately so the active r
 
 Context-budget policy is shared by direct chat history, durable rolling summaries, and per-turn tool-loop compaction. Before provider usage is available, the shared lightweight estimate preserves the existing ratio for ASCII text and counts non-ASCII text more conservatively from its UTF-8 byte size. Inline image payloads are measured as media with a conservative per-image token reserve; their base64 transport bytes are not counted as prompt text. Direct chat and tool-enabled chat use the same provider-prompt measurement path, and the measurement never mutates the image payload sent to the provider. Provider-reported input usage remains a lower bound for later tool-loop measurements. The input capacity is the configured context window minus the configured maximum output. Models below 512k trigger compaction at 75% of that input capacity; models at or above 512k trigger at 50%, and the retained recent tail targets 20% of the trigger. If model limits are absent, runtime uses a conservative 128k context window with an 8k output reserve. The model used to generate a summary controls only whether that summary request itself fits; it never determines when the source conversation needs compaction.
 
+The user-facing context meter is chat outcome state, not L0 memory and not
+runtime telemetry. Direct and tool-enabled execution attach their final model
+input measurement to the normalized result. The accepted visible assistant
+outcome stores it in `chat.db` in the same transaction as the transcript and
+delivery terminal state. Conversation history returns the latest still-visible
+snapshot, while a post-commit runtime notification provides immediate refresh.
+The stored snapshot owns both numerator and denominator; the UI must not pair
+an old token count with a newly selected model window. Before a snapshot exists,
+the UI shows an unknown measurement rather than reporting zero.
+
 Persona switches add a second prompt-history boundary. When a session tail contains messages from an older active persona followed by the current persona's segment, `ChatHistoryService` condenses the older segment into an active `persona_boundary` summary scoped by the current persona ID. Prompt assembly then receives the neutral boundary summary plus only the raw tail for the current persona segment, so continuity survives without carrying another persona's assistant voice into the active persona prompt. If neutral summary generation is unavailable, prompt assembly keeps the original history instead of substituting a fixed-length fallback that could omit continuity.
 
 Memory retrieval remains a separate input to prompt assembly. Long-term memory can be queried alongside session summaries, but session summaries are not promoted into L1/L2/L3/L4 by default because they are continuation checkpoints rather than canonical cross-session facts.

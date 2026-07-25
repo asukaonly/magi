@@ -62,7 +62,12 @@ def build_llm_response_payload(
     context_compactor.record_input_tokens(int(result["llm_trace"].get("input_tokens") or 0))
     context_usage = context_compactor.get_usage()
     if context_usage is not None:
-        result["context_usage"] = context_usage
+        result["context_usage"] = {
+            **context_usage,
+            "measurement": "actual",
+            "model_provider": provider_name,
+            "model_id": model_name,
+        }
     if provider_response is not None and provider_response.assistant_message:
         result["assistant_message"] = provider_response.assistant_message
     if provider_response is not None and provider_response.tool_calls:

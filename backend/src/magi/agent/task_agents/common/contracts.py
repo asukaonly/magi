@@ -468,6 +468,7 @@ class ExecutionResult:
     message_started_at: Optional[float] = None
     turn_id: Optional[str] = None
     llm_trace: dict[str, Any] = field(default_factory=dict)
+    context_usage: dict[str, Any] | None = None
     ux_plan: Optional[dict[str, Any]] = None
     streamed: bool = False
     persona_rhythm: Optional["RhythmPersonaSignal"] = None

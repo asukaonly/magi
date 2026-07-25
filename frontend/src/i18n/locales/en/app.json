@@ -852,7 +852,8 @@
     },
     "contextUsage": {
       "label": "Context usage: {{usage}} ({{percent}}%)",
-      "unavailableLabel": "Context usage: {{usage}}"
+      "unavailableLabel": "Context usage: {{usage}}",
+      "estimatedValue": "{{usage}} (estimated)"
     },
     "delegation": {
       "title": "Delegated to {{adapter}}",

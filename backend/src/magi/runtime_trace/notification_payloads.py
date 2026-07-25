@@ -143,15 +143,26 @@ def context_usage_payload(
     user_id: str,
     session_id: str,
     turn_id: str,
-    context_usage: dict[str, int],
+    context_usage: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "user_id": user_id,
         "session_id": session_id,
         "turn_id": turn_id,
         "used_tokens": context_usage.get("used_tokens", 0),
-        "window_size": context_usage.get("window_size", 0),
-        "threshold": context_usage.get("threshold", 0),
+        "window_size": context_usage.get(
+            "context_window",
+            context_usage.get("window_size", 0),
+        ),
+        "input_capacity": context_usage.get("input_capacity", 0),
+        "threshold": context_usage.get(
+            "compaction_threshold",
+            context_usage.get("threshold", 0),
+        ),
+        "measurement": context_usage.get("measurement"),
+        "model_provider": context_usage.get("model_provider"),
+        "model_id": context_usage.get("model_id"),
+        "updated_at_ms": context_usage.get("updated_at_ms"),
         "timestamp": time.time(),
     }
 

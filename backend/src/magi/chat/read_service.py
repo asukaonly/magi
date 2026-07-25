@@ -49,7 +49,11 @@ from .read.serialization import (
 )
 
 if TYPE_CHECKING:
-    from .contracts import ChatMessageLabel, ChatUserTurnDeliveryRecord
+    from .contracts import (
+        ChatContextUsageSnapshot,
+        ChatMessageLabel,
+        ChatUserTurnDeliveryRecord,
+    )
 
 logger = get_logger(__name__)
 
@@ -223,6 +227,19 @@ class ChatReadService(
     ) -> list[ChatDisplayMessage]:
         """Load conversation history without blocking the event loop."""
         return await self._run_threaded("get_conversation_history", user_id, session_id, limit)
+
+    async def aget_latest_context_usage(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> "ChatContextUsageSnapshot | None":
+        """Load the latest durable visible-answer usage without blocking."""
+
+        return await self._run_threaded(
+            "get_latest_context_usage",
+            user_id,
+            session_id,
+        )
 
     async def aget_session_attachment_references(
         self,

@@ -304,6 +304,11 @@ class FunctionCallingCheckpointLoop:
             response_text=content,
             attachments=list(getattr(cursor.step_state, "chat_attachments", []) or []),
             message_payload=dict(getattr(cursor.step_state, "message_payload", {}) or {}),
+            context_usage=(
+                dict(cursor.step_state.latest_context_usage)
+                if isinstance(cursor.step_state.latest_context_usage, dict)
+                else None
+            ),
             root_user_message=cursor.user_message,
             execution_outcome={
                 "status": "completed",
@@ -359,6 +364,11 @@ class FunctionCallingCheckpointLoop:
             response_text=str(getattr(execution_outcome, "content", "") or ""),
             attachments=list(getattr(execution_outcome, "attachments", []) or []),
             message_payload=dict(getattr(execution_outcome, "message_payload", {}) or {}),
+            context_usage=(
+                dict(execution_outcome.context_usage)
+                if isinstance(getattr(execution_outcome, "context_usage", None), dict)
+                else None
+            ),
             root_user_message=cursor.user_message,
             execution_outcome=execution_outcome.to_dict(),
             turn_id=cursor.turn_id,
@@ -464,6 +474,11 @@ class FunctionCallingCheckpointLoop:
             response_text=execution_outcome.content,
             attachments=list(getattr(execution_outcome, "attachments", []) or []),
             message_payload=dict(getattr(execution_outcome, "message_payload", {}) or {}),
+            context_usage=(
+                dict(execution_outcome.context_usage)
+                if isinstance(getattr(execution_outcome, "context_usage", None), dict)
+                else None
+            ),
             root_user_message=cursor.user_message,
             execution_outcome=execution_outcome.to_dict(),
             turn_id=cursor.turn_id,

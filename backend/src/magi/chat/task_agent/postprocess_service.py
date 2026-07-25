@@ -574,6 +574,16 @@ class ChatPostProcessService:
     ) -> None:
         """Publish response traces only after the durable outcome wins."""
 
+        if isinstance(result.context_usage, dict) and prepared.turn_id:
+            await self._emit_context_usage_notification(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                turn_id=prepared.turn_id,
+                context_usage={
+                    **result.context_usage,
+                    "updated_at_ms": prepared.now_ms,
+                },
+            )
         if prepared.response_plan is not None:
             await self._emit_response_rhythm_trace(
                 user_id=context.user_id,
@@ -686,6 +696,7 @@ class ChatPostProcessService:
                         ),
                         started_at_ms=prepared.started_at_ms,
                         completed_at_ms=prepared.now_ms,
+                        context_usage=result.context_usage,
                         orchestration_id=result.orchestration_id,
                         execution_mode=self._normalize_mode(result.mode),
                         ux_plan=prepared.ux_plan,
@@ -710,6 +721,7 @@ class ChatPostProcessService:
                         ),
                         started_at_ms=prepared.started_at_ms,
                         completed_at_ms=prepared.now_ms,
+                        context_usage=result.context_usage,
                         orchestration_id=result.orchestration_id,
                         execution_mode=self._normalize_mode(result.mode),
                         ux_plan=prepared.ux_plan,
@@ -758,6 +770,7 @@ class ChatPostProcessService:
             "message_payload": dict(getattr(result, "message_payload", {}) or {}),
             "started_at_ms": prepared.started_at_ms,
             "completed_at_ms": prepared.now_ms,
+            "context_usage": result.context_usage,
             "orchestration_id": result.orchestration_id,
             "execution_mode": self._normalize_mode(result.mode),
             "ux_plan": prepared.ux_plan,
@@ -901,6 +914,7 @@ class ChatPostProcessService:
             "response_text": "",
             "started_at_ms": started_at_ms,
             "completed_at_ms": now_ms,
+            "context_usage": result.context_usage,
             "orchestration_id": result.orchestration_id,
             "execution_mode": self._normalize_mode(result.mode),
             "ux_plan": ux_plan,

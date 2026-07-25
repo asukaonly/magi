@@ -43,6 +43,7 @@ from .schema import (
     CHAT_CLEARED_SESSION_SCOPES_TABLE,
     CHAT_CLEARED_MESSAGE_SCOPES_TABLE,
     CHAT_CONTEXT_SUMMARIES_TABLE,
+    CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE,
     CHAT_GLOBAL_CLEAR_INTENT_TABLE,
     CHAT_MESSAGE_ASSET_REFS_TABLE,
     CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE,
@@ -948,6 +949,10 @@ class ChatSessionOperationsMixin:
                 (normalized_session_id,),
             )
             conn.execute(
+                f"DELETE FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE} WHERE session_id = ?",
+                (normalized_session_id,),
+            )
+            conn.execute(
                 f"DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE} WHERE session_id = ?",
                 (normalized_session_id,),
             )
@@ -1119,6 +1124,7 @@ class ChatSessionOperationsMixin:
             conn.execute(f"DELETE FROM {CHAT_ASSISTANT_MEMORY_OUTBOX_TABLE}")
             conn.execute(f"DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE}")
             conn.execute(f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE}")
+            conn.execute(f"DELETE FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE}")
             conn.execute(f"DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}")
             conn.execute(
                 f"""
@@ -1164,6 +1170,7 @@ class ChatSessionOperationsMixin:
             )
             conn.execute(f"DELETE FROM {CHAT_MESSAGES_TABLE}")
             conn.execute(f"DELETE FROM {CHAT_TURNS_TABLE}")
+            conn.execute(f"DELETE FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE}")
             conn.execute(
                 f"DELETE FROM {CHAT_SESSION_CREATION_REQUESTS_TABLE}"
             )
@@ -1226,6 +1233,7 @@ class ChatSessionOperationsMixin:
                   + (SELECT COUNT(*) FROM {CHAT_ASSISTANT_MEMORY_OUTBOX_TABLE})
                   + (SELECT COUNT(*) FROM {CHAT_USER_TURN_DELIVERY_TABLE})
                   + (SELECT COUNT(*) FROM {CHAT_CONTEXT_SUMMARIES_TABLE})
+                  + (SELECT COUNT(*) FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE})
                   + (SELECT COUNT(*) FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE})
                 """
             ).fetchone()

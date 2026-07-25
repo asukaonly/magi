@@ -174,7 +174,7 @@ class ChatRuntimeNotifier:
         user_id: str,
         session_id: str,
         turn_id: str | None,
-        context_usage: dict[str, int],
+        context_usage: dict[str, Any],
     ) -> None:
         normalized_turn_id = str(turn_id or "").strip()
         if self._runtime_trace_store is None or not normalized_turn_id:

@@ -287,9 +287,22 @@ export const applyRealtimeStoreProjection = (
     const sessionId = String(payload.session_id || conversationStore.currentSessionId || '').trim();
     if (sessionId && typeof payload.used_tokens === 'number' && typeof payload.window_size === 'number') {
       useContextUsageStore.getState().update(sessionId, {
+        turn_id: typeof payload.turn_id === 'string' ? payload.turn_id : null,
         used_tokens: payload.used_tokens as number,
         window_size: payload.window_size as number,
+        input_capacity: typeof payload.input_capacity === 'number'
+          ? payload.input_capacity
+          : undefined,
         threshold: (payload.threshold as number) || 0,
+        measurement: payload.measurement === 'estimated' ? 'estimated' : 'actual',
+        model_provider: typeof payload.model_provider === 'string'
+          ? payload.model_provider
+          : null,
+        model_id: typeof payload.model_id === 'string' ? payload.model_id : null,
+        updated_at_ms: typeof payload.updated_at_ms === 'number'
+          ? payload.updated_at_ms
+          : undefined,
+        timestamp: typeof payload.timestamp === 'number' ? payload.timestamp : undefined,
       });
       return true;
     }

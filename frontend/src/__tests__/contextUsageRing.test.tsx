@@ -42,7 +42,7 @@ describe('ContextUsageRing', () => {
     expect(screen.getByRole('tooltip')).toHaveTextContent('10k / 256k');
   });
 
-  it('uses the configured context window before runtime usage arrives', () => {
+  it('does not present a configured limit as measured usage before a snapshot arrives', () => {
     render(
       <ContextUsageRing
         sessionId="session-1"
@@ -50,14 +50,14 @@ describe('ContextUsageRing', () => {
       />,
     );
 
-    const meter = screen.getByRole('meter', {
-      name: '上下文用量：0 / 1M（0%）',
+    const status = screen.getByRole('status', {
+      name: '上下文用量：— / 1M',
     });
-    expect(meter).toHaveAttribute('aria-valuemax', '1000000');
-    expect(screen.getByRole('tooltip')).toHaveTextContent('0 / 1M');
+    expect(status).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('— / 1M');
   });
 
-  it('keeps the current model window when an older runtime snapshot differs', () => {
+  it('keeps token usage paired with the model window captured for that turn', () => {
     useContextUsageStore.getState().update('session-1', {
       used_tokens: 10_000,
       window_size: 256_000,
@@ -72,15 +72,29 @@ describe('ContextUsageRing', () => {
     );
 
     expect(screen.getByRole('meter', {
-      name: '上下文用量：10k / 1M（1%）',
-    })).toHaveAttribute('aria-valuemax', '1000000');
-    expect(screen.getByRole('tooltip')).toHaveTextContent('10k / 1M');
+      name: '上下文用量：10k / 256k（4%）',
+    })).toHaveAttribute('aria-valuemax', '256000');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('10k / 256k');
   });
 
   it('explains that the total is unavailable before usage arrives', () => {
     render(<ContextUsageRing sessionId="session-1" />);
 
-    expect(screen.getByRole('status', { name: '上下文用量：0 / —' })).toHaveAttribute('tabindex', '0');
-    expect(screen.getByRole('tooltip')).toHaveTextContent('0 / —');
+    expect(screen.getByRole('status', { name: '上下文用量：— / —' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('— / —');
+  });
+
+  it('shows a positive value below one percent instead of zero', () => {
+    useContextUsageStore.getState().update('session-1', {
+      used_tokens: 2_633,
+      window_size: 1_000_000,
+      threshold: 500_000,
+    });
+
+    render(<ContextUsageRing sessionId="session-1" />);
+
+    expect(screen.getByRole('meter', {
+      name: '上下文用量：2.6k / 1M（<1%）',
+    })).toBeInTheDocument();
   });
 });
