@@ -7,10 +7,9 @@ interface PortraitWorldMapProps {
   groups: PortraitWorldGroup[];
   totalCount: number;
   onCorrect: (item: PortraitDisplayItem) => void;
-  onEditProfile: () => void;
 }
 
-export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile }: PortraitWorldMapProps) => {
+export const PortraitWorldMap = ({ groups, totalCount, onCorrect }: PortraitWorldMapProps) => {
   const { t } = useTranslation('app');
   const visibleGroups = groups.filter((group) => group.summary || group.items.length > 0);
 
@@ -49,14 +48,14 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
                     </p>
                   ) : (
                     group.items.slice(0, 4).map((item) => (
-                      <div key={item.id} className="flex items-start justify-between gap-3">
+                      <div key={item.id} className="group flex items-start justify-between gap-3">
                         <p className="min-w-0 flex-1 text-[0.95rem] leading-7 text-[hsl(var(--memory-title))]">{item.text}</p>
                         {item.assertionId && item.correctionValue != null ? (
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="min-h-9 shrink-0 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))]"
+                            className="min-h-9 shrink-0 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] opacity-0 transition-opacity hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))] focus-visible:opacity-100 group-hover:opacity-100"
                             onClick={() => onCorrect(item)}
                             aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
                           >
@@ -77,28 +76,18 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
                       </summary>
                       <div className="mt-2 space-y-2">
                         {detailItems.map((item) => (
-                          <div key={item.id} className="flex items-start justify-between gap-3 rounded-mem-sm bg-[hsl(var(--memory-panel-subtle)/0.32)] px-3 py-2.5">
+                          <div key={item.id} className="group flex items-start justify-between gap-3 rounded-mem-sm bg-[hsl(var(--memory-panel-subtle)/0.32)] px-3 py-2.5">
                             <p className="min-w-0 flex-1 text-sm leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
                             {item.assertionId && item.correctionValue != null ? (
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className="min-h-9 shrink-0 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))]"
+                                className="min-h-9 shrink-0 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] opacity-0 transition-opacity hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))] focus-visible:opacity-100 group-hover:opacity-100"
                                 onClick={() => onCorrect(item)}
                                 aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
                               >
                                 {t('memory.portrait.world.correct', { defaultValue: '修正' })}
-                              </Button>
-                            ) : item.sourceKey === 'user_profile_projection' ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="min-h-9 shrink-0 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))]"
-                                onClick={onEditProfile}
-                              >
-                                {t('memory.portrait.world.editProfile', { defaultValue: '修改个人资料' })}
                               </Button>
                             ) : null}
                           </div>

@@ -1255,7 +1255,6 @@
       "llmProviders": "Provider",
       "llmModels": "Model Selection",
       "conversation": "Conversation",
-      "personalProfile": "Personal Profile",
       "statistics": "Statistics",
       "statisticsLlm": "LLM Statistics",
       "statisticsRuntime": "System Runtime",
@@ -1297,46 +1296,7 @@
       "matcherPrefix": "matcher"
     },
     "preferencesDesc": "Configure interface language, theme, and desktop behavior",
-    "personalProfileDesc": "Manage the profile Magi uses to address and understand you.",
     "conversationDesc": "Configure the default workspace used for new conversations",
-    "personalProfile": {
-      "loading": "Loading profile...",
-      "description": "These are the facts you explicitly give Magi. They take priority for addressing, context, and your portrait.",
-      "identityTitle": "Basic profile",
-      "identityDesc": "Stable identity fields used for display, context, and your portrait.",
-      "communicationTitle": "Addressing and communication",
-      "communicationDesc": "How Magi should address you and adapt basic communication context.",
-      "save": "Save profile",
-      "refresh": "View memory suggestions",
-      "refreshing": "Looking...",
-      "loadFailed": "Failed to load profile: {{message}}",
-      "saveSuccess": "Profile saved",
-      "saveFailed": "Failed to save profile: {{message}}",
-      "refreshSuccess": "Memory suggestions ready",
-      "suggestionsTitle": "Memory suggestions",
-      "suggestionsDesc": "These come from existing memory. Accept and save them before they become manually confirmed profile facts.",
-      "suggestionsCount": "{{count}} item(s)",
-      "suggestionsEmpty": "No new suggestions right now.",
-      "applySuggestion": "Accept",
-      "derivedAge": "Age {{age}} is derived from birthday as of {{date}}.",
-      "source": "Source: {{source}}",
-      "sources": {
-        "settings_profile": "personal profile settings",
-        "chat": "conversation memory",
-        "derived": "derived"
-      },
-      "fields": {
-        "realName": "Real name",
-        "birthDate": "Birthday",
-        "homeLocation": "Home location",
-        "preferredFormOfAddress": "Preferred form of address",
-        "disallowedFormsOfAddress": "Names to avoid"
-      },
-      "placeholders": {
-        "homeLocation": "City or region",
-        "disallowedForms": "Comma-separated names"
-      }
-    },
     "codeAgent": {
       "loading": "Loading…",
       "rescan": "Rescan",
@@ -3214,6 +3174,46 @@
         "photo_library_apple_photos": "Photo library",
         "user_profile_projection": "Profile",
         "tom": "Summary"
+      },
+      "identity": {
+        "title": "Who you are",
+        "fields": {
+          "preferredFormOfAddress": "Form of address",
+          "realName": "Real name",
+          "birthDate": "Birthday",
+          "homeLocation": "Home location",
+          "disallowedFormsOfAddress": "Names to avoid"
+        },
+        "placeholders": {
+          "homeLocation": "City or region",
+          "disallowedForms": "Comma-separated names"
+        },
+        "empty": "Not set",
+        "add": "Add",
+        "editField": "Edit {{field}}",
+        "source": "Source: {{source}}",
+        "sources": {
+          "settings_profile": "your settings",
+          "chat": "conversation memory",
+          "derived": "derived"
+        },
+        "saveSuccess": "Saved",
+        "saveFailed": "Failed to save: {{message}}",
+        "loadFailed": "Failed to load your profile",
+        "retry": "Retry",
+        "refresh": "Refresh from memory",
+        "refreshing": "Looking...",
+        "refreshSuccess": "Memory suggestions ready",
+        "suggestionsTitle": "Memory suggestions",
+        "suggestionsDesc": "These come from existing memory. Accepting one makes it a manually confirmed profile fact.",
+        "suggestionsEmpty": "No new suggestions right now.",
+        "applySuggestion": "Accept"
+      },
+      "addFact": {
+        "placeholder": "Tell Magi one thing about you…",
+        "submit": "Submit",
+        "success": "Noted. Once Magi digests it, it will show up in \"Needs your look\" — confirm it there to add it to your portrait.",
+        "failed": "Failed to submit: {{message}}"
       }
     },
     "recall": {

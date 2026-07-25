@@ -11,10 +11,11 @@ import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/me
 import PortraitWorldMap from '@/components/memory/portrait/PortraitWorldMap';
 import PortraitReviewQueue from '@/components/memory/portrait/PortraitReviewQueue';
 import PortraitRecentState from '@/components/memory/portrait/PortraitRecentState';
+import PortraitIdentitySection from '@/components/memory/portrait/PortraitIdentitySection';
+import PortraitAddFactRow from '@/components/memory/portrait/PortraitAddFactRow';
 import { buildPortraitViewModel, type PortraitDisplayItem } from '@/components/memory/portrait/portraitGrouping';
 import MemoryPageFrame from './MemoryPageFrame';
 import { DEFAULT_USER_ID } from '@/constants';
-import { useChatShellStore } from '@/stores';
 
 const PortraitEmptyState = () => {
   const { t } = useTranslation('app');
@@ -67,8 +68,6 @@ const PortraitLoadError = ({ onRetry }: { onRetry: () => void }) => {
 
 export const MemoryPortraitPage = () => {
   const { t } = useTranslation('app');
-  const setActivePanel = useChatShellStore((state) => state.setActivePanel);
-  const setSettingsNavigationIntent = useChatShellStore((state) => state.setSettingsNavigationIntent);
   const [payload, setPayload] = useState<SelfPortraitPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -181,14 +180,12 @@ export const MemoryPortraitPage = () => {
               confirmingAssertionId={confirmingAssertionId}
               onRequestCorrection={openCorrection}
             />
+            <PortraitIdentitySection />
+            <PortraitAddFactRow onSubmitted={() => void loadPortrait()} />
             <PortraitWorldMap
               groups={viewModel.worldGroups}
               totalCount={viewModel.totalUnderstandingCount}
               onCorrect={openCorrection}
-              onEditProfile={() => {
-                setSettingsNavigationIntent({ section: 'personalProfile' });
-                setActivePanel('settings');
-              }}
             />
             <PortraitRecentState items={viewModel.recentItems} />
           </>
