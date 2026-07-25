@@ -185,6 +185,10 @@ async def get_conversation_history(
         resolved_session_id = require_session_id(session_id)
         history = await read_service.aget_display_history(user_id, resolved_session_id)
         session_summary = await read_service.aget_session_summary(user_id, resolved_session_id)
+        context_usage = await read_service.aget_latest_context_usage(
+            user_id,
+            resolved_session_id,
+        )
         messages = [msg.to_dict() for msg in history]
 
         return {
@@ -195,6 +199,9 @@ async def get_conversation_history(
             "history_version": session_summary.history_version
             if session_summary is not None
             else 0,
+            "context_usage": (
+                context_usage.to_dict() if context_usage is not None else None
+            ),
         }
     except RuntimeError:
         return {
@@ -203,6 +210,7 @@ async def get_conversation_history(
             "messages": [],
             "count": 0,
             "history_version": 0,
+            "context_usage": None,
         }
 
 

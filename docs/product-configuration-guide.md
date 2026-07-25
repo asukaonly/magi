@@ -340,7 +340,7 @@ Magi now exposes a lifecycle-based memory system instead of the older feature-st
 The current conceptual model is:
 
 - `L0`: working context
-  Short-lived runtime state kept in memory with checkpoint recovery
+  Short-lived workbench state plus protected in-flight execution recovery
 
 - `L1`: event memory
   Long-term normalized source events and the factual base for later recall
@@ -375,7 +375,9 @@ Product expectations:
 The current settings surface should support at least:
 
 - enable or disable `L0` through `L4`
-- configure L0 checkpoint interval
+- configure the maximum delay before changed L0 state is checkpointed; active
+  execution still uses explicit completion barriers and is not expired by the
+  ordinary L0 idle timeout
 - configure a global memory retention window
 - choose whether aged history is deleted or archived into date-partitioned archive databases, with a configurable archive directory
 - enable or disable memory retrieval reranking

@@ -197,6 +197,11 @@ def _build_completed_outcome(
         tool_failures=list(state.tool_failures),
         attachments=list(state.chat_attachments),
         message_payload=dict(state.message_payload or {}),
+        context_usage=(
+            dict(state.latest_context_usage)
+            if isinstance(state.latest_context_usage, dict)
+            else None
+        ),
         iterations=step_outcome.iteration,
     )
 

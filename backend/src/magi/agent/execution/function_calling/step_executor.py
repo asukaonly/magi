@@ -96,6 +96,8 @@ class FunctionCallingStepExecutor:
             return terminal_outcome
         if response is None:  # pragma: no cover - helper contract guard
             return FunctionCallingStepOutcome(status="aborted", iteration=iteration)
+        if isinstance(response.get("context_usage"), dict):
+            state.latest_context_usage = dict(response["context_usage"])
 
         assistant_message = response.get("assistant_message")
         if assistant_message:

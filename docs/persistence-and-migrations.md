@@ -15,7 +15,7 @@ state across multiple SQLite files, grouped by lifecycle ownership:
 
 | File | Owner | Holds |
 |------|-------|-------|
-| `data/chat/chat.db` | chat | sessions, session-creation idempotency mappings, turns, messages, attachments, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, context summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |
+| `data/chat/chat.db` | chat | sessions, session-creation idempotency mappings, turns, messages, attachments, per-turn context-usage snapshots, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, context summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |
 | `data/memory/l1_events.db` | memory L1 + L1-projected chat sessions | normalized event log, embeddings, FTS, entity links |
 | `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | working memory, knowledge graph, ToM, correction history, stable context identities, summaries, procedural skills |
 | `runtime/runtime_trace.db` | runtime trace | trace turns / spans / llm calls / tools, plugin ingress events |
@@ -104,6 +104,15 @@ memory handoff. A normal final reply uses its message ID and text. A segmented
 reply uses the first segment ID as the stable identity and the ordered segment
 texts joined with newlines as the canonical content. Reaction-only and other
 legal no-message outcomes create no projection work.
+
+The same accepted-outcome transaction stores one context-usage snapshot when a
+provider input measurement is available. The snapshot keeps the used input,
+the exact model window and input capacity used for that turn, the compaction
+threshold, the model identity, and whether the count was provider-reported or
+estimated. History reads select the newest snapshot whose final assistant
+surface is still visible, so reload survives process restarts and deleting the
+latest answer falls back to the previous visible turn. Runtime notifications
+only refresh this durable state; they are not its owner.
 
 The pending projection remains in `chat_assistant_memory_outbox` until L1
 confirms the exact `chat` / `AIResponse` / message-ID identity. A worker starts
@@ -235,7 +244,7 @@ Current heads that matter to the chat-clear and delivery boundary:
 
 | environment | head | Boundary added at head |
 |-------------|------|------------------------|
-| `chat` | `v9` | durable message ownership and orphan-recovery registry for private code-delegation artifacts |
+| `chat` | `v11` | accepted visible-turn context usage stored with chat truth |
 | `background_tasks` | `v2` | recoverable terminal-completion snapshots with durable delivery claims, frozen intent/body, and scoped discard during conversation deletion |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
 | `message_queue` | `v5` | explicit user-message delivery attempts |

@@ -87,9 +87,14 @@ fn build_l0_sessions(params: &L0SessionsQuery) -> Value {
     // Query sessions with sub-select counts
     let sql = format!(
         "SELECT s.session_id, s.user_id, s.status, s.started_at, s.last_active_at, \
-         (SELECT COUNT(*) FROM l0_goal_stack g WHERE g.session_id = s.session_id) AS goal_count, \
+         (SELECT COUNT(*) FROM l0_goal_stack g \
+          WHERE g.session_id = s.session_id \
+            AND g.status IN ('pending', 'in_progress')) AS goal_count, \
          (SELECT COUNT(*) FROM l0_active_entities e WHERE e.session_id = s.session_id) AS entity_count, \
-         (SELECT COUNT(*) FROM l0_temporary_tactics t WHERE t.session_id = s.session_id) AS tactic_count \
+         (SELECT COUNT(*) FROM l0_temporary_tactics t \
+          WHERE t.session_id = s.session_id \
+            AND (t.expires_at IS NULL \
+                 OR t.expires_at > CAST(strftime('%s', 'now') AS REAL))) AS tactic_count \
          FROM l0_sessions s {} \
          ORDER BY s.last_active_at DESC LIMIT ? OFFSET ?",
         where_clause
@@ -340,7 +345,9 @@ fn build_l0_workbench(session_id: &str) -> Option<Value> {
 
     let goals = db::query_to_json_array(
         &conn,
-        "SELECT * FROM l0_goal_stack WHERE session_id = ?1 ORDER BY stack_id ASC",
+        "SELECT * FROM l0_goal_stack \
+         WHERE session_id = ?1 AND status IN ('pending', 'in_progress') \
+         ORDER BY priority DESC, created_at DESC",
         rusqlite::params![session_id],
     );
     let entities = db::query_to_json_array(
@@ -350,7 +357,10 @@ fn build_l0_workbench(session_id: &str) -> Option<Value> {
     );
     let tactics = db::query_to_json_array(
         &conn,
-        "SELECT * FROM l0_temporary_tactics WHERE session_id = ?1 ORDER BY created_at DESC",
+        "SELECT * FROM l0_temporary_tactics \
+         WHERE session_id = ?1 \
+           AND (expires_at IS NULL OR expires_at > CAST(strftime('%s', 'now') AS REAL)) \
+         ORDER BY created_at DESC",
         rusqlite::params![session_id],
     );
     let active_context_summary = build_active_context_summary(session_id);
@@ -388,42 +398,218 @@ fn build_active_context_summary(session_id: &str) -> Option<Value> {
 }
 
 fn build_latest_context_usage(session_id: &str) -> Option<Value> {
-    let conn = db::open_readonly(&db::runtime_trace_db_path())?;
+    let conn = db::open_readonly(&db::chat_db_path())?;
     let rows = db::query_to_json_array(
         &conn,
-        "SELECT notification_id, turn_id, payload_json, created_at_ms \
-         FROM runtime_notifications \
-         WHERE session_id = ?1 AND channel = 'context_usage' \
-         ORDER BY notification_id DESC \
+        "SELECT usage.turn_id, usage.session_id, usage.user_id, usage.used_tokens, \
+                usage.context_window AS window_size, usage.input_capacity, \
+                usage.compaction_threshold AS threshold, usage.measurement, \
+                usage.model_provider, usage.model_id, usage.updated_at_ms \
+         FROM chat_context_usage_snapshots AS usage \
+         WHERE usage.session_id = ?1 \
+           AND EXISTS ( \
+               SELECT 1 \
+               FROM chat_messages AS message \
+               WHERE message.turn_id = usage.turn_id \
+                 AND message.session_id = usage.session_id \
+                 AND message.role = 'assistant' \
+                 AND message.message_kind IN ( \
+                     'assistant_final', 'assistant_rhythm_segment' \
+                 ) \
+                 AND message.is_final = 1 \
+                 AND message.is_visible = 1 \
+           ) \
+         ORDER BY usage.updated_at_ms DESC, usage.turn_id DESC \
          LIMIT 1",
         rusqlite::params![session_id],
     );
-    let row = rows.into_iter().next()?;
-    let row_obj = row.as_object()?;
-    let payload = row_obj.get("payload_json")?.clone();
-    let mut usage = match payload {
-        Value::String(text) => serde_json::from_str::<Value>(&text).ok()?,
-        Value::Object(_) => payload,
-        _ => return None,
-    };
-    if let Some(obj) = usage.as_object_mut() {
-        if !obj.contains_key("turn_id") {
-            obj.insert(
-                "turn_id".into(),
-                row_obj.get("turn_id").cloned().unwrap_or(Value::Null),
-            );
-        }
-        obj.insert(
-            "notification_id".into(),
-            row_obj
-                .get("notification_id")
-                .cloned()
-                .unwrap_or(Value::Null),
-        );
-        obj.insert(
-            "created_at_ms".into(),
-            row_obj.get("created_at_ms").cloned().unwrap_or(Value::Null),
-        );
+    rows.into_iter().next()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::MutexGuard;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use rusqlite::Connection;
+
+    use super::*;
+
+    struct IsolatedMagiBase {
+        previous_base_dir: Option<PathBuf>,
+        root: PathBuf,
+        _lock: MutexGuard<'static, ()>,
     }
-    Some(usage)
+
+    impl Drop for IsolatedMagiBase {
+        fn drop(&mut self) {
+            db::set_magi_base_dir_override_for_tests(self.previous_base_dir.take());
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn isolated_magi_base(label: &str) -> IsolatedMagiBase {
+        let lock = db::magi_base_dir_override_test_lock();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "magi-gateway-l0-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        let magi_base = root.join(".magi");
+        std::fs::create_dir_all(magi_base.join("data").join("memory")).expect("create memory dir");
+        std::fs::create_dir_all(magi_base.join("data").join("chat")).expect("create chat dir");
+        let previous_base_dir = db::set_magi_base_dir_override_for_tests(Some(magi_base));
+        IsolatedMagiBase {
+            previous_base_dir,
+            root,
+            _lock: lock,
+        }
+    }
+
+    fn seed_l0_and_chat_databases() {
+        let memory = Connection::open(db::memory_db_path()).expect("open memory db");
+        memory
+            .execute_batch(
+                r#"
+                CREATE TABLE l0_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    status TEXT,
+                    started_at REAL,
+                    last_active_at REAL
+                );
+                CREATE TABLE l0_goal_stack (
+                    session_id TEXT,
+                    goal_id TEXT,
+                    status TEXT,
+                    priority INTEGER,
+                    created_at REAL
+                );
+                CREATE TABLE l0_active_entities (
+                    session_id TEXT,
+                    entity_id TEXT,
+                    last_accessed_at REAL
+                );
+                CREATE TABLE l0_temporary_tactics (
+                    session_id TEXT,
+                    tactic_id TEXT,
+                    expires_at REAL,
+                    created_at REAL
+                );
+
+                INSERT INTO l0_sessions
+                    (session_id, user_id, status, started_at, last_active_at)
+                VALUES ('session-1', 'local_user', 'active', 1, 2);
+                INSERT INTO l0_goal_stack
+                    (session_id, goal_id, status, priority, created_at)
+                VALUES
+                    ('session-1', 'goal-current', 'in_progress', 1, 3),
+                    ('session-1', 'goal-old', 'completed', 0, 2);
+                INSERT INTO l0_temporary_tactics
+                    (session_id, tactic_id, expires_at, created_at)
+                VALUES
+                    ('session-1', 'tactic-current', 4102444800, 3),
+                    ('session-1', 'tactic-old', 1, 2);
+                "#,
+            )
+            .expect("seed memory db");
+
+        let chat = Connection::open(db::chat_db_path()).expect("open chat db");
+        chat.execute_batch(
+            r#"
+                CREATE TABLE chat_context_summaries (
+                    summary_id TEXT,
+                    parent_summary_id TEXT,
+                    session_id TEXT,
+                    status TEXT,
+                    summary_kind TEXT,
+                    persona_scope TEXT,
+                    covered_from_message_id INTEGER,
+                    covered_to_message_id INTEGER,
+                    first_kept_message_id INTEGER,
+                    covered_to_sequence_no INTEGER,
+                    session_origin TEXT,
+                    summary_text TEXT,
+                    prompt_profile TEXT,
+                    model_provider TEXT,
+                    model_id TEXT,
+                    token_count_before INTEGER,
+                    token_count_after INTEGER,
+                    quality_status TEXT,
+                    created_at_ms INTEGER,
+                    updated_at_ms INTEGER
+                );
+                CREATE TABLE chat_context_usage_snapshots (
+                    turn_id TEXT,
+                    session_id TEXT,
+                    user_id TEXT,
+                    used_tokens INTEGER,
+                    context_window INTEGER,
+                    input_capacity INTEGER,
+                    compaction_threshold INTEGER,
+                    measurement TEXT,
+                    model_provider TEXT,
+                    model_id TEXT,
+                    updated_at_ms INTEGER
+                );
+                CREATE TABLE chat_messages (
+                    turn_id TEXT,
+                    session_id TEXT,
+                    role TEXT,
+                    message_kind TEXT,
+                    is_final INTEGER,
+                    is_visible INTEGER
+                );
+                INSERT INTO chat_context_usage_snapshots
+                    (turn_id, session_id, user_id, used_tokens, context_window,
+                     input_capacity, compaction_threshold, measurement,
+                     model_provider, model_id, updated_at_ms)
+                VALUES
+                    ('turn-visible', 'session-1', 'local_user', 123, 4096, 3584, 2688,
+                     'estimated', 'test', 'model', 100),
+                    ('turn-hidden', 'session-1', 'local_user', 999, 4096, 3584, 2688,
+                     'estimated', 'test', 'model', 200);
+                INSERT INTO chat_messages
+                    (turn_id, session_id, role, message_kind, is_final, is_visible)
+                VALUES
+                    ('turn-visible', 'session-1', 'assistant',
+                     'assistant_final', 1, 1),
+                    ('turn-hidden', 'session-1', 'assistant',
+                     'assistant_final', 1, 0);
+                "#,
+        )
+        .expect("seed chat db");
+    }
+
+    #[test]
+    fn workbench_exposes_only_current_state_and_visible_usage() {
+        let _base = isolated_magi_base("current-state");
+        seed_l0_and_chat_databases();
+
+        let workbench = build_l0_workbench("session-1").expect("build workbench");
+
+        assert_eq!(workbench["goal_stack"].as_array().unwrap().len(), 1);
+        assert_eq!(workbench["goal_stack"][0]["goal_id"], "goal-current");
+        assert_eq!(workbench["temporary_tactics"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            workbench["temporary_tactics"][0]["tactic_id"],
+            "tactic-current"
+        );
+        assert_eq!(workbench["context_usage"]["turn_id"], "turn-visible");
+        assert_eq!(workbench["context_usage"]["used_tokens"], 123);
+        assert_eq!(workbench["context_usage"]["window_size"], 4096);
+
+        let sessions = build_l0_sessions(&L0SessionsQuery {
+            limit: None,
+            offset: None,
+            status: None,
+            query: None,
+        });
+        assert_eq!(sessions["items"][0]["goal_count"], 1);
+        assert_eq!(sessions["items"][0]["tactic_count"], 1);
+    }
 }

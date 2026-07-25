@@ -410,6 +410,11 @@ async def _completed_fallback_outcome(
         status="completed",
         content=final_content,
         tool_failures=list(state.tool_failures),
+        context_usage=(
+            dict(state.latest_context_usage)
+            if isinstance(state.latest_context_usage, dict)
+            else None
+        ),
         iterations=state.iteration,
     )
 
@@ -498,6 +503,8 @@ async def _complete_fallback_response(
     context: FallbackExecutionContext,
     final_response: dict[str, Any],
 ) -> ExecutionOutcome:
+    if isinstance(final_response.get("context_usage"), dict):
+        state.latest_context_usage = dict(final_response["context_usage"])
     await host._emit_loop_event(
         _fallback_event_payload(
             context,

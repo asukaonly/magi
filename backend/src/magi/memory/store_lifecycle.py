@@ -93,7 +93,7 @@ class UnifiedMemoryLifecycleMixin:
             await self._portrait_projection_scheduler.shutdown()
         if self._edge_embedding_worker is not None:
             await self._edge_embedding_worker.stop()
-        for store in (self.l1, self.l3, self.l4):
+        for store in (self.l0, self.l1, self.l3, self.l4):
             if store is None or not hasattr(store, "shutdown"):
                 continue
             await store.shutdown()

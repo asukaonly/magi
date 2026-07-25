@@ -19,6 +19,10 @@ from ..contracts import (
     ChatAssistantMemoryProjection,
     ChatMessageRecord,
 )
+from .context_usage import (
+    insert_context_usage_snapshot,
+    normalize_context_usage_snapshot,
+)
 
 
 _ACTIVE_TURN_STATUSES = ("queued", "running")
@@ -78,9 +82,10 @@ class ChatDeliveryOutcomePersistenceMixin:
         response_mode: str,
         started_at_ms: int,
         completed_at_ms: int,
-        run_id: str | None,
-        run_revision: int,
-        run_disposition: str | None,
+        context_usage: dict[str, Any] | None = None,
+        run_id: str | None = None,
+        run_revision: int = 0,
+        run_disposition: str | None = None,
     ) -> list[ChatMessageRecord] | None:
         """Commit visible output, turn completion, and exact delivery terminality.
 
@@ -99,6 +104,7 @@ class ChatDeliveryOutcomePersistenceMixin:
             response_mode=response_mode,
             started_at_ms=started_at_ms,
             completed_at_ms=completed_at_ms,
+            context_usage=context_usage,
             run_id=run_id,
             run_revision=run_revision,
             run_disposition=run_disposition,
@@ -126,9 +132,10 @@ class ChatDeliveryOutcomePersistenceMixin:
         response_mode: str,
         started_at_ms: int,
         completed_at_ms: int,
-        run_id: str | None,
-        run_revision: int,
-        run_disposition: str | None,
+        context_usage: dict[str, Any] | None = None,
+        run_id: str | None = None,
+        run_revision: int = 0,
+        run_disposition: str | None = None,
     ) -> list[ChatMessageRecord] | None:
         """Atomically commit an assistant outcome without a delivery ledger."""
 
@@ -143,6 +150,7 @@ class ChatDeliveryOutcomePersistenceMixin:
             response_mode=response_mode,
             started_at_ms=started_at_ms,
             completed_at_ms=completed_at_ms,
+            context_usage=context_usage,
             run_id=run_id,
             run_revision=run_revision,
             run_disposition=run_disposition,
@@ -166,6 +174,7 @@ class ChatDeliveryOutcomePersistenceMixin:
         response_mode: str,
         started_at_ms: int,
         completed_at_ms: int,
+        context_usage: dict[str, Any] | None,
         run_id: str | None,
         run_revision: int,
         run_disposition: str | None,
@@ -269,6 +278,19 @@ class ChatDeliveryOutcomePersistenceMixin:
                     ),
                 )
                 transcript_changed = transcript_changed or bool(committed_messages)
+                usage_snapshot = (
+                    normalize_context_usage_snapshot(
+                        turn_id=normalized_turn_id,
+                        session_id=session_id,
+                        user_id=user_id,
+                        context_usage=context_usage,
+                        updated_at_ms=completed_at_ms,
+                    )
+                    if committed_messages
+                    else None
+                )
+                if usage_snapshot is not None:
+                    await insert_context_usage_snapshot(db, usage_snapshot)
                 assistant_memory_projection = self._derive_assistant_memory_projection(
                     committed_messages
                 )

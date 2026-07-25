@@ -5,6 +5,9 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Optional, Protocol, cast
 
+MAX_GOALS_PER_SESSION = 32
+TERMINAL_GOAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+
 
 class _L0GoalHostProtocol(Protocol):
     _goal_stack: dict[str, list[dict[str, Any]]]
@@ -12,6 +15,8 @@ class _L0GoalHostProtocol(Protocol):
     async def start_session(self, *, session_id: str, **kwargs: Any) -> dict[str, Any]: ...
 
     def _ensure_session_sync(self, session_id: str) -> dict[str, Any]: ...
+
+    def _schedule_checkpoint(self, session_id: str) -> None: ...
 
 
 class L0GoalStackMixin:
@@ -46,7 +51,8 @@ class L0GoalStackMixin:
             "result_summary": None,
             "metadata": dict(metadata or {}),
         }
-        host._goal_stack[session_id].append(goal)
+        self._store_goal(host, session_id=session_id, goal=goal)
+        host._schedule_checkpoint(session_id)
         return goal
 
     def push_goal_sync(
@@ -78,7 +84,8 @@ class L0GoalStackMixin:
             "result_summary": None,
             "metadata": dict(metadata or {}),
         }
-        host._goal_stack[session_id].append(goal)
+        self._store_goal(host, session_id=session_id, goal=goal)
+        host._schedule_checkpoint(session_id)
         return dict(goal)
 
     async def set_goal_status(
@@ -118,8 +125,51 @@ class L0GoalStackMixin:
                 goal["completed_at"] = time.time()
             if result_summary is not None:
                 goal["result_summary"] = result_summary
+            host._schedule_checkpoint(session_id)
             return True
         return False
+
+    def prune_terminal_goals_sync(self, session_id: str) -> int:
+        """Remove completed work before a new active run is projected."""
+
+        host = cast(_L0GoalHostProtocol, self)
+        goals = host._goal_stack.get(session_id, [])
+        retained = [
+            goal
+            for goal in goals
+            if str(goal.get("status") or "") not in TERMINAL_GOAL_STATUSES
+        ]
+        removed = len(goals) - len(retained)
+        if removed:
+            host._goal_stack[session_id] = retained
+            host._schedule_checkpoint(session_id)
+        return removed
+
+    @staticmethod
+    def _store_goal(
+        host: _L0GoalHostProtocol,
+        *,
+        session_id: str,
+        goal: dict[str, Any],
+    ) -> None:
+        goals = host._goal_stack.setdefault(session_id, [])
+        for index, existing in enumerate(goals):
+            if str(existing.get("goal_id") or "") == str(goal["goal_id"]):
+                goals[index] = goal
+                return
+        goals.append(goal)
+        if len(goals) <= MAX_GOALS_PER_SESSION:
+            return
+        terminal_indexes = [
+            index
+            for index, existing in enumerate(goals)
+            if str(existing.get("status") or "") in TERMINAL_GOAL_STATUSES
+        ]
+        while len(goals) > MAX_GOALS_PER_SESSION and terminal_indexes:
+            goals.pop(terminal_indexes.pop(0))
+            terminal_indexes = [index - 1 for index in terminal_indexes]
+        if len(goals) > MAX_GOALS_PER_SESSION:
+            del goals[: len(goals) - MAX_GOALS_PER_SESSION]
 
 
 __all__ = ["L0GoalStackMixin"]

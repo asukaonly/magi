@@ -294,10 +294,14 @@ class ContextCompactor:
         """Return current context window usage snapshot, or *None* if unknown."""
         if self._last_input_tokens is None or self._last_input_tokens <= 0:
             return None
+        budget = self._current_budget()
         return {
             "used_tokens": self._last_input_tokens,
-            "window_size": self.effective_window,
-            "threshold": self.compact_threshold,
+            "context_window": budget.context_window,
+            "window_size": budget.context_window,
+            "input_capacity": budget.input_capacity,
+            "compaction_threshold": budget.compaction_trigger_tokens,
+            "threshold": budget.compaction_trigger_tokens,
         }
 
     def _current_token_estimate(

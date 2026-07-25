@@ -94,8 +94,11 @@ class DirectLLMHandler(BaseExecutionHandler):
         return resolver if resolver is not None else NullAttachmentResolver()
 
     def _current_context_budget(self) -> ContextWindowBudget:
+        return build_context_window_budget(self._current_model_context_profile())
+
+    def _current_model_context_profile(self) -> ModelContextProfile:
         provider = getattr(self._deps, "model_context_provider", None)
-        profile = (
+        return (
             provider()
             if callable(provider)
             else ModelContextProfile(
@@ -105,7 +108,6 @@ class DirectLLMHandler(BaseExecutionHandler):
                 max_output_tokens=None,
             )
         )
-        return build_context_window_budget(profile)
 
     async def build_request(self, request: ExecutionRequest) -> DirectLLMRequest:
         attachments = resolve_effective_turn_attachments(
@@ -205,34 +207,77 @@ class DirectLLMHandler(BaseExecutionHandler):
         if unsupported is not None:
             return unsupported
 
+        model_profile = self._current_model_context_profile()
+        context_budget = build_context_window_budget(model_profile)
         context_usage = self._fit_messages_to_input_capacity(
             request,
-            budget=self._current_context_budget(),
+            budget=context_budget,
         )
         if not context_usage.fits_input_capacity:
-            return self._build_context_window_exceeded_result(
+            result = self._build_context_window_exceeded_result(
                 request=request,
                 turn_id=turn_id,
                 llm_trace=llm_trace,
                 usage=context_usage,
             )
+            result.context_usage = self._build_context_usage_snapshot(
+                usage=context_usage,
+                budget=context_budget,
+                profile=model_profile,
+                llm_trace=result.llm_trace,
+            )
+            return result
 
         streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
         if streaming_enabled:
-            return await self._execute_streaming(
+            result = await self._execute_streaming(
                 request=request,
                 control=control,
                 event_context=event_context,
                 turn_id=turn_id,
                 llm_trace=llm_trace,
             )
-        return await self._execute_non_streaming(
-            request=request,
-            control=control,
-            event_context=event_context,
-            turn_id=turn_id,
-            llm_trace=llm_trace,
+        else:
+            result = await self._execute_non_streaming(
+                request=request,
+                control=control,
+                event_context=event_context,
+                turn_id=turn_id,
+                llm_trace=llm_trace,
+            )
+        result.context_usage = self._build_context_usage_snapshot(
+            usage=context_usage,
+            budget=context_budget,
+            profile=model_profile,
+            llm_trace=result.llm_trace,
         )
+        return result
+
+    @staticmethod
+    def _build_context_usage_snapshot(
+        *,
+        usage: ContextWindowUsage,
+        budget: ContextWindowBudget,
+        profile: ModelContextProfile,
+        llm_trace: dict[str, Any],
+    ) -> dict[str, Any]:
+        observed_tokens = llm_trace.get("input_tokens")
+        actual_tokens = (
+            int(observed_tokens)
+            if isinstance(observed_tokens, (int, float))
+            and not isinstance(observed_tokens, bool)
+            and observed_tokens > 0
+            else None
+        )
+        return {
+            "used_tokens": actual_tokens or usage.estimated_tokens,
+            "context_window": budget.context_window,
+            "input_capacity": budget.input_capacity,
+            "compaction_threshold": budget.compaction_trigger_tokens,
+            "measurement": "actual" if actual_tokens is not None else "estimated",
+            "model_provider": profile.provider_id,
+            "model_id": profile.model_id,
+        }
 
     def _fit_messages_to_input_capacity(
         self,

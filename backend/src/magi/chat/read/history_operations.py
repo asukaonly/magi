@@ -31,11 +31,13 @@ from .deletion_phases import (
 from .code_delegation_ownership import (
     unshared_code_delegation_references,
 )
+from ..contracts import ChatContextUsageSnapshot
 from .models import ChatDisplayMessage
 from .schema import (
     CHAT_ATTACHMENTS_TABLE,
     CHAT_CLEARED_MESSAGE_SCOPES_TABLE,
     CHAT_CONTEXT_SUMMARIES_TABLE,
+    CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE,
     CHAT_MESSAGES_TABLE,
     CHAT_RUN_CONSUMED_EVENTS_TABLE,
     CHAT_SESSIONS_TABLE,
@@ -533,6 +535,67 @@ class ChatHistoryOperationsMixin:
         host._attach_reply_previews(rows=selected_message_rows, messages=messages)
         return _collapse_rhythm_segments_for_prompt(messages)
 
+    def get_latest_context_usage(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> ChatContextUsageSnapshot | None:
+        """Return the newest usage whose accepted answer remains visible."""
+
+        host = cast(_ChatHistoryOperationsHost, self)
+        if not host._chat_db_path.exists():
+            return None
+        row = (
+            host._get_conn()
+            .execute(
+                f"""
+                SELECT usage.*
+                FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE} AS usage
+                JOIN {CHAT_SESSIONS_TABLE} AS session
+                  ON session.session_id = usage.session_id
+                 AND session.user_id = usage.user_id
+                WHERE usage.user_id = ?
+                  AND usage.session_id = ?
+                  AND session.deleted_at_ms IS NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM {CHAT_MESSAGES_TABLE} AS message
+                      WHERE message.turn_id = usage.turn_id
+                        AND message.session_id = usage.session_id
+                        AND message.user_id = usage.user_id
+                        AND message.role = 'assistant'
+                        AND message.message_kind IN (
+                            'assistant_final',
+                            'assistant_rhythm_segment'
+                        )
+                        AND message.is_final = 1
+                        AND message.is_visible = 1
+                  )
+                ORDER BY usage.updated_at_ms DESC, usage.turn_id DESC
+                LIMIT 1
+                """,
+                (user_id, session_id),
+            )
+            .fetchone()
+        )
+        if row is None:
+            return None
+        return ChatContextUsageSnapshot(
+            turn_id=str(row["turn_id"]),
+            session_id=str(row["session_id"]),
+            user_id=str(row["user_id"]),
+            used_tokens=int(row["used_tokens"]),
+            context_window=int(row["context_window"]),
+            input_capacity=int(row["input_capacity"]),
+            compaction_threshold=int(row["compaction_threshold"]),
+            measurement=str(row["measurement"]),
+            model_provider=(
+                str(row["model_provider"]) if row["model_provider"] is not None else None
+            ),
+            model_id=str(row["model_id"]) if row["model_id"] is not None else None,
+            updated_at_ms=int(row["updated_at_ms"]),
+        )
+
     def get_session_attachment_references(
         self,
         user_id: str,
@@ -843,6 +906,11 @@ class ChatHistoryOperationsMixin:
                 f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE} WHERE session_id = ?",
                 (normalized_session_id,),
             )
+            if turn_id:
+                conn.execute(
+                    f"DELETE FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE} WHERE turn_id = ?",
+                    (turn_id,),
+                )
             latest_user_message = conn.execute(
                 f"""
                 SELECT content_text, created_at_ms
@@ -1091,6 +1159,14 @@ class ChatHistoryOperationsMixin:
             conn.execute(
                 f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE} WHERE session_id = ?",
                 (normalized_session_id,),
+            )
+            conn.execute(
+                f"""
+                DELETE FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE}
+                WHERE turn_id IN (
+                    SELECT item_id FROM {DELETION_TURN_IDS_TABLE}
+                )
+                """
             )
             latest_user_message = conn.execute(
                 f"""

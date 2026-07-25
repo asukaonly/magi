@@ -15,6 +15,7 @@ import {
   isChatHistoryGuardCurrent,
 } from './chatRetryInvalidation';
 import { useConversationStore } from '@/stores';
+import { useContextUsageStore } from '@/stores/context-usage';
 import { upsertTimelineMessage } from '@/stores/conversation-timeline';
 
 const USER_ID = DEFAULT_USER_ID;
@@ -223,6 +224,14 @@ export function useChatSessionLifecycle({
             messagesToCommit,
             historyVersion,
           );
+          if (history.context_usage) {
+            useContextUsageStore.getState().update(
+              sessionId,
+              history.context_usage,
+            );
+          } else {
+            useContextUsageStore.getState().clear(sessionId);
+          }
         }
         return {
           loaded: true,

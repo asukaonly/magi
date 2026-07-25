@@ -6,6 +6,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
 from .working.checkpoint import L0CheckpointMixin
 from .working.execution import L0ExecutionStateMixin
@@ -16,6 +17,7 @@ from .working.source_forgetting import L0SourceForgettingMixin
 from .working.workbench import L0WorkbenchMixin
 
 MAX_CONCURRENT_SESSIONS = 64
+logger = get_logger(__name__)
 
 
 class L0WorkingMemoryStore(
@@ -51,6 +53,8 @@ class L0WorkingMemoryStore(
         self._execution_pending_turns: dict[str, list[dict[str, Any]]] = {}
         self._execution_results: dict[str, list[dict[str, Any]]] = {}
         self._checkpoint_lock = asyncio.Lock()
+        self._checkpoint_tasks: dict[str, asyncio.Task[None]] = {}
+        self._checkpoint_versions: dict[str, int] = {}
         self._initialization_lock = asyncio.Lock()
         self._initialized = False
 
@@ -69,6 +73,70 @@ class L0WorkingMemoryStore(
                 await self._restore_from_checkpoint()
 
             self._initialized = True
+
+    def _schedule_checkpoint(self, session_id: str) -> None:
+        """Persist dirty session state after the configured debounce interval."""
+
+        if not self._initialized:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._checkpoint_versions[session_id] = (
+            self._checkpoint_versions.get(session_id, 0) + 1
+        )
+        existing = self._checkpoint_tasks.get(session_id)
+        if existing is not None and not existing.done():
+            return
+
+        async def _checkpoint_after_delay() -> None:
+            try:
+                while True:
+                    scheduled_version = self._checkpoint_versions.get(session_id, 0)
+                    await asyncio.sleep(self.checkpoint_interval_seconds)
+                    try:
+                        await self.checkpoint_session(session_id)
+                    except Exception:
+                        logger.exception(
+                            "L0 scheduled checkpoint failed; retrying",
+                            session_id=session_id,
+                        )
+                        continue
+                    if self._checkpoint_versions.get(session_id, 0) == scheduled_version:
+                        break
+            except asyncio.CancelledError:
+                raise
+            finally:
+                current = asyncio.current_task()
+                if self._checkpoint_tasks.get(session_id) is current:
+                    self._checkpoint_tasks.pop(session_id, None)
+                    self._checkpoint_versions.pop(session_id, None)
+
+        self._checkpoint_tasks[session_id] = loop.create_task(
+            _checkpoint_after_delay(),
+            name=f"l0-checkpoint:{session_id}",
+        )
+
+    def _cancel_scheduled_checkpoint(self, session_id: str) -> None:
+        task = self._checkpoint_tasks.pop(session_id, None)
+        self._checkpoint_versions.pop(session_id, None)
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+
+    async def shutdown(self) -> None:
+        """Flush live workbench state and stop delayed checkpoints."""
+
+        tasks = list(self._checkpoint_tasks.values())
+        self._checkpoint_tasks.clear()
+        self._checkpoint_versions.clear()
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        if self._initialized:
+            await self.checkpoint_all()
+        self._initialized = False
 
 
 __all__ = ["L0WorkingMemoryStore"]

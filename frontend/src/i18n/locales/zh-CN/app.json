@@ -852,7 +852,8 @@
     },
     "contextUsage": {
       "label": "上下文用量：{{usage}}（{{percent}}%）",
-      "unavailableLabel": "上下文用量：{{usage}}"
+      "unavailableLabel": "上下文用量：{{usage}}",
+      "estimatedValue": "{{usage}}（估算）"
     },
     "delegation": {
       "title": "已委派给 {{adapter}}",

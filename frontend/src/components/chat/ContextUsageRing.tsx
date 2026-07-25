@@ -52,11 +52,16 @@ interface ContextUsageRingProps {
   configuredWindowSize?: number | null;
 }
 
-const ContextUsageRingInner: React.FC<{ snapshot: ContextUsageSnapshot }> = ({ snapshot }) => {
+const ContextUsageRingInner: React.FC<{
+  snapshot?: ContextUsageSnapshot;
+  configuredWindowSize?: number | null;
+}> = ({ snapshot, configuredWindowSize }) => {
   const { t } = useTranslation('app');
-  const { usedTokens, windowSize } = snapshot;
-  if (windowSize <= 0) {
-    const usageText = '0 / —';
+  if (!snapshot) {
+    const hasConfiguredWindow = typeof configuredWindowSize === 'number'
+      && Number.isFinite(configuredWindowSize)
+      && configuredWindowSize > 0;
+    const usageText = `— / ${hasConfiguredWindow ? formatTokens(configuredWindowSize) : '—'}`;
     return (
       <TooltipProvider delayDuration={250}>
         <Tooltip>
@@ -82,7 +87,7 @@ const ContextUsageRingInner: React.FC<{ snapshot: ContextUsageSnapshot }> = ({ s
                 />
               </svg>
               <span className="absolute text-[9px] font-semibold leading-none text-muted-foreground/80">
-                0
+                —
               </span>
             </div>
           </TooltipTrigger>
@@ -94,16 +99,24 @@ const ContextUsageRingInner: React.FC<{ snapshot: ContextUsageSnapshot }> = ({ s
     );
   }
 
+  const { usedTokens, windowSize } = snapshot;
   const ratio = Math.min(usedTokens / windowSize, 1);
   const offset = CIRCUMFERENCE * (1 - ratio);
   const color = ringColor(ratio);
   const pct = Math.round(ratio * 100);
+  const percentText = ratio > 0 && ratio < 0.01 ? '<1' : String(pct);
   const usageText = `${formatTokens(usedTokens)} / ${formatTokens(windowSize)}`;
   const ariaLabel = t('chat.contextUsage.label', {
     defaultValue: '上下文用量：{{usage}}（{{percent}}%）',
     usage: usageText,
-    percent: pct,
+    percent: percentText,
   });
+  const tooltipText = snapshot.measurement === 'estimated'
+    ? t('chat.contextUsage.estimatedValue', {
+      defaultValue: '{{usage}}（估算）',
+      usage: usageText,
+    })
+    : usageText;
 
   return (
     <TooltipProvider delayDuration={250}>
@@ -148,12 +161,12 @@ const ContextUsageRingInner: React.FC<{ snapshot: ContextUsageSnapshot }> = ({ s
               className="absolute text-[9px] font-semibold leading-none"
               style={{ color }}
             >
-              {pct}
+              {percentText}
             </span>
           </div>
         </TooltipTrigger>
         <TooltipContent side="top" sideOffset={8} className="tabular-nums">
-          {usageText}
+          {tooltipText}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -167,19 +180,10 @@ export const ContextUsageRing: React.FC<ContextUsageRingProps> = ({
   const runtimeSnapshot = useContextUsageStore((state) =>
     sessionId ? state.usage[sessionId] : undefined,
   );
-  const hasConfiguredWindow = typeof configuredWindowSize === 'number'
-    && Number.isFinite(configuredWindowSize)
-    && configuredWindowSize > 0;
   return (
     <ContextUsageRingInner
-      snapshot={{
-        usedTokens: runtimeSnapshot?.usedTokens ?? 0,
-        windowSize: hasConfiguredWindow
-          ? configuredWindowSize
-          : runtimeSnapshot?.windowSize ?? 0,
-        threshold: runtimeSnapshot?.threshold ?? 0,
-        updatedAt: runtimeSnapshot?.updatedAt ?? 0,
-      }}
+      snapshot={runtimeSnapshot}
+      configuredWindowSize={configuredWindowSize}
     />
   );
 };

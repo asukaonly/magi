@@ -33,6 +33,8 @@ class _L0WorkbenchHostProtocol(Protocol):
 
     def get_execution_state_sync(self, session_id: str) -> dict[str, Any]: ...
 
+    def _schedule_checkpoint(self, session_id: str) -> None: ...
+
 
 class L0WorkbenchMixin:
     """Own active entities, temporary tactics, and prompt workbench projection."""
@@ -73,6 +75,7 @@ class L0WorkbenchMixin:
                     if not await filter_active_entities_by_governance(db, [entity]):
                         return None
             entities[key] = entity
+            host._schedule_checkpoint(session_id)
             return entity
 
     async def add_temporary_tactic(
@@ -108,6 +111,7 @@ class L0WorkbenchMixin:
                     if await forgotten_tactic_source_references(db, references):
                         return None
             host._temporary_tactics.setdefault(session_id, {})[tactic["tactic_id"]] = tactic
+            host._schedule_checkpoint(session_id)
         return tactic
 
     async def get_workbench(self, session_id: str) -> dict[str, Any]:
@@ -150,7 +154,21 @@ class L0WorkbenchMixin:
                 ]
             return {
                 "session": dict(session) if session else None,
-                "goal_stack": [dict(item) for item in host._goal_stack.get(session_id, [])],
+                "goal_stack": [
+                    dict(item)
+                    for item in sorted(
+                        (
+                            goal
+                            for goal in host._goal_stack.get(session_id, [])
+                            if str(goal.get("status") or "")
+                            in {"pending", "in_progress"}
+                        ),
+                        key=lambda item: (
+                            -int(item.get("priority") or 0),
+                            -float(item.get("created_at") or 0.0),
+                        ),
+                    )
+                ],
                 "active_entities": [
                     dict(item)
                     for item in sorted(
@@ -222,10 +240,14 @@ class L0WorkbenchMixin:
         now = time.time()
         async with host._checkpoint_lock:
             tactics = host._temporary_tactics.get(session_id, {})
+            removed = False
             for tactic_id, tactic in list(tactics.items()):
                 expires_at = tactic.get("expires_at")
                 if expires_at is not None and float(expires_at) <= now:
                     del tactics[tactic_id]
+                    removed = True
+            if removed:
+                host._schedule_checkpoint(session_id)
 
 
 __all__ = ["L0WorkbenchMixin"]

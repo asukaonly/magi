@@ -95,17 +95,21 @@ class ContextRetrievalService:
         if not session_id or getattr(self._unified_memory, "l0", None) is None:
             return []
         try:
-            workbench = await self._unified_memory.l0.get_workbench(session_id)
+            projection = await self._unified_memory.l0.get_prompt_workbench_projection(
+                session_id
+            )
         except Exception:
             return []
-        if not isinstance(workbench, dict) or workbench.get("session") is None:
+        workbench = projection.to_retrieval_entry()
+        if workbench.get("session") is None:
             return []
         return [
             {
                 "session": workbench["session"],
-                "goals": list(workbench.get("goal_stack", [])[:3]),
+                "goals": list(workbench.get("goals", [])[:3]),
                 "active_entities": list(workbench.get("active_entities", [])[:5]),
                 "temporary_tactics": list(workbench.get("temporary_tactics", [])[:5]),
+                "execution_summary": workbench.get("execution_summary"),
             }
         ]
 

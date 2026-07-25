@@ -29,6 +29,7 @@ class FunctionCallingStepState:
     suppressed_tool_names: set[str] = field(default_factory=set)
     ephemeral_context_message_index: int | None = None
     ephemeral_context_original_content: Any | None = None
+    latest_context_usage: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

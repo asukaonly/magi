@@ -101,6 +101,19 @@ export interface ConversationHistory {
   messages: ChatHistoryMessage[];
   count: number;
   history_version?: number;
+  context_usage?: ContextUsageData | null;
+}
+
+export interface ContextUsageData {
+  turn_id: string;
+  used_tokens: number;
+  window_size: number;
+  input_capacity: number;
+  threshold: number;
+  measurement: 'actual' | 'estimated';
+  model_provider?: string | null;
+  model_id?: string | null;
+  updated_at_ms: number;
 }
 
 export interface ChatSessionListItem {

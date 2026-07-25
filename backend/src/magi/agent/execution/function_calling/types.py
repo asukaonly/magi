@@ -52,6 +52,7 @@ class ExecutionOutcome:
     tool_failures: list[dict[str, Any]] = field(default_factory=list)
     attachments: list[dict[str, Any]] = field(default_factory=list)
     message_payload: dict[str, Any] = field(default_factory=dict)
+    context_usage: dict[str, Any] | None = None
     iterations: int = 0
     snapshot: "OrchestratorSnapshot | None" = None
 
@@ -71,6 +72,11 @@ class ExecutionOutcome:
             "tool_failures": list(self.tool_failures),
             "attachments": list(self.attachments),
             "message_payload": dict(self.message_payload),
+            "context_usage": (
+                dict(self.context_usage)
+                if isinstance(self.context_usage, dict)
+                else None
+            ),
             "iterations": self.iterations,
             "snapshot": self.snapshot.to_dict() if self.snapshot is not None else None,
         }
