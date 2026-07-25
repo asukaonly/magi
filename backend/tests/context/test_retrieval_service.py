@@ -7,13 +7,21 @@ from magi.context.retrieval import ContextRetrievalService
 
 
 class _FakeL0Store:
-    async def get_workbench(self, session_id: str):
-        return {
-            "session": session_id,
-            "goal_stack": ["ship the fix"],
-            "active_entities": ["repo:magi"],
-            "temporary_tactics": ["stay small"],
-        }
+    async def get_prompt_workbench_projection(self, session_id: str):
+        class _Projection:
+            @staticmethod
+            def to_retrieval_entry():
+                return {
+                    "session": session_id,
+                    "goals": ["ship the fix"],
+                    "active_entities": ["repo:magi"],
+                    "temporary_tactics": ["stay small"],
+                    "execution_summary": {
+                        "active_run_summary": "ship the fix",
+                    },
+                }
+
+        return _Projection()
 
 
 class _FakeL4Store:
@@ -57,6 +65,10 @@ class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(payload["l0_workbench"][0]["session"], "s1")
+        self.assertEqual(
+            payload["l0_workbench"][0]["execution_summary"]["active_run_summary"],
+            "ship the fix",
+        )
         self.assertEqual(payload["l2_entity_cards"], [])
         self.assertEqual(payload["l3_reflection_memory"], [])
         self.assertEqual(

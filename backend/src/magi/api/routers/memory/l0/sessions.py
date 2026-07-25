@@ -1,10 +1,20 @@
 """L0 session list response helpers for the memory API."""
 from __future__ import annotations
 
+import time
 from typing import Any, Mapping
 
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
+
 from .display import derive_l0_session_display
+
+
+def _current_goals(goals: list[Any]) -> list[Any]:
+    return [
+        goal
+        for goal in goals
+        if str(goal.get("status") or "") in {"pending", "in_progress"}
+    ]
 
 
 def empty_l0_sessions_response(*, limit: int, offset: int) -> dict[str, Any]:
@@ -68,7 +78,7 @@ def filter_l0_session_ids_by_query(
         session = sessions[session_id]
         display = derive_l0_session_display(
             session_id=session_id,
-            goals=goals_by_session.get(session_id, []),
+            goals=_current_goals(goals_by_session.get(session_id, [])),
             chat_summary=summary_map.get(session_id),
         )
         searchable = " ".join(
@@ -100,12 +110,18 @@ def build_l0_session_list_items(
     total_goals = 0
     total_entities = 0
     total_tactics = 0
+    now = time.time()
 
     for session_id in session_ids:
         session = sessions[session_id]
-        goals = goals_by_session.get(session_id, [])
+        goals = _current_goals(goals_by_session.get(session_id, []))
         entities = entities_by_session.get(session_id, {})
-        tactics = tactics_by_session.get(session_id, {})
+        tactics = {
+            tactic_id: tactic
+            for tactic_id, tactic in tactics_by_session.get(session_id, {}).items()
+            if tactic.get("expires_at") is None
+            or float(tactic["expires_at"]) > now
+        }
         chat_summary = summary_map.get(session_id)
         display = derive_l0_session_display(
             session_id=session_id,

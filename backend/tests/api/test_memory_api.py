@@ -751,9 +751,19 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
             "metadata": {},
         }
     }
-    fake_memory.l0._goal_stack = {"379f666d-aee9-48fb-ab88-50690496297b": []}
+    fake_memory.l0._goal_stack = {
+        "379f666d-aee9-48fb-ab88-50690496297b": [
+            {"goal_id": "current", "status": "in_progress"},
+            {"goal_id": "finished", "status": "completed"},
+        ]
+    }
     fake_memory.l0._active_entities = {"379f666d-aee9-48fb-ab88-50690496297b": {}}
-    fake_memory.l0._temporary_tactics = {"379f666d-aee9-48fb-ab88-50690496297b": {}}
+    fake_memory.l0._temporary_tactics = {
+        "379f666d-aee9-48fb-ab88-50690496297b": {
+            "current": {"tactic_id": "current", "expires_at": 4102444800},
+            "expired": {"tactic_id": "expired", "expires_at": 1},
+        }
+    }
 
     class _FakeChatReadService:
         async def aget_session_summaries_batch(self, user_id: str, session_ids: list):
@@ -790,6 +800,8 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
     assert body["items"][0]["last_user_message_preview"] == "把通用记忆设置里的 UUID 展示优化掉"
     assert body["items"][0]["title_overridden"] is True
     assert body["items"][0]["history_version"] == 3
+    assert body["items"][0]["goal_count"] == 1
+    assert body["items"][0]["tactic_count"] == 1
     assert body["total"] == 1
 
 
@@ -839,6 +851,57 @@ def test_l0_sessions_api_treats_new_session_title_as_generic(monkeypatch):
     body = response.json()
     assert body["items"][0]["display_title"] == "把工作台记忆页改得更像产品页"
     assert body["items"][0]["display_subtitle"] == "magi"
+
+
+def test_l0_workbench_composes_durable_context_usage(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeL0:
+        async def get_workbench(self, session_id: str):
+            assert session_id == "session-1"
+            return {
+                "session": {
+                    "session_id": session_id,
+                    "user_id": "local_user",
+                },
+                "goal_stack": [],
+                "active_entities": [],
+                "temporary_tactics": [],
+            }
+
+    class _FakeChatReadService:
+        async def aget_latest_context_usage(self, user_id: str, session_id: str):
+            assert (user_id, session_id) == ("local_user", "session-1")
+            return SimpleNamespace(
+                to_dict=lambda: {
+                    "turn_id": "turn-1",
+                    "used_tokens": 123,
+                    "window_size": 4096,
+                }
+            )
+
+    fake_memory = SimpleNamespace(l0=_FakeL0())
+    fake_memory_barrier = AsyncOperationBarrier()
+    fake_memory.memory_operation_guard = fake_memory_barrier.operation
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: fake_memory,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _FakeChatReadService(),
+    )
+
+    client = TestClient(app)
+    response = client.get("/api/memory/l0/workbench/session-1")
+
+    assert response.status_code == 200
+    assert response.json()["context_usage"] == {
+        "turn_id": "turn-1",
+        "used_tokens": 123,
+        "window_size": 4096,
+    }
 
 
 def test_memory_procedures_api_lists_skills(monkeypatch):

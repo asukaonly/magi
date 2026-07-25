@@ -165,6 +165,27 @@ Key properties:
 
 `L0` should only hold what the current turn genuinely needs, not everything the system has ever seen.
 
+L0 has two distinct lifecycles. Disposable workbench state (goals, active
+entities, and temporary tactics) may expire after the session idle timeout or
+be evicted when the configured session capacity is full. Active execution state
+(the current run, admitted pending turns, and accepted results) is recovery
+state: generic idle expiry and capacity eviction must never remove it. If every
+slot is occupied by active execution, admission fails instead of discarding an
+in-flight run.
+
+The checkpoint interval is a real maximum debounce for dirty L0 state. A
+mutation schedules a checkpoint, mutations that arrive while a checkpoint is
+running schedule a later pass, and normal shutdown flushes all live sessions.
+Explicit completion checkpoints remain the durability barrier for execution
+transitions that must survive restart.
+
+Restart restore keeps all sessions with active execution state regardless of
+their last activity timestamp. Disposable sessions restore only when they were
+active, are still inside the idle window, and fit within the configured
+capacity. Rejected checkpoint rows, terminal goals, and expired tactics are
+deleted rather than being resurrected on every restart. Prompt and workbench
+reads expose only pending or in-progress goals and unexpired tactics.
+
 L0 may expose chat-owned state in a workbench view, but it does not become the
 owner of that state. In particular, context-window usage belongs to the accepted
 chat turn in `chat.db`: it must survive an L0 timeout, restore after restart, and

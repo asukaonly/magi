@@ -32,6 +32,8 @@ class _L0ExecutionHostProtocol(Protocol):
 
     def _ensure_session_sync(self, session_id: str) -> dict[str, Any]: ...
 
+    def _schedule_checkpoint(self, session_id: str) -> None: ...
+
 
 def _execution_goal_owned_by_turn(
     goal: dict[str, Any],
@@ -464,6 +466,7 @@ class L0ExecutionStateMixin:
         host._execution_runs[session_id] = execution_run
         host._execution_pending_turns.setdefault(session_id, [])
         host._execution_results.setdefault(session_id, [])
+        host._schedule_checkpoint(session_id)
         return dict(execution_run)
 
     @classmethod
@@ -586,6 +589,7 @@ class L0ExecutionStateMixin:
             "created_at": time.time(),
         }
         pending_turns.append(pending_turn)
+        host._schedule_checkpoint(session_id)
         return dict(pending_turn)
 
     def consume_execution_pending_turns_sync(
@@ -627,6 +631,8 @@ class L0ExecutionStateMixin:
         host._execution_pending_turns[session_id] = [
             item for item in existing if not _matches(item)
         ]
+        if pending_turns:
+            host._schedule_checkpoint(session_id)
         return pending_turns
 
     def record_execution_result_sync(
@@ -654,6 +660,7 @@ class L0ExecutionStateMixin:
         results = host._execution_results.setdefault(session_id, [])
         results[:] = [item for item in results if str(item.get("result_id")) != result_id]
         results.append(result)
+        host._schedule_checkpoint(session_id)
         return dict(result)
 
     def clear_execution_state_sync(self, session_id: str) -> None:
@@ -662,6 +669,7 @@ class L0ExecutionStateMixin:
         host._execution_runs.pop(session_id, None)
         host._execution_pending_turns.pop(session_id, None)
         host._execution_results.pop(session_id, None)
+        host._schedule_checkpoint(session_id)
 
     def get_execution_state_sync(self, session_id: str) -> dict[str, Any]:
         """Synchronously return the execution-lane state for one session."""

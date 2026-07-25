@@ -43,12 +43,14 @@ class L0CheckpointMixin:
 
     async def checkpoint_session(self, session_id: str) -> None:
         """Persist a single session workbench into the checkpoint database."""
+        scheduled = getattr(self, "_checkpoint_tasks", {}).get(session_id)
+        if scheduled is not None and scheduled is not asyncio.current_task():
+            getattr(self, "_cancel_scheduled_checkpoint")(session_id)
         async with self._checkpoint_lock:
             session = self._sessions.get(session_id)
             if session is None:
                 return
             now = time.time()
-            session["last_checkpoint_at"] = now
 
             async with sqlite_connection_async(self.checkpoint_db_path) as db:
                 await self._upsert_checkpoint_session(db, session=session, now=now)
@@ -59,6 +61,7 @@ class L0CheckpointMixin:
                 await self._replace_checkpoint_pending_turns(db, session_id=session_id)
                 await self._replace_checkpoint_execution_results(db, session_id=session_id)
                 await db.commit()
+            session["last_checkpoint_at"] = now
 
     async def _upsert_checkpoint_session(
         self,
@@ -279,14 +282,27 @@ class L0CheckpointMixin:
 
     async def checkpoint_all(self) -> None:
         """Persist every active session."""
+        first_error: Exception | None = None
         for session_id in list(self._sessions):
-            await self.checkpoint_session(session_id)
+            try:
+                await self.checkpoint_session(session_id)
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
 
     async def clear(self) -> int:
         """Delete all L0 sessions from memory and checkpoints."""
         await self.initialize()
         async with self._checkpoint_lock:
             count = len(self._sessions)
+            async with sqlite_connection_async(self.checkpoint_db_path) as db:
+                await clear_l0_checkpoint_tables(db)
+                await db.commit()
+
+            for session_id in list(self._sessions):
+                getattr(self, "_cancel_scheduled_checkpoint")(session_id)
             self._sessions.clear()
             self._goal_stack.clear()
             self._active_entities.clear()
@@ -294,10 +310,6 @@ class L0CheckpointMixin:
             self._execution_runs.clear()
             self._execution_pending_turns.clear()
             self._execution_results.clear()
-
-            async with sqlite_connection_async(self.checkpoint_db_path) as db:
-                await clear_l0_checkpoint_tables(db)
-                await db.commit()
 
         return count
 
@@ -308,15 +320,84 @@ class L0CheckpointMixin:
     async def _restore_checkpoint_under_lock(self) -> None:
         async with sqlite_connection_async(self.checkpoint_db_path) as db:
             db.row_factory = aiosqlite.Row
-
+            async with db.execute(
+                "SELECT DISTINCT session_id FROM l0_execution_runs"
+            ) as cursor:
+                execution_session_ids = {
+                    str(row["session_id"]) for row in await cursor.fetchall()
+                }
             async with db.execute("SELECT * FROM l0_sessions") as cursor:
-                async for row in cursor:
-                    session = row_to_session(row)
-                    self._sessions[str(session["session_id"])] = session
+                session_rows = await cursor.fetchall()
+
+            now = time.time()
+            idle_cutoff = now - float(getattr(self, "session_timeout_seconds", 3600))
+            protected_rows = [
+                row
+                for row in session_rows
+                if str(row["session_id"]) in execution_session_ids
+            ]
+            disposable_rows = sorted(
+                (
+                    row
+                    for row in session_rows
+                    if str(row["session_id"]) not in execution_session_ids
+                    and str(row["status"] or "") == "active"
+                    and float(row["last_active_at"] or 0.0) >= idle_cutoff
+                ),
+                key=lambda row: float(row["last_active_at"] or 0.0),
+                reverse=True,
+            )
+            disposable_capacity = max(
+                0,
+                int(getattr(self, "max_concurrent_sessions", 64))
+                - len(protected_rows),
+            )
+            selected_rows = [*protected_rows, *disposable_rows[:disposable_capacity]]
+            restored_session_ids = {
+                str(row["session_id"]) for row in selected_rows
+            }
+            rejected_session_ids = {
+                str(row["session_id"]) for row in session_rows
+            } - restored_session_ids
+            if rejected_session_ids:
+                await self._delete_checkpoint_sessions(
+                    db,
+                    rejected_session_ids,
+                )
+            if restored_session_ids:
+                await db.executemany(
+                    "UPDATE l0_sessions SET status = 'active' WHERE session_id = ?",
+                    [(session_id,) for session_id in sorted(restored_session_ids)],
+                )
+            await db.execute(
+                """
+                DELETE FROM l0_goal_stack
+                WHERE status IN ('completed', 'failed', 'cancelled')
+                """
+            )
+            await db.execute(
+                """
+                DELETE FROM l0_temporary_tactics
+                WHERE expires_at IS NOT NULL AND expires_at <= ?
+                """,
+                (now,),
+            )
+            await db.commit()
+
+            for row in selected_rows:
+                session = row_to_session(row)
+                session["status"] = "active"
+                self._sessions[str(session["session_id"])] = session
+            for session_id in restored_session_ids:
+                self._goal_stack.setdefault(session_id, [])
+                self._active_entities.setdefault(session_id, {})
+                self._temporary_tactics.setdefault(session_id, {})
 
             async with db.execute("SELECT * FROM l0_goal_stack ORDER BY created_at ASC") as cursor:
                 async for row in cursor:
                     session_id = str(row["session_id"])
+                    if session_id not in restored_session_ids:
+                        continue
                     self._goal_stack.setdefault(session_id, []).append(row_to_goal(row))
 
             async with db.execute("SELECT * FROM l0_active_entities") as cursor:
@@ -331,6 +412,8 @@ class L0CheckpointMixin:
             )
             governed_object_ids = {id(entity) for entity in governed_entities}
             for session_id, key, entity in restored_entities:
+                if session_id not in restored_session_ids:
+                    continue
                 if id(entity) not in governed_object_ids:
                     continue
                 self._active_entities.setdefault(session_id, {})[key] = entity
@@ -347,6 +430,8 @@ class L0CheckpointMixin:
                 },
             )
             for session_id, tactic in tactics:
+                if session_id not in restored_session_ids:
+                    continue
                 if tactic_source_references(tactic) & forgotten_references:
                     continue
                 self._temporary_tactics.setdefault(session_id, {})[
@@ -356,13 +441,17 @@ class L0CheckpointMixin:
             async with db.execute("SELECT * FROM l0_execution_runs") as cursor:
                 async for row in cursor:
                     execution_run = row_to_execution_run(row)
-                    self._execution_runs[str(execution_run["session_id"])] = execution_run
+                    session_id = str(execution_run["session_id"])
+                    if session_id in restored_session_ids:
+                        self._execution_runs[session_id] = execution_run
 
             async with db.execute(
                 "SELECT * FROM l0_execution_pending_turns ORDER BY created_at ASC, pending_id ASC"
             ) as cursor:
                 async for row in cursor:
                     pending_turn = row_to_pending_turn(row)
+                    if str(pending_turn["session_id"]) not in restored_session_ids:
+                        continue
                     self._execution_pending_turns.setdefault(
                         str(pending_turn["session_id"]), []
                     ).append(pending_turn)
@@ -372,7 +461,29 @@ class L0CheckpointMixin:
             ) as cursor:
                 async for row in cursor:
                     result = row_to_execution_result(row)
+                    if str(result["session_id"]) not in restored_session_ids:
+                        continue
                     self._execution_results.setdefault(str(result["session_id"]), []).append(result)
+
+    @staticmethod
+    async def _delete_checkpoint_sessions(
+        db: aiosqlite.Connection,
+        session_ids: set[str],
+    ) -> None:
+        params = [(session_id,) for session_id in sorted(session_ids)]
+        for table in (
+            "l0_goal_stack",
+            "l0_active_entities",
+            "l0_temporary_tactics",
+            "l0_execution_runs",
+            "l0_execution_pending_turns",
+            "l0_execution_results",
+            "l0_sessions",
+        ):
+            await db.executemany(
+                f"DELETE FROM {table} WHERE session_id = ?",
+                params,
+            )
 
 
 __all__ = ["L0CheckpointMixin"]

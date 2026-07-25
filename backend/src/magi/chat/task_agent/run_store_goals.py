@@ -25,6 +25,7 @@ class SessionRunGoalMixin:
         root_turn_id: str | None,
         root_user_message: str,
     ) -> None:
+        self._l0_store.prune_terminal_goals_sync(session_id)
         description = str(root_user_message or "").strip()
         if not description:
             return

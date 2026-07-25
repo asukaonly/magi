@@ -649,6 +649,13 @@ All four dispositions are persisted to L0 working memory on `l0_execution_pendin
 
 DEFER recovery is ledger-driven rather than in-memory reinjection. If the process stops before run completion, the admitted delivery and L0 pending entry remain recoverable. If the completion checkpoint fails while the process remains alive, the captured DEFER batch stays attached to a single bounded-backoff retry until that checkpoint succeeds, and only then is it released once. If the process stops after completion but before scheduling, the delivery is either still admitted or already prepared as ready work; startup recovery can advance and schedule it. Scheduling failure leaves a ready attempt for the normal retry path. The runtime never consumes the L0 DEFER entry before the exact run/revision completion barrier and never mints a replacement turn ID.
 
+L0 expiration applies only to disposable workbench state. A session that still
+owns an execution run is protected from idle cleanup and capacity eviction,
+even if its last-activity timestamp is old. Restart recovery likewise restores
+active execution before applying the normal idle window and session cap to
+disposable workbenches. This makes timeout a relevance policy for temporary
+context, not a cancellation mechanism for admitted work.
+
 AUGMENT and STEER share the same persistent queue and the same supersession shape but differ in when and how they are consumed:
 
 - AUGMENT waits for the next planner checkpoint, is consumed through `consume_pending_turns(disposition="augment")` in `SessionRunCoordinator.aroute`, and rebuilds the prompt. It is appropriate when in-flight tool results would be invalidated by the new scope.

@@ -19,6 +19,10 @@ class _L0SessionHostProtocol(Protocol):
 
     async def checkpoint_session(self, session_id: str) -> None: ...
 
+    def _schedule_checkpoint(self, session_id: str) -> None: ...
+
+    def _cancel_scheduled_checkpoint(self, session_id: str) -> None: ...
+
 
 class L0SessionLifecycleMixin:
     """Own L0 session creation, refresh, expiry, and eviction."""
@@ -47,6 +51,7 @@ class L0SessionLifecycleMixin:
         existing = self._sessions.get(session_id)
         if existing is not None:
             existing["last_active_at"] = now
+            existing["status"] = "active"
             if user_id:
                 existing["user_id"] = user_id
             if runtime_agent_id:
@@ -58,10 +63,15 @@ class L0SessionLifecycleMixin:
             self._goal_stack.setdefault(session_id, [])
             self._active_entities.setdefault(session_id, {})
             self._temporary_tactics.setdefault(session_id, {})
+            cast(_L0SessionHostProtocol, self)._schedule_checkpoint(session_id)
             return existing
 
         if len(self._sessions) >= self.max_concurrent_sessions:
-            await self._evict_lru_session()
+            evicted = await self._evict_lru_session()
+            if evicted is None:
+                raise RuntimeError(
+                    "L0 session capacity is fully occupied by active execution runs"
+                )
 
         session = {
             "session_id": session_id,
@@ -77,6 +87,7 @@ class L0SessionLifecycleMixin:
         self._goal_stack.setdefault(session_id, [])
         self._active_entities.setdefault(session_id, {})
         self._temporary_tactics.setdefault(session_id, {})
+        cast(_L0SessionHostProtocol, self)._schedule_checkpoint(session_id)
         return session
 
     async def capture_event(self, event: MemoryEvent) -> None:
@@ -112,7 +123,12 @@ class L0SessionLifecycleMixin:
         now = time.time()
         if session is not None:
             session["last_active_at"] = now
+            session["status"] = "active"
             return session
+        if len(self._sessions) >= self.max_concurrent_sessions:
+            raise RuntimeError(
+                "L0 synchronous session admission exceeded configured capacity"
+            )
         session = {
             "session_id": session_id,
             "user_id": None,
@@ -127,22 +143,19 @@ class L0SessionLifecycleMixin:
         self._goal_stack.setdefault(session_id, [])
         self._active_entities.setdefault(session_id, {})
         self._temporary_tactics.setdefault(session_id, {})
+        cast(_L0SessionHostProtocol, self)._schedule_checkpoint(session_id)
         return session
 
     async def expire_idle_sessions(self) -> list[str]:
-        """Checkpoint, expire, and evict sessions idle beyond the configured timeout."""
+        """Delete disposable sessions idle beyond the configured timeout."""
         now = time.time()
-        host = cast(_L0SessionHostProtocol, self)
         expired: list[str] = []
         for session_id, session in list(self._sessions.items()):
             if now - float(session["last_active_at"]) <= self.session_timeout_seconds:
                 continue
-            session["status"] = "expired"
-            try:
-                await host.checkpoint_session(session_id)
-            except Exception:
-                pass
-            self._remove_session_state(session_id)
+            if session_id in self._execution_runs:
+                continue
+            await self.forget_session(session_id)
             expired.append(session_id)
         return expired
 
@@ -154,7 +167,6 @@ class L0SessionLifecycleMixin:
         host = cast(_L0SessionHostProtocol, self)
         await host.initialize()
         async with host._checkpoint_lock:
-            self._remove_session_state(normalized_session_id)
             async with sqlite_connection_async(host.checkpoint_db_path) as db:
                 for table in (
                     "l0_goal_stack",
@@ -170,24 +182,28 @@ class L0SessionLifecycleMixin:
                         (normalized_session_id,),
                     )
                 await db.commit()
+            self._remove_session_state(normalized_session_id)
 
     async def _evict_lru_session(self) -> Optional[str]:
-        """Checkpoint and evict the least-recently-active session."""
+        """Delete the least-recently-active disposable session."""
         if not self._sessions:
             return None
-        host = cast(_L0SessionHostProtocol, self)
+        candidates = [
+            session_id
+            for session_id in self._sessions
+            if session_id not in self._execution_runs
+        ]
+        if not candidates:
+            return None
         lru_id = min(
-            self._sessions,
+            candidates,
             key=lambda sid: float(self._sessions[sid]["last_active_at"]),
         )
-        try:
-            await host.checkpoint_session(lru_id)
-        except Exception:
-            pass
-        self._remove_session_state(lru_id)
+        await self.forget_session(lru_id)
         return lru_id
 
     def _remove_session_state(self, session_id: str) -> None:
+        cast(_L0SessionHostProtocol, self)._cancel_scheduled_checkpoint(session_id)
         self._sessions.pop(session_id, None)
         self._goal_stack.pop(session_id, None)
         self._active_entities.pop(session_id, None)

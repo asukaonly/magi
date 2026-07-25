@@ -565,15 +565,17 @@ async def test_l0_evicts_lru_session_when_limit_reached(tmp_path):
     assert "session-1" not in store._sessions
     assert "session-4" in store._sessions
 
-    # Evicted session should have been checkpointed
+    # Capacity eviction removes disposable work instead of reviving it later.
     restored = L0WorkingMemoryStore(
         checkpoint_db_path=str(checkpoint_path),
         max_concurrent_sessions=100,
     )
     await restored.initialize()
     workbench = await restored.get_workbench("session-1")
-    assert workbench["session"] is not None
-    assert workbench["goal_stack"][0]["goal_id"] == "g1"
+    assert workbench["session"] is None
+    assert workbench["goal_stack"] == []
+    await store.shutdown()
+    await restored.shutdown()
 
 
 @pytest.mark.asyncio

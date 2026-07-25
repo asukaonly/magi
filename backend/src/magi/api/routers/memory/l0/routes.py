@@ -6,6 +6,8 @@ from typing import Any
 
 from fastapi import HTTPException, Query, status
 
+from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
+
 from ..dependencies import _resolve_unified_memory, get_chat_read_service
 from ..helpers import memory_t
 from ..router import memory_router
@@ -83,4 +85,11 @@ async def get_l0_workbench(session_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=memory_t("memory.errors.session_not_found", "Session not found"),
         )
+    session = workbench["session"]
+    user_id = str(session.get("user_id") or DEFAULT_USER_ID)
+    usage = await get_chat_read_service().aget_latest_context_usage(
+        user_id,
+        session_id,
+    )
+    workbench["context_usage"] = usage.to_dict() if usage is not None else None
     return workbench

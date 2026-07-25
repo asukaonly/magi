@@ -263,15 +263,11 @@ async def test_interrupting_run_supersedes_previous_goal_and_pushes_new_goal() -
     workbench = await store._l0_store.get_workbench("session-1")
 
     assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
-        "chat_run:run-1:0",
         "chat_run:run-1:1",
     ]
-    assert workbench["goal_stack"][0]["status"] == "cancelled"
-    assert workbench["goal_stack"][0]["result_summary"] == "Superseded by a newer user turn"
-    assert workbench["goal_stack"][1]["status"] == "in_progress"
-    assert workbench["goal_stack"][1]["description"] == "Switch to the checkout issue instead"
-    assert workbench["goal_stack"][0]["metadata"]["root_turn_id"] == "turn-1"
-    assert workbench["goal_stack"][1]["metadata"]["root_turn_id"] == "turn-2"
+    assert workbench["goal_stack"][0]["status"] == "in_progress"
+    assert workbench["goal_stack"][0]["description"] == "Switch to the checkout issue instead"
+    assert workbench["goal_stack"][0]["metadata"]["root_turn_id"] == "turn-2"
 
 
 @pytest.mark.asyncio
@@ -289,7 +285,8 @@ async def test_complete_active_run_marks_current_goal_completed() -> None:
     workbench = await store._l0_store.get_workbench("session-1")
 
     assert completed is True
-    assert workbench["goal_stack"][0]["status"] == "completed"
+    assert workbench["goal_stack"] == []
+    assert store._l0_store._goal_stack["session-1"][0]["status"] == "completed"
 
 
 def test_consume_pending_turns_only_clears_requested_revision() -> None:
