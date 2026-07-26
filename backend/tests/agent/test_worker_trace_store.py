@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -177,7 +176,11 @@ async def test_worker_trace_store_persists_llm_and_tool_rows(
     assert tool_call.success is True
     notifications = await runtime_trace_store.list_notifications(after_id=0, limit=10)
     context_usage_notification = next(
-        (item for item in notifications if item.channel == "context_usage"),
+        (
+            item
+            for item in notifications
+            if item.channel == "worker_context_usage"
+        ),
         None,
     )
     assert context_usage_notification is not None

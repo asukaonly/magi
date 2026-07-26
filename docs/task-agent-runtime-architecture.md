@@ -360,7 +360,17 @@ delivery terminal state. Conversation history returns the latest still-visible
 snapshot, while a post-commit runtime notification provides immediate refresh.
 The stored snapshot owns both numerator and denominator; the UI must not pair
 an old token count with a newly selected model window. Before a snapshot exists,
-the UI shows an unknown measurement rather than reporting zero.
+the UI shows an unknown measurement rather than reporting zero. The composer
+labels this as the latest accepted reply, shows used tokens against that
+reply's captured model window, and fills the ring against the captured
+compaction threshold because that is the point where visible pressure begins.
+The L0 inspector may mirror the same durable snapshot for the selected chat,
+but does not own or update it.
+
+Worker and background-run measurements are execution observability, not chat
+outcomes. They use a separate `worker_context_usage` notification channel and
+must never update the conversation context meter, even when they carry the
+parent session and turn identifiers.
 
 Persona switches add a second prompt-history boundary. When a session tail contains messages from an older active persona followed by the current persona's segment, `ChatHistoryService` condenses the older segment into an active `persona_boundary` summary scoped by the current persona ID. Prompt assembly then receives the neutral boundary summary plus only the raw tail for the current persona segment, so continuity survives without carrying another persona's assistant voice into the active persona prompt. If neutral summary generation is unavailable, prompt assembly keeps the original history instead of substituting a fixed-length fallback that could omit continuity.
 
@@ -1448,7 +1458,7 @@ The current memory write path is:
 Two rules matter here:
 
 - high-frequency runtime telemetry should not automatically participate in long-term cognition
-- `L1` is the durable source of truth for long-term memory, while `L0` remains execution-scoped
+- `L1` is the durable source of truth for long-term memory, while `L0` remains a bounded current-task workbench
 - `ActionExecuted` stays execution-scoped and does not enter `L1`, even though its outcome may still update `L4` procedural memory
 - `L2` progress is tracked by durable projection jobs, while microbatching remains an in-process execution optimization
 

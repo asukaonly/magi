@@ -70,7 +70,7 @@ const ContextUsageRingInner: React.FC<{
               className="relative flex h-8 w-8 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2"
               role="status"
               aria-label={t('chat.contextUsage.unavailableLabel', {
-                defaultValue: '上下文用量：{{usage}}',
+                defaultValue: '最近一次回答上下文：{{usage}}',
                 usage: usageText,
               })}
               tabIndex={0}
@@ -100,23 +100,34 @@ const ContextUsageRingInner: React.FC<{
   }
 
   const { usedTokens, windowSize } = snapshot;
-  const ratio = Math.min(usedTokens / windowSize, 1);
+  const pressureLimit = snapshot.threshold > 0
+    ? snapshot.threshold
+    : snapshot.inputCapacity > 0
+      ? snapshot.inputCapacity
+      : windowSize;
+  const ratio = Math.min(usedTokens / pressureLimit, 1);
   const offset = CIRCUMFERENCE * (1 - ratio);
   const color = ringColor(ratio);
   const pct = Math.round(ratio * 100);
   const percentText = ratio > 0 && ratio < 0.01 ? '<1' : String(pct);
   const usageText = `${formatTokens(usedTokens)} / ${formatTokens(windowSize)}`;
+  const thresholdText = formatTokens(pressureLimit);
   const ariaLabel = t('chat.contextUsage.label', {
-    defaultValue: '上下文用量：{{usage}}（{{percent}}%）',
+    defaultValue: '最近一次回答上下文：{{usage}}；压缩线占用 {{percent}}%',
     usage: usageText,
     percent: percentText,
   });
   const tooltipText = snapshot.measurement === 'estimated'
-    ? t('chat.contextUsage.estimatedValue', {
-      defaultValue: '{{usage}}（估算）',
+    ? t('chat.contextUsage.estimatedTooltip', {
+      defaultValue: '最近一次回答：{{usage}}（估算） · 压缩线 {{threshold}}',
       usage: usageText,
+      threshold: thresholdText,
     })
-    : usageText;
+    : t('chat.contextUsage.tooltip', {
+      defaultValue: '最近一次回答：{{usage}} · 压缩线 {{threshold}}',
+      usage: usageText,
+      threshold: thresholdText,
+    });
 
   return (
     <TooltipProvider delayDuration={250}>
@@ -127,8 +138,8 @@ const ContextUsageRingInner: React.FC<{
             role="meter"
             aria-valuenow={usedTokens}
             aria-valuemin={0}
-            aria-valuemax={windowSize}
-            aria-valuetext={usageText}
+            aria-valuemax={pressureLimit}
+            aria-valuetext={`${usageText}; ${thresholdText}`}
             aria-label={ariaLabel}
             tabIndex={0}
           >

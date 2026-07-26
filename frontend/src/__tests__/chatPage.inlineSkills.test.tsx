@@ -308,12 +308,18 @@ defineChatPageSuite('ChatPage inline skills and clearing', () => {
     )).toBeNull();
   });
 
-  it('shows the configured context window before runtime updates arrive', async () => {
+  it('shows the configured window without claiming measured usage', async () => {
+    const user = userEvent.setup();
     render(<ChatPage />);
 
-    expect(await screen.findByRole('meter', {
-      name: 'chat.contextUsage.label',
-    })).toHaveAttribute('aria-valuemax', '1000000');
+    const status = await screen.findByRole('status', {
+      name: 'chat.contextUsage.unavailableLabel',
+    });
+    expect(status).toHaveTextContent('—');
+    expect(status).not.toHaveAttribute('aria-valuemax');
+
+    await user.hover(status);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('— / 1M');
   });
 
   it('does not show first-conversation starter chips in empty sessions', () => {

@@ -74,6 +74,7 @@ export const L0Tab: React.FC<L0TabProps> = ({
   const goalStack = Array.isArray(workbench?.goal_stack) ? workbench.goal_stack : [];
   const activeEntities = Array.isArray(workbench?.active_entities) ? workbench.active_entities : [];
   const temporaryTactics = Array.isArray(workbench?.temporary_tactics) ? workbench.temporary_tactics : [];
+  const contextUsage = workbench?.context_usage ?? null;
   const hasWorkbenchContent =
     goalStack.length > 0 || activeEntities.length > 0 || temporaryTactics.length > 0;
 
@@ -163,6 +164,38 @@ export const L0Tab: React.FC<L0TabProps> = ({
                 </div>
               ) : null}
 
+              <section className="space-y-2 border-t border-[hsl(var(--memory-divider)/0.56)] pt-4">
+                <div className="text-sm font-medium text-[hsl(var(--memory-title))]">
+                  {t('memory.pages.workbench.contextUsageTitle')}
+                </div>
+                {contextUsage ? (
+                  <div className="rounded-lg border border-[hsl(var(--memory-border)/0.48)] px-3 py-3 text-sm text-[hsl(var(--memory-body))]">
+                    <div className="font-medium tabular-nums">
+                      {t('memory.pages.workbench.contextUsageValue', {
+                        used: contextUsage.used_tokens.toLocaleString(),
+                        window: contextUsage.window_size.toLocaleString(),
+                      })}
+                    </div>
+                    <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
+                      {t('memory.pages.workbench.contextUsageThreshold', {
+                        threshold: contextUsage.threshold.toLocaleString(),
+                      })}
+                    </div>
+                    {contextUsage.updated_at_ms > 0 ? (
+                      <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
+                        {t('memory.pages.workbench.contextUsageUpdated', {
+                          time: new Date(contextUsage.updated_at_ms).toLocaleString(),
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="text-sm text-[hsl(var(--memory-muted))]">
+                    {t('memory.pages.workbench.contextUsageEmpty')}
+                  </div>
+                )}
+              </section>
+
               {!hasWorkbenchContent ? (
                 <div className={EMPTY_PANEL_CLASS}>
                   {t('memory.pages.workbench.shellEmpty')}
@@ -170,7 +203,7 @@ export const L0Tab: React.FC<L0TabProps> = ({
               ) : null}
 
               <div className="space-y-4">
-                <section className="space-y-2">
+                <section className="space-y-2 border-t border-[hsl(var(--memory-divider)/0.56)] pt-4">
                   <div className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.l0.goalStack')}</div>
                   {goalStack.length > 0 ? (
                     <div className="space-y-2">

@@ -851,9 +851,10 @@
       }
     },
     "contextUsage": {
-      "label": "Context usage: {{usage}} ({{percent}}%)",
-      "unavailableLabel": "Context usage: {{usage}}",
-      "estimatedValue": "{{usage}} (estimated)"
+      "label": "Latest reply context: {{usage}}; {{percent}}% of compaction threshold",
+      "unavailableLabel": "Latest reply context: {{usage}}",
+      "tooltip": "Latest reply: {{usage}} · compaction threshold {{threshold}}",
+      "estimatedTooltip": "Latest reply: {{usage}} (estimated) · compaction threshold {{threshold}}"
     },
     "delegation": {
       "title": "Delegated to {{adapter}}",
@@ -1909,7 +1910,7 @@
         "reranker_not_available": "Please enable Cross-Encoder reranking in Memory → General Memory Settings first, then return here to select a model.",
         "enable_l0": {
           "label": "Enable temporary working memory",
-          "description": "Keep current conversation context in memory with automatic checkpoints for crash recovery."
+          "description": "Keep current goals, entities in focus, and temporary tactics; idle cleanup does not affect chat recovery."
         },
         "enable_l1": {
           "label": "Enable conversation history",
@@ -3853,11 +3854,11 @@
         "defaultWorkspaceLabel": "Default chat workspace",
         "lastUserMessageLabel": "Latest user message",
         "lastMessageLabel": "Latest session preview",
-        "contextUsageTitle": "Context budget",
+        "contextUsageTitle": "Latest reply context",
         "contextUsageValue": "{{used}} / {{window}} tokens",
-        "contextUsageThreshold": "Compaction threshold {{threshold}}",
-        "contextUsageUpdated": "Updated {{time}}",
-        "contextUsageEmpty": "No token snapshot has been recorded for this session yet.",
+        "contextUsageThreshold": "Compaction is considered at {{threshold}} tokens",
+        "contextUsageUpdated": "Recorded {{time}}",
+        "contextUsageEmpty": "No reply context record is available for this session yet.",
         "contextSummaryTitle": "Compressed session summary",
         "contextSummaryCoverage": "Covered through message #{{sequence}}",
         "contextSummaryTokenDelta": "Tokens {{before}} -> {{after}}",

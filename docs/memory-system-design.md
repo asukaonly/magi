@@ -2145,7 +2145,7 @@ Magi's memory system is built on a simple but firm separation:
 
 On this foundation:
 
-- `L0` supports current execution
+- `L0` keeps the bounded goals, entities, and temporary tactics for the current task
 - `L1` stores canonical durable facts
 - `L2` provides structured cognition across three subdomains: semantic memory (entities, relations, preferences), state memory (versioned latest-truth with supersession), and episodic memory (episode substrates plus promoted experiences)
 - `L3` compresses and reflects

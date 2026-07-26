@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { applyRealtimeStoreProjection } from '@/realtime/store-projection';
 import { useContextUsageStore } from '@/stores/context-usage';
 
 describe('context usage store', () => {
@@ -41,6 +42,22 @@ describe('context usage store', () => {
       threshold: 500_000,
     });
 
+    expect(useContextUsageStore.getState().usage['session-1']).toBeUndefined();
+  });
+
+  it('does not project worker measurements into the chat meter', () => {
+    const projected = applyRealtimeStoreProjection({
+      event: 'worker_context_usage',
+      data: {
+        session_id: 'session-1',
+        turn_id: 'turn-1',
+        used_tokens: 90_000,
+        window_size: 128_000,
+        threshold: 96_000,
+      },
+    });
+
+    expect(projected).toBe(false);
     expect(useContextUsageStore.getState().usage['session-1']).toBeUndefined();
   });
 });

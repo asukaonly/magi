@@ -14,6 +14,8 @@ from ...runtime_trace.span_publisher import publish_trace_span, resolve_event_bu
 from .worker_publication import WorkerPublicationMixin
 from .worker_state import WorkerRunState
 
+WORKER_CONTEXT_USAGE_CHANNEL = "worker_context_usage"
+
 
 class WorkerTraceMixin(WorkerPublicationMixin):
     """Persist worker runtime traces and publish worker progress facts."""
@@ -68,7 +70,7 @@ class WorkerTraceMixin(WorkerPublicationMixin):
         await self._runtime_trace_store.append_notification(
             RuntimeNotificationRecord(
                 notification_id=0,
-                channel="context_usage",
+                channel=WORKER_CONTEXT_USAGE_CHANNEL,
                 user_id=run_state.user_id,
                 session_id=run_state.session_id,
                 turn_id=turn_id,

@@ -35,11 +35,13 @@ describe('ContextUsageRing', () => {
     render(<ContextUsageRing sessionId="session-1" />);
 
     const meter = screen.getByRole('meter', {
-      name: '上下文用量：10k / 256k（4%）',
+      name: '最近一次回答上下文：10k / 256k；压缩线占用 5%',
     });
     expect(meter).not.toHaveAttribute('title');
     expect(meter).toHaveAttribute('tabindex', '0');
-    expect(screen.getByRole('tooltip')).toHaveTextContent('10k / 256k');
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      '最近一次回答：10k / 256k · 压缩线 192k',
+    );
   });
 
   it('does not present a configured limit as measured usage before a snapshot arrives', () => {
@@ -51,7 +53,7 @@ describe('ContextUsageRing', () => {
     );
 
     const status = screen.getByRole('status', {
-      name: '上下文用量：— / 1M',
+      name: '最近一次回答上下文：— / 1M',
     });
     expect(status).toHaveAttribute('tabindex', '0');
     expect(screen.getByRole('tooltip')).toHaveTextContent('— / 1M');
@@ -72,15 +74,15 @@ describe('ContextUsageRing', () => {
     );
 
     expect(screen.getByRole('meter', {
-      name: '上下文用量：10k / 256k（4%）',
-    })).toHaveAttribute('aria-valuemax', '256000');
-    expect(screen.getByRole('tooltip')).toHaveTextContent('10k / 256k');
+      name: '最近一次回答上下文：10k / 256k；压缩线占用 5%',
+    })).toHaveAttribute('aria-valuemax', '192000');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('压缩线 192k');
   });
 
   it('explains that the total is unavailable before usage arrives', () => {
     render(<ContextUsageRing sessionId="session-1" />);
 
-    expect(screen.getByRole('status', { name: '上下文用量：— / —' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('status', { name: '最近一次回答上下文：— / —' })).toHaveAttribute('tabindex', '0');
     expect(screen.getByRole('tooltip')).toHaveTextContent('— / —');
   });
 
@@ -94,7 +96,7 @@ describe('ContextUsageRing', () => {
     render(<ContextUsageRing sessionId="session-1" />);
 
     expect(screen.getByRole('meter', {
-      name: '上下文用量：2.6k / 1M（<1%）',
+      name: '最近一次回答上下文：2.6k / 1M；压缩线占用 <1%',
     })).toBeInTheDocument();
   });
 });

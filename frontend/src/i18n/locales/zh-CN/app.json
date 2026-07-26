@@ -851,9 +851,10 @@
       }
     },
     "contextUsage": {
-      "label": "上下文用量：{{usage}}（{{percent}}%）",
-      "unavailableLabel": "上下文用量：{{usage}}",
-      "estimatedValue": "{{usage}}（估算）"
+      "label": "最近一次回答上下文：{{usage}}；压缩线占用 {{percent}}%",
+      "unavailableLabel": "最近一次回答上下文：{{usage}}",
+      "tooltip": "最近一次回答：{{usage}} · 压缩线 {{threshold}}",
+      "estimatedTooltip": "最近一次回答：{{usage}}（估算） · 压缩线 {{threshold}}"
     },
     "delegation": {
       "title": "已委派给 {{adapter}}",
@@ -1908,7 +1909,7 @@
         "reranker_not_available": "请先在「记忆 → 通用记忆设置」中启用 Cross-Encoder 精排后，再回到此处选择模型。",
         "enable_l0": {
           "label": "启用临时工作记忆",
-          "description": "在内存中保持当前对话的上下文，并自动存档以便异常恢复。"
+          "description": "保存当前任务的目标、关注实体和临时策略；闲置后会自动清理，不影响聊天恢复。"
         },
         "enable_l1": {
           "label": "启用对话记录",
@@ -3851,11 +3852,11 @@
         "defaultWorkspaceLabel": "默认对话工作区",
         "lastUserMessageLabel": "最近一条用户消息",
         "lastMessageLabel": "最近会话预览",
-        "contextUsageTitle": "上下文预算",
+        "contextUsageTitle": "最近一次回答的上下文",
         "contextUsageValue": "{{used}} / {{window}} tokens",
-        "contextUsageThreshold": "压缩阈值 {{threshold}}",
-        "contextUsageUpdated": "更新时间 {{time}}",
-        "contextUsageEmpty": "这个会话还没有记录到 token 占用快照。",
+        "contextUsageThreshold": "达到 {{threshold}} tokens 时开始考虑压缩",
+        "contextUsageUpdated": "记录于 {{time}}",
+        "contextUsageEmpty": "这个会话还没有可用的回答上下文记录。",
         "contextSummaryTitle": "会话压缩摘要",
         "contextSummaryCoverage": "覆盖到第 {{sequence}} 条消息",
         "contextSummaryTokenDelta": "Token {{before}} -> {{after}}",

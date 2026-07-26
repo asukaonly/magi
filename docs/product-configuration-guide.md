@@ -363,6 +363,8 @@ Product expectations:
 - L0-L4 workbench and inspector surfaces should be treated as expert/operator tooling, not as the default user memory experience
 - first-run onboarding should not force detailed memory tuning
 - settings should expose the main lifecycle toggles and key pipeline switches
+- the L0 toggle description should name goals, active entities, and temporary
+  tactics; it must not promise chat or crash recovery
 - general memory settings should expose a global hot-memory retention window, whether aged history is deleted or archived, and the archive directory when archiving is selected
 - the managed memory storage directory remains an internal runtime path until live path switching and migration are supported safely
 - general memory settings should also expose retrieval reranker controls, including whether LLM reranking is enabled, whether it runs locally or remotely, and where managed local reranker models are stored

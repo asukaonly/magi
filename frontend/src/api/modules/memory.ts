@@ -1,6 +1,7 @@
 import { api, unwrapGatewayPayload } from '../client';
 import type { GatewayResponse } from '../client';
 import type { EmbeddingVectorIdentity, VectorLayerId } from './config';
+import type { ContextUsageData } from './messages';
 
 export interface ModelDownloadStatus {
   model: string;
@@ -39,47 +40,12 @@ export interface L0Stats {
   db_path?: string;
 }
 
-export interface L0ContextSummary {
-  summary_id: string;
-  parent_summary_id?: string | null;
-  status: string;
-  summary_kind: string;
-  persona_scope?: string | null;
-  covered_from_message_id?: string | null;
-  covered_to_message_id?: string | null;
-  first_kept_message_id?: string | null;
-  covered_to_sequence_no?: number | null;
-  session_origin?: string | null;
-  summary_text: string;
-  prompt_profile?: string | null;
-  model_provider?: string | null;
-  model_id?: string | null;
-  token_count_before?: number | null;
-  token_count_after?: number | null;
-  quality_status?: string | null;
-  created_at_ms?: number | null;
-  updated_at_ms?: number | null;
-}
-
-export interface L0ContextUsage {
-  user_id?: string | null;
-  session_id?: string | null;
-  turn_id?: string | null;
-  used_tokens: number;
-  window_size: number;
-  threshold?: number | null;
-  timestamp?: number | null;
-  notification_id?: number | null;
-  created_at_ms?: number | null;
-}
-
 export interface L0Workbench {
   session: Record<string, unknown> | null;
   goal_stack: Array<Record<string, unknown>>;
   active_entities: Array<Record<string, unknown>>;
   temporary_tactics: Array<Record<string, unknown>>;
-  active_context_summary?: L0ContextSummary | null;
-  context_usage?: L0ContextUsage | null;
+  context_usage?: ContextUsageData | null;
 }
 
 export const getL0SessionPrimaryLabel = (session: Pick<L0Session, 'display_title' | 'short_session_id' | 'session_id'>): string =>
