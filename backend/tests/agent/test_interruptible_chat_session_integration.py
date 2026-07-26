@@ -177,7 +177,7 @@ async def test_interruptible_chat_sessions_do_not_cross_streams_and_merge_at_own
 
 
 @pytest.mark.asyncio
-async def test_interruptible_chat_recovers_pending_turns_from_l0_checkpoint(
+async def test_interruptible_chat_does_not_restore_pending_turns_from_l0_checkpoint(
     tmp_path,
 ) -> None:
     memory = UnifiedMemoryStore(
@@ -236,9 +236,9 @@ async def test_interruptible_chat_recovers_pending_turns_from_l0_checkpoint(
             await restored_agent.merge_facts([_tool_loop_fact(session_id="session-a")])
         )
 
-        assert checkpoint_context.planner_fact_kind == IncomingFactKind.USER_MESSAGE
-        assert checkpoint_context.latest_user_message == (
-            "Inspect the login flow.\n\nInstead of the login flow, inspect the signup flow."
-        )
+        assert checkpoint_context.planner_fact_kind == IncomingFactKind.OTHER_FACT
+        assert restored_agent._session_run_coordinator._run_store.get_active_run(
+            "session-a"
+        ) is None
     finally:
         await restored_memory.shutdown()

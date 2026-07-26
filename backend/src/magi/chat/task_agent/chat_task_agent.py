@@ -477,6 +477,10 @@ class ChatTaskAgent(
                 latest_fact=latest_fact,
                 batch_facts=batch_facts,
             )
+            self._context_assembler.require_session_id(
+                classified.user_id,
+                classified.session_id,
+            )
             await self._reconcile_finished_active_run(classified.session_id)
             await self._before_execution_run_admission(classified=classified)
             run_decision = await self._session_run_coordinator.aroute(classified)
