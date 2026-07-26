@@ -171,6 +171,12 @@ the configured session capacity is full. L0 expiry therefore changes only what
 temporary guidance may be supplied to a later prompt; it never cancels a chat
 turn or decides whether admitted work must be retried.
 
+Each session is bounded independently: the goal stack keeps at most 32 entries,
+active entities keep the 32 most relevant and recently accessed cards, and
+temporary tactics keep the 16 newest entries. A tactic without an explicit
+expiry receives a 15-minute lifetime. These bounds make "working" a real
+lifecycle property rather than an unbounded alternate memory store.
+
 The checkpoint interval is a real maximum debounce for dirty L0 state. A
 mutation schedules a checkpoint, mutations that arrive while a checkpoint is
 running schedule a later pass, and normal shutdown flushes all live sessions.
@@ -179,7 +185,9 @@ Restart restore keeps only sessions that were active, remain inside the idle
 window, and fit within the configured capacity. Rejected checkpoint rows,
 terminal goals, and expired tactics are deleted rather than being resurrected
 on every restart. Prompt and workbench reads expose only pending or in-progress
-goals and unexpired tactics.
+goals and unexpired tactics. Malformed checkpoint rows are discarded
+individually so one damaged projection cannot prevent the remaining workbench
+from loading.
 
 Live chat execution is deliberately outside L0. The current run, pending
 interruptions, cancellation controls, and accepted tool results are coordinated

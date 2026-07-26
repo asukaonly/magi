@@ -213,6 +213,7 @@ class L0CheckpointMixin:
     async def _restore_checkpoint_under_lock(self) -> None:
         async with sqlite_connection_async(self.checkpoint_db_path) as db:
             db.row_factory = aiosqlite.Row
+            await self._delete_malformed_checkpoint_rows(db)
             async with db.execute("SELECT * FROM l0_sessions") as cursor:
                 session_rows = await cursor.fetchall()
 
@@ -318,7 +319,6 @@ class L0CheckpointMixin:
                     str(tactic["tactic_id"])
                 ] = tactic
 
-
     @staticmethod
     async def _delete_checkpoint_sessions(
         db: aiosqlite.Connection,
@@ -335,6 +335,72 @@ class L0CheckpointMixin:
                 f"DELETE FROM {table} WHERE session_id = ?",
                 params,
             )
+
+    async def _delete_malformed_checkpoint_rows(
+        self,
+        db: aiosqlite.Connection,
+    ) -> None:
+        """Discard malformed JSON rows without failing the entire L0 restore."""
+
+        async with db.execute(
+            """
+            SELECT session_id
+            FROM l0_sessions
+            WHERE CASE
+                WHEN json_valid(metadata) THEN json_type(metadata) != 'object'
+                ELSE 1
+            END
+            """
+        ) as cursor:
+            malformed_session_ids = {
+                str(row["session_id"]) for row in await cursor.fetchall()
+            }
+        if malformed_session_ids:
+            await self._delete_checkpoint_sessions(db, malformed_session_ids)
+
+        for table, condition in (
+            (
+                "l0_goal_stack",
+                """
+                CASE
+                    WHEN json_valid(metadata) THEN json_type(metadata) != 'object'
+                    ELSE 1
+                END
+                """,
+            ),
+            (
+                "l0_active_entities",
+                """
+                CASE
+                    WHEN json_valid(snapshot_json)
+                    THEN json_type(snapshot_json) != 'object'
+                    ELSE 1
+                END
+                OR CASE
+                    WHEN json_valid(source_event_ids)
+                    THEN json_type(source_event_ids) != 'array'
+                    ELSE 1
+                END
+                """,
+            ),
+            (
+                "l0_temporary_tactics",
+                """
+                CASE
+                    WHEN json_valid(tactic_payload)
+                    THEN json_type(tactic_payload) != 'object'
+                    ELSE 1
+                END
+                OR CASE
+                    WHEN json_valid(source_event_ids)
+                    THEN json_type(source_event_ids) != 'array'
+                    ELSE 1
+                END
+                """,
+            ),
+        ):
+            await db.execute(f"DELETE FROM {table} WHERE {condition}")
+        await db.commit()
 
 
 __all__ = ["L0CheckpointMixin"]

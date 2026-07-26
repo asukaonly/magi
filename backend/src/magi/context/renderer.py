@@ -314,7 +314,7 @@ class PromptContextRenderer:
         workbench = retrieval.l0_workbench or []
         if workbench:
             for item in workbench:
-                lines.append(f"* {self._format_memory_item(item)}")
+                lines.extend(self._render_l0_workbench_item(item))
         else:
             lines.append("* (empty)")
         lines.append("")
@@ -359,6 +359,76 @@ class PromptContextRenderer:
         lines.append("")
 
         return lines
+
+    def _render_l0_workbench_item(self, item: Any) -> List[str]:
+        """Render the structured L0 workbench without losing its content."""
+
+        if not isinstance(item, dict):
+            return [f"* {self._format_memory_item(item)}"]
+
+        lines: List[str] = []
+        goals = item.get("goals") or item.get("goal_stack") or []
+        for goal in goals if isinstance(goals, list) else []:
+            if not isinstance(goal, dict):
+                continue
+            description = str(
+                goal.get("description")
+                or goal.get("summary")
+                or goal.get("title")
+                or ""
+            ).strip()
+            if description:
+                lines.append(f"* Current goal: {description[:300]}")
+
+        entities = item.get("active_entities") or []
+        for entity in entities if isinstance(entities, list) else []:
+            if not isinstance(entity, dict):
+                continue
+            snapshot = entity.get("snapshot")
+            snapshot = snapshot if isinstance(snapshot, dict) else {}
+            name = str(
+                snapshot.get("name")
+                or snapshot.get("canonical_name")
+                or snapshot.get("title")
+                or snapshot.get("label")
+                or entity.get("entity_id")
+                or ""
+            ).strip()
+            entity_type = str(entity.get("entity_type") or "").strip()
+            if name:
+                suffix = f" ({entity_type})" if entity_type else ""
+                lines.append(f"* Active entity: {name[:200]}{suffix}")
+
+        tactics = item.get("temporary_tactics") or []
+        for tactic in tactics if isinstance(tactics, list) else []:
+            if not isinstance(tactic, dict):
+                continue
+            tactic_type = str(tactic.get("tactic_type") or "").strip()
+            payload = tactic.get("tactic_payload")
+            payload_summary = self._summarize_l0_tactic_payload(payload)
+            if tactic_type or payload_summary:
+                separator = f": {payload_summary}" if payload_summary else ""
+                lines.append(f"* Temporary tactic: {tactic_type or 'current'}{separator}")
+
+        if lines:
+            return lines
+
+        fallback = self._format_memory_item(item)
+        return [f"* {fallback}"]
+
+    @staticmethod
+    def _summarize_l0_tactic_payload(payload: Any) -> str:
+        if not isinstance(payload, dict):
+            return str(payload or "").strip()[:240]
+        preferred = payload.get("summary") or payload.get("description")
+        if preferred:
+            return str(preferred).strip()[:240]
+        parts = [
+            f"{key}={value}"
+            for key, value in payload.items()
+            if isinstance(value, (str, int, float, bool)) and str(value).strip()
+        ]
+        return ", ".join(parts[:3])[:240]
 
     def _render_profile_memory(self, profile: ProfileMemoryContext) -> List[str]:
         """Render profile memory as markdown, omitting unknown/empty fields."""

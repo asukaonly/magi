@@ -222,6 +222,76 @@ async def test_l0_refresh_existing_session_does_not_evict(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_l0_bounds_active_entities_by_relevance(tmp_path):
+    from magi.memory.l0.working.workbench import MAX_ACTIVE_ENTITIES_PER_SESSION
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    store = L0WorkingMemoryStore(
+        checkpoint_db_path=str(tmp_path / "memory.db"),
+        restore_on_restart=False,
+    )
+    for index in range(MAX_ACTIVE_ENTITIES_PER_SESSION + 1):
+        await store.upsert_active_entity(
+            session_id="session-1",
+            entity_id=f"entity-{index}",
+            entity_type="test",
+            snapshot={"name": f"Entity {index}"},
+            relevance_score=float(index),
+        )
+
+    entities = (await store.get_workbench("session-1"))["active_entities"]
+
+    assert len(entities) == MAX_ACTIVE_ENTITIES_PER_SESSION
+    assert "entity-0" not in {entity["entity_id"] for entity in entities}
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l0_bounds_tactics_and_assigns_default_expiry(tmp_path):
+    from magi.memory.l0.working.workbench import (
+        DEFAULT_TACTIC_TTL_SECONDS,
+        MAX_TEMPORARY_TACTICS_PER_SESSION,
+    )
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    store = L0WorkingMemoryStore(
+        checkpoint_db_path=str(tmp_path / "memory.db"),
+        restore_on_restart=False,
+    )
+    before = time.time()
+    first = await store.add_temporary_tactic(
+        session_id="session-1",
+        scope_type="session",
+        scope_id="session-1",
+        tactic_type="first",
+        tactic_payload={"mode": "careful"},
+        source_event_ids=[],
+        tactic_id="tactic-0",
+    )
+    assert first is not None
+    assert before + DEFAULT_TACTIC_TTL_SECONDS <= first["expires_at"] <= (
+        time.time() + DEFAULT_TACTIC_TTL_SECONDS
+    )
+
+    for index in range(1, MAX_TEMPORARY_TACTICS_PER_SESSION + 1):
+        await store.add_temporary_tactic(
+            session_id="session-1",
+            scope_type="session",
+            scope_id="session-1",
+            tactic_type=f"tactic-{index}",
+            tactic_payload={},
+            source_event_ids=[],
+            tactic_id=f"tactic-{index}",
+        )
+
+    tactics = (await store.get_workbench("session-1"))["temporary_tactics"]
+
+    assert len(tactics) == MAX_TEMPORARY_TACTICS_PER_SESSION
+    assert "tactic-0" not in {tactic["tactic_id"] for tactic in tactics}
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_l0_forget_temporary_tactics_removes_live_and_checkpoint_state(tmp_path):
     from magi.memory.l0.working_memory import L0WorkingMemoryStore
 

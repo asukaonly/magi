@@ -55,14 +55,14 @@ def test_synchronous_admission_never_overflows_capacity(tmp_path) -> None:
         description="first session",
     )
 
-    with pytest.raises(RuntimeError, match="configured capacity"):
-        store.push_goal_sync(
-            session_id="session-2",
-            goal_id="goal-2",
-            goal_type="task",
-            description="second session",
-        )
-    assert set(store._sessions) == {"session-1"}
+    store.push_goal_sync(
+        session_id="session-2",
+        goal_id="goal-2",
+        goal_type="task",
+        description="second session",
+    )
+
+    assert set(store._sessions) == {"session-2"}
 
 
 @pytest.mark.asyncio

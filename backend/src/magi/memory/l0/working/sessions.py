@@ -23,6 +23,8 @@ class _L0SessionHostProtocol(Protocol):
 
     def _cancel_scheduled_checkpoint(self, session_id: str) -> None: ...
 
+    def _schedule_checkpoint_session_delete(self, session_id: str) -> None: ...
+
 
 class L0SessionLifecycleMixin:
     """Own L0 session creation, refresh, expiry, and eviction."""
@@ -119,9 +121,7 @@ class L0SessionLifecycleMixin:
             session["status"] = "active"
             return session
         if len(self._sessions) >= self.max_concurrent_sessions:
-            raise RuntimeError(
-                "L0 synchronous session admission exceeded configured capacity"
-            )
+            self._evict_lru_session_sync()
         session = {
             "session_id": session_id,
             "user_id": None,
@@ -184,6 +184,21 @@ class L0SessionLifecycleMixin:
             key=lambda sid: float(self._sessions[sid]["last_active_at"]),
         )
         await self.forget_session(lru_id)
+        return lru_id
+
+    def _evict_lru_session_sync(self) -> Optional[str]:
+        """Evict disposable L0 state without blocking synchronous chat routing."""
+
+        if not self._sessions:
+            return None
+        lru_id = min(
+            self._sessions,
+            key=lambda sid: float(self._sessions[sid]["last_active_at"]),
+        )
+        self._remove_session_state(lru_id)
+        cast(_L0SessionHostProtocol, self)._schedule_checkpoint_session_delete(
+            lru_id
+        )
         return lru_id
 
     def _remove_session_state(self, session_id: str) -> None:

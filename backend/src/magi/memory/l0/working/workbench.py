@@ -17,6 +17,10 @@ from .source_forgetting import (
 )
 from ...source_event_governance import normalize_source_event_ids
 
+MAX_ACTIVE_ENTITIES_PER_SESSION = 32
+MAX_TEMPORARY_TACTICS_PER_SESSION = 16
+DEFAULT_TACTIC_TTL_SECONDS = 900
+
 
 class _L0WorkbenchHostProtocol(Protocol):
     _sessions: dict[str, dict[str, Any]]
@@ -72,8 +76,17 @@ class L0WorkbenchMixin:
                     if not await filter_active_entities_by_governance(db, [entity]):
                         return None
             entities[key] = entity
+            if len(entities) > MAX_ACTIVE_ENTITIES_PER_SESSION:
+                evicted_key = min(
+                    entities,
+                    key=lambda item_key: (
+                        float(entities[item_key]["relevance_score"]),
+                        float(entities[item_key]["last_accessed_at"]),
+                    ),
+                )
+                del entities[evicted_key]
             host._schedule_checkpoint(session_id)
-            return entity
+            return entity if key in entities else None
 
     async def add_temporary_tactic(
         self,
@@ -91,6 +104,7 @@ class L0WorkbenchMixin:
         host = cast(_L0WorkbenchHostProtocol, self)
         await host.initialize()
         await host.start_session(session_id=session_id)
+        created_at = time.time()
         tactic = {
             "tactic_id": tactic_id or f"tactic_{uuid.uuid4().hex}",
             "scope_type": scope_type,
@@ -98,8 +112,12 @@ class L0WorkbenchMixin:
             "tactic_type": tactic_type,
             "tactic_payload": dict(tactic_payload),
             "source_event_ids": list(source_event_ids),
-            "expires_at": expires_at,
-            "created_at": time.time(),
+            "expires_at": (
+                float(expires_at)
+                if expires_at is not None
+                else created_at + DEFAULT_TACTIC_TTL_SECONDS
+            ),
+            "created_at": created_at,
         }
         async with host._checkpoint_lock:
             references = tactic_source_references(tactic)
@@ -107,9 +125,16 @@ class L0WorkbenchMixin:
                 async with sqlite_connection_async(host.checkpoint_db_path) as db:
                     if await forgotten_tactic_source_references(db, references):
                         return None
-            host._temporary_tactics.setdefault(session_id, {})[tactic["tactic_id"]] = tactic
+            tactics = host._temporary_tactics.setdefault(session_id, {})
+            tactics[tactic["tactic_id"]] = tactic
+            if len(tactics) > MAX_TEMPORARY_TACTICS_PER_SESSION:
+                evicted_id = min(
+                    tactics,
+                    key=lambda item_id: float(tactics[item_id]["created_at"]),
+                )
+                del tactics[evicted_id]
             host._schedule_checkpoint(session_id)
-        return tactic
+        return tactic if tactic["tactic_id"] in tactics else None
 
     async def get_workbench(self, session_id: str) -> dict[str, Any]:
         """Return the prompt-consumable workbench for a session."""

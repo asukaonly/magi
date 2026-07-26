@@ -41,7 +41,7 @@ class L0WorkingMemoryStore(
         self.checkpoint_interval_seconds = int(checkpoint_interval_seconds)
         self.session_timeout_seconds = int(session_timeout_seconds)
         self.restore_on_restart = bool(restore_on_restart)
-        self.max_concurrent_sessions = int(max_concurrent_sessions)
+        self.max_concurrent_sessions = max(1, int(max_concurrent_sessions))
 
         self._sessions: dict[str, dict[str, Any]] = {}
         self._goal_stack: dict[str, list[dict[str, Any]]] = {}
@@ -49,6 +49,7 @@ class L0WorkingMemoryStore(
         self._temporary_tactics: dict[str, dict[str, dict[str, Any]]] = {}
         self._checkpoint_lock = asyncio.Lock()
         self._checkpoint_tasks: dict[str, asyncio.Task[None]] = {}
+        self._maintenance_tasks: set[asyncio.Task[None]] = set()
         self._checkpoint_versions: dict[str, int] = {}
         self._initialization_lock = asyncio.Lock()
         self._initialized = False
@@ -119,6 +120,38 @@ class L0WorkingMemoryStore(
         if task is not None and task is not asyncio.current_task():
             task.cancel()
 
+    def _schedule_checkpoint_session_delete(self, session_id: str) -> None:
+        """Delete an asynchronously evicted session from the checkpoint."""
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        async def _delete_if_still_evicted() -> None:
+            try:
+                await self.initialize()
+                async with self._checkpoint_lock:
+                    if session_id in self._sessions:
+                        return
+                    async with sqlite_connection_async(self.checkpoint_db_path) as db:
+                        await self._delete_checkpoint_sessions(db, {session_id})
+                        await db.commit()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "Failed to delete evicted L0 checkpoint",
+                    session_id=session_id,
+                )
+
+        task = loop.create_task(
+            _delete_if_still_evicted(),
+            name=f"l0-eviction:{session_id}",
+        )
+        self._maintenance_tasks.add(task)
+        task.add_done_callback(self._maintenance_tasks.discard)
+
     async def shutdown(self) -> None:
         """Flush live workbench state and stop delayed checkpoints."""
 
@@ -129,6 +162,10 @@ class L0WorkingMemoryStore(
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        maintenance_tasks = list(self._maintenance_tasks)
+        self._maintenance_tasks.clear()
+        if maintenance_tasks:
+            await asyncio.gather(*maintenance_tasks, return_exceptions=True)
         if self._initialized:
             await self.checkpoint_all()
         self._initialized = False
