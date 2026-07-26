@@ -25,5 +25,10 @@ def test_gateway_api_contract_manifest_matches_router_inventory() -> None:
     )
 
     assert errors == []
-    assert inventory["rust_native_routes"]["/api/memory/statistics"] == ["GET"]
+    assert "/api/memory/statistics" not in inventory["rust_native_routes"]
+    assert inventory["python_routes"]["/api/memory/statistics"] == ["GET"]
+    assert inventory["python_routes"]["/api/memory/l0/sessions"] == ["GET"]
+    assert inventory["python_routes"][
+        "/api/memory/l0/workbench/{session_id}"
+    ] == ["GET"]
     assert inventory["python_routes"]["/api/config/"] == ["GET", "PUT"]

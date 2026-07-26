@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import time
 import uuid
 from typing import Any, Dict, Optional, Protocol, cast
@@ -33,6 +34,8 @@ class _L0WorkbenchHostProtocol(Protocol):
     async def start_session(self, *, session_id: str, **kwargs: Any) -> dict[str, Any]: ...
 
     async def initialize(self) -> None: ...
+
+    async def expire_idle_sessions(self) -> list[str]: ...
 
     def _schedule_checkpoint(self, session_id: str) -> None: ...
 
@@ -208,6 +211,18 @@ class L0WorkbenchMixin:
                         key=lambda item: float(item["created_at"]),
                     )
                 ],
+            }
+
+    async def get_session_index_snapshot(self) -> dict[str, Any]:
+        """Return a stable public snapshot for L0 list and search surfaces."""
+
+        host = cast(_L0WorkbenchHostProtocol, self)
+        await host.initialize()
+        await self.expire_idle_sessions()
+        async with host._checkpoint_lock:
+            return {
+                "sessions": deepcopy(host._sessions),
+                "goals_by_session": deepcopy(host._goal_stack),
             }
 
     async def forget_entity(self, entity_id: str) -> int:

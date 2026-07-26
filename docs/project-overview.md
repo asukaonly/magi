@@ -58,6 +58,12 @@ On confirmed desktop quit, the Tauri shell hides the main window first and then 
 
 The frontend talks to the Rust gateway, not directly to the Python FastAPI app. The gateway-visible contract is therefore the union of Rust-native routes, Rust static mounts, and Python routes that are reached through the IPC proxy fallback.
 
+L0 inspection is Python-proxied even though its checkpoint tables are SQLite:
+the current in-memory workbench, idle expiry, source-forgetting rules, and
+chat-owned context snapshot must be composed by one runtime owner. The gateway
+must not serve L0 sessions, workbenches, or aggregate memory statistics from a
+separate checkpoint-only view.
+
 The machine-readable route ownership manifest lives at `contracts/api/gateway_routes.json`. It records Rust-native route method/path ownership, static mounts, Python proxy prefixes, and native routes that still have Python parity implementations. `scripts/check-api-contract.py` validates the manifest against the Rust Axum router and the Python FastAPI route table, and is part of CI/release validation.
 
 Python-proxied routes also have a dedicated schema export path: `scripts/export-python-openapi.py`. That script builds the in-memory FastAPI app and exports its OpenAPI document for IPC-dispatched Python routes only. Rust-native routes still belong in the gateway manifest and Rust contract tests.
@@ -282,7 +288,7 @@ High-volume Python write paths must have a single owning service or bounded writ
 | `sensor_state.db` | `sensor_cursors`, `sensor_fingerprints`, `sensor_stats` | Sensor sync bookkeeping and source-item dedupe state | No direct native writes currently; product commands request state flushes through IPC/runtime command queue | Owns cursor/stat updates and fingerprint dedupe writes; high-volume fingerprint writes must use the awareness-owned bounded batch writer | Python sensor_state schema |
 | `llm_usage.db` | `llm_usage`, `llm_usage_rollups` | LLM usage metrics | Reads usage dashboards, including cache read/write utilization | Writes provider/runtime usage records for Python LLM execution and preserves cache token counts in rollups | Python LLM usage store schema; Rust metrics tests cover read/write shape |
 | `l1_events.db` | `fact_events`, L1 vector/index tables | Canonical lossy memory projection | Read-only for native memory list/stat endpoints; startup may create idempotent performance indexes | Owns all semantic writes, retention, archival, projection, and vector writes | Python memory L1 store schema; Rust may only add documented idempotent indexes |
-| `memory.db` | L0/L2/L3/L4 tables, graph, assertions, summaries, procedures | Lifecycle memory state beyond L1 | Reads native memory inspection endpoints and may create idempotent performance indexes at startup; all product mutations are forwarded to Python | Owns cognition, reflection, procedural extraction, conflict resolution, vector writes, user feedback, corrections, and deletion governance | Python memory stores/schema; Rust may only add documented idempotent indexes |
+| `memory.db` | L0/L2/L3/L4 tables, graph, assertions, summaries, procedures | Lifecycle memory state beyond L1 | Reads selected L2-L4 inspection endpoints and may create idempotent performance indexes at startup; L0 inspection, aggregate statistics, and all product mutations are forwarded to Python | Owns the live L0 workbench, cognition, reflection, procedural extraction, conflict resolution, vector writes, user feedback, corrections, and deletion governance | Python memory stores/schema; Rust may only add documented idempotent indexes |
 | `persona_registry.db` | personas and active persona state | Persona registry identity and active selection | No direct native writes currently; proxied to Python persona APIs | Owns persona CRUD, seed import, active persona selection, and runtime cache synchronization | Python persona repository |
 | plugin cache DB/files | plugin-owned cursors and rebuildable state | Owning plugin or sensor contribution | No direct access | Plugin/sensor runtime owns reads and writes through contribution APIs | Owning plugin/sensor package |
 

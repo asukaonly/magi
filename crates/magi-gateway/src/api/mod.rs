@@ -135,10 +135,6 @@ pub fn build_router(state: ApiState) -> Router {
         )
         // Memory
         .route(
-            "/api/memory/statistics",
-            axum::routing::get(memory::get_memory_statistics),
-        )
-        .route(
             "/api/memory/l2/statistics",
             axum::routing::get(memory::get_l2_statistics),
         )
@@ -177,14 +173,6 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/api/memory/l3/summaries",
             axum::routing::get(memory::list_l3_summaries),
-        )
-        .route(
-            "/api/memory/l0/sessions",
-            axum::routing::get(memory::list_l0_sessions),
-        )
-        .route(
-            "/api/memory/l0/workbench/{session_id}",
-            axum::routing::get(memory::get_l0_workbench),
         )
         .route(
             "/api/memory/l2/pending",

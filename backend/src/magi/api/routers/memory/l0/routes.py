@@ -33,32 +33,47 @@ async def list_l0_sessions(
         return empty_l0_sessions_response(limit=limit, offset=offset)
 
     chat_read_service = get_chat_read_service()
-    l0_sessions = unified_memory.l0._sessions
+    index = await unified_memory.l0.get_session_index_snapshot()
+    l0_sessions = index["sessions"]
+    goals_by_session = index["goals_by_session"]
     sorted_ids = sorted_l0_session_ids(l0_sessions, status_filter=status)
 
-    total = len(sorted_ids)
-    page_ids = sorted_ids[offset : offset + limit]
-
     summary_map: dict[str, Any] = {}
-    for user_id, session_ids in session_ids_by_user(l0_sessions, page_ids).items():
+    for user_id, session_ids in session_ids_by_user(l0_sessions, sorted_ids).items():
         batch = await chat_read_service.aget_session_summaries_batch(user_id, session_ids)
         summary_map.update(batch)
 
-    page_ids = filter_l0_session_ids_by_query(
-        session_ids=page_ids,
+    filtered_ids = filter_l0_session_ids_by_query(
+        session_ids=sorted_ids,
         query=query,
         sessions=l0_sessions,
-        goals_by_session=unified_memory.l0._goal_stack,
+        goals_by_session=goals_by_session,
         summary_map=summary_map,
     )
-    items, stats = build_l0_session_list_items(
-        session_ids=page_ids,
+    total = len(filtered_ids)
+
+    entities_by_session: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
+    tactics_by_session: dict[str, dict[str, Any]] = {}
+    for session_id in filtered_ids:
+        workbench = await unified_memory.l0.get_workbench(session_id)
+        entities_by_session[session_id] = {
+            (entity["entity_id"], entity["entity_type"]): entity
+            for entity in workbench["active_entities"]
+        }
+        tactics_by_session[session_id] = {
+            tactic["tactic_id"]: tactic
+            for tactic in workbench["temporary_tactics"]
+        }
+
+    all_items, stats = build_l0_session_list_items(
+        session_ids=filtered_ids,
         sessions=l0_sessions,
-        goals_by_session=unified_memory.l0._goal_stack,
-        entities_by_session=unified_memory.l0._active_entities,
-        tactics_by_session=unified_memory.l0._temporary_tactics,
+        goals_by_session=goals_by_session,
+        entities_by_session=entities_by_session,
+        tactics_by_session=tactics_by_session,
         summary_map=summary_map,
     )
+    items = all_items[offset : offset + limit]
 
     return {
         "items": items,

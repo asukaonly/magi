@@ -116,6 +116,24 @@ class _FakeL0Store:
     async def clear(self):
         return 3
 
+    async def get_session_index_snapshot(self):
+        return {
+            "sessions": dict(self._sessions),
+            "goals_by_session": dict(self._goal_stack),
+        }
+
+    async def get_workbench(self, session_id: str):
+        return {
+            "session": self._sessions.get(session_id),
+            "goal_stack": list(self._goal_stack.get(session_id, [])),
+            "active_entities": list(
+                self._active_entities.get(session_id, {}).values()
+            ),
+            "temporary_tactics": list(
+                self._temporary_tactics.get(session_id, {}).values()
+            ),
+        }
+
 
 def _fake_event_id_page(
     *,
@@ -809,7 +827,7 @@ def test_l0_sessions_api_treats_new_session_title_as_generic(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    fake_memory = SimpleNamespace(l0=SimpleNamespace())
+    fake_memory = SimpleNamespace(l0=_FakeL0Store())
     fake_barrier = AsyncOperationBarrier()
     fake_memory.memory_operation_guard = fake_barrier.operation
     fake_memory.l0._sessions = {
@@ -851,6 +869,74 @@ def test_l0_sessions_api_treats_new_session_title_as_generic(monkeypatch):
     body = response.json()
     assert body["items"][0]["display_title"] == "把工作台记忆页改得更像产品页"
     assert body["items"][0]["display_subtitle"] == "magi"
+
+
+def test_l0_sessions_api_filters_before_pagination(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    fake_memory = _FakeUnifiedMemory()
+    fake_memory.l0._sessions = {
+        "session-newest": {
+            "session_id": "session-newest",
+            "user_id": "local_user",
+            "status": "active",
+            "started_at": 2.0,
+            "last_active_at": 2.0,
+        },
+        "session-match": {
+            "session_id": "session-match",
+            "user_id": "local_user",
+            "status": "active",
+            "started_at": 1.0,
+            "last_active_at": 1.0,
+        },
+    }
+    fake_memory.l0._goal_stack = {
+        "session-newest": [],
+        "session-match": [],
+    }
+    fake_memory.l0._active_entities = {
+        "session-newest": {},
+        "session-match": {},
+    }
+    fake_memory.l0._temporary_tactics = {
+        "session-newest": {},
+        "session-match": {},
+    }
+
+    class _FakeChatReadService:
+        async def aget_session_summaries_batch(
+            self,
+            user_id: str,
+            session_ids: list[str],
+        ):
+            assert user_id == "local_user"
+            assert session_ids == ["session-newest", "session-match"]
+            return {
+                "session-newest": SimpleNamespace(title="Unrelated"),
+                "session-match": SimpleNamespace(title="Needle project"),
+            }
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: fake_memory,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _FakeChatReadService(),
+    )
+
+    response = TestClient(app).get(
+        "/api/memory/l0/sessions",
+        params={"query": "needle", "limit": 1},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert [item["session_id"] for item in body["items"]] == ["session-match"]
+    assert body["stats"]["active_sessions"] == 1
 
 
 def test_l0_workbench_composes_durable_context_usage(monkeypatch):
