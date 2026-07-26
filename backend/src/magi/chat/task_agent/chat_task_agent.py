@@ -627,9 +627,6 @@ class ChatTaskAgent(
         )
         if not completed:
             return
-        if self.unified_memory is not None and self.unified_memory.l0 is not None:
-            await self.unified_memory.l0.checkpoint_session(session_id)
-
     async def _load_context_inputs(self, classified: Any, run_decision: Any) -> _ChatContextInputs:
         session_id = self._context_assembler.require_session_id(
             classified.user_id, classified.session_id
@@ -1035,7 +1032,7 @@ class ChatTaskAgent(
         )
         if not completed:
             return
-        await self._postprocess_service.checkpoint_completed_run_and_release_deferred(
+        await self._postprocess_service.release_deferred_after_run_completion(
             session_id=session_id,
             run_id=active_run.run_id,
             revision=active_run.revision,

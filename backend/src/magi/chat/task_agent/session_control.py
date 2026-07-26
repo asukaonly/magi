@@ -390,8 +390,6 @@ class ChatSessionControlMixin:
         )
         if not completed:
             raise RuntimeError("Unsafe chat run could not be cleared for replay")
-        if self.unified_memory is not None and self.unified_memory.l0 is not None:
-            await self.unified_memory.l0.checkpoint_session(normalized_session_id)
         return True
 
     async def _request_ingress_interrupt(self, fact: FactRecord) -> None:
@@ -627,7 +625,7 @@ class ChatSessionControlMixin:
             )
         )
         if completed:
-            await self._postprocess_service.checkpoint_completed_run_and_release_deferred(
+            await self._postprocess_service.release_deferred_after_run_completion(
                 session_id=session_id,
                 run_id=active_run.run_id,
                 revision=active_run.revision,

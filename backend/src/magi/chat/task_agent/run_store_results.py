@@ -13,7 +13,7 @@ class SessionRunResultMixin:
     """Record accepted and stale run results based on active revision state."""
 
     _lock: RLock
-    _l0_store: Any
+    _execution_store: Any
 
     def mark_stale_result(
         self,
@@ -27,7 +27,7 @@ class SessionRunResultMixin:
         """Record a stale result separately from accepted results."""
         with self._lock:
             self._require_run(session_id)
-            stale_payload = self._l0_store.record_execution_result_sync(
+            stale_payload = self._execution_store.record_execution_result_sync(
                 session_id=session_id,
                 run_id=run_id,
                 result_id=result_id,
@@ -50,7 +50,7 @@ class SessionRunResultMixin:
         """Record an accepted result for the current run revision."""
         with self._lock:
             self._require_run(session_id)
-            accepted_payload = self._l0_store.record_execution_result_sync(
+            accepted_payload = self._execution_store.record_execution_result_sync(
                 session_id=session_id,
                 run_id=run_id,
                 result_id=result_id,

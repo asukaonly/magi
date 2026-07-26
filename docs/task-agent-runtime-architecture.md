@@ -643,18 +643,27 @@ recall.
   The new message adds information without changing scope (for example, "also …", "by the way …", "补充 …", "另外 …"). The tool loop keeps running and tool results are preserved; the steer text is drained from the persistent queue at the top of the next iteration and appended to `state.messages` as a plain user message, so the next LLM call sees it without rebuilding the prompt. Supersession bookkeeping uses `reason="steer"` with the same root-plus-intermediate shape as AUGMENT.
 
 - `DEFER`
-  The new message is unrelated or better treated as a follow-up (for example, "帮我看看 github 的仓库吧" while an email draft is in flight). It remains attached to the current run and its chat delivery stays non-terminal. Exact run completion atomically captures the current revision's DEFER turns while clearing the finished run. After the L0 completion checkpoint succeeds, each captured turn is prepared as a higher delivery attempt and rescheduled from its durable original envelope, preserving the same turn ID, attachments, workspace, and metadata. An immediate consumer therefore sees no old running root and starts a new root turn.
+  The new message is unrelated or better treated as a follow-up (for example, "帮我看看 github 的仓库吧" while an email draft is in flight). It remains attached to the current live run and its chat delivery stays non-terminal. Exact run completion atomically captures the current revision's DEFER turns while clearing the finished run. Each captured turn is then prepared as a higher delivery attempt and rescheduled from its durable original envelope, preserving the same turn ID, attachments, workspace, and metadata. An immediate consumer therefore sees no old running root and starts a new root turn.
 
-All four dispositions are persisted to L0 working memory on `l0_execution_pending_turns.disposition`. Appending a pending entry is idempotent by stable turn ID, so replaying one admitted runtime command cannot create duplicate pending work. FACT_ONLY handling for AUGMENT / STEER / DEFER records acceptance only: it must not complete the pending `ChatTurn`, close its delivery ledger, or finalize the active run.
+The current run and its interruption dispositions are process-local
+coordination state. Appending a pending entry is idempotent by stable turn ID,
+so replaying one admitted runtime command cannot create duplicate live pending
+work. FACT_ONLY handling for AUGMENT / STEER / DEFER records acceptance only:
+it must not complete the pending `ChatTurn`, close its delivery ledger, or
+finalize the active run.
 
-DEFER recovery is ledger-driven rather than in-memory reinjection. If the process stops before run completion, the admitted delivery and L0 pending entry remain recoverable. If the completion checkpoint fails while the process remains alive, the captured DEFER batch stays attached to a single bounded-backoff retry until that checkpoint succeeds, and only then is it released once. If the process stops after completion but before scheduling, the delivery is either still admitted or already prepared as ready work; startup recovery can advance and schedule it. Scheduling failure leaves a ready attempt for the normal retry path. The runtime never consumes the L0 DEFER entry before the exact run/revision completion barrier and never mints a replacement turn ID.
+DEFER recovery is ledger-driven rather than L0-driven. If the process stops
+before run completion, each admitted non-terminal delivery is re-driven from
+its durable envelope. If releasing a captured DEFER batch fails while the
+process remains alive, one bounded-backoff retry retains that exact batch. If
+the process stops after completion but before scheduling, the delivery is
+either still admitted or already prepared as ready work; startup recovery can
+advance and schedule it. Scheduling failure leaves a ready attempt for the
+normal retry path. The runtime never mints a replacement turn ID.
 
-L0 expiration applies only to disposable workbench state. A session that still
-owns an execution run is protected from idle cleanup and capacity eviction,
-even if its last-activity timestamp is old. Restart recovery likewise restores
-active execution before applying the normal idle window and session cap to
-disposable workbenches. This makes timeout a relevance policy for temporary
-context, not a cancellation mechanism for admitted work.
+L0 expiration applies only to disposable workbench state and is independent of
+live or admitted chat work. This makes timeout a relevance policy for temporary
+context, not a cancellation or recovery mechanism.
 
 AUGMENT and STEER share the same persistent queue and the same supersession shape but differ in when and how they are consumed:
 

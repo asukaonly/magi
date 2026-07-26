@@ -109,7 +109,6 @@ class ContextRetrievalService:
                 "goals": list(workbench.get("goals", [])[:3]),
                 "active_entities": list(workbench.get("active_entities", [])[:5]),
                 "temporary_tactics": list(workbench.get("temporary_tactics", [])[:5]),
-                "execution_summary": workbench.get("execution_summary"),
             }
         ]
 

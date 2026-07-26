@@ -220,8 +220,14 @@ def test_complete_active_run_mismatch_does_not_detach_deferred_turns() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_active_run_populates_l0_goal_stack() -> None:
-    store = SessionRunStore()
+async def test_create_active_run_populates_l0_goal_stack(tmp_path) -> None:
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    workbench_store = L0WorkingMemoryStore(
+        checkpoint_db_path=str(tmp_path / "memory.db"),
+        restore_on_restart=False,
+    )
+    store = SessionRunStore(workbench_store=workbench_store)
 
     store.create_active_run(
         session_id="session-1",
@@ -230,7 +236,7 @@ async def test_create_active_run_populates_l0_goal_stack() -> None:
         root_user_message="Inspect the login flow",
     )
 
-    workbench = await store._l0_store.get_workbench("session-1")
+    workbench = await workbench_store.get_workbench("session-1")
 
     assert len(workbench["goal_stack"]) == 1
     assert workbench["goal_stack"][0]["goal_id"] == "chat_run:run-1:0"
@@ -244,8 +250,16 @@ async def test_create_active_run_populates_l0_goal_stack() -> None:
 
 
 @pytest.mark.asyncio
-async def test_interrupting_run_supersedes_previous_goal_and_pushes_new_goal() -> None:
-    store = SessionRunStore()
+async def test_interrupting_run_supersedes_previous_goal_and_pushes_new_goal(
+    tmp_path,
+) -> None:
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    workbench_store = L0WorkingMemoryStore(
+        checkpoint_db_path=str(tmp_path / "memory.db"),
+        restore_on_restart=False,
+    )
+    store = SessionRunStore(workbench_store=workbench_store)
 
     store.create_active_run(
         session_id="session-1",
@@ -260,7 +274,7 @@ async def test_interrupting_run_supersedes_previous_goal_and_pushes_new_goal() -
         content="Switch to the checkout issue instead",
     )
 
-    workbench = await store._l0_store.get_workbench("session-1")
+    workbench = await workbench_store.get_workbench("session-1")
 
     assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
         "chat_run:run-1:1",
@@ -271,8 +285,14 @@ async def test_interrupting_run_supersedes_previous_goal_and_pushes_new_goal() -
 
 
 @pytest.mark.asyncio
-async def test_complete_active_run_marks_current_goal_completed() -> None:
-    store = SessionRunStore()
+async def test_complete_active_run_marks_current_goal_completed(tmp_path) -> None:
+    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+    workbench_store = L0WorkingMemoryStore(
+        checkpoint_db_path=str(tmp_path / "memory.db"),
+        restore_on_restart=False,
+    )
+    store = SessionRunStore(workbench_store=workbench_store)
 
     store.create_active_run(
         session_id="session-1",
@@ -282,11 +302,11 @@ async def test_complete_active_run_marks_current_goal_completed() -> None:
     )
     completed = store.complete_active_run("session-1", run_id="run-1", revision=0)
 
-    workbench = await store._l0_store.get_workbench("session-1")
+    workbench = await workbench_store.get_workbench("session-1")
 
     assert completed is True
     assert workbench["goal_stack"] == []
-    assert store._l0_store._goal_stack["session-1"][0]["status"] == "completed"
+    assert workbench_store._goal_stack["session-1"][0]["status"] == "completed"
 
 
 def test_consume_pending_turns_only_clears_requested_revision() -> None:
@@ -412,83 +432,41 @@ def test_record_result_rejects_late_result_from_superseded_run() -> None:
     assert [item.result_id for item in active_run.stale_results] == ["result-3"]
 
 
-@pytest.mark.asyncio
-async def test_session_run_store_restores_active_run_from_l0_checkpoint(tmp_path) -> None:
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_execution_state.db"
-    l0_store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        restore_on_restart=True,
-    )
-    await l0_store.initialize()
-
-    store = SessionRunStore(l0_store=l0_store)
-    store.create_active_run(session_id="session-1", run_id="run-1", root_turn_id="turn-1")
-    store.append_pending_turn(
-        session_id="session-1",
-        turn_id="turn-2",
-        content="补充一下，是 macOS",
-    )
-    store.record_result(
+def test_new_run_store_never_restores_control_less_active_run() -> None:
+    original = SessionRunStore()
+    original.create_active_run(
         session_id="session-1",
         run_id="run-1",
-        result_id="result-1",
-        revision=0,
-        payload={"content": "current"},
+        root_turn_id="turn-1",
     )
-    await l0_store.checkpoint_session("session-1")
-
-    restored_l0 = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        restore_on_restart=True,
+    original.request_cancel(
+        "session-1",
+        requested_by="local_user",
+        reason="user_cancel",
+        anchor_turn_id="turn-2",
     )
-    await restored_l0.initialize()
-    restored_store = SessionRunStore(l0_store=restored_l0)
 
-    active_run = restored_store.get_active_run("session-1")
+    restarted = SessionRunStore()
 
-    assert active_run is not None
-    assert active_run.run_id == "run-1"
-    assert active_run.root_turn_id == "turn-1"
-    assert active_run.status == "running"
-    assert [item.turn_id for item in active_run.pending_turns] == ["turn-2"]
-    assert [item.result_id for item in active_run.accepted_results] == ["result-1"]
+    assert restarted.get_active_run("session-1") is None
 
 
-@pytest.mark.asyncio
-async def test_session_run_store_restores_cancel_metadata_from_l0_checkpoint(tmp_path) -> None:
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_execution_state.db"
-    l0_store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        restore_on_restart=True,
-    )
-    await l0_store.initialize()
-
-    store = SessionRunStore(l0_store=l0_store)
-    store.create_active_run(session_id="session-1", run_id="run-1", root_turn_id="turn-1")
+def test_running_revision_clears_previous_cancel_metadata() -> None:
+    store = SessionRunStore()
+    store.create_active_run(session_id="session-1", run_id="run-1")
     store.request_cancel(
         "session-1",
         requested_by="local_user",
         reason="user_cancel",
         anchor_turn_id="turn-2",
     )
-    await l0_store.checkpoint_session("session-1")
 
-    restored_l0 = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        restore_on_restart=True,
-    )
-    await restored_l0.initialize()
-    restored_store = SessionRunStore(l0_store=restored_l0)
-
-    active_run = restored_store.get_active_run("session-1")
+    store.bump_revision("session-1")
+    active_run = store.get_active_run("session-1")
 
     assert active_run is not None
-    assert active_run.status == "cancelling"
-    assert active_run.cancel_requested_by == "local_user"
-    assert active_run.cancel_reason == "user_cancel"
-    assert active_run.cancel_anchor_turn_id == "turn-2"
-    assert active_run.cancel_requested_at is not None
+    assert active_run.status == "running"
+    assert active_run.cancel_requested_at is None
+    assert active_run.cancel_requested_by is None
+    assert active_run.cancel_reason is None
+    assert active_run.cancel_anchor_turn_id is None

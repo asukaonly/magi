@@ -9,7 +9,6 @@ from typing import Any
 from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
 from .working.checkpoint import L0CheckpointMixin
-from .working.execution import L0ExecutionStateMixin
 from .working.goals import L0GoalStackMixin
 from .working.schema import ensure_l0_checkpoint_schema
 from .working.sessions import L0SessionLifecycleMixin
@@ -24,7 +23,6 @@ class L0WorkingMemoryStore(
     L0SessionLifecycleMixin,
     L0GoalStackMixin,
     L0WorkbenchMixin,
-    L0ExecutionStateMixin,
     L0CheckpointMixin,
     L0SourceForgettingMixin,
 ):
@@ -49,9 +47,6 @@ class L0WorkingMemoryStore(
         self._goal_stack: dict[str, list[dict[str, Any]]] = {}
         self._active_entities: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
         self._temporary_tactics: dict[str, dict[str, dict[str, Any]]] = {}
-        self._execution_runs: dict[str, dict[str, Any]] = {}
-        self._execution_pending_turns: dict[str, list[dict[str, Any]]] = {}
-        self._execution_results: dict[str, list[dict[str, Any]]] = {}
         self._checkpoint_lock = asyncio.Lock()
         self._checkpoint_tasks: dict[str, asyncio.Task[None]] = {}
         self._checkpoint_versions: dict[str, int] = {}

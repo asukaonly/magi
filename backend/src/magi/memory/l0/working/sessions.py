@@ -33,9 +33,6 @@ class L0SessionLifecycleMixin:
     _goal_stack: dict[str, list[dict[str, Any]]]
     _active_entities: dict[str, dict[tuple[str, str], dict[str, Any]]]
     _temporary_tactics: dict[str, dict[str, dict[str, Any]]]
-    _execution_runs: dict[str, dict[str, Any]]
-    _execution_pending_turns: dict[str, list[dict[str, Any]]]
-    _execution_results: dict[str, list[dict[str, Any]]]
 
     async def start_session(
         self,
@@ -67,11 +64,7 @@ class L0SessionLifecycleMixin:
             return existing
 
         if len(self._sessions) >= self.max_concurrent_sessions:
-            evicted = await self._evict_lru_session()
-            if evicted is None:
-                raise RuntimeError(
-                    "L0 session capacity is fully occupied by active execution runs"
-                )
+            await self._evict_lru_session()
 
         session = {
             "session_id": session_id,
@@ -153,8 +146,6 @@ class L0SessionLifecycleMixin:
         for session_id, session in list(self._sessions.items()):
             if now - float(session["last_active_at"]) <= self.session_timeout_seconds:
                 continue
-            if session_id in self._execution_runs:
-                continue
             await self.forget_session(session_id)
             expired.append(session_id)
         return expired
@@ -172,9 +163,6 @@ class L0SessionLifecycleMixin:
                     "l0_goal_stack",
                     "l0_active_entities",
                     "l0_temporary_tactics",
-                    "l0_execution_runs",
-                    "l0_execution_pending_turns",
-                    "l0_execution_results",
                     "l0_sessions",
                 ):
                     await db.execute(
@@ -188,11 +176,7 @@ class L0SessionLifecycleMixin:
         """Delete the least-recently-active disposable session."""
         if not self._sessions:
             return None
-        candidates = [
-            session_id
-            for session_id in self._sessions
-            if session_id not in self._execution_runs
-        ]
+        candidates = list(self._sessions)
         if not candidates:
             return None
         lru_id = min(
@@ -208,9 +192,6 @@ class L0SessionLifecycleMixin:
         self._goal_stack.pop(session_id, None)
         self._active_entities.pop(session_id, None)
         self._temporary_tactics.pop(session_id, None)
-        self._execution_runs.pop(session_id, None)
-        self._execution_pending_turns.pop(session_id, None)
-        self._execution_results.pop(session_id, None)
 
 
 __all__ = ["L0SessionLifecycleMixin"]

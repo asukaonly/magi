@@ -12,45 +12,33 @@ from magi.memory.l0.working import sessions as session_lifecycle
 
 
 @pytest.mark.asyncio
-async def test_idle_expiry_never_removes_active_execution_state(tmp_path) -> None:
+async def test_idle_expiry_removes_disposable_workbench(tmp_path) -> None:
     store = L0WorkingMemoryStore(
         checkpoint_db_path=str(tmp_path / "memory.db"),
         session_timeout_seconds=1,
     )
     await store.initialize()
-    await store.start_session(session_id="session-active")
-    store.upsert_execution_run_sync(
-        session_id="session-active",
-        run_id="run-1",
-        status="running",
-        revision=0,
-        root_user_message="finish the active task",
-    )
-    store._sessions["session-active"]["last_active_at"] = time.time() - 60
+    await store.start_session(session_id="session-idle")
+    store._sessions["session-idle"]["last_active_at"] = time.time() - 60
 
-    assert await store.expire_idle_sessions() == []
-    assert store.get_execution_state_sync("session-active")["run"]["run_id"] == "run-1"
+    assert await store.expire_idle_sessions() == ["session-idle"]
+    assert (await store.get_workbench("session-idle"))["session"] is None
     await store.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_capacity_eviction_never_removes_active_execution_state(tmp_path) -> None:
+async def test_capacity_evicts_least_recent_workbench(tmp_path) -> None:
     store = L0WorkingMemoryStore(
         checkpoint_db_path=str(tmp_path / "memory.db"),
         max_concurrent_sessions=1,
     )
     await store.initialize()
-    await store.start_session(session_id="session-active")
-    store.upsert_execution_run_sync(
-        session_id="session-active",
-        run_id="run-1",
-        status="running",
-        revision=0,
-    )
+    await store.start_session(session_id="session-old")
+    store._sessions["session-old"]["last_active_at"] = time.time() - 60
 
-    with pytest.raises(RuntimeError, match="active execution runs"):
-        await store.start_session(session_id="session-new")
-    assert store.get_execution_state_sync("session-active")["run"]["run_id"] == "run-1"
+    await store.start_session(session_id="session-new")
+
+    assert set(store._sessions) == {"session-new"}
     await store.shutdown()
 
 
@@ -130,7 +118,7 @@ async def test_clear_failure_keeps_live_session_state(tmp_path, monkeypatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_restore_discards_expired_work_but_recovers_active_execution(tmp_path) -> None:
+async def test_restore_discards_expired_workbench(tmp_path) -> None:
     checkpoint_path = tmp_path / "memory.db"
     store = L0WorkingMemoryStore(
         checkpoint_db_path=str(checkpoint_path),
@@ -142,18 +130,6 @@ async def test_restore_discards_expired_work_but_recovers_active_execution(tmp_p
     store._sessions["session-disposable"]["last_active_at"] = time.time() - 60
     await store.checkpoint_session("session-disposable")
 
-    await store.start_session(session_id="session-active")
-    store.upsert_execution_run_sync(
-        session_id="session-active",
-        run_id="run-1",
-        status="running",
-        revision=0,
-        root_user_message="recover me",
-    )
-    store._sessions["session-active"]["status"] = "expired"
-    store._sessions["session-active"]["last_active_at"] = time.time() - 60
-    await store.checkpoint_session("session-active")
-
     restored = L0WorkingMemoryStore(
         checkpoint_db_path=str(checkpoint_path),
         checkpoint_interval_seconds=9999,
@@ -162,9 +138,6 @@ async def test_restore_discards_expired_work_but_recovers_active_execution(tmp_p
     await restored.initialize()
 
     assert (await restored.get_workbench("session-disposable"))["session"] is None
-    active = await restored.get_workbench("session-active")
-    assert active["session"]["status"] == "active"
-    assert restored.get_execution_state_sync("session-active")["run"]["run_id"] == "run-1"
     await store.shutdown()
     await restored.shutdown()
 

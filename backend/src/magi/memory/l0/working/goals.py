@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import time
+import asyncio
 from typing import Any, Dict, Optional, Protocol, cast
+
+from ....core.sqlite import sqlite_connection_async
 
 MAX_GOALS_PER_SESSION = 32
 TERMINAL_GOAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
@@ -11,8 +14,12 @@ TERMINAL_GOAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 class _L0GoalHostProtocol(Protocol):
     _goal_stack: dict[str, list[dict[str, Any]]]
+    _checkpoint_lock: asyncio.Lock
+    checkpoint_db_path: str
 
     async def start_session(self, *, session_id: str, **kwargs: Any) -> dict[str, Any]: ...
+
+    async def initialize(self) -> None: ...
 
     def _ensure_session_sync(self, session_id: str) -> dict[str, Any]: ...
 
@@ -144,6 +151,48 @@ class L0GoalStackMixin:
             host._goal_stack[session_id] = retained
             host._schedule_checkpoint(session_id)
         return removed
+
+    async def forget_chat_turn(self, *, session_id: str, turn_id: str) -> int:
+        """Remove chat-run goals owned by one deleted user turn."""
+
+        normalized_session_id = str(session_id or "").strip()
+        normalized_turn_id = str(turn_id or "").strip()
+        if not normalized_session_id or not normalized_turn_id:
+            raise ValueError("session_id and turn_id must not be empty")
+        host = cast(_L0GoalHostProtocol, self)
+        await host.initialize()
+        async with host._checkpoint_lock:
+            goals = host._goal_stack.get(normalized_session_id, [])
+            retained = [
+                goal
+                for goal in goals
+                if not self._goal_owned_by_turn(goal, normalized_turn_id)
+            ]
+            removed_live = len(goals) - len(retained)
+            host._goal_stack[normalized_session_id] = retained
+            async with sqlite_connection_async(host.checkpoint_db_path) as db:
+                cursor = await db.execute(
+                    """
+                    DELETE FROM l0_goal_stack
+                    WHERE session_id = ?
+                      AND goal_type = 'chat_run'
+                      AND json_valid(metadata)
+                      AND json_extract(metadata, '$.root_turn_id') = ?
+                    """,
+                    (normalized_session_id, normalized_turn_id),
+                )
+                await db.commit()
+            return max(removed_live, max(int(cursor.rowcount or 0), 0))
+
+    @staticmethod
+    def _goal_owned_by_turn(goal: dict[str, Any], turn_id: str) -> bool:
+        if str(goal.get("goal_type") or "") != "chat_run":
+            return False
+        metadata = goal.get("metadata")
+        return (
+            isinstance(metadata, dict)
+            and str(metadata.get("root_turn_id") or "") == turn_id
+        )
 
     @staticmethod
     def _store_goal(

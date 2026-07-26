@@ -1139,49 +1139,19 @@ async def test_recovery_replays_pre_run_turn_from_first_persisted_intent(
         goal_type="task",
         description="Keep unrelated working state",
     )
-    original_l0.upsert_execution_run_sync(
+    await original_l0.push_goal(
         session_id="session-crash-replay",
-        run_id="run-replay",
-        status="running",
-        revision=0,
-        root_turn_id="turn-replay",
-        root_user_message="turn-replay",
-        response_anchor_turn_id="turn-replay",
-    )
-    await original_l0.start_session(
-        session_id="session-unrelated",
-        user_id="user-1",
-    )
-    original_l0.upsert_execution_run_sync(
-        session_id="session-unrelated",
-        run_id="run-unrelated",
-        status="running",
-        revision=3,
-        root_turn_id="turn-unrelated",
-        root_user_message="leave me alone",
-        response_anchor_turn_id="turn-unrelated",
-    )
-    original_l0.append_execution_pending_turn_sync(
-        session_id="session-unrelated",
-        run_id="run-unrelated",
-        turn_id="turn-unrelated-pending",
-        content="also leave me alone",
-        revision=3,
-        disposition="defer",
+        goal_id="chat_run:run-replay:0",
+        goal_type="chat_run",
+        description="turn-replay",
+        metadata={"root_turn_id": "turn-replay"},
     )
     await original_l0.checkpoint_session("session-crash-replay")
-    await original_l0.checkpoint_session("session-unrelated")
     restored_l0 = L0WorkingMemoryStore(
         checkpoint_db_path=str(checkpoint_path),
         restore_on_restart=True,
     )
     await restored_l0.initialize()
-    assert (
-        await restored_l0.get_execution_state("session-crash-replay")
-    )["run"]["root_turn_id"] == "turn-replay"
-    unrelated_state_before = await restored_l0.get_execution_state(
-        "session-unrelated"
-    )
     selector = ForgetSelector.chat_message(
         user_id="user-1",
         session_id="session-crash-replay",
@@ -1316,20 +1286,12 @@ async def test_recovery_replays_pre_run_turn_from_first_persisted_intent(
         "activate:forget-crash-replay",
         "execute:forget-crash-replay",
     ]
-    replay_state = await restored_l0.get_execution_state(
-        "session-crash-replay"
-    )
-    assert replay_state["run"] is None
     replay_workbench = await restored_l0.get_workbench(
         "session-crash-replay"
     )
     assert [
         goal["goal_id"] for goal in replay_workbench["goal_stack"]
     ] == ["goal-keep"]
-    unrelated_state = await restored_l0.get_execution_state(
-        "session-unrelated"
-    )
-    assert unrelated_state == unrelated_state_before
     read_service.close()
 
 

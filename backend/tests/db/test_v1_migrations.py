@@ -155,7 +155,11 @@ def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) ->
     )
     with sqlite3.connect(memory_db_path) as conn:
         assert "privacy_scope" not in _columns(conn, "knowledge_graph")
-        assert "trigger_json" in _columns(conn, "l0_execution_runs")
+        assert {
+            "l0_execution_runs",
+            "l0_execution_pending_turns",
+            "l0_execution_results",
+        }.isdisjoint(_table_names(conn))
         assert "evidence_class" in _columns(conn, "knowledge_graph")
         assert "user_cover_asset_ref" in _columns(conn, "experiences")
         index_sql = conn.execute("""

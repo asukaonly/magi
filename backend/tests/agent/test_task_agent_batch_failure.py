@@ -491,7 +491,7 @@ async def test_pipeline_failure_uses_shared_deferred_release_barrier(
     )
     barrier_calls: list[tuple[str, str, int, list[str]]] = []
 
-    async def _checkpoint_and_release(
+    async def _release_deferred(
         *,
         session_id: str,
         run_id: str,
@@ -510,8 +510,8 @@ async def test_pipeline_failure_uses_shared_deferred_release_barrier(
 
     monkeypatch.setattr(
         agent._postprocess_service,
-        "checkpoint_completed_run_and_release_deferred",
-        _checkpoint_and_release,
+        "release_deferred_after_run_completion",
+        _release_deferred,
     )
 
     await agent.handle_batch_failure(

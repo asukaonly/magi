@@ -68,43 +68,6 @@ CREATE TABLE IF NOT EXISTS l0_forgotten_tactic_source_refs (
 CREATE INDEX IF NOT EXISTS idx_l0_forgotten_tactic_source_refs_created
     ON l0_forgotten_tactic_source_refs(created_at, source_ref);
 
-CREATE TABLE IF NOT EXISTS l0_execution_runs (
-    session_id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL,
-    status TEXT NOT NULL,
-    revision INTEGER NOT NULL,
-    root_turn_id TEXT,
-    root_user_message TEXT NOT NULL,
-    response_anchor_turn_id TEXT,
-    cancel_requested_at REAL,
-    cancel_reason TEXT,
-    cancel_requested_by TEXT,
-    cancel_anchor_turn_id TEXT,
-    trigger_json TEXT,
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS l0_execution_pending_turns (
-    pending_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
-    run_id TEXT NOT NULL,
-    turn_id TEXT NOT NULL,
-    content TEXT NOT NULL,
-    revision INTEGER NOT NULL,
-    disposition TEXT NOT NULL DEFAULT 'augment',
-    created_at REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS l0_execution_results (
-    result_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    run_id TEXT NOT NULL,
-    revision INTEGER NOT NULL,
-    disposition TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    created_at REAL NOT NULL
-);
 """
 
 L0_CLEAR_SQL = """
@@ -113,9 +76,6 @@ DELETE FROM l0_goal_stack;
 DELETE FROM l0_active_entities;
 DELETE FROM l0_temporary_tactics;
 DELETE FROM l0_forgotten_tactic_source_refs;
-DELETE FROM l0_execution_runs;
-DELETE FROM l0_execution_pending_turns;
-DELETE FROM l0_execution_results;
 """
 
 

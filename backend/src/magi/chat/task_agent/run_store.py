@@ -1,12 +1,12 @@
-"""L0-backed session run store for chat task-agent coordination."""
+"""Live session run store for chat task-agent coordination."""
 
 from __future__ import annotations
 
 from threading import RLock
 from typing import TYPE_CHECKING
 
-from magi.memory.l0.working_memory import L0WorkingMemoryStore
 from magi.control.run_control import RunControl
+from .execution_state_store import SessionExecutionStateStore
 from .run_store_conversion import SessionRunConversionMixin
 from .run_store_goals import SessionRunGoalMixin
 from .run_store_lifecycle import SessionRunLifecycleMixin
@@ -22,18 +22,24 @@ class SessionRunStore(
     SessionRunConversionMixin,
     SessionRunGoalMixin,
 ):
-    """Store one active run per session_id and track revisioned results.
+    """Store one live run per session and track revisioned results.
 
     In-memory companion: ``_run_controls`` holds the live ``RunControl``
     bundle for each active run keyed by ``(session_id, run_id)``. The
     bundle contains asyncio Events and inboxes that cannot be persisted;
     it is the runtime-only counterpart to the persisted ``ActiveRun``
-    record. Background-restored runs do NOT have a registered control —
-    callers must tolerate ``get_active_run_control`` returning ``None``.
+    record. Process restart recovery is ledger-driven and creates a new run
+    instead of restoring a control-less active record.
     """
 
-    def __init__(self, *, l0_store: L0WorkingMemoryStore | None = None) -> None:
-        self._l0_store = l0_store or L0WorkingMemoryStore(restore_on_restart=False)
+    def __init__(
+        self,
+        *,
+        execution_store: SessionExecutionStateStore | None = None,
+        workbench_store: object | None = None,
+    ) -> None:
+        self._execution_store = execution_store or SessionExecutionStateStore()
+        self._workbench_store = workbench_store
         self._lock = RLock()
         self._run_controls: dict[tuple[str, str], RunControl] = {}
         # Phase E: per-run snapshot storage (in-memory; persistence via background task spec)

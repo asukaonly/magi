@@ -61,293 +61,6 @@ async def test_l0_checkpoint_restores_session_goal_and_tactic(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_l0_checkpoint_restores_execution_lane(tmp_path):
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_execution_checkpoint.db"
-
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-        session_timeout_seconds=3600,
-        restore_on_restart=True,
-    )
-    await store.initialize()
-    await store.start_session(
-        session_id="session-1", user_id="user-1", runtime_agent_id="chat:session-1"
-    )
-    await store.upsert_execution_run(
-        session_id="session-1",
-        run_id="run-1",
-        root_turn_id="turn-1",
-        root_user_message="hello",
-        revision=2,
-        status="running",
-        response_anchor_turn_id="turn-2",
-    )
-    await store.append_execution_pending_turn(
-        session_id="session-1",
-        run_id="run-1",
-        turn_id="turn-2",
-        content="补充一下，是 macOS",
-        revision=2,
-    )
-    await store.record_execution_result(
-        session_id="session-1",
-        run_id="run-1",
-        result_id="result-1",
-        revision=2,
-        disposition="accepted",
-        payload={"tool_name": "search"},
-    )
-    await store.record_execution_result(
-        session_id="session-1",
-        run_id="run-1",
-        result_id="result-2",
-        revision=1,
-        disposition="stale",
-        payload={"tool_name": "search"},
-    )
-    await store.checkpoint_session("session-1")
-
-    restored = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-        session_timeout_seconds=3600,
-        restore_on_restart=True,
-    )
-    await restored.initialize()
-    execution_state = await restored.get_execution_state("session-1")
-
-    assert execution_state["run"]["run_id"] == "run-1"
-    assert execution_state["run"]["revision"] == 2
-    assert execution_state["run"]["response_anchor_turn_id"] == "turn-2"
-    assert execution_state["pending_turns"][0]["turn_id"] == "turn-2"
-    assert execution_state["accepted_results"][0]["result_id"] == "result-1"
-    assert execution_state["stale_results"][0]["result_id"] == "result-2"
-
-
-@pytest.mark.asyncio
-async def test_execution_pending_turn_is_idempotent_by_turn_id():
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    store = L0WorkingMemoryStore(restore_on_restart=False)
-    await store.upsert_execution_run(
-        session_id="session-1",
-        run_id="run-1",
-        root_turn_id="turn-root",
-        root_user_message="Start",
-        revision=0,
-        status="running",
-    )
-
-    first = await store.append_execution_pending_turn(
-        session_id="session-1",
-        run_id="run-1",
-        turn_id="turn-pending",
-        content="Continue later",
-        revision=0,
-        disposition="defer",
-    )
-    replay = await store.append_execution_pending_turn(
-        session_id="session-1",
-        run_id="run-1",
-        turn_id="turn-pending",
-        content="Continue later",
-        revision=0,
-        disposition="defer",
-    )
-
-    execution_state = await store.get_execution_state("session-1")
-    assert replay == first
-    assert [item["turn_id"] for item in execution_state["pending_turns"]] == [
-        "turn-pending"
-    ]
-    with pytest.raises(ValueError, match="different content"):
-        await store.append_execution_pending_turn(
-            session_id="session-1",
-            run_id="run-1",
-            turn_id="turn-pending",
-            content="Conflicting replay",
-            revision=0,
-            disposition="defer",
-        )
-
-
-@pytest.mark.asyncio
-async def test_forget_old_checkpoint_revision_preserves_new_live_revision(tmp_path):
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_forget_old_revision.db"
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-        session_timeout_seconds=3600,
-        restore_on_restart=True,
-    )
-    await store.initialize()
-    await store.start_session(
-        session_id="session-1",
-        user_id="user-1",
-        runtime_agent_id="chat:session-1",
-    )
-    await store.upsert_execution_run(
-        session_id="session-1",
-        run_id="run-shared",
-        root_turn_id="turn-old",
-        root_user_message="old root",
-        revision=1,
-        status="cancelled",
-    )
-    await store.append_execution_pending_turn(
-        session_id="session-1",
-        run_id="run-shared",
-        turn_id="turn-old-pending",
-        content="old pending",
-        revision=1,
-    )
-    await store.record_execution_result(
-        session_id="session-1",
-        run_id="run-shared",
-        result_id="result-old",
-        revision=1,
-        disposition="accepted",
-        payload={"content": "old result"},
-    )
-    await store.checkpoint_session("session-1")
-
-    await store.upsert_execution_run(
-        session_id="session-1",
-        run_id="run-shared",
-        root_turn_id="turn-new",
-        root_user_message="new root",
-        revision=2,
-        status="running",
-    )
-    await store.append_execution_pending_turn(
-        session_id="session-1",
-        run_id="run-shared",
-        turn_id="turn-new-pending",
-        content="new pending",
-        revision=2,
-    )
-    await store.record_execution_result(
-        session_id="session-1",
-        run_id="run-shared",
-        result_id="result-new",
-        revision=2,
-        disposition="accepted",
-        payload={"content": "new result"},
-    )
-
-    await store.forget_execution_turn(session_id="session-1", turn_id="turn-old")
-
-    state = await store.get_execution_state("session-1")
-    assert state["run"]["root_turn_id"] == "turn-new"
-    assert state["run"]["revision"] == 2
-    assert [item["turn_id"] for item in state["pending_turns"]] == [
-        "turn-new-pending"
-    ]
-    assert [item["result_id"] for item in state["accepted_results"]] == [
-        "result-new"
-    ]
-
-    await store.checkpoint_session("session-1")
-    restored = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-        session_timeout_seconds=3600,
-        restore_on_restart=True,
-    )
-    await restored.initialize()
-    restored_state = await restored.get_execution_state("session-1")
-    assert restored_state["run"]["root_turn_id"] == "turn-new"
-    assert [item["turn_id"] for item in restored_state["pending_turns"]] == [
-        "turn-new-pending"
-    ]
-    assert [item["result_id"] for item in restored_state["accepted_results"]] == [
-        "result-new"
-    ]
-
-
-@pytest.mark.asyncio
-async def test_l0_checkpoint_preserves_pending_turn_disposition(tmp_path):
-    """AUGMENT / DEFER / STEER dispositions must survive a SQL round-trip.
-
-    Regression: before the ``disposition`` column was added to
-    ``l0_execution_pending_turns`` the save path silently dropped the
-    field and the restore path reconstructed every turn as
-    ``augment``, which would have broken the STEER handler drain path
-    across a backend restart.
-    """
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_pending_turn_disposition.db"
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-        session_timeout_seconds=3600,
-        restore_on_restart=True,
-    )
-    await store.initialize()
-    await store.start_session(
-        session_id="session-1", user_id="user-1", runtime_agent_id="chat:session-1"
-    )
-    await store.upsert_execution_run(
-        session_id="session-1",
-        run_id="run-1",
-        root_turn_id="turn-1",
-        root_user_message="Investigate the login issue.",
-        revision=0,
-        status="running",
-        response_anchor_turn_id="turn-1",
-    )
-    await store.append_execution_pending_turn(
-        session_id="session-1",
-        run_id="run-1",
-        turn_id="turn-augment",
-        content="Instead of login, inspect signup.",
-        revision=0,
-        disposition="augment",
-    )
-    await store.append_execution_pending_turn(
-        session_id="session-1",
-        run_id="run-1",
-        turn_id="turn-steer",
-        content="Also, use the staging endpoint.",
-        revision=0,
-        disposition="steer",
-    )
-    await store.append_execution_pending_turn(
-        session_id="session-1",
-        run_id="run-1",
-        turn_id="turn-defer",
-        content="顺便帮我看看 github 的仓库吧。",
-        revision=0,
-        disposition="defer",
-    )
-    await store.checkpoint_session("session-1")
-
-    restored = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-        session_timeout_seconds=3600,
-        restore_on_restart=True,
-    )
-    await restored.initialize()
-    execution_state = await restored.get_execution_state("session-1")
-
-    dispositions_by_turn = {
-        entry["turn_id"]: entry["disposition"] for entry in execution_state["pending_turns"]
-    }
-    assert dispositions_by_turn == {
-        "turn-augment": "augment",
-        "turn-steer": "steer",
-        "turn-defer": "defer",
-    }
-
-
-@pytest.mark.asyncio
 async def test_l0_workbench_excludes_execution_lane_state(tmp_path):
     from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
@@ -370,42 +83,16 @@ async def test_l0_workbench_excludes_execution_lane_state(tmp_path):
         description="Investigate the login issue",
         status="in_progress",
     )
-    await store.upsert_execution_run(
-        session_id="session-1",
-        run_id="run-1",
-        root_turn_id="turn-1",
-        root_user_message="Investigate the login issue",
-        revision=1,
-        status="running",
-        response_anchor_turn_id="turn-2",
-    )
-    await store.append_execution_pending_turn(
-        session_id="session-1",
-        run_id="run-1",
-        turn_id="turn-2",
-        content="补充一下，是 macOS",
-        revision=1,
-    )
-    await store.record_execution_result(
-        session_id="session-1",
-        run_id="run-1",
-        result_id="result-1",
-        revision=1,
-        disposition="accepted",
-        payload={"tool_name": "search", "content": "raw tool output"},
-    )
 
     workbench = await store.get_workbench("session-1")
 
     assert set(workbench) == {"session", "goal_stack", "active_entities", "temporary_tactics"}
     assert "execution" not in workbench
-    assert "root_user_message" not in str(workbench)
-    assert "raw tool output" not in str(workbench)
 
 
 @pytest.mark.asyncio
-async def test_l0_prompt_projection_summarizes_execution_lane(tmp_path):
-    from magi.memory.l0.contracts import L0ExecutionSummary, L0PromptWorkbenchProjection
+async def test_l0_prompt_projection_contains_only_workbench_state(tmp_path):
+    from magi.memory.l0.contracts import L0PromptWorkbenchProjection
     from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
     checkpoint_path = tmp_path / "l0_prompt_projection.db"
@@ -420,88 +107,22 @@ async def test_l0_prompt_projection_summarizes_execution_lane(tmp_path):
     await store.start_session(
         session_id="session-1", user_id="user-1", runtime_agent_id="chat:session-1"
     )
-    await store.upsert_execution_run(
+    await store.push_goal(
         session_id="session-1",
-        run_id="run-1",
-        root_turn_id="turn-1",
-        root_user_message="Investigate the login issue",
-        revision=2,
-        status="running",
-        response_anchor_turn_id="turn-2",
-    )
-    await store.append_execution_pending_turn(
-        session_id="session-1",
-        run_id="run-1",
-        turn_id="turn-2",
-        content="补充一下，是 macOS",
-        revision=2,
-    )
-    await store.record_execution_result(
-        session_id="session-1",
-        run_id="run-1",
-        result_id="result-1",
-        revision=2,
-        disposition="accepted",
-        payload={"tool_name": "search", "content": "raw tool output"},
+        goal_id="goal-1",
+        goal_type="task",
+        description="Investigate the login issue",
+        status="in_progress",
     )
 
     projection = await store.get_prompt_workbench_projection("session-1")
 
     assert isinstance(projection, L0PromptWorkbenchProjection)
-    assert projection.execution_summary == L0ExecutionSummary(
-        active_run_summary="Investigate the login issue",
-        awaiting_external_result=False,
-        waiting_reason="user_replan_pending",
-        latest_user_augmentation_summary="补充一下，是 macOS",
-    )
     payload = projection.to_payload()
-    assert "response_anchor_turn_id" not in str(payload)
-    assert "run_id" not in str(payload)
-    assert "raw tool output" not in str(payload)
-
-
-@pytest.mark.asyncio
-async def test_l0_prompt_projection_treats_pending_turns_as_replan_not_external_wait(tmp_path):
-    from magi.memory.l0.contracts import L0ExecutionSummary
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_prompt_projection_pending_turns.db"
-
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-        session_timeout_seconds=3600,
-        restore_on_restart=True,
+    assert payload["goal_stack"][0]["description"] == (
+        "Investigate the login issue"
     )
-    await store.initialize()
-    await store.start_session(
-        session_id="session-1", user_id="user-1", runtime_agent_id="chat:session-1"
-    )
-    await store.upsert_execution_run(
-        session_id="session-1",
-        run_id="run-1",
-        root_turn_id="turn-1",
-        root_user_message="Investigate the login issue",
-        revision=2,
-        status="running",
-        response_anchor_turn_id="turn-1",
-    )
-    await store.append_execution_pending_turn(
-        session_id="session-1",
-        run_id="run-1",
-        turn_id="turn-2",
-        content="补充一下，是 macOS",
-        revision=2,
-    )
-
-    projection = await store.get_prompt_workbench_projection("session-1")
-
-    assert projection.execution_summary == L0ExecutionSummary(
-        active_run_summary="Investigate the login issue",
-        awaiting_external_result=False,
-        waiting_reason="user_replan_pending",
-        latest_user_augmentation_summary="补充一下，是 macOS",
-    )
+    assert "execution_summary" not in payload
 
 
 @pytest.mark.asyncio

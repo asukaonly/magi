@@ -11,18 +11,16 @@ from magi.agent.task_agents.handlers.run_contracts import ActiveRun, PendingTurn
 
 
 class SessionRunConversionMixin:
-    """Convert L0 execution-state payloads to chat run contracts."""
+    """Convert live execution-state payloads to chat run contracts."""
 
-    _l0_store: Any
+    _execution_store: Any
 
     def _get_run(self, session_id: str) -> ActiveRun | None:
-        state = self._l0_store.get_execution_state_sync(session_id)
+        state = self._execution_store.get_execution_state_sync(session_id)
         run = state.get("run")
         if not isinstance(run, dict):
             return None
         run_id = str(run["run_id"])
-        # ADR-0004 P3: the typed trigger is persisted with the run in L0,
-        # so it survives restart / background restore (no side-table).
         trigger_dict = run.get("trigger")
         trigger = (
             RunTrigger.from_dict(trigger_dict)

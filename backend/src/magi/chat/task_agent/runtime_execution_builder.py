@@ -104,7 +104,7 @@ def _build_session_run_coordinator(
 ) -> SessionRunCoordinator:
     return SessionRunCoordinator(
         run_store=SessionRunStore(
-            l0_store=(
+            workbench_store=(
                 config.unified_memory.l0 if config.unified_memory is not None else None
             ),
         ),

@@ -157,7 +157,7 @@ class SessionRunTurnQueueMixin:
     ) -> PendingTurn | None:
         """Detach one exact unconsumed user turn from its active root run."""
 
-        return await self._run_store.discard_pending_turn_durably(
+        return await self._run_store.discard_pending_turn_for_delete(
             session_id,
             turn_id=turn_id,
             run_id=run_id,

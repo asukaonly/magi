@@ -1379,7 +1379,7 @@ async def test_message_delete_keeps_unrelated_l0_state_across_retry_and_restart(
 
 
 @pytest.mark.asyncio
-async def test_user_message_delete_removes_owned_l0_execution_state(
+async def test_user_message_delete_removes_owned_l0_chat_goal(
     tmp_path: Path,
 ) -> None:
     memory = await _build_memory(tmp_path)
@@ -1392,29 +1392,6 @@ async def test_user_message_delete_removes_owned_l0_execution_state(
         content="private execution root",
     )
     await memory.l1.store(deleted_event)
-    await memory.l0.upsert_execution_run(
-        session_id="session-delete-execution",
-        run_id="run-delete-execution",
-        status="completed",
-        revision=1,
-        root_turn_id="turn-delete-execution",
-        root_user_message="private execution root",
-    )
-    await memory.l0.append_execution_pending_turn(
-        session_id="session-delete-execution",
-        run_id="run-delete-execution",
-        turn_id="turn-pending-from-deleted-run",
-        content="private pending content",
-        revision=1,
-    )
-    await memory.l0.record_execution_result(
-        session_id="session-delete-execution",
-        run_id="run-delete-execution",
-        result_id="result-delete-execution",
-        revision=1,
-        disposition="accepted",
-        payload={"content": "private execution result"},
-    )
     await memory.l0.push_goal(
         session_id="session-delete-execution",
         goal_id="chat_run:run-delete-execution:1",
@@ -1445,13 +1422,6 @@ async def test_user_message_delete_removes_owned_l0_execution_state(
             source="chat",
             event_type="UserMessage",
         )
-        state = await memory.l0.get_execution_state("session-delete-execution")
-        assert state == {
-            "run": None,
-            "pending_turns": [],
-            "accepted_results": [],
-            "stale_results": [],
-        }
         workbench = await memory.l0.get_workbench("session-delete-execution")
         assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
             "goal-retained"
@@ -1462,13 +1432,6 @@ async def test_user_message_delete_removes_owned_l0_execution_state(
     restored = await _build_memory(tmp_path, initialize_schema=False)
     try:
         assert restored.l0 is not None
-        state = await restored.l0.get_execution_state("session-delete-execution")
-        assert state == {
-            "run": None,
-            "pending_turns": [],
-            "accepted_results": [],
-            "stale_results": [],
-        }
         workbench = await restored.l0.get_workbench("session-delete-execution")
         assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
             "goal-retained"
@@ -1478,7 +1441,7 @@ async def test_user_message_delete_removes_owned_l0_execution_state(
 
 
 @pytest.mark.asyncio
-async def test_old_user_message_delete_preserves_concurrent_new_l0_run(
+async def test_old_user_message_delete_preserves_concurrent_new_l0_goal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1492,14 +1455,6 @@ async def test_old_user_message_delete_preserves_concurrent_new_l0_run(
         content="old private root",
     )
     await memory.l1.store(deleted_event)
-    await memory.l0.upsert_execution_run(
-        session_id="session-concurrent-execution",
-        run_id="run-old-execution",
-        status="completed",
-        revision=1,
-        root_turn_id="turn-old-execution",
-        root_user_message="old private root",
-    )
     await memory.l0.push_goal(
         session_id="session-concurrent-execution",
         goal_id="chat_run:run-old-execution:1",
@@ -1537,22 +1492,6 @@ async def test_old_user_message_delete_preserves_concurrent_new_l0_run(
             )
         )
         await cleanup_started.wait()
-        await memory.l0.upsert_execution_run(
-            session_id="session-concurrent-execution",
-            run_id="run-new-execution",
-            status="running",
-            revision=2,
-            root_turn_id="turn-new-execution",
-            root_user_message="new retained root",
-        )
-        await memory.l0.record_execution_result(
-            session_id="session-concurrent-execution",
-            run_id="run-new-execution",
-            result_id="result-new-execution",
-            revision=2,
-            disposition="accepted",
-            payload={"content": "new retained result"},
-        )
         await memory.l0.push_goal(
             session_id="session-concurrent-execution",
             goal_id="chat_run:run-new-execution:2",
@@ -1569,12 +1508,6 @@ async def test_old_user_message_delete_preserves_concurrent_new_l0_run(
         release_cleanup.set()
         await deletion
 
-        state = await memory.l0.get_execution_state("session-concurrent-execution")
-        assert state["run"]["run_id"] == "run-new-execution"
-        assert state["run"]["root_user_message"] == "new retained root"
-        assert [item["result_id"] for item in state["accepted_results"]] == [
-            "result-new-execution"
-        ]
         workbench = await memory.l0.get_workbench("session-concurrent-execution")
         assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
             "chat_run:run-new-execution:2"
@@ -1598,14 +1531,6 @@ async def test_superseded_root_delete_removes_only_its_l0_goal(
         content="old private root",
     )
     await memory.l1.store(deleted_event)
-    await memory.l0.upsert_execution_run(
-        session_id="session-superseded-root",
-        run_id="run-shared",
-        status="running",
-        revision=2,
-        root_turn_id="turn-new-root",
-        root_user_message="new retained root",
-    )
     await memory.l0.push_goal(
         session_id="session-superseded-root",
         goal_id="chat_run:run-shared:1",
@@ -1641,8 +1566,6 @@ async def test_superseded_root_delete_removes_only_its_l0_goal(
             source="chat",
             event_type="UserMessage",
         )
-        state = await memory.l0.get_execution_state("session-superseded-root")
-        assert state["run"]["root_turn_id"] == "turn-new-root"
         workbench = await memory.l0.get_workbench("session-superseded-root")
         assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
             "chat_run:run-shared:2"
@@ -1652,7 +1575,7 @@ async def test_superseded_root_delete_removes_only_its_l0_goal(
 
 
 @pytest.mark.asyncio
-async def test_assistant_message_delete_preserves_user_l0_execution_root(
+async def test_assistant_message_delete_preserves_user_l0_workbench(
     tmp_path: Path,
 ) -> None:
     memory = await _build_memory(tmp_path)
@@ -1672,14 +1595,6 @@ async def test_assistant_message_delete_preserves_user_l0_execution_root(
         author_type="assistant",
     )
     await memory.l1.store(assistant_event)
-    await memory.l0.upsert_execution_run(
-        session_id="session-assistant-execution",
-        run_id="run-user-execution",
-        status="completed",
-        revision=1,
-        root_turn_id="turn-shared-execution",
-        root_user_message="retain user root",
-    )
     await memory.l0.add_temporary_tactic(
         session_id="session-assistant-execution",
         scope_type="session",
@@ -1725,9 +1640,6 @@ async def test_assistant_message_delete_preserves_user_l0_execution_root(
             source="chat",
             event_type="AIResponse",
         )
-        state = await memory.l0.get_execution_state("session-assistant-execution")
-        assert state["run"]["run_id"] == "run-user-execution"
-        assert state["run"]["root_user_message"] == "retain user root"
         workbench = await memory.l0.get_workbench("session-assistant-execution")
         assert [item["tactic_id"] for item in workbench["temporary_tactics"]] == [
             "tactic-user-turn"
@@ -1743,130 +1655,6 @@ async def test_assistant_message_delete_preserves_user_l0_execution_root(
         ) == 1
     finally:
         await memory.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_user_message_delete_removes_only_owned_pending_execution_revision(
-    tmp_path: Path,
-) -> None:
-    memory = await _build_memory(tmp_path)
-    assert memory.l0 is not None and memory.l1 is not None
-    deleted_event = _memory_event(
-        "event-delete-pending-execution",
-        session_id="session-pending-execution",
-        turn_id="turn-delete-pending",
-        message_id="message-delete-pending",
-        content="delete pending augmentation",
-    )
-    await memory.l1.store(deleted_event)
-    await memory.l0.upsert_execution_run(
-        session_id="session-pending-execution",
-        run_id="run-retained-root",
-        status="running",
-        revision=3,
-        root_turn_id="turn-retained-root",
-        root_user_message="retain root",
-    )
-    await memory.l0.append_execution_pending_turn(
-        session_id="session-pending-execution",
-        run_id="run-retained-root",
-        turn_id="turn-delete-pending",
-        content="delete pending augmentation",
-        revision=2,
-    )
-    await memory.l0.append_execution_pending_turn(
-        session_id="session-pending-execution",
-        run_id="run-retained-root",
-        turn_id="turn-keep-pending",
-        content="keep pending augmentation",
-        revision=3,
-    )
-    await memory.l0.record_execution_result(
-        session_id="session-pending-execution",
-        run_id="run-retained-root",
-        result_id="result-delete-pending",
-        revision=2,
-        disposition="accepted",
-        payload={
-            "turn_id": "turn-delete-pending",
-            "content": "delete pending result",
-        },
-    )
-    await memory.l0.record_execution_result(
-        session_id="session-pending-execution",
-        run_id="run-retained-root",
-        result_id="result-keep-pending",
-        revision=2,
-        disposition="accepted",
-        payload={
-            "turn_id": "turn-keep-pending",
-            "content": "keep pending result",
-        },
-    )
-    await memory.l0.record_execution_result(
-        session_id="session-pending-execution",
-        run_id="run-retained-root",
-        result_id="result-unowned-same-revision",
-        revision=2,
-        disposition="accepted",
-        payload={"content": "retain result without exact turn ownership"},
-    )
-    await memory.l0.push_goal(
-        session_id="session-pending-execution",
-        goal_id="chat_run:run-retained-root:3",
-        goal_type="chat_run",
-        description="retain root",
-        status="in_progress",
-        metadata={
-            "run_id": "run-retained-root",
-            "revision": 3,
-            "root_turn_id": "turn-retained-root",
-        },
-    )
-    await memory.l0.checkpoint_session("session-pending-execution")
-
-    try:
-        await memory.forget_chat_message_source(
-            user_id="u1",
-            session_id="session-pending-execution",
-            message_id="message-delete-pending",
-            turn_id="turn-delete-pending",
-            source="chat",
-            event_type="UserMessage",
-        )
-        state = await memory.l0.get_execution_state("session-pending-execution")
-        assert state["run"]["run_id"] == "run-retained-root"
-        assert [item["turn_id"] for item in state["pending_turns"]] == [
-            "turn-keep-pending"
-        ]
-        assert [item["result_id"] for item in state["accepted_results"]] == [
-            "result-keep-pending",
-            "result-unowned-same-revision",
-        ]
-        workbench = await memory.l0.get_workbench("session-pending-execution")
-        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
-            "chat_run:run-retained-root:3"
-        ]
-    finally:
-        await memory.shutdown()
-
-    restored = await _build_memory(tmp_path, initialize_schema=False)
-    try:
-        assert restored.l0 is not None
-        state = await restored.l0.get_execution_state("session-pending-execution")
-        assert [item["turn_id"] for item in state["pending_turns"]] == [
-            "turn-keep-pending"
-        ]
-        assert [item["result_id"] for item in state["accepted_results"]] == [
-            "result-keep-pending",
-            "result-unowned-same-revision",
-        ]
-        workbench = await restored.l0.get_workbench("session-pending-execution")
-        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
-            "chat_run:run-retained-root:3"
-        ]
-    finally:
-        await restored.shutdown()
 
 
 @pytest.mark.asyncio

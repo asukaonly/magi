@@ -9,7 +9,6 @@ from typing import Any, Dict, Optional, Protocol, cast
 
 from ..contracts import L0PromptWorkbenchProjection
 from ....core.sqlite import sqlite_connection_async
-from .projection import build_execution_summary
 from .source_forgetting import (
     active_entity_source_references,
     filter_active_entities_by_governance,
@@ -30,8 +29,6 @@ class _L0WorkbenchHostProtocol(Protocol):
     async def start_session(self, *, session_id: str, **kwargs: Any) -> dict[str, Any]: ...
 
     async def initialize(self) -> None: ...
-
-    def get_execution_state_sync(self, session_id: str) -> dict[str, Any]: ...
 
     def _schedule_checkpoint(self, session_id: str) -> None: ...
 
@@ -211,29 +208,14 @@ class L0WorkbenchMixin:
         return max(removed_live, removed_saved)
 
     async def get_prompt_workbench_projection(self, session_id: str) -> L0PromptWorkbenchProjection:
-        """Return the prompt-facing L0 projection with execution state summarized."""
-        host = cast(_L0WorkbenchHostProtocol, self)
+        """Return the prompt-facing L0 workbench projection."""
         workbench = await self.get_workbench(session_id)
-        execution_state = host.get_execution_state_sync(session_id)
-        run = execution_state.get("run")
-        pending_turns = execution_state.get("pending_turns", [])
-
-        projection = L0PromptWorkbenchProjection(
+        return L0PromptWorkbenchProjection(
             session=workbench.get("session"),
             goal_stack=list(workbench.get("goal_stack", [])),
             active_entities=list(workbench.get("active_entities", [])),
             temporary_tactics=list(workbench.get("temporary_tactics", [])),
         )
-        projection.execution_summary = build_execution_summary(
-            run=run if isinstance(run, dict) else None,
-            pending_turns=[item for item in pending_turns if isinstance(item, dict)],
-            accepted_results=[
-                item
-                for item in execution_state.get("accepted_results", [])
-                if isinstance(item, dict)
-            ],
-        )
-        return projection
 
     async def _expire_stale_tactics(self, session_id: str) -> None:
         host = cast(_L0WorkbenchHostProtocol, self)

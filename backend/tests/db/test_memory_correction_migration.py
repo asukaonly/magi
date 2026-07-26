@@ -23,7 +23,7 @@ from magi.memory.l2.corrections.relationship_conflict_effects import (
 )
 from magi.memory.l2.store import L2CognitionStore
 
-MEMORY_HEAD_REVISION = "v33_chat_forget_activation"
+MEMORY_HEAD_REVISION = "v34_remove_l0_execution_state"
 
 
 def _memory_migration_config(db_path: Path):

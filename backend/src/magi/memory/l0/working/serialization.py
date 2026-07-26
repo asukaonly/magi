@@ -41,7 +41,6 @@ def row_to_session(row: aiosqlite.Row) -> dict[str, Any]:
         "metadata": json.loads(row["metadata"] or "{}"),
     }
 
-
 def row_to_goal(row: aiosqlite.Row) -> dict[str, Any]:
     return {
         "goal_id": str(row["goal_id"]),
@@ -87,71 +86,5 @@ def row_to_tactic(row: aiosqlite.Row) -> dict[str, Any]:
         "tactic_payload": json.loads(row["tactic_payload"] or "{}"),
         "source_event_ids": json.loads(row["source_event_ids"] or "[]"),
         "expires_at": float(row["expires_at"]) if row["expires_at"] else None,
-        "created_at": float(row["created_at"]),
-    }
-
-
-def row_to_execution_run(row: aiosqlite.Row) -> dict[str, Any]:
-    session_id = str(row["session_id"])
-    return {
-        "session_id": session_id,
-        "run_id": str(row["run_id"]),
-        "status": str(row["status"]),
-        "revision": int(row["revision"]),
-        "root_turn_id": str(row["root_turn_id"]) if row["root_turn_id"] is not None else None,
-        "root_user_message": str(row["root_user_message"] or ""),
-        "response_anchor_turn_id": (
-            str(row["response_anchor_turn_id"])
-            if row["response_anchor_turn_id"] is not None
-            else None
-        ),
-        "cancel_requested_at": (
-            float(row["cancel_requested_at"]) if row["cancel_requested_at"] is not None else None
-        ),
-        "cancel_reason": str(row["cancel_reason"]) if row["cancel_reason"] is not None else None,
-        "cancel_requested_by": (
-            str(row["cancel_requested_by"]) if row["cancel_requested_by"] is not None else None
-        ),
-        "cancel_anchor_turn_id": (
-            str(row["cancel_anchor_turn_id"]) if row["cancel_anchor_turn_id"] is not None else None
-        ),
-        # ADR-0004 P3: typed RunTrigger persisted with the run. ``row.keys()``
-        # guard tolerates an old DB whose migration hasn't added the column yet.
-        "trigger": (
-            json.loads(row["trigger_json"])
-            if ("trigger_json" in row.keys() and row["trigger_json"])
-            else None
-        ),
-        "created_at": float(row["created_at"]),
-        "updated_at": float(row["updated_at"]),
-    }
-
-
-def row_to_pending_turn(row: aiosqlite.Row) -> dict[str, Any]:
-    row_keys = row.keys() if hasattr(row, "keys") else ()
-    raw_disposition = (
-        str(row["disposition"])
-        if "disposition" in row_keys and row["disposition"] is not None
-        else "augment"
-    )
-    return {
-        "session_id": str(row["session_id"]),
-        "run_id": str(row["run_id"]),
-        "turn_id": str(row["turn_id"]),
-        "content": str(row["content"]),
-        "revision": int(row["revision"]),
-        "disposition": raw_disposition,
-        "created_at": float(row["created_at"]),
-    }
-
-
-def row_to_execution_result(row: aiosqlite.Row) -> dict[str, Any]:
-    return {
-        "result_id": str(row["result_id"]),
-        "session_id": str(row["session_id"]),
-        "run_id": str(row["run_id"]),
-        "revision": int(row["revision"]),
-        "disposition": str(row["disposition"]),
-        "payload": json.loads(row["payload_json"] or "{}"),
         "created_at": float(row["created_at"]),
     }

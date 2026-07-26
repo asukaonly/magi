@@ -208,10 +208,15 @@ A DEFER message remains non-terminal while it is attached to another active
 run. Exact completion of that run captures the deferred entry and clears the
 run before the message is prepared as a higher delivery attempt. Its durable
 runtime envelope and stable turn ID are reused. A transient completion
-checkpoint failure retains one in-process retry for the captured batch and
-does not release it until the checkpoint succeeds. A failure before scheduling
-leaves admitted or ready ledger work for startup or background recovery rather
-than relying on an in-memory replay.
+release failure retains one in-process retry for the captured batch. A failure
+before scheduling leaves admitted or ready ledger work for startup or
+background recovery rather than relying on an L0 execution checkpoint.
+
+L0 tables persist only disposable workbench projections: sessions, goals,
+active entities, and temporary tactics. They do not persist current chat runs,
+pending interruptions, cancellation controls, triggers, or tool results.
+Those values coordinate one live process. Crash recovery comes from the chat
+delivery ledger, which re-drives non-terminal turns with a fresh live run.
 
 ## Two tiers of schema management
 

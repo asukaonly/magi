@@ -58,10 +58,10 @@ class _TaskAgentManagerProtocol(Protocol):
     ) -> bool: ...
 
 
-class _L0ExecutionStoreProtocol(Protocol):
-    """L0 deletion operation required by context replay."""
+class _L0WorkbenchStoreProtocol(Protocol):
+    """L0 goal deletion required by context replay."""
 
-    async def forget_execution_turn(
+    async def forget_chat_turn(
         self,
         *,
         session_id: str,
@@ -106,7 +106,7 @@ class ChatRuntimeForgettingCoordinator:
         sensor_hub: Any | None,
         chat_read_service: Any,
         delivery_scheduler: Any,
-        l0_store: _L0ExecutionStoreProtocol | None = None,
+        l0_store: _L0WorkbenchStoreProtocol | None = None,
         background_task_manager: _BackgroundTaskManagerProtocol | None = None,
     ) -> None:
         self._runtime_command_queue = runtime_command_queue
@@ -374,12 +374,12 @@ class ChatRuntimeForgettingCoordinator:
         session_id: str,
         turn_ids: list[str],
     ) -> None:
-        """Remove exact unsafe L0 execution state before context replay."""
+        """Remove exact unsafe L0 workbench goals before context replay."""
 
         if self._l0_store is None:
             return
         for turn_id in _normalized_turn_ids(turn_ids):
-            await self._l0_store.forget_execution_turn(
+            await self._l0_store.forget_chat_turn(
                 session_id=session_id,
                 turn_id=turn_id,
             )

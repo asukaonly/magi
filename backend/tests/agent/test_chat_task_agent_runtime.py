@@ -1195,7 +1195,7 @@ async def test_session_cancel_uses_shared_deferred_release_barrier(
     monkeypatch.setattr(agent._task_orchestrator, "cancel_run", _cancel_run)
     monkeypatch.setattr(
         agent._postprocess_service,
-        "checkpoint_completed_run_and_release_deferred",
+        "release_deferred_after_run_completion",
         _checkpoint_and_release,
     )
     monkeypatch.setattr(
@@ -1276,7 +1276,7 @@ async def test_session_cancel_is_durable_before_worker_shutdown(
     monkeypatch.setattr(agent._task_orchestrator, "cancel_run", _cancel_run)
     monkeypatch.setattr(
         agent._postprocess_service,
-        "checkpoint_completed_run_and_release_deferred",
+        "release_deferred_after_run_completion",
         _checkpoint_and_release,
     )
     monkeypatch.setattr(
@@ -1779,7 +1779,7 @@ async def test_aroute_winner_is_cancelled_before_tools_or_model(
     monkeypatch.setattr(agent._task_orchestrator, "cancel_run", _cancel_workers)
     monkeypatch.setattr(
         agent._postprocess_service,
-        "checkpoint_completed_run_and_release_deferred",
+        "release_deferred_after_run_completion",
         _checkpoint_and_release,
     )
     monkeypatch.setattr(
@@ -2048,8 +2048,6 @@ async def test_pending_message_delete_keeps_root_run_and_discards_only_target(
         "Keep this later follow-up",
         disposition="defer",
     )
-    await run_store._l0_store.initialize()
-    await run_store._l0_store.checkpoint_session("s-chat")
     deleted_fact = _user_fact(
         "Delete this deferred follow-up",
         turn_id="turn-delete",
@@ -2104,8 +2102,6 @@ async def test_pending_delete_linearizes_before_checkpoint_consumption() -> None
         "Do not include this deleted follow-up",
         disposition="augment",
     )
-    await run_store._l0_store.initialize()
-    await run_store._l0_store.checkpoint_session("s-chat")
     checkpoint_fact = _tool_loop_fact()
     merged = await agent.merge_facts([checkpoint_fact])
 

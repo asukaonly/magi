@@ -24,7 +24,8 @@ class SessionRunLifecycleMixin:
     """Create, update, cancel, and complete active chat session runs."""
 
     _lock: RLock
-    _l0_store: Any
+    _execution_store: Any
+    _workbench_store: Any
     _run_controls: "dict[tuple[str, str], RunControl]"
     _run_snapshots: "dict[tuple[str, str], RunSnapshot]"
 
@@ -39,17 +40,14 @@ class SessionRunLifecycleMixin:
     ) -> ActiveRun:
         """Create or replace the active run for a session.
 
-        Phase H: an optional typed ``trigger`` describes what initiated
-        the run (e.g., ``RunTrigger(trigger_type="user_message", ...)``
-        for a fresh chat turn). It is held in-memory on the store and
-        overlaid onto subsequent ``get_active_run`` reads. ADR-0004 P3: the
-        trigger is now persisted with the run in L0 (via ``trigger_dict``),
-        so it lives and dies with the run — no separate side-table.
+        The optional typed trigger describes what initiated the live run.
+        Restart recovery reconstructs it from the durable delivery envelope
+        when the logical turn is redriven.
         """
         with self._lock:
-            self._l0_store.clear_execution_state_sync(session_id)
+            self._execution_store.clear_execution_state_sync(session_id)
             run_identifier = run_id or uuid4().hex
-            self._l0_store.upsert_execution_run_sync(
+            self._execution_store.upsert_execution_run_sync(
                 session_id=session_id,
                 run_id=run_identifier,
                 status="running",
@@ -94,7 +92,7 @@ class SessionRunLifecycleMixin:
         """Attach a pending turn to the active run for the session."""
         with self._lock:
             active_run = self._require_run(session_id)
-            pending_payload = self._l0_store.append_execution_pending_turn_sync(
+            pending_payload = self._execution_store.append_execution_pending_turn_sync(
                 session_id=session_id,
                 run_id=active_run.run_id,
                 turn_id=turn_id,
@@ -123,7 +121,7 @@ class SessionRunLifecycleMixin:
         """Set or replace the root user turn for the active run."""
         with self._lock:
             active_run = self._require_run(session_id)
-            self._l0_store.upsert_execution_run_sync(
+            self._execution_store.upsert_execution_run_sync(
                 session_id=session_id,
                 run_id=active_run.run_id,
                 status="running",
@@ -188,7 +186,7 @@ class SessionRunLifecycleMixin:
                 return False, []
             deferred_turns = [
                 self._to_pending_turn(item)
-                for item in self._l0_store.get_execution_state_sync(
+                for item in self._execution_store.get_execution_state_sync(
                     session_id
                 ).get("pending_turns", [])
                 if int(item.get("revision") or 0) == active_run.revision
@@ -201,7 +199,7 @@ class SessionRunLifecycleMixin:
                     run_id=active_run.run_id,
                     revision=active_run.revision,
                 )
-                self._l0_store.consume_execution_pending_turns_sync(
+                self._execution_store.consume_execution_pending_turns_sync(
                     session_id,
                     revision=active_run.revision,
                     disposition="defer",
@@ -212,7 +210,7 @@ class SessionRunLifecycleMixin:
                 )
                 return True, deferred_turns
             if active_run.status == "cancelled":
-                self._l0_store.consume_execution_pending_turns_sync(
+                self._execution_store.consume_execution_pending_turns_sync(
                     session_id,
                     revision=active_run.revision,
                     disposition="defer",
@@ -223,7 +221,7 @@ class SessionRunLifecycleMixin:
                 )
                 return True, deferred_turns
             self._complete_root_goal(session_id=session_id, active_run=active_run)
-            self._l0_store.clear_execution_state_sync(session_id)
+            self._execution_store.clear_execution_state_sync(session_id)
             self._discard_exact_run_control(
                 session_id=session_id,
                 run_id=active_run.run_id,
@@ -244,10 +242,10 @@ class SessionRunLifecycleMixin:
         reason: str = "user_cancel",
         anchor_turn_id: str | None = None,
     ) -> ActiveRun:
-        """Mark the active run as cancelling and persist cancel metadata."""
+        """Mark the active run as cancelling and retain cancel metadata."""
         with self._lock:
             active_run = self._require_run(session_id)
-            self._l0_store.upsert_execution_run_sync(
+            self._execution_store.upsert_execution_run_sync(
                 session_id=session_id,
                 run_id=active_run.run_id,
                 status="cancelling",
@@ -286,7 +284,7 @@ class SessionRunLifecycleMixin:
                 raise ValueError(f"Active run mismatch for session_id={session_id!r}")
             if revision is not None and active_run.revision != int(revision):
                 raise ValueError(f"Active revision mismatch for session_id={session_id!r}")
-            self._l0_store.upsert_execution_run_sync(
+            self._execution_store.upsert_execution_run_sync(
                 session_id=session_id,
                 run_id=active_run.run_id,
                 status="cancelled",
@@ -325,7 +323,7 @@ class SessionRunLifecycleMixin:
             self._require_run(session_id)
             pending_turns = [
                 self._to_pending_turn(item)
-                for item in self._l0_store.consume_execution_pending_turns_sync(
+                for item in self._execution_store.consume_execution_pending_turns_sync(
                     session_id,
                     revision=revision,
                     disposition=disposition,
@@ -355,7 +353,7 @@ class SessionRunLifecycleMixin:
                 return None
             if revision is not None and active_run.revision != int(revision):
                 return None
-            removed = self._l0_store.consume_execution_pending_turns_sync(
+            removed = self._execution_store.consume_execution_pending_turns_sync(
                 session_id,
                 revision=active_run.revision,
                 turn_id=normalized_turn_id,
@@ -364,7 +362,7 @@ class SessionRunLifecycleMixin:
                 return None
             return deepcopy(self._to_pending_turn(removed[0]))
 
-    async def discard_pending_turn_durably(
+    async def discard_pending_turn_for_delete(
         self,
         session_id: str,
         *,
@@ -372,7 +370,7 @@ class SessionRunLifecycleMixin:
         run_id: str | None = None,
         revision: int | None = None,
     ) -> PendingTurn | None:
-        """Remove one pending turn from live and checkpointed L0 state."""
+        """Remove one pending turn and its optional workbench projection."""
 
         removed = self.discard_pending_turn(
             session_id,
@@ -382,10 +380,15 @@ class SessionRunLifecycleMixin:
         )
         if removed is None:
             return None
-        await self._l0_store.forget_execution_turn(
+        self._execution_store.forget_execution_turn_sync(
             session_id=session_id,
             turn_id=turn_id,
         )
+        if self._workbench_store is not None:
+            await self._workbench_store.forget_chat_turn(
+                session_id=session_id,
+                turn_id=turn_id,
+            )
         return removed
 
     def register_active_run_control(
@@ -401,8 +404,7 @@ class SessionRunLifecycleMixin:
         external APIs) can locate the bundle and fire its signals.
 
         The bundle contains asyncio Events and inboxes that cannot be
-        persisted; it is the runtime-only counterpart to the persisted
-        ActiveRun record.
+        persisted; the active run is therefore process-local too.
         """
         with self._lock:
             self._run_controls[(session_id, run_id)] = control
@@ -414,8 +416,8 @@ class SessionRunLifecycleMixin:
     ) -> RunControl | None:
         """Return the live bundle for this run, or None if not registered.
 
-        Background-restored runs do not have a registered control — callers
-        must tolerate a None return rather than assuming the bundle exists.
+        Callers must tolerate ``None`` while a run is being created or torn
+        down.
         """
         with self._lock:
             return self._run_controls.get((session_id, run_id))
@@ -473,8 +475,8 @@ class SessionRunLifecycleMixin:
                 reason="Superseded by a newer user turn",
             )
             if clear_pending_turns:
-                self._l0_store.consume_execution_pending_turns_sync(session_id)
-            self._l0_store.upsert_execution_run_sync(
+                self._execution_store.consume_execution_pending_turns_sync(session_id)
+            self._execution_store.upsert_execution_run_sync(
                 session_id=session_id,
                 run_id=active_run.run_id,
                 status="running",

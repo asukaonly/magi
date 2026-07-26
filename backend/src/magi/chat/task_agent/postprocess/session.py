@@ -131,7 +131,7 @@ class ChatPostprocessSessionMixin:
                 can_cancel=False,
                 label="Run cancelled",
             )
-        await self.checkpoint_completed_run_and_release_deferred(
+        await self.release_deferred_after_run_completion(
             session_id=context.session_id,
             run_id=run_id,
             revision=revision,
@@ -246,7 +246,7 @@ class ChatPostprocessSessionMixin:
             )
             return False
 
-    async def checkpoint_completed_run_and_release_deferred(
+    async def release_deferred_after_run_completion(
         self,
         *,
         session_id: str,
@@ -254,7 +254,7 @@ class ChatPostprocessSessionMixin:
         revision: int,
         deferred_turns: list[Any],
     ) -> bool:
-        """Checkpoint one completed run before releasing its DEFER batch."""
+        """Release a completed run's DEFER batch through the durable ledger."""
 
         host = cast(_SessionPostprocessHostProtocol, self)
         normalized_session_id = str(session_id or "").strip()
@@ -269,8 +269,7 @@ class ChatPostprocessSessionMixin:
         host._deferred_release_retry_keys.add(key)
 
         try:
-            checkpointed = await self._checkpoint_l0_session(normalized_session_id)
-            if checkpointed and await self._release_deferred_user_turns(
+            if await self._release_deferred_user_turns(
                 session_id=normalized_session_id,
                 deferred_turns=captured_turns,
             ):
@@ -286,7 +285,6 @@ class ChatPostprocessSessionMixin:
                 run_id=normalized_run_id,
                 revision=revision,
                 deferred_turns=captured_turns,
-                checkpointed=checkpointed,
             )
         except Exception:
             host._deferred_release_retry_keys.discard(key)
@@ -300,7 +298,6 @@ class ChatPostprocessSessionMixin:
         run_id: str,
         revision: int,
         deferred_turns: list[Any],
-        checkpointed: bool,
     ) -> None:
         """Retry one detached DEFER batch without releasing it twice."""
 
@@ -309,22 +306,10 @@ class ChatPostprocessSessionMixin:
         captured_turns = list(deferred_turns)
 
         async def _runner() -> None:
-            durable = checkpointed
             delay_seconds = _DEFERRED_RELEASE_RETRY_INITIAL_SECONDS
             try:
                 while True:
                     await asyncio.sleep(max(0.0, delay_seconds))
-                    if not durable:
-                        durable = await self._checkpoint_l0_session(session_id)
-                        if not durable:
-                            delay_seconds = min(
-                                max(
-                                    _DEFERRED_RELEASE_RETRY_INITIAL_SECONDS,
-                                    delay_seconds * 2,
-                                ),
-                                _DEFERRED_RELEASE_RETRY_MAX_SECONDS,
-                            )
-                            continue
                     if await self._release_deferred_user_turns(
                         session_id=session_id,
                         deferred_turns=captured_turns,
@@ -346,23 +331,6 @@ class ChatPostprocessSessionMixin:
         )
         host._background_tasks.add(task)
         task.add_done_callback(host._background_tasks.discard)
-
-    async def _checkpoint_l0_session(self, session_id: str) -> bool:
-        """Persist run completion before a released turn can become active."""
-
-        host = cast(_SessionPostprocessHostProtocol, self)
-        if host._unified_memory is None or host._unified_memory.l0 is None:
-            return True
-        try:
-            await host._unified_memory.l0.checkpoint_session(session_id)
-            return True
-        except Exception:
-            logger.warning(
-                "Failed to checkpoint completed chat session run",
-                session_id=session_id,
-                exc_info=True,
-            )
-            return False
 
     async def _notify_memory_session_end(self, session_id: str | None) -> None:
         """Notify L2 that a chat session ended so it can flush staged memory."""

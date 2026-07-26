@@ -61,44 +61,6 @@ CREATE TABLE IF NOT EXISTS l0_temporary_tactics (
     created_at REAL NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS l0_execution_runs (
-    session_id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL,
-    status TEXT NOT NULL,
-    revision INTEGER NOT NULL,
-    root_turn_id TEXT,
-    root_user_message TEXT NOT NULL,
-    response_anchor_turn_id TEXT,
-    cancel_requested_at REAL,
-    cancel_reason TEXT,
-    cancel_requested_by TEXT,
-    cancel_anchor_turn_id TEXT,
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    trigger_json TEXT
-);
-
-CREATE TABLE IF NOT EXISTS l0_execution_pending_turns (
-    pending_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
-    run_id TEXT NOT NULL,
-    turn_id TEXT NOT NULL,
-    content TEXT NOT NULL,
-    revision INTEGER NOT NULL,
-    disposition TEXT NOT NULL DEFAULT 'augment',
-    created_at REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS l0_execution_results (
-    result_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    run_id TEXT NOT NULL,
-    revision INTEGER NOT NULL,
-    disposition TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    created_at REAL NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS knowledge_graph (
     triple_id TEXT PRIMARY KEY,
     subject_id TEXT NOT NULL,
@@ -1036,12 +998,6 @@ DROP TABLE IF EXISTS tom_trait_assertions;
 DROP TABLE IF EXISTS entity_facets;
 
 DROP TABLE IF EXISTS knowledge_graph;
-
-DROP TABLE IF EXISTS l0_execution_results;
-
-DROP TABLE IF EXISTS l0_execution_pending_turns;
-
-DROP TABLE IF EXISTS l0_execution_runs;
 
 DROP TABLE IF EXISTS l0_temporary_tactics;
 

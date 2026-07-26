@@ -154,37 +154,39 @@ It holds:
 - Current session state
 - Current goal stack
 - Currently active entities
-- Temporary strategy and execution context
+- Temporary tactics selected for the current work
 
 Key properties:
 
-- Centered on the current execution, not long-term recall
-- Primarily in-memory, with checkpoints for recovery
+- Centered on the current workbench, not long-term recall
+- Optional and disposable, with checkpoints for short-term continuity
 - Changes frequently
-- Can be partially restored from durable state after restart
+- May be restored after restart while it is still relevant
 
 `L0` should only hold what the current turn genuinely needs, not everything the system has ever seen.
 
-L0 has two distinct lifecycles. Disposable workbench state (goals, active
-entities, and temporary tactics) may expire after the session idle timeout or
-be evicted when the configured session capacity is full. Active execution state
-(the current run, admitted pending turns, and accepted results) is recovery
-state: generic idle expiry and capacity eviction must never remove it. If every
-slot is occupied by active execution, admission fails instead of discarding an
-in-flight run.
+All L0 state is disposable workbench state. Goals, active entities, and
+temporary tactics may expire after the session idle timeout or be evicted when
+the configured session capacity is full. L0 expiry therefore changes only what
+temporary guidance may be supplied to a later prompt; it never cancels a chat
+turn or decides whether admitted work must be retried.
 
 The checkpoint interval is a real maximum debounce for dirty L0 state. A
 mutation schedules a checkpoint, mutations that arrive while a checkpoint is
 running schedule a later pass, and normal shutdown flushes all live sessions.
-Explicit completion checkpoints remain the durability barrier for execution
-transitions that must survive restart.
 
-Restart restore keeps all sessions with active execution state regardless of
-their last activity timestamp. Disposable sessions restore only when they were
-active, are still inside the idle window, and fit within the configured
-capacity. Rejected checkpoint rows, terminal goals, and expired tactics are
-deleted rather than being resurrected on every restart. Prompt and workbench
-reads expose only pending or in-progress goals and unexpired tactics.
+Restart restore keeps only sessions that were active, remain inside the idle
+window, and fit within the configured capacity. Rejected checkpoint rows,
+terminal goals, and expired tactics are deleted rather than being resurrected
+on every restart. Prompt and workbench reads expose only pending or in-progress
+goals and unexpired tactics.
+
+Live chat execution is deliberately outside L0. The current run, pending
+interruptions, cancellation controls, and accepted tool results are coordinated
+in process because their streams and asynchronous controls cannot survive a
+restart. Durable chat delivery records own crash recovery: after a restart,
+non-terminal turns are re-driven as new live executions instead of restoring a
+control-less "running" record.
 
 L0 may expose chat-owned state in a workbench view, but it does not become the
 owner of that state. In particular, context-window usage belongs to the accepted

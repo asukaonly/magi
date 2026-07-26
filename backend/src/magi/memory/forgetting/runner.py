@@ -602,7 +602,7 @@ class DurableForgetRunner:
                 and turn_id
                 and str(payload["event_type"]) == EventTypes.USER_MESSAGE
             ):
-                await l0.forget_execution_turn(
+                await l0.forget_chat_turn(
                     session_id=str(payload["session_id"]),
                     turn_id=turn_id,
                 )

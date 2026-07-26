@@ -10,7 +10,7 @@ from magi.agent.task_agents.handlers.run_contracts import ActiveRun
 class SessionRunGoalMixin:
     """Mirror active chat runs into L0 goal records."""
 
-    _l0_store: Any
+    _workbench_store: Any
 
     @staticmethod
     def _goal_id(*, run_id: str, revision: int) -> str:
@@ -25,11 +25,13 @@ class SessionRunGoalMixin:
         root_turn_id: str | None,
         root_user_message: str,
     ) -> None:
-        self._l0_store.prune_terminal_goals_sync(session_id)
+        if self._workbench_store is None:
+            return
+        self._workbench_store.prune_terminal_goals_sync(session_id)
         description = str(root_user_message or "").strip()
         if not description:
             return
-        self._l0_store.push_goal_sync(
+        self._workbench_store.push_goal_sync(
             session_id=session_id,
             goal_id=self._goal_id(run_id=run_id, revision=revision),
             goal_type="chat_run",
@@ -50,7 +52,9 @@ class SessionRunGoalMixin:
         active_run: ActiveRun,
         reason: str,
     ) -> None:
-        self._l0_store.set_goal_status_sync(
+        if self._workbench_store is None:
+            return
+        self._workbench_store.set_goal_status_sync(
             session_id=session_id,
             goal_id=self._goal_id(run_id=active_run.run_id, revision=active_run.revision),
             status="cancelled",
@@ -63,7 +67,9 @@ class SessionRunGoalMixin:
         session_id: str,
         active_run: ActiveRun,
     ) -> None:
-        self._l0_store.set_goal_status_sync(
+        if self._workbench_store is None:
+            return
+        self._workbench_store.set_goal_status_sync(
             session_id=session_id,
             goal_id=self._goal_id(run_id=active_run.run_id, revision=active_run.revision),
             status="completed",

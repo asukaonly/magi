@@ -4339,7 +4339,7 @@ async def test_pending_fact_only_turn_stays_open_on_active_run(
 
 
 @pytest.mark.asyncio
-async def test_deferred_turn_is_consumed_only_after_old_run_checkpoint() -> None:
+async def test_deferred_turn_is_released_after_old_run_completion() -> None:
     coordinator = SessionRunCoordinator()
     coordinator._run_store.create_active_run(
         session_id="session-1",
@@ -4356,12 +4356,6 @@ async def test_deferred_turn_is_consumed_only_after_old_run_checkpoint() -> None
     active_run = coordinator.get_active_run("session-1")
     assert active_run is not None
     order: list[str] = []
-
-    class _CheckpointL0:
-        async def checkpoint_session(self, session_id: str) -> None:
-            assert session_id == "session-1"
-            assert coordinator.get_active_run(session_id) is None
-            order.append("checkpoint")
 
     def _complete(
         session_id: str,
@@ -4395,7 +4389,6 @@ async def test_deferred_turn_is_consumed_only_after_old_run_checkpoint() -> None
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
-        unified_memory=_FakeUnifiedMemory(l0=_CheckpointL0()),
         complete_session_run=_complete,
         resolve_session_run_status=lambda session_id, run_id, revision: coordinator.get_run_status(
             session_id=session_id,
@@ -4418,14 +4411,14 @@ async def test_deferred_turn_is_consumed_only_after_old_run_checkpoint() -> None
 
     await service._finalize_session_run(context)
 
-    assert order == ["complete", "checkpoint", "release"]
+    assert order == ["complete", "release"]
     next_run = coordinator.get_active_run("session-1")
     assert next_run is not None
     assert next_run.root_turn_id == "turn-deferred"
 
 
 @pytest.mark.asyncio
-async def test_deferred_turn_retries_failed_checkpoint_and_releases_once(
+async def test_deferred_turn_retries_failed_release_and_releases_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import magi.chat.task_agent.postprocess.session as session_module
@@ -4456,22 +4449,16 @@ async def test_deferred_turn_retries_failed_checkpoint_and_releases_once(
     active_run = coordinator.get_active_run("session-retry")
     assert active_run is not None
 
-    class _FlakyCheckpointL0:
-        def __init__(self) -> None:
-            self.attempts = 0
-
-        async def checkpoint_session(self, session_id: str) -> None:
-            assert session_id == "session-retry"
-            self.attempts += 1
-            if self.attempts == 1:
-                raise RuntimeError("temporary checkpoint failure")
-
-    l0 = _FlakyCheckpointL0()
     release_calls: list[list[str]] = []
+    release_attempts = 0
     released = asyncio.Event()
 
     async def _release(session_id: str, deferred_turns: list[Any]) -> None:
+        nonlocal release_attempts
         assert session_id == "session-retry"
+        release_attempts += 1
+        if release_attempts == 1:
+            raise RuntimeError("temporary ledger release failure")
         release_calls.append([turn.turn_id for turn in deferred_turns])
         released.set()
 
@@ -4481,7 +4468,6 @@ async def test_deferred_turn_retries_failed_checkpoint_and_releases_once(
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
-        unified_memory=_FakeUnifiedMemory(l0=l0),
         complete_session_run=lambda session_id, run_id, revision: coordinator.complete_run_with_deferred(
             session_id=session_id,
             run_id=run_id,
@@ -4514,7 +4500,7 @@ async def test_deferred_turn_retries_failed_checkpoint_and_releases_once(
         await asyncio.wait_for(released.wait(), timeout=1.0)
         await asyncio.sleep(0.02)
 
-        assert l0.attempts == 2
+        assert release_attempts == 2
         assert release_calls == [["turn-deferred"]]
         assert service._deferred_release_retry_keys == set()
     finally:
@@ -4522,58 +4508,25 @@ async def test_deferred_turn_retries_failed_checkpoint_and_releases_once(
 
 
 @pytest.mark.asyncio
-async def test_completed_run_without_deferred_turns_retries_failed_checkpoint(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import magi.chat.task_agent.postprocess.session as session_module
-
-    monkeypatch.setattr(
-        session_module,
-        "_DEFERRED_RELEASE_RETRY_INITIAL_SECONDS",
-        0.001,
-    )
-    monkeypatch.setattr(
-        session_module,
-        "_DEFERRED_RELEASE_RETRY_MAX_SECONDS",
-        0.01,
-    )
-
-    class _FlakyCheckpointL0:
-        def __init__(self) -> None:
-            self.attempts = 0
-            self.completed = asyncio.Event()
-
-        async def checkpoint_session(self, session_id: str) -> None:
-            assert session_id == "session-no-defer"
-            self.attempts += 1
-            if self.attempts == 1:
-                raise RuntimeError("temporary checkpoint failure")
-            self.completed.set()
-
-    l0 = _FlakyCheckpointL0()
+async def test_completed_run_without_deferred_turns_finishes_immediately() -> None:
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
-        unified_memory=_FakeUnifiedMemory(l0=l0),
         max_fact_memory=10,
     )
 
     try:
-        completed = await service.checkpoint_completed_run_and_release_deferred(
+        completed = await service.release_deferred_after_run_completion(
             session_id="session-no-defer",
             run_id="run-no-defer",
             revision=0,
             deferred_turns=[],
         )
 
-        assert completed is False
-        assert service.has_pending_background_work() is True
-        await asyncio.wait_for(l0.completed.wait(), timeout=1.0)
-        await asyncio.sleep(0.02)
-        assert l0.attempts == 2
+        assert completed is True
         assert service.has_pending_background_work() is False
     finally:
         await service.cancel_background_tasks()

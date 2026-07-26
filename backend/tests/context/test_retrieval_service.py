@@ -16,9 +16,6 @@ class _FakeL0Store:
                     "goals": ["ship the fix"],
                     "active_entities": ["repo:magi"],
                     "temporary_tactics": ["stay small"],
-                    "execution_summary": {
-                        "active_run_summary": "ship the fix",
-                    },
                 }
 
         return _Projection()
@@ -65,10 +62,7 @@ class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(payload["l0_workbench"][0]["session"], "s1")
-        self.assertEqual(
-            payload["l0_workbench"][0]["execution_summary"]["active_run_summary"],
-            "ship the fix",
-        )
+        self.assertNotIn("execution_summary", payload["l0_workbench"][0])
         self.assertEqual(payload["l2_entity_cards"], [])
         self.assertEqual(payload["l3_reflection_memory"], [])
         self.assertEqual(
