@@ -44,7 +44,7 @@ def test_v33_fresh_database_has_activation_schema(tmp_path: Path) -> None:
     db_path = tmp_path / "memory-fresh.db"
     config = _memory_config(db_path)
 
-    command.upgrade(config, "head")
+    command.upgrade(config, V33_REVISION)
 
     with sqlite3.connect(db_path) as connection:
         columns = {
@@ -77,8 +77,8 @@ def test_v33_upgrade_resumes_each_additive_ddl_boundary(
             connection.execute(activation_migration._CREATE_INDEX_SQL)
         connection.commit()
 
-    command.upgrade(config, "head")
-    command.upgrade(config, "head")
+    command.upgrade(config, V33_REVISION)
+    command.upgrade(config, V33_REVISION)
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute(
@@ -123,7 +123,7 @@ def test_v33_upgrade_rejects_activation_column_without_constraint(
         connection.commit()
 
     with pytest.raises(RuntimeError, match="unsupported schema"):
-        command.upgrade(config, "head")
+        command.upgrade(config, V33_REVISION)
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute(
@@ -156,7 +156,7 @@ def test_v33_upgrade_rejects_wrong_activation_index(
         connection.commit()
 
     with pytest.raises(RuntimeError, match="index has an unsupported schema"):
-        command.upgrade(config, "head")
+        command.upgrade(config, V33_REVISION)
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute(
@@ -174,7 +174,7 @@ def test_v33_upgrade_rejects_wrong_activation_index(
 def test_v33_downgrade_remains_fail_closed(tmp_path: Path) -> None:
     db_path = tmp_path / "memory-downgrade.db"
     config = _memory_config(db_path)
-    command.upgrade(config, "head")
+    command.upgrade(config, V33_REVISION)
 
     with pytest.raises(
         RuntimeError,
