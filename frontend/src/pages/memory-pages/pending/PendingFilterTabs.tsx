@@ -40,7 +40,7 @@ export function PendingFilterTabs({
             <span
               aria-hidden="true"
               className={cn(
-                'absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-[hsl(var(--memory-accent))] transition-opacity duration-200',
+                'absolute inset-x-0 bottom-[-1px] h-0.5 rounded-full bg-[hsl(var(--memory-accent))] transition-opacity duration-200',
                 selected ? 'opacity-100' : 'opacity-0'
               )}
             />
