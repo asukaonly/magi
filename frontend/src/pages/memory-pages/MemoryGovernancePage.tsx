@@ -392,7 +392,7 @@ export const MemoryGovernancePage = () => {
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GovernanceTab)} className="flex min-h-0 flex-1 flex-col space-y-6">
           <div className="flex shrink-0 flex-col gap-3 border-b border-[hsl(var(--memory-divider)/0.5)] lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.72)]">
-              <TabsList className="inline-flex h-auto min-w-max justify-start gap-7 bg-transparent p-0">
+              <TabsList className="inline-flex h-auto min-w-max justify-start gap-5 bg-transparent p-0">
                 {[
                   ['objects', label('tabs.objects', '对象明细')],
                   ['tasks', label('tabs.tasks', '定时任务')],
@@ -403,7 +403,7 @@ export const MemoryGovernancePage = () => {
                   <TabsTrigger
                     key={value}
                     value={value}
-                    className="relative rounded-none bg-transparent px-0 py-2.5 text-sm font-medium text-[hsl(var(--memory-muted))] shadow-none transition-colors duration-200 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:origin-center after:scale-x-0 after:rounded-sm after:bg-[hsl(var(--memory-accent))] after:transition-transform after:duration-200 hover:text-[hsl(var(--memory-title))] data-[state=active]:bg-transparent data-[state=active]:text-[hsl(var(--memory-title))] data-[state=active]:shadow-none data-[state=active]:after:scale-x-100"
+                    className="relative inline-flex h-10 items-center whitespace-nowrap rounded-none bg-transparent px-0.5 text-sm font-medium text-[hsl(var(--memory-muted))] shadow-none transition-colors after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:origin-center after:scale-x-0 after:rounded-sm after:bg-[hsl(var(--memory-accent))] after:transition-transform after:duration-200 hover:text-[hsl(var(--memory-title))] data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-[hsl(var(--memory-title))] data-[state=active]:shadow-none data-[state=active]:after:scale-x-100"
                   >
                     {text}
                   </TabsTrigger>
