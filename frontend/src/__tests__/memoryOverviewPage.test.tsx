@@ -99,7 +99,7 @@ vi.mock('@/api/modules/memoryStories', () => ({
 
 const dashboardPayload = {
   statistics: {
-    l0: { active_sessions: 0, total_goals: 0, total_entities: 0, total_tactics: 0 },
+    l0: { active_sessions: 0, total_attention_items: 0 },
     l1: { event_count: 12 },
     l2: { relation_count: 4, assertion_count: 6 },
     l3: { summary_count: 5 },

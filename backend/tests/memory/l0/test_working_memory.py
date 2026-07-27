@@ -1,742 +1,1045 @@
+"""Behavior tests for session-local L0 attention state."""
+
 from __future__ import annotations
 
+import asyncio
 import time
 
+import aiosqlite
 import pytest
 
+from _shared.memory_schema import apply_memory_shared_schema
+from magi.memory.l0.attention import (
+    AttentionActionType,
+    AttentionEvidenceMode,
+    AttentionKind,
+    AttentionUpdateAction,
+)
+from magi.memory.l0.working.workbench import MAX_ATTENTION_ITEMS_PER_SESSION
+from magi.memory.l0.working_memory import L0WorkingMemoryStore
+from magi.memory.shared_clear import clear_shared_auxiliary_memory
+from magi.memory.source_event_governance import upsert_source_turn_cutoffs
 
-@pytest.mark.asyncio
-async def test_l0_checkpoint_restores_session_goal_and_tactic(tmp_path):
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
-    checkpoint_path = tmp_path / "l0_checkpoint.db"
-
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
+def _store(tmp_path, **overrides) -> L0WorkingMemoryStore:
+    return L0WorkingMemoryStore(
+        checkpoint_db_path=str(tmp_path / "memory.db"),
         checkpoint_interval_seconds=1,
-        session_timeout_seconds=3600,
-        restore_on_restart=True,
-    )
-    await store.initialize()
-    await store.start_session(session_id="session-1", user_id="user-1", runtime_agent_id="agent-1")
-    await store.push_goal(
-        session_id="session-1",
-        goal_id="goal-1",
-        goal_type="task",
-        description="Answer the user question",
-        status="in_progress",
-        priority=5,
-    )
-    await store.upsert_active_entity(
-        session_id="session-1",
-        entity_id="entity-1",
-        entity_type="person",
-        snapshot={"name": "Asuka"},
-        relevance_score=0.9,
-    )
-    await store.add_temporary_tactic(
-        session_id="session-1",
-        scope_type="user",
-        scope_id="user-1",
-        tactic_type="listen_first",
-        tactic_payload={"mode": "empathetic"},
-        source_event_ids=["evt-1"],
-        expires_at=time.time() + 300,
-    )
-    await store.checkpoint_session("session-1")
-
-    restored = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-        session_timeout_seconds=3600,
-        restore_on_restart=True,
-    )
-    await restored.initialize()
-    workbench = await restored.get_workbench("session-1")
-
-    assert workbench["session"]["user_id"] == "user-1"
-    assert workbench["goal_stack"][0]["goal_id"] == "goal-1"
-    assert workbench["active_entities"][0]["snapshot"]["name"] == "Asuka"
-    assert workbench["temporary_tactics"][0]["tactic_type"] == "listen_first"
-
-
-@pytest.mark.asyncio
-async def test_l0_workbench_excludes_execution_lane_state(tmp_path):
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_workbench_boundary.db"
-
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-        session_timeout_seconds=3600,
-        restore_on_restart=True,
-    )
-    await store.initialize()
-    await store.start_session(
-        session_id="session-1", user_id="user-1", runtime_agent_id="chat:session-1"
-    )
-    await store.push_goal(
-        session_id="session-1",
-        goal_id="goal-1",
-        goal_type="task",
-        description="Investigate the login issue",
-        status="in_progress",
+        session_timeout_seconds=overrides.pop("session_timeout_seconds", 3600),
+        restore_on_restart=overrides.pop("restore_on_restart", True),
+        **overrides,
     )
 
-    workbench = await store.get_workbench("session-1")
 
-    assert set(workbench) == {"session", "goal_stack", "active_entities", "temporary_tactics"}
-    assert "execution" not in workbench
+def _action(
+    *,
+    action: AttentionActionType = AttentionActionType.ADD,
+    target_item_id: str | None = None,
+    kind: AttentionKind | None = AttentionKind.FOCUS,
+    summary: str | None = "正在讨论 L0 的短期关注设计",
+    source_turn_ids: tuple[str, ...] = ("turn-1",),
+    source_event_ids: tuple[str, ...] = (),
+    entity_id: str | None = None,
+    task_id: str | None = None,
+    task_attempt: int | None = None,
+    evidence_mode: AttentionEvidenceMode = AttentionEvidenceMode.DIRECT,
+    salience: float = 0.8,
+    confidence: float = 0.9,
+) -> AttentionUpdateAction:
+    return AttentionUpdateAction(
+        action=action,
+        target_item_id=target_item_id,
+        kind=kind,
+        summary=summary,
+        source_turn_ids=source_turn_ids,
+        source_event_ids=source_event_ids,
+        entity_id=entity_id,
+        task_id=task_id,
+        task_attempt=task_attempt,
+        evidence_mode=evidence_mode,
+        salience=salience,
+        confidence=confidence,
+    )
+
+
+async def _persist_entity_projection_block(
+    db_path,
+    *,
+    event_id: str,
+    entity_id: str,
+) -> None:
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            """
+            INSERT INTO memory_forget_operations(
+                operation_id, selector_kind, selector_hash, selector_json,
+                reason, created_at, updated_at
+            ) VALUES (?, 'entity', ?, '{}', 'test_entity_forget', 1, 1)
+            """,
+            (f"forget-{entity_id}", f"hash-{entity_id}"),
+        )
+        await db.execute(
+            """
+            INSERT INTO memory_projection_blocks(
+                block_kind, target_id, event_id, operation_id, created_at
+            ) VALUES ('entity_projection', ?, ?, ?, 1)
+            """,
+            (entity_id, event_id, f"forget-{entity_id}"),
+        )
+        await db.commit()
 
 
 @pytest.mark.asyncio
-async def test_l0_prompt_projection_contains_only_workbench_state(tmp_path):
-    from magi.memory.l0.contracts import L0PromptWorkbenchProjection
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_prompt_projection.db"
-
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-        session_timeout_seconds=3600,
-        restore_on_restart=True,
-    )
-    await store.initialize()
-    await store.start_session(
-        session_id="session-1", user_id="user-1", runtime_agent_id="chat:session-1"
-    )
-    await store.push_goal(
+async def test_attention_actions_build_and_evolve_frame(tmp_path) -> None:
+    store = _store(tmp_path)
+    created = await store.apply_attention_actions(
         session_id="session-1",
-        goal_id="goal-1",
-        goal_type="task",
-        description="Investigate the login issue",
-        status="in_progress",
+        actions=[_action()],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+        source_texts=["我们来聊聊 L0"],
+    )
+
+    assert created is not None
+    assert created["revision"] == 1
+    item = created["items"][0]
+    assert item["kind"] == "focus"
+    assert item["status"] == "active"
+    assert item["source_turn_ids"] == ["turn-1"]
+    item_id = item["item_id"]
+
+    reinforced = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                action=AttentionActionType.REINFORCE,
+                target_item_id=item_id,
+                kind=None,
+                summary="进一步确认 L0 应服务于自然续聊",
+                source_turn_ids=("turn-2",),
+                salience=0.95,
+            )
+        ],
+        expected_revision=1,
+        last_processed_turn_id="turn-2",
+    )
+    assert reinforced is not None
+    assert reinforced["items"][0]["summary"] == "进一步确认 L0 应服务于自然续聊"
+    assert reinforced["items"][0]["source_turn_ids"] == ["turn-1", "turn-2"]
+
+    backgrounded = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                action=AttentionActionType.BACKGROUND,
+                target_item_id=item_id,
+                kind=None,
+                summary=None,
+                source_turn_ids=("turn-3",),
+            )
+        ],
+        expected_revision=2,
+        last_processed_turn_id="turn-3",
+    )
+    assert backgrounded is not None
+    assert backgrounded["items"][0]["status"] == "background"
+    assert backgrounded["items"][0]["source_turn_ids"] == [
+        "turn-1",
+        "turn-2",
+        "turn-3",
+    ]
+
+    resolved = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                action=AttentionActionType.RESOLVE,
+                target_item_id=item_id,
+                kind=None,
+                summary=None,
+                source_turn_ids=("turn-4",),
+            )
+        ],
+        expected_revision=3,
+        last_processed_turn_id="turn-4",
+    )
+    assert resolved is not None
+    assert resolved["items"][0]["status"] == "resolved"
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_supersede_keeps_lineage_and_creates_replacement(tmp_path) -> None:
+    store = _store(tmp_path)
+    initial = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[_action()],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+    )
+    old_id = initial["items"][0]["item_id"]
+
+    result = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                action=AttentionActionType.SUPERSEDE,
+                target_item_id=old_id,
+                kind=AttentionKind.CONSENSUS,
+                summary="已确认 L0 是会话关注投影",
+                source_turn_ids=("turn-2",),
+            )
+        ],
+        expected_revision=1,
+        last_processed_turn_id="turn-2",
+    )
+
+    assert result is not None
+    by_status = {item["status"]: item for item in result["items"]}
+    assert by_status["superseded"]["item_id"] == old_id
+    assert by_status["active"]["supersedes_item_id"] == old_id
+    assert by_status["active"]["kind"] == "consensus"
+    assert "turn-2" in by_status["superseded"]["source_turn_ids"]
+    assert "turn-2" in by_status["active"]["source_turn_ids"]
+    assert await store.forget_chat_turn(
+        session_id="session-1",
+        turn_id="turn-2",
+    ) == 2
+    assert (await store.get_attention_snapshot("session-1"))["items"] == []
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_stale_revision_does_not_overwrite_newer_attention(tmp_path) -> None:
+    store = _store(tmp_path)
+    await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[_action()],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+    )
+
+    stale = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                kind=AttentionKind.OPEN_LOOP,
+                summary="待确认的旧批次",
+                source_turn_ids=("turn-stale",),
+            )
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-stale",
+    )
+
+    assert stale is None
+    snapshot = await store.get_attention_snapshot("session-1")
+    assert snapshot["revision"] == 1
+    assert snapshot["last_processed_turn_id"] == "turn-1"
+    assert len(snapshot["items"]) == 1
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_raw_source_copy_is_rejected_but_frontier_advances(tmp_path) -> None:
+    store = _store(tmp_path)
+    source_text = "我今天心情不好"
+    result = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                kind=AttentionKind.SITUATION,
+                summary=source_text,
+            )
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+        source_texts=[source_text],
+    )
+
+    assert result is not None
+    assert result["revision"] == 1
+    assert result["items"] == []
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_prompt_projection_only_includes_trustworthy_active_items(tmp_path) -> None:
+    store = _store(tmp_path)
+    result = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                summary="明确在讨论短期记忆",
+                source_turn_ids=("turn-1",),
+            ),
+            _action(
+                kind=AttentionKind.SITUATION,
+                summary="可能想稍后换一个话题",
+                source_turn_ids=("turn-1",),
+                evidence_mode=AttentionEvidenceMode.INFERRED,
+                confidence=0.6,
+            ),
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+    )
+    inferred_id = next(
+        item["item_id"]
+        for item in result["items"]
+        if item["evidence_mode"] == "inferred"
+    )
+    await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                action=AttentionActionType.BACKGROUND,
+                target_item_id=inferred_id,
+                kind=None,
+                summary=None,
+                source_turn_ids=("turn-2",),
+            )
+        ],
+        expected_revision=1,
+        last_processed_turn_id="turn-2",
     )
 
     projection = await store.get_prompt_workbench_projection("session-1")
-
-    assert isinstance(projection, L0PromptWorkbenchProjection)
-    payload = projection.to_payload()
-    assert payload["goal_stack"][0]["description"] == (
-        "Investigate the login issue"
-    )
-    assert "execution_summary" not in payload
-
-
-@pytest.mark.asyncio
-async def test_l0_capture_event_renews_session_activity(tmp_path):
-    from magi.events.events import Event, EventLevel, EventTypes
-    from magi.memory.event_contracts import normalize_runtime_event
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_checkpoint.db"
-    store = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await store.initialize()
-
-    event = Event(
-        type=EventTypes.TASK_COMPLETED,
-        data={"session_id": "session-2", "user_id": "user-2", "task_id": "task-1"},
-        source="runtime",
-        level=EventLevel.INFO,
-        correlation_id="corr-1",
-    )
-    memory_event = normalize_runtime_event(event)
-
-    await store.capture_event(memory_event)
-    workbench = await store.get_workbench("session-2")
-
-    assert workbench["session"]["user_id"] == "user-2"
-    assert workbench["session"]["status"] == "active"
-    assert workbench["session"]["last_active_at"] >= workbench["session"]["started_at"]
-
-
-@pytest.mark.asyncio
-async def test_l0_evicts_lru_session_when_limit_reached(tmp_path):
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_evict.db"
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        max_concurrent_sessions=3,
-    )
-    await store.initialize()
-
-    # Create 3 sessions; session-1 is the oldest (LRU)
-    await store.start_session(session_id="session-1")
-    await store.push_goal(
-        session_id="session-1",
-        goal_id="g1",
-        goal_type="task",
-        description="goal-1",
-    )
-    await store.start_session(session_id="session-2")
-    await store.start_session(session_id="session-3")
-
-    # Touch session-2 so session-1 remains LRU
-    (await store.start_session(session_id="session-2"))["last_active_at"] = time.time()
-
-    assert len(store._sessions) == 3
-
-    # Adding a 4th session should evict session-1 (LRU)
-    await store.start_session(session_id="session-4")
-
-    assert len(store._sessions) == 3
-    assert "session-1" not in store._sessions
-    assert "session-4" in store._sessions
-
-    # Capacity eviction removes disposable work instead of reviving it later.
-    restored = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        max_concurrent_sessions=100,
-    )
-    await restored.initialize()
-    workbench = await restored.get_workbench("session-1")
-    assert workbench["session"] is None
-    assert workbench["goal_stack"] == []
+    assert [item["summary"] for item in projection.attention_items] == [
+        "明确在讨论短期记忆"
+    ]
     await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_prompt_projection_reactivates_only_relevant_background_attention(
+    tmp_path,
+) -> None:
+    store = _store(tmp_path)
+    created = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                kind=AttentionKind.OPEN_LOOP,
+                summary="还没有聊完新专辑里的海浪音色",
+                source_turn_ids=("turn-1",),
+            ),
+            _action(
+                kind=AttentionKind.OPEN_LOOP,
+                summary="另一个待续话题是上海旅行",
+                source_turn_ids=("turn-1",),
+            ),
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+    )
+    await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                action=AttentionActionType.BACKGROUND,
+                target_item_id=item["item_id"],
+                kind=None,
+                summary=None,
+                source_turn_ids=("turn-2",),
+            )
+            for item in created["items"]
+        ],
+        expected_revision=1,
+        last_processed_turn_id="turn-2",
+    )
+
+    projection = await store.get_prompt_workbench_projection(
+        "session-1",
+        query="我们继续说那张新专辑吧",
+    )
+
+    assert [item["summary"] for item in projection.attention_items] == [
+        "还没有聊完新专辑里的海浪音色"
+    ]
+    assert projection.attention_items[0]["status"] == "background"
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_attention_is_bounded_by_status_salience_and_recency(tmp_path) -> None:
+    store = _store(tmp_path)
+    actions = [
+        _action(
+            kind=AttentionKind.ACTIVE_OBJECT,
+            summary=f"当前相关对象 {index}",
+            source_turn_ids=(f"turn-{index}",),
+            salience=index / 100,
+        )
+        for index in range(MAX_ATTENTION_ITEMS_PER_SESSION + 6)
+    ]
+    result = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=actions,
+        expected_revision=0,
+        last_processed_turn_id="turn-last",
+    )
+
+    assert result is not None
+    assert len(result["items"]) == MAX_ATTENTION_ITEMS_PER_SESSION
+    assert "当前相关对象 0" not in {
+        item["summary"] for item in result["items"]
+    }
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_restore_preserves_attention_and_revision(tmp_path) -> None:
+    store = _store(tmp_path)
+    await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[_action(entity_id="project:magi")],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+    )
+    await store.checkpoint_all()
+    await store.shutdown()
+
+    restored = _store(tmp_path)
+    await restored.initialize()
+    snapshot = await restored.get_attention_snapshot("session-1")
+
+    assert snapshot["revision"] == 1
+    assert snapshot["last_processed_turn_id"] == "turn-1"
+    assert snapshot["items"][0]["entity_id"] == "project:magi"
     await restored.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_l0_refresh_existing_session_does_not_evict(tmp_path):
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_refresh.db"
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        max_concurrent_sessions=2,
-    )
-    await store.initialize()
-
-    await store.start_session(session_id="session-1")
-    await store.start_session(session_id="session-2")
-
-    # Refreshing an existing session should not trigger eviction
-    await store.start_session(session_id="session-1")
-
-    assert len(store._sessions) == 2
-    assert "session-1" in store._sessions
-    assert "session-2" in store._sessions
-
-
-@pytest.mark.asyncio
-async def test_l0_bounds_active_entities_by_relevance(tmp_path):
-    from magi.memory.l0.working.workbench import MAX_ACTIVE_ENTITIES_PER_SESSION
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(tmp_path / "memory.db"),
-        restore_on_restart=False,
-    )
-    for index in range(MAX_ACTIVE_ENTITIES_PER_SESSION + 1):
-        await store.upsert_active_entity(
-            session_id="session-1",
-            entity_id=f"entity-{index}",
-            entity_type="test",
-            snapshot={"name": f"Entity {index}"},
-            relevance_score=float(index),
-        )
-
-    entities = (await store.get_workbench("session-1"))["active_entities"]
-
-    assert len(entities) == MAX_ACTIVE_ENTITIES_PER_SESSION
-    assert "entity-0" not in {entity["entity_id"] for entity in entities}
-    await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_l0_bounds_tactics_and_assigns_default_expiry(tmp_path):
-    from magi.memory.l0.working.workbench import (
-        DEFAULT_TACTIC_TTL_SECONDS,
-        MAX_TEMPORARY_TACTICS_PER_SESSION,
-    )
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(tmp_path / "memory.db"),
-        restore_on_restart=False,
-    )
-    before = time.time()
-    first = await store.add_temporary_tactic(
+async def test_source_forgetting_removes_and_blocks_replay(tmp_path) -> None:
+    store = _store(tmp_path)
+    await store.apply_attention_actions(
         session_id="session-1",
-        scope_type="session",
-        scope_id="session-1",
-        tactic_type="first",
-        tactic_payload={"mode": "careful"},
-        source_event_ids=[],
-        tactic_id="tactic-0",
-    )
-    assert first is not None
-    assert before + DEFAULT_TACTIC_TTL_SECONDS <= first["expires_at"] <= (
-        time.time() + DEFAULT_TACTIC_TTL_SECONDS
-    )
-
-    for index in range(1, MAX_TEMPORARY_TACTICS_PER_SESSION + 1):
-        await store.add_temporary_tactic(
-            session_id="session-1",
-            scope_type="session",
-            scope_id="session-1",
-            tactic_type=f"tactic-{index}",
-            tactic_payload={},
-            source_event_ids=[],
-            tactic_id=f"tactic-{index}",
-        )
-
-    tactics = (await store.get_workbench("session-1"))["temporary_tactics"]
-
-    assert len(tactics) == MAX_TEMPORARY_TACTICS_PER_SESSION
-    assert "tactic-0" not in {tactic["tactic_id"] for tactic in tactics}
-    await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_l0_forget_temporary_tactics_removes_live_and_checkpoint_state(tmp_path):
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_forget_tactics.db"
-    store = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await store.initialize()
-
-    await store.add_temporary_tactic(
-        session_id="session-1",
-        scope_type="session",
-        scope_id="session-1",
-        tactic_type="event-backed",
-        tactic_payload={"turn_id": "turn-other"},
-        source_event_ids=["event-forgotten"],
-        tactic_id="tactic-event",
-    )
-    await store.add_temporary_tactic(
-        session_id="session-1",
-        scope_type="session",
-        scope_id="session-1",
-        tactic_type="turn-backed",
-        tactic_payload={"turn_id": "turn-forgotten"},
-        source_event_ids=["tool-call-other"],
-        tactic_id="tactic-turn",
-    )
-    await store.add_temporary_tactic(
-        session_id="session-1",
-        scope_type="session",
-        scope_id="session-1",
-        tactic_type="unrelated",
-        tactic_payload={"turn_id": "turn-kept"},
-        source_event_ids=["event-kept"],
-        tactic_id="tactic-kept",
-    )
-    await store.checkpoint_session("session-1")
-
-    removed = await store.forget_temporary_tactics(
-        ["event-forgotten", "turn-forgotten", "", "event-forgotten"]
-    )
-
-    assert removed == 2
-    assert await store.forget_temporary_tactics(["event-forgotten", "turn-forgotten"]) == 0
-    workbench = await store.get_workbench("session-1")
-    assert [item["tactic_id"] for item in workbench["temporary_tactics"]] == ["tactic-kept"]
-
-    restored = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await restored.initialize()
-    restored_workbench = await restored.get_workbench("session-1")
-    assert [item["tactic_id"] for item in restored_workbench["temporary_tactics"]] == [
-        "tactic-kept"
-    ]
-
-
-@pytest.mark.asyncio
-async def test_l0_forget_and_checkpoint_cannot_restore_deleted_tactic(tmp_path):
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_forget_checkpoint_race.db"
-    store = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await store.initialize()
-    await store.add_temporary_tactic(
-        session_id="session-1",
-        scope_type="session",
-        scope_id="session-1",
-        tactic_type="event-backed",
-        tactic_payload={"turn_id": "turn-forgotten"},
-        source_event_ids=["event-forgotten"],
-        tactic_id="tactic-forgotten",
-    )
-    await store.checkpoint_session("session-1")
-
-    import asyncio
-
-    await asyncio.gather(
-        store.checkpoint_session("session-1"),
-        store.forget_temporary_tactics(["event-forgotten"]),
-    )
-
-    restored = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await restored.initialize()
-    assert (await restored.get_workbench("session-1"))["temporary_tactics"] == []
-
-
-@pytest.mark.asyncio
-async def test_l0_forget_failure_keeps_live_tactic_for_retry(tmp_path, monkeypatch):
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_forget_failure.db"
-    store = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await store.initialize()
-    await store.add_temporary_tactic(
-        session_id="session-1",
-        scope_type="session",
-        scope_id="session-1",
-        tactic_type="event-backed",
-        tactic_payload={"turn_id": "turn-forgotten"},
-        source_event_ids=["event-forgotten"],
-        tactic_id="tactic-forgotten",
-    )
-    await store.checkpoint_session("session-1")
-
-    async def fail_checkpoint_read(_db, _references):
-        raise RuntimeError("checkpoint unavailable")
-
-    monkeypatch.setattr(store, "_checkpoint_tactic_ids_for_references", fail_checkpoint_read)
-    with pytest.raises(RuntimeError, match="checkpoint unavailable"):
-        await store.forget_temporary_tactics(["event-forgotten"])
-
-    assert [
-        item["tactic_id"] for item in (await store.get_workbench("session-1"))["temporary_tactics"]
-    ] == ["tactic-forgotten"]
-
-
-@pytest.mark.asyncio
-async def test_l0_forget_barrier_rejects_late_tactic_and_survives_restart(tmp_path):
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_forget_late_write.db"
-    store = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await store.initialize()
-    assert await store.forget_temporary_tactics(["event-forgotten", "turn-forgotten"]) == 0
-
-    rejected_by_event = await store.add_temporary_tactic(
-        session_id="session-1",
-        scope_type="session",
-        scope_id="session-1",
-        tactic_type="late-event",
-        tactic_payload={"turn_id": "turn-other"},
-        source_event_ids=["event-forgotten"],
-        tactic_id="tactic-late-event",
-    )
-    rejected_by_turn = await store.add_temporary_tactic(
-        session_id="session-1",
-        scope_type="session",
-        scope_id="session-1",
-        tactic_type="late-turn",
-        tactic_payload={"turn_id": "turn-forgotten"},
-        source_event_ids=["event-other"],
-        tactic_id="tactic-late-turn",
-    )
-
-    assert rejected_by_event is None
-    assert rejected_by_turn is None
-    await store.checkpoint_session("session-1")
-    restored = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await restored.initialize()
-    assert (await restored.get_workbench("session-1"))["temporary_tactics"] == []
-    assert (
-        await restored.add_temporary_tactic(
-            session_id="session-1",
-            scope_type="session",
-            scope_id="session-1",
-            tactic_type="late-after-restart",
-            tactic_payload={"turn_id": "turn-forgotten"},
-            source_event_ids=[],
-        )
-        is None
-    )
-
-
-@pytest.mark.asyncio
-async def test_l0_restore_and_late_write_respect_global_source_tombstone(tmp_path):
-    import json
-
-    import aiosqlite
-
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_global_tombstone.db"
-    store = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await store.initialize()
-    await store.start_session(session_id="session-1")
-    await store.checkpoint_session("session-1")
-
-    async with aiosqlite.connect(checkpoint_path) as db:
-        await db.execute("""
-            CREATE TABLE memory_source_event_tombstones (
-                event_id TEXT PRIMARY KEY,
-                reason TEXT NOT NULL,
-                created_at REAL NOT NULL
+        actions=[
+            _action(
+                source_turn_ids=("turn-forgotten",),
+                source_event_ids=("event-forgotten",),
             )
-            """)
-        await db.execute("""
-            INSERT INTO memory_source_event_tombstones(event_id, reason, created_at)
-            VALUES ('event-globally-forgotten', 'user_delete_event', 1)
-            """)
-        await db.execute(
-            """
-            INSERT INTO l0_temporary_tactics(
-                tactic_id, session_id, scope_type, scope_id, tactic_type,
-                tactic_payload, source_event_ids, expires_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)
-            """,
-            (
-                "tactic-stale-checkpoint",
-                "session-1",
-                "session",
-                "session-1",
-                "event-backed",
-                json.dumps({}),
-                json.dumps(["event-globally-forgotten"]),
-                1.0,
-            ),
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-forgotten",
+    )
+    await store.checkpoint_all()
+
+    assert await store.forget_attention_items(["event-forgotten"]) == 1
+    replay = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                summary="不应从已忘记来源恢复",
+                source_turn_ids=("turn-2",),
+                source_event_ids=("event-forgotten",),
+            )
+        ],
+        expected_revision=1,
+        last_processed_turn_id="turn-2",
+    )
+    assert replay is not None
+    assert replay["items"] == []
+
+    await store.checkpoint_all()
+    await store.shutdown()
+    restored = _store(tmp_path)
+    await restored.initialize()
+    assert (await restored.get_workbench("session-1"))["attention_items"] == []
+    await restored.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_legacy_permanent_turn_reference_still_blocks_replay(
+    tmp_path,
+) -> None:
+    store = _store(tmp_path)
+    assert await store.forget_attention_items(["turn-legacy-forgotten"]) == 0
+
+    replay = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                source_turn_ids=("turn-legacy-forgotten",),
+            )
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-legacy-forgotten",
+        source_turn_accepted_at={
+            "turn-legacy-forgotten": time.time() + 100,
+        },
+    )
+    assert replay is not None
+    assert replay["items"] == []
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_entity_projection_barrier_blocks_write_read_and_restart(
+    tmp_path,
+) -> None:
+    db_path = tmp_path / "memory.db"
+    await apply_memory_shared_schema(str(db_path))
+    store = _store(tmp_path)
+    await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                summary="正在讨论应被遗忘的人",
+                source_turn_ids=("turn-old",),
+                source_event_ids=("event-entity",),
+                entity_id="person:forgotten",
+            )
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-old",
+    )
+    await store.checkpoint_all()
+    await _persist_entity_projection_block(
+        db_path,
+        event_id="event-entity",
+        entity_id="person:forgotten",
+    )
+
+    assert (await store.get_workbench("session-1"))["attention_items"] == []
+    assert (
+        await store.get_session_index_snapshot()
+    )["attention_by_session"]["session-1"] == {}
+    result = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                summary="旧来源不应重新生成关注",
+                source_turn_ids=("turn-late",),
+                source_event_ids=("event-entity",),
+                entity_id="person:forgotten",
+            )
+        ],
+        expected_revision=1,
+        last_processed_turn_id="turn-late",
+    )
+    assert result is not None
+    await store.checkpoint_all()
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM l0_attention_items"
+        ) as cursor:
+            assert (await cursor.fetchone())[0] == 1
+
+    await store.shutdown()
+    restored = _store(tmp_path)
+    await restored.initialize()
+    assert (await restored.get_workbench("session-1"))["attention_items"] == []
+    await restored.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_clear_resets_attention_and_local_forgetting_barrier(tmp_path) -> None:
+    store = _store(tmp_path)
+    await store.forget_attention_items(["turn-1"])
+    cutoff_at = time.time()
+    await store.forget_entity(
+        "person:forgotten",
+        forgotten_at=cutoff_at,
+        operation_id="forget-person",
+    )
+    await store.clear()
+
+    result = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                source_turn_ids=("turn-2",),
+                entity_id="person:forgotten",
+            )
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-2",
+        source_turn_accepted_at={"turn-2": cutoff_at - 1},
+    )
+
+    assert result is not None
+    assert len(result["items"]) == 1
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_turn_cutoff_blocks_old_attempt_but_allows_new_delivery(
+    tmp_path,
+) -> None:
+    store = _store(tmp_path)
+    old_accepted_at = time.time()
+    created = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[_action(source_turn_ids=("turn-replayed",))],
+        expected_revision=0,
+        last_processed_turn_id="turn-replayed",
+        source_turn_accepted_at={"turn-replayed": old_accepted_at},
+    )
+    assert created is not None and len(created["items"]) == 1
+
+    assert await store.forget_chat_turn(
+        session_id="session-1",
+        turn_id="turn-replayed",
+    ) == 1
+    stale = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                summary="旧投递不应恢复",
+                source_turn_ids=("turn-replayed",),
+            )
+        ],
+        expected_revision=1,
+        last_processed_turn_id="turn-replayed",
+        source_turn_accepted_at={"turn-replayed": old_accepted_at},
+    )
+    assert stale is not None and stale["items"] == []
+
+    fresh_accepted_at = time.time() + 1
+    fresh = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                summary="删除后的新投递可以重新形成关注",
+                source_turn_ids=("turn-replayed",),
+            )
+        ],
+        expected_revision=2,
+        last_processed_turn_id="turn-replayed",
+        source_turn_accepted_at={"turn-replayed": fresh_accepted_at},
+    )
+    assert fresh is not None and len(fresh["items"]) == 1
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_task_lifecycle_update_preserves_original_turn_time_and_cannot_revive(
+    tmp_path,
+) -> None:
+    store = _store(tmp_path)
+    original_accepted_at = time.time() - 10
+    created = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                kind=AttentionKind.OPEN_LOOP,
+                source_turn_ids=("turn-task-origin",),
+                task_id="task-1",
+                task_attempt=0,
+            )
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-task-origin",
+        source_turn_accepted_at={
+            "turn-task-origin": original_accepted_at,
+        },
+    )
+    assert created is not None
+    item_id = created["items"][0]["item_id"]
+
+    reopened = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                action=AttentionActionType.REINFORCE,
+                target_item_id=item_id,
+                kind=None,
+                summary=None,
+                source_turn_ids=(),
+                task_id="task-1",
+                task_attempt=1,
+            )
+        ],
+        expected_revision=1,
+        last_processed_turn_id="task-attempt-1",
+        source_turn_accepted_at={},
+    )
+    assert reopened is not None
+    live_item = store._attention_items["session-1"][item_id]
+    assert live_item["metadata"]["source_turn_accepted_at"] == {
+        "turn-task-origin": original_accepted_at,
+    }
+
+    forget_cutoff = original_accepted_at + 5
+    async with aiosqlite.connect(tmp_path / "memory.db") as db:
+        await upsert_source_turn_cutoffs(
+            db,
+            turn_ids=("turn-task-origin",),
+            cutoff_at=forget_cutoff,
+            reason="test_delayed_forget_page",
         )
         await db.commit()
 
-    restored = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await restored.initialize()
-    assert (await restored.get_workbench("session-1"))["temporary_tactics"] == []
-    assert (
-        await restored.add_temporary_tactic(
-            session_id="session-1",
-            scope_type="session",
-            scope_id="session-1",
-            tactic_type="late-event",
-            tactic_payload={},
-            source_event_ids=["event-globally-forgotten"],
-        )
-        is None
+    assert (await store.get_attention_snapshot("session-1"))["items"] == []
+    blocked = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                action=AttentionActionType.REINFORCE,
+                target_item_id=item_id,
+                kind=None,
+                summary=None,
+                source_turn_ids=(),
+                task_id="task-1",
+                task_attempt=2,
+            )
+        ],
+        expected_revision=2,
+        last_processed_turn_id="task-attempt-2",
+        source_turn_accepted_at={},
     )
+    assert blocked is not None
+    live_item = store._attention_items["session-1"][item_id]
+    assert live_item["task_attempt"] == 1
+    assert live_item["metadata"]["source_turn_accepted_at"] == {
+        "turn-task-origin": original_accepted_at,
+    }
+    assert (await store.get_attention_snapshot("session-1"))["items"] == []
+    await store.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_l0_concurrent_forget_and_add_never_leaves_stale_tactic(tmp_path):
-    import asyncio
+async def test_layer_clear_preserves_turn_cutoff_until_full_memory_clear(
+    tmp_path,
+) -> None:
+    store = _store(tmp_path)
+    await store.forget_chat_turn(
+        session_id="session-1",
+        turn_id="turn-forgotten",
+    )
+    await store.clear()
+    async with aiosqlite.connect(tmp_path / "memory.db") as db:
+        async with db.execute(
+            "SELECT turn_id FROM memory_source_turn_cutoffs"
+        ) as cursor:
+            assert await cursor.fetchall() == [("turn-forgotten",)]
 
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
+    await clear_shared_auxiliary_memory(str(tmp_path / "memory.db"))
+    async with aiosqlite.connect(tmp_path / "memory.db") as db:
+        async with db.execute(
+            "SELECT turn_id FROM memory_source_turn_cutoffs"
+        ) as cursor:
+            assert await cursor.fetchall() == []
+    await store.shutdown()
 
-    checkpoint_path = tmp_path / "l0_forget_add_race.db"
-    store = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
+
+@pytest.mark.asyncio
+async def test_forget_entity_removes_linked_attention_only(tmp_path) -> None:
+    store = _store(tmp_path)
+    await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                summary="正在讨论 Magi",
+                entity_id="project:magi",
+                source_turn_ids=("turn-1",),
+            ),
+            _action(
+                summary="同时提到另一项目",
+                entity_id="project:other",
+                source_turn_ids=("turn-1",),
+            ),
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+    )
+    await store.checkpoint_all()
+
+    assert await store.forget_entity("project:magi") == 1
+    assert [
+        item["entity_id"]
+        for item in (await store.get_workbench("session-1"))["attention_items"]
+    ] == ["project:other"]
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_forget_entity_rejects_in_flight_analysis_from_old_revision(
+    tmp_path,
+) -> None:
+    store = _store(tmp_path)
     await store.initialize()
+    await store.start_session(session_id="session-1")
+    analysis_started = asyncio.Event()
+    allow_apply = asyncio.Event()
+    cutoff_at = time.time()
 
-    await asyncio.gather(
-        store.forget_temporary_tactics(["turn-forgotten"]),
-        store.add_temporary_tactic(
+    async def apply_in_flight_analysis():
+        snapshot = await store.get_attention_snapshot("session-1")
+        analysis_started.set()
+        await allow_apply.wait()
+        return await store.apply_attention_actions(
             session_id="session-1",
-            scope_type="session",
-            scope_id="session-1",
-            tactic_type="racing",
-            tactic_payload={"turn_id": "turn-forgotten"},
-            source_event_ids=[],
-            tactic_id="tactic-racing",
+            actions=[
+                _action(
+                    summary="旧分析试图重新加入已遗忘的人",
+                    source_turn_ids=("turn-in-flight",),
+                    entity_id="person:forgotten",
+                )
+            ],
+            expected_revision=int(snapshot["revision"]),
+            last_processed_turn_id="turn-in-flight",
+            source_turn_accepted_at={"turn-in-flight": cutoff_at - 1},
+        )
+
+    analysis_task = asyncio.create_task(apply_in_flight_analysis())
+    await analysis_started.wait()
+    assert await store.forget_entity(
+        "person:forgotten",
+        forgotten_at=cutoff_at,
+        operation_id="forget-person",
+    ) == 0
+    allow_apply.set()
+
+    assert await analysis_task is None
+    after_forget = await store.get_attention_snapshot("session-1")
+    assert after_forget["revision"] == 1
+    assert after_forget["last_processed_turn_id"] is None
+    assert after_forget["items"] == []
+
+    fresh = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                summary="遗忘操作之后的新对话重新提到了这个人",
+                source_turn_ids=("turn-after-forget",),
+                entity_id="person:forgotten",
+            )
+        ],
+        expected_revision=1,
+        last_processed_turn_id="turn-after-forget",
+        source_turn_accepted_at={"turn-after-forget": cutoff_at + 1},
+    )
+    assert fresh is not None
+    assert [item["entity_id"] for item in fresh["items"]] == [
+        "person:forgotten"
+    ]
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_forget_entity_uses_source_turn_time_not_late_write_time(
+    tmp_path,
+) -> None:
+    store = _store(tmp_path)
+    cutoff_at = time.time()
+    written_late = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                summary="旧轮次在遗忘请求后才完成分析",
+                source_turn_ids=("turn-before-forget",),
+                entity_id="person:forgotten",
+            )
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-before-forget",
+        source_turn_accepted_at={"turn-before-forget": cutoff_at - 1},
+    )
+    assert written_late is not None
+    assert len(written_late["items"]) == 1
+
+    assert await store.forget_entity(
+        "person:forgotten",
+        forgotten_at=cutoff_at,
+        operation_id="forget-person",
+    ) == 1
+    assert (await store.get_attention_snapshot("session-1"))["items"] == []
+
+    new_dialogue = await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                summary="遗忘完成后的新轮次重新提到了这个人",
+                source_turn_ids=("turn-after-forget",),
+                entity_id="person:forgotten",
+            )
+        ],
+        expected_revision=2,
+        last_processed_turn_id="turn-after-forget",
+        source_turn_accepted_at={"turn-after-forget": cutoff_at + 1},
+    )
+    assert new_dialogue is not None
+    assert [item["entity_id"] for item in new_dialogue["items"]] == [
+        "person:forgotten"
+    ]
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_entity_forget_cutoff_survives_restart_without_tombstoning_new_turns(
+    tmp_path,
+) -> None:
+    cutoff_at = time.time()
+    store = _store(tmp_path)
+    await store.forget_entity(
+        "person:forgotten",
+        forgotten_at=cutoff_at,
+        operation_id="forget-person",
+    )
+    await store.shutdown()
+
+    restored = _store(tmp_path)
+    stale = await restored.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                summary="重启后的旧轮次不应恢复关注",
+                source_turn_ids=("turn-before-forget",),
+                entity_id="person:forgotten",
+            )
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-before-forget",
+        source_turn_accepted_at={"turn-before-forget": cutoff_at - 1},
+    )
+    assert stale is not None
+    assert stale["items"] == []
+
+    fresh = await restored.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            _action(
+                summary="重启后的新轮次可以重新形成关注",
+                source_turn_ids=("turn-after-forget",),
+                entity_id="person:forgotten",
+            )
+        ],
+        expected_revision=1,
+        last_processed_turn_id="turn-after-forget",
+        source_turn_accepted_at={"turn-after-forget": cutoff_at + 1},
+    )
+    assert fresh is not None
+    assert [item["entity_id"] for item in fresh["items"]] == [
+        "person:forgotten"
+    ]
+    await restored.checkpoint_all()
+    await restored.shutdown()
+
+    checked = _store(tmp_path)
+    assert [
+        item["entity_id"]
+        for item in (await checked.get_attention_snapshot("session-1"))["items"]
+    ] == ["person:forgotten"]
+    await checked.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_idle_session_survives_while_attention_is_live_then_expires(tmp_path) -> None:
+    store = _store(tmp_path, session_timeout_seconds=1)
+    await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[_action()],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+    )
+    store._sessions["session-1"]["last_active_at"] = time.time() - 10
+
+    assert await store.expire_idle_sessions() == []
+    store._attention_items["session-1"][next(iter(store._attention_items["session-1"]))][
+        "expires_at"
+    ] = time.time() - 1
+    assert await store.expire_idle_sessions() == ["session-1"]
+    assert (await store.get_workbench("session-1"))["session"] is None
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_attention_apply_respects_session_capacity(tmp_path) -> None:
+    store = _store(tmp_path, max_concurrent_sessions=1)
+    first, second = await asyncio.gather(
+        store.apply_attention_actions(
+            session_id="session-a",
+            user_id="user-a",
+            actions=[_action(source_turn_ids=("turn-a",))],
+            expected_revision=0,
+            last_processed_turn_id="turn-a",
+        ),
+        store.apply_attention_actions(
+            session_id="session-b",
+            user_id="user-b",
+            actions=[_action(source_turn_ids=("turn-b",))],
+            expected_revision=0,
+            last_processed_turn_id="turn-b",
         ),
     )
 
-    assert (await store.get_workbench("session-1"))["temporary_tactics"] == []
-    await store.checkpoint_session("session-1")
-    restored = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await restored.initialize()
-    assert (await restored.get_workbench("session-1"))["temporary_tactics"] == []
+    assert first is not None
+    assert second is not None
+    assert len(store._sessions) == 1
+    assert len(store._attention_items) == 1
+    remaining = next(iter(store._sessions.values()))
+    assert remaining["user_id"] in {"user-a", "user-b"}
+    await store.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_l0_forget_active_entities_removes_live_and_checkpoint_state(tmp_path):
-    import aiosqlite
-
-    from _shared.memory_schema import apply_memory_shared_schema
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_active_entity_forget.db"
-    await apply_memory_shared_schema(str(checkpoint_path))
-    store = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await store.initialize()
-    await store.upsert_active_entity(
-        session_id="session-1",
-        entity_id="person:delete",
-        entity_type="person",
-        snapshot={"name": "Delete Me"},
-        source_event_ids=["event-delete"],
-    )
-    await store.upsert_active_entity(
-        session_id="session-1",
-        entity_id="person:keep",
-        entity_type="person",
-        snapshot={"name": "Keep Me"},
-        source_event_ids=["event-keep"],
-    )
-    await store.checkpoint_session("session-1")
-
-    assert await store.forget_active_entities(["event-delete"]) == 1
-    assert [
-        entity["entity_id"]
-        for entity in (await store.get_workbench("session-1"))["active_entities"]
-    ] == ["person:keep"]
-    async with aiosqlite.connect(checkpoint_path) as db:
-        async with db.execute(
-            "SELECT entity_id FROM l0_active_entities ORDER BY entity_id"
-        ) as cursor:
-            assert await cursor.fetchall() == [("person:keep",)]
-
-    restored = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await restored.initialize()
-    assert [
-        entity["entity_id"]
-        for entity in (await restored.get_workbench("session-1"))["active_entities"]
-    ] == ["person:keep"]
-
-
-@pytest.mark.asyncio
-async def test_l0_active_entity_reads_and_restore_fail_closed_on_governance(tmp_path):
-    import json
-
-    import aiosqlite
-
-    from _shared.memory_schema import apply_memory_shared_schema
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_active_entity_governance.db"
-    await apply_memory_shared_schema(str(checkpoint_path))
-    store = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await store.initialize()
-    for entity_id, event_id in (
-        ("person:tombstoned", "event-tombstoned"),
-        ("person:time", "event-time"),
-        ("person:target", "event-shared"),
-        ("person:other", "event-shared"),
-        ("person:safe", "event-safe"),
-    ):
-        await store.upsert_active_entity(
-            session_id="session-1",
-            entity_id=entity_id,
-            entity_type="person",
-            snapshot={"name": entity_id},
-            source_event_ids=[event_id],
-        )
-    await store.checkpoint_session("session-1")
-
-    async with aiosqlite.connect(checkpoint_path) as db:
-        await db.execute("""
-            INSERT INTO memory_source_event_tombstones(event_id, reason, created_at)
-            VALUES ('event-tombstoned', 'user_delete_event', 1)
-            """)
-        await db.execute("""
-            INSERT INTO memory_forget_operations(
-                operation_id, selector_kind, selector_hash, selector_json,
-                reason, created_at, updated_at
-            ) VALUES ('operation-time', 'time_range', 'hash-time', '{}', 'test', 1, 1)
-            """)
-        await db.execute("""
-            INSERT INTO memory_forget_operations(
-                operation_id, selector_kind, selector_hash, selector_json,
-                reason, created_at, updated_at
-            ) VALUES ('operation-entity', 'entity', 'hash-entity', '{}', 'test', 1, 1)
-            """)
-        await db.executemany(
-            """
-            INSERT INTO memory_projection_blocks(
-                block_kind, target_id, event_id, operation_id, created_at
-            ) VALUES (?, ?, ?, ?, 1)
-            """,
-            [
-                ("episode_formation", "time:hash-time", "event-time", "operation-time"),
-                ("entity_projection", "person:target", "event-shared", "operation-entity"),
-            ],
-        )
-        await db.execute(
-            """
-            INSERT INTO l0_active_entities(
-                session_id, entity_id, entity_type, relevance_score,
-                snapshot_json, source_event_ids, loaded_at,
-                last_accessed_at, access_count
-            ) VALUES (?, ?, ?, 0, ?, ?, 1, 1, 1)
-            """,
-            (
-                "session-1",
-                "person:malformed",
-                "person",
-                json.dumps({"name": "must not restore"}),
-                "not-json",
-            ),
-        )
-        await db.commit()
-
-    expected = ["person:other", "person:safe"]
-    assert (
-        sorted(
-            entity["entity_id"]
-            for entity in (await store.get_workbench("session-1"))["active_entities"]
-        )
-        == expected
-    )
-
-    restored = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await restored.initialize()
-    assert (
-        sorted(
-            entity["entity_id"]
-            for entity in (await restored.get_workbench("session-1"))["active_entities"]
-        )
-        == expected
-    )
-
-
-@pytest.mark.asyncio
-async def test_l0_tactics_reject_time_range_barriers_on_read_write_and_restore(tmp_path):
-    import aiosqlite
-
-    from _shared.memory_schema import apply_memory_shared_schema
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    checkpoint_path = tmp_path / "l0_time_range_tactic_governance.db"
-    await apply_memory_shared_schema(str(checkpoint_path))
-    store = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await store.initialize()
-    await store.add_temporary_tactic(
-        session_id="session-1",
-        scope_type="session",
-        scope_id="session-1",
-        tactic_type="time-backed",
-        tactic_payload={},
-        source_event_ids=["event-time"],
-        tactic_id="tactic-time",
-    )
-    await store.checkpoint_session("session-1")
-
-    async with aiosqlite.connect(checkpoint_path) as db:
-        await db.execute("""
-            INSERT INTO memory_forget_operations(
-                operation_id, selector_kind, selector_hash, selector_json,
-                reason, created_at, updated_at
-            ) VALUES ('operation-time-tactic', 'time_range', 'hash-time', '{}', 'test', 1, 1)
-            """)
-        await db.execute("""
-            INSERT INTO memory_projection_blocks(
-                block_kind, target_id, event_id, operation_id, created_at
-            ) VALUES (
-                'episode_formation', 'time:hash-time', 'event-time',
-                'operation-time-tactic', 1
+async def test_default_session_capacity_holds_under_one_hundred_concurrent_applies(
+    tmp_path,
+) -> None:
+    store = _store(tmp_path, max_concurrent_sessions=64)
+    results = await asyncio.gather(
+        *(
+            store.apply_attention_actions(
+                session_id=f"session-{index}",
+                user_id=f"user-{index}",
+                actions=[
+                    _action(source_turn_ids=(f"turn-{index}",)),
+                ],
+                expected_revision=0,
+                last_processed_turn_id=f"turn-{index}",
             )
-            """)
-        await db.commit()
-
-    assert (await store.get_workbench("session-1"))["temporary_tactics"] == []
-    assert (
-        await store.add_temporary_tactic(
-            session_id="session-1",
-            scope_type="session",
-            scope_id="session-1",
-            tactic_type="late-time-backed",
-            tactic_payload={},
-            source_event_ids=["event-time"],
+            for index in range(100)
         )
-        is None
     )
 
-    restored = L0WorkingMemoryStore(checkpoint_db_path=str(checkpoint_path))
-    await restored.initialize()
-    assert (await restored.get_workbench("session-1"))["temporary_tactics"] == []
+    assert all(result is not None for result in results)
+    assert len(store._sessions) == 64
+    assert len(store._attention_items) == 64
+    assert all(len(items) == 1 for items in store._attention_items.values())
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_session_reactivated_while_expiry_waits_is_not_lost(tmp_path) -> None:
+    store = _store(tmp_path, session_timeout_seconds=1)
+    await store.start_session(session_id="session-1")
+    store._sessions["session-1"]["last_active_at"] = time.time() - 10
+
+    await store._checkpoint_lock.acquire()
+    expiry = asyncio.create_task(store.expire_idle_sessions())
+    await asyncio.sleep(0)
+    reactivate = asyncio.create_task(
+        store.start_session(session_id="session-1", user_id="user-1")
+    )
+    store._checkpoint_lock.release()
+
+    await expiry
+    session = await reactivate
+    assert session["user_id"] == "user-1"
+    assert "session-1" in store._sessions
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_forget_and_apply_never_reintroduces_blocked_source(
+    tmp_path,
+) -> None:
+    store = _store(tmp_path)
+    action = _action(source_turn_ids=("turn-forgotten",))
+
+    await asyncio.gather(
+        store.apply_attention_actions(
+            session_id="session-1",
+            actions=[action],
+            expected_revision=0,
+            last_processed_turn_id="turn-forgotten",
+        ),
+        store.forget_attention_items(["turn-forgotten"]),
+    )
+
+    await store.forget_attention_items(["turn-forgotten"])
+    assert (await store.get_workbench("session-1"))["attention_items"] == []
+    await store.shutdown()

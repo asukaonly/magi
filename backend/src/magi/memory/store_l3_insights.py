@@ -15,7 +15,7 @@ from .derivation_revision import (
     MemoryClearGenerationChangedError,
 )
 from .l2.corrections.repository import MemoryCorrectionRepository
-from .l2.models import L2FocalEntityRef, ReconciledTraitOutcome
+from .l2.models import ReconciledTraitOutcome
 from .l3.derivation_fence import L3DerivationFence
 from .l3.dependency_validation import (
     StaleL3CandidateError,
@@ -29,9 +29,6 @@ from .l3.models import (
     TrendShiftPacket,
 )
 from .l3.validator import validate_candidate
-
-if __name__ != "__main__":  # always True – guard for TYPE_CHECKING-like lazy import
-    from .event_contracts import MemoryEvent
 
 logger = logging.getLogger(__name__)
 
@@ -316,40 +313,3 @@ class L3InsightsMixin:
             dependencies=dependencies,
             fence=fence,
         )
-
-    async def _handle_l2_active_entities(
-        self,
-        event: MemoryEvent,
-        focal_entities: list[L2FocalEntityRef],
-    ) -> None:
-        if self.l0 is None or self.l2_entity_catalog is None or not event.session_id or not focal_entities:  # type: ignore[attr-defined]
-            return
-
-        entity_ids: list[str] = []
-        for entity in focal_entities:
-            entity_id = str(entity.entity_id).strip()
-            if not entity_id or entity_id in entity_ids:
-                continue
-            entity_ids.append(entity_id)
-        if not entity_ids:
-            return
-
-        catalog_rows = await self.l2_entity_catalog.list_entities(limit=len(entity_ids), entity_ids=entity_ids)  # type: ignore[attr-defined]
-        catalog_by_id = {str(row["entity_id"]): row for row in catalog_rows}
-        for entity in focal_entities:
-            catalog_entity = catalog_by_id.get(str(entity.entity_id))
-            if catalog_entity is None:
-                continue
-            canonical_name = str(catalog_entity.get("canonical_name") or "").strip()
-            await self.l0.upsert_active_entity(  # type: ignore[attr-defined]
-                session_id=event.session_id,
-                entity_id=str(catalog_entity["entity_id"]),
-                entity_type=str(catalog_entity["entity_type"]),
-                snapshot={
-                    "canonical_name": canonical_name,
-                    "name": canonical_name,
-                    "aliases": list(catalog_entity.get("aliases") or []),
-                },
-                relevance_score=1.0,
-                source_event_ids=[event.event_id],
-            )

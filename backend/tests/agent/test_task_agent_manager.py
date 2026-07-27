@@ -1490,6 +1490,9 @@ async def test_message_delete_stops_newer_run_that_may_hold_deleted_context() ->
     cancellations: list[tuple[str, str | None]] = []
 
     class _ContextAwareAgent(TaskAgent):
+        async def cancel_postprocess_for_destructive_change(self) -> None:
+            return None
+
         async def plan_message_delete_runtime_turn_ids(
             self,
             *,
@@ -1576,6 +1579,9 @@ async def test_message_delete_replays_batch_that_creates_root_after_plan() -> No
 
     class _PreRunAgent(TaskAgent):
         active_root_turn_id: str | None = None
+
+        async def cancel_postprocess_for_destructive_change(self) -> None:
+            return None
 
         async def plan_message_delete_runtime_turn_ids(
             self,

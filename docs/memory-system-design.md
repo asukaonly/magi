@@ -20,11 +20,11 @@ If this document conflicts with the above, they should be revised together. This
 
 ## What the Memory System Solves
 
-Magi's memory system organizes local conversations, external activities, and selected runtime results into retrievable, compressible, long-term memory — while keeping chat truth, runtime traces, and plugin intermediate state cleanly separated.
+Magi's memory system organizes local conversations, external activities, and selected runtime results into short-term attention and retrievable, compressible, long-term memory — while keeping chat truth, runtime traces, and plugin intermediate state cleanly separated.
 
 It is responsible for:
 
-- Maintaining short-term working context for the current session
+- Maintaining short-term attention for the current session
 - Projecting selected facts into durable event memory
 - Extracting structured cognition from retained events
 - Compressing long histories into reviewable summaries and insights
@@ -38,9 +38,9 @@ It is **not** responsible for:
 - Rendering persona-voiced chat UI cards; memory may provide traceable snippets,
   but chat/persona layers decide how those snippets are presented in a turn
 
-Magi's memory model is layered by **information lifecycle**, not by functional plugin:
+Magi's memory model is layered by **information lifecycle**, not by functional plugin. `L0` is the disposable attention projection over accepted conversation turns; durable memory begins at `L1`:
 
-- `L0` — Working memory
+- `L0` — Short-term attention
 - `L1` — Normalized event facts
 - `L2` — Structured cognition (with three product subdomains: semantic, state, episodic)
 - `L3` — Reflection and summaries
@@ -50,13 +50,18 @@ Magi's memory model is layered by **information lifecycle**, not by functional p
 
 ## Mental Model
 
-The memory system forms a stable data evolution chain:
+The memory system has one short-term attention path and one durable evolution path:
 
 ```text
+Accepted completed chat turn
+  -> Shared post-turn understanding
+  -> L0 attention delta for the next turn
+  -> Optional, separately validated personality or durable-memory candidates
+
 Source signal
   -> Normalized event contract
   -> Routing and retention policy
-  -> L0 and/or L1
+  -> L1
   -> Optional L2 cognition
   -> Optional L3 reflection
   -> Optional L4 experience distillation
@@ -64,7 +69,7 @@ Source signal
 
 Examples:
 
-- A user chat message is first a fact in `chat.db`, then part of it may be projected as an `L1` memory fact.
+- A user chat message and its accepted assistant reply are first chat truth in `chat.db`. Once that complete turn is durable, shared post-turn understanding may update the session's `L0` attention for the next turn, while selected content is projected independently into `L1`.
 - A Chrome browsing burst is aggregated into an `L1` event, which may later feed `L2` relation extraction and `L3` temporal summaries.
 - A worker heartbeat is runtime telemetry and should not enter long-term user memory.
 - A task completion result may be worth retaining in memory, but the detailed execution trace stays in the runtime trace store.
@@ -145,78 +150,188 @@ Workspace overlays may also hold project instructions, rules, skills, and gitign
 
 ## Layer Overview
 
-### L0 — Working Memory
+### L0 — Short-Term Attention
 
-`L0` is the short-term working context for the current session or task.
+`L0` is the bounded, disposable attention state for the current conversation.
+It answers one question: what must Magi still keep in mind to receive the next
+turn naturally? Its current production source is accepted complete chat turns.
+It is not a new source of truth and not a smaller long-term memory store.
 
-It holds:
+It may hold:
 
-- Current session state
-- Current goal stack
-- Currently active entities
-- Temporary tactics selected for the current work
+- Current topics, concerns, and the user's immediate intent
+- Explicit, time-bounded parts of the user's current situation
+- Open loops such as unanswered questions, deferred threads, and promises;
+  an executable task is one possible subtype, not the organizing center
+- Active people, places, media, projects, or other objects, together with why
+  each one matters in the current conversation
+- Local constraints, recent decisions, and shared understanding that must
+  continue to shape the next reply
 
-Key properties:
+Each attention item carries a compact neutral summary, source turn or event
+references, whether it was explicit or inferred, confidence and salience,
+first-seen and last-reinforced timestamps, and a lifecycle state such as
+`active`, `background`, `resolved`, or `superseded`. An inferred item must never be
+presented as a user-confirmed fact. Repeated evidence reinforces an item;
+answers and explicit closure resolve it; corrections supersede it; a topic
+shift lowers its salience. Those semantic updates can retire or background an
+item before its fixed deadline; when no later update arrives, time-based
+expiry is the safety fallback.
 
-- Centered on the current workbench, not long-term recall
-- Optional and disposable, with checkpoints for short-term continuity
-- Changes frequently
-- May be restored after restart while it is still relevant
+The storage and forgetting contracts reserve both turn and event provenance so
+future governed producers can participate without weakening deletion rules.
+No sensor or generic event-ingest path currently creates L0 attention.
+Accepted chat outcomes produce semantic attention deltas, while durable
+background-task attempt and terminal notifications directly reopen or close
+only the task-linked open loop. Those lifecycle notifications never create
+personality or durable-memory observations.
 
-`L0` should only hold what the current turn genuinely needs, not everything the system has ever seen.
+L0 is generated only from accepted, complete turns. The user message and the
+accepted assistant outcome must already be durable in `chat.db`, and the exact
+delivery attempt must be terminal, before the turn can enter attention
+analysis. The current user message is therefore never copied into L0 before
+answering that same message. Failed, cancelled, stale, superseded, internal
+tool-only, or partially persisted turns do not enter the L0 analysis batch or
+advance its last-processed marker.
 
-All L0 state is disposable workbench state. Goals, active entities, and
-temporary tactics may expire after the session idle timeout or be evicted when
-the configured session capacity is full. L0 expiry therefore changes only what
-temporary guidance may be supplied to a later prompt; it never cancels a chat
-turn or decides whether admitted work must be retried.
+Post-turn understanding is shared rather than duplicated across memory and
+personality features. One bounded analysis batch may emit an L0 attention
+delta, personality or relationship observations, and candidates for durable
+memory. Those outputs remain separate contracts: each owner validates and
+stores only its own projection, and no L0 inference becomes durable merely
+because it was produced in the same model call.
 
-Each session is bounded independently: the goal stack keeps at most 32 entries,
-active entities keep the 32 most relevant and recently accessed cards, and
-temporary tactics keep the 16 newest entries. A tactic without an explicit
-expiry receives a 15-minute lifetime. These bounds make "working" a real
-lifecycle property rather than an unbounded alternate memory store.
+The default attention-update policy is:
 
-The checkpoint interval is a real maximum debounce for dirty L0 state. A
-mutation schedules a checkpoint, mutations that arrive while a checkpoint is
-running schedule a later pass, and normal shutdown flushes all live sessions.
+- Update after three newly accepted complete turns for the session
+- Flush after 30 seconds of conversational idle time
+- Enforce a 90-second maximum delay from the first pending accepted turn, even
+  if later activity keeps resetting the idle timer
 
-Restart restore keeps only sessions that were active, remain inside the idle
-window, and fit within the configured capacity. Rejected checkpoint rows,
-terminal goals, and expired tactics are deleted rather than being resurrected
-on every restart. Prompt and workbench reads expose only pending or in-progress
-goals and unexpired tactics. Malformed checkpoint rows are discarded
-individually so one damaged projection cannot prevent the remaining workbench
-from loading.
+These values are configurable as
+`attention_update_turn_threshold`,
+`attention_update_idle_seconds`, and
+`attention_update_max_delay_seconds`. Explicit correction, topic closure,
+important current-state change, a new local constraint, or a promise that must
+be carried forward may trigger an immediate update instead of waiting for the
+batch when it matches the scheduler's conservative message patterns or one of
+the explicitly urgent fact kinds. Unmatched wording follows the ordinary batch
+timers. Repeated enqueue attempts for the same turn are suppressed while the
+same scheduler instance still remembers that turn. There is currently no
+separate semantic pre-filter that guarantees acknowledgement-only turns never
+join a later analysis batch.
 
-Live chat execution is deliberately outside L0. The current run, pending
-interruptions, cancellation controls, and accepted tool results are coordinated
-in process because their streams and asynchronous controls cannot survive a
-restart. Durable chat delivery records own crash recovery: after a restart,
-non-terminal turns are re-driven as new live executions instead of restoring a
-control-less "running" record.
+Attention updates run asynchronously and never delay display or delivery of an
+accepted reply. One runtime-scoped service owns the pending batch queue, retry
+timers, direct task-lifecycle updates, and deduplication across chat-agent
+instances. The queue remains process-local: the accepted transcript is durable,
+but pending analysis admission is not. Updates for one session are serialized,
+while at most two model analyses run across distinct sessions, and failures are
+retried with bounded exponential backoff. A stable accepted-outcome identity is
+distinct from its source turn identity, so multiple durable deliveries of one
+turn are not collapsed accidentally. Background task identity is additionally
+scoped by attempt. Each model request contains at most 20 turns, each session
+retains at most 60 pending turns, and the same fixed batch is attempted at most
+three times. When the pending limit is reached, the oldest turn outside the
+in-flight retry batch is discarded in favor of newer conversation context.
+When all three attempts fail, that derived-analysis batch is discarded and
+later queued turns continue immediately; the durable chat transcript is not
+affected.
 
-L0 may expose chat-owned state in a workbench view, but it does not become the
-owner of that state. In particular, context-window usage belongs to the accepted
-chat turn in `chat.db`: it must survive an L0 timeout, restore after restart, and
-follow visible-answer deletion semantics. L0 can compose that snapshot for
-inspection, while prompts and the chat meter read the durable chat record.
+An analysis failure keeps the fixed batch eligible within that retry budget.
+An L0 revision conflict also keeps the fixed batch eligible: the service reads
+the newer frame and re-analyzes rather than applying a delta against stale
+state. Durable and runtime forgetting barriers are checked before analysis,
+after analysis, immediately before the L0 write, and before each personality or
+observation write. If only part of a batch was forgotten, the surviving fixed
+turns are re-analyzed without the removed evidence. The shared analysis
+destinations are not one transaction, however. Personality and
+durable-observation application failures are logged as best-effort failures and
+do not keep the batch queued, so one destination may update while another does
+not. An unexpected exception after an earlier write may instead make the
+scheduler retry the batch within the same budget. This path is therefore
+neither atomic, exactly-once execution, nor durable at-least-once processing.
 
-Examples:
+Each queued turn therefore carries the durable accepted response's own commit
+time, not the later time at which its detached enqueue task happened to run.
+Every activated durable forget request advances the runtime memory epoch and
+establishes a conservative post-turn boundary. Prepared chat intents do not
+take effect until their runtime deletion barrier is activated. Exact raw chat
+turns discovered by deletion pages receive a shared per-turn cutoff. A late
+write is governed by the source turn's accepted time rather than by the later
+time at which analysis happened, including when L0 is disabled and only
+personality processing is active. Permanent event and session barriers remain
+separate from temporal turn cutoffs. A genuinely new accepted outcome after a
+temporal cutoff may form new attention unless its durable source identity was
+permanently forgotten.
 
-- Active goals for the current session
-- Entities the current conversation revolves around
-- Temporary tactical decisions for a single turn
+Removing or replacing one chat-agent instance does not stop the shared queue.
+Only runtime shutdown first waits for detached enqueue tasks and then asks the
+runtime-scoped scheduler to flush pending batches for up to five seconds. Work
+still failing or waiting when that budget expires is cancelled. A forced
+process termination loses pending batches and any changed L0 frame that has
+not reached its SQLite checkpoint. Startup restores valid checkpointed
+attention only; it does not scan the durable transcript to reconstruct a
+missed L0 analysis backlog. Ordinary prompt assembly still receives durable
+chat history, so missing or delayed L0 analysis does not remove the
+conversation itself.
 
-Temporary tactics and active-entity cards that depend on source events must
-retain those source references. When a referenced event is forgotten, both are
-removed from live state and checkpoints. Active-entity reads and restart restore
-also recheck source tombstones, entity projection blocks, and time-range
-projection blocks, so partially completed cleanup cannot re-expose a governed
-card. A durable L0 source-reference barrier blocks a forgotten tactic from being
-restored after restart or re-added by replay. This barrier is cleared only by the
-explicit full-memory clear boundary; normal session expiry or checkpoint
-maintenance must not weaken it.
+Active items that pass the confidence and salience thresholds are injected
+directly as a small, explicitly labelled short-term-context block. Background or
+low-salience items are not injected on every turn. Prompt assembly includes a
+trustworthy background item only when its compact summary, linked entity, or
+linked task shares normalized terms with the current message. It remains
+labelled as reference-only background and is explicitly not a new instruction;
+selection does not change its stored status back to `active`. Otherwise it
+stays out of the prompt. L0 may help resolve references and shape an
+explicit long-term-memory query, but L0 itself does not enter the L1-L4
+retrieval index.
+
+All L0 state is optional and disposable. Expiry or eviction changes only what
+short-term guidance may be supplied to a later prompt; it never cancels,
+retries, resumes, or recovers chat work. Live runs, pending interruptions,
+cancellation controls, tool results, and execution checkpoints remain owned by
+the chat/runtime domains. Chat owns the full transcript and rolling
+conversation summaries. `L1` and `L2` own durable evidence and current durable
+facts, while personality owns relationship depth and Magi's dynamic persona
+state.
+
+The attention-update schedule and the checkpoint schedule are distinct.
+Attention-update settings decide when accepted turns are understood; the
+checkpoint interval decides how quickly an already changed L0 projection is
+persisted. A dirty-state checkpoint remains debounced, mutations that arrive
+while a checkpoint is running schedule a later pass, and normal shutdown
+flushes changed live sessions. Restart restore keeps only valid, still-relevant
+bounded items and discards malformed rows individually.
+
+Expiry is based on the attention item's meaning, not the chat transcript's
+retention. The current defaults are six hours for `situation`, 24 hours for
+`focus`, `active_object`, `constraint`, and `consensus`, and 72 hours for
+`open_loop`. Reinforcement refreshes the kind-specific deadline. Resolved and
+superseded items are retained for one hour for inspection but are not injected
+into prompts. Expiry is enforced when attention is read or restored; periodic
+maintenance removes an idle L0 session only after its remaining attention has
+also expired. A row may therefore remain physically present until a read,
+checkpoint, or maintenance pass, even though it is already logically
+ineligible for prompt use.
+
+L0 may compose chat-owned information in its expert workbench view without
+becoming its owner. In particular, context-window usage belongs to the accepted
+chat outcome in `chat.db`: it must survive L0 expiry, restore after restart, and
+follow visible-answer deletion semantics. Prompts and the chat meter read the
+durable chat record.
+
+Attention items that depend on source turns or events retain those references.
+When a source is forgotten, affected items are removed or recomputed in live
+state and checkpoints. Prompt reads and restart restore recheck source
+tombstones, per-turn cutoffs, entity projection blocks, and governed time
+ranges so incomplete cleanup cannot re-expose an item. Task attempt and
+completion updates change lifecycle state without replacing the original
+evidence time. This prevents a later task notification from making old evidence
+look newer than its deletion cutoff. Shared per-turn cutoffs survive an
+ordinary L0 clear and are removed only by full-memory clear. Full-memory clear
+also removes dormant L0 rows even when the optional L0 store is disabled.
+Normal expiry and checkpoint maintenance never weaken these barriers.
 
 ### L1 — Normalized Event Facts
 
@@ -414,9 +529,9 @@ Each layer owns removal of its own derivatives:
 - L3 removes the source link and search/vector material. A summary with remaining
   evidence becomes stale for regeneration; one with no trustworthy evidence is
   retired.
-- L0 removes temporary tactics linked by either event or turn reference and
-  active-entity cards linked by deleted events or governed time ranges, then
-  rechecks the same governance on new writes, prompt reads, and restart restore.
+- L0 removes or recomputes attention items linked by a deleted turn, event, or
+  governed time range, then rechecks the same governance on new writes, prompt
+  reads, and restart restore.
   Deleting one user chat message removes its execution-owned state without
   clearing unrelated working state. A newer run continues only when the target
   is still unconsumed; if its context may contain the deleted message, that run
@@ -1633,11 +1748,11 @@ Expresses where the event should initially land.
 
 Canonical targets:
 
-- `l0_only`
+- `runtime_only`
 - `l1_only`
-- `l0_and_l1`
 
-This separates current execution signals from long-term memory facts.
+This separates runtime-only signals from durable memory facts. L0 attention is
+derived after accepted conversation turns and is not an event-ingest target.
 
 ### cognition_eligible
 
@@ -1865,7 +1980,13 @@ Layer contributions:
 
 Current implicit injection remains conservative:
 
-- `L0` is default implicit context
+- Only the bounded active subset of `L0` that passes confidence and salience
+  thresholds is default implicit context
+- Background attention may be included as labelled reference-only context when
+  its summary or linked identity matches the current message; prompt selection
+  does not reactivate its stored lifecycle state
+- L0 may help shape an explicit long-term-memory query, but L0 is not searched
+  through the L1-L4 retrieval index
 - Higher-layer memories require explicit justification for injection
 - Explicit historical recall and implicit prompt injection are separate decisions
 
@@ -2058,13 +2179,13 @@ Main implementation entry points:
 
 - [backend/src/magi/memory/manual_entries/](../backend/src/magi/memory/manual_entries/) — User-authored source records, retry-safe L1 projection, and attachment storage
 
-- [backend/src/magi/memory/layer_protocol.py](../backend/src/magi/memory/layer_protocol.py) and [backend/src/magi/memory/layers/](../backend/src/magi/memory/layers/) — Fan-out ingestion protocol and layer adapters for L0, L1, L2 projection/pipeline, and L4
+- [backend/src/magi/memory/layer_protocol.py](../backend/src/magi/memory/layer_protocol.py) and [backend/src/magi/memory/layers/](../backend/src/magi/memory/layers/) — Fan-out ingestion protocol and layer adapters for L1, L2 projection/pipeline, and L4; L0 attention is derived separately after accepted chat turns
 
 - [backend/src/magi/memory/subscribers/memory_ingestion_subscriber.py](../backend/src/magi/memory/subscribers/memory_ingestion_subscriber.py) — Event-bus subscriber that translates domain events into normalized memory events
 
 - [backend/src/magi/memory/event_contracts.py](../backend/src/magi/memory/event_contracts.py) — Standard event contracts and normalization logic
 
-- [backend/src/magi/memory/l0/working_memory.py](../backend/src/magi/memory/l0/working_memory.py) — `L0` working memory
+- [backend/src/magi/memory/l0/working_memory.py](../backend/src/magi/memory/l0/working_memory.py) — `L0` short-term attention store
 
 - [backend/src/magi/memory/l1/event_store.py](../backend/src/magi/memory/l1/event_store.py) — `L1` fact event store, retrieval, and vector index
 
@@ -2103,7 +2224,8 @@ Main implementation entry points:
 When connecting a new memory source, answer these questions first:
 
 1. Is it transcript truth, runtime trace, or durable memory projection?
-2. Should it land in `L0`, `L1`, or both?
+2. Should it become durable `L1` evidence, influence the current L0 attention
+   projection through a governed source reference, or remain outside memory?
 3. What is the correct `memory_domain`?
 4. Should it participate in downstream cognition?
 5. What is the correct `retention_class`?
@@ -2145,7 +2267,8 @@ Magi's memory system is built on a simple but firm separation:
 
 On this foundation:
 
-- `L0` keeps the bounded goals, entities, and temporary tactics for the current task
+- `L0` keeps a bounded, disposable projection of what still matters for the
+  next conversational turn
 - `L1` stores canonical durable facts
 - `L2` provides structured cognition across three subdomains: semantic memory (entities, relations, preferences), state memory (versioned latest-truth with supersession), and episodic memory (episode substrates plus promoted experiences)
 - `L3` compresses and reflects

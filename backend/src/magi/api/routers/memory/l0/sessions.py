@@ -9,11 +9,17 @@ from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .display import derive_l0_session_display
 
 
-def _current_goals(goals: list[Any]) -> list[Any]:
+def _current_attention(items: list[Any]) -> list[dict[str, Any]]:
+    now = time.time()
     return [
-        goal
-        for goal in goals
-        if str(goal.get("status") or "") in {"pending", "in_progress"}
+        item
+        for item in items
+        if isinstance(item, dict)
+        and str(item.get("status") or "") in {"active", "background"}
+        and (
+            item.get("expires_at") is None
+            or float(item["expires_at"]) > now
+        )
     ]
 
 
@@ -25,9 +31,9 @@ def empty_l0_sessions_response(*, limit: int, offset: int) -> dict[str, Any]:
         "offset": offset,
         "stats": {
             "active_sessions": 0,
-            "total_goals": 0,
-            "total_entities": 0,
-            "total_tactics": 0,
+            "total_attention_items": 0,
+            "active_attention_items": 0,
+            "background_attention_items": 0,
         },
     }
 
@@ -67,7 +73,7 @@ def filter_l0_session_ids_by_query(
     session_ids: list[str],
     query: str | None,
     sessions: Mapping[str, Mapping[str, Any]],
-    goals_by_session: Mapping[str, list[Any]],
+    attention_by_session: Mapping[str, list[Any]],
     summary_map: Mapping[str, Any],
 ) -> list[str]:
     if not query:
@@ -76,9 +82,12 @@ def filter_l0_session_ids_by_query(
     filtered_session_ids: list[str] = []
     for session_id in session_ids:
         session = sessions[session_id]
+        attention = _current_attention(
+            list(attention_by_session.get(session_id, []))
+        )
         display = derive_l0_session_display(
             session_id=session_id,
-            goals=_current_goals(goals_by_session.get(session_id, [])),
+            attention_items=attention,
             chat_summary=summary_map.get(session_id),
         )
         searchable = " ".join(
@@ -89,6 +98,10 @@ def filter_l0_session_ids_by_query(
                     display.get("display_title", ""),
                     display.get("display_subtitle", ""),
                     session.get("status", ""),
+                    *[
+                        str(item.get("summary") or "")
+                        for item in attention
+                    ],
                 ],
             )
         ).lower()
@@ -101,36 +114,36 @@ def build_l0_session_list_items(
     *,
     session_ids: list[str],
     sessions: Mapping[str, Mapping[str, Any]],
-    goals_by_session: Mapping[str, list[Any]],
-    entities_by_session: Mapping[str, Mapping[str, Any]],
-    tactics_by_session: Mapping[str, Mapping[str, Any]],
+    attention_by_session: Mapping[str, list[Any]],
     summary_map: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     items: list[dict[str, Any]] = []
-    total_goals = 0
-    total_entities = 0
-    total_tactics = 0
-    now = time.time()
+    total_attention_items = 0
+    active_attention_items = 0
+    background_attention_items = 0
 
     for session_id in session_ids:
         session = sessions[session_id]
-        goals = _current_goals(goals_by_session.get(session_id, []))
-        entities = entities_by_session.get(session_id, {})
-        tactics = {
-            tactic_id: tactic
-            for tactic_id, tactic in tactics_by_session.get(session_id, {}).items()
-            if tactic.get("expires_at") is None
-            or float(tactic["expires_at"]) > now
-        }
+        attention = _current_attention(
+            list(attention_by_session.get(session_id, []))
+        )
+        active_count = sum(
+            str(item.get("status") or "") == "active"
+            for item in attention
+        )
+        background_count = sum(
+            str(item.get("status") or "") == "background"
+            for item in attention
+        )
         chat_summary = summary_map.get(session_id)
         display = derive_l0_session_display(
             session_id=session_id,
-            goals=goals,
+            attention_items=attention,
             chat_summary=chat_summary,
         )
-        total_goals += len(goals)
-        total_entities += len(entities)
-        total_tactics += len(tactics)
+        total_attention_items += len(attention)
+        active_attention_items += active_count
+        background_attention_items += background_count
 
         items.append(
             {
@@ -139,9 +152,9 @@ def build_l0_session_list_items(
                 "status": session.get("status"),
                 "started_at": session.get("started_at"),
                 "last_active_at": session.get("last_active_at"),
-                "goal_count": len(goals),
-                "entity_count": len(entities),
-                "tactic_count": len(tactics),
+                "attention_count": len(attention),
+                "active_attention_count": active_count,
+                "background_attention_count": background_count,
                 "workspace_path": getattr(chat_summary, "workspace_path", None),
                 "message_count": getattr(chat_summary, "message_count", None),
                 "last_message_preview": getattr(chat_summary, "last_message_preview", None),
@@ -154,7 +167,7 @@ def build_l0_session_list_items(
 
     return items, {
         "active_sessions": len([item for item in items if item["status"] == "active"]),
-        "total_goals": total_goals,
-        "total_entities": total_entities,
-        "total_tactics": total_tactics,
+        "total_attention_items": total_attention_items,
+        "active_attention_items": active_attention_items,
+        "background_attention_items": background_attention_items,
     }

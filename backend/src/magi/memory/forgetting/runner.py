@@ -84,6 +84,11 @@ class DurableForgetRunner:
             reason=reason,
             reuse_completed=reuse_completed,
             execution_ready=execution_ready,
+            on_execution_ready=getattr(
+                self._host,
+                "_activate_post_turn_forget_epoch",
+                None,
+            ),
         )
 
     async def execute_prepared(self, operation_id: str) -> ForgetOutcome:
@@ -210,7 +215,14 @@ class DurableForgetRunner:
     async def activate(self, operation_id: str) -> ForgetOperation:
         """Activate one chat intent after its runtime barrier commits."""
 
-        return await self._repository.activate(operation_id)
+        return await self._repository.activate(
+            operation_id,
+            on_execution_ready=getattr(
+                self._host,
+                "_activate_post_turn_forget_epoch",
+                None,
+            ),
+        )
 
     async def mark_surface_finalized(self, operation_id: str) -> ForgetOperation:
         """Record that the chat-owned surface mutation completed."""
@@ -313,6 +325,7 @@ class DurableForgetRunner:
                 operation.operation_id,
                 references=selector_references,
                 reason=operation.reason,
+                turn_cutoff_at=operation.created_at,
             )
             current = await self._required_operation(operation.operation_id)
             if not current.projection_selection_complete:
@@ -335,13 +348,25 @@ class DurableForgetRunner:
                             break
                         after_projection_event_id = projection_event_ids[-1]
                         projection_cursors[selection.scope] = after_projection_event_id
+                        resolved_references = await self._references.event_references(
+                            projection_event_ids,
+                            include_turn_references=True,
+                            block_source_item=False,
+                        )
+                        turn_cutoff_references = tuple(
+                            reference
+                            for reference in resolved_references
+                            if reference.ref_type == "turn_cutoff"
+                        )
+                        if turn_cutoff_references:
+                            await self._repository.persist_selector_references(
+                                current.operation_id,
+                                references=turn_cutoff_references,
+                                reason=current.reason,
+                                turn_cutoff_at=current.created_at,
+                            )
                         projection_block_ids = projection_event_ids
                         if selection.scope == "time_range":
-                            resolved_references = await self._references.event_references(
-                                projection_event_ids,
-                                include_turn_references=True,
-                                block_source_item=False,
-                            )
                             projection_block_ids = list(
                                 dict.fromkeys(
                                     reference.value
@@ -481,6 +506,7 @@ class DurableForgetRunner:
                     references=references,
                     reason=current.reason,
                     cursor=after_event_id,
+                    turn_cutoff_at=current.created_at,
                 )
                 audit_event_ids = [
                     reference.value
@@ -593,7 +619,12 @@ class DurableForgetRunner:
         if selector.kind == "entity":
             l0 = getattr(self._host, "l0", None)
             if l0 is not None:
-                await l0.forget_entity(str(payload["entity_id"]))
+                await self._forget_l0_entity_sources(operation, l0=l0)
+                await l0.forget_entity(
+                    str(payload["entity_id"]),
+                    forgotten_at=float(operation.created_at),
+                    operation_id=operation.operation_id,
+                )
         if selector.kind == "chat_message":
             l0 = getattr(self._host, "l0", None)
             turn_id = str(payload.get("turn_id") or "").strip()
@@ -611,6 +642,43 @@ class DurableForgetRunner:
             if l0 is not None:
                 await l0.forget_session(str(payload["session_id"]))
         return target_result
+
+    async def _forget_l0_entity_sources(
+        self,
+        operation: ForgetOperation,
+        *,
+        l0: Any,
+    ) -> None:
+        """Block selected entity evidence by its durable event identities."""
+
+        async def forget_event_page(event_ids: list[str] | tuple[str, ...]) -> None:
+            await l0.forget_attention_items(event_ids)
+
+        after_event_id = ""
+        while True:
+            event_ids = await self._repository.list_event_ids(
+                operation.operation_id,
+                after_event_id=after_event_id,
+                limit=_SELECTION_BATCH_SIZE,
+            )
+            if not event_ids:
+                break
+            await forget_event_page(event_ids)
+            after_event_id = event_ids[-1]
+
+        after_event_id = ""
+        while True:
+            projection_event_ids = (
+                await self._repository.list_projection_event_ids(
+                    operation.operation_id,
+                    after_event_id=after_event_id,
+                    limit=_SELECTION_BATCH_SIZE,
+                )
+            )
+            if not projection_event_ids:
+                break
+            await forget_event_page(projection_event_ids)
+            after_event_id = projection_event_ids[-1]
 
     async def _promote_entity_candidate_evidence(
         self,
@@ -829,11 +897,19 @@ class DurableForgetRunner:
             ref_type="entity_refresh",
             item_event_id=item_event_id,
         )
+        temporal_turn_references = (
+            await self._repository.operation_references(
+                operation.operation_id,
+                ref_type="turn_cutoff",
+                item_event_id=item_event_id,
+            )
+        )
         await self._cleanup.cleanup_references(
             references,
             reason=operation.reason,
             prepared_entity_ids=prepared_entity_ids,
             entity_refresh_started_at=time.time(),
+            temporal_turn_references=temporal_turn_references,
         )
 
     async def _required_operation(self, operation_id: str) -> ForgetOperation:

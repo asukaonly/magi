@@ -1,6 +1,8 @@
 """Agent runtime for sensor hub + router agent + runtime runners."""
 from __future__ import annotations
 
+from typing import Any
+
 from ...awareness.event_emitter import RuntimeEventEmitter
 from ...awareness.sensor_hub import SensorHub
 from ...core.logger import get_logger
@@ -19,11 +21,13 @@ class AgentRuntime:
         router_agent: RouterAgent,
         task_agent_manager: TaskAgentManager,
         event_emitter: RuntimeEventEmitter,
+        post_turn_understanding_service: Any | None = None,
     ) -> None:
         self._sensor_hub = sensor_hub
         self._router_agent = router_agent
         self._task_agent_manager = task_agent_manager
         self._event_emitter = event_emitter
+        self._post_turn_understanding_service = post_turn_understanding_service
         self._running = False
 
     async def start(self) -> None:
@@ -59,3 +63,8 @@ class AgentRuntime:
 
     def get_sensor_hub(self) -> SensorHub:
         return self._sensor_hub
+
+    def get_post_turn_understanding_service(self) -> Any | None:
+        """Return the runtime-scoped accepted-outcome processor."""
+
+        return self._post_turn_understanding_service

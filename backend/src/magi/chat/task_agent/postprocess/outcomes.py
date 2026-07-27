@@ -60,9 +60,9 @@ class ChatPostprocessOutcomeMixin:
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
         persona_id: str | None = None,
-    ) -> None:
+    ) -> bool:
         host = cast(_OutcomePostprocessHostProtocol, self)
-        await host._chat_outcome_writer.persist_final_chat_outcome(
+        return await host._chat_outcome_writer.persist_final_chat_outcome(
             turn_id=turn_id,
             orchestration_id=orchestration_id,
             execution_mode=execution_mode,

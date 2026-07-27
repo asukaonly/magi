@@ -17,7 +17,7 @@ state across multiple SQLite files, grouped by lifecycle ownership:
 |------|-------|-------|
 | `data/chat/chat.db` | chat | sessions, session-creation idempotency mappings, turns, messages, attachments, per-turn context-usage snapshots, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, context summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |
 | `data/memory/l1_events.db` | memory L1 + L1-projected chat sessions | normalized event log, embeddings, FTS, entity links |
-| `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | working memory, knowledge graph, ToM, correction history, stable context identities, summaries, procedural skills |
+| `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | short-term attention checkpoints, knowledge graph, ToM, correction history, stable context identities, summaries, procedural skills |
 | `runtime/runtime_trace.db` | runtime trace | trace turns / spans / llm calls / tools, plugin ingress events |
 | `runtime/llm_usage.db` | llm | per-request usage + cost telemetry, daily rollups |
 | `data/app/persona_registry.db` | personality | personas, active persona, source-linked reference dossiers for generated personas |
@@ -212,11 +212,21 @@ release failure retains one in-process retry for the captured batch. A failure
 before scheduling leaves admitted or ready ledger work for startup or
 background recovery rather than relying on an L0 execution checkpoint.
 
-L0 tables persist only disposable workbench projections: sessions, goals,
-active entities, and temporary tactics. They do not persist current chat runs,
-pending interruptions, cancellation controls, triggers, or tool results.
-Those values coordinate one live process. Crash recovery comes from the chat
-delivery ledger, which re-drives non-terminal turns with a fresh live run.
+L0 tables persist only disposable workbench projections: session metadata,
+attention items, L0-local source barriers, and temporal entity cutoffs. An
+attention item stores its kind, compact summary, lifecycle state, confidence,
+salience, source turn/event references, the durable accepted times of its
+source turns, optional linked entity or task attempt, and expiry metadata.
+Exact raw-turn deletion cutoffs are instead shared memory governance: they
+survive an ordinary L0 clear and are removed only by full-memory clear.
+Full-memory clear removes dormant L0 rows even when L0 is disabled. L0 does not
+persist current chat runs, pending interruptions, cancellation controls,
+triggers, tool results, or its pending post-turn analysis queue. The
+runtime-scoped queue is shared across chat-agent instances; only runtime
+shutdown attempts to flush it for up to five seconds. A crash can lose pending
+analysis or uncheckpointed changes. Execution recovery comes from the chat
+delivery ledger, which re-drives non-terminal turns with a fresh live run;
+startup does not rebuild a missed L0 analysis backlog.
 
 ## Two tiers of schema management
 
@@ -253,7 +263,7 @@ Current heads that matter to the chat-clear and delivery boundary:
 | `background_tasks` | `v2` | recoverable terminal-completion snapshots with durable delivery claims, frozen intent/body, and scoped discard during conversation deletion |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
 | `message_queue` | `v5` | explicit user-message delivery attempts |
-| `memory_shared` | `v33_chat_forget_activation` | activate chat forget intent before cancelling a claimed assistant-memory projection |
+| `memory_shared` | `v35_l0_attention_state` | replace task-shaped L0 tables with session attention while preserving source-forgetting barriers |
 
 Layout under `backend/src/magi/db/`:
 

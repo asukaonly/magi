@@ -60,7 +60,19 @@ class TestChatPromptMemoryPayload(unittest.IsolatedAsyncioTestCase):
             tool_result={"tools": ["weather"]},
             persona_name="test_persona",
             retrieved_memory_payload={
-                "l0_workbench": [{"summary": "Current goal: comfort the user"}],
+                "l0_workbench": [
+                    {
+                        "session": {"session_id": "s1"},
+                        "attention_items": [
+                            {
+                                "kind": "situation",
+                                "summary": "The user needs a gentle response.",
+                                "status": "active",
+                                "evidence_mode": "direct",
+                            }
+                        ],
+                    }
+                ],
                 "l2_entity_cards": [{"entity_id": "user:u1", "stress_level": "high"}],
                 "l3_reflection_memory": [{"summary": "User wants to switch jobs"}],
                 "l4_procedural_memory": [{"skill_name": "browser.open", "success_rate": 0.8}],
@@ -70,9 +82,15 @@ class TestChatPromptMemoryPayload(unittest.IsolatedAsyncioTestCase):
 
         prompt = renderer.render_system_prompt(assembled)
 
-        self.assertEqual(assembled.self_memory.retrieval_memory.l0_workbench[0]["summary"], "Current goal: comfort the user")
+        self.assertEqual(
+            assembled.self_memory.retrieval_memory.l0_workbench[0][
+                "attention_items"
+            ][0]["kind"],
+            "situation",
+        )
         self.assertEqual(assembled.self_memory.retrieval_memory.l2_entity_cards[0]["entity_id"], "user:u1")
         self.assertEqual(assembled.self_memory.retrieval_memory.l3_reflection_memory[0]["summary"], "User wants to switch jobs")
         self.assertEqual(assembled.self_memory.retrieval_memory.l4_procedural_memory[0]["skill_name"], "browser.open")
         self.assertIn("Procedural Memory (L4)", prompt)
         self.assertIn("Entity Cards (L2)", prompt)
+        self.assertIn("Current situation: The user needs a gentle response.", prompt)

@@ -996,6 +996,12 @@ def get_chat_forgetting_service() -> ChatForgettingService:
         agent_runtime.get_task_agent_manager() if agent_runtime is not None else None
     )
     sensor_hub = agent_runtime.get_sensor_hub() if agent_runtime is not None else None
+    post_turn_understanding_service = (
+        agent_runtime.get_post_turn_understanding_service()
+        if agent_runtime is not None
+        and hasattr(agent_runtime, "get_post_turn_understanding_service")
+        else None
+    )
     runtime_command_queue = require_runtime_command_queue()
     chat_read_service = require_chat_read_service()
     unified_memory = get_unified_memory()
@@ -1016,6 +1022,7 @@ def get_chat_forgetting_service() -> ChatForgettingService:
                 runtime_command_queue=runtime_command_queue,
             ),
             l0_store=unified_memory.l0,
+            post_turn_understanding_service=post_turn_understanding_service,
             background_task_manager=get_optional_background_task_manager(),
         ),
     )

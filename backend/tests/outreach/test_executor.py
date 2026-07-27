@@ -90,7 +90,8 @@ async def test_desktop_executor_writes_personified_body():
     store = _Store()
     ex = DesktopTranscriptExecutor(chat_store=store)
     rec = await ex.write(_intent(), body="搞定了！")
-    assert rec is not None
+    assert rec.record is not None
+    assert rec.created is True
     appended = [c for c in store.calls if c[0] == "append"][0][1]
     assert appended.role == "assistant"
     assert appended.message_kind == "assistant_final"
@@ -198,7 +199,10 @@ async def test_desktop_executor_concurrent_duplicate_keeps_one_original_row(
 
     messages = await store.list_messages(session_id="s1")
     assert len(messages) == 1
-    assert first.message_id == second.message_id == messages[0].message_id
+    assert first.record is not None
+    assert second.record is not None
+    assert first.record.message_id == second.record.message_id == messages[0].message_id
+    assert sorted((first.created, second.created)) == [False, True]
     assert messages[0].content_text == "Original result"
     assert await store.get_history_version("s1") == 1
 
@@ -219,8 +223,12 @@ async def test_desktop_executor_restart_reuses_exact_completion(
         body="A newly rendered variation",
     )
 
-    assert second.message_id == first.message_id
-    assert second.content_text == "Original result"
+    assert first.record is not None
+    assert second.record is not None
+    assert first.created is True
+    assert second.created is False
+    assert second.record.message_id == first.record.message_id
+    assert second.record.content_text == "Original result"
     assert len(await restarted.list_messages(session_id="s1")) == 1
     assert await restarted.get_history_version("s1") == 1
 
@@ -260,8 +268,9 @@ async def test_background_code_delegation_survives_into_chat_history(
 
     written = await executor.write(intent, body="The code change is ready.")
 
-    assert written.turn_id == "turn-contract-code-agent"
-    assert json.loads(written.payload_json)["code_agent_delegations"] == (
+    assert written.record is not None
+    assert written.record.turn_id == "turn-contract-code-agent"
+    assert json.loads(written.record.payload_json)["code_agent_delegations"] == (
         contract_payload["code_agent_delegations"]
     )
 
@@ -313,11 +322,13 @@ async def test_desktop_retry_attempt_can_follow_the_original_pending_result(
     failed_message = await executor.write(failed, body="First attempt failed")
     succeeded_message = await executor.write(succeeded, body="Retry succeeded")
 
+    assert failed_message.record is not None
+    assert succeeded_message.record is not None
     pending_message = await store.get_message("pm1")
     assert pending_message is not None
-    assert pending_message.replaced_by_message_id == failed_message.message_id
-    assert succeeded_message.message_id != failed_message.message_id
-    assert succeeded_message.replaces_message_id is None
+    assert pending_message.replaced_by_message_id == failed_message.record.message_id
+    assert succeeded_message.record.message_id != failed_message.record.message_id
+    assert succeeded_message.record.replaces_message_id is None
     assert [message.content_text for message in await store.list_messages(session_id="s1")] == [
         "Running",
         "First attempt failed",

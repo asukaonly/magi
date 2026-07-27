@@ -438,14 +438,14 @@ class TestServiceBasicFlow:
             def to_retrieval_entry(self):
                 return {
                     "session": {"id": "s1"},
-                    "goals": ["g1"],
-                    "active_entities": ["e1"],
-                    "temporary_tactics": ["t1"],
-                    "execution_summary": {
-                        "active_run_summary": "Investigate the login issue",
-                        "awaiting_external_result": True,
-                        "latest_user_augmentation_summary": "补充一下，是 macOS",
-                    },
+                    "attention_items": [
+                        {
+                            "item_id": "attention-1",
+                            "kind": "focus",
+                            "summary": "The user is investigating a login issue on macOS.",
+                            "status": "active",
+                        }
+                    ],
                 }
 
         l0 = AsyncMock()
@@ -455,12 +455,12 @@ class TestServiceBasicFlow:
         result = await svc.query(_make_request(session_id="s1"))
         assert len(result.l0_workbench) == 1
         assert result.l0_workbench[0]["session"]["id"] == "s1"
-        assert result.l0_workbench[0]["goals"] == ["g1"]
-        assert (
-            result.l0_workbench[0]["execution_summary"]["active_run_summary"]
-            == "Investigate the login issue"
+        assert result.l0_workbench[0]["attention_items"][0]["kind"] == "focus"
+        assert "execution_summary" not in result.l0_workbench[0]
+        l0.get_prompt_workbench_projection.assert_awaited_once_with(
+            "s1",
+            query="test query",
         )
-        l0.get_prompt_workbench_projection.assert_awaited_once_with("s1")
         l0.get_workbench.assert_not_called()
 
     @pytest.mark.asyncio

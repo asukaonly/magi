@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 import pytest
@@ -17,7 +16,7 @@ from magi.awareness.sensor_output import (
     SensorOutputMetadata,
 )
 from magi.awareness.sensor_base import SensorBase
-from magi.awareness.sensor_sync import SensorSyncContext, SensorSyncResult
+from magi.awareness.sensor_sync import SensorSyncContext
 
 
 # ── SensorOutput ──
@@ -107,7 +106,7 @@ class TestSensorMemoryPolicy:
     def test_custom_values(self):
         policy = SensorMemoryPolicy(
             memory_domain="runtime_telemetry",
-            ingest_target="l0_only",
+            ingest_target="runtime_only",
             cognition_eligible=False,
             retention_class="disposable",
             importance_bias=0.3,

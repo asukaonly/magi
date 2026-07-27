@@ -1,4 +1,4 @@
-"""Memory integration pipeline for routing runtime events into L0-L4."""
+"""Memory integration pipeline for routing runtime events into durable memory."""
 
 from __future__ import annotations
 
@@ -28,7 +28,6 @@ MEMORY_DIAGNOSTIC_EVENT_TYPES: Set[str] = {
 class MemoryIntegrationConfig:
     """Configuration for MemoryIntegrationModule."""
 
-    enable_l0: bool = True
     enable_l1: bool = True
     enable_l2: bool = True
     enable_l3: bool = True
@@ -191,7 +190,7 @@ class MemoryIntegrationModule:
     async def _maybe_store_l1(self, event: Event) -> bool:
         """Test helper for the L1 routing decision."""
         normalized = self.unified_memory._normalize_event(event)
-        if normalized.ingest_target == IngestTarget.L0_ONLY:
+        if normalized.ingest_target == IngestTarget.RUNTIME_ONLY:
             self._stats.l1_filtered += 1
             return False
         result = await self.unified_memory.ingest_event(normalized)
@@ -229,7 +228,6 @@ class MemoryIntegrationModule:
         return {
             **stats,
             "config": {
-                "enable_l0": self.config.enable_l0,
                 "enable_l1": self.config.enable_l1,
                 "enable_l2": self.config.enable_l2,
                 "enable_l3": self.config.enable_l3,

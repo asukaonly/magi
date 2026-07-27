@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Callable
 
 from ..agent.trace import now_wall_ms
+from ..agent.post_turn_understanding import AcceptedBackgroundCompletion
 from ..core.logger import get_logger
 from .contracts import (
     GovernorVerdict,
@@ -38,6 +39,7 @@ class OutreachService:
         external_executor: Any,
         outbox: Any,
         delivery_log: Any,
+        post_turn_understanding_service: Any | None = None,
     ) -> None:
         self._compose = compose
         self._resolver = target_resolver
@@ -46,6 +48,7 @@ class OutreachService:
         self._external = external_executor
         self._outbox = outbox
         self._log = delivery_log
+        self._post_turn_understanding_service = post_turn_understanding_service
         self._conversation_operation_lock = asyncio.Lock()
 
     async def submit(
@@ -84,7 +87,8 @@ class OutreachService:
         if targets.desktop_session_id:
             body = await ensure_body()
             try:
-                await self._desktop.write(intent, body)
+                write_result = await self._desktop.write(intent, body)
+                await self._admit_desktop_completion(intent, write_result)
             except OutreachIntentConflictError:
                 raise
             except Exception as exc:
@@ -103,6 +107,53 @@ class OutreachService:
             raise RuntimeError(
                 "Outreach desktop completion was not persisted"
             ) from desktop_failure
+
+    async def _admit_desktop_completion(
+        self,
+        intent: OutreachIntent,
+        write_result: Any,
+    ) -> None:
+        service = self._post_turn_understanding_service
+        record = getattr(write_result, "record", None)
+        if service is None or record is None:
+            return
+        payload = dict(intent.payload or {})
+        task_id = str(
+            payload.get("background_task_id")
+            or payload.get("batch_job_id")
+            or ""
+        ).strip()
+        if not task_id:
+            return
+        task_status = str(
+            payload.get("background_task_status")
+            or {
+                "task_completed": "succeeded",
+                "task_failed": "failed",
+                "task_cancelled": "cancelled",
+            }.get(intent.kind.value)
+            or ""
+        ).strip()
+        try:
+            task_attempt = max(
+                0,
+                int(payload.get("background_task_attempt") or 0),
+            )
+        except (TypeError, ValueError):
+            task_attempt = 0
+        await service.admit_background_completion(
+            AcceptedBackgroundCompletion(
+                outcome_id=str(record.message_id),
+                source_turn_id=intent.origin_turn_id,
+                user_id=intent.user_id,
+                session_id=str(record.session_id),
+                task_id=task_id,
+                task_status=task_status,
+                response_text=str(record.content_text or ""),
+                accepted_at=float(record.created_at_ms) / 1000.0,
+                task_attempt=task_attempt,
+            )
+        )
 
     async def _push_and_record(self, intent: OutreachIntent, body: str, target: Any) -> None:
         await self._external.push(intent, body, target=target)

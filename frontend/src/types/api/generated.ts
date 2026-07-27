@@ -1527,7 +1527,7 @@ export interface paths {
         };
         /**
          * Get L0 Workbench
-         * @description Get the workbench (goals, entities, tactics) for a session.
+         * @description Get the short-term attention workbench for a session.
          */
         readonly get: operations["get_l0_workbench_api_memory_l0_workbench__session_id__get"];
         readonly put?: never;
@@ -6773,6 +6773,21 @@ export interface components {
         };
         /** MemoryL0ConfigModel */
         readonly MemoryL0ConfigModel: {
+            /**
+             * Attention Update Idle Seconds
+             * @default 30
+             */
+            readonly attention_update_idle_seconds: number;
+            /**
+             * Attention Update Max Delay Seconds
+             * @default 90
+             */
+            readonly attention_update_max_delay_seconds: number;
+            /**
+             * Attention Update Turn Threshold
+             * @default 3
+             */
+            readonly attention_update_turn_threshold: number;
             /**
              * Checkpoint Interval Seconds
              * @default 30

@@ -58,13 +58,6 @@ class SessionRunLifecycleMixin:
                 trigger_dict=trigger.to_dict() if trigger is not None else None,
             )
             self._discard_session_run_controls(session_id)
-            self._push_root_goal(
-                session_id=session_id,
-                run_id=run_identifier,
-                revision=0,
-                root_turn_id=root_turn_id,
-                root_user_message=root_user_message,
-            )
             active_run = self._require_run(session_id)
             logger.info(
                 "Chat session run created",
@@ -135,13 +128,6 @@ class SessionRunLifecycleMixin:
                 cancel_anchor_turn_id=None,
             )
             self._discard_session_run_controls(session_id)
-            self._push_root_goal(
-                session_id=session_id,
-                run_id=active_run.run_id,
-                revision=active_run.revision,
-                root_turn_id=turn_id,
-                root_user_message=content,
-            )
             active_run = self._require_run(session_id)
             logger.info(
                 "Chat session run root turn updated",
@@ -220,7 +206,6 @@ class SessionRunLifecycleMixin:
                     run_id=active_run.run_id,
                 )
                 return True, deferred_turns
-            self._complete_root_goal(session_id=session_id, active_run=active_run)
             self._execution_store.clear_execution_state_sync(session_id)
             self._discard_exact_run_control(
                 session_id=session_id,
@@ -296,11 +281,6 @@ class SessionRunLifecycleMixin:
                 cancel_reason=active_run.cancel_reason,
                 cancel_requested_by=active_run.cancel_requested_by,
                 cancel_anchor_turn_id=active_run.cancel_anchor_turn_id,
-            )
-            self._cancel_root_goal(
-                session_id=session_id,
-                active_run=active_run,
-                reason="Cancelled before completion",
             )
             active_run = self._require_run(session_id)
             logger.info(
@@ -469,11 +449,6 @@ class SessionRunLifecycleMixin:
         """Advance the active revision for a session run."""
         with self._lock:
             active_run = self._require_run(session_id)
-            self._cancel_root_goal(
-                session_id=session_id,
-                active_run=active_run,
-                reason="Superseded by a newer user turn",
-            )
             if clear_pending_turns:
                 self._execution_store.consume_execution_pending_turns_sync(session_id)
             self._execution_store.upsert_execution_run_sync(

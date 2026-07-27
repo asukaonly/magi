@@ -32,10 +32,10 @@ def test_l2_projection_rejects_when_not_cognition_eligible():
 
 def test_l2_projection_requires_stored_event_id_and_l1_target():
     layer = L2ProjectionLayer(AsyncMock())
-    event = make_event(ingest_target=IngestTarget.L0_AND_L1)
+    event = make_event(ingest_target=IngestTarget.L1_ONLY)
     assert not layer.accepts(event, FanOutContext())
     assert layer.accepts(event, FanOutContext(markers={"stored_event_id": "x"}))
-    not_l1 = make_event(ingest_target=IngestTarget.L0_ONLY)
+    not_l1 = make_event(ingest_target=IngestTarget.RUNTIME_ONLY)
     assert not layer.accepts(not_l1, FanOutContext(markers={"stored_event_id": "x"}))
 
 
@@ -48,31 +48,37 @@ def test_l2_projection_rejects_without_store():
 def test_l2_pipeline_accepts_when_no_l1_target():
     pipeline = AsyncMock()
     layer = L2PipelineLayer(AsyncMock(), pipeline)
-    event = make_event(ingest_target=IngestTarget.L0_ONLY)
+    event = make_event(ingest_target=IngestTarget.RUNTIME_ONLY)
     assert layer.accepts(event, FanOutContext())
 
 
 def test_l2_pipeline_accepts_when_no_store_but_l1_target():
     pipeline = AsyncMock()
     layer = L2PipelineLayer(None, pipeline)
-    event = make_event(ingest_target=IngestTarget.L0_AND_L1)
+    event = make_event(ingest_target=IngestTarget.L1_ONLY)
     assert layer.accepts(event, FanOutContext())
 
 
 def test_l2_pipeline_rejects_when_l1_target_and_store_present():
     layer = L2PipelineLayer(AsyncMock(), AsyncMock())
-    event = make_event(ingest_target=IngestTarget.L0_AND_L1)
+    event = make_event(ingest_target=IngestTarget.L1_ONLY)
     assert not layer.accepts(event, FanOutContext())
 
 
 def test_l2_pipeline_rejects_when_no_pipeline():
     layer = L2PipelineLayer(None, None)
-    assert not layer.accepts(make_event(ingest_target=IngestTarget.L0_ONLY), FanOutContext())
+    assert not layer.accepts(
+        make_event(ingest_target=IngestTarget.RUNTIME_ONLY),
+        FanOutContext(),
+    )
 
 
 def test_l2_pipeline_rejects_when_not_cognition_eligible():
     layer = L2PipelineLayer(None, AsyncMock())
-    event = make_event(ingest_target=IngestTarget.L0_ONLY, cognition_eligible=False)
+    event = make_event(
+        ingest_target=IngestTarget.RUNTIME_ONLY,
+        cognition_eligible=False,
+    )
     assert not layer.accepts(event, FanOutContext())
 
 
@@ -186,7 +192,7 @@ async def test_l2_projection_no_session_leaves_batching_unconstrained():
         source="chat",
         source_item_id=None,
         memory_domain=MemoryDomain.INTERACTION,
-        ingest_target=IngestTarget.L0_AND_L1,
+        ingest_target=IngestTarget.L1_ONLY,
         cognition_eligible=True,
         tom_depth=TomDepth.NONE,
         retention_class=RetentionClass.DISPOSABLE,
@@ -212,7 +218,7 @@ async def test_l2_projection_no_session_leaves_batching_unconstrained():
 async def test_l2_pipeline_enqueues_with_event_id_rewrite():
     pipeline = AsyncMock()
     layer = L2PipelineLayer(None, pipeline)
-    event = make_event(event_id="orig", ingest_target=IngestTarget.L0_AND_L1)
+    event = make_event(event_id="orig", ingest_target=IngestTarget.L1_ONLY)
     ctx = FanOutContext(markers={"stored_event_id": "rewritten"})
     result = await layer.ingest(event, ctx)
     assert event.event_id == "rewritten"

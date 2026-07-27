@@ -427,6 +427,87 @@ async def test_cancel_scope_waits_for_matching_terminal_listener(
 
 
 @pytest.mark.asyncio
+async def test_cancel_scope_collects_attempt_notification_created_after_wait_started(
+    runtime_paths_with_schema,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import magi.agent.background.manager as manager_module
+
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+    attempt_callback_entered = asyncio.Event()
+    initial_wait_started = asyncio.Event()
+    allow_attempt_notification = asyncio.Event()
+    listener_started = asyncio.Event()
+    release_listener = asyncio.Event()
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        if await token.is_cancelled():
+            raise asyncio.CancelledError
+        return BackgroundTaskRunResult()
+
+    async def attempt_listener(task: BackgroundTask) -> None:
+        listener_started.set()
+        await release_listener.wait()
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    manager.add_attempt_listener(attempt_listener)
+    await manager.start()
+    assert manager._executor is not None
+    real_schedule = manager._schedule_attempt_notification
+    real_shield = asyncio.shield
+
+    def tracking_shield(waiter, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if (
+            isinstance(waiter, asyncio.Task)
+            and waiter.get_name().startswith("background-task:")
+        ):
+            initial_wait_started.set()
+        return real_shield(waiter, *args, **kwargs)
+
+    monkeypatch.setattr(manager_module.asyncio, "shield", tracking_shield)
+
+    async def delayed_schedule(task: BackgroundTask) -> None:
+        attempt_callback_entered.set()
+        await allow_attempt_notification.wait()
+        await real_schedule(task)
+
+    manager._executor._on_attempt_started = delayed_schedule
+    try:
+        task = await manager.enqueue(_make_spec(origin_turn_id="late-notification"))
+        await attempt_callback_entered.wait()
+        cancellation = asyncio.create_task(
+            manager.cancel_scope_and_wait(
+                user_id="u",
+                session_id="s",
+                origin_turn_ids={"late-notification"},
+            )
+        )
+        await initial_wait_started.wait()
+        assert manager._attempt_notifications == {}
+        assert not cancellation.done()
+
+        allow_attempt_notification.set()
+        await listener_started.wait()
+        await asyncio.sleep(0)
+        assert not cancellation.done()
+
+        release_listener.set()
+        assert await cancellation == 1
+        persisted = await store.get_task(task.task_id)
+        assert persisted is not None
+        assert persisted.status == BackgroundTaskStatus.CANCELLED
+    finally:
+        allow_attempt_notification.set()
+        release_listener.set()
+        await manager.stop()
+
+
+@pytest.mark.asyncio
 async def test_cancel_scope_cancels_suspended_task(
     runtime_paths_with_schema,
 ) -> None:
@@ -791,6 +872,110 @@ async def test_retry_after_failure_reruns_with_incremented_attempt(runtime_paths
 
 
 @pytest.mark.asyncio
+async def test_retry_during_slow_terminal_listener_is_not_lost(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+    listener_started = asyncio.Event()
+    release_listener = asyncio.Event()
+    run_attempts: list[int] = []
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        run_attempts.append(task.attempt_index)
+        if task.attempt_index == 0:
+            raise RuntimeError("first attempt failed")
+        return BackgroundTaskRunResult(summary="retry completed")
+
+    async def listener(task: BackgroundTask) -> None:
+        if (
+            task.attempt_index == 0
+            and task.status == BackgroundTaskStatus.FAILED
+        ):
+            listener_started.set()
+            await release_listener.wait()
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    manager.add_listener(listener)
+    await manager.start()
+    try:
+        task = await manager.enqueue(_make_spec())
+        await listener_started.wait()
+
+        retried = await manager.retry(task.task_id)
+        assert retried is not None
+        assert retried.attempt_index == 1
+        release_listener.set()
+
+        await _wait_until(
+            _status_reaches(
+                store,
+                task.task_id,
+                BackgroundTaskStatus.SUCCEEDED,
+            )
+        )
+        assert run_attempts == [0, 1]
+    finally:
+        release_listener.set()
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_retry_admits_only_one_new_attempt(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+    release_retry = asyncio.Event()
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        if task.attempt_index == 0:
+            raise RuntimeError("first attempt failed")
+        await release_retry.wait()
+        return BackgroundTaskRunResult(summary="retry completed")
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    await manager.start()
+    try:
+        task = await manager.enqueue(_make_spec())
+        await _wait_until(
+            _status_reaches(
+                store,
+                task.task_id,
+                BackgroundTaskStatus.FAILED,
+            )
+        )
+        results = await asyncio.gather(
+            manager.retry(task.task_id),
+            manager.retry(task.task_id),
+        )
+        assert sum(result is not None for result in results) == 1
+        assert {result.attempt_index for result in results if result is not None} == {1}
+
+        release_retry.set()
+        await _wait_until(
+            _status_reaches(
+                store,
+                task.task_id,
+                BackgroundTaskStatus.SUCCEEDED,
+            )
+        )
+        persisted = await store.get_task(task.task_id)
+        assert persisted is not None and persisted.attempt_index == 1
+    finally:
+        release_retry.set()
+        await manager.stop()
+
+
+@pytest.mark.asyncio
 async def test_retry_running_task_is_rejected(runtime_paths_with_schema) -> None:
     store = BackgroundTaskStore(
         db_path=str(runtime_paths_with_schema.background_tasks_db_path)
@@ -919,6 +1104,47 @@ async def test_stop_cancels_in_flight_tasks(runtime_paths_with_schema) -> None:
 # ----------------------------------------------------------------------
 # Listener API
 # ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_slow_attempt_listener_does_not_delay_task_execution(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+    listener_started = asyncio.Event()
+    release_listener = asyncio.Event()
+    run_started = asyncio.Event()
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        run_started.set()
+        return BackgroundTaskRunResult(summary="ok")
+
+    async def attempt_listener(task: BackgroundTask) -> None:
+        listener_started.set()
+        await release_listener.wait()
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    manager.add_attempt_listener(attempt_listener)
+    await manager.start()
+    try:
+        task = await manager.enqueue(_make_spec())
+        await listener_started.wait()
+        await asyncio.wait_for(run_started.wait(), timeout=0.2)
+        await _wait_until(
+            _status_reaches(
+                store,
+                task.task_id,
+                BackgroundTaskStatus.SUCCEEDED,
+            )
+        )
+    finally:
+        release_listener.set()
+        await manager.stop()
 
 
 @pytest.mark.asyncio

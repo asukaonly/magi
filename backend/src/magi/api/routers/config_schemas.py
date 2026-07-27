@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ...config.models import (
     LLMCapabilitiesSettings,
@@ -115,6 +115,19 @@ class LLMConfigModel(BaseModel):
 class MemoryL0ConfigModel(BaseModel):
     enabled: bool = Field(default=True)
     checkpoint_interval_seconds: int = Field(default=30, ge=1)
+    attention_update_turn_threshold: int = Field(default=3, ge=1, le=20)
+    attention_update_idle_seconds: int = Field(default=30, ge=1, le=300)
+    attention_update_max_delay_seconds: int = Field(default=90, ge=1, le=600)
+
+    @model_validator(mode="after")
+    def validate_attention_update_delays(self) -> "MemoryL0ConfigModel":
+        """Keep the hard update deadline at or beyond the idle deadline."""
+        if self.attention_update_max_delay_seconds < self.attention_update_idle_seconds:
+            raise ValueError(
+                "attention_update_max_delay_seconds must be greater than or equal to "
+                "attention_update_idle_seconds"
+            )
+        return self
 
 
 class MemoryL1ConfigModel(BaseModel):

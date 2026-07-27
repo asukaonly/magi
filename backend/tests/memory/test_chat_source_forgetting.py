@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -28,6 +29,11 @@ from magi.memory.event_contracts import (
     MemoryEvent,
     RetentionClass,
     TomDepth,
+)
+from magi.memory.l0.attention import (
+    AttentionActionType,
+    AttentionKind,
+    AttentionUpdateAction,
 )
 from magi.memory.l3.models import L3Candidate
 from magi.memory.source_event_governance import (
@@ -74,7 +80,7 @@ def test_runtime_session_without_user_keeps_event_scoped_references() -> None:
         source="persona_generation",
         source_item_id=None,
         memory_domain=MemoryDomain.RUNTIME_TELEMETRY,
-        ingest_target=IngestTarget.L0_ONLY,
+        ingest_target=IngestTarget.RUNTIME_ONLY,
         cognition_eligible=False,
         tom_depth=TomDepth.NONE,
         retention_class=RetentionClass.DISPOSABLE,
@@ -104,12 +110,13 @@ def _memory_event(
     content: str,
     message_id: str | None = None,
     author_type: str = "user",
+    created_at: float = 1_720_000_000.0,
 ) -> MemoryEvent:
     return MemoryEvent(
         event_id=event_id,
         correlation_id=f"correlation:{event_id}",
         timestamp=1_720_000_000.0,
-        created_at=1_720_000_000.0,
+        created_at=created_at,
         event_type="AIResponse" if author_type == "assistant" else "UserMessage",
         source="chat",
         source_item_id=message_id,
@@ -156,6 +163,44 @@ async def _build_memory(
     )
     await memory.initialize()
     return memory
+
+
+def _attention_action(
+    *,
+    summary: str,
+    kind: AttentionKind = AttentionKind.FOCUS,
+    source_turn_ids: tuple[str, ...] = (),
+    source_event_ids: tuple[str, ...] = (),
+    entity_id: str | None = None,
+) -> AttentionUpdateAction:
+    return AttentionUpdateAction(
+        action=AttentionActionType.ADD,
+        kind=kind,
+        summary=summary,
+        salience=0.8,
+        confidence=0.9,
+        source_turn_ids=source_turn_ids,
+        source_event_ids=source_event_ids,
+        entity_id=entity_id,
+    )
+
+
+async def _apply_attention(
+    memory: UnifiedMemoryStore,
+    *,
+    session_id: str,
+    actions: list[AttentionUpdateAction],
+    last_processed_turn_id: str,
+) -> None:
+    assert memory.l0 is not None
+    snapshot = await memory.l0.get_attention_snapshot(session_id)
+    result = await memory.l0.apply_attention_actions(
+        session_id=session_id,
+        actions=actions,
+        expected_revision=int(snapshot["revision"]),
+        last_processed_turn_id=last_processed_turn_id,
+    )
+    assert result is not None
 
 
 class _DirectReadAdapter:
@@ -745,14 +790,18 @@ async def test_real_session_delete_forgets_chat_memory_and_blocks_replay(
             turn_id="turn-1",
         )
         assert preference_id is not None
-        await memory.l0.add_temporary_tactic(
+        await _apply_attention(
+            memory,
             session_id="session-1",
-            scope_type="session",
-            scope_id="session-1",
-            tactic_type="private-tactic",
-            tactic_payload={"turn_id": "turn-1"},
-            source_event_ids=["event-1"],
-            tactic_id="tactic-1",
+            actions=[
+                _attention_action(
+                    summary="Keep the private conversation detail in view",
+                    kind=AttentionKind.FOCUS,
+                    source_turn_ids=("turn-1",),
+                    source_event_ids=("event-1",),
+                )
+            ],
+            last_processed_turn_id="turn-1",
         )
 
         service = ChatForgettingService(
@@ -769,7 +818,7 @@ async def test_real_session_delete_forgets_chat_memory_and_blocks_replay(
         assert assertion is not None and assertion["status"] == "archived"
         assert await memory.l3.get_summary_by_id(summary["summary_id"]) is None
         assert await memory.l4.get_task_preferences(user_id="u1", task_category="coding") == []
-        assert (await memory.l0.get_workbench("session-1"))["temporary_tactics"] == []
+        assert (await memory.l0.get_workbench("session-1"))["attention_items"] == []
 
         chat_conn = sqlite3.connect(chat_db)
         assert chat_conn.execute(
@@ -1264,6 +1313,7 @@ async def test_message_delete_forgets_only_that_message_and_blocks_its_replay(
                 turn_id="turn-1",
                 message_id="message-new",
                 content="must remain allowed",
+                created_at=time.time(),
             )
         )
         assert replay["skip_reason"] == "source_event_forgotten"
@@ -1297,45 +1347,42 @@ async def test_message_delete_keeps_unrelated_l0_state_across_retry_and_restart(
     await memory.l1.store(deleted_event)
     await memory.l1.store(retained_event)
     await memory.l0.start_session(session_id="session-l0", user_id="u1")
-    await memory.l0.push_goal(
+    await _apply_attention(
+        memory,
         session_id="session-l0",
-        goal_id="goal-keep",
-        goal_type="conversation",
-        description="Keep helping with the current conversation",
-        status="in_progress",
-        priority=1,
-    )
-    await memory.l0.upsert_active_entity(
-        session_id="session-l0",
-        entity_id="person:delete",
-        entity_type="person",
-        snapshot={"name": "Delete"},
-        source_event_ids=[deleted_event.event_id],
-    )
-    await memory.l0.upsert_active_entity(
-        session_id="session-l0",
-        entity_id="person:keep",
-        entity_type="person",
-        snapshot={"name": "Keep"},
-        source_event_ids=[retained_event.event_id],
-    )
-    await memory.l0.add_temporary_tactic(
-        session_id="session-l0",
-        scope_type="session",
-        scope_id="session-l0",
-        tactic_type="delete-tactic",
-        tactic_payload={"turn_id": deleted_event.turn_id},
-        source_event_ids=[deleted_event.event_id],
-        tactic_id="tactic-delete",
-    )
-    await memory.l0.add_temporary_tactic(
-        session_id="session-l0",
-        scope_type="session",
-        scope_id="session-l0",
-        tactic_type="keep-tactic",
-        tactic_payload={"turn_id": retained_event.turn_id},
-        source_event_ids=[retained_event.event_id],
-        tactic_id="tactic-keep",
+        actions=[
+            _attention_action(
+                summary="Keep helping with the current conversation",
+                source_turn_ids=(retained_event.turn_id,),
+            ),
+            _attention_action(
+                summary="Deleted person is relevant",
+                kind=AttentionKind.ACTIVE_OBJECT,
+                source_turn_ids=(deleted_event.turn_id,),
+                source_event_ids=(deleted_event.event_id,),
+                entity_id="person:delete",
+            ),
+            _attention_action(
+                summary="Retained person is relevant",
+                kind=AttentionKind.ACTIVE_OBJECT,
+                source_turn_ids=(retained_event.turn_id,),
+                source_event_ids=(retained_event.event_id,),
+                entity_id="person:keep",
+            ),
+            _attention_action(
+                summary="Use the deleted message approach",
+                kind=AttentionKind.CONSTRAINT,
+                source_turn_ids=(deleted_event.turn_id,),
+                source_event_ids=(deleted_event.event_id,),
+            ),
+            _attention_action(
+                summary="Use the retained message approach",
+                kind=AttentionKind.CONSTRAINT,
+                source_turn_ids=(retained_event.turn_id,),
+                source_event_ids=(retained_event.event_id,),
+            ),
+        ],
+        last_processed_turn_id=retained_event.turn_id,
     )
     await memory.l0.checkpoint_session("session-l0")
 
@@ -1360,9 +1407,18 @@ async def test_message_delete_keeps_unrelated_l0_state_across_retry_and_restart(
 
         workbench = await memory.l0.get_workbench("session-l0")
         assert workbench["session"] is not None
-        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == ["goal-keep"]
-        assert [entity["entity_id"] for entity in workbench["active_entities"]] == ["person:keep"]
-        assert [tactic["tactic_id"] for tactic in workbench["temporary_tactics"]] == ["tactic-keep"]
+        assert sorted(
+            item["summary"] for item in workbench["attention_items"]
+        ) == [
+            "Keep helping with the current conversation",
+            "Retained person is relevant",
+            "Use the retained message approach",
+        ]
+        assert {
+            item["entity_id"]
+            for item in workbench["attention_items"]
+            if item["entity_id"] is not None
+        } == {"person:keep"}
     finally:
         await memory.shutdown()
 
@@ -1371,15 +1427,24 @@ async def test_message_delete_keeps_unrelated_l0_state_across_retry_and_restart(
         assert restored.l0 is not None
         workbench = await restored.l0.get_workbench("session-l0")
         assert workbench["session"] is not None
-        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == ["goal-keep"]
-        assert [entity["entity_id"] for entity in workbench["active_entities"]] == ["person:keep"]
-        assert [tactic["tactic_id"] for tactic in workbench["temporary_tactics"]] == ["tactic-keep"]
+        assert sorted(
+            item["summary"] for item in workbench["attention_items"]
+        ) == [
+            "Keep helping with the current conversation",
+            "Retained person is relevant",
+            "Use the retained message approach",
+        ]
+        assert {
+            item["entity_id"]
+            for item in workbench["attention_items"]
+            if item["entity_id"] is not None
+        } == {"person:keep"}
     finally:
         await restored.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_user_message_delete_removes_owned_l0_chat_goal(
+async def test_user_message_delete_removes_owned_l0_attention(
     tmp_path: Path,
 ) -> None:
     memory = await _build_memory(tmp_path)
@@ -1392,24 +1457,21 @@ async def test_user_message_delete_removes_owned_l0_chat_goal(
         content="private execution root",
     )
     await memory.l1.store(deleted_event)
-    await memory.l0.push_goal(
+    await _apply_attention(
+        memory,
         session_id="session-delete-execution",
-        goal_id="chat_run:run-delete-execution:1",
-        goal_type="chat_run",
-        description="private execution root",
-        status="in_progress",
-        metadata={
-            "run_id": "run-delete-execution",
-            "revision": 1,
-            "root_turn_id": "turn-delete-execution",
-        },
-    )
-    await memory.l0.push_goal(
-        session_id="session-delete-execution",
-        goal_id="goal-retained",
-        goal_type="conversation",
-        description="retain unrelated goal",
-        status="in_progress",
+        actions=[
+            _attention_action(
+                summary="Private execution root remains active",
+                source_turn_ids=(deleted_event.turn_id,),
+                source_event_ids=(deleted_event.event_id,),
+            ),
+            _attention_action(
+                summary="Retain unrelated attention",
+                source_turn_ids=("turn-retained",),
+            ),
+        ],
+        last_processed_turn_id=deleted_event.turn_id,
     )
     await memory.l0.checkpoint_session("session-delete-execution")
 
@@ -1423,9 +1485,9 @@ async def test_user_message_delete_removes_owned_l0_chat_goal(
             event_type="UserMessage",
         )
         workbench = await memory.l0.get_workbench("session-delete-execution")
-        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
-            "goal-retained"
-        ]
+        assert [
+            item["summary"] for item in workbench["attention_items"]
+        ] == ["Retain unrelated attention"]
     finally:
         await memory.shutdown()
 
@@ -1433,15 +1495,15 @@ async def test_user_message_delete_removes_owned_l0_chat_goal(
     try:
         assert restored.l0 is not None
         workbench = await restored.l0.get_workbench("session-delete-execution")
-        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
-            "goal-retained"
-        ]
+        assert [
+            item["summary"] for item in workbench["attention_items"]
+        ] == ["Retain unrelated attention"]
     finally:
         await restored.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_old_user_message_delete_preserves_concurrent_new_l0_goal(
+async def test_old_user_message_delete_preserves_concurrent_new_l0_attention(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1455,17 +1517,17 @@ async def test_old_user_message_delete_preserves_concurrent_new_l0_goal(
         content="old private root",
     )
     await memory.l1.store(deleted_event)
-    await memory.l0.push_goal(
+    await _apply_attention(
+        memory,
         session_id="session-concurrent-execution",
-        goal_id="chat_run:run-old-execution:1",
-        goal_type="chat_run",
-        description="old private root",
-        status="in_progress",
-        metadata={
-            "run_id": "run-old-execution",
-            "revision": 1,
-            "root_turn_id": "turn-old-execution",
-        },
+        actions=[
+            _attention_action(
+                summary="Old private root remains active",
+                source_turn_ids=(deleted_event.turn_id,),
+                source_event_ids=(deleted_event.event_id,),
+            )
+        ],
+        last_processed_turn_id=deleted_event.turn_id,
     )
     await memory.l0.checkpoint_session("session-concurrent-execution")
 
@@ -1492,33 +1554,32 @@ async def test_old_user_message_delete_preserves_concurrent_new_l0_goal(
             )
         )
         await cleanup_started.wait()
-        await memory.l0.push_goal(
+        await _apply_attention(
+            memory,
             session_id="session-concurrent-execution",
-            goal_id="chat_run:run-new-execution:2",
-            goal_type="chat_run",
-            description="new retained root",
-            status="in_progress",
-            metadata={
-                "run_id": "run-new-execution",
-                "revision": 2,
-                "root_turn_id": "turn-new-execution",
-            },
+            actions=[
+                _attention_action(
+                    summary="New retained root remains active",
+                    source_turn_ids=("turn-new-execution",),
+                )
+            ],
+            last_processed_turn_id="turn-new-execution",
         )
         await memory.l0.checkpoint_session("session-concurrent-execution")
         release_cleanup.set()
         await deletion
 
         workbench = await memory.l0.get_workbench("session-concurrent-execution")
-        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
-            "chat_run:run-new-execution:2"
-        ]
+        assert [
+            item["summary"] for item in workbench["attention_items"]
+        ] == ["New retained root remains active"]
     finally:
         release_cleanup.set()
         await memory.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_superseded_root_delete_removes_only_its_l0_goal(
+async def test_superseded_root_delete_removes_only_its_l0_attention(
     tmp_path: Path,
 ) -> None:
     memory = await _build_memory(tmp_path)
@@ -1531,29 +1592,23 @@ async def test_superseded_root_delete_removes_only_its_l0_goal(
         content="old private root",
     )
     await memory.l1.store(deleted_event)
-    await memory.l0.push_goal(
+    await _apply_attention(
+        memory,
         session_id="session-superseded-root",
-        goal_id="chat_run:run-shared:1",
-        goal_type="chat_run",
-        description="old private root",
-        status="cancelled",
-        metadata={
-            "run_id": "run-shared",
-            "revision": 1,
-            "root_turn_id": "turn-old-root",
-        },
-    )
-    await memory.l0.push_goal(
-        session_id="session-superseded-root",
-        goal_id="chat_run:run-shared:2",
-        goal_type="chat_run",
-        description="new retained root",
-        status="in_progress",
-        metadata={
-            "run_id": "run-shared",
-            "revision": 2,
-            "root_turn_id": "turn-new-root",
-        },
+        actions=[
+            _attention_action(
+                summary="Old superseded root",
+                kind=AttentionKind.OPEN_LOOP,
+                source_turn_ids=(deleted_event.turn_id,),
+                source_event_ids=(deleted_event.event_id,),
+            ),
+            _attention_action(
+                summary="New retained root",
+                kind=AttentionKind.OPEN_LOOP,
+                source_turn_ids=("turn-new-root",),
+            ),
+        ],
+        last_processed_turn_id="turn-new-root",
     )
     await memory.l0.checkpoint_session("session-superseded-root")
 
@@ -1567,9 +1622,9 @@ async def test_superseded_root_delete_removes_only_its_l0_goal(
             event_type="UserMessage",
         )
         workbench = await memory.l0.get_workbench("session-superseded-root")
-        assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
-            "chat_run:run-shared:2"
-        ]
+        assert [
+            item["summary"] for item in workbench["attention_items"]
+        ] == ["New retained root"]
     finally:
         await memory.shutdown()
 
@@ -1595,14 +1650,17 @@ async def test_assistant_message_delete_preserves_user_l0_workbench(
         author_type="assistant",
     )
     await memory.l1.store(assistant_event)
-    await memory.l0.add_temporary_tactic(
+    await _apply_attention(
+        memory,
         session_id="session-assistant-execution",
-        scope_type="session",
-        scope_id="session-assistant-execution",
-        tactic_type="user-turn-tactic",
-        tactic_payload={"content": "retain user tactic"},
-        source_event_ids=["turn-shared-execution"],
-        tactic_id="tactic-user-turn",
+        actions=[
+            _attention_action(
+                summary="Retain the user turn context",
+                kind=AttentionKind.SITUATION,
+                source_turn_ids=("turn-shared-execution",),
+            )
+        ],
+        last_processed_turn_id="turn-shared-execution",
     )
     assertion_id = await _upsert_assertion(
         memory,
@@ -1641,9 +1699,9 @@ async def test_assistant_message_delete_preserves_user_l0_workbench(
             event_type="AIResponse",
         )
         workbench = await memory.l0.get_workbench("session-assistant-execution")
-        assert [item["tactic_id"] for item in workbench["temporary_tactics"]] == [
-            "tactic-user-turn"
-        ]
+        assert [
+            item["summary"] for item in workbench["attention_items"]
+        ] == ["Retain the user turn context"]
         assertion = await memory.l2.get_tom_assertion(assertion_id=assertion_id)
         assert assertion is not None and assertion["status"] != "archived"
         assert await memory.l3.get_summary_by_id(summary["summary_id"]) is not None

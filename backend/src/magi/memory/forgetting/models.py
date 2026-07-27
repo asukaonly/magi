@@ -24,6 +24,7 @@ ReferenceType = Literal[
     "exact_event",
     "audit_event",
     "turn",
+    "turn_cutoff",
     "chat_session",
     "source_item",
     "idempotency",

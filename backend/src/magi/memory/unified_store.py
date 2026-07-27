@@ -223,6 +223,7 @@ class UnifiedMemoryStore(
         self._write_lock = asyncio.Lock()
         self._clear_barrier = AsyncOperationBarrier()
         self._clear_epoch = 0
+        self._post_turn_forget_operations: set[str] = set()
         self._source_forget_owners = SourceForgetOwnerRegistry(
             required_sources=("manual_entry",),
         )
@@ -302,7 +303,6 @@ class UnifiedMemoryStore(
             entity_catalog=self.l2_entity_catalog,
             llm_service=self.l2_llm_service,
             state_change_callback=self._handle_l2_state_change_outcomes,
-            active_entity_callback=self._handle_l2_active_entities,
             batch_flush_interval_seconds=self._l2_batch_flush_interval_seconds,
             enable_conflict_arbitration=context.tuning.enable_l2_conflict_arbitration,
             conflict_arbitration_min_confidence=(

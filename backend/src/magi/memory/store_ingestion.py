@@ -11,7 +11,7 @@ from ..events.events import Event, EventLevel, EventTypes
 from .event_contracts import MemoryEvent, normalize_runtime_event
 from .l2.models import ManualL2EventRequest
 from .layer_protocol import FanOutContext, MemoryLayer, WILDCARD_EVENT_TYPES
-from .layers import L0Layer, L1Layer, L2PipelineLayer, L2ProjectionLayer, L4Layer
+from .layers import L1Layer, L2PipelineLayer, L2ProjectionLayer, L4Layer
 from .source_event_governance import (
     TimeRangeGovernanceDecision,
     govern_source_events_by_time_range,
@@ -28,7 +28,7 @@ MEMORY_INGEST_DIAGNOSTIC_EVENT_TYPES = {
 
 
 class MemoryIngestionMixin:
-    """Coordinates L0-L4 writes for normalized memory events."""
+    """Coordinates durable-memory writes for normalized memory events."""
 
     l0: Any
     l1: Any
@@ -45,7 +45,7 @@ class MemoryIngestionMixin:
         *,
         expected_epoch: int | None = None,
     ) -> Dict[str, Any]:
-        """Ingest an event through the new L0-L4 pipeline."""
+        """Ingest an event through the durable-memory pipeline."""
         memory_event = self._normalize_event(event)
         captured_epoch = int(self._clear_epoch) if expected_epoch is None else int(expected_epoch)
         async with self._clear_barrier.operation():
@@ -87,7 +87,9 @@ class MemoryIngestionMixin:
             if time_range_decision.delete_l1_event:
                 return self._forgotten_time_range_result(memory_event)
             if await self._any_source_reference_is_tombstoned(
-                memory_event_source_references(memory_event)
+                memory_event_source_references(memory_event),
+                turn_id=memory_event.turn_id,
+                accepted_at=memory_event.created_at,
             ):
                 return self._forgotten_source_result(memory_event)
             for layer in locked_layers:
@@ -210,7 +212,6 @@ class MemoryIngestionMixin:
 
     def _build_layers_in_order(self) -> list[MemoryLayer]:
         return [
-            L0Layer(self.l0),
             L1Layer(self.l1),
             L2ProjectionLayer(
                 self.l2,

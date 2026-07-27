@@ -94,6 +94,7 @@ class ChatPostProcessService:
         get_sensor_hub: Callable[[], Any | None],
         memory=None,
         unified_memory=None,
+        post_turn_understanding_service=None,
         max_fact_memory: int = 200,
         trace_read_service: "ChatTraceReadService | None" = None,
         runtime_trace_store: RuntimeTraceStore | None = None,
@@ -115,6 +116,7 @@ class ChatPostProcessService:
             get_sensor_hub=get_sensor_hub,
             memory=memory,
             unified_memory=unified_memory,
+            post_turn_understanding_service=post_turn_understanding_service,
             max_fact_memory=max_fact_memory,
         )
         self._wire_output_components(
@@ -132,19 +134,37 @@ class ChatPostProcessService:
             transcript_summarizer=transcript_summarizer,
         )
         self._wire_delivery(deliver_final_response)
-
     async def cancel_background_tasks(self) -> None:
         """Cancel detached post-processing created before a destructive clear."""
+
+        await self._cancel_detached_background_tasks()
+        self._deferred_release_retry_keys.clear()
+
+    async def shutdown_background_tasks(self) -> None:
+        """Finish runtime handoff before a normal session-agent shutdown."""
+
+        handoff_tasks = [
+            task
+            for task in self._background_tasks
+            if not task.done() and task.get_name().startswith("chat-outcome-enqueue:")
+        ]
+        if handoff_tasks:
+            await asyncio.gather(*handoff_tasks, return_exceptions=True)
+        await self._cancel_detached_background_tasks()
+        self._deferred_release_retry_keys.clear()
+
+    async def _cancel_detached_background_tasks(self) -> None:
+        """Cancel and drain currently detached post-processing tasks."""
+
         tasks = [task for task in self._background_tasks if not task.done()]
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._background_tasks.clear()
-        self._deferred_release_retry_keys.clear()
 
     def has_pending_background_work(self) -> bool:
-        """Return whether a durable completion retry still owns the session."""
+        """Return whether post-processing still owns the session."""
 
         return bool(self._deferred_release_retry_keys)
 
@@ -239,6 +259,7 @@ class ChatPostProcessService:
         get_sensor_hub: Callable[[], Any | None],
         memory: Any,
         unified_memory: Any,
+        post_turn_understanding_service: Any,
         max_fact_memory: int,
     ) -> None:
         self._agent_id = agent_id
@@ -249,6 +270,7 @@ class ChatPostProcessService:
         self._get_sensor_hub = get_sensor_hub
         self._memory = memory
         self._unified_memory = unified_memory
+        self._post_turn_understanding_service = post_turn_understanding_service
         self._local_fact_memory: list[FactRecord] = []
         self._max_fact_memory = max_fact_memory
 
@@ -386,7 +408,7 @@ class ChatPostProcessService:
                 else (1 if has_message_surface else 0)
             ),
         )
-        self._record_chat_history_and_memory(context, result, prepared)
+        await self._record_chat_history_and_memory(context, result, prepared)
         await self._finalize_session_run(context)
         self._schedule_transcript_summary_update(context)
         return await self._deliver_chat_response_outcome(context, result, prepared)
@@ -519,7 +541,7 @@ class ChatPostProcessService:
             return response_text, response_text
         return raw_response_text, response_text
 
-    def _record_chat_history_and_memory(
+    async def _record_chat_history_and_memory(
         self,
         context: ChatRuntimeContext,
         result: ExecutionResult,
@@ -542,14 +564,30 @@ class ChatPostProcessService:
             == FIRST_CONTEXT_STORY_INTERACTION_KIND
         )
         if user_message and not is_first_context_story:
-            self._schedule_background_memory_updates(
+            assistant_message_ids = [
+                str(message.message_id)
+                for message in prepared.segmented_messages
+                if str(getattr(message, "message_id", "") or "").strip()
+            ]
+            if not assistant_message_ids:
+                assistant_message = await self._get_turn_ux_chat_message(
+                    turn_id=prepared.turn_id,
+                    ux_plan=prepared.ux_plan,
+                )
+                if assistant_message is not None:
+                    assistant_message_ids.append(
+                        str(assistant_message.message_id)
+                    )
+            prepared.memory_updated = self._schedule_background_memory_updates(
                 user_id=context.user_id,
                 user_message=user_message,
                 response_text=prepared.response_text,
                 context=context,
                 result=result,
+                turn_id=prepared.turn_id,
+                assistant_message_ids=assistant_message_ids,
+                accepted_at=float(prepared.now_ms) / 1000.0,
             )
-            prepared.memory_updated = True
 
     async def _emit_chat_response_observability(
         self,
@@ -781,8 +819,7 @@ class ChatPostProcessService:
             "persona_id": context.active_persona_id,
         }
         if delivery_identity is None:
-            await self._persist_final_chat_outcome(**outcome_kwargs)
-            return True
+            return await self._persist_final_chat_outcome(**outcome_kwargs)
         return await self._commit_final_chat_outcome(
             delivery_attempt_no=delivery_identity[0],
             command_id=delivery_identity[1],
@@ -939,8 +976,7 @@ class ChatPostProcessService:
         if delivery_is_terminal:
             return True
         if delivery_identity is None:
-            await self._persist_final_chat_outcome(**outcome_kwargs)
-            accepted = True
+            accepted = await self._persist_final_chat_outcome(**outcome_kwargs)
         else:
             accepted = await self._commit_final_chat_outcome(
                 delivery_attempt_no=delivery_identity[0],

@@ -436,6 +436,9 @@ export interface ToolsConfig {
 export interface MemoryL0Config {
   enabled: boolean;
   checkpoint_interval_seconds: number;
+  attention_update_turn_threshold: number;
+  attention_update_idle_seconds: number;
+  attention_update_max_delay_seconds: number;
 }
 
 export interface MemoryL1Config {
@@ -764,6 +767,9 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     l0: {
       enabled: true,
       checkpoint_interval_seconds: 30,
+      attention_update_turn_threshold: 3,
+      attention_update_idle_seconds: 30,
+      attention_update_max_delay_seconds: 90,
     },
     l1: {
       enabled: true,

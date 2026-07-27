@@ -199,6 +199,7 @@ class AgentRuntimeBootstrapState:
     sensor_sync_executor: Any = None
     agent_runtime: AgentRuntime | None = None
     task_agent_manager: TaskAgentManager | None = None
+    post_turn_understanding_service: Any = None
     background_task_manager: Any = None
     background_task_retention_schedule: Any = None
 

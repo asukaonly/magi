@@ -44,12 +44,10 @@ const RETENTION_CLASS_KEYS: Record<string, string> = {
 };
 
 const INGEST_TARGET_KEYS: Record<string, string> = {
-  '1': 'l0_only',
+  '1': 'runtime_only',
   '2': 'l1_only',
-  '3': 'l0_and_l1',
-  l0_only: 'l0_only',
+  runtime_only: 'runtime_only',
   l1_only: 'l1_only',
-  l0_and_l1: 'l0_and_l1',
 };
 
 const TOM_DEPTH_KEYS: Record<string, string> = {

@@ -52,7 +52,7 @@ describe('useMemory clear convergence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(memoryApi.getStatistics).mockResolvedValue({
-      l0: { active_sessions: 0, total_goals: 0, total_entities: 0, total_tactics: 0 },
+      l0: { active_sessions: 0, total_attention_items: 0 },
       l1: { event_count: 1 },
       l2: { relation_count: 0, assertion_count: 0 },
       l3: { summary_count: 0 },
@@ -62,9 +62,7 @@ describe('useMemory clear convergence', () => {
       ...emptyPage,
       stats: {
         active_sessions: 0,
-        total_goals: 0,
-        total_entities: 0,
-        total_tactics: 0,
+        total_attention_items: 0,
       },
     });
     vi.mocked(memoryApi.getL1Events).mockResolvedValue({

@@ -139,7 +139,7 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 const dashboardPayload = {
   statistics: {
-    l0: { active_sessions: 0, total_goals: 0, total_entities: 0, total_tactics: 0 },
+    l0: { active_sessions: 0, total_attention_items: 0 },
     l1: { event_count: 288 },
     l2: { relation_count: 0, assertion_count: 0 },
     l3: { summary_count: 0 },

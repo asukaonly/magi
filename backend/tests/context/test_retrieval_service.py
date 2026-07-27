@@ -7,15 +7,27 @@ from magi.context.retrieval import ContextRetrievalService
 
 
 class _FakeL0Store:
-    async def get_prompt_workbench_projection(self, session_id: str):
+    def __init__(self):
+        self.calls: list[dict[str, str]] = []
+
+    async def get_prompt_workbench_projection(self, session_id: str, *, query: str):
+        self.calls.append({"session_id": session_id, "query": query})
+
         class _Projection:
             @staticmethod
             def to_retrieval_entry():
                 return {
                     "session": session_id,
-                    "goals": ["ship the fix"],
-                    "active_entities": ["repo:magi"],
-                    "temporary_tactics": ["stay small"],
+                    "attention_items": [
+                        {
+                            "item_id": "attention-1",
+                            "kind": "focus",
+                            "summary": "The user is deciding how to ship the fix.",
+                            "status": "active",
+                            "confidence": 0.95,
+                            "evidence_mode": "direct",
+                        }
+                    ],
                 }
 
         return _Projection()
@@ -62,7 +74,16 @@ class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(payload["l0_workbench"][0]["session"], "s1")
+        self.assertEqual(
+            service._unified_memory.l0.calls,
+            [{"session_id": "s1", "query": "today"}],
+        )
         self.assertNotIn("execution_summary", payload["l0_workbench"][0])
+        self.assertEqual(
+            payload["l0_workbench"][0]["attention_items"][0]["kind"],
+            "focus",
+        )
+        self.assertNotIn("goals", payload["l0_workbench"][0])
         self.assertEqual(payload["l2_entity_cards"], [])
         self.assertEqual(payload["l3_reflection_memory"], [])
         self.assertEqual(
@@ -102,7 +123,18 @@ class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
             "Payload",
             (),
             {
-                "l0_workbench": [{"summary": "Current goal"}],
+                "l0_workbench": [
+                    {
+                        "session": {"session_id": "s1"},
+                        "attention_items": [
+                            {
+                                "kind": "open_loop",
+                                "summary": "The job change question is still open.",
+                                "status": "active",
+                            }
+                        ],
+                    }
+                ],
                 "l2_entity_cards": [{"entity_id": "user:u1"}],
                 "l3_reflections": [{"summary": "User wants to switch jobs"}],
                 "l4_procedures": [{"skill_name": "browser.open"}],
@@ -126,7 +158,10 @@ class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.context_signals.user_text, "I meant this repository")
         self.assertEqual(request.context_signals.task_category, "chat")
 
-        self.assertEqual(payload["l0_workbench"][0]["summary"], "Current goal")
+        self.assertEqual(
+            payload["l0_workbench"][0]["attention_items"][0]["kind"],
+            "open_loop",
+        )
         self.assertEqual(payload["l2_entity_cards"], [])
         self.assertEqual(payload["l3_reflection_memory"], [])
         self.assertEqual(payload["l4_procedural_memory"][0]["skill_name"], "browser.open")

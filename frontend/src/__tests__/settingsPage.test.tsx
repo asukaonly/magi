@@ -1272,6 +1272,67 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryGeneral' })).not.toBeInTheDocument();
   });
 
+  it('saves the workbench attention update cadence', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryWorkbench' }));
+
+    const turnThresholdInput = await screen.findByLabelText(
+      'settings.memory.fields.l0_attention_update_turn_threshold.label'
+    );
+    const idleSecondsInput = screen.getByLabelText(
+      'settings.memory.fields.l0_attention_update_idle_seconds.label'
+    );
+    const maxDelayInput = screen.getByLabelText(
+      'settings.memory.fields.l0_attention_update_max_delay_seconds.label'
+    );
+
+    expect(turnThresholdInput).toHaveValue(3);
+    expect(idleSecondsInput).toHaveValue(30);
+    expect(maxDelayInput).toHaveValue(90);
+
+    fireEvent.change(turnThresholdInput, { target: { value: '5' } });
+    fireEvent.change(idleSecondsInput, { target: { value: '45' } });
+    fireEvent.change(maxDelayInput, { target: { value: '120' } });
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          memory: expect.objectContaining({
+            l0: expect.objectContaining({
+              attention_update_turn_threshold: 5,
+              attention_update_idle_seconds: 45,
+              attention_update_max_delay_seconds: 120,
+            }),
+          }),
+        })
+      )
+    );
+  });
+
+  it('blocks saving when the workbench maximum delay is shorter than the idle wait', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryWorkbench' }));
+
+    fireEvent.change(
+      await screen.findByLabelText('settings.memory.fields.l0_attention_update_idle_seconds.label'),
+      { target: { value: '120' } }
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'settings.memory.validation.attentionUpdateMaxDelayTooShort'
+    );
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeDisabled();
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
   it('saves layer-specific memory retention settings and keeps knowledge internals hidden', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);

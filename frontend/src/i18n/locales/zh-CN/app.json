@@ -1662,7 +1662,11 @@
           "embeddingDescription": "选择使用远程模型服务还是本地 ONNX 模型来生成向量。本地模型会在首次使用时加载，空闲一段时间后自动卸载。"
         },
         "workbench": {
-          "description": "配置短时工作台记忆的保留和异常恢复节奏，决定对话运行态如何被暂存与回放。"
+          "description": "配置 Magi 如何整理当前关注，以及短期关注状态的保存节奏。",
+          "attentionUpdateTitle": "关注更新节奏",
+          "attentionUpdateDescription": "Magi 会在对话积累到一定轮数、空闲一段时间或达到最长等待时间时，整理这一阶段仍需关注的内容。重要变化仍会立即处理。",
+          "checkpointTitle": "本地保存",
+          "checkpointDescription": "控制短期关注状态写入本地的最长等待时间。"
         },
         "events": {
           "description": "配置原始事件记忆的保留窗口、重要度评分和语义检索能力，作为后续记忆层的事实基础。",
@@ -1868,8 +1872,8 @@
         },
         "reranker_not_available": "请先在「记忆 → 通用记忆设置」中启用 Cross-Encoder 精排后，再回到此处选择模型。",
         "enable_l0": {
-          "label": "启用临时工作记忆",
-          "description": "保存当前任务的目标、关注实体和临时策略；闲置后会自动清理，不影响聊天恢复。"
+          "label": "启用短期关注",
+          "description": "保存当前关注、情况、未完线索和约束；内容淡出或过期后会自动清理，不影响聊天恢复。"
         },
         "enable_l1": {
           "label": "启用对话记录",
@@ -1889,6 +1893,18 @@
         },
         "l0_checkpoint_interval_seconds": {
           "label": "自动存档间隔（秒）"
+        },
+        "l0_attention_update_turn_threshold": {
+          "label": "累计对话轮数",
+          "description": "达到该数量后整理一次；一条用户消息和对应的最终回复算一轮。"
+        },
+        "l0_attention_update_idle_seconds": {
+          "label": "空闲等待（秒）",
+          "description": "最后一轮结束后持续空闲这么久，就整理尚未处理的对话。"
+        },
+        "l0_attention_update_max_delay_seconds": {
+          "label": "最长等待（秒）",
+          "description": "从第一轮待处理对话开始计算，超过该时间就强制整理。"
         },
         "retention_days": {
           "label": "旧全局记忆保留天数",
@@ -1958,6 +1974,11 @@
           "description": "将总结回顾转为向量，支持按语义相似度搜索。",
           "description_disabled": "需要先在模型配置中选择向量模型。"
         }
+      },
+      "validation": {
+        "attentionUpdatePositiveInteger": "关注更新的三个数值都必须是大于 0 的整数。",
+        "attentionUpdateOutOfRange": "累计轮数应为 1–20，空闲等待应为 1–300 秒，最长等待应为 1–600 秒。",
+        "attentionUpdateMaxDelayTooShort": "最长等待时间不能小于空闲等待时间。"
       },
       "options": {
         "history_behavior": {
@@ -2574,7 +2595,7 @@
       "dev": {
         "events": "原始事件 (L1)",
         "knowledge": "结构化知识 (L2)",
-        "workbench": "工作台记忆 (L0)",
+        "workbench": "短期关注 (L0)",
         "skills": "工具技能 (L4)",
         "stats": "存储统计"
       }
@@ -3440,7 +3461,7 @@
       },
       "layers": {
         "choose": "选择层级",
-        "l0Description": "会话、目标、策略等",
+        "l0Description": "会话与当前关注",
         "l1Description": "事件、片段、观察等",
         "l2Description": "实体、关系、断言等",
         "l3Description": "日/周/月总结",
@@ -3479,8 +3500,8 @@
         }
       },
       "categories": {
-        "sessions": "会话工作台",
-        "sessionsDescription": "当前会话、目标和临时策略",
+        "sessions": "会话关注",
+        "sessionsDescription": "当前会话及仍需放在心上的内容",
         "events": "原始事件",
         "eventsDescription": "来源事件、片段和观察",
         "entities": "实体",
@@ -3688,9 +3709,7 @@
         "proficiency": "熟练度"
       },
       "impact": {
-        "goals": "目标",
-        "entities": "实体",
-        "tactics": "策略",
+        "attention": "当前关注",
         "importance": "重要度",
         "cognition": "进入认知",
         "relations": "关系",
@@ -3831,21 +3850,19 @@
     },
     "pages": {
       "workbench": {
-        "eyebrow": "L0 工作台",
-        "subtitle": "按会话查看当前记忆上下文，重点看这段对话现在记住了什么、正在围绕什么工作。",
-        "searchPlaceholder": "按会话 ID 或状态筛选工作台记忆",
+        "eyebrow": "L0 短期关注",
+        "subtitle": "按会话查看 Magi 此刻仍放在心上的内容，以及这些关注如何变化。",
+        "searchPlaceholder": "按会话 ID、状态或当前关注筛选",
         "focusTitle": "当前聚焦会话",
-        "focusBody": "工作台页更适合从具体会话切入，去看目标栈、活跃实体和临时策略的即时状态。",
+        "focusBody": "从具体会话切入，查看仍在关注、暂时退到后台、已经解决或已被新信息替代的内容。",
         "focusEmpty": "尚未选中会话",
-        "shellEmpty": "这里通常会出现当前目标、正在关注的实体和临时策略；如果现在还是空的，说明这轮对话还没有形成明确的工作台状态。",
-        "loadingWorkbench": "正在读取这个会话当前的工作台内容...",
-        "sessionListBody": "每条会话展开后会显示更贴近用户视角的信息，以及当前真正进入工作台的目标、实体和策略。",
+        "shellEmpty": "这个会话目前没有需要继续放在心上的短期关注。",
+        "loadingWorkbench": "正在读取这个会话的当前关注...",
+        "sessionListBody": "每条会话会显示当前保留了多少关注项；选择后可查看内容、状态和形成依据。",
         "untitledSession": "未命名会话",
         "messagesUnit": "条消息",
-        "goalSummary": "{{count}} 个当前目标",
-        "entitySummary": "{{count}} 个关注实体",
-        "tacticSummary": "{{count}} 条临时策略",
-        "workbenchSummary": "工作台内容：{{goals}} 个当前目标 · {{entities}} 个关注实体 · {{tactics}} 条临时策略",
+        "attentionSummary": "{{count}} 条当前关注",
+        "workbenchSummary": "当前保留 {{count}} 条短期关注",
         "startedLabel": "开始时间",
         "lastActiveShortLabel": "最近活跃",
         "workspaceLabel": "关联工作区",
@@ -3862,9 +3879,7 @@
         "contextSummaryTokenDelta": "Token {{before}} -> {{after}}",
         "contextSummaryUpdated": "更新时间 {{time}}",
         "contextSummaryModel": "模型 {{model}}",
-        "currentGoalsTitle": "本轮在处理什么",
-        "activeEntitiesTitle": "正在关注的实体",
-        "currentTacticsTitle": "当前策略",
+        "attentionItemsTitle": "当前关注",
         "lastActiveLabel": "最近活跃于 {{time}}"
       },
       "events": {
@@ -4249,18 +4264,35 @@
     },
     "l0": {
       "activeSessions": "活跃会话",
-      "totalGoals": "目标总数",
-      "totalEntities": "实体总数",
-      "totalTactics": "策略总数",
+      "totalAttentionItems": "关注项总数",
       "sessions": "会话列表",
       "noSessions": "暂无活跃会话",
-      "workbench": "工作台",
-      "goalStack": "目标栈",
-      "noGoals": "目标栈为空",
-      "activeEntities": "活跃实体",
-      "noEntities": "暂无活跃实体",
-      "tactics": "临时策略",
-      "noTactics": "暂无策略定义"
+      "workbench": "当前关注",
+      "attentionItems": "关注内容",
+      "attentionCount": "{{count}} 条当前关注",
+      "workbenchItemCount": "{{count}} 条可查看记录",
+      "kinds": {
+        "focus": "当前话题",
+        "situation": "当前情况",
+        "open_loop": "未完线索",
+        "active_object": "相关人物或事物",
+        "constraint": "当前约束",
+        "consensus": "已经确认"
+      },
+      "statuses": {
+        "active": "正在关注",
+        "background": "暂时放下",
+        "resolved": "已经解决",
+        "superseded": "已被替代"
+      },
+      "evidenceModes": {
+        "direct": "明确表达",
+        "inferred": "暂时推断"
+      },
+      "salience": "重要程度",
+      "confidence": "可信程度",
+      "lastReinforced": "最近提到",
+      "expiresAt": "最晚保留至"
     },
     "l1": {
       "totalEvents": "事件总数",
@@ -4350,9 +4382,8 @@
         "permanent": "长期保留"
       },
       "ingestTargets": {
-        "l0_only": "仅 L0",
-        "l1_only": "仅 L1",
-        "l0_and_l1": "L0 + L1"
+        "runtime_only": "仅运行时",
+        "l1_only": "仅 L1"
       },
       "tomDepths": {
         "none": "无",

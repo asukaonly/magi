@@ -16,7 +16,7 @@ def make_event(
     *,
     event_id: str = "evt_1",
     event_type: str = "USER_MESSAGE",
-    ingest_target: IngestTarget = IngestTarget.L0_AND_L1,
+    ingest_target: IngestTarget = IngestTarget.L1_ONLY,
     cognition_eligible: bool = True,
     metadata: dict[str, Any] | None = None,
     source: str = "chat",

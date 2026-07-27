@@ -67,7 +67,9 @@ class UnifiedGovernedL1WriteMixin:
         if time_range_decision.delete_l1_event:
             return "time_range"
         if await self._any_source_reference_is_tombstoned(
-            memory_event_source_references(event)
+            memory_event_source_references(event),
+            turn_id=event.turn_id,
+            accepted_at=event.created_at,
         ):
             return "source_reference"
         return None

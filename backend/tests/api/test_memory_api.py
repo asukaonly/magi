@@ -109,9 +109,7 @@ def _isolate_external_conversation_clear_dependencies(monkeypatch):
 class _FakeL0Store:
     checkpoint_db_path = "/tmp/l0.db"
     _sessions: dict = {}
-    _goal_stack: dict = {}
-    _active_entities: dict = {}
-    _temporary_tactics: dict = {}
+    _attention_items: dict = {}
 
     async def clear(self):
         return 3
@@ -119,18 +117,14 @@ class _FakeL0Store:
     async def get_session_index_snapshot(self):
         return {
             "sessions": dict(self._sessions),
-            "goals_by_session": dict(self._goal_stack),
+            "attention_by_session": dict(self._attention_items),
         }
 
     async def get_workbench(self, session_id: str):
         return {
             "session": self._sessions.get(session_id),
-            "goal_stack": list(self._goal_stack.get(session_id, [])),
-            "active_entities": list(
-                self._active_entities.get(session_id, {}).values()
-            ),
-            "temporary_tactics": list(
-                self._temporary_tactics.get(session_id, {}).values()
+            "attention_items": list(
+                self._attention_items.get(session_id, {}).values()
             ),
         }
 
@@ -711,6 +705,36 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch, tmp_path):
     fake_memory.l2.db_path = str(memory_path)
     fake_memory.l3.db_path = str(memory_path)
     fake_memory.l4.db_path = str(memory_path)
+    fake_memory.l0._sessions = {
+        "session-1": {
+            "session_id": "session-1",
+            "status": "active",
+        }
+    }
+    fake_memory.l0._attention_items = {
+        "session-1": {
+            "active": {
+                "item_id": "active",
+                "status": "active",
+                "expires_at": None,
+            },
+            "background": {
+                "item_id": "background",
+                "status": "background",
+                "expires_at": None,
+            },
+            "resolved": {
+                "item_id": "resolved",
+                "status": "resolved",
+                "expires_at": None,
+            },
+            "expired": {
+                "item_id": "expired",
+                "status": "active",
+                "expires_at": 1,
+            },
+        }
+    }
 
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
@@ -721,6 +745,10 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch, tmp_path):
     assert response.status_code == 200
     body = response.json()
     assert body["l1"]["event_count"] == 12
+    assert body["l0"]["total_attention_items"] == 3
+    assert body["l0"]["active_attention_items"] == 1
+    assert body["l0"]["background_attention_items"] == 1
+    assert body["l0"]["resolved_attention_items"] == 1
     assert "l4" in body
     assert body["total_memories"] == 16
     assert body["disk_usage_bytes"] == 28
@@ -769,17 +797,29 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
             "metadata": {},
         }
     }
-    fake_memory.l0._goal_stack = {
-        "379f666d-aee9-48fb-ab88-50690496297b": [
-            {"goal_id": "current", "status": "in_progress"},
-            {"goal_id": "finished", "status": "completed"},
-        ]
-    }
-    fake_memory.l0._active_entities = {"379f666d-aee9-48fb-ab88-50690496297b": {}}
-    fake_memory.l0._temporary_tactics = {
+    fake_memory.l0._attention_items = {
         "379f666d-aee9-48fb-ab88-50690496297b": {
-            "current": {"tactic_id": "current", "expires_at": 4102444800},
-            "expired": {"tactic_id": "expired", "expires_at": 1},
+            "focus": {
+                "item_id": "focus",
+                "kind": "focus",
+                "summary": "The user is reorganizing memory settings.",
+                "status": "active",
+                "expires_at": 4102444800,
+            },
+            "background": {
+                "item_id": "background",
+                "kind": "open_loop",
+                "summary": "A secondary layout question is paused.",
+                "status": "background",
+                "expires_at": 4102444800,
+            },
+            "expired": {
+                "item_id": "expired",
+                "kind": "situation",
+                "summary": "Expired context",
+                "status": "active",
+                "expires_at": 1,
+            },
         }
     }
 
@@ -818,8 +858,10 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
     assert body["items"][0]["last_user_message_preview"] == "把通用记忆设置里的 UUID 展示优化掉"
     assert body["items"][0]["title_overridden"] is True
     assert body["items"][0]["history_version"] == 3
-    assert body["items"][0]["goal_count"] == 1
-    assert body["items"][0]["tactic_count"] == 1
+    assert body["items"][0]["attention_count"] == 2
+    assert body["items"][0]["active_attention_count"] == 1
+    assert body["items"][0]["background_attention_count"] == 1
+    assert body["stats"]["total_attention_items"] == 2
     assert body["total"] == 1
 
 
@@ -840,9 +882,9 @@ def test_l0_sessions_api_treats_new_session_title_as_generic(monkeypatch):
             "metadata": {},
         }
     }
-    fake_memory.l0._goal_stack = {"379f666d-aee9-48fb-ab88-50690496297b": []}
-    fake_memory.l0._active_entities = {"379f666d-aee9-48fb-ab88-50690496297b": {}}
-    fake_memory.l0._temporary_tactics = {"379f666d-aee9-48fb-ab88-50690496297b": {}}
+    fake_memory.l0._attention_items = {
+        "379f666d-aee9-48fb-ab88-50690496297b": {}
+    }
 
     class _FakeChatReadService:
         async def aget_session_summaries_batch(self, user_id: str, session_ids: list):
@@ -892,18 +934,23 @@ def test_l0_sessions_api_filters_before_pagination(monkeypatch):
             "last_active_at": 1.0,
         },
     }
-    fake_memory.l0._goal_stack = {
-        "session-newest": [],
-        "session-match": [],
-    }
-    fake_memory.l0._active_entities = {
+    fake_memory.l0._attention_items = {
         "session-newest": {},
-        "session-match": {},
+        "session-match": {
+            "attention-match": {
+                "item_id": "attention-match",
+                "kind": "focus",
+                "summary": "Needle project",
+                "status": "active",
+                "expires_at": None,
+            }
+        },
     }
-    fake_memory.l0._temporary_tactics = {
-        "session-newest": {},
-        "session-match": {},
-    }
+    fake_memory.l0.get_workbench = AsyncMock(
+        side_effect=AssertionError(
+            "The session list must use its governed index snapshot"
+        )
+    )
 
     class _FakeChatReadService:
         async def aget_session_summaries_batch(
@@ -915,7 +962,7 @@ def test_l0_sessions_api_filters_before_pagination(monkeypatch):
             assert session_ids == ["session-newest", "session-match"]
             return {
                 "session-newest": SimpleNamespace(title="Unrelated"),
-                "session-match": SimpleNamespace(title="Needle project"),
+                "session-match": SimpleNamespace(title="Another conversation"),
             }
 
     monkeypatch.setattr(
@@ -937,6 +984,7 @@ def test_l0_sessions_api_filters_before_pagination(monkeypatch):
     assert body["total"] == 1
     assert [item["session_id"] for item in body["items"]] == ["session-match"]
     assert body["stats"]["active_sessions"] == 1
+    fake_memory.l0.get_workbench.assert_not_awaited()
 
 
 def test_l0_workbench_composes_durable_context_usage(monkeypatch):
@@ -951,9 +999,14 @@ def test_l0_workbench_composes_durable_context_usage(monkeypatch):
                     "session_id": session_id,
                     "user_id": "local_user",
                 },
-                "goal_stack": [],
-                "active_entities": [],
-                "temporary_tactics": [],
+                "attention_items": [
+                    {
+                        "item_id": "attention-1",
+                        "kind": "focus",
+                        "summary": "The user is checking context usage.",
+                        "status": "active",
+                    }
+                ],
             }
 
     class _FakeChatReadService:
@@ -1872,7 +1925,18 @@ def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
             assert request.query == "switch jobs"
             assert request.user_id == DEFAULT_USER_ID
             return RetrievalPayload(
-                l0_workbench=[{"summary": "Current goal"}],
+                l0_workbench=[
+                    {
+                        "session": {"session_id": "session-1"},
+                        "attention_items": [
+                            {
+                                "kind": "focus",
+                                "summary": "The user is considering a job change.",
+                                "status": "active",
+                            }
+                        ],
+                    }
+                ],
                 l1_events=[],
                 l2_entity_cards=[],
                 l2_relationships=[],
@@ -1895,7 +1959,10 @@ def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["l0_workbench"][0]["summary"] == "Current goal"
+    assert (
+        body["l0_workbench"][0]["attention_items"][0]["kind"]
+        == "focus"
+    )
     assert body["l3_reflections"][0]["summary_id"] == "sum-1"
     assert body["trace"]["intent_source"] == "rule"
 

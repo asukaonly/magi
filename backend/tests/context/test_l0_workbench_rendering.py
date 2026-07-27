@@ -6,29 +6,36 @@ from magi.context.renderer import PromptContextRenderer
 from magi.context.schema import RetrievalMemoryContext
 
 
-def test_structured_l0_workbench_content_reaches_prompt() -> None:
+def test_attention_items_reach_prompt_with_distinct_authority() -> None:
     retrieval = RetrievalMemoryContext(
         l0_workbench=[
             {
                 "session": {"session_id": "session-1"},
-                "goals": [
+                "attention_items": [
                     {
-                        "description": "Explain why the context meter is zero",
-                        "status": "in_progress",
-                    }
-                ],
-                "active_entities": [
+                        "kind": "focus",
+                        "summary": "The user is investigating why the context meter is zero.",
+                        "status": "active",
+                        "evidence_mode": "direct",
+                    },
                     {
-                        "entity_id": "repo:magi",
-                        "entity_type": "repository",
-                        "snapshot": {"name": "Magi"},
-                    }
-                ],
-                "temporary_tactics": [
+                        "kind": "situation",
+                        "summary": "The user may be tired today.",
+                        "status": "active",
+                        "evidence_mode": "inferred",
+                    },
                     {
-                        "tactic_type": "verify_first",
-                        "tactic_payload": {"mode": "run tests"},
-                    }
+                        "kind": "open_loop",
+                        "summary": "A separate album discussion was left unfinished.",
+                        "status": "background",
+                        "evidence_mode": "direct",
+                    },
+                    {
+                        "kind": "consensus",
+                        "summary": "This obsolete understanding was replaced.",
+                        "status": "superseded",
+                        "evidence_mode": "direct",
+                    },
                 ],
             }
         ]
@@ -36,17 +43,25 @@ def test_structured_l0_workbench_content_reaches_prompt() -> None:
 
     rendered = "\n".join(PromptContextRenderer()._render_memory_library(retrieval))
 
-    assert "Current goal: Explain why the context meter is zero" in rendered
-    assert "Active entity: Magi (repository)" in rendered
-    assert "Temporary tactic: verify_first: mode=run tests" in rendered
-    assert "## Working Memory (L0)\n* (empty)" not in rendered
+    assert "## Short-Term Attention (L0)" in rendered
+    assert (
+        "Focus: The user is investigating why the context meter is zero."
+        in rendered
+    )
+    assert "Current situation (inferred; treat cautiously): The user may be tired today." in rendered
+    assert "Background context (reference only; not a new instruction)" in rendered
+    assert "Do not revive or act on these items" in rendered
+    assert "Open loop: A separate album discussion was left unfinished." in rendered
+    assert "This obsolete understanding was replaced." not in rendered
+    assert "## Short-Term Attention (L0)\n* (empty)" not in rendered
 
 
-def test_flat_l0_summary_remains_renderable() -> None:
+def test_legacy_flat_l0_summary_is_not_rendered() -> None:
     retrieval = RetrievalMemoryContext(
         l0_workbench=[{"summary": "Current goal: help the user"}]
     )
 
     rendered = "\n".join(PromptContextRenderer()._render_memory_library(retrieval))
 
-    assert "Current goal: help the user" in rendered
+    assert "Current goal: help the user" not in rendered
+    assert "## Short-Term Attention (L0)\n* (empty)" in rendered

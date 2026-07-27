@@ -29,14 +29,16 @@ def is_generic_chat_title(value: str) -> bool:
 def derive_l0_session_display(
     *,
     session_id: str,
-    goals: list[dict[str, Any]],
+    attention_items: list[dict[str, Any]],
     chat_summary: Any = None,
 ) -> dict[str, str | None]:
     session_short_id = short_session_id(session_id)
-    goal_title = ""
-    if goals:
-        first_goal = goals[0]
-        goal_title = truncate_session_preview(str(first_goal.get("description") or first_goal.get("goal_id") or ""))
+    attention_title = ""
+    if attention_items:
+        first_item = attention_items[0]
+        attention_title = truncate_session_preview(
+            str(first_item.get("summary") or "")
+        )
 
     chat_title = truncate_session_preview(str(getattr(chat_summary, "title", "") or ""))
     user_preview = truncate_session_preview(str(getattr(chat_summary, "last_user_message_preview", "") or ""))
@@ -46,7 +48,7 @@ def derive_l0_session_display(
 
     display_title = (
         (chat_title if not is_generic_chat_title(chat_title) else "")
-        or goal_title
+        or attention_title
         or user_preview
         or last_preview
         or session_short_id

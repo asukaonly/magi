@@ -67,6 +67,7 @@ _RUNTIME_CONFIG_INIT_FIELDS = (
     "llm_pool",
     "memory",
     "unified_memory",
+    "post_turn_understanding_service",
     "hybrid_retrieval_service",
     "history_cache_max_sessions",
     "skill_runner",
@@ -127,6 +128,7 @@ class ChatTaskAgent(
         llm_pool=None,
         memory=None,
         unified_memory=None,
+        post_turn_understanding_service=None,
         hybrid_retrieval_service=None,
         memory_integration=None,
         history_cache_max_sessions: int = 500,
@@ -223,6 +225,11 @@ class ChatTaskAgent(
     async def stop(self) -> None:
         """Stop the active run and every detached post-process task."""
         await super().stop()
+        await self._postprocess_service.shutdown_background_tasks()
+
+    async def cancel_postprocess_for_destructive_change(self) -> None:
+        """Discard detached memory work before chat or memory deletion."""
+
         await self._postprocess_service.cancel_background_tasks()
 
     def has_inflight_work(self) -> bool:

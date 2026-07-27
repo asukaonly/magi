@@ -9,7 +9,9 @@ from typing import Any
 
 from ...core.sqlite import sqlite_connection_async
 from ..l3.daily_mood.store import DailyMoodAggregateStore
-from ..source_event_governance import normalize_source_event_ids
+from ..source_event_governance import (
+    normalize_source_event_ids,
+)
 
 _ARCHIVE_REFERENCE_PAGE_SIZE = 500
 _PROJECTION_REFERENCE_PAGE_SIZE = 500
@@ -28,6 +30,7 @@ class ForgetLayerCleanup:
         reason: str,
         prepared_entity_ids: tuple[str, ...] = (),
         entity_refresh_started_at: float | None = None,
+        temporal_turn_references: tuple[str, ...] = (),
     ) -> None:
         normalized = normalize_source_event_ids(references)
         if not normalized:
@@ -50,10 +53,25 @@ class ForgetLayerCleanup:
         if host.l3 is not None:
             await host.l3.forget_source_events(list(normalized))
         if host.l0 is not None:
-            forget_active_entities = getattr(host.l0, "forget_active_entities", None)
-            if callable(forget_active_entities):
-                await forget_active_entities(normalized)
-            await host.l0.forget_temporary_tactics(normalized)
+            turn_cutoff_ids = set(
+                normalize_source_event_ids(temporal_turn_references)
+            )
+            remove_temporal = getattr(
+                host.l0,
+                "remove_attention_for_turn_cutoffs",
+                None,
+            )
+            if turn_cutoff_ids and callable(remove_temporal):
+                await remove_temporal(turn_cutoff_ids)
+            permanent_references = tuple(
+                reference
+                for reference in normalized
+                if reference not in turn_cutoff_ids
+            )
+            if permanent_references:
+                await host.l0.forget_attention_items(
+                    permanent_references
+                )
         if host.l4 is not None:
             await host.l4.forget_source_events(
                 normalized,

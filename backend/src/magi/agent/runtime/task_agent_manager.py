@@ -233,6 +233,21 @@ class TaskAgentManager:
                     "Failed to request chat run cancellation before destructive cleanup | key=%s",
                     agent.runtime_key,
                 )
+        cancel_postprocess = getattr(
+            agent,
+            "cancel_postprocess_for_destructive_change",
+            None,
+        )
+        if callable(cancel_postprocess):
+            try:
+                await cancel_postprocess()
+            except BaseException as exc:
+                if cancel_failure is None:
+                    cancel_failure = exc
+                logger.exception(
+                    "Failed to cancel chat post-processing before destructive cleanup | key=%s",
+                    agent.runtime_key,
+                )
         try:
             await agent.stop()
         except BaseException as stop_failure:

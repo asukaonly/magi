@@ -555,6 +555,76 @@ async def test_unified_clear_removes_archives_and_manual_assets_only(tmp_path) -
     assert not list(archive_dir.glob("*.db*"))
 
 
+async def test_unified_clear_removes_dormant_l0_rows_when_l0_is_disabled(
+    tmp_path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            """
+            INSERT INTO l0_sessions(
+                session_id, status, started_at, last_active_at, metadata
+            ) VALUES ('old-session', 'active', 1, 1, '{}')
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO l0_attention_items(
+                item_id, session_id, kind, summary, status,
+                salience, confidence, evidence_mode,
+                first_seen_at, last_reinforced_at
+            ) VALUES (
+                'old-attention', 'old-session', 'focus', 'private focus',
+                'active', 0.8, 0.9, 'direct', 1, 1
+            )
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO l0_forgotten_attention_source_refs(source_ref, created_at)
+            VALUES ('old-source', 1)
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO l0_forgotten_attention_entities(
+                entity_id, cutoff_at, operation_id, updated_at
+            ) VALUES ('old-entity', 1, 'old-operation', 1)
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO memory_source_turn_cutoffs(
+                turn_id, cutoff_at, reason, updated_at
+            ) VALUES ('old-turn', 1, 'old-forget', 1)
+            """
+        )
+        await db.commit()
+
+    unified = UnifiedMemoryStore(
+        memory_db_path=db_path,
+        persist_dir=str(tmp_path / "memory"),
+        enable_l0=False,
+        enable_l1=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+    )
+    await unified.clear_all_memory()
+
+    async with aiosqlite.connect(db_path) as db:
+        for table in (
+            "l0_attention_items",
+            "l0_sessions",
+            "l0_forgotten_attention_source_refs",
+            "l0_forgotten_attention_entities",
+            "memory_source_turn_cutoffs",
+        ):
+            async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
+                assert await cursor.fetchone() == (0,), table
+
+
 async def test_unified_clear_restarts_pipeline_when_later_quiesce_step_fails(
     tmp_path,
 ) -> None:

@@ -63,7 +63,19 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
     async def test_build_prompt_package_uses_user_message_for_retrieval_query(self):
         retrieval_memory_provider = AsyncMock(
             return_value={
-                "l0_workbench": [{"summary": "Current goal"}],
+                "l0_workbench": [
+                    {
+                        "session": {"session_id": "s1"},
+                        "attention_items": [
+                            {
+                                "kind": "focus",
+                                "summary": "The user is revisiting a refactor discussion.",
+                                "status": "active",
+                                "evidence_mode": "direct",
+                            }
+                        ],
+                    }
+                ],
                 "l2_entity_cards": [{"entity_id": "user:u1"}],
                 "l3_reflection_memory": [{"summary": "User wants to switch jobs"}],
                 "l4_procedural_memory": [{"skill_name": "browser.open"}],
@@ -105,14 +117,28 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("# Recent Tool Errors", package.system_prompt)
         self.assertEqual(
-            package.prompt_context.self_memory.retrieval_memory.l0_workbench[0]["summary"],
-            "Current goal",
+            package.prompt_context.self_memory.retrieval_memory.l0_workbench[0][
+                "attention_items"
+            ][0]["kind"],
+            "focus",
         )
 
     async def test_build_prompt_package_allows_l4_only_for_procedural_opt_in(self):
         retrieval_memory_provider = AsyncMock(
             return_value={
-                "l0_workbench": [{"summary": "Current goal"}],
+                "l0_workbench": [
+                    {
+                        "session": {"session_id": "s1"},
+                        "attention_items": [
+                            {
+                                "kind": "focus",
+                                "summary": "The user is fixing the current bug.",
+                                "status": "active",
+                                "evidence_mode": "direct",
+                            }
+                        ],
+                    }
+                ],
                 "l2_entity_cards": [],
                 "l3_reflection_memory": [],
                 "l4_procedural_memory": [{"skill_name": "repo_fix_flow"}],

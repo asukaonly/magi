@@ -72,7 +72,7 @@ describe('events page', () => {
     vi.clearAllMocks();
 
     vi.mocked(memoryApi.getStatistics).mockResolvedValue({
-      l0: { active_sessions: 1, total_goals: 0, total_entities: 0, total_tactics: 0 },
+      l0: { active_sessions: 1, total_attention_items: 1 },
       l1: { event_count: 1 },
       l2: { relation_count: 0, assertion_count: 0 },
       l3: { summary_count: 0 },
@@ -86,21 +86,34 @@ describe('events page', () => {
           status: 'active',
           started_at: 1710000000,
           last_active_at: 1710000300,
-          goal_count: 0,
-          entity_count: 0,
-          tactic_count: 0,
+          attention_count: 1,
         },
       ],
       total: 1,
       limit: 50,
       offset: 0,
-      stats: { active_sessions: 1, total_goals: 0, total_entities: 0, total_tactics: 0 },
+      stats: { active_sessions: 1, total_attention_items: 1 },
     });
     vi.mocked(memoryApi.getL0Workbench).mockResolvedValue({
       session: { session_id: 's1' },
-      goal_stack: [],
-      active_entities: [],
-      temporary_tactics: [],
+      attention_items: [{
+        item_id: 'attention-1',
+        kind: 'focus',
+        summary: 'Discuss the current memory design',
+        status: 'active',
+        salience: 0.9,
+        confidence: 0.95,
+        evidence_mode: 'direct',
+        source_turn_ids: ['turn-1'],
+        source_event_ids: [],
+        entity_id: null,
+        task_id: null,
+        first_seen_at: 1710000000,
+        last_reinforced_at: 1710000300,
+        expires_at: 1710086400,
+        supersedes_item_id: null,
+        metadata: {},
+      }],
     });
     vi.mocked(memoryApi.getL1Events).mockResolvedValue({
       items: [L1_EVENT],

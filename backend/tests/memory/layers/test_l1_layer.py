@@ -20,8 +20,8 @@ def test_l1_accepts_event_types_is_wildcard():
 def test_l1_accepts_truth_table():
     assert L1Layer(None).accepts(make_event(), FanOutContext()) is False
     layer = L1Layer(AsyncMock())
-    assert layer.accepts(make_event(ingest_target=IngestTarget.L0_AND_L1), FanOutContext())
-    assert not layer.accepts(make_event(ingest_target=IngestTarget.L0_ONLY), FanOutContext())
+    assert layer.accepts(make_event(ingest_target=IngestTarget.L1_ONLY), FanOutContext())
+    assert not layer.accepts(make_event(ingest_target=IngestTarget.RUNTIME_ONLY), FanOutContext())
 
 
 @pytest.mark.asyncio

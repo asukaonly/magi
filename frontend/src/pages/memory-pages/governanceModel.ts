@@ -549,9 +549,10 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
     evidenceCount: toOptionalNumber(session.message_count),
     summary: session.last_message_preview || session.last_user_message_preview || null,
     impact: [
-      { label: label('impact.goals', '目标'), value: toFiniteNumber(session.goal_count) },
-      { label: label('impact.entities', '实体'), value: toFiniteNumber(session.entity_count) },
-      { label: label('impact.tactics', '策略'), value: toFiniteNumber(session.tactic_count) },
+      {
+        label: label('impact.attention', '当前关注'),
+        value: toFiniteNumber(session.attention_count),
+      },
     ],
     listCells: {
       updatedAt: { value: formatTime(session.last_active_at) },

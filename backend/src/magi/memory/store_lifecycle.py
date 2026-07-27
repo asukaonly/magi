@@ -51,6 +51,7 @@ class UnifiedMemoryLifecycleMixin:
     _write_lock: Any
     _clear_barrier: Any
     _clear_epoch: int
+    _post_turn_forget_operations: set[str]
     _initialized: bool
 
     async def initialize(self) -> None:
@@ -199,8 +200,17 @@ class UnifiedMemoryLifecycleMixin:
         return self._clear_barrier.operation()
 
     def memory_operation_epoch(self) -> int:
-        """Return the process-local epoch used to reject pre-clear queued work."""
+        """Return the process-local epoch used to reject stale queued work."""
         return int(self._clear_epoch)
+
+    def _activate_post_turn_forget_epoch(self, operation_id: str) -> None:
+        """Fence post-turn work admitted before one forget operation."""
+
+        normalized = str(operation_id or "").strip()
+        if not normalized or normalized in self._post_turn_forget_operations:
+            return
+        self._post_turn_forget_operations.add(normalized)
+        self._clear_epoch += 1
 
     async def _quiesce_memory_writers(self) -> None:
         if self.l2_pipeline is not None:

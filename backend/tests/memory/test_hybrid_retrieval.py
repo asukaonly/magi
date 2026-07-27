@@ -11,6 +11,11 @@ async def test_detail_mode_prefers_l0_and_l1(tmp_path):
     from magi.memory import UnifiedMemoryStore
     from magi.memory.hybrid_retrieval.models import RetrievalQuery
     from magi.memory.hybrid_retrieval.service import HybridRetrievalService
+    from magi.memory.l0.attention import (
+        AttentionActionType,
+        AttentionKind,
+        AttentionUpdateAction,
+    )
 
     store = UnifiedMemoryStore(
         l1_db_path=str(tmp_path / "l1_events.db"),
@@ -19,14 +24,18 @@ async def test_detail_mode_prefers_l0_and_l1(tmp_path):
     )
     await store.initialize()
     try:
-        await store.add_event(
-            Event(
-                type="WORKER_AGENT_PROGRESS",
-                data={"user_id": "u1", "session_id": "s1", "content": "thinking"},
-                source="worker",
-                level=EventLevel.INFO,
-                correlation_id="corr-1",
-            )
+        await store.l0.apply_attention_actions(
+            session_id="s1",
+            actions=(
+                AttentionUpdateAction(
+                    action=AttentionActionType.ADD,
+                    kind=AttentionKind.FOCUS,
+                    summary="Discussing stress at work",
+                    source_turn_ids=("turn-1",),
+                ),
+            ),
+            expected_revision=0,
+            last_processed_turn_id="turn-1",
         )
         await store.add_event(
             Event(

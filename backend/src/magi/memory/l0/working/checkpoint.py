@@ -1,4 +1,4 @@
-"""Checkpoint persistence mixin for L0 working memory."""
+"""Checkpoint persistence for L0 session attention."""
 
 from __future__ import annotations
 
@@ -11,32 +11,24 @@ import aiosqlite
 from ....core.sqlite import sqlite_connection_async
 from .schema import clear_l0_checkpoint_tables
 from .serialization import (
-    active_entity_key,
     encode_json,
-    row_to_active_entity,
-    row_to_goal,
+    row_to_attention_item,
     row_to_session,
-    row_to_tactic,
 )
-from .source_forgetting import (
-    filter_active_entities_by_governance,
-    forgotten_tactic_source_references,
-    tactic_source_references,
-)
+from .source_forgetting import filter_attention_items_by_governance
 
 
 class L0CheckpointMixin:
-    """Persist and restore L0 working-memory checkpoint state."""
+    """Persist and restore disposable session attention."""
 
     checkpoint_db_path: str
     _sessions: dict[str, dict[str, Any]]
-    _goal_stack: dict[str, list[dict[str, Any]]]
-    _active_entities: dict[str, dict[tuple[str, str], dict[str, Any]]]
-    _temporary_tactics: dict[str, dict[str, dict[str, Any]]]
+    _attention_items: dict[str, dict[str, dict[str, Any]]]
     _checkpoint_lock: asyncio.Lock
 
     async def checkpoint_session(self, session_id: str) -> None:
-        """Persist a single session workbench into the checkpoint database."""
+        """Persist one session attention frame."""
+
         scheduled = getattr(self, "_checkpoint_tasks", {}).get(session_id)
         if scheduled is not None and scheduled is not asyncio.current_task():
             getattr(self, "_cancel_scheduled_checkpoint")(session_id)
@@ -45,12 +37,16 @@ class L0CheckpointMixin:
             if session is None:
                 return
             now = time.time()
-
             async with sqlite_connection_async(self.checkpoint_db_path) as db:
-                await self._upsert_checkpoint_session(db, session=session, now=now)
-                await self._replace_checkpoint_goals(db, session_id=session_id)
-                await self._replace_checkpoint_active_entities(db, session_id=session_id)
-                await self._replace_checkpoint_tactics(db, session_id=session_id)
+                await self._upsert_checkpoint_session(
+                    db,
+                    session=session,
+                    now=now,
+                )
+                await self._replace_checkpoint_attention(
+                    db,
+                    session_id=session_id,
+                )
                 await db.commit()
             session["last_checkpoint_at"] = now
 
@@ -88,97 +84,53 @@ class L0CheckpointMixin:
             ),
         )
 
-    async def _replace_checkpoint_goals(
+    async def _replace_checkpoint_attention(
         self,
         db: aiosqlite.Connection,
         *,
         session_id: str,
     ) -> None:
-        await db.execute("DELETE FROM l0_goal_stack WHERE session_id = ?", (session_id,))
-        for goal in self._goal_stack.get(session_id, []):
+        await db.execute(
+            "DELETE FROM l0_attention_items WHERE session_id = ?",
+            (session_id,),
+        )
+        for item in self._attention_items.get(session_id, {}).values():
             await db.execute(
                 """
-                INSERT INTO l0_goal_stack(
-                    session_id, goal_id, parent_goal_id, goal_type, description,
-                    status, priority, created_at, started_at, completed_at,
-                    result_summary, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO l0_attention_items(
+                    item_id, session_id, kind, summary, status,
+                    salience, confidence, evidence_mode,
+                    source_turn_ids, source_event_ids,
+                    entity_id, task_id, task_attempt,
+                    first_seen_at, last_reinforced_at,
+                    expires_at, supersedes_item_id, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    item["item_id"],
                     session_id,
-                    goal["goal_id"],
-                    goal.get("parent_goal_id"),
-                    goal["goal_type"],
-                    goal["description"],
-                    goal["status"],
-                    int(goal["priority"]),
-                    float(goal["created_at"]),
-                    goal.get("started_at"),
-                    goal.get("completed_at"),
-                    goal.get("result_summary"),
-                    encode_json(goal.get("metadata", {})),
-                ),
-            )
-
-    async def _replace_checkpoint_active_entities(
-        self,
-        db: aiosqlite.Connection,
-        *,
-        session_id: str,
-    ) -> None:
-        await db.execute("DELETE FROM l0_active_entities WHERE session_id = ?", (session_id,))
-        for entity in self._active_entities.get(session_id, {}).values():
-            await db.execute(
-                """
-                INSERT INTO l0_active_entities(
-                    session_id, entity_id, entity_type, relevance_score,
-                    snapshot_json, source_event_ids, loaded_at,
-                    last_accessed_at, access_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    session_id,
-                    entity["entity_id"],
-                    entity["entity_type"],
-                    float(entity["relevance_score"]),
-                    encode_json(entity["snapshot"]),
-                    encode_json(entity.get("source_event_ids", [])),
-                    float(entity["loaded_at"]),
-                    float(entity["last_accessed_at"]),
-                    int(entity["access_count"]),
-                ),
-            )
-
-    async def _replace_checkpoint_tactics(
-        self,
-        db: aiosqlite.Connection,
-        *,
-        session_id: str,
-    ) -> None:
-        await db.execute("DELETE FROM l0_temporary_tactics WHERE session_id = ?", (session_id,))
-        for tactic in self._temporary_tactics.get(session_id, {}).values():
-            await db.execute(
-                """
-                INSERT INTO l0_temporary_tactics(
-                    tactic_id, session_id, scope_type, scope_id, tactic_type,
-                    tactic_payload, source_event_ids, expires_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    tactic["tactic_id"],
-                    session_id,
-                    tactic["scope_type"],
-                    tactic["scope_id"],
-                    tactic["tactic_type"],
-                    encode_json(tactic["tactic_payload"]),
-                    encode_json(tactic["source_event_ids"]),
-                    tactic.get("expires_at"),
-                    float(tactic["created_at"]),
+                    item["kind"],
+                    item["summary"],
+                    item["status"],
+                    float(item["salience"]),
+                    float(item["confidence"]),
+                    item["evidence_mode"],
+                    encode_json(item.get("source_turn_ids", [])),
+                    encode_json(item.get("source_event_ids", [])),
+                    item.get("entity_id"),
+                    item.get("task_id"),
+                    item.get("task_attempt"),
+                    float(item["first_seen_at"]),
+                    float(item["last_reinforced_at"]),
+                    item.get("expires_at"),
+                    item.get("supersedes_item_id"),
+                    encode_json(item.get("metadata", {})),
                 ),
             )
 
     async def checkpoint_all(self) -> None:
-        """Persist every active session."""
+        """Persist every active attention frame."""
+
         first_error: Exception | None = None
         for session_id in list(self._sessions):
             try:
@@ -190,20 +142,18 @@ class L0CheckpointMixin:
             raise first_error
 
     async def clear(self) -> int:
-        """Delete all L0 sessions from memory and checkpoints."""
+        """Delete all L0 sessions, attention, and local barriers."""
+
         await self.initialize()
         async with self._checkpoint_lock:
             count = len(self._sessions)
             async with sqlite_connection_async(self.checkpoint_db_path) as db:
                 await clear_l0_checkpoint_tables(db)
                 await db.commit()
-
             for session_id in list(self._sessions):
                 getattr(self, "_cancel_scheduled_checkpoint")(session_id)
             self._sessions.clear()
-            self._goal_stack.clear()
-            self._active_entities.clear()
-            self._temporary_tactics.clear()
+            self._attention_items.clear()
         return count
 
     async def _restore_from_checkpoint(self) -> None:
@@ -218,22 +168,41 @@ class L0CheckpointMixin:
                 session_rows = await cursor.fetchall()
 
             now = time.time()
-            idle_cutoff = now - float(getattr(self, "session_timeout_seconds", 3600))
+            await db.execute(
+                """
+                DELETE FROM l0_attention_items
+                WHERE expires_at IS NOT NULL AND expires_at <= ?
+                """,
+                (now,),
+            )
+            async with db.execute(
+                "SELECT DISTINCT session_id FROM l0_attention_items"
+            ) as cursor:
+                sessions_with_live_attention = {
+                    str(row["session_id"])
+                    for row in await cursor.fetchall()
+                }
+            idle_cutoff = now - float(
+                getattr(self, "session_timeout_seconds", 3600)
+            )
             disposable_rows = sorted(
                 (
                     row
                     for row in session_rows
                     if str(row["status"] or "") == "active"
-                    and float(row["last_active_at"] or 0.0) >= idle_cutoff
+                    and (
+                        float(row["last_active_at"] or 0.0) >= idle_cutoff
+                        or str(row["session_id"]) in sessions_with_live_attention
+                    )
                 ),
                 key=lambda row: float(row["last_active_at"] or 0.0),
                 reverse=True,
             )
-            disposable_capacity = max(
+            capacity = max(
                 0,
                 int(getattr(self, "max_concurrent_sessions", 64)),
             )
-            selected_rows = disposable_rows[:disposable_capacity]
+            selected_rows = disposable_rows[:capacity]
             restored_session_ids = {
                 str(row["session_id"]) for row in selected_rows
             }
@@ -245,79 +214,45 @@ class L0CheckpointMixin:
                     db,
                     rejected_session_ids,
                 )
-            if restored_session_ids:
-                await db.executemany(
-                    "UPDATE l0_sessions SET status = 'active' WHERE session_id = ?",
-                    [(session_id,) for session_id in sorted(restored_session_ids)],
-                )
-            await db.execute(
-                """
-                DELETE FROM l0_goal_stack
-                WHERE status IN ('completed', 'failed', 'cancelled')
-                """
-            )
-            await db.execute(
-                """
-                DELETE FROM l0_temporary_tactics
-                WHERE expires_at IS NOT NULL AND expires_at <= ?
-                """,
-                (now,),
-            )
             await db.commit()
 
             for row in selected_rows:
                 session = row_to_session(row)
                 session["status"] = "active"
-                self._sessions[str(session["session_id"])] = session
-            for session_id in restored_session_ids:
-                self._goal_stack.setdefault(session_id, [])
-                self._active_entities.setdefault(session_id, {})
-                self._temporary_tactics.setdefault(session_id, {})
+                session_id = str(session["session_id"])
+                self._sessions[session_id] = session
+                self._attention_items.setdefault(session_id, {})
 
-            async with db.execute("SELECT * FROM l0_goal_stack ORDER BY created_at ASC") as cursor:
-                async for row in cursor:
-                    session_id = str(row["session_id"])
-                    if session_id not in restored_session_ids:
-                        continue
-                    self._goal_stack.setdefault(session_id, []).append(row_to_goal(row))
-
-            async with db.execute("SELECT * FROM l0_active_entities") as cursor:
-                active_entity_rows = await cursor.fetchall()
-            restored_entities = [
-                (str(row["session_id"]), active_entity_key(row), row_to_active_entity(row))
-                for row in active_entity_rows
-            ]
-            governed_entities = await filter_active_entities_by_governance(
-                db,
-                (entity for _, _, entity in restored_entities),
-            )
-            governed_object_ids = {id(entity) for entity in governed_entities}
-            for session_id, key, entity in restored_entities:
+            async with db.execute(
+                "SELECT * FROM l0_attention_items"
+            ) as cursor:
+                rows = await cursor.fetchall()
+            restored_items: list[tuple[str, dict[str, Any]]] = []
+            for row in rows:
+                session_id = str(row["session_id"])
                 if session_id not in restored_session_ids:
                     continue
-                if id(entity) not in governed_object_ids:
-                    continue
-                self._active_entities.setdefault(session_id, {})[key] = entity
-
-            async with db.execute("SELECT * FROM l0_temporary_tactics") as cursor:
-                tactic_rows = await cursor.fetchall()
-            tactics = [(str(row["session_id"]), row_to_tactic(row)) for row in tactic_rows]
-            forgotten_references = await forgotten_tactic_source_references(
+                try:
+                    restored_items.append(
+                        (session_id, row_to_attention_item(row))
+                    )
+                except (TypeError, ValueError):
+                    await db.execute(
+                        "DELETE FROM l0_attention_items WHERE item_id = ?",
+                        (str(row["item_id"]),),
+                    )
+            governed = await filter_attention_items_by_governance(
                 db,
-                {
-                    reference
-                    for _, tactic in tactics
-                    for reference in tactic_source_references(tactic)
-                },
+                (item for _, item in restored_items),
             )
-            for session_id, tactic in tactics:
-                if session_id not in restored_session_ids:
-                    continue
-                if tactic_source_references(tactic) & forgotten_references:
-                    continue
-                self._temporary_tactics.setdefault(session_id, {})[
-                    str(tactic["tactic_id"])
-                ] = tactic
+            governed_ids = {str(item["item_id"]) for item in governed}
+            for session_id, item in restored_items:
+                item_id = str(item["item_id"])
+                if item_id in governed_ids:
+                    self._attention_items.setdefault(session_id, {})[
+                        item_id
+                    ] = item
+            await db.commit()
 
     @staticmethod
     async def _delete_checkpoint_sessions(
@@ -325,12 +260,7 @@ class L0CheckpointMixin:
         session_ids: set[str],
     ) -> None:
         params = [(session_id,) for session_id in sorted(session_ids)]
-        for table in (
-            "l0_goal_stack",
-            "l0_active_entities",
-            "l0_temporary_tactics",
-            "l0_sessions",
-        ):
+        for table in ("l0_attention_items", "l0_sessions"):
             await db.executemany(
                 f"DELETE FROM {table} WHERE session_id = ?",
                 params,
@@ -340,7 +270,7 @@ class L0CheckpointMixin:
         self,
         db: aiosqlite.Connection,
     ) -> None:
-        """Discard malformed JSON rows without failing the entire L0 restore."""
+        """Discard malformed JSON rows without failing the remaining restore."""
 
         async with db.execute(
             """
@@ -353,53 +283,35 @@ class L0CheckpointMixin:
             """
         ) as cursor:
             malformed_session_ids = {
-                str(row["session_id"]) for row in await cursor.fetchall()
+                str(row["session_id"])
+                for row in await cursor.fetchall()
             }
         if malformed_session_ids:
-            await self._delete_checkpoint_sessions(db, malformed_session_ids)
+            await self._delete_checkpoint_sessions(
+                db,
+                malformed_session_ids,
+            )
 
-        for table, condition in (
-            (
-                "l0_goal_stack",
-                """
-                CASE
-                    WHEN json_valid(metadata) THEN json_type(metadata) != 'object'
-                    ELSE 1
-                END
-                """,
-            ),
-            (
-                "l0_active_entities",
-                """
-                CASE
-                    WHEN json_valid(snapshot_json)
-                    THEN json_type(snapshot_json) != 'object'
-                    ELSE 1
-                END
-                OR CASE
-                    WHEN json_valid(source_event_ids)
-                    THEN json_type(source_event_ids) != 'array'
-                    ELSE 1
-                END
-                """,
-            ),
-            (
-                "l0_temporary_tactics",
-                """
-                CASE
-                    WHEN json_valid(tactic_payload)
-                    THEN json_type(tactic_payload) != 'object'
-                    ELSE 1
-                END
-                OR CASE
-                    WHEN json_valid(source_event_ids)
-                    THEN json_type(source_event_ids) != 'array'
-                    ELSE 1
-                END
-                """,
-            ),
-        ):
-            await db.execute(f"DELETE FROM {table} WHERE {condition}")
+        await db.execute(
+            """
+            DELETE FROM l0_attention_items
+            WHERE CASE
+                WHEN json_valid(source_turn_ids)
+                THEN json_type(source_turn_ids) != 'array'
+                ELSE 1
+            END
+            OR CASE
+                WHEN json_valid(source_event_ids)
+                THEN json_type(source_event_ids) != 'array'
+                ELSE 1
+            END
+            OR CASE
+                WHEN json_valid(metadata)
+                THEN json_type(metadata) != 'object'
+                ELSE 1
+            END
+            """
+        )
         await db.commit()
 
 

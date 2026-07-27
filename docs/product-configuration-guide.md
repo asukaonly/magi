@@ -339,9 +339,10 @@ Magi now exposes a lifecycle-based memory system instead of the older feature-st
 
 The current conceptual model is:
 
-- `L0`: working context
-  Optional short-lived goals, active entities, and temporary tactics for the
-  current work; it does not own chat execution recovery
+- `L0`: short-term attention
+  A bounded, disposable projection of the current focus, current situation,
+  open loops, active objects and their relevance, and local constraints needed
+  to receive the next conversational turn naturally
 
 - `L1`: event memory
   Long-term normalized source events and the factual base for later recall
@@ -363,8 +364,8 @@ Product expectations:
 - L0-L4 workbench and inspector surfaces should be treated as expert/operator tooling, not as the default user memory experience
 - first-run onboarding should not force detailed memory tuning
 - settings should expose the main lifecycle toggles and key pipeline switches
-- the L0 toggle description should name goals, active entities, and temporary
-  tactics; it must not promise chat or crash recovery
+- the L0 toggle description should explain short-term attention and continuity;
+  it must not promise transcript storage, task recovery, or crash recovery
 - general memory settings should expose a global hot-memory retention window, whether aged history is deleted or archived, and the archive directory when archiving is selected
 - the managed memory storage directory remains an internal runtime path until live path switching and migration are supported safely
 - general memory settings should also expose retrieval reranker controls, including whether LLM reranking is enabled, whether it runs locally or remotely, and where managed local reranker models are stored
@@ -378,9 +379,16 @@ Product expectations:
 The current settings surface should support at least:
 
 - enable or disable `L0` through `L4`
-- configure the maximum delay before changed L0 state is checkpointed; its idle
-  timeout affects only temporary workbench relevance and never cancels or
-  recovers chat work
+- configure how many newly accepted complete turns trigger an L0 attention
+  update; the default is 3, with an allowed range of 1 through 20
+- configure the conversational idle delay before pending accepted turns are
+  understood; the default is 30 seconds, with an allowed range of 1 through 300
+- configure the hard maximum attention-update delay from the first pending
+  accepted turn; the default is 90 seconds, with an allowed range of 1 through
+  600 and it must not be shorter than the idle delay. This deadline applies
+  only while the in-process attention scheduler remains running
+- configure the separate maximum delay before already changed L0 state is
+  checkpointed
 - configure a global memory retention window
 - choose whether aged history is deleted or archived into date-partitioned archive databases, with a configurable archive directory
 - enable or disable memory retrieval reranking
@@ -397,6 +405,20 @@ Important behavioral rules:
 
 - `L1` is the long-term foundation
 - `L2`, `L3`, and `L4` depend on `L1`
+- `L0` is derived short-term attention, not transcript truth or durable user
+  truth
+- an L0 update may begin only after an accepted complete turn is durable and
+  terminal; it affects later turns and never feeds the current user message
+  back into its own answer
+- active L0 attention is injected directly in a small labelled block, while
+  background attention is included only after a current-message relevance
+  match and is labelled as reference-only rather than a new instruction. That
+  inclusion does not change the stored item back to active
+- L0 may help formulate a long-term-memory query but does not enter the L1-L4
+  retrieval index
+- post-turn understanding should be shared across L0, personality, and
+  durable-memory candidate extraction when practical, while each destination
+  keeps independent validation and storage authority
 - runtime telemetry should not be treated as equivalent to user-authored memory
 - user-visible chat transcript is not owned by `L1`; it is owned by the dedicated chat domain store
 - expert memory controls belong in Settings and operator tooling, not first-run onboarding
@@ -440,6 +462,21 @@ Current storage implementation notes:
 - when history behavior is `archive`, aged-out hot-path events are copied into the configured archive directory as `YYYY-MM-DD.db` before being removed from the active L1 projection; the default archive directory is `data/memory/archive/`.
 - the global hot-memory retention window currently applies to active L1 history projections and L3 history summaries; it does not prune L2 knowledge or L4 skills.
 - L0/L2/L3/L4 are consolidated into `data/memory/memory.db` (multi-table layout).
+- Workbench Memory owns four distinct timing controls:
+  `checkpoint_interval_seconds` persists an already changed projection;
+  `attention_update_turn_threshold` defaults to 3 accepted turns;
+  `attention_update_idle_seconds` defaults to 30 seconds; and
+  `attention_update_max_delay_seconds` defaults to 90 seconds. The final three
+  decide when pending turns are understood and must not be described as
+  checkpoint, transcript-retention, or task-recovery settings.
+- pending L0 analysis batches and their retry timers are in-process only.
+  Normal quit makes a best-effort flush with a five-second budget; force quit,
+  a crash, or a timed-out flush may drop pending analysis. Restart restores
+  checkpointed attention but does not replay a durable L0 analysis queue
+- L0 item expiry is currently fixed by item kind rather than exposed in
+  Settings: six hours for current situations, 24 hours for focus, active
+  objects, constraints, and recent consensus, 72 hours for open loops, and one
+  hour of non-prompt retention for resolved or superseded items
 - Layer vectors are stored per layer (`L1/L2 entity/L2 relation/L3/L4` vector tables) instead of a shared `embeddings.db`.
 - The vector backend is fixed to sqlite and vector writes stay async; Settings no longer exposes backend or scheduling switches.
 - Vector table identity is strict for incompatible embeddings. Remote vectors are keyed by model, dimension, and text-builder version; local vectors are keyed by model file hash, dimension, and text-builder version. Provider provenance changes are surfaced as warnings but do not invalidate the hard identity by themselves.

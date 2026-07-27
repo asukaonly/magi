@@ -75,7 +75,19 @@ class MemoryL0Settings(BaseModel):
 
     enabled: bool = Field(default=True)
     checkpoint_interval_seconds: int = Field(default=30, ge=1)
-    runtime_replay_include_l0_only: bool = Field(default=False)
+    attention_update_turn_threshold: int = Field(default=3, ge=1, le=20)
+    attention_update_idle_seconds: int = Field(default=30, ge=1, le=300)
+    attention_update_max_delay_seconds: int = Field(default=90, ge=1, le=600)
+
+    @model_validator(mode="after")
+    def validate_attention_update_delays(self) -> "MemoryL0Settings":
+        """Keep the hard update deadline at or beyond the idle deadline."""
+        if self.attention_update_max_delay_seconds < self.attention_update_idle_seconds:
+            raise ValueError(
+                "attention_update_max_delay_seconds must be greater than or equal to "
+                "attention_update_idle_seconds"
+            )
+        return self
 
 
 class MemoryL1Settings(BaseModel):

@@ -477,9 +477,69 @@ conversation cache or schedule memory and reflection work. A failed persistence
 step or a stale attempt therefore cannot teach the system an answer that was not
 accepted as the durable result for that turn.
 
-This is durable at-least-once admission, not exactly-once execution. The queue
-cannot atomically commit arbitrary model or tool side effects. Chat completion
-must converge on the existing stable turn and final-message records, and any
+The same boundary feeds short-term attention. Chat post-processing registers
+the newly accepted complete turn with the shared post-turn understanding
+service; it does not write a raw user message directly into L0. The service
+batches pending accepted turns per session and may produce an L0 attention
+delta, personality or relationship observations, and durable-memory
+candidates in one bounded model call. Those products keep separate validators
+and storage owners, so sharing a model call does not let an L0 inference bypass
+long-term-memory evidence rules.
+
+The default L0 understanding triggers are three newly accepted turns, 30
+seconds of conversational idle time, or a hard 90-second delay from the first
+pending accepted turn. They are configured by
+`attention_update_turn_threshold`, `attention_update_idle_seconds`, and
+`attention_update_max_delay_seconds` under the L0 settings. The idle timer may
+move with new activity; the hard deadline may not. Explicit correction, topic
+closure, an important current-state change, a new local constraint, or a
+promise that must survive into the next turn may request an immediate flush
+when it matches the scheduler's conservative message patterns or an explicitly
+urgent fact kind; unmatched wording follows the normal batch timers. The
+scheduler suppresses repeated enqueue attempts for the same turn only while
+that scheduler instance still remembers it. It does not currently guarantee
+that acknowledgement-only turns are filtered before a later model batch.
+
+This understanding is asynchronous and cannot delay an accepted reply. One
+runtime-scoped service owns its pending queue, retry timers, deduplication, and
+task-attempt lifecycle updates across chat-agent instances. Updates for the
+same session are serialized, while at most two model analyses run across
+different sessions. Failed batches retry with bounded exponential backoff. An
+older base revision cannot overwrite a newer attention frame: the same fixed
+batch is read against the new frame and re-analyzed. Forgetting is checked
+before and after analysis and again before each destination write; a partially
+forgotten batch is re-analyzed with only its surviving turns. The current user
+message is never inserted into L0 before answering that same message.
+
+Queued turns retain the durable response commit time rather than the detached
+enqueue time. Activating any durable forget request advances the runtime memory
+epoch and makes its post-turn boundary visible even when L0 is disabled.
+Prepared chat deletion intents take effect only after their runtime barrier is
+activated. Deletion pages also publish shared cutoffs for exact raw turn
+identities. Attention writes and restart restore recheck the original
+source-turn times, so delayed analysis or a later background-task notification
+cannot make old evidence appear newer. A genuinely new accepted outcome after
+a temporal cutoff remains eligible unless its source identity was permanently
+forgotten.
+
+Ordinary chat-agent eviction leaves the shared queue running. Runtime shutdown
+gathers detached attention-enqueue tasks and gives the scheduler up to five
+seconds to force-flush pending batches; a timeout cancels what remains. A forced
+process termination loses pending attention work and any L0 mutation that has
+not reached its debounced checkpoint. Startup restores checkpointed L0 items
+but does not reconstruct a missed analysis queue from chat history. Shared
+post-turn destinations also do not commit atomically: a
+personality or durable-observation write can fail after L0 has changed, and
+those best-effort failures are logged without keeping the batch queued. An
+unexpected exception after an earlier write can instead cause the scheduler to
+retry the batch. L0 post-turn processing is therefore neither atomic,
+exactly-once, nor durable at-least-once. Durable chat history still supplies
+ordinary conversation context when L0 is delayed or absent.
+
+Inbound chat command admission has a different contract: it is durable
+at-least-once admission, not exactly-once execution. That queue cannot
+atomically commit arbitrary model or tool side effects. Chat completion must
+converge on the existing stable turn and final-message records, and any
 external side effect must provide its own idempotency keyed by the stable turn
 or message identity.
 
@@ -671,9 +731,15 @@ either still admitted or already prepared as ready work; startup recovery can
 advance and schedule it. Scheduling failure leaves a ready attempt for the
 normal retry path. The runtime never mints a replacement turn ID.
 
-L0 expiration applies only to disposable workbench state and is independent of
-live or admitted chat work. This makes timeout a relevance policy for temporary
-context, not a cancellation or recovery mechanism.
+L0 expiration applies only to disposable short-term attention and is
+independent of live or admitted chat work. This makes timeout a relevance
+fallback for temporary context, not a cancellation or recovery mechanism.
+Current item deadlines are six hours for current situations, 24 hours for
+focus, active objects, constraints, and recent consensus, and 72 hours for open
+loops; resolved or superseded items remain inspectable for one hour but are
+excluded from prompts. Reads and restart restore enforce item expiry. Idle
+session cleanup removes a session only after its remaining attention has also
+expired, so physical row deletion may lag logical prompt expiry.
 
 AUGMENT and STEER share the same persistent queue and the same supersession shape but differ in when and how they are consumed:
 
@@ -729,9 +795,18 @@ work; it does not preempt provider requests that have already started.
 Current implicit-memory policy is intentionally conservative:
 
 - default implicit injection is `L0` only
-- L0 is rendered as explicit current goals, active entity names/types, and
-  temporary tactic summaries; structured workbench objects must not collapse
-  into an empty placeholder
+- active L0 items that pass confidence and salience thresholds are rendered in
+  a small block explicitly labelled as short-term context; current focus,
+  current situation, open loops, active objects with their relevance, and
+  local constraints remain distinct instead of collapsing into an unlabelled
+  summary
+- a sufficiently supported background item is included only when its summary
+  or linked identity shares normalized terms with the current message. It is
+  rendered in a separate reference-only section that explicitly says it is not
+  a new instruction; this prompt selection does not change its stored status
+  back to active
+- L0 may resolve references or shape an explicit long-term-memory query, but it
+  is not part of the L1-L4 retrieval index
 - user profile and preferences still come from personality/profile memory, not retrieval payload expansion
 - `L4` procedural memory is opt-in and currently requires a user message that explicitly asks to reuse a prior workflow or usual process
 - `L2` and `L3` are not injected implicitly by default and should instead flow through explicit memory/tool usage when needed
@@ -1449,7 +1524,8 @@ The current memory write path is:
 
 1. runtime or timeline code emits a raw event or fact
 2. `MemoryIntegrationModule` normalizes it into a memory event contract
-3. routing decides whether it is `l0_only`, `l0_and_l1`, or `l1_only`
+3. routing decides whether it is `runtime_only` or `l1_only`; L0 is not an
+   event-ingest target
 4. `UnifiedMemoryStore` writes it into the enabled lifecycle stages
 5. `L1`-backed cognition work is recorded as durable `l2_projection_jobs` in `memory.db`
 6. `L2Pipeline` claims those jobs inside `runtime_worker`, moves them through `queued -> running`, batches them locally, and writes derived cognition state
@@ -1458,7 +1534,9 @@ The current memory write path is:
 Two rules matter here:
 
 - high-frequency runtime telemetry should not automatically participate in long-term cognition
-- `L1` is the durable source of truth for long-term memory, while `L0` remains a bounded current-task workbench
+- `L1` is the durable source of truth for long-term memory, while `L0` remains
+  a bounded, disposable projection of what still matters for the next
+  conversational turn
 - `ActionExecuted` stays execution-scoped and does not enter `L1`, even though its outcome may still update `L4` procedural memory
 - `L2` progress is tracked by durable projection jobs, while microbatching remains an in-process execution optimization
 

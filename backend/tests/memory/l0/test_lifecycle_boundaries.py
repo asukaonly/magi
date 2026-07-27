@@ -1,265 +1,65 @@
+"""Lifecycle and checkpoint boundary tests for L0 attention."""
+
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 import time
 
 import pytest
 
+from magi.memory.l0.attention import (
+    AttentionActionType,
+    AttentionKind,
+    AttentionUpdateAction,
+)
 from magi.memory.l0.working_memory import L0WorkingMemoryStore
-from magi.memory.l0.working import checkpoint as checkpoint_lifecycle
-from magi.memory.l0.working import sessions as session_lifecycle
 
 
-@pytest.mark.asyncio
-async def test_idle_expiry_removes_disposable_workbench(tmp_path) -> None:
-    store = L0WorkingMemoryStore(
+def _store(tmp_path, **overrides) -> L0WorkingMemoryStore:
+    return L0WorkingMemoryStore(
         checkpoint_db_path=str(tmp_path / "memory.db"),
-        session_timeout_seconds=1,
+        checkpoint_interval_seconds=overrides.pop(
+            "checkpoint_interval_seconds",
+            1,
+        ),
+        session_timeout_seconds=overrides.pop("session_timeout_seconds", 60),
+        restore_on_restart=overrides.pop("restore_on_restart", True),
+        max_concurrent_sessions=overrides.pop("max_concurrent_sessions", 64),
+        **overrides,
     )
-    await store.initialize()
-    await store.start_session(session_id="session-idle")
-    store._sessions["session-idle"]["last_active_at"] = time.time() - 60
 
-    assert await store.expire_idle_sessions() == ["session-idle"]
-    assert (await store.get_workbench("session-idle"))["session"] is None
-    await store.shutdown()
+
+def _add(turn_id: str, summary: str) -> AttentionUpdateAction:
+    return AttentionUpdateAction(
+        action=AttentionActionType.ADD,
+        kind=AttentionKind.FOCUS,
+        summary=summary,
+        source_turn_ids=(turn_id,),
+        confidence=0.9,
+        salience=0.8,
+    )
 
 
 @pytest.mark.asyncio
-async def test_capacity_evicts_least_recent_workbench(tmp_path) -> None:
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(tmp_path / "memory.db"),
-        max_concurrent_sessions=1,
-    )
-    await store.initialize()
-    await store.start_session(session_id="session-old")
-    store._sessions["session-old"]["last_active_at"] = time.time() - 60
-
-    await store.start_session(session_id="session-new")
-
-    assert set(store._sessions) == {"session-new"}
-    await store.shutdown()
-
-
-def test_synchronous_admission_never_overflows_capacity(tmp_path) -> None:
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(tmp_path / "memory.db"),
-        max_concurrent_sessions=1,
-        restore_on_restart=False,
-    )
-    store.push_goal_sync(
-        session_id="session-1",
-        goal_id="goal-1",
-        goal_type="task",
-        description="first session",
-    )
-
-    store.push_goal_sync(
-        session_id="session-2",
-        goal_id="goal-2",
-        goal_type="task",
-        description="second session",
-    )
-
-    assert set(store._sessions) == {"session-2"}
-
-
-@pytest.mark.asyncio
-async def test_expiry_failure_keeps_live_session_state(tmp_path, monkeypatch) -> None:
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(tmp_path / "memory.db"),
-        session_timeout_seconds=1,
-    )
-    await store.initialize()
-    await store.start_session(session_id="session-1")
-    store._sessions["session-1"]["last_active_at"] = time.time() - 60
-
-    @asynccontextmanager
-    async def _broken_connection(*args, **kwargs):
-        raise RuntimeError("database unavailable")
-        yield
-
-    monkeypatch.setattr(
-        session_lifecycle,
-        "sqlite_connection_async",
-        _broken_connection,
-    )
-
-    with pytest.raises(RuntimeError, match="database unavailable"):
-        await store.expire_idle_sessions()
-    assert "session-1" in store._sessions
-    monkeypatch.undo()
-    await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_clear_failure_keeps_live_session_state(tmp_path, monkeypatch) -> None:
-    store = L0WorkingMemoryStore(checkpoint_db_path=str(tmp_path / "memory.db"))
-    await store.initialize()
-    await store.start_session(session_id="session-1")
-
-    @asynccontextmanager
-    async def _broken_connection(*args, **kwargs):
-        raise RuntimeError("database unavailable")
-        yield
-
-    monkeypatch.setattr(
-        checkpoint_lifecycle,
-        "sqlite_connection_async",
-        _broken_connection,
-    )
-
-    with pytest.raises(RuntimeError, match="database unavailable"):
-        await store.clear()
-    assert "session-1" in store._sessions
-    monkeypatch.undo()
-    await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_restore_discards_expired_workbench(tmp_path) -> None:
-    checkpoint_path = tmp_path / "memory.db"
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=9999,
-        session_timeout_seconds=1,
-    )
-    await store.initialize()
-    await store.start_session(session_id="session-disposable")
-    store._sessions["session-disposable"]["last_active_at"] = time.time() - 60
-    await store.checkpoint_session("session-disposable")
-
-    restored = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=9999,
-        session_timeout_seconds=1,
-    )
-    await restored.initialize()
-
-    assert (await restored.get_workbench("session-disposable"))["session"] is None
-    await store.shutdown()
-    await restored.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_restore_enforces_capacity_for_disposable_sessions(tmp_path) -> None:
-    checkpoint_path = tmp_path / "memory.db"
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=9999,
-        max_concurrent_sessions=3,
-    )
-    await store.initialize()
-    for index in range(3):
-        session = await store.start_session(session_id=f"session-{index}")
-        session["last_active_at"] = time.time() + index
-        await store.checkpoint_session(f"session-{index}")
-
-    restored = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=9999,
-        max_concurrent_sessions=1,
-    )
-    await restored.initialize()
-
-    assert set(restored._sessions) == {"session-2"}
-    await store.shutdown()
-    await restored.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_configured_checkpoint_interval_persists_dirty_workbench(tmp_path) -> None:
-    checkpoint_path = tmp_path / "memory.db"
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-        session_timeout_seconds=60,
-    )
-    await store.initialize()
-    await store.push_goal(
-        session_id="session-1",
-        goal_id="goal-1",
-        goal_type="task",
-        description="persist automatically",
-        status="in_progress",
-    )
-
-    async def _wait_for_checkpoint() -> None:
-        while store._sessions["session-1"]["last_checkpoint_at"] is None:
-            await asyncio.sleep(0.05)
-
-    await asyncio.wait_for(_wait_for_checkpoint(), timeout=5)
-
-    restored = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=9999,
-        session_timeout_seconds=60,
-    )
-    await restored.initialize()
-
-    assert (await restored.get_workbench("session-1"))["goal_stack"][0][
-        "goal_id"
-    ] == "goal-1"
-    await store.shutdown()
-    await restored.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_checkpoint_repeats_when_state_changes_during_save(
+async def test_shutdown_flushes_dirty_attention_without_waiting_for_debounce(
     tmp_path,
-    monkeypatch,
 ) -> None:
-    checkpoint_path = tmp_path / "memory.db"
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-    )
-    await store.initialize()
-    original_checkpoint = store.checkpoint_session
-    first_checkpoint_started = asyncio.Event()
-    allow_first_checkpoint = asyncio.Event()
-    second_checkpoint_succeeded = asyncio.Event()
-    checkpoint_count = 0
-
-    async def _controlled_checkpoint(session_id: str) -> None:
-        nonlocal checkpoint_count
-        checkpoint_count += 1
-        if checkpoint_count == 1:
-            first_checkpoint_started.set()
-            await allow_first_checkpoint.wait()
-        await original_checkpoint(session_id)
-        if checkpoint_count == 2:
-            second_checkpoint_succeeded.set()
-
-    monkeypatch.setattr(store, "checkpoint_session", _controlled_checkpoint)
-    await store.push_goal(
+    store = _store(tmp_path, checkpoint_interval_seconds=60)
+    await store.apply_attention_actions(
         session_id="session-1",
-        goal_id="goal-1",
-        goal_type="task",
-        description="first state",
+        actions=[_add("turn-1", "正在完成 L0 改造")],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
     )
-    await asyncio.wait_for(first_checkpoint_started.wait(), timeout=5)
-    await store.push_goal(
-        session_id="session-1",
-        goal_id="goal-2",
-        goal_type="task",
-        description="changed during save",
-    )
-    allow_first_checkpoint.set()
-    await asyncio.wait_for(second_checkpoint_succeeded.wait(), timeout=5)
 
-    assert checkpoint_count == 2
-    restored = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=9999,
-    )
-    await restored.initialize()
-    assert {
-        goal["goal_id"]
-        for goal in (await restored.get_workbench("session-1"))["goal_stack"]
-    } == {"goal-1", "goal-2"}
     await store.shutdown()
+
+    restored = _store(tmp_path, checkpoint_interval_seconds=60)
+    await restored.initialize()
+    assert [
+        item["summary"]
+        for item in (await restored.get_workbench("session-1"))["attention_items"]
+    ] == ["正在完成 L0 改造"]
     await restored.shutdown()
 
 
@@ -268,41 +68,159 @@ async def test_scheduled_checkpoint_retries_after_transient_failure(
     tmp_path,
     monkeypatch,
 ) -> None:
-    checkpoint_path = tmp_path / "memory.db"
-    store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=1,
-    )
+    store = _store(tmp_path, checkpoint_interval_seconds=0)
     await store.initialize()
-    original_checkpoint = store.checkpoint_session
-    checkpoint_succeeded = asyncio.Event()
-    checkpoint_count = 0
+    real_checkpoint = store.checkpoint_session
+    call_count = 0
 
-    async def _flaky_checkpoint(session_id: str) -> None:
-        nonlocal checkpoint_count
-        checkpoint_count += 1
-        if checkpoint_count == 1:
-            raise RuntimeError("temporary failure")
-        await original_checkpoint(session_id)
-        checkpoint_succeeded.set()
+    async def flaky_checkpoint(session_id):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("transient checkpoint failure")
+        await real_checkpoint(session_id)
 
-    monkeypatch.setattr(store, "checkpoint_session", _flaky_checkpoint)
-    await store.push_goal(
+    monkeypatch.setattr(store, "checkpoint_session", flaky_checkpoint)
+    await store.apply_attention_actions(
         session_id="session-1",
-        goal_id="goal-1",
-        goal_type="task",
-        description="retry persistence",
+        actions=[_add("turn-1", "第一轮关注")],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
     )
-    await asyncio.wait_for(checkpoint_succeeded.wait(), timeout=5)
 
-    assert checkpoint_count == 2
-    restored = L0WorkingMemoryStore(
-        checkpoint_db_path=str(checkpoint_path),
-        checkpoint_interval_seconds=9999,
-    )
-    await restored.initialize()
-    assert (await restored.get_workbench("session-1"))["goal_stack"][0][
-        "goal_id"
-    ] == "goal-1"
+    for _ in range(100):
+        if call_count >= 2 and not store._checkpoint_tasks:
+            break
+        await asyncio.sleep(0.01)
+    assert call_count >= 2
     await store.shutdown()
+
+    restored = _store(tmp_path)
+    await restored.initialize()
+    assert [
+        item["summary"]
+        for item in (await restored.get_workbench("session-1"))["attention_items"]
+    ] == ["第一轮关注"]
     await restored.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_restore_keeps_old_session_with_unexpired_attention(tmp_path) -> None:
+    store = _store(tmp_path, session_timeout_seconds=1)
+    await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[_add("turn-1", "仍需继续的关注")],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+    )
+    store._sessions["session-1"]["last_active_at"] = time.time() - 30
+    await store.checkpoint_all()
+    await store.shutdown()
+
+    restored = _store(tmp_path, session_timeout_seconds=1)
+    await restored.initialize()
+
+    assert (await restored.get_workbench("session-1"))["session"] is not None
+    assert len(
+        (await restored.get_workbench("session-1"))["attention_items"]
+    ) == 1
+    await restored.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_restore_drops_old_session_after_attention_expiry(tmp_path) -> None:
+    store = _store(tmp_path, session_timeout_seconds=1)
+    await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[_add("turn-1", "已经过期的关注")],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+    )
+    item_id = next(iter(store._attention_items["session-1"]))
+    store._attention_items["session-1"][item_id]["expires_at"] = time.time() - 1
+    store._sessions["session-1"]["last_active_at"] = time.time() - 30
+    await store.checkpoint_all()
+    await store.shutdown()
+
+    restored = _store(tmp_path, session_timeout_seconds=1)
+    await restored.initialize()
+
+    assert (await restored.get_workbench("session-1"))["session"] is None
+    await restored.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_capacity_evicts_lru_session_and_removes_checkpoint(tmp_path) -> None:
+    store = _store(tmp_path, max_concurrent_sessions=2)
+    for index in range(3):
+        session_id = f"session-{index}"
+        await store.apply_attention_actions(
+            session_id=session_id,
+            actions=[_add(f"turn-{index}", f"关注 {index}")],
+            expected_revision=0,
+            last_processed_turn_id=f"turn-{index}",
+        )
+        store._sessions[session_id]["last_active_at"] = float(index + 1)
+
+    assert set(store._sessions) == {"session-1", "session-2"}
+    await store.checkpoint_all()
+    await store.shutdown()
+
+    restored = _store(tmp_path, max_concurrent_sessions=2)
+    await restored.initialize()
+    snapshot = await restored.get_session_index_snapshot()
+    assert set(snapshot["sessions"]) == {"session-1", "session-2"}
+    await restored.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_malformed_attention_row_is_discarded_without_losing_session(
+    tmp_path,
+) -> None:
+    store = _store(tmp_path)
+    await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[_add("turn-1", "有效关注")],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+    )
+    await store.checkpoint_all()
+    async with store._checkpoint_lock:
+        from magi.core.sqlite import sqlite_connection_async
+
+        async with sqlite_connection_async(store.checkpoint_db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO l0_attention_items(
+                    item_id, session_id, kind, summary, status,
+                    salience, confidence, evidence_mode,
+                    source_turn_ids, source_event_ids,
+                    first_seen_at, last_reinforced_at, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "malformed",
+                    "session-1",
+                    "focus",
+                    "坏数据",
+                    "active",
+                    0.8,
+                    0.9,
+                    "direct",
+                    "{bad",
+                    "[]",
+                    time.time(),
+                    time.time(),
+                    "{}",
+                ),
+            )
+            await db.commit()
+
+    restored = _store(tmp_path)
+    await restored.initialize()
+    assert [
+        item["summary"]
+        for item in (await restored.get_workbench("session-1"))["attention_items"]
+    ] == ["有效关注"]
+    await restored.shutdown()
+    await store.shutdown()

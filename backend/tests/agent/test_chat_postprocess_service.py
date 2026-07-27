@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import pytest
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -36,12 +37,23 @@ from magi.agent.task_agents.common import (
     UserMessagePayload,
 )
 from magi.agent.runtime.contracts import FactRecord
+from magi.agent.post_turn_understanding import (
+    AcceptedConversationOutcome,
+    PostTurnUnderstandingService,
+)
 from magi.events.events import EventTypes
+from magi.memory.l0.attention import (
+    AttentionActionType,
+    AttentionKind,
+    AttentionUpdateAction,
+)
+from magi.memory.l0.attention_update_scheduler import AcceptedL0AttentionTurn
 from magi.personality.interaction_analyzer import (
     DEFAULT_ANALYSIS,
     InteractionAnalysis,
     InteractionObservation,
 )
+from magi.personality.interaction_batch_analyzer import BatchInteractionAnalysis
 from magi.personality.behavior_evolution import SatisfactionLevel
 from magi.personality.emotional_state import EngagementLevel, InteractionOutcome
 from magi.runtime_trace.store import RuntimeTraceStore
@@ -313,15 +325,30 @@ class _FakeL1Store:
 
 
 class _FakeUnifiedMemory:
-    def __init__(self, events: list[dict[str, object]] | None = None, l0=None) -> None:
+    def __init__(
+        self,
+        events: list[dict[str, object]] | None = None,
+        l0=None,
+        *,
+        epoch: int = 0,
+        attention_turn_threshold: int = 3,
+    ) -> None:
         self.l0 = l0
         self.l1 = _FakeL1Store(events or [])
         self.l2 = None
         self.l4 = _RecordingL4Store()
         self.task_packets = []
+        self._epoch = epoch
+        self._memory_config_getter = lambda: SimpleNamespace(
+            l0=SimpleNamespace(
+                attention_update_turn_threshold=attention_turn_threshold,
+                attention_update_idle_seconds=30,
+                attention_update_max_delay_seconds=90,
+            )
+        )
 
     def memory_operation_epoch(self) -> int:
-        return 0
+        return self._epoch
 
     @asynccontextmanager
     async def memory_operation_guard(self):  # type: ignore[no-untyped-def]
@@ -330,6 +357,55 @@ class _FakeUnifiedMemory:
     async def persist_task_outcome_reflection(self, packet):  # type: ignore[no-untyped-def]
         self.task_packets.append(packet)
         return {"summary_id": "summary-1", "summary_category": "task_reflection"}
+
+
+class _RecordingAttentionL0:
+    def __init__(
+        self,
+        *,
+        revision: int = 4,
+        conflict_once: bool = False,
+        forget_cutoff_at: float = 0.0,
+    ) -> None:
+        self.revision = revision
+        self.conflict_once = conflict_once
+        self.forget_cutoff_at = forget_cutoff_at
+        self.snapshot_calls: list[str] = []
+        self.apply_calls: list[dict[str, object]] = []
+
+    async def get_attention_snapshot(self, session_id: str) -> dict[str, object]:
+        self.snapshot_calls.append(session_id)
+        return {
+            "revision": self.revision,
+            "forget_cutoff_at": self.forget_cutoff_at,
+            "last_processed_turn_id": None,
+            "items": [
+                {
+                    "item_id": "attention-existing",
+                    "kind": "situation",
+                    "summary": "Existing situation",
+                    "status": "active",
+                }
+            ],
+        }
+
+    async def apply_attention_actions(self, **kwargs):  # type: ignore[no-untyped-def]
+        call = dict(kwargs)
+        call["actions"] = tuple(call["actions"])
+        call["source_texts"] = tuple(call["source_texts"])
+        self.apply_calls.append(call)
+        if self.conflict_once:
+            self.conflict_once = False
+            self.revision += 1
+            return None
+        if int(call["expected_revision"]) != self.revision:
+            return None
+        self.revision += 1
+        return {
+            "revision": self.revision,
+            "last_processed_turn_id": call["last_processed_turn_id"],
+            "items": [],
+        }
 
 
 class _RecordingPersonalityMemory:
@@ -369,16 +445,52 @@ class _RecordingL2Store:
         return "assert-observer"
 
 
+def _accepted_attention_turn(
+    *,
+    user_message: str,
+    assistant_response: str,
+    incoming_fact_kind: str = "user_message",
+    execution_mode: str = "direct_llm",
+    persona_id: str | None = None,
+) -> AcceptedConversationOutcome:
+    return AcceptedConversationOutcome(
+        outcome_id="chat-turn:turn-1:accepted",
+        source_turn_id="turn-1",
+        user_id="local_user",
+        session_id="session-1",
+        user_message=user_message,
+        assistant_response=assistant_response,
+        epoch=0,
+        accepted_at=time.time(),
+        persona_id=persona_id,
+        incoming_fact_kind=incoming_fact_kind,
+        execution_mode=execution_mode,
+        immediate=True,
+    )
+
+
+async def _admit_and_wait(
+    service: PostTurnUnderstandingService,
+    outcome: AcceptedConversationOutcome,
+) -> None:
+    assert await service.admit(outcome) is True
+    scheduler = service.scheduler
+    assert scheduler is not None
+    assert await scheduler.wait_idle(timeout_seconds=1.0) is True
+
+
 @pytest.mark.asyncio
 async def test_memory_updates_do_not_pass_stp_rules_after_response(monkeypatch) -> None:
-    import magi.chat.task_agent.postprocess.memory as postprocess_module
+    import magi.agent.post_turn_understanding as postprocess_module
 
     analysis_calls: list[dict[str, object]] = []
 
-    async def _fake_analyze_interaction(*args, **kwargs):  # type: ignore[no-untyped-def]
-        _ = args
+    async def _fake_analyze_interaction(batch, **kwargs):  # type: ignore[no-untyped-def]
         analysis_calls.append(dict(kwargs))
-        return DEFAULT_ANALYSIS
+        return BatchInteractionAnalysis(
+            turn_analyses={batch[0].turn_id: DEFAULT_ANALYSIS},
+            attention_actions=(),
+        )
 
     monkeypatch.setattr(
         postprocess_module,
@@ -389,26 +501,27 @@ async def test_memory_updates_do_not_pass_stp_rules_after_response(monkeypatch) 
             deep_persona_enabled=False,
         ),
     )
-    monkeypatch.setattr(postprocess_module, "analyze_interaction", _fake_analyze_interaction)
+    monkeypatch.setattr(
+        postprocess_module,
+        "analyze_interaction_batch",
+        _fake_analyze_interaction,
+    )
     memory = _RecordingPersonalityMemory()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: _FakeEventEmitter(),
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        memory=memory,
+    service = PostTurnUnderstandingService(
+        unified_memory=None,
+        self_memory=memory,
     )
 
-    await service._record_memory_updates(
-        user_id="local_user",
-        user_message="say something funny",
-        response_text="funny response",
-        incoming_fact_kind="user_message",
-        execution_mode="direct_llm",
-        session_id="session-1",
-        turn_id="turn-1",
+    await _admit_and_wait(
+        service,
+        _accepted_attention_turn(
+            user_message="say something funny",
+            assistant_response="funny response",
+            incoming_fact_kind="user_message",
+            execution_mode="direct_llm",
+        ),
     )
+    await service.shutdown(flush=False)
 
     assert analysis_calls[-1].get("stp_rules") is None
     assert "allow_state_transition" not in memory.process_calls[-1]
@@ -416,14 +529,16 @@ async def test_memory_updates_do_not_pass_stp_rules_after_response(monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypatch) -> None:
-    import magi.chat.task_agent.postprocess.memory as postprocess_module
+    import magi.agent.post_turn_understanding as postprocess_module
 
     analysis_calls: list[dict[str, object]] = []
 
-    async def _fake_analyze_interaction(*args, **kwargs):  # type: ignore[no-untyped-def]
-        _ = args
+    async def _fake_analyze_interaction(batch, **kwargs):  # type: ignore[no-untyped-def]
         analysis_calls.append(dict(kwargs))
-        return DEFAULT_ANALYSIS
+        return BatchInteractionAnalysis(
+            turn_analyses={batch[0].turn_id: DEFAULT_ANALYSIS},
+            attention_actions=(),
+        )
 
     monkeypatch.setattr(
         postprocess_module,
@@ -434,26 +549,27 @@ async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypat
             deep_persona_enabled=False,
         ),
     )
-    monkeypatch.setattr(postprocess_module, "analyze_interaction", _fake_analyze_interaction)
+    monkeypatch.setattr(
+        postprocess_module,
+        "analyze_interaction_batch",
+        _fake_analyze_interaction,
+    )
     memory = _RecordingPersonalityMemory()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: _FakeEventEmitter(),
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        memory=memory,
+    service = PostTurnUnderstandingService(
+        unified_memory=None,
+        self_memory=memory,
     )
 
-    await service._record_memory_updates(
-        user_id="local_user",
-        user_message="analyze apple stock",
-        response_text="analysis report",
-        incoming_fact_kind="explore_task_completed",
-        execution_mode="explore_task_render",
-        session_id="session-1",
-        turn_id="turn-1",
+    await _admit_and_wait(
+        service,
+        _accepted_attention_turn(
+            user_message="analyze apple stock",
+            assistant_response="analysis report",
+            incoming_fact_kind="explore_task_completed",
+            execution_mode="explore_task_render",
+        ),
     )
+    await service.shutdown(flush=False)
 
     assert analysis_calls[-1].get("stp_rules") is None
     assert "allow_state_transition" not in memory.process_calls[-1]
@@ -461,11 +577,11 @@ async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypat
 
 @pytest.mark.asyncio
 async def test_memory_updates_route_observer_candidates(monkeypatch) -> None:
-    import magi.chat.task_agent.postprocess.memory as postprocess_module
+    import magi.agent.post_turn_understanding as postprocess_module
 
-    async def _fake_analyze_interaction(*args, **kwargs):  # type: ignore[no-untyped-def]
-        _ = args, kwargs
-        return InteractionAnalysis(
+    async def _fake_analyze_interaction(batch, **kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        turn_analysis = InteractionAnalysis(
             sentiment=0.4,
             engagement=EngagementLevel.HIGH,
             complexity=0.6,
@@ -493,6 +609,10 @@ async def test_memory_updates_route_observer_candidates(monkeypatch) -> None:
                 ),
             ],
         )
+        return BatchInteractionAnalysis(
+            turn_analyses={batch[0].turn_id: turn_analysis},
+            attention_actions=(),
+        )
 
     monkeypatch.setattr(
         postprocess_module,
@@ -503,30 +623,30 @@ async def test_memory_updates_route_observer_candidates(monkeypatch) -> None:
             deep_persona_enabled=True,
         ),
     )
-    monkeypatch.setattr(postprocess_module, "analyze_interaction", _fake_analyze_interaction)
+    monkeypatch.setattr(
+        postprocess_module,
+        "analyze_interaction_batch",
+        _fake_analyze_interaction,
+    )
     memory = _RecordingPersonalityMemory()
     unified_memory = _FakeUnifiedMemory()
     unified_memory.l2 = _RecordingL2Store()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: _FakeEventEmitter(),
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        memory=memory,
+    service = PostTurnUnderstandingService(
         unified_memory=unified_memory,
+        self_memory=memory,
     )
 
-    await service._record_memory_updates(
-        user_id="local_user",
-        user_message="以后这种方案讨论，先说结论，再说风险。七号这里可以稍微软一点。",
-        response_text="好，我按这个顺序说。",
-        incoming_fact_kind="user_message",
-        execution_mode="direct_llm",
-        session_id="session-1",
-        turn_id="turn-1",
-        persona_id="seven",
+    await _admit_and_wait(
+        service,
+        _accepted_attention_turn(
+            user_message="以后这种方案讨论，先说结论，再说风险。七号这里可以稍微软一点。",
+            assistant_response="好，我按这个顺序说。",
+            incoming_fact_kind="user_message",
+            execution_mode="direct_llm",
+            persona_id="seven",
+        ),
     )
+    await service.shutdown(flush=False)
 
     assert unified_memory.l2.candidates == [
         {
@@ -572,11 +692,11 @@ async def test_memory_updates_route_observer_candidates(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_memory_updates_route_task_preferences_to_l4(monkeypatch) -> None:
-    import magi.chat.task_agent.postprocess.memory as postprocess_module
+    import magi.agent.post_turn_understanding as postprocess_module
 
-    async def _fake_analyze_interaction(*args, **kwargs):  # type: ignore[no-untyped-def]
-        _ = args, kwargs
-        return InteractionAnalysis(
+    async def _fake_analyze_interaction(batch, **kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        turn_analysis = InteractionAnalysis(
             sentiment=0.4,
             engagement=EngagementLevel.HIGH,
             complexity=0.6,
@@ -595,6 +715,10 @@ async def test_memory_updates_route_task_preferences_to_l4(monkeypatch) -> None:
                 )
             ],
         )
+        return BatchInteractionAnalysis(
+            turn_analyses={batch[0].turn_id: turn_analysis},
+            attention_actions=(),
+        )
 
     monkeypatch.setattr(
         postprocess_module,
@@ -605,29 +729,29 @@ async def test_memory_updates_route_task_preferences_to_l4(monkeypatch) -> None:
             deep_persona_enabled=True,
         ),
     )
-    monkeypatch.setattr(postprocess_module, "analyze_interaction", _fake_analyze_interaction)
+    monkeypatch.setattr(
+        postprocess_module,
+        "analyze_interaction_batch",
+        _fake_analyze_interaction,
+    )
     memory = _RecordingPersonalityMemory()
     unified_memory = _FakeUnifiedMemory()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: _FakeEventEmitter(),
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        memory=memory,
+    service = PostTurnUnderstandingService(
         unified_memory=unified_memory,
+        self_memory=memory,
     )
 
-    await service._record_memory_updates(
-        user_id="local_user",
-        user_message="以后改代码前先讲完成标准。",
-        response_text="好，之后我会先说明完成标准。",
-        incoming_fact_kind="user_message",
-        execution_mode="direct_llm",
-        session_id="session-1",
-        turn_id="turn-1",
-        persona_id="seven",
+    await _admit_and_wait(
+        service,
+        _accepted_attention_turn(
+            user_message="以后改代码前先讲完成标准。",
+            assistant_response="好，之后我会先说明完成标准。",
+            incoming_fact_kind="user_message",
+            execution_mode="direct_llm",
+            persona_id="seven",
+        ),
     )
+    await service.shutdown(flush=False)
 
     assert unified_memory.l4.task_preference_calls == [
         {
@@ -642,6 +766,451 @@ async def test_memory_updates_route_task_preferences_to_l4(monkeypatch) -> None:
             "session_id": "session-1",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_committed_chat_turns_share_one_batched_attention_analysis(
+    chat_store: ChatStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import magi.agent.post_turn_understanding as postprocess_module
+
+    l0_store = _RecordingAttentionL0()
+    unified_memory = _FakeUnifiedMemory(
+        l0=l0_store,
+        epoch=7,
+        attention_turn_threshold=3,
+    )
+    personality_memory = _RecordingPersonalityMemory()
+    analyzed_batches: list[tuple[AcceptedL0AttentionTurn, ...]] = []
+    current_attention_inputs: list[list[dict[str, object]]] = []
+    understanding_service = PostTurnUnderstandingService(
+        unified_memory=unified_memory,
+        self_memory=personality_memory,
+    )
+
+    async def _fake_analyze_interaction_batch(
+        batch,
+        *,
+        current_attention,
+        **_kwargs,
+    ):  # type: ignore[no-untyped-def]
+        analyzed_batches.append(tuple(batch))
+        current_attention_inputs.append(list(current_attention))
+        return BatchInteractionAnalysis(
+            turn_analyses={
+                turn.turn_id: DEFAULT_ANALYSIS
+                for turn in batch
+            },
+            attention_actions=(
+                AttentionUpdateAction(
+                    action=AttentionActionType.ADD,
+                    kind=AttentionKind.FOCUS,
+                    summary="Reviewing the current design",
+                    source_turn_ids=(batch[-1].turn_id,),
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(
+        postprocess_module,
+        "get_personality_feature_flags",
+        lambda: SimpleNamespace(
+            state_memory_enabled=True,
+            state_transition_enabled=True,
+            deep_persona_enabled=True,
+        ),
+    )
+    monkeypatch.setattr(
+        postprocess_module,
+        "analyze_interaction_batch",
+        _fake_analyze_interaction_batch,
+    )
+    service = ChatPostProcessService(
+        agent_id="session-1",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        memory=personality_memory,
+        unified_memory=unified_memory,
+        post_turn_understanding_service=understanding_service,
+        chat_store=chat_store,
+        max_fact_memory=10,
+    )
+
+    try:
+        outcomes = []
+        for index in range(1, 4):
+            turn_id = f"turn-batch-{index}"
+            await _create_admitted_user_turn(chat_store, turn_id=turn_id)
+            context, result = _plain_non_streamed_context_and_result(turn_id=turn_id)
+            context.latest_user_message = f"user message {index}"
+            context.active_persona_id = "seven"
+            result.root_user_message = context.latest_user_message
+            result.response_text = f"assistant response {index}"
+            outcomes.append(await service.handle(context, result))
+            await asyncio.sleep(0)
+
+        scheduler = understanding_service.scheduler
+        assert scheduler is not None
+        assert await scheduler.wait_idle(timeout_seconds=1.0) is True
+
+        assert [outcome.memory_updated for outcome in outcomes] == [True, True, True]
+        assert len(analyzed_batches) == 1
+        assert [turn.turn_id for turn in analyzed_batches[0]] == [
+            "chat-turn:turn-batch-1:accepted",
+            "chat-turn:turn-batch-2:accepted",
+            "chat-turn:turn-batch-3:accepted",
+        ]
+        assert [turn.epoch for turn in analyzed_batches[0]] == [7, 7, 7]
+        persisted_messages = await chat_store.list_messages(
+            session_id="session-1"
+        )
+        assistant_commit_times = {
+            str(message.turn_id): int(message.created_at_ms) / 1000.0
+            for message in persisted_messages
+            if str(message.role) == "assistant"
+        }
+        assert [turn.accepted_at for turn in analyzed_batches[0]] == [
+            assistant_commit_times[f"turn-batch-{index}"]
+            for index in range(1, 4)
+        ]
+        assert [turn.incoming_fact_kind for turn in analyzed_batches[0]] == [
+            "user_message",
+            "user_message",
+            "user_message",
+        ]
+        assert [turn.execution_mode for turn in analyzed_batches[0]] == [
+            "direct_llm",
+            "direct_llm",
+            "direct_llm",
+        ]
+        assert [turn.persona_id for turn in analyzed_batches[0]] == [
+            "seven",
+            "seven",
+            "seven",
+        ]
+        assert current_attention_inputs == [
+            [
+                {
+                    "item_id": "attention-existing",
+                    "kind": "situation",
+                    "summary": "Existing situation",
+                    "status": "active",
+                }
+            ]
+        ]
+        assert len(l0_store.apply_calls) == 1
+        assert l0_store.apply_calls[0]["expected_revision"] == 4
+        assert l0_store.apply_calls[0]["last_processed_turn_id"] == "turn-batch-3"
+        assert l0_store.apply_calls[0]["source_texts"] == (
+            "user message 1",
+            "user message 2",
+            "user message 3",
+        )
+        assert [
+            call["user_message"]
+            for call in personality_memory.process_calls
+        ] == [
+            "user message 1",
+            "user message 2",
+            "user message 3",
+        ]
+        assert understanding_service.has_pending_work() is False
+    finally:
+        await service.shutdown_background_tasks()
+        await understanding_service.shutdown(flush=False)
+
+
+@pytest.mark.asyncio
+async def test_attention_batch_drops_turns_from_an_old_memory_epoch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import magi.agent.post_turn_understanding as postprocess_module
+
+    l0_store = _RecordingAttentionL0()
+    unified_memory = _FakeUnifiedMemory(l0=l0_store, epoch=8)
+    analysis_calls = 0
+
+    async def _unexpected_analysis(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        nonlocal analysis_calls
+        analysis_calls += 1
+        return None
+
+    monkeypatch.setattr(
+        postprocess_module,
+        "analyze_interaction_batch",
+        _unexpected_analysis,
+    )
+    service = PostTurnUnderstandingService(
+        unified_memory=unified_memory,
+        self_memory=None,
+    )
+
+    try:
+        await _admit_and_wait(
+            service,
+            AcceptedConversationOutcome(
+                outcome_id="chat-turn:turn-old-epoch:accepted",
+                source_turn_id="turn-old-epoch",
+                user_id="local_user",
+                session_id="session-1",
+                user_message="old message",
+                assistant_response="old response",
+                epoch=7,
+                accepted_at=time.time(),
+                immediate=True,
+            ),
+        )
+
+        assert analysis_calls == 0
+        assert l0_store.snapshot_calls == []
+        assert l0_store.apply_calls == []
+    finally:
+        await service.shutdown(flush=False)
+
+
+@pytest.mark.asyncio
+async def test_attention_revision_conflict_reanalyzes_fixed_scheduler_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import magi.agent.post_turn_understanding as postprocess_module
+
+    l0_store = _RecordingAttentionL0(conflict_once=True)
+    unified_memory = _FakeUnifiedMemory(l0=l0_store, epoch=3)
+    personality_memory = _RecordingPersonalityMemory()
+    analysis_calls = 0
+
+    async def _fake_analyze(batch, **_kwargs):  # type: ignore[no-untyped-def]
+        nonlocal analysis_calls
+        analysis_calls += 1
+        return BatchInteractionAnalysis(
+            turn_analyses={batch[0].turn_id: DEFAULT_ANALYSIS},
+            attention_actions=(
+                AttentionUpdateAction(
+                    action=AttentionActionType.ADD,
+                    kind=AttentionKind.ACTIVE_OBJECT,
+                    summary="A person from the stale pre-forget batch",
+                    source_turn_ids=(batch[0].turn_id,),
+                    source_event_ids=("event-id-invented-by-model",),
+                    entity_id="person:forgotten",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(
+        postprocess_module,
+        "get_personality_feature_flags",
+        lambda: SimpleNamespace(
+            state_memory_enabled=True,
+            state_transition_enabled=True,
+            deep_persona_enabled=False,
+        ),
+    )
+    monkeypatch.setattr(postprocess_module, "analyze_interaction_batch", _fake_analyze)
+    service = PostTurnUnderstandingService(
+        unified_memory=unified_memory,
+        self_memory=personality_memory,
+    )
+    outcome = AcceptedConversationOutcome(
+        outcome_id="chat-turn:turn-conflict:accepted",
+        source_turn_id="turn-conflict",
+        user_id="local_user",
+        session_id="session-1",
+        user_message="message",
+        assistant_response="response",
+        epoch=3,
+        accepted_at=time.time(),
+        immediate=True,
+    )
+
+    try:
+        scheduler = service.scheduler
+        assert scheduler is not None
+        scheduler._retry_initial_seconds = 0.0
+        scheduler._retry_max_seconds = 0.0
+        assert await service.admit(outcome) is True
+        assert await scheduler.wait_idle(timeout_seconds=2.0) is True
+
+        assert len(personality_memory.process_calls) == 1
+        assert analysis_calls == 2
+        assert len(l0_store.apply_calls) == 2
+        assert tuple(l0_store.apply_calls[-1]["actions"])[0].entity_id == (
+            "person:forgotten"
+        )
+        assert tuple(l0_store.apply_calls[-1]["actions"])[0].source_event_ids == ()
+        assert await service.admit(outcome) is False
+    finally:
+        await service.shutdown(flush=False)
+
+
+@pytest.mark.asyncio
+async def test_entity_forget_drops_queued_old_turn_but_allows_new_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import magi.agent.post_turn_understanding as postprocess_module
+
+    cutoff_at = time.time()
+    l0_store = _RecordingAttentionL0()
+    unified_memory = _FakeUnifiedMemory(
+        l0=l0_store,
+        epoch=3,
+        attention_turn_threshold=20,
+    )
+    analyzed_turn_ids: list[str] = []
+
+    async def _fake_analyze(batch, **_kwargs):  # type: ignore[no-untyped-def]
+        analyzed_turn_ids.extend(turn.turn_id for turn in batch)
+        return BatchInteractionAnalysis(
+            turn_analyses={turn.turn_id: DEFAULT_ANALYSIS for turn in batch},
+            attention_actions=(
+                AttentionUpdateAction(
+                    action=AttentionActionType.ADD,
+                    kind=AttentionKind.ACTIVE_OBJECT,
+                    summary="A newly mentioned person",
+                    source_turn_ids=(batch[-1].turn_id,),
+                    entity_id="person:forgotten",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(postprocess_module, "analyze_interaction_batch", _fake_analyze)
+    service = PostTurnUnderstandingService(
+        unified_memory=unified_memory,
+        self_memory=None,
+    )
+    scheduler = service.scheduler
+    assert scheduler is not None
+
+    old_turn = AcceptedConversationOutcome(
+        outcome_id="chat-turn:turn-before-forget:accepted",
+        source_turn_id="turn-before-forget",
+        user_id="local_user",
+        session_id="session-1",
+        user_message="old private context",
+        assistant_response="old response",
+        epoch=3,
+        accepted_at=cutoff_at - 1,
+    )
+    new_turn = AcceptedConversationOutcome(
+        outcome_id="chat-turn:turn-after-forget:accepted",
+        source_turn_id="turn-after-forget",
+        user_id="local_user",
+        session_id="session-1",
+        user_message="newly mentioned context",
+        assistant_response="new response",
+        epoch=3,
+        accepted_at=cutoff_at + 1,
+        immediate=True,
+    )
+
+    try:
+        assert await service.admit(old_turn) is True
+        await asyncio.sleep(0.01)
+        assert analyzed_turn_ids == []
+
+        l0_store.forget_cutoff_at = cutoff_at
+        unified_memory._memory_config_getter = lambda: SimpleNamespace(
+            l0=SimpleNamespace(
+                attention_update_turn_threshold=1,
+                attention_update_idle_seconds=30,
+                attention_update_max_delay_seconds=90,
+            )
+        )
+        assert await scheduler.wait_idle(timeout_seconds=1.0) is True
+        assert analyzed_turn_ids == []
+        assert l0_store.apply_calls == []
+
+        assert await service.admit(new_turn) is True
+        assert await scheduler.wait_idle(timeout_seconds=1.0) is True
+        assert analyzed_turn_ids == ["chat-turn:turn-after-forget:accepted"]
+        assert len(l0_store.apply_calls) == 1
+        assert l0_store.apply_calls[0]["source_turn_accepted_at"] == {
+            "turn-after-forget": cutoff_at + 1
+        }
+    finally:
+        await service.shutdown(flush=False)
+
+
+@pytest.mark.asyncio
+async def test_agent_lifecycle_preserves_shared_pending_attention_until_runtime_discard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import magi.agent.post_turn_understanding as postprocess_module
+
+    analyzed_turn_ids: list[str] = []
+
+    async def _fake_analyze(batch, **_kwargs):  # type: ignore[no-untyped-def]
+        analyzed_turn_ids.extend(turn.turn_id for turn in batch)
+        return BatchInteractionAnalysis(
+            turn_analyses={turn.turn_id: DEFAULT_ANALYSIS for turn in batch},
+            attention_actions=(),
+        )
+
+    monkeypatch.setattr(postprocess_module, "analyze_interaction_batch", _fake_analyze)
+
+    def _service_with_pending_turn(
+        turn_id: str,
+    ) -> tuple[
+        ChatPostProcessService,
+        PostTurnUnderstandingService,
+        AcceptedConversationOutcome,
+    ]:
+        unified = _FakeUnifiedMemory(
+            l0=_RecordingAttentionL0(),
+            epoch=2,
+            attention_turn_threshold=20,
+        )
+        understanding = PostTurnUnderstandingService(
+            unified_memory=unified,
+            self_memory=None,
+        )
+        service = ChatPostProcessService(
+            agent_id="session-1",
+            context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+            get_event_emitter=lambda: _FakeEventEmitter(),
+            get_task_agent_manager=lambda: None,
+            get_sensor_hub=lambda: None,
+            unified_memory=unified,
+            post_turn_understanding_service=understanding,
+        )
+        return service, understanding, AcceptedConversationOutcome(
+            outcome_id=f"chat-turn:{turn_id}:accepted",
+            source_turn_id=turn_id,
+            user_id="local_user",
+            session_id="session-1",
+            user_message="ordinary message",
+            assistant_response="ordinary response",
+            epoch=2,
+            accepted_at=time.time(),
+        )
+
+    normal_service, normal_understanding, normal_turn = _service_with_pending_turn(
+        "turn-normal-stop"
+    )
+    assert await normal_understanding.admit(normal_turn) is True
+    assert normal_understanding.has_pending_work("session-1") is True
+    await normal_service.shutdown_background_tasks()
+    assert analyzed_turn_ids == []
+    assert normal_understanding.has_pending_work("session-1") is True
+    assert await normal_understanding.shutdown(flush=True) is True
+    assert analyzed_turn_ids == ["chat-turn:turn-normal-stop:accepted"]
+    assert normal_understanding.has_pending_work() is False
+
+    (
+        destructive_service,
+        destructive_understanding,
+        destructive_turn,
+    ) = _service_with_pending_turn("turn-destructive-clear")
+    assert await destructive_understanding.admit(destructive_turn) is True
+    assert destructive_understanding.has_pending_work("session-1") is True
+    await destructive_service.cancel_background_tasks()
+    assert analyzed_turn_ids == ["chat-turn:turn-normal-stop:accepted"]
+    assert destructive_understanding.has_pending_work("session-1") is True
+    await destructive_understanding.discard_session("session-1")
+    assert destructive_understanding.has_pending_work("session-1") is False
+    await destructive_understanding.shutdown(flush=False)
 
 
 @pytest.mark.asyncio
@@ -1268,6 +1837,113 @@ async def test_handle_worker_result_persists_reply_anchor_to_original_message(
 
 
 @pytest.mark.asyncio
+async def test_duplicate_worker_result_for_one_turn_is_not_delivered_or_reanalyzed(
+    chat_store: ChatStore,
+) -> None:
+    await chat_store.create_user_turn(
+        session_id="session-1",
+        user_id="local_user",
+        turn_id="turn-worker-once",
+        message_text="Please audit the release checklist.",
+        created_at_ms=1710000000000,
+    )
+    delivered: list[str] = []
+
+    async def _deliver(_context, *, content):  # type: ignore[no-untyped-def]
+        delivered.append(content.text)
+        return DeliveryFanoutResult()
+
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        chat_store=chat_store,
+        deliver_final_response=_deliver,
+        max_fact_memory=10,
+    )
+    scheduled: list[dict[str, object]] = []
+    service._schedule_background_memory_updates = (  # type: ignore[method-assign]
+        lambda **kwargs: scheduled.append(dict(kwargs)) or True
+    )
+    worker_fact = FactRecord(
+        agent_id="chat:local_user",
+        event_type="WORKER_AGENT_COMPLETED",
+        payload={
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": "turn-worker-once",
+            "worker_id": "worker-1",
+            "orchestration_id": "orch-1",
+        },
+        agent_type="chat",
+        agent_instance_id="local_user",
+        timestamp=1710000002.0,
+        correlation_id="worker-corr-1",
+    )
+    context = ChatRuntimeContext(
+        latest_fact=worker_fact,
+        recent_facts=[worker_fact],
+        batch_facts=[worker_fact],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=[],
+        conversation_history=[],
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message="Please audit the release checklist.",
+        incoming_fact_kind=IncomingFactKind.WORKER_UPDATE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content="Please audit the release checklist.",
+            turn_id="turn-worker-once",
+        ),
+    )
+    first_result = ExecutionResult(
+        mode=ExecutionMode.ORCHESTRATION_UPDATE,
+        response_text="First accepted audit.",
+        root_user_message="Please audit the release checklist.",
+        correlation_id="worker-corr-1",
+        orchestration_id="orch-1",
+        turn_id="turn-worker-once",
+    )
+    duplicate_result = ExecutionResult(
+        mode=ExecutionMode.ORCHESTRATION_UPDATE,
+        response_text="Duplicate audit that must be rejected.",
+        root_user_message="Please audit the release checklist.",
+        correlation_id="worker-corr-duplicate",
+        orchestration_id="orch-1",
+        turn_id="turn-worker-once",
+    )
+
+    first = await service.handle(context, first_result)
+    duplicate = await service.handle(context, duplicate_result)
+
+    visible_assistant = [
+        message
+        for message in await chat_store.list_messages(session_id="session-1")
+        if message.role == "assistant" and message.is_visible
+    ]
+    assert first.emitted is True
+    assert first.memory_updated is True
+    assert duplicate.emitted is False
+    assert duplicate.memory_updated is False
+    assert delivered == ["First accepted audit."]
+    assert [message.content_text for message in visible_assistant] == [
+        "First accepted audit."
+    ]
+    assert len({message.message_id for message in visible_assistant}) == 1
+    assert len(scheduled) == 1
+    assert scheduled[0]["turn_id"] == "turn-worker-once"
+
+
+@pytest.mark.asyncio
 async def test_runtime_notifier_appends_response_and_trace_notifications(
     runtime_trace_store: RuntimeTraceStore,
 ) -> None:
@@ -1407,7 +2083,9 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
 
 
 @pytest.mark.asyncio
-async def test_record_tool_interaction_projects_memory_query_tactic_into_l0(tmp_path) -> None:
+async def test_record_tool_interaction_does_not_write_runtime_tactics_into_l0(
+    tmp_path,
+) -> None:
     from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
     l0_store = L0WorkingMemoryStore(
@@ -1443,9 +2121,7 @@ async def test_record_tool_interaction_projects_memory_query_tactic_into_l0(tmp_
 
     workbench = await l0_store.get_workbench("session-1")
 
-    assert [tactic["tactic_type"] for tactic in workbench["temporary_tactics"]] == ["memory_query_active"]
-    assert workbench["temporary_tactics"][0]["tactic_payload"]["turn_id"] == "turn-1"
-    assert workbench["temporary_tactics"][0]["tactic_payload"]["tool_name"] == "memory_query"
+    assert workbench["attention_items"] == []
 
 
 @pytest.mark.asyncio
@@ -2006,7 +2682,9 @@ async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat
 
 
 @pytest.mark.asyncio
-async def test_record_tool_loop_fact_projects_replan_tactic_into_l0(tmp_path) -> None:
+async def test_record_tool_loop_fact_does_not_write_runtime_tactics_into_l0(
+    tmp_path,
+) -> None:
     from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
     l0_store = L0WorkingMemoryStore(
@@ -2040,11 +2718,7 @@ async def test_record_tool_loop_fact_projects_replan_tactic_into_l0(tmp_path) ->
 
     workbench = await l0_store.get_workbench("session-1")
 
-    assert [tactic["tactic_type"] for tactic in workbench["temporary_tactics"]] == [
-        "replan_after_tool_failure"
-    ]
-    assert workbench["temporary_tactics"][0]["tactic_payload"]["turn_id"] == "turn-1"
-    assert workbench["temporary_tactics"][0]["tactic_payload"]["replan_allowed"] is True
+    assert workbench["attention_items"] == []
 
 
 @pytest.mark.asyncio
@@ -4620,7 +5294,8 @@ def test_complete_visible_rhythm_requires_exact_bounded_index_set(
         ] == list(range(len(complete)))
 
 
-def test_first_context_story_stores_chat_but_skips_relationship_memory_updates():
+@pytest.mark.asyncio
+async def test_first_context_story_stores_chat_but_skips_relationship_memory_updates():
     assembler = _FakeContextAssembler()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
@@ -4658,12 +5333,51 @@ def test_first_context_story_stores_chat_but_skips_relationship_memory_updates()
         memory_updated=False,
     )
 
-    service._record_chat_history_and_memory(context, result, prepared)
+    await service._record_chat_history_and_memory(context, result, prepared)
 
     assert [item["role"] for item in assembler.history] == ["user", "assistant"]
     assert scheduled == []
     assert prepared.history_stored is True
     assert prepared.memory_updated is False
+
+
+@pytest.mark.asyncio
+async def test_committed_response_time_is_used_for_delayed_memory_enqueue():
+    assembler = _FakeContextAssembler()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=assembler,  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        max_fact_memory=10,
+    )
+    context, result = _plain_non_streamed_context_and_result(
+        turn_id="turn-delayed-memory-enqueue"
+    )
+    scheduled: list[dict[str, object]] = []
+    service._schedule_background_memory_updates = (  # type: ignore[method-assign]
+        lambda **kwargs: scheduled.append(dict(kwargs)) or True
+    )
+    committed_at_ms = 1710000000123
+    prepared = SimpleNamespace(
+        latest_fact=context.latest_fact,
+        response_text="This response is already durable.",
+        history_stored=False,
+        user_message=None,
+        memory_updated=False,
+        segmented_messages=[
+            SimpleNamespace(message_id="assistant-durable-1"),
+        ],
+        turn_id="turn-delayed-memory-enqueue",
+        ux_plan={},
+        now_ms=committed_at_ms,
+    )
+
+    await service._record_chat_history_and_memory(context, result, prepared)
+
+    assert len(scheduled) == 1
+    assert scheduled[0]["accepted_at"] == committed_at_ms / 1000.0
 
 
 @pytest.mark.asyncio

@@ -59,7 +59,7 @@ class _TaskAgentManagerProtocol(Protocol):
 
 
 class _L0WorkbenchStoreProtocol(Protocol):
-    """L0 goal deletion required by context replay."""
+    """L0 attention deletion required by context replay."""
 
     async def forget_chat_turn(
         self,
@@ -67,6 +67,18 @@ class _L0WorkbenchStoreProtocol(Protocol):
         session_id: str,
         turn_id: str,
     ) -> None: ...
+
+
+class _PostTurnUnderstandingProtocol(Protocol):
+    async def discard_session(self, session_id: str) -> None: ...
+
+    async def revoke_source_turns(
+        self,
+        *,
+        session_id: str,
+        source_turn_ids: tuple[str, ...] | list[str] | set[str],
+        revoked_at: float | None = None,
+    ) -> int: ...
 
 
 class _BackgroundTaskManagerProtocol(Protocol):
@@ -107,6 +119,7 @@ class ChatRuntimeForgettingCoordinator:
         chat_read_service: Any,
         delivery_scheduler: Any,
         l0_store: _L0WorkbenchStoreProtocol | None = None,
+        post_turn_understanding_service: _PostTurnUnderstandingProtocol | None = None,
         background_task_manager: _BackgroundTaskManagerProtocol | None = None,
     ) -> None:
         self._runtime_command_queue = runtime_command_queue
@@ -115,6 +128,7 @@ class ChatRuntimeForgettingCoordinator:
         self._chat_read_service = chat_read_service
         self._delivery_scheduler = delivery_scheduler
         self._l0_store = l0_store
+        self._post_turn_understanding_service = post_turn_understanding_service
         self._background_task_manager = background_task_manager
 
     @asynccontextmanager
@@ -131,13 +145,18 @@ class ChatRuntimeForgettingCoordinator:
         session_id: str,
     ) -> ChatRuntimeForgetResult:
         """Permanently reject and drain all runtime work for one session."""
-        return await self._prepare(
+        result = await self._prepare(
             user_id=user_id,
             session_id=session_id,
             turn_id=None,
             message_id=None,
             reason="user_delete_chat_session",
         )
+        if self._post_turn_understanding_service is not None:
+            await self._post_turn_understanding_service.discard_session(
+                session_id
+            )
+        return result
 
     async def prepare_message_delete(
         self,
@@ -220,6 +239,14 @@ class ChatRuntimeForgettingCoordinator:
                 if value not in terminal_turn_ids
             ]
             hold.replay_turn_ids = tuple(replay_turn_ids)
+            if self._post_turn_understanding_service is not None:
+                await self._post_turn_understanding_service.revoke_source_turns(
+                    session_id=session_id,
+                    source_turn_ids=[
+                        *terminal_turn_ids,
+                        *replay_turn_ids,
+                    ],
+                )
             message_scope_ids = _normalized_identifiers(
                 [
                     message_id,
@@ -279,6 +306,25 @@ class ChatRuntimeForgettingCoordinator:
                 ]
             )
             hold.terminal_turn_ids = tuple(terminal_turn_ids)
+            replay_turn_ids = [
+                value
+                for value in _normalized_turn_ids(
+                    [
+                        *replay_turn_ids,
+                        *hold.replay_turn_ids,
+                    ]
+                )
+                if value not in terminal_turn_ids
+            ]
+            hold.replay_turn_ids = tuple(replay_turn_ids)
+            if self._post_turn_understanding_service is not None:
+                await self._post_turn_understanding_service.revoke_source_turns(
+                    session_id=session_id,
+                    source_turn_ids=[
+                        *terminal_turn_ids,
+                        *replay_turn_ids,
+                    ],
+                )
             late_terminal_turn_ids = [
                 value
                 for value in terminal_turn_ids
@@ -374,7 +420,7 @@ class ChatRuntimeForgettingCoordinator:
         session_id: str,
         turn_ids: list[str],
     ) -> None:
-        """Remove exact unsafe L0 workbench goals before context replay."""
+        """Remove exact unsafe L0 attention before context replay."""
 
         if self._l0_store is None:
             return
@@ -424,6 +470,11 @@ class ChatRuntimeForgettingCoordinator:
             for value in message_ids
             if (normalized := str(value or "").strip())
         }
+        if self._post_turn_understanding_service is not None:
+            await self._post_turn_understanding_service.revoke_source_turns(
+                session_id=session_id,
+                source_turn_ids=normalized_turn_ids,
+            )
         purged_commands = 0
         async with self._runtime_command_queue.user_message_clear_boundary():
             for turn_id in normalized_turn_ids:

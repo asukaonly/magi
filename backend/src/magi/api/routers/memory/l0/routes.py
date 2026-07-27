@@ -35,7 +35,6 @@ async def list_l0_sessions(
     chat_read_service = get_chat_read_service()
     index = await unified_memory.l0.get_session_index_snapshot()
     l0_sessions = index["sessions"]
-    goals_by_session = index["goals_by_session"]
     sorted_ids = sorted_l0_session_ids(l0_sessions, status_filter=status)
 
     summary_map: dict[str, Any] = {}
@@ -43,34 +42,33 @@ async def list_l0_sessions(
         batch = await chat_read_service.aget_session_summaries_batch(user_id, session_ids)
         summary_map.update(batch)
 
+    indexed_attention = index.get("attention_by_session", {})
+    attention_by_session: dict[str, list[dict[str, Any]]] = {
+        session_id: [
+            dict(item)
+            for item in (
+                indexed_attention.get(session_id, {}).values()
+                if isinstance(indexed_attention.get(session_id), dict)
+                else ()
+            )
+            if isinstance(item, dict)
+        ]
+        for session_id in sorted_ids
+    }
+
     filtered_ids = filter_l0_session_ids_by_query(
         session_ids=sorted_ids,
         query=query,
         sessions=l0_sessions,
-        goals_by_session=goals_by_session,
+        attention_by_session=attention_by_session,
         summary_map=summary_map,
     )
     total = len(filtered_ids)
 
-    entities_by_session: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
-    tactics_by_session: dict[str, dict[str, Any]] = {}
-    for session_id in filtered_ids:
-        workbench = await unified_memory.l0.get_workbench(session_id)
-        entities_by_session[session_id] = {
-            (entity["entity_id"], entity["entity_type"]): entity
-            for entity in workbench["active_entities"]
-        }
-        tactics_by_session[session_id] = {
-            tactic["tactic_id"]: tactic
-            for tactic in workbench["temporary_tactics"]
-        }
-
     all_items, stats = build_l0_session_list_items(
         session_ids=filtered_ids,
         sessions=l0_sessions,
-        goals_by_session=goals_by_session,
-        entities_by_session=entities_by_session,
-        tactics_by_session=tactics_by_session,
+        attention_by_session=attention_by_session,
         summary_map=summary_map,
     )
     items = all_items[offset : offset + limit]
@@ -86,7 +84,7 @@ async def list_l0_sessions(
 
 @memory_router.get("/l0/workbench/{session_id}")
 async def get_l0_workbench(session_id: str):
-    """Get the workbench (goals, entities, tactics) for a session."""
+    """Get the short-term attention workbench for a session."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l0:
         raise HTTPException(

@@ -402,7 +402,10 @@ class HybridRetrievalService(
         payload: RetrievalPayload,
     ) -> None:
         if request.session_id and self._memory.l0 is not None:
-            payload.l0_workbench = await self._load_l0(request.session_id)
+            payload.l0_workbench = await self._load_l0(
+                request.session_id,
+                query=request.query,
+            )
 
     @staticmethod
     def _build_intent_input(

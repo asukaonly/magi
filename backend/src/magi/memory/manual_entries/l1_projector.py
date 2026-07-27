@@ -138,7 +138,7 @@ def _build_memory_event(
         source="manual_entry",
         source_item_id=entry.entry_id,
         memory_domain=MemoryDomain.USER_AUTHORED,
-        ingest_target=IngestTarget.L0_AND_L1,
+        ingest_target=IngestTarget.L1_ONLY,
         cognition_eligible=not entry.exclude_from_llm,
         tom_depth=TomDepth.NONE,
         retention_class=RetentionClass.PERMANENT,

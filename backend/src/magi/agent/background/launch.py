@@ -198,6 +198,7 @@ class BackgroundLaunchService:
             message_payload={
                 "background_task_id": task.task_id,
                 "background_task_title": spec.title,
+                "background_task_attempt": int(task.attempt_index),
             },
             root_user_message=request.context.latest_user_message,
             orchestration_id=task.task_id,

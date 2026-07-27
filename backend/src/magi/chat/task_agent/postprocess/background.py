@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from magi.chat import ChatMessageRecord
 
 _OUTREACH_METADATA_KEY = "_magi_outreach"
+
+
+@dataclass(frozen=True, slots=True)
+class CompletionMessageWriteResult:
+    """Authoritative completion row and whether this call created it."""
+
+    record: ChatMessageRecord | None
+    created: bool
 
 
 async def persist_completion_message(
@@ -25,7 +34,7 @@ async def persist_completion_message(
     message_id: str,
     correlation_id: str,
     identity_fingerprint: str,
-) -> "ChatMessageRecord | None":
+) -> CompletionMessageWriteResult:
     """Append a completion transcript row with a caller-supplied body.
 
     Owns the record fields / pending-replacement / history-bump semantics
@@ -33,7 +42,7 @@ async def persist_completion_message(
     ``DesktopTranscriptExecutor`` writes them through one persistence path.
     """
     if chat_store is None:
-        return None
+        return CompletionMessageWriteResult(record=None, created=False)
     durable_payload = dict(payload)
     durable_payload[_OUTREACH_METADATA_KEY] = {
         "correlation_id": correlation_id,
@@ -60,5 +69,11 @@ async def persist_completion_message(
         replaces_message_id=pending_message_id,
         replaced_by_message_id=None,
     )
-    persisted, _created = await chat_store.append_completion_message_once(record)
-    return persisted
+    persisted, created = await chat_store.append_completion_message_once(record)
+    return CompletionMessageWriteResult(record=persisted, created=created)
+
+
+__all__ = [
+    "CompletionMessageWriteResult",
+    "persist_completion_message",
+]

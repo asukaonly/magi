@@ -7,6 +7,13 @@ from .context_scope.cache_epoch import invalidate_context_caches
 from .context_scope.catalog import clear_user_contexts
 
 _SHARED_AUXILIARY_USER_TABLES = (
+    # Full-memory clear owns dormant L0 rows as well. The optional L0 store
+    # cannot be relied on to exist when a user clears memory.
+    "l0_attention_items",
+    "l0_sessions",
+    "l0_forgotten_attention_source_refs",
+    "l0_forgotten_attention_entities",
+    "memory_source_turn_cutoffs",
     "memory_time_range_forget_barriers",
     "memory_forget_operation_refs",
     "memory_forget_operation_events",

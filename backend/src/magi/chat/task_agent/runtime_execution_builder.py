@@ -182,6 +182,7 @@ def _build_postprocess_service(
         get_sensor_hub=callbacks.get_sensor_hub,
         memory=config.memory,
         unified_memory=config.unified_memory,
+        post_turn_understanding_service=config.post_turn_understanding_service,
         max_fact_memory=callbacks.max_fact_memory,
         trace_read_service=_build_chat_trace_read_service(),
         runtime_trace_store=config.runtime_trace_store,

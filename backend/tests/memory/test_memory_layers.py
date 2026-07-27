@@ -184,11 +184,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         await self.store.shutdown()
         self.temp_dir.cleanup()
 
-    async def _get_l0_active_entities(self, store: UnifiedMemoryStore, session_id: str):
-        workbench = await store.l0.get_workbench(session_id)
-        return workbench["active_entities"]
-
-    async def test_l0_l4_pipeline(self):
+    async def test_memory_pipeline_does_not_implicitly_write_l0(self):
         now = time.time()
         await self.store.add_event(
             {
@@ -251,7 +247,8 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             lambda: self.store.l4.query_strategies(query="browser", limit=5)
         )
 
-        self.assertEqual(workbench["session"]["user_id"], "u1")
+        self.assertIsNone(workbench["session"])
+        self.assertEqual(workbench["attention_items"], [])
         self.assertEqual(l1_count, 1)
         self.assertEqual(assertions[0]["trait_name"], "stress_level")
         self.assertIsNotNone(summary)
@@ -390,7 +387,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(l1_events, [])
         self.assertGreaterEqual(len(procedures), 1)
 
-    async def test_l2_resolved_entities_are_projected_into_l0_active_entities(self):
+    async def test_l2_ingest_does_not_implicitly_write_l0_attention(self):
         local_store = UnifiedMemoryStore(
             l1_db_path=str(self.base / "entity_l1_events.db"),
             memory_db_path=str(self.base / "entity_memory.db"),
@@ -428,16 +425,14 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 }
             )
 
-            active_entities = await _wait_for_async_condition(
-                lambda: self._get_l0_active_entities(local_store, "s1")
+            mentions = await _wait_for_async_condition(
+                lambda: local_store.l2_entity_catalog.list_mentions(limit=10)
             )
+            workbench = await local_store.l0.get_workbench("s1")
 
-            self.assertEqual(len(active_entities), 1)
-            self.assertEqual(active_entities[0]["entity_id"], "place:shanghai")
-            self.assertEqual(active_entities[0]["entity_type"], "place")
-            self.assertEqual(active_entities[0]["snapshot"]["canonical_name"], "Shanghai")
-            self.assertEqual(active_entities[0]["snapshot"]["name"], "Shanghai")
-            self.assertIn("魔都", active_entities[0]["snapshot"]["aliases"])
+            self.assertEqual(len(mentions), 1)
+            self.assertEqual(mentions[0]["resolved_entity_id"], "place:shanghai")
+            self.assertEqual(workbench["attention_items"], [])
         finally:
             await local_store.shutdown()
 
@@ -1417,7 +1412,7 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         await self.memory.shutdown()
         self.temp_dir.cleanup()
 
-    async def test_event_pipeline_from_bus(self):
+    async def test_event_pipeline_from_bus_does_not_implicitly_write_l0(self):
         await self.bus.publish(
             Event(
                 type="WORKER_AGENT_PROGRESS",
@@ -1466,7 +1461,8 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
 
         self.assertGreaterEqual(stats["events_processed"], 3)
         self.assertEqual(l1_count, 2)
-        self.assertEqual(workbench["session"]["user_id"], "u1")
+        self.assertIsNone(workbench["session"])
+        self.assertEqual(workbench["attention_items"], [])
         self.assertGreaterEqual(stats["l2_assertions_written"], 1)
 
     async def test_pre_clear_runtime_event_backlog_does_not_repopulate_memory(self):

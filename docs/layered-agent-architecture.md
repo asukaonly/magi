@@ -196,7 +196,7 @@ Primary packages:
 
 Responsibilities:
 
-- `L0` working context
+- `L0` short-term conversation attention
 - `L1` event memory
 - `L2` structured cognition
 - `L3` reflection summaries
@@ -253,7 +253,8 @@ Notes:
 Responsibilities:
 
 - inbound sensors (domain-neutral `SensorBase` and `SensorOutput`)
-- sensor memory policy (`SensorMemoryPolicy`) controlling L0–L4 routing
+- sensor memory policy (`SensorMemoryPolicy`) controlling durable event routing,
+  cognition eligibility, and retention; sensors do not write L0 attention
 - sensor ingestion gateway (`SensorIngestionGateway`) for memory/timeline/graph routing
 - sensor state management (cursors, fingerprint dedup)
 - runtime event emission

@@ -16,6 +16,10 @@ from ..control.provider import resolve_control_session_store
 from ..control.permission.provider import get_permission_gateway
 from ..tools import tool_registry
 from .background.notifications import broadcast_background_task_state_changed
+from .post_turn_understanding import (
+    AcceptedBackgroundAttempt,
+    PostTurnUnderstandingService,
+)
 from ..utils.runtime import get_runtime_paths
 from .runtime import AgentRuntime, RouterAgent, TaskAgentManager
 from .scheduled_agent_task import UserAgentTaskScheduleContributor
@@ -81,17 +85,33 @@ class AgentRuntimeModule(LifecycleModule):
 
     async def init(self) -> None:
         deps = _load_agent_runtime_dependencies(self._context)
+        post_turn_understanding_service = PostTurnUnderstandingService(
+            unified_memory=deps.unified_memory,
+            self_memory=deps.memory,
+        )
+        self._context.agent_runtime.post_turn_understanding_service = (
+            post_turn_understanding_service
+        )
         background_wiring = self._build_background_wiring(deps)
+        self._register_background_attempt_listener(
+            background_wiring,
+            post_turn_understanding_service,
+        )
         self._publish_background_wiring(background_wiring)
         self._register_batch_driver(background_wiring)
 
-        task_agent_manager = self._build_task_agent_manager(deps, background_wiring)
+        task_agent_manager = self._build_task_agent_manager(
+            deps,
+            background_wiring,
+            post_turn_understanding_service,
+        )
         router_agent = self._build_router_agent(deps, task_agent_manager)
         agent_runtime = AgentRuntime(
             sensor_hub=deps.sensor_hub,
             router_agent=router_agent,
             task_agent_manager=task_agent_manager,
             event_emitter=deps.event_emitter,
+            post_turn_understanding_service=post_turn_understanding_service,
         )
         self._publish_agent_runtime(task_agent_manager, agent_runtime)
         self._configure_agent_tool(deps, task_agent_manager)
@@ -130,14 +150,50 @@ class AgentRuntimeModule(LifecycleModule):
 
         background_wiring.manager.add_listener(BatchDriver(background_wiring.manager).on_terminal)
 
+    @staticmethod
+    def _register_background_attempt_listener(
+        background_wiring: BackgroundTaskWiring,
+        service: PostTurnUnderstandingService,
+    ) -> None:
+        async def admit_attempt(task: Any) -> None:
+            spec = task.spec
+            await service.admit_background_attempt(
+                AcceptedBackgroundAttempt(
+                    outcome_id=(
+                        f"background-task:{task.task_id}:"
+                        f"attempt:{int(task.attempt_index)}:started"
+                    ),
+                    source_turn_id=(
+                        str(getattr(spec, "origin_turn_id", "") or "").strip()
+                        or None
+                    ),
+                    user_id=str(getattr(spec, "user_id", "") or ""),
+                    session_id=str(getattr(spec, "session_id", "") or ""),
+                    task_id=str(task.task_id),
+                    task_attempt=int(task.attempt_index),
+                    accepted_at=float(
+                        task.started_at
+                        if task.started_at is not None
+                        else task.updated_at
+                    ),
+                )
+            )
+
+        background_wiring.manager.add_attempt_listener(admit_attempt)
+
     def _build_task_agent_manager(
         self,
         deps: _AgentRuntimeDependencies,
         background_wiring: BackgroundTaskWiring,
+        post_turn_understanding_service: PostTurnUnderstandingService,
     ) -> TaskAgentManager:
         runtime_settings = deps.config.agent.runtime
         return TaskAgentManager(
-            create_chat_agent=self._build_chat_agent_factory(deps, background_wiring),
+            create_chat_agent=self._build_chat_agent_factory(
+                deps,
+                background_wiring,
+                post_turn_understanding_service,
+            ),
             create_default_agent=self._build_default_agent_factory(deps),
             idle_ttl_seconds=runtime_settings.task_agent_manager_idle_ttl_seconds,
             max_dynamic_instances=runtime_settings.task_agent_manager_max_dynamic_instances,
@@ -155,6 +211,7 @@ class AgentRuntimeModule(LifecycleModule):
         self,
         deps: _AgentRuntimeDependencies,
         background_wiring: BackgroundTaskWiring,
+        post_turn_understanding_service: PostTurnUnderstandingService,
     ) -> Callable[[str], "TaskAgent"]:
         bg_settings = deps.config.agent.background_tasks
         return self._create_chat_agent_factory(
@@ -162,6 +219,7 @@ class AgentRuntimeModule(LifecycleModule):
             llm_pool=deps.llm_pool,
             memory=deps.memory,
             unified_memory=deps.unified_memory,
+            post_turn_understanding_service=post_turn_understanding_service,
             hybrid_retrieval_service=deps.hybrid_retrieval_service,
             memory_integration=deps.memory_integration,
             skill_runner=deps.skill_runner,
@@ -287,6 +345,19 @@ class AgentRuntimeModule(LifecycleModule):
             await self._context.agent_runtime.agent_runtime.stop()
             self._context.agent_runtime.agent_runtime = None
         self._context.agent_runtime.task_agent_manager = None
+        post_turn_understanding_service = (
+            self._context.agent_runtime.post_turn_understanding_service
+        )
+        if post_turn_understanding_service is not None:
+            flushed = await post_turn_understanding_service.shutdown(
+                flush=True,
+                timeout_seconds=5.0,
+            )
+            if not flushed:
+                logger.warning(
+                    "Timed out while flushing accepted conversation outcomes"
+                )
+        self._context.agent_runtime.post_turn_understanding_service = None
 
 
 def _load_agent_runtime_dependencies(

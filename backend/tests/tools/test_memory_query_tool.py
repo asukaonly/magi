@@ -156,7 +156,18 @@ class TestMemoryQueryTool:
         fake_service = MagicMock(name="retrieval_service")
         fake_service.query = AsyncMock(
             return_value=MagicMock(
-                l0_workbench=[{"summary": "Current goal"}],
+                l0_workbench=[
+                    {
+                        "session": {"session_id": "session-1"},
+                        "attention_items": [
+                            {
+                                "kind": "focus",
+                                "summary": "The user is asking about weather preferences.",
+                                "status": "active",
+                            }
+                        ],
+                    }
+                ],
                 l1_events=[],
                 l2_entity_cards=[],
                 l2_relationships=[

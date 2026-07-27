@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { pickDirectory } from '@/runtime/desktop';
 import type { MemoryToggleFieldId } from '@/types/settings';
+import { validateMemoryL0Config } from '@/utils/memory-settings-validation';
 
 interface MemorySettingsSectionProps {
   draftConfig: SystemConfig;
@@ -495,6 +496,7 @@ export function MemoryWorkbenchSettingsSection({
   updateMemoryToggle,
 }: Pick<MemorySettingsSectionProps, 'draftConfig' | 'patchDraftConfig' | 'updateMemoryToggle'>) {
   const { t } = useTranslation('app');
+  const validationIssue = validateMemoryL0Config(draftConfig.memory.l0);
 
   return (
     <MemorySectionShell>
@@ -505,11 +507,86 @@ export function MemoryWorkbenchSettingsSection({
           checked={draftConfig.memory.l0.enabled}
           onCheckedChange={(checked) => updateMemoryToggle('l0', checked)}
         />
-        <div className="py-3">
+      </MemoryGroup>
+
+      <MemoryGroup>
+        <div className="space-y-1">
+          <div className="text-sm font-semibold text-foreground">
+            {t('settings.memory.sections.workbench.attentionUpdateTitle')}
+          </div>
+          <p className="max-w-3xl text-xs leading-6 text-muted-foreground">
+            {t('settings.memory.sections.workbench.attentionUpdateDescription')}
+          </p>
+        </div>
+        <div className="grid gap-6 py-3 lg:grid-cols-3">
+          <div>
+            <NumberField
+              label={t('settings.memory.fields.l0_attention_update_turn_threshold.label')}
+              value={draftConfig.memory.l0.attention_update_turn_threshold}
+              min={1}
+              max={20}
+              step={1}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.memory.l0.attention_update_turn_threshold = value;
+              })}
+            />
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">
+              {t('settings.memory.fields.l0_attention_update_turn_threshold.description')}
+            </p>
+          </div>
+          <div>
+            <NumberField
+              label={t('settings.memory.fields.l0_attention_update_idle_seconds.label')}
+              value={draftConfig.memory.l0.attention_update_idle_seconds}
+              min={1}
+              max={300}
+              step={1}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.memory.l0.attention_update_idle_seconds = value;
+              })}
+            />
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">
+              {t('settings.memory.fields.l0_attention_update_idle_seconds.description')}
+            </p>
+          </div>
+          <div>
+            <NumberField
+              label={t('settings.memory.fields.l0_attention_update_max_delay_seconds.label')}
+              value={draftConfig.memory.l0.attention_update_max_delay_seconds}
+              min={1}
+              max={600}
+              step={1}
+              onChange={(value) => patchDraftConfig((draft) => {
+                draft.memory.l0.attention_update_max_delay_seconds = value;
+              })}
+            />
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">
+              {t('settings.memory.fields.l0_attention_update_max_delay_seconds.description')}
+            </p>
+          </div>
+        </div>
+        {validationIssue ? (
+          <p role="alert" className="text-xs font-medium leading-6 text-destructive">
+            {t(`settings.memory.validation.${validationIssue}`)}
+          </p>
+        ) : null}
+      </MemoryGroup>
+
+      <MemoryGroup>
+        <div className="space-y-1">
+          <div className="text-sm font-semibold text-foreground">
+            {t('settings.memory.sections.workbench.checkpointTitle')}
+          </div>
+          <p className="max-w-3xl text-xs leading-6 text-muted-foreground">
+            {t('settings.memory.sections.workbench.checkpointDescription')}
+          </p>
+        </div>
+        <div className="max-w-xs py-3">
           <NumberField
             label={t('settings.memory.fields.l0_checkpoint_interval_seconds.label')}
             value={draftConfig.memory.l0.checkpoint_interval_seconds}
             min={1}
+            step={1}
             onChange={(value) => patchDraftConfig((draft) => {
               draft.memory.l0.checkpoint_interval_seconds = value;
             })}

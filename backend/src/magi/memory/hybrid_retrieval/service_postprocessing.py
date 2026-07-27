@@ -386,11 +386,19 @@ class HybridRetrievalPostProcessingMixin:
             payload.trace.get("reducer_type"),
         )
 
-    async def _load_l0(self, session_id: str) -> List[Dict[str, Any]]:
+    async def _load_l0(
+        self,
+        session_id: str,
+        *,
+        query: str,
+    ) -> List[Dict[str, Any]]:
         """Load L0 workbench data."""
         host = cast(_HybridRetrievalPostProcessingHostProtocol, self)
         try:
-            projection = await host._memory.l0.get_prompt_workbench_projection(session_id)
+            projection = await host._memory.l0.get_prompt_workbench_projection(
+                session_id,
+                query=query,
+            )
             if projection.session is not None:
                 return [projection.to_retrieval_entry()]
         except Exception:

@@ -2338,7 +2338,13 @@ describe('config forms', () => {
           memory: {
             retention_days: 90,
             history_behavior: 'delete',
-            l0: { enabled: true, checkpoint_interval_seconds: 30 },
+            l0: {
+              enabled: true,
+              checkpoint_interval_seconds: 30,
+              attention_update_turn_threshold: 3,
+              attention_update_idle_seconds: 30,
+              attention_update_max_delay_seconds: 90,
+            },
             l1: { enabled: true, vectors_enabled: true },
             l2: {
               enabled: true,
@@ -2365,5 +2371,8 @@ describe('config forms', () => {
     expect(screen.getByRole('switch', { name: /settings\.memory\.fields\.enable_l2\.label/i })).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: /settings\.memory\.fields\.enable_l3\.label/i })).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: /settings\.memory\.fields\.enable_l4\.label/i })).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('settings.memory.fields.l0_attention_update_turn_threshold.label')
+    ).not.toBeInTheDocument();
   });
 });

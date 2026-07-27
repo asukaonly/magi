@@ -12,9 +12,7 @@ from magi.api.routers.memory import memory_router
 class _FakeL0Store:
     checkpoint_db_path = "/tmp/l0.db"
     _sessions: dict = {}
-    _goal_stack: dict = {}
-    _active_entities: dict = {}
-    _temporary_tactics: dict = {}
+    _attention_items: dict = {}
 
 
 class _FakeL1Store:

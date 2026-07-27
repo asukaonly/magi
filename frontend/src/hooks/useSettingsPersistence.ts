@@ -17,6 +17,7 @@ import {
   serialize,
 } from '@/utils/settings-helpers';
 import { validateLLMCustomProviderReadiness, type LLMValidationIssue } from '@/components/config-forms/llm-form-state';
+import { validateMemoryL0Config } from '@/utils/memory-settings-validation';
 
 interface UseSettingsPersistenceParams {
   savedConfig: SystemConfig;
@@ -135,6 +136,11 @@ export function useSettingsPersistence({
     const llmValidationIssue = validateLLMCustomProviderReadiness(draftConfig.llm)[0];
     if (llmValidationIssue) {
       toast.warning(formatLlmValidationIssue(llmValidationIssue));
+      return;
+    }
+    const memoryL0ValidationIssue = validateMemoryL0Config(draftConfig.memory.l0);
+    if (memoryL0ValidationIssue) {
+      toast.warning(t(`settings.memory.validation.${memoryL0ValidationIssue}`));
       return;
     }
 

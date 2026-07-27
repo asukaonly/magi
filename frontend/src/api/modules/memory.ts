@@ -27,24 +27,59 @@ export interface L0Session {
   status: string;
   started_at: number;
   last_active_at: number;
-  goal_count: number;
-  entity_count: number;
-  tactic_count: number;
+  attention_count: number;
+  active_attention_count?: number;
+  background_attention_count?: number;
 }
 
 export interface L0Stats {
   active_sessions: number;
-  total_goals: number;
-  total_entities: number;
-  total_tactics: number;
+  total_attention_items: number;
+  active_attention_items?: number;
+  background_attention_items?: number;
+  resolved_attention_items?: number;
+  superseded_attention_items?: number;
   db_path?: string;
+}
+
+export type L0AttentionKind =
+  | 'focus'
+  | 'situation'
+  | 'open_loop'
+  | 'active_object'
+  | 'constraint'
+  | 'consensus';
+
+export type L0AttentionStatus =
+  | 'active'
+  | 'background'
+  | 'resolved'
+  | 'superseded';
+
+export type L0AttentionEvidenceMode = 'direct' | 'inferred';
+
+export interface L0AttentionItem {
+  item_id: string;
+  kind: L0AttentionKind;
+  summary: string;
+  status: L0AttentionStatus;
+  salience: number;
+  confidence: number;
+  evidence_mode: L0AttentionEvidenceMode;
+  source_turn_ids: string[];
+  source_event_ids: string[];
+  entity_id: string | null;
+  task_id: string | null;
+  first_seen_at: number;
+  last_reinforced_at: number;
+  expires_at: number | null;
+  supersedes_item_id: string | null;
+  metadata: Record<string, unknown>;
 }
 
 export interface L0Workbench {
   session: Record<string, unknown> | null;
-  goal_stack: Array<Record<string, unknown>>;
-  active_entities: Array<Record<string, unknown>>;
-  temporary_tactics: Array<Record<string, unknown>>;
+  attention_items: L0AttentionItem[];
   context_usage?: ContextUsageData | null;
 }
 

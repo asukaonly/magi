@@ -264,13 +264,15 @@ class ChatOutcomeWriter:
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
         persona_id: str | None = None,
-    ) -> None:
+    ) -> bool:
+        if self._chat_store is None:
+            return True
         turn_write = await self._turn_state_writer.resolve_turn_completion(
             turn_id=turn_id,
             ux_plan=ux_plan,
         )
         if turn_write is None:
-            return
+            return False
         messages: list[ChatMessageRecord] = []
         if turn_write.response_mode not in {"reaction_only", "none"}:
             messages.append(
@@ -285,9 +287,7 @@ class ChatOutcomeWriter:
                     persona_id=persona_id,
                 )
             )
-        if self._chat_store is None:
-            return
-        await self._chat_store.commit_unmanaged_assistant_outcome(
+        committed = await self._chat_store.commit_unmanaged_assistant_outcome(
             turn_id=turn_write.turn_id,
             messages=messages,
             attachment_payloads_by_message_id={
@@ -306,6 +306,7 @@ class ChatOutcomeWriter:
             run_revision=run_revision,
             run_disposition=run_disposition,
         )
+        return committed is not None
 
     async def persist_segmented_chat_outcome(
         self,

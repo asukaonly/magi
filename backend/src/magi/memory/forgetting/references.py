@@ -98,6 +98,15 @@ class ForgetReferenceBuilder:
         if selector.kind == "chat_message":
             payload = selector.payload
             references: list[ForgetReference] = []
+            for turn_id in normalize_source_event_ids(
+                payload.get("runtime_turn_ids", [])
+            ):
+                references.extend(
+                    (
+                        ForgetReference("", "barrier", "turn_cutoff", turn_id),
+                        ForgetReference("", "cleanup", "turn", turn_id),
+                    )
+                )
             for message in payload["messages"]:
                 if not isinstance(message, dict):
                     continue
@@ -190,7 +199,22 @@ class ForgetReferenceBuilder:
                 turn_id = str(identity.get("turn_id") or "").strip()
                 if turn_id:
                     cleanup_values.append(turn_id)
-                    references.append(ForgetReference(event_id, "cleanup", "turn", turn_id))
+                    references.extend(
+                        (
+                            ForgetReference(
+                                event_id,
+                                "barrier",
+                                "turn_cutoff",
+                                turn_id,
+                            ),
+                            ForgetReference(
+                                event_id,
+                                "cleanup",
+                                "turn",
+                                turn_id,
+                            ),
+                        )
+                    )
 
         audit_event_ids = await self._correction_audit_event_ids(cleanup_values)
         owner_event_id = normalized[0]

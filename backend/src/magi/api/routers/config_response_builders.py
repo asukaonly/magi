@@ -108,6 +108,9 @@ def _build_memory_l0_config(memory_cfg: Any) -> MemoryL0ConfigModel:
     return MemoryL0ConfigModel(
         enabled=memory_cfg.l0.enabled,
         checkpoint_interval_seconds=memory_cfg.l0.checkpoint_interval_seconds,
+        attention_update_turn_threshold=memory_cfg.l0.attention_update_turn_threshold,
+        attention_update_idle_seconds=memory_cfg.l0.attention_update_idle_seconds,
+        attention_update_max_delay_seconds=memory_cfg.l0.attention_update_max_delay_seconds,
     )
 
 

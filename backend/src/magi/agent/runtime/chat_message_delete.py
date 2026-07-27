@@ -42,6 +42,8 @@ class ChatMessageDeleteHold:
 class ChatSessionControlAgent(Protocol):
     """Chat-agent control contract required by destructive session mutations."""
 
+    async def cancel_postprocess_for_destructive_change(self) -> None: ...
+
     async def plan_message_delete_runtime_turn_ids(
         self,
         *,
@@ -352,8 +354,9 @@ class ChatMessageDeleteCoordinator:
     ) -> None:
         """Stop unsafe work and clear its run without terminalizing delivery."""
 
-        await agent.stop()
         chat_agent = cast(ChatSessionControlAgent, agent)
+        await chat_agent.cancel_postprocess_for_destructive_change()
+        await agent.stop()
         await chat_agent.abandon_session_run_for_context_replay(
             session_id=session_id,
             replay_turn_ids=replay_turn_ids,

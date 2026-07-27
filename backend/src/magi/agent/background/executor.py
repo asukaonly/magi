@@ -57,6 +57,7 @@ class BackgroundTaskRunResult:
 BackgroundTaskRunFn = Callable[
     [BackgroundTask, CancelToken], Awaitable[BackgroundTaskRunResult]
 ]
+BackgroundTaskAttemptStartedFn = Callable[[BackgroundTask], Awaitable[None]]
 
 
 class BackgroundTaskExecutor:
@@ -68,10 +69,12 @@ class BackgroundTaskExecutor:
         store: BackgroundTaskStore,
         run_fn: BackgroundTaskRunFn,
         clock: Callable[[], float] = time.time,
+        on_attempt_started: BackgroundTaskAttemptStartedFn | None = None,
     ) -> None:
         self._store = store
         self._run_fn = run_fn
         self._clock = clock
+        self._on_attempt_started = on_attempt_started
 
     async def execute(
         self,
@@ -96,6 +99,8 @@ class BackgroundTaskExecutor:
             raise RuntimeError(
                 "Background task attempt could not start from its durable state"
             )
+        if self._on_attempt_started is not None:
+            await self._on_attempt_started(task)
         try:
             result = await self._run_fn(task, cancel_token)
         except asyncio.CancelledError:

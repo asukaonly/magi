@@ -8,9 +8,6 @@ from typing import Any, Callable, Protocol, cast
 
 from .constants import (
     CHAT_TOOL_LOOP_STEP_EVENT_TYPE,
-    MEMORY_QUERY_ACTIVE_TACTIC,
-    REPLAN_AFTER_TOOL_FAILURE_TACTIC,
-    TACTIC_TTL_SECONDS,
     TOOL_INTERACTION_EVENT_TYPE,
 )
 
@@ -23,7 +20,6 @@ class _ToolEventPostprocessHostProtocol(Protocol):
     # agent so postprocess can record tool events without going through
     # ChatContextAssembler as a middleman.
     _tool_state_view: Any
-    _unified_memory: Any
     _get_event_emitter: Callable[[], Any]
 
     async def _emit_trace_update_notification(
@@ -69,19 +65,6 @@ class ChatPostprocessToolEventMixin:
         execution_time = float(payload.get("execution_time") or 0.0)
         success = bool(payload.get("success"))
         error_text = str(payload.get("error") or "") or None
-        if success and tool_name == "memory_query":
-            await self._record_temporary_tactic(
-                session_id=session_id,
-                tactic_type=MEMORY_QUERY_ACTIVE_TACTIC,
-                tactic_payload={
-                    "tool_name": tool_name,
-                    "turn_id": turn_id,
-                    "iteration": payload.get("iteration"),
-                    "intent": payload.get("intent"),
-                    "arguments": arguments,
-                },
-                source_event_id=str(payload.get("tool_call_id") or turn_id or tool_name),
-            )
         await event_emitter.emit_runtime_event(
             event_type=TOOL_INTERACTION_EVENT_TYPE,
             payload={
@@ -147,19 +130,6 @@ class ChatPostprocessToolEventMixin:
         session_id = host._context_assembler.require_session_id(user_id, payload.get("session_id"))
         stage = str(payload.get("stage") or "unknown")
         turn_id = str(payload.get("turn_id") or "").strip() or None
-        if stage == "iteration_all_tools_failed" and bool(payload.get("replan_allowed")):
-            await self._record_temporary_tactic(
-                session_id=session_id,
-                tactic_type=REPLAN_AFTER_TOOL_FAILURE_TACTIC,
-                tactic_payload={
-                    "turn_id": turn_id,
-                    "iteration": payload.get("iteration"),
-                    "replan_allowed": True,
-                    "consecutive_failed_iterations": payload.get("consecutive_failed_iterations"),
-                    "tool_names": list(payload.get("tool_names") or []),
-                },
-                source_event_id=str(turn_id or stage),
-            )
         runtime_payload = {
             "stage": stage,
             "iteration": payload.get("iteration"),
@@ -195,26 +165,4 @@ class ChatPostprocessToolEventMixin:
             user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
-        )
-    async def _record_temporary_tactic(
-        self,
-        *,
-        session_id: str,
-        tactic_type: str,
-        tactic_payload: dict[str, Any],
-        source_event_id: str,
-    ) -> None:
-        host = cast(_ToolEventPostprocessHostProtocol, self)
-        l0_store = getattr(host._unified_memory, "l0", None)
-        if l0_store is None:
-            return
-        await l0_store.add_temporary_tactic(
-            session_id=session_id,
-            scope_type="session",
-            scope_id=session_id,
-            tactic_type=tactic_type,
-            tactic_payload=tactic_payload,
-            source_event_ids=[source_event_id] if source_event_id else [],
-            expires_at=time.time() + TACTIC_TTL_SECONDS,
-            tactic_id=f"session:{session_id}:{tactic_type}",
         )

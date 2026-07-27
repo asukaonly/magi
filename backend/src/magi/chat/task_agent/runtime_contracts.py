@@ -44,6 +44,7 @@ class ChatTaskAgentRuntimeConfig:
     llm_pool: Any | None = None
     memory: Any | None = None
     unified_memory: Any | None = None
+    post_turn_understanding_service: Any | None = None
     hybrid_retrieval_service: Any | None = None
     history_cache_max_sessions: int = 500
     skill_runner: Any | None = None

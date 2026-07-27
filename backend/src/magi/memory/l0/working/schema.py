@@ -19,63 +19,65 @@ CREATE TABLE IF NOT EXISTS l0_sessions (
     metadata TEXT
 );
 
-CREATE TABLE IF NOT EXISTS l0_goal_stack (
-    stack_id INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS l0_attention_items (
+    item_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
-    goal_id TEXT NOT NULL,
-    parent_goal_id TEXT,
-    goal_type TEXT NOT NULL,
-    description TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    summary TEXT NOT NULL,
     status TEXT NOT NULL,
-    priority INTEGER DEFAULT 0,
-    created_at REAL NOT NULL,
-    started_at REAL,
-    completed_at REAL,
-    result_summary TEXT,
-    metadata TEXT
-);
-
-CREATE TABLE IF NOT EXISTS l0_active_entities (
-    session_id TEXT NOT NULL,
-    entity_id TEXT NOT NULL,
-    entity_type TEXT NOT NULL,
-    relevance_score REAL DEFAULT 0.0,
-    snapshot_json TEXT NOT NULL,
+    salience REAL NOT NULL,
+    confidence REAL NOT NULL,
+    evidence_mode TEXT NOT NULL,
+    source_turn_ids TEXT NOT NULL DEFAULT '[]',
     source_event_ids TEXT NOT NULL DEFAULT '[]',
-    loaded_at REAL NOT NULL,
-    last_accessed_at REAL NOT NULL,
-    access_count INTEGER DEFAULT 0,
-    PRIMARY KEY (session_id, entity_id, entity_type)
-);
-
-CREATE TABLE IF NOT EXISTS l0_temporary_tactics (
-    tactic_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    scope_type TEXT NOT NULL,
-    scope_id TEXT NOT NULL,
-    tactic_type TEXT NOT NULL,
-    tactic_payload TEXT NOT NULL,
-    source_event_ids TEXT NOT NULL,
+    entity_id TEXT,
+    task_id TEXT,
+    task_attempt INTEGER,
+    first_seen_at REAL NOT NULL,
+    last_reinforced_at REAL NOT NULL,
     expires_at REAL,
-    created_at REAL NOT NULL
+    supersedes_item_id TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}'
 );
 
-CREATE TABLE IF NOT EXISTS l0_forgotten_tactic_source_refs (
+CREATE INDEX IF NOT EXISTS idx_l0_attention_session_status
+    ON l0_attention_items(session_id, status, salience DESC, last_reinforced_at DESC);
+
+CREATE TABLE IF NOT EXISTS l0_forgotten_attention_source_refs (
     source_ref TEXT PRIMARY KEY,
     created_at REAL NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_l0_forgotten_tactic_source_refs_created
-    ON l0_forgotten_tactic_source_refs(created_at, source_ref);
+CREATE INDEX IF NOT EXISTS idx_l0_forgotten_attention_source_refs_created
+    ON l0_forgotten_attention_source_refs(created_at, source_ref);
+
+CREATE TABLE IF NOT EXISTS memory_source_turn_cutoffs (
+    turn_id TEXT PRIMARY KEY,
+    cutoff_at REAL NOT NULL,
+    reason TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_source_turn_cutoffs_cutoff
+    ON memory_source_turn_cutoffs(cutoff_at, turn_id);
+
+CREATE TABLE IF NOT EXISTS l0_forgotten_attention_entities (
+    entity_id TEXT PRIMARY KEY,
+    cutoff_at REAL NOT NULL,
+    operation_id TEXT,
+    updated_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_l0_forgotten_attention_entities_cutoff
+    ON l0_forgotten_attention_entities(cutoff_at, entity_id);
 
 """
 
 L0_CLEAR_SQL = """
 DELETE FROM l0_sessions;
-DELETE FROM l0_goal_stack;
-DELETE FROM l0_active_entities;
-DELETE FROM l0_temporary_tactics;
-DELETE FROM l0_forgotten_tactic_source_refs;
+DELETE FROM l0_attention_items;
+DELETE FROM l0_forgotten_attention_source_refs;
+DELETE FROM l0_forgotten_attention_entities;
 """
 
 

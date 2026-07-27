@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncIterator
+from copy import deepcopy
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Awaitable, Callable
@@ -46,6 +47,7 @@ from .store import BackgroundTaskStore
 
 __all__ = [
     "BackgroundTaskAdmissionBlockedError",
+    "BackgroundTaskAttemptListener",
     "BackgroundTaskListener",
     "BackgroundTaskManager",
     "TERMINAL_BACKGROUND_TASK_STATUSES",
@@ -65,6 +67,7 @@ TERMINAL_BACKGROUND_TASK_STATUSES: frozenset[BackgroundTaskStatus] = frozenset(
 #: Implementations must be coroutine functions; raised exceptions are
 #: caught and logged so one faulty listener cannot block the others.
 BackgroundTaskListener = Callable[[BackgroundTask], Awaitable[None]]
+BackgroundTaskAttemptListener = Callable[[BackgroundTask], Awaitable[None]]
 
 
 logger = structlog.get_logger(__name__)
@@ -139,7 +142,12 @@ class BackgroundTaskManager:
             tuple[str, int],
             asyncio.Task[None],
         ] = {}
+        self._attempt_notifications: dict[
+            tuple[str, int],
+            asyncio.Task[None],
+        ] = {}
         self._listeners: list[BackgroundTaskListener] = []
+        self._attempt_listeners: list[BackgroundTaskAttemptListener] = []
         self._started = False
         self._stopping = False
         self._lock = asyncio.Lock()
@@ -172,6 +180,7 @@ class BackgroundTaskManager:
         executor_kwargs: dict[str, object] = {
             "store": self._store,
             "run_fn": self._run_fn,
+            "on_attempt_started": self._schedule_attempt_notification,
         }
         if self._clock is not None:
             executor_kwargs["clock"] = self._clock
@@ -237,6 +246,10 @@ class BackgroundTaskManager:
         if notifications:
             await asyncio.gather(*notifications, return_exceptions=True)
         self._terminal_notifications.clear()
+        attempt_notifications = list(self._attempt_notifications.values())
+        if attempt_notifications:
+            await asyncio.gather(*attempt_notifications, return_exceptions=True)
+        self._attempt_notifications.clear()
         self._running.clear()
         self._started = False
         self._stopping = False
@@ -487,6 +500,10 @@ class BackgroundTaskManager:
             task = await self._store.get_task(task_id)
             if task is not None and matches(task):
                 target_ids.add(task_id)
+        for task_id, _attempt_index in list(self._attempt_notifications):
+            task = await self._store.get_task(task_id)
+            if task is not None and matches(task):
+                target_ids.add(task_id)
 
         for task_id in sorted(target_ids):
             await self.cancel(task_id, reason=reason)
@@ -503,20 +520,61 @@ class BackgroundTaskManager:
             )
             if task_id in target_ids
         ]
+        attempt_notifications = [
+            notification
+            for (task_id, _attempt_index), notification in list(
+                self._attempt_notifications.items()
+            )
+            if task_id in target_ids
+        ]
         current = asyncio.current_task()
         if any(
             task is current
-            for task in [*attempts, *notifications]
+            for task in [
+                *attempts,
+                *notifications,
+                *attempt_notifications,
+            ]
         ):
             raise RuntimeError(
                 "Background task cannot delete its own conversation scope"
             )
-        waiters = [*attempts, *notifications]
+        waiters = [*attempts, *notifications, *attempt_notifications]
         if waiters:
             try:
                 await asyncio.wait_for(
                     asyncio.gather(
                         *(asyncio.shield(waiter) for waiter in waiters),
+                    ),
+                    timeout=max(0.001, deadline - loop.time()),
+                )
+            except asyncio.TimeoutError as exc:
+                raise RuntimeError(
+                    "Background conversation work did not stop before deletion"
+                ) from exc
+
+        while True:
+            late_notifications = [
+                notification
+                for (task_id, _attempt_index), notification in [
+                    *list(self._attempt_notifications.items()),
+                    *list(self._terminal_notifications.items()),
+                ]
+                if task_id in target_ids and not notification.done()
+            ]
+            if not late_notifications:
+                break
+            if any(notification is current for notification in late_notifications):
+                raise RuntimeError(
+                    "Background task cannot delete its own conversation scope"
+                )
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(
+                        *(
+                            asyncio.shield(notification)
+                            for notification in late_notifications
+                        ),
                     ),
                     timeout=max(0.001, deadline - loop.time()),
                 )
@@ -636,15 +694,15 @@ class BackgroundTaskManager:
         not in a retriable state.
         """
         self._require_started()
-        task = await self._store.get_task(task_id)
-        if task is None:
-            return None
-        if task.status not in (
-            BackgroundTaskStatus.FAILED,
-            BackgroundTaskStatus.CANCELLED,
-        ):
-            return None
         async with self._admission_lock:
+            task = await self._store.get_task(task_id)
+            if task is None:
+                return None
+            if task.status not in (
+                BackgroundTaskStatus.FAILED,
+                BackgroundTaskStatus.CANCELLED,
+            ):
+                return None
             self._assert_admitted(task_id=task.task_id, spec=task.spec)
             previous = task.status
             task.status = BackgroundTaskStatus.PENDING
@@ -736,6 +794,8 @@ class BackgroundTaskManager:
             latest = await self._store.get_task(task.task_id)
             if latest is None or latest.status != BackgroundTaskStatus.PENDING:
                 continue
+            if latest.task_id in self._running:
+                continue
             task = latest
             await self._semaphore.acquire()
             if self._stopping:
@@ -745,6 +805,9 @@ class BackgroundTaskManager:
             # cancelled (or otherwise advanced) while we were blocked.
             latest = await self._store.get_task(task.task_id)
             if latest is None or latest.status != BackgroundTaskStatus.PENDING:
+                self._semaphore.release()
+                continue
+            if latest.task_id in self._running:
                 self._semaphore.release()
                 continue
             task = latest
@@ -770,6 +833,22 @@ class BackgroundTaskManager:
         finally:
             self._running.pop(task.task_id, None)
             self._semaphore.release()
+            # A retry may be admitted after the old attempt becomes durable
+            # terminal but before its slow terminal listeners return. The
+            # dispatcher consumes and skips that retry while this task is
+            # still registered in ``_running``. Re-read durable state after
+            # unregistering so the pending attempt cannot lose its wake-up.
+            if not self._stopping and self._queue is not None:
+                try:
+                    latest = await self._store.get_task(task.task_id)
+                except Exception:  # noqa: BLE001 - preserve attempt outcome
+                    logger.exception(
+                        "failed to recover pending retry after attempt exit",
+                        bg_task_id=task.task_id,
+                    )
+                else:
+                    if latest is not None and latest.status == BackgroundTaskStatus.PENDING:
+                        self._queue.put_nowait(latest)
 
     # ------------------------------------------------------------------
     # Listeners
@@ -792,6 +871,29 @@ class BackgroundTaskManager:
 
         notification.add_done_callback(discard)
 
+    async def _schedule_attempt_notification(self, task: BackgroundTask) -> None:
+        """Schedule attempt-derived projections without blocking task execution."""
+
+        snapshot = deepcopy(task)
+        key = (snapshot.task_id, int(snapshot.attempt_index))
+        existing = self._attempt_notifications.get(key)
+        if existing is not None and not existing.done():
+            return
+        notification = asyncio.create_task(
+            self._notify_attempt_listeners(snapshot),
+            name=(
+                "background-attempt-notification:"
+                f"{snapshot.task_id}:{snapshot.attempt_index}"
+            ),
+        )
+        self._attempt_notifications[key] = notification
+
+        def discard(done: asyncio.Task[None]) -> None:
+            if self._attempt_notifications.get(key) is done:
+                self._attempt_notifications.pop(key, None)
+
+        notification.add_done_callback(discard)
+
     def add_listener(self, listener: BackgroundTaskListener) -> None:
         """Register a terminal-state listener.
 
@@ -809,6 +911,37 @@ class BackgroundTaskManager:
             self._listeners.remove(listener)
         except ValueError:
             return
+
+    def add_attempt_listener(
+        self,
+        listener: BackgroundTaskAttemptListener,
+    ) -> None:
+        """Register a listener for each durably started task attempt."""
+
+        if listener not in self._attempt_listeners:
+            self._attempt_listeners.append(listener)
+
+    def remove_attempt_listener(
+        self,
+        listener: BackgroundTaskAttemptListener,
+    ) -> None:
+        """Deregister one attempt-start listener."""
+
+        try:
+            self._attempt_listeners.remove(listener)
+        except ValueError:
+            return
+
+    async def _notify_attempt_listeners(self, task: BackgroundTask) -> None:
+        for listener in list(self._attempt_listeners):
+            try:
+                await listener(task)
+            except Exception:  # noqa: BLE001 - listener isolation
+                logger.exception(
+                    "background task attempt listener raised",
+                    bg_task_id=task.task_id,
+                    bg_attempt=task.attempt_index,
+                )
 
     async def _notify_listeners(self, task: BackgroundTask) -> None:
         for listener in list(self._listeners):

@@ -35,7 +35,10 @@ class ContextRetrievalService:
         )
         if normalized_layers == ("L0",):
             return {
-                "l0_workbench": await self._load_l0_workbench(session_id),
+                "l0_workbench": await self._load_l0_workbench(
+                    session_id,
+                    query=query,
+                ),
                 "l2_entity_cards": [],
                 "l3_reflection_memory": [],
                 "l4_procedural_memory": task_preferences,
@@ -91,24 +94,33 @@ class ContextRetrievalService:
         )
         return normalized or ("L0",)
 
-    async def _load_l0_workbench(self, session_id: str | None) -> list[dict[str, Any]]:
+    async def _load_l0_workbench(
+        self,
+        session_id: str | None,
+        *,
+        query: str,
+    ) -> list[dict[str, Any]]:
         if not session_id or getattr(self._unified_memory, "l0", None) is None:
             return []
         try:
             projection = await self._unified_memory.l0.get_prompt_workbench_projection(
-                session_id
+                session_id,
+                query=query,
             )
         except Exception:
             return []
         workbench = projection.to_retrieval_entry()
         if workbench.get("session") is None:
             return []
+        attention_items = [
+            dict(item)
+            for item in workbench.get("attention_items", [])
+            if isinstance(item, dict)
+        ]
         return [
             {
                 "session": workbench["session"],
-                "goals": list(workbench.get("goals", [])[:3]),
-                "active_entities": list(workbench.get("active_entities", [])[:5]),
-                "temporary_tactics": list(workbench.get("temporary_tactics", [])[:5]),
+                "attention_items": attention_items[:12],
             }
         ]
 

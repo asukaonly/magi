@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from ...core.sqlite import sqlite_connection_async
-from ..source_event_governance import normalize_source_event_ids, tombstone_source_event_ids
+from ..source_event_governance import (
+    normalize_source_event_ids,
+    tombstone_source_event_ids,
+    upsert_source_turn_cutoffs,
+)
 from .models import ForgetOperation, ForgetReference, ForgetSelector, SelectedEvent
 
 # The desktop runtime admits one backend process.  This process-local registry
@@ -46,6 +50,7 @@ class ForgetOperationRepository:
         reason: str,
         reuse_completed: bool,
         execution_ready: bool = True,
+        on_execution_ready: Callable[[str], None] | None = None,
     ) -> ForgetOperation:
         normalized_reason = str(reason or "").strip()
         if not normalized_reason:
@@ -67,6 +72,8 @@ class ForgetOperationRepository:
                     )
                 if row is None:
                     operation_id = f"forget:{uuid.uuid4().hex}"
+                    if execution_ready and on_execution_ready is not None:
+                        on_execution_ready(operation_id)
                     await db.execute(
                         """
                         INSERT INTO memory_forget_operations(
@@ -237,6 +244,13 @@ class ForgetOperationRepository:
                             db,
                             str(row["operation_id"]),
                         )
+                if (
+                    row is not None
+                    and str(row["status"]) != "completed"
+                    and bool(row["execution_ready"])
+                    and on_execution_ready is not None
+                ):
+                    on_execution_ready(str(row["operation_id"]))
                 await db.commit()
             except BaseException:
                 await db.rollback()
@@ -378,7 +392,12 @@ class ForgetOperationRepository:
                 rows = await cursor.fetchall()
         return [self._decode_operation(row) for row in rows]
 
-    async def activate(self, operation_id: str) -> ForgetOperation:
+    async def activate(
+        self,
+        operation_id: str,
+        *,
+        on_execution_ready: Callable[[str], None] | None = None,
+    ) -> ForgetOperation:
         """Allow a chat operation to run after its runtime barrier commits."""
 
         now = time.time()
@@ -394,6 +413,11 @@ class ForgetOperationRepository:
                     "chat_message",
                 }:
                     raise RuntimeError("Only chat forget operations require activation")
+                if (
+                    str(row["status"]) != "completed"
+                    and on_execution_ready is not None
+                ):
+                    on_execution_ready(str(row["operation_id"]))
                 await db.execute(
                     """
                     UPDATE memory_forget_operations
@@ -525,6 +549,7 @@ class ForgetOperationRepository:
         *,
         references: Iterable[ForgetReference],
         reason: str,
+        turn_cutoff_at: float | None = None,
     ) -> None:
         await self._persist_references(
             operation_id,
@@ -532,6 +557,7 @@ class ForgetOperationRepository:
             reason=reason,
             events=(),
             cursor=None,
+            turn_cutoff_at=turn_cutoff_at,
         )
 
     async def persist_time_range_barrier(self, operation: ForgetOperation) -> str | None:
@@ -597,6 +623,7 @@ class ForgetOperationRepository:
         references: Iterable[ForgetReference],
         reason: str,
         cursor: str,
+        turn_cutoff_at: float | None = None,
     ) -> int:
         selected = tuple(events)
         if not selected:
@@ -607,6 +634,7 @@ class ForgetOperationRepository:
             reason=reason,
             events=selected,
             cursor=str(cursor),
+            turn_cutoff_at=turn_cutoff_at,
         )
 
     async def _persist_references(
@@ -617,10 +645,25 @@ class ForgetOperationRepository:
         reason: str,
         events: tuple[SelectedEvent, ...],
         cursor: str | None,
+        turn_cutoff_at: float | None,
     ) -> int:
         now = time.time()
+        normalized_turn_cutoff = (
+            float(turn_cutoff_at)
+            if turn_cutoff_at is not None
+            else now
+        )
         barrier_values = normalize_source_event_ids(
-            reference.value for reference in references if reference.role == "barrier"
+            reference.value
+            for reference in references
+            if reference.role == "barrier"
+            and reference.ref_type != "turn_cutoff"
+        )
+        turn_cutoff_values = normalize_source_event_ids(
+            reference.value
+            for reference in references
+            if reference.role == "barrier"
+            and reference.ref_type == "turn_cutoff"
         )
         async with sqlite_connection_async(self._db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
@@ -691,6 +734,12 @@ class ForgetOperationRepository:
                     event_ids=barrier_values,
                     reason=reason,
                     created_at=now,
+                )
+                await upsert_source_turn_cutoffs(
+                    db,
+                    turn_ids=turn_cutoff_values,
+                    cutoff_at=normalized_turn_cutoff,
+                    reason=reason,
                 )
                 if cursor is not None:
                     await db.execute(
@@ -998,6 +1047,32 @@ class ForgetOperationRepository:
             ) as cursor:
                 return normalize_source_event_ids(str(row[0]) for row in await cursor.fetchall())
 
+    async def list_projection_event_ids(
+        self,
+        operation_id: str,
+        *,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> tuple[str, ...]:
+        """Return one stable page of projection sources owned by an operation."""
+
+        page_size = max(1, min(int(limit), 1000))
+        async with sqlite_connection_async(self._db_path) as db:
+            async with db.execute(
+                """
+                SELECT DISTINCT event_id
+                FROM memory_projection_blocks
+                WHERE operation_id = ?
+                  AND event_id > ?
+                ORDER BY event_id
+                LIMIT ?
+                """,
+                (operation_id, str(after_event_id), page_size),
+            ) as cursor:
+                return normalize_source_event_ids(
+                    str(row[0]) for row in await cursor.fetchall()
+                )
+
     async def list_audit_event_ids(
         self,
         operation_id: str,
@@ -1085,8 +1160,29 @@ class ForgetOperationRepository:
         ref_type: str,
         item_event_id: str | None = None,
     ) -> tuple[str, ...]:
+        return await self.operation_references(
+            operation_id,
+            ref_type=ref_type,
+            ref_role="target",
+            item_event_id=item_event_id,
+        )
+
+    async def operation_references(
+        self,
+        operation_id: str,
+        *,
+        ref_type: str,
+        ref_role: str | None = None,
+        item_event_id: str | None = None,
+    ) -> tuple[str, ...]:
+        """Return values for one typed operation-reference subset."""
+
         item_clause = ""
+        role_clause = ""
         args: tuple[object, ...] = (operation_id, ref_type)
+        if ref_role is not None:
+            role_clause = " AND ref_role = ?"
+            args = (*args, str(ref_role))
         if item_event_id is not None:
             item_clause = " AND item_event_id = ?"
             args = (*args, str(item_event_id))
@@ -1095,9 +1191,8 @@ class ForgetOperationRepository:
                 f"""
                 SELECT DISTINCT source_ref
                 FROM memory_forget_operation_refs
-                WHERE operation_id = ? AND ref_role = 'target'
-                  AND ref_type = ?
-                  {item_clause}
+                WHERE operation_id = ? AND ref_type = ?
+                  {role_clause}{item_clause}
                 ORDER BY source_ref
                 """,
                 args,

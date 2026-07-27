@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 from magi_plugin_sdk.sensors import SensorMemoryPolicy
 from magi.awareness.sensor_projection import SensorProjection
 
@@ -8,7 +7,7 @@ from magi.awareness.sensor_projection import SensorProjection
 def test_sensor_memory_policy_to_from_dict_roundtrip():
     policy = SensorMemoryPolicy(
         memory_domain="external_activity",
-        ingest_target="l0_and_l1",
+        ingest_target="l1_only",
         cognition_eligible=True,
         tom_depth="self",
         retention_class="ephemeral",
@@ -18,7 +17,7 @@ def test_sensor_memory_policy_to_from_dict_roundtrip():
     )
     d = policy.to_dict()
     assert d["memory_domain"] == "external_activity"
-    assert d["ingest_target"] == "l0_and_l1"
+    assert d["ingest_target"] == "l1_only"
     assert d["importance_bias"] == 0.7
 
     restored = SensorMemoryPolicy.from_dict(d)

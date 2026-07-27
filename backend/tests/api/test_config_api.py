@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -16,7 +17,12 @@ from magi.api.routers.config import (
     _build_update_paths,
     config_router,
 )
-from magi.api.routers.config_schemas import LLMProviderConfigModel, LLMSelectionConfigModel
+from magi.api.routers.config_schemas import (
+    LLMProviderConfigModel,
+    LLMSelectionConfigModel,
+    MemoryL0ConfigModel,
+)
+from magi.api.routers.config_response_builders import _build_memory_l0_config
 from magi.api.services.llm_testing_service import _default_llm_provider_registry
 from magi.api.routers.llm import llm_router
 from magi.config.loader import get_config
@@ -211,6 +217,9 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.history_behavior == "delete"
     assert config.memory.archive_path == "~/.magi/data/memory/archive"
     assert config.memory.l0.checkpoint_interval_seconds == 30
+    assert config.memory.l0.attention_update_turn_threshold == 3
+    assert config.memory.l0.attention_update_idle_seconds == 30
+    assert config.memory.l0.attention_update_max_delay_seconds == 90
     assert config.memory.l2.batch_flush_interval_seconds == 60
     assert config.memory.l2.conflict_arbitration_enabled is True
     assert config.memory.l2.conflict_arbitration_min_confidence == 0.85
@@ -232,6 +241,48 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert "backend" not in config.memory.embedding.model_dump(mode="json")
     assert MemoryL1Settings().retention_days == 30
     assert GraphSpreadingSettings().enabled is True
+
+
+def test_memory_l0_api_config_validates_attention_update_delays():
+    config = MemoryL0ConfigModel(
+        attention_update_idle_seconds=90,
+        attention_update_max_delay_seconds=90,
+    )
+
+    assert config.attention_update_turn_threshold == 3
+    assert config.attention_update_idle_seconds == 90
+    assert config.attention_update_max_delay_seconds == 90
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "attention_update_max_delay_seconds must be greater than or equal to "
+            "attention_update_idle_seconds"
+        ),
+    ):
+        MemoryL0ConfigModel(
+            attention_update_idle_seconds=91,
+            attention_update_max_delay_seconds=90,
+        )
+
+
+def test_memory_l0_api_response_round_trips_attention_update_settings():
+    memory_config = SimpleNamespace(
+        l0=SimpleNamespace(
+            enabled=True,
+            checkpoint_interval_seconds=15,
+            attention_update_turn_threshold=7,
+            attention_update_idle_seconds=80,
+            attention_update_max_delay_seconds=240,
+        )
+    )
+
+    response = _build_memory_l0_config(memory_config)
+
+    assert response.checkpoint_interval_seconds == 15
+    assert response.attention_update_turn_threshold == 7
+    assert response.attention_update_idle_seconds == 80
+    assert response.attention_update_max_delay_seconds == 240
 
 
 def test_system_config_defaults_include_close_to_tray_enabled_preference():
@@ -296,7 +347,7 @@ def test_build_update_paths_keeps_preferences_yaml_safe_with_dismissals(
     # The exact operation that corrupted agent.yaml in production.
     yaml.safe_dump(updates["preferences"], allow_unicode=True, sort_keys=False)
     dumped = updates["preferences"]["suggestion_dismissals"]["demo.suggestion"]
-    assert type(dumped["kind"]) is str
+    assert isinstance(dumped["kind"], str)
     assert dumped["kind"] == "explicit"
 
 
@@ -428,6 +479,9 @@ def test_build_update_paths_contains_new_sections():
     config.memory.query_expansion.max_expansions = 3
     config.memory.graph_spreading.enabled = not current.memory.graph_spreading.enabled
     config.memory.l0.enabled = not current.memory.l0.enabled
+    config.memory.l0.attention_update_turn_threshold = 5
+    config.memory.l0.attention_update_idle_seconds = 45
+    config.memory.l0.attention_update_max_delay_seconds = 120
     config.preferences.default_chat_workspace_path = "/tmp/magi"
     config.memory.l1.retention_days = 14
     config.memory.l2.batch_flush_interval_seconds = 90
@@ -460,6 +514,9 @@ def test_build_update_paths_contains_new_sections():
     assert updates["agent.memory.graph_spreading.enabled"] is config.memory.graph_spreading.enabled
     assert "agent.memory.l0.enabled" in updates
     assert updates["agent.memory.l0.enabled"] == config.memory.l0.enabled
+    assert updates["agent.memory.l0.attention_update_turn_threshold"] == 5
+    assert updates["agent.memory.l0.attention_update_idle_seconds"] == 45
+    assert updates["agent.memory.l0.attention_update_max_delay_seconds"] == 120
     assert updates["agent.memory.l1.retention_days"] == 14
     assert updates["agent.memory.l2.batch_flush_interval_seconds"] == 90
     assert updates["agent.memory.l2.vectors_enabled"] == config.memory.l2.vectors_enabled

@@ -49,7 +49,7 @@ vi.mock('@/hooks/useMemory', () => ({
 const baseMemoryState = {
   loading: false,
   stats: {
-    l0: { active_sessions: 2, total_goals: 3, total_entities: 4, total_tactics: 1 },
+    l0: { active_sessions: 2, total_attention_items: 8 },
     l1: { event_count: 128 },
     l2: { relation_count: 9, assertion_count: 6 },
     l3: { summary_count: 12 },
@@ -64,9 +64,7 @@ const baseMemoryState = {
       status: 'active',
       started_at: 1719300000,
       last_active_at: 1719301200,
-      goal_count: 1,
-      entity_count: 2,
-      tactic_count: 1,
+      attention_count: 4,
     },
   ],
   l0Total: 1,

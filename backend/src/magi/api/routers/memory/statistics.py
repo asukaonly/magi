@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import Any
 
 
@@ -36,17 +37,37 @@ def build_l0_statistics(l0_store: Any) -> dict[str, Any]:
     if not l0_store:
         return {
             "active_sessions": 0,
-            "total_goals": 0,
-            "total_entities": 0,
-            "total_tactics": 0,
+            "total_attention_items": 0,
+            "active_attention_items": 0,
+            "background_attention_items": 0,
+            "resolved_attention_items": 0,
+            "superseded_attention_items": 0,
         }
 
     sessions = l0_store._sessions
+    now = time.time()
+    status_counts = {
+        "active": 0,
+        "background": 0,
+        "resolved": 0,
+        "superseded": 0,
+    }
+    for session_id in sessions:
+        for item in l0_store._attention_items.get(session_id, {}).values():
+            expires_at = item.get("expires_at")
+            if expires_at is not None and float(expires_at) <= now:
+                continue
+            status = str(item.get("status") or "")
+            if status in status_counts:
+                status_counts[status] += 1
+
     return {
         "active_sessions": len([session for session in sessions.values() if session.get("status") == "active"]),
-        "total_goals": sum(len(l0_store._goal_stack.get(session_id, [])) for session_id in sessions),
-        "total_entities": sum(len(l0_store._active_entities.get(session_id, {})) for session_id in sessions),
-        "total_tactics": sum(len(l0_store._temporary_tactics.get(session_id, {})) for session_id in sessions),
+        "total_attention_items": sum(status_counts.values()),
+        "active_attention_items": status_counts["active"],
+        "background_attention_items": status_counts["background"],
+        "resolved_attention_items": status_counts["resolved"],
+        "superseded_attention_items": status_counts["superseded"],
         "db_path": l0_store.checkpoint_db_path,
     }
 

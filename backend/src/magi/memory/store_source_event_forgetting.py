@@ -22,6 +22,7 @@ from .forgetting import (
 from .source_event_governance import (
     normalize_source_event_ids,
     source_event_tombstone_ids,
+    source_turn_cutoffs,
 )
 
 
@@ -465,13 +466,32 @@ class UnifiedSourceEventForgettingMixin:
             found = await source_event_tombstone_ids(db, normalized)
         return len(found) == len(normalized)
 
-    async def _any_source_reference_is_tombstoned(self, event_ids: Iterable[str]) -> bool:
+    async def _any_source_reference_is_tombstoned(
+        self,
+        event_ids: Iterable[str],
+        *,
+        turn_id: str | None = None,
+        accepted_at: float | None = None,
+    ) -> bool:
         """Return whether any replay identity has a durable delete barrier."""
         normalized = normalize_source_event_ids(event_ids)
-        if not normalized:
+        normalized_turn_id = str(turn_id or "").strip()
+        if not normalized and not normalized_turn_id:
             return False
         async with sqlite_connection_async(self.memory_db_path) as db:
-            return bool(await source_event_tombstone_ids(db, normalized))
+            if await source_event_tombstone_ids(db, normalized):
+                return True
+            if not normalized_turn_id:
+                return False
+            cutoffs = await source_turn_cutoffs(db, (normalized_turn_id,))
+        cutoff = cutoffs.get(normalized_turn_id)
+        if cutoff is None:
+            return False
+        try:
+            normalized_accepted_at = float(accepted_at)
+        except (TypeError, ValueError):
+            return True
+        return normalized_accepted_at <= cutoff
 
 
 __all__ = ["UnifiedSourceEventForgettingMixin"]

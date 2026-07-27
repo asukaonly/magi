@@ -213,6 +213,117 @@ async def source_event_tombstone_ids(
     return found
 
 
+async def upsert_source_turn_cutoffs(
+    db: aiosqlite.Connection,
+    *,
+    turn_ids: Iterable[str],
+    cutoff_at: float,
+    reason: str,
+) -> int:
+    """Persist the newest accepted-outcome cutoff for each runtime turn."""
+
+    normalized = normalize_source_event_ids(turn_ids)
+    normalized_reason = str(reason or "").strip()
+    normalized_cutoff = float(cutoff_at)
+    if not normalized_reason:
+        raise ValueError("Source-turn cutoff reason must not be empty")
+    if not math.isfinite(normalized_cutoff):
+        raise ValueError("Source-turn cutoff must be finite")
+    if not normalized:
+        return 0
+    before = db.total_changes
+    await db.executemany(
+        """
+        INSERT INTO memory_source_turn_cutoffs(
+            turn_id, cutoff_at, reason, updated_at
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(turn_id) DO UPDATE SET
+            reason = CASE
+                WHEN excluded.cutoff_at >= memory_source_turn_cutoffs.cutoff_at
+                THEN excluded.reason
+                ELSE memory_source_turn_cutoffs.reason
+            END,
+            cutoff_at = MAX(
+                memory_source_turn_cutoffs.cutoff_at,
+                excluded.cutoff_at
+            ),
+            updated_at = MAX(
+                memory_source_turn_cutoffs.updated_at,
+                excluded.updated_at
+            )
+        """,
+        [
+            (turn_id, normalized_cutoff, normalized_reason, normalized_cutoff)
+            for turn_id in normalized
+        ],
+    )
+    return max(db.total_changes - before, 0)
+
+
+async def source_turn_cutoffs(
+    db: aiosqlite.Connection,
+    turn_ids: Iterable[str],
+) -> dict[str, float]:
+    """Return the latest durable deletion cutoff for candidate runtime turns."""
+
+    normalized = normalize_source_event_ids(turn_ids)
+    if not normalized:
+        return {}
+    async with db.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'memory_source_turn_cutoffs'
+        LIMIT 1
+        """
+    ) as cursor:
+        if await cursor.fetchone() is None:
+            return {}
+    found: dict[str, float] = {}
+    for offset in range(0, len(normalized), 500):
+        chunk = normalized[offset : offset + 500]
+        placeholders = ", ".join("?" for _ in chunk)
+        async with db.execute(
+            f"""
+            SELECT turn_id, cutoff_at
+            FROM memory_source_turn_cutoffs
+            WHERE turn_id IN ({placeholders})
+            """,
+            tuple(chunk),
+        ) as cursor:
+            found.update(
+                (str(turn_id), float(cutoff_at))
+                for turn_id, cutoff_at in await cursor.fetchall()
+            )
+    return found
+
+
+async def latest_post_turn_forget_cutoff(
+    db: aiosqlite.Connection,
+) -> float:
+    """Return the newest durable forget-request boundary for post-turn work."""
+
+    async with db.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'memory_forget_operations'
+        LIMIT 1
+        """
+    ) as cursor:
+        if await cursor.fetchone() is None:
+            return 0.0
+    async with db.execute(
+        """
+        SELECT MAX(created_at)
+        FROM memory_forget_operations
+        WHERE execution_ready = 1
+        """
+    ) as cursor:
+        row = await cursor.fetchone()
+    return float(row[0] or 0.0) if row is not None else 0.0
+
+
 async def source_event_projection_block_ids(
     db: aiosqlite.Connection,
     event_ids: Iterable[str],
@@ -469,6 +580,7 @@ __all__ = [
     "chat_session_source_reference",
     "govern_source_events_by_time_range",
     "matching_time_range_forget_barriers",
+    "latest_post_turn_forget_cutoff",
     "memory_event_source_references",
     "normalize_source_event_ids",
     "promote_source_event_entity_projection_candidates",
@@ -479,6 +591,8 @@ __all__ = [
     "source_event_time_range_block_ids",
     "source_event_time_range_block_predicate",
     "source_event_tombstone_ids",
+    "source_turn_cutoffs",
     "source_occurrence_visible_predicate",
     "tombstone_source_event_ids",
+    "upsert_source_turn_cutoffs",
 ]

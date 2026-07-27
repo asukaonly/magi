@@ -8,12 +8,10 @@ from typing import Any
 
 @dataclass(slots=True)
 class L0PromptWorkbenchProjection:
-    """Prompt-facing L0 workbench payload."""
+    """Prompt-facing session attention payload."""
 
     session: dict[str, Any] | None
-    goal_stack: list[Any] = field(default_factory=list)
-    active_entities: list[Any] = field(default_factory=list)
-    temporary_tactics: list[Any] = field(default_factory=list)
+    attention_items: list[Any] = field(default_factory=list)
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable payload for retrieval and prompt assembly."""
@@ -24,7 +22,5 @@ class L0PromptWorkbenchProjection:
         payload = self.to_payload()
         return {
             "session": payload.get("session"),
-            "goals": payload.get("goal_stack", []),
-            "active_entities": payload.get("active_entities", []),
-            "temporary_tactics": payload.get("temporary_tactics", []),
+            "attention_items": payload.get("attention_items", []),
         }

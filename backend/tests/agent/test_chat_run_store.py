@@ -5,6 +5,32 @@ import pytest
 from magi.agent.task_agents.handlers.run_contracts import RunResultDisposition
 from magi.chat.task_agent.run_store import SessionRunStore
 from magi.control.run_control import null_run_control
+from magi.memory.l0.attention import (
+    AttentionActionType,
+    AttentionKind,
+    AttentionUpdateAction,
+)
+from magi.memory.l0.working_memory import L0WorkingMemoryStore
+
+
+async def _seed_attention(
+    workbench_store: L0WorkingMemoryStore,
+) -> list[dict[str, object]]:
+    updated = await workbench_store.apply_attention_actions(
+        session_id="session-1",
+        actions=[
+            AttentionUpdateAction(
+                action=AttentionActionType.ADD,
+                kind=AttentionKind.FOCUS,
+                summary="Keep discussing the login flow",
+                source_turn_ids=("turn-context",),
+            )
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-context",
+    )
+    assert updated is not None
+    return updated["items"]
 
 
 def test_create_active_run_tracks_session_state() -> None:
@@ -220,14 +246,13 @@ def test_complete_active_run_mismatch_does_not_detach_deferred_turns() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_active_run_populates_l0_goal_stack(tmp_path) -> None:
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
+async def test_create_active_run_does_not_change_l0_attention(tmp_path) -> None:
     workbench_store = L0WorkingMemoryStore(
         checkpoint_db_path=str(tmp_path / "memory.db"),
         restore_on_restart=False,
     )
     store = SessionRunStore(workbench_store=workbench_store)
+    attention_before = await _seed_attention(workbench_store)
 
     store.create_active_run(
         session_id="session-1",
@@ -238,28 +263,19 @@ async def test_create_active_run_populates_l0_goal_stack(tmp_path) -> None:
 
     workbench = await workbench_store.get_workbench("session-1")
 
-    assert len(workbench["goal_stack"]) == 1
-    assert workbench["goal_stack"][0]["goal_id"] == "chat_run:run-1:0"
-    assert workbench["goal_stack"][0]["description"] == "Inspect the login flow"
-    assert workbench["goal_stack"][0]["status"] == "in_progress"
-    assert workbench["goal_stack"][0]["metadata"] == {
-        "run_id": "run-1",
-        "revision": 0,
-        "root_turn_id": "turn-1",
-    }
+    assert workbench["attention_items"] == attention_before
 
 
 @pytest.mark.asyncio
-async def test_interrupting_run_supersedes_previous_goal_and_pushes_new_goal(
+async def test_interrupting_run_does_not_change_l0_attention(
     tmp_path,
 ) -> None:
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
     workbench_store = L0WorkingMemoryStore(
         checkpoint_db_path=str(tmp_path / "memory.db"),
         restore_on_restart=False,
     )
     store = SessionRunStore(workbench_store=workbench_store)
+    attention_before = await _seed_attention(workbench_store)
 
     store.create_active_run(
         session_id="session-1",
@@ -276,23 +292,17 @@ async def test_interrupting_run_supersedes_previous_goal_and_pushes_new_goal(
 
     workbench = await workbench_store.get_workbench("session-1")
 
-    assert [goal["goal_id"] for goal in workbench["goal_stack"]] == [
-        "chat_run:run-1:1",
-    ]
-    assert workbench["goal_stack"][0]["status"] == "in_progress"
-    assert workbench["goal_stack"][0]["description"] == "Switch to the checkout issue instead"
-    assert workbench["goal_stack"][0]["metadata"]["root_turn_id"] == "turn-2"
+    assert workbench["attention_items"] == attention_before
 
 
 @pytest.mark.asyncio
-async def test_complete_active_run_marks_current_goal_completed(tmp_path) -> None:
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
+async def test_complete_active_run_does_not_change_l0_attention(tmp_path) -> None:
     workbench_store = L0WorkingMemoryStore(
         checkpoint_db_path=str(tmp_path / "memory.db"),
         restore_on_restart=False,
     )
     store = SessionRunStore(workbench_store=workbench_store)
+    attention_before = await _seed_attention(workbench_store)
 
     store.create_active_run(
         session_id="session-1",
@@ -305,8 +315,7 @@ async def test_complete_active_run_marks_current_goal_completed(tmp_path) -> Non
     workbench = await workbench_store.get_workbench("session-1")
 
     assert completed is True
-    assert workbench["goal_stack"] == []
-    assert workbench_store._goal_stack["session-1"][0]["status"] == "completed"
+    assert workbench["attention_items"] == attention_before
 
 
 def test_consume_pending_turns_only_clears_requested_revision() -> None:

@@ -21,6 +21,11 @@ from magi.memory.event_contracts import (
 from magi.memory.forgetting import DurableForgetRunner, ForgetReference, ForgetSelector
 from magi.memory.forgetting.repository import ForgetOperationRepository
 from magi.memory.forgetting.selectors import ForgetSelectorResolver
+from magi.memory.l0.attention import (
+    AttentionActionType,
+    AttentionKind,
+    AttentionUpdateAction,
+)
 from magi.memory.l3.daily_mood.models import DailyMoodAggregate
 from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
 from magi.memory.l3.models import L3Candidate
@@ -81,6 +86,46 @@ def _build_memory(tmp_path: Path) -> UnifiedMemoryStore:
             async_embeddings=False,
         ),
     )
+
+
+def _attention_action(
+    *,
+    summary: str,
+    kind: AttentionKind = AttentionKind.FOCUS,
+    source_turn_ids: tuple[str, ...] = (),
+    source_event_ids: tuple[str, ...] = (),
+    entity_id: str | None = None,
+) -> AttentionUpdateAction:
+    return AttentionUpdateAction(
+        action=AttentionActionType.ADD,
+        kind=kind,
+        summary=summary,
+        salience=0.8,
+        confidence=0.9,
+        source_turn_ids=source_turn_ids,
+        source_event_ids=source_event_ids,
+        entity_id=entity_id,
+    )
+
+
+async def _apply_attention(
+    memory: UnifiedMemoryStore,
+    *,
+    session_id: str,
+    actions: list[AttentionUpdateAction],
+    last_processed_turn_id: str,
+    source_turn_accepted_at: dict[str, float] | None = None,
+) -> None:
+    assert memory.l0 is not None
+    snapshot = await memory.l0.get_attention_snapshot(session_id)
+    result = await memory.l0.apply_attention_actions(
+        session_id=session_id,
+        actions=actions,
+        expected_revision=int(snapshot["revision"]),
+        last_processed_turn_id=last_processed_turn_id,
+        source_turn_accepted_at=source_turn_accepted_at,
+    )
+    assert result is not None
 
 
 async def _operation_row(db_path: Path) -> aiosqlite.Row:
@@ -411,37 +456,35 @@ async def test_time_range_forgetting_retains_l1_and_removes_all_derivatives(
     time_event = _event("event-l0-time", timestamp=1_720_001_000.0)
     await memory.l1.store(source_event)
     await memory.l1.store(time_event)
-    await memory.l0.upsert_active_entity(
+    await _apply_attention(
+        memory,
         session_id="session-1",
-        entity_id="person:source",
-        entity_type="person",
-        snapshot={"name": "Source"},
-        source_event_ids=[source_event.event_id],
-    )
-    await memory.l0.upsert_active_entity(
-        session_id="session-1",
-        entity_id="person:time",
-        entity_type="person",
-        snapshot={"name": "Time"},
-        source_event_ids=[time_event.event_id],
-    )
-    await memory.l0.add_temporary_tactic(
-        session_id="session-1",
-        scope_type="session",
-        scope_id="session-1",
-        tactic_type="time-backed",
-        tactic_payload={},
-        source_event_ids=[time_event.event_id],
-        tactic_id="tactic-time",
-    )
-    await memory.l0.add_temporary_tactic(
-        session_id="session-1",
-        scope_type="session",
-        scope_id="session-1",
-        tactic_type="time-turn-backed",
-        tactic_payload={"turn_id": time_event.turn_id},
-        source_event_ids=["unrelated-tool-call"],
-        tactic_id="tactic-time-turn",
+        actions=[
+            _attention_action(
+                summary="Source person remains relevant",
+                kind=AttentionKind.ACTIVE_OBJECT,
+                source_event_ids=(source_event.event_id,),
+                entity_id="person:source",
+            ),
+            _attention_action(
+                summary="Time person remains relevant",
+                kind=AttentionKind.ACTIVE_OBJECT,
+                source_event_ids=(time_event.event_id,),
+                entity_id="person:time",
+            ),
+            _attention_action(
+                summary="Use the time-backed approach",
+                kind=AttentionKind.CONSTRAINT,
+                source_event_ids=(time_event.event_id,),
+            ),
+            _attention_action(
+                summary="Follow up on the time-backed turn",
+                kind=AttentionKind.OPEN_LOOP,
+                source_turn_ids=(time_event.turn_id,),
+                source_event_ids=("unrelated-tool-call",),
+            ),
+        ],
+        last_processed_turn_id=time_event.turn_id,
     )
     await memory.l0.checkpoint_session("session-1")
     assertion_id = await memory.l2.upsert_assertion_candidate(
@@ -517,8 +560,11 @@ async def test_time_range_forgetting_retains_l1_and_removes_all_derivatives(
     try:
         assert await memory.forget_source_event(source_event.event_id) is True
         assert [
-            entity["entity_id"]
-            for entity in (await memory.l0.get_workbench("session-1"))["active_entities"]
+            item["entity_id"]
+            for item in (await memory.l0.get_workbench("session-1"))[
+                "attention_items"
+            ]
+            if item["entity_id"] is not None
         ] == ["person:time"]
 
         await memory.forget_time_range_memory(
@@ -526,8 +572,7 @@ async def test_time_range_forgetting_retains_l1_and_removes_all_derivatives(
             end=time_event.timestamp + 1,
             delete_l1_events=False,
         )
-        assert (await memory.l0.get_workbench("session-1"))["active_entities"] == []
-        assert (await memory.l0.get_workbench("session-1"))["temporary_tactics"] == []
+        assert (await memory.l0.get_workbench("session-1"))["attention_items"] == []
         retained_l1 = await memory.l1.get_event(time_event.event_id)
         assert retained_l1 is not None and retained_l1["deleted_at"] is None
         assertion = await memory.l2.get_tom_assertion(assertion_id=assertion_id)
@@ -579,29 +624,27 @@ async def test_time_range_forgetting_retains_l1_and_removes_all_derivatives(
                 source_event_ids=[time_event.event_id],
             )
         )
-        assert (
-            await memory.l0.upsert_active_entity(
-                session_id="session-1",
-                entity_id="person:late-time",
-                entity_type="person",
-                snapshot={"name": "Late Time"},
-                source_event_ids=[time_event.event_id],
-            )
-            is None
+        await _apply_attention(
+            memory,
+            session_id="session-1",
+            actions=[
+                _attention_action(
+                    summary="Late time person should stay blocked",
+                    kind=AttentionKind.ACTIVE_OBJECT,
+                    source_event_ids=(time_event.event_id,),
+                    entity_id="person:late-time",
+                ),
+                _attention_action(
+                    summary="Late time-backed approach should stay blocked",
+                    kind=AttentionKind.CONSTRAINT,
+                    source_event_ids=(time_event.event_id,),
+                ),
+            ],
+            last_processed_turn_id="turn-late-time",
         )
-        assert (
-            await memory.l0.add_temporary_tactic(
-                session_id="session-1",
-                scope_type="session",
-                scope_id="session-1",
-                tactic_type="late-time-backed",
-                tactic_payload={},
-                source_event_ids=[time_event.event_id],
-            )
-            is None
-        )
+        assert (await memory.l0.get_workbench("session-1"))["attention_items"] == []
         async with aiosqlite.connect(tmp_path / "memory.db") as db:
-            async with db.execute("SELECT COUNT(*) FROM l0_active_entities") as cursor:
+            async with db.execute("SELECT COUNT(*) FROM l0_attention_items") as cursor:
                 assert (await cursor.fetchone())[0] == 0
             async with db.execute(
                 "SELECT COUNT(*) FROM memory_source_event_tombstones WHERE event_id = ?",
@@ -649,24 +692,23 @@ async def test_completed_time_range_governs_first_late_sync_and_all_derivatives(
         assert await memory.l2.has_projection_job(event_id=late_event.event_id) is False
         assert (await memory.l0.get_workbench(late_event.session_id))["session"] is None
 
-        direct_l0_event = _event(
-            "event-direct-l0-late-range",
-            session_id="session-direct-l0-late-range",
-            turn_id="turn-direct-l0-late-range",
-            timestamp=late_event.timestamp,
+        await _apply_attention(
+            memory,
+            session_id=late_event.session_id,
+            actions=[
+                _attention_action(
+                    summary="Late range person should stay blocked",
+                    kind=AttentionKind.ACTIVE_OBJECT,
+                    source_turn_ids=(late_event.turn_id,),
+                    source_event_ids=(late_event.event_id,),
+                    entity_id="person:late-range",
+                )
+            ],
+            last_processed_turn_id=late_event.turn_id,
         )
-        await memory.l0.capture_event(direct_l0_event)
-        assert (await memory.l0.get_workbench(direct_l0_event.session_id))["session"] is None
         assert (
-            await memory.l0.upsert_active_entity(
-                session_id=late_event.session_id,
-                entity_id="person:late-range",
-                entity_type="person",
-                snapshot={"name": "Late Range"},
-                source_event_ids=[late_event.event_id],
-            )
-            is None
-        )
+            await memory.l0.get_workbench(late_event.session_id)
+        )["attention_items"] == []
         blocked_assertion_id = await memory.l2.upsert_assertion_candidate(
             {
                 "entity_id": "user:u1",
@@ -917,21 +959,24 @@ async def test_time_range_cleanup_failure_stays_incomplete_and_resumes(
     assert memory.l3 is not None and memory.l4 is not None
     event = _event("event-time-range-retry", timestamp=1_720_002_000.0)
     await memory.l1.store(event)
-    await memory.l0.upsert_active_entity(
+    await _apply_attention(
+        memory,
         session_id="session-1",
-        entity_id="person:retry",
-        entity_type="person",
-        snapshot={"name": "Retry"},
-        source_event_ids=[event.event_id],
-    )
-    await memory.l0.add_temporary_tactic(
-        session_id="session-1",
-        scope_type="session",
-        scope_id="session-1",
-        tactic_type="retry-turn-backed",
-        tactic_payload={"turn_id": event.turn_id},
-        source_event_ids=["unrelated-retry-tool-call"],
-        tactic_id="tactic-retry-turn",
+        actions=[
+            _attention_action(
+                summary="Retry person remains relevant",
+                kind=AttentionKind.ACTIVE_OBJECT,
+                source_event_ids=(event.event_id,),
+                entity_id="person:retry",
+            ),
+            _attention_action(
+                summary="Retry the interrupted turn",
+                kind=AttentionKind.OPEN_LOOP,
+                source_turn_ids=(event.turn_id,),
+                source_event_ids=("unrelated-retry-tool-call",),
+            ),
+        ],
+        last_processed_turn_id=event.turn_id,
     )
     await memory.l0.checkpoint_session("session-1")
     summary = await memory.l3.upsert_candidate(
@@ -966,8 +1011,7 @@ async def test_time_range_cleanup_failure_stays_incomplete_and_resumes(
         assert retained_l1 is not None and retained_l1["deleted_at"] is None
         assert await memory.l3.get_summary_by_id(summary["summary_id"]) is None
         assert await memory.l4.fetch_by_ids([skill_id]) == []
-        assert (await memory.l0.get_workbench("session-1"))["active_entities"] == []
-        assert (await memory.l0.get_workbench("session-1"))["temporary_tactics"] == []
+        assert (await memory.l0.get_workbench("session-1"))["attention_items"] == []
         async with aiosqlite.connect(tmp_path / "memory.db") as db:
             async with db.execute(
                 "SELECT derivation_state FROM summaries WHERE summary_id = ?",
@@ -980,11 +1024,17 @@ async def test_time_range_cleanup_failure_stays_incomplete_and_resumes(
             ) as cursor:
                 assert await cursor.fetchone() == (None,)
             async with db.execute(
-                "SELECT COUNT(*) FROM l0_active_entities WHERE entity_id = 'person:retry'"
+                """
+                SELECT COUNT(*) FROM l0_attention_items
+                WHERE entity_id = 'person:retry'
+                """
             ) as cursor:
                 assert await cursor.fetchone() == (1,)
             async with db.execute(
-                "SELECT COUNT(*) FROM l0_temporary_tactics WHERE tactic_id = 'tactic-retry-turn'"
+                """
+                SELECT COUNT(*) FROM l0_attention_items
+                WHERE summary = 'Retry the interrupted turn'
+                """
             ) as cursor:
                 assert await cursor.fetchone() == (1,)
 
@@ -1009,11 +1059,17 @@ async def test_time_range_cleanup_failure_stays_incomplete_and_resumes(
             ) as cursor:
                 assert (await cursor.fetchone())[0] is not None
             async with db.execute(
-                "SELECT COUNT(*) FROM l0_active_entities WHERE entity_id = 'person:retry'"
+                """
+                SELECT COUNT(*) FROM l0_attention_items
+                WHERE entity_id = 'person:retry'
+                """
             ) as cursor:
                 assert await cursor.fetchone() == (0,)
             async with db.execute(
-                "SELECT COUNT(*) FROM l0_temporary_tactics WHERE tactic_id = 'tactic-retry-turn'"
+                """
+                SELECT COUNT(*) FROM l0_attention_items
+                WHERE summary = 'Retry the interrupted turn'
+                """
             ) as cursor:
                 assert await cursor.fetchone() == (0,)
     finally:
@@ -1616,6 +1672,94 @@ async def test_entity_forget_removes_old_l3_l4_and_blocks_only_preexisting_evide
             event_ids=[future_event_id],
         ) == (future_event_id,)
         assert await memory.l4.record_memory_event(_task_event(future_event_id)) is not None
+    finally:
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_entity_forget_blocks_l0_turn_sources_without_model_entity_id(
+    tmp_path: Path,
+) -> None:
+    await apply_memory_shared_schema(str(tmp_path / "memory.db"))
+    memory = _build_memory(tmp_path)
+    await memory.initialize()
+    assert memory.l0 is not None
+    assert memory.l1 is not None
+    assert memory.l2_entity_catalog is not None
+    old_event_id = "event-private-person"
+    old_turn_id = "turn-private-person"
+    await memory.l1.store(
+        _event(
+            old_event_id,
+            turn_id=old_turn_id,
+            content="Private Person appears here",
+        )
+    )
+    await memory.l1.write_event_entities(
+        [(old_event_id, "person:private", "person", 0.9)]
+    )
+    await memory.l2_entity_catalog.upsert_entity(
+        canonical_name="Private Person",
+        entity_type="person",
+        entity_id="person:private",
+        source_event_ids=[old_event_id],
+    )
+    await _apply_attention(
+        memory,
+        session_id="session-1",
+        actions=[
+            _attention_action(
+                summary="The conversation is focused on a private person",
+                source_turn_ids=(old_turn_id,),
+                entity_id=None,
+            )
+        ],
+        last_processed_turn_id=old_turn_id,
+        source_turn_accepted_at={old_turn_id: time.time() - 1},
+    )
+
+    try:
+        await memory.forget_entity_memory(
+            entity_id="person:private",
+            delete_l1_events=False,
+        )
+        assert (await memory.l0.get_attention_snapshot("session-1"))["items"] == []
+
+        await _apply_attention(
+            memory,
+            session_id="session-1",
+            actions=[
+                _attention_action(
+                    summary="Old analysis tries to recreate the private person",
+                    source_turn_ids=(old_turn_id,),
+                    entity_id=None,
+                )
+            ],
+            last_processed_turn_id=old_turn_id,
+            source_turn_accepted_at={old_turn_id: time.time() - 1},
+        )
+        assert (await memory.l0.get_attention_snapshot("session-1"))["items"] == []
+
+        new_turn_id = "turn-private-person-new"
+        await _apply_attention(
+            memory,
+            session_id="session-1",
+            actions=[
+                _attention_action(
+                    summary="A new conversation starts after the forget request",
+                    source_turn_ids=(new_turn_id,),
+                    entity_id=None,
+                )
+            ],
+            last_processed_turn_id=new_turn_id,
+            source_turn_accepted_at={new_turn_id: time.time() + 1},
+        )
+        assert [
+            item["source_turn_ids"]
+            for item in (await memory.l0.get_attention_snapshot("session-1"))[
+                "items"
+            ]
+        ] == [[new_turn_id]]
     finally:
         await memory.shutdown()
 

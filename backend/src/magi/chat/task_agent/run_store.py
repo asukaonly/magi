@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 from magi.control.run_control import RunControl
 from .execution_state_store import SessionExecutionStateStore
 from .run_store_conversion import SessionRunConversionMixin
-from .run_store_goals import SessionRunGoalMixin
 from .run_store_lifecycle import SessionRunLifecycleMixin
 from .run_store_results import SessionRunResultMixin
 
@@ -20,7 +19,6 @@ class SessionRunStore(
     SessionRunLifecycleMixin,
     SessionRunResultMixin,
     SessionRunConversionMixin,
-    SessionRunGoalMixin,
 ):
     """Store one live run per session and track revisioned results.
 

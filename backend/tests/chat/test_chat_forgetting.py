@@ -1086,6 +1086,11 @@ async def test_recovery_replays_pre_run_turn_from_first_persisted_intent(
 ) -> None:
     from magi.chat import ChatStore
     from magi.chat.read_service import ChatReadService
+    from magi.memory.l0.attention import (
+        AttentionActionType,
+        AttentionKind,
+        AttentionUpdateAction,
+    )
     from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
@@ -1133,19 +1138,26 @@ async def test_recovery_replays_pre_run_turn_from_first_persisted_intent(
         session_id="session-crash-replay",
         user_id="user-1",
     )
-    await original_l0.push_goal(
+    attention = await original_l0.apply_attention_actions(
         session_id="session-crash-replay",
-        goal_id="goal-keep",
-        goal_type="task",
-        description="Keep unrelated working state",
+        actions=[
+            AttentionUpdateAction(
+                action=AttentionActionType.ADD,
+                kind=AttentionKind.FOCUS,
+                summary="Keep unrelated working state",
+                source_turn_ids=("turn-keep",),
+            ),
+            AttentionUpdateAction(
+                action=AttentionActionType.ADD,
+                kind=AttentionKind.FOCUS,
+                summary="Replay turn is the current focus",
+                source_turn_ids=("turn-replay",),
+            ),
+        ],
+        expected_revision=0,
+        last_processed_turn_id="turn-replay",
     )
-    await original_l0.push_goal(
-        session_id="session-crash-replay",
-        goal_id="chat_run:run-replay:0",
-        goal_type="chat_run",
-        description="turn-replay",
-        metadata={"root_turn_id": "turn-replay"},
-    )
+    assert attention is not None
     await original_l0.checkpoint_session("session-crash-replay")
     restored_l0 = L0WorkingMemoryStore(
         checkpoint_db_path=str(checkpoint_path),
@@ -1290,8 +1302,11 @@ async def test_recovery_replays_pre_run_turn_from_first_persisted_intent(
         "session-crash-replay"
     )
     assert [
-        goal["goal_id"] for goal in replay_workbench["goal_stack"]
-    ] == ["goal-keep"]
+        item["summary"] for item in replay_workbench["attention_items"]
+    ] == ["Keep unrelated working state"]
+    assert replay_workbench["attention_items"][0]["source_turn_ids"] == [
+        "turn-keep"
+    ]
     read_service.close()
 
 
@@ -1583,6 +1598,74 @@ async def test_runtime_forgetting_stops_matching_background_work() -> None:
             frozenset({"turn-message"}),
             "user_delete_chat_message",
         ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_session_delete_discards_post_turn_state_after_background_drain() -> None:
+    calls: list[str] = []
+    drain_started = __import__("asyncio").Event()
+    release_drain = __import__("asyncio").Event()
+
+    class _Queue:
+        @asynccontextmanager
+        async def user_message_clear_boundary(self):  # type: ignore[no-untyped-def]
+            yield
+
+        async def block_user_message_scope_and_purge(
+            self,
+            **scope,
+        ) -> int:  # type: ignore[no-untyped-def]
+            return 0
+
+    class _Background:
+        async def cancel_scope_and_wait(
+            self,
+            **scope,
+        ) -> int:  # type: ignore[no-untyped-def]
+            assert scope == {
+                "user_id": "u1",
+                "session_id": "session-delete",
+                "origin_turn_ids": None,
+                "reason": "user_delete_chat_session",
+            }
+            calls.append("background-drain-started")
+            drain_started.set()
+            await release_drain.wait()
+            calls.append("background-drain-finished")
+            return 1
+
+    class _PostTurnUnderstanding:
+        async def discard_session(self, session_id: str) -> None:
+            assert session_id == "session-delete"
+            calls.append("post-turn-session-discarded")
+
+    coordinator = ChatRuntimeForgettingCoordinator(
+        runtime_command_queue=_Queue(),
+        task_agent_manager=None,
+        sensor_hub=None,
+        chat_read_service=object(),
+        delivery_scheduler=object(),
+        post_turn_understanding_service=_PostTurnUnderstanding(),
+        background_task_manager=_Background(),
+    )
+
+    delete_task = __import__("asyncio").create_task(
+        coordinator.prepare_session_delete(
+            user_id="u1",
+            session_id="session-delete",
+        )
+    )
+    await __import__("asyncio").wait_for(drain_started.wait(), timeout=1.0)
+    assert calls == ["background-drain-started"]
+
+    release_drain.set()
+    await __import__("asyncio").wait_for(delete_task, timeout=1.0)
+
+    assert calls == [
+        "background-drain-started",
+        "background-drain-finished",
+        "post-turn-session-discarded",
     ]
 
 

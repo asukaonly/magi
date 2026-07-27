@@ -158,6 +158,10 @@ class OutreachModule(LifecycleModule):
             ),
             outbox=outbox,
             delivery_log=delivery_log,
+            post_turn_understanding_service=require_initialized(
+                self._context.agent_runtime.post_turn_understanding_service,
+                "post-turn understanding service",
+            ),
         )
 
     @staticmethod

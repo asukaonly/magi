@@ -43,20 +43,18 @@ class _LabeledIntEnum(IntEnum):
 class IngestTarget(_LabeledIntEnum):
     """Storage-efficient ingest routing target for memory events."""
 
-    L0_ONLY = 1
+    RUNTIME_ONLY = 1
     L1_ONLY = 2
-    L0_AND_L1 = 3
 
     @property
     def includes_l1(self) -> bool:
-        return self in {IngestTarget.L1_ONLY, IngestTarget.L0_AND_L1}
+        return self is IngestTarget.L1_ONLY
 
     @classmethod
     def _labels(cls) -> dict["IngestTarget", str]:
         return {
-            IngestTarget.L0_ONLY: "l0_only",
+            IngestTarget.RUNTIME_ONLY: "runtime_only",
             IngestTarget.L1_ONLY: "l1_only",
-            IngestTarget.L0_AND_L1: "l0_and_l1",
         }
 
 
@@ -535,7 +533,7 @@ def _worker_or_loop_control_classification(event_type: str) -> Dict[str, Any]:
             if event_type == "WORKER_AGENT_PROGRESS"
             else MemoryDomain.SYSTEM_CONTROL
         ),
-        ingest_target=IngestTarget.L0_ONLY,
+        ingest_target=IngestTarget.RUNTIME_ONLY,
         cognition_eligible=False,
         tom_depth=TomDepth.NONE,
         retention_class=RetentionClass.DISPOSABLE,
@@ -546,7 +544,7 @@ def _worker_or_loop_control_classification(event_type: str) -> Dict[str, Any]:
 def _runtime_disposable_classification() -> Dict[str, Any]:
     return _classification(
         memory_domain=MemoryDomain.RUNTIME_TELEMETRY,
-        ingest_target=IngestTarget.L0_ONLY,
+        ingest_target=IngestTarget.RUNTIME_ONLY,
         cognition_eligible=False,
         tom_depth=TomDepth.NONE,
         retention_class=RetentionClass.DISPOSABLE,
@@ -566,7 +564,7 @@ def _is_task_lifecycle_event(event_type: str) -> bool:
 def _task_lifecycle_classification(event_type: str) -> Dict[str, Any]:
     return _classification(
         memory_domain=MemoryDomain.RUNTIME_TELEMETRY,
-        ingest_target=IngestTarget.L0_AND_L1,
+        ingest_target=IngestTarget.L1_ONLY,
         cognition_eligible=False,
         tom_depth=TomDepth.NONE,
         retention_class=RetentionClass.COMPRESSIBLE,

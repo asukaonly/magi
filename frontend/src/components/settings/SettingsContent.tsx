@@ -38,6 +38,7 @@ import {
 } from '@/utils/timeline-capabilities';
 import { getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
 import { validateLLMCustomProviderReadiness, type LLMValidationIssue } from '@/components/config-forms/llm-form-state';
+import { validateMemoryL0Config } from '@/utils/memory-settings-validation';
 
 const ADVANCED_MEMORY_SECTION_IDS = new Set([
   'memoryWorkbench',
@@ -180,6 +181,14 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const llmValidationMessage = llmValidationIssues[0]
     ? formatLlmValidationIssue(llmValidationIssues[0])
     : null;
+  const memoryL0ValidationIssue = useMemo(
+    () => validateMemoryL0Config(draftConfig.memory.l0),
+    [draftConfig.memory.l0]
+  );
+  const memoryL0ValidationMessage = memoryL0ValidationIssue
+    ? t(`settings.memory.validation.${memoryL0ValidationIssue}`)
+    : null;
+  const settingsValidationMessage = llmValidationMessage || memoryL0ValidationMessage;
   const visibleNavItems = useMemo(
     () =>
       NAV_ITEMS.map((item) => {
@@ -469,9 +478,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           <div data-testid="settings-main-footer" className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
             <p className={cn(
               'text-sm leading-6 transition-colors duration-200',
-              llmValidationMessage ? 'font-medium text-amber-700 dark:text-amber-300' : dirty ? 'text-primary font-medium' : 'text-muted-foreground'
+              settingsValidationMessage ? 'font-medium text-amber-700 dark:text-amber-300' : dirty ? 'text-primary font-medium' : 'text-muted-foreground'
             )}>
-              {llmValidationMessage || (dirty ? t('settings.pendingChanges') : t('settings.allChangesSaved'))}
+              {settingsValidationMessage || (dirty ? t('settings.pendingChanges') : t('settings.allChangesSaved'))}
             </p>
             <div className="flex flex-wrap items-center gap-2.5">
               <Button
@@ -489,7 +498,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 type="button"
                 size="sm"
                 onClick={() => void handleSaveChanges()}
-                disabled={!dirty || saving || llmValidationIssues.length > 0}
+                disabled={!dirty || saving || llmValidationIssues.length > 0 || Boolean(memoryL0ValidationIssue)}
                 className={cn(
                   'h-9 rounded-lg px-4 transition-all duration-200 shadow-[0_8px_18px_hsl(var(--primary)/0.11)] hover:shadow-[0_10px_22px_hsl(var(--primary)/0.15)]',
                   dirty && 'animate-in pulse duration-300'

@@ -38,7 +38,7 @@ async def test_persist_completion_message_writes_record():
     from magi.chat.task_agent.postprocess.background import persist_completion_message
 
     store = _FakeChatStore()
-    record = await persist_completion_message(
+    result = await persist_completion_message(
         store,
         session_id="s1",
         user_id="u1",
@@ -53,7 +53,8 @@ async def test_persist_completion_message_writes_record():
         correlation_id="task_abc",
         identity_fingerprint="fingerprint-1",
     )
-    assert record is not None
+    assert result.record is not None
+    assert result.created is True
     assert len(store.appended) == 1
     written = store.appended[0]
     assert written.session_id == "s1"
@@ -78,11 +79,13 @@ async def test_persist_completion_message_writes_record():
 @pytest.mark.asyncio
 async def test_persist_returns_none_without_store():
     from magi.chat.task_agent.postprocess.background import persist_completion_message
-    assert await persist_completion_message(
+    result = await persist_completion_message(
         None, session_id="s1", user_id="u1", role="assistant",
         message_kind="assistant_final", body="x", payload={},
         turn_id=None,
         pending_message_id=None, created_at_ms=1,
         message_id="msg_outreach_1", correlation_id="task_abc",
         identity_fingerprint="fingerprint-1",
-    ) is None
+    )
+    assert result.record is None
+    assert result.created is False

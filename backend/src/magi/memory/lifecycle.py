@@ -169,7 +169,6 @@ class MemoryStoreModule(LifecycleModule):
             return
         runtime_message_bus = require_initialized(message_bus, "message bus")
         memory_integration_config = MemoryIntegrationConfig(
-            enable_l0=memory_config.l0.enabled,
             enable_l1=memory_config.l1.enabled,
             enable_l2=memory_config.l2.enabled,
             enable_l3=memory_config.l3.enabled,

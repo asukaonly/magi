@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import aiosqlite
 import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
+from magi.agent.post_turn_understanding import (
+    AcceptedConversationOutcome,
+    PostTurnUnderstandingService,
+)
 from magi.memory.event_contracts import (
     IngestTarget,
     MemoryDomain,
@@ -83,7 +88,7 @@ class _FakeL0:
         self.calls = calls
         self.references: list[tuple[str, ...]] = []
 
-    async def forget_temporary_tactics(self, source_references) -> int:
+    async def forget_attention_items(self, source_references) -> int:
         self.calls.append("l0")
         self.references.append(tuple(source_references))
         return 1
@@ -275,7 +280,9 @@ async def test_barrier_and_cleanup_references_are_loaded_in_one_raw_batch(
 
     assert tuple(reference.value for reference in references if reference.role == "barrier") == (
         "evt-1",
+        "turn-1",
         "evt-2",
+        "turn-2",
         "evt-missing",
     )
     assert tuple(reference.value for reference in references if reference.role == "cleanup") == (
@@ -477,7 +484,16 @@ async def test_l1_forgetting_clears_daily_mood_without_l2(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_real_unified_forgetting_governs_distinct_chat_turn_identity(tmp_path: Path) -> None:
+async def test_real_unified_forgetting_governs_distinct_chat_turn_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import magi.agent.post_turn_understanding as post_turn_module
+    from magi.personality.interaction_analyzer import DEFAULT_ANALYSIS
+    from magi.personality.interaction_batch_analyzer import (
+        BatchInteractionAnalysis,
+    )
+
     memory_db = tmp_path / "memory.db"
     await apply_memory_shared_schema(str(memory_db))
     memory = UnifiedMemoryStore(
@@ -580,5 +596,86 @@ async def test_real_unified_forgetting_governs_distinct_chat_turn_identity(tmp_p
                 assert await cursor.fetchall() == [
                     ("evt-chat-public",),
                 ]
+            async with db.execute(
+                """
+                SELECT cutoff_at
+                FROM memory_source_turn_cutoffs
+                WHERE turn_id = 'turn-private-source'
+                """
+            ) as cursor:
+                cutoff_row = await cursor.fetchone()
+            async with db.execute(
+                """
+                SELECT created_at
+                FROM memory_forget_operations
+                ORDER BY created_at DESC
+                LIMIT 1
+                """
+            ) as cursor:
+                operation_row = await cursor.fetchone()
+        assert cutoff_row is not None and operation_row is not None
+        assert float(cutoff_row[0]) == float(operation_row[0])
+
+        async def analyze(batch, **_kwargs):  # type: ignore[no-untyped-def]
+            return BatchInteractionAnalysis(
+                turn_analyses={
+                    turn.turn_id: DEFAULT_ANALYSIS
+                    for turn in batch
+                },
+                attention_actions=(),
+            )
+
+        monkeypatch.setattr(
+            post_turn_module,
+            "analyze_interaction_batch",
+            analyze,
+        )
+        monkeypatch.setattr(
+            post_turn_module,
+            "get_personality_feature_flags",
+            lambda: SimpleNamespace(
+                state_memory_enabled=True,
+                state_transition_enabled=False,
+                deep_persona_enabled=False,
+            ),
+        )
+
+        class _Personality:
+            def __init__(self) -> None:
+                self.messages: list[str] = []
+
+            async def process_turn_outcome(self, **kwargs):  # type: ignore[no-untyped-def]
+                self.messages.append(str(kwargs["user_message"]))
+                return True
+
+        personality = _Personality()
+        post_turn = PostTurnUnderstandingService(
+            unified_memory=memory,
+            self_memory=personality,
+        )
+        try:
+            cutoff_at = float(cutoff_row[0])
+            for outcome_id, accepted_at, message in (
+                ("outcome-before-forget", cutoff_at - 1, "old"),
+                ("outcome-after-forget", cutoff_at + 1, "new"),
+            ):
+                assert await post_turn.admit(
+                    AcceptedConversationOutcome(
+                        outcome_id=outcome_id,
+                        source_turn_id="turn-private-source",
+                        user_id="user:u1",
+                        session_id="session-1",
+                        user_message=message,
+                        assistant_response="response",
+                        epoch=memory.memory_operation_epoch(),
+                        accepted_at=accepted_at,
+                        immediate=True,
+                    )
+                )
+            assert post_turn.scheduler is not None
+            assert await post_turn.scheduler.wait_idle(timeout_seconds=2)
+            assert personality.messages == ["new"]
+        finally:
+            await post_turn.shutdown(flush=False)
     finally:
         await memory.shutdown()

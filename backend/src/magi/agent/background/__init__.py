@@ -36,6 +36,7 @@ from .launch import (
 )
 from .manager import (
     BackgroundTaskAdmissionBlockedError,
+    BackgroundTaskAttemptListener,
     BackgroundTaskListener,
     BackgroundTaskManager,
     TERMINAL_BACKGROUND_TASK_STATUSES,
@@ -65,6 +66,7 @@ __all__ = [
     "BackgroundRuleOutcome",
     "BackgroundTask",
     "BackgroundTaskAdmissionBlockedError",
+    "BackgroundTaskAttemptListener",
     "BackgroundTaskEvent",
     "BackgroundTaskExecutor",
     "BackgroundTaskListener",

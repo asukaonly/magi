@@ -22,7 +22,7 @@ class _FakeUnifiedMemory:
         return {
             "event_id": getattr(event, "event_id", "evt-1"),
             "ingest_target": ingest_target or "l1_only",
-            "l1_written": ingest_target != "l0_only",
+            "l1_written": ingest_target != "runtime_only",
             "l2_relation_count": 0,
             "l2_assertion_count": 0,
             "l4_skill_id": None,

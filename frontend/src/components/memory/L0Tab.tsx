@@ -1,13 +1,15 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { cn } from '@/lib/utils';
+
 import {
   getL0SessionPrimaryLabel,
   getL0SessionSecondaryLabel,
+  type L0AttentionItem,
   type L0Session,
   type L0Workbench,
   type MemoryStatistics,
 } from '@/api/modules/memory';
+import { cn } from '@/lib/utils';
 
 interface L0TabProps {
   stats: MemoryStatistics['l0'];
@@ -23,39 +25,27 @@ const PANEL_CLASS =
 const EMPTY_PANEL_CLASS =
   'rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.32)] px-3 py-4 text-sm leading-6 text-[hsl(var(--memory-muted))] shadow-[inset_0_0_0_1px_hsl(var(--memory-divider)/0.2)]';
 
-const getEntityLabel = (entity: Record<string, unknown>) => {
-  const snapshot = entity.snapshot as Record<string, unknown> | undefined;
-  const snapshotName = snapshot?.name;
-  const canonicalName = snapshot?.canonical_name;
-  if (typeof snapshotName === 'string' && snapshotName.trim()) {
-    return snapshotName;
+const statusClassName = (status: L0AttentionItem['status']): string => {
+  switch (status) {
+    case 'active':
+      return 'bg-primary/10 text-primary';
+    case 'background':
+      return 'bg-muted text-muted-foreground';
+    case 'resolved':
+      return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+    case 'superseded':
+      return 'bg-amber-500/10 text-amber-700 dark:text-amber-300';
   }
-  if (typeof canonicalName === 'string' && canonicalName.trim()) {
-    return canonicalName;
-  }
-  if (typeof entity.entity_id === 'string' && entity.entity_id.trim()) {
-    return entity.entity_id;
-  }
-  return 'Entity';
 };
 
-const getTacticLabel = (tactic: Record<string, unknown>) => {
-  const payload = tactic.tactic_payload as Record<string, unknown> | undefined;
-  const payloadName = payload?.name;
-  const payloadTitle = payload?.title;
-  if (typeof payloadName === 'string' && payloadName.trim()) {
-    return payloadName;
+const formatScore = (value: number): string =>
+  `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+
+const formatTimestamp = (value: number | null): string | null => {
+  if (value === null || !Number.isFinite(value) || value <= 0) {
+    return null;
   }
-  if (typeof payloadTitle === 'string' && payloadTitle.trim()) {
-    return payloadTitle;
-  }
-  if (typeof tactic.tactic_type === 'string' && tactic.tactic_type.trim()) {
-    return tactic.tactic_type;
-  }
-  if (typeof tactic.tactic_id === 'string' && tactic.tactic_id.trim()) {
-    return tactic.tactic_id;
-  }
-  return 'Tactic';
+  return new Date(value * 1000).toLocaleString();
 };
 
 export const L0Tab: React.FC<L0TabProps> = ({
@@ -68,31 +58,29 @@ export const L0Tab: React.FC<L0TabProps> = ({
   const { t } = useTranslation('app');
 
   const selectedSession =
-    sessions.find((session) => session.session_id === selectedSessionId) ??
-    (workbench?.session as L0Session | null) ??
-    null;
-  const goalStack = Array.isArray(workbench?.goal_stack) ? workbench.goal_stack : [];
-  const activeEntities = Array.isArray(workbench?.active_entities) ? workbench.active_entities : [];
-  const temporaryTactics = Array.isArray(workbench?.temporary_tactics) ? workbench.temporary_tactics : [];
+    sessions.find((session) => session.session_id === selectedSessionId)
+    ?? (workbench?.session as L0Session | null)
+    ?? null;
+  const attentionItems = Array.isArray(workbench?.attention_items)
+    ? workbench.attention_items
+    : [];
   const contextUsage = workbench?.context_usage ?? null;
-  const hasWorkbenchContent =
-    goalStack.length > 0 || activeEntities.length > 0 || temporaryTactics.length > 0;
 
   return (
     <div className="space-y-4">
       <section className={PANEL_CLASS}>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-[hsl(var(--memory-body))]">
           <span>{stats.active_sessions} {t('memory.l0.activeSessions')}</span>
-          <span>{stats.total_goals} {t('memory.l0.totalGoals')}</span>
-          <span>{stats.total_entities} {t('memory.l0.totalEntities')}</span>
-          <span>{stats.total_tactics} {t('memory.l0.totalTactics')}</span>
+          <span>{stats.total_attention_items} {t('memory.l0.totalAttentionItems')}</span>
         </div>
       </section>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(260px,0.84fr)_minmax(0,1.16fr)]">
         <section className={PANEL_CLASS}>
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">{t('memory.l0.sessions')}</h2>
+            <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
+              {t('memory.l0.sessions')}
+            </h2>
             <span className="text-xs text-[hsl(var(--memory-muted))]">{sessions.length}</span>
           </div>
 
@@ -117,7 +105,9 @@ export const L0Tab: React.FC<L0TabProps> = ({
                     onClick={() => onSelectSession(session.session_id)}
                   >
                     <div className="flex w-full items-center justify-between gap-3">
-                      <span className="truncate text-sm font-medium">{getL0SessionPrimaryLabel(session)}</span>
+                      <span className="truncate text-sm font-medium">
+                        {getL0SessionPrimaryLabel(session)}
+                      </span>
                       <span className="text-[11px] uppercase tracking-[0.12em] text-[hsl(var(--memory-muted))]">
                         {session.status}
                       </span>
@@ -127,10 +117,8 @@ export const L0Tab: React.FC<L0TabProps> = ({
                         {getL0SessionSecondaryLabel(session)}
                       </div>
                     ) : null}
-                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[hsl(var(--memory-muted))]">
-                      <span>{t('memory.l0.totalGoals')}: {session.goal_count}</span>
-                      <span>{t('memory.l0.totalEntities')}: {session.entity_count}</span>
-                      <span>{t('memory.l0.totalTactics')}: {session.tactic_count}</span>
+                    <div className="text-xs text-[hsl(var(--memory-muted))]">
+                      {t('memory.l0.attentionCount', { count: session.attention_count })}
                     </div>
                   </button>
                 );
@@ -140,7 +128,9 @@ export const L0Tab: React.FC<L0TabProps> = ({
         </section>
 
         <section className={PANEL_CLASS}>
-          <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">{t('memory.l0.workbench')}</h2>
+          <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
+            {t('memory.l0.workbench')}
+          </h2>
 
           {!selectedSessionId ? (
             <div className={`mt-3 ${EMPTY_PANEL_CLASS}`}>
@@ -159,7 +149,9 @@ export const L0Tab: React.FC<L0TabProps> = ({
                     </div>
                   ) : null}
                   <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
-                    {selectedSession.status} · {t('memory.l0.totalGoals')}: {selectedSession.goal_count} · {t('memory.l0.totalEntities')}: {selectedSession.entity_count} · {t('memory.l0.totalTactics')}: {selectedSession.tactic_count}
+                    {selectedSession.status} · {t('memory.l0.workbenchItemCount', {
+                      count: attentionItems.length,
+                    })}
                   </div>
                 </div>
               ) : null}
@@ -196,80 +188,62 @@ export const L0Tab: React.FC<L0TabProps> = ({
                 )}
               </section>
 
-              {!hasWorkbenchContent ? (
-                <div className={EMPTY_PANEL_CLASS}>
-                  {t('memory.pages.workbench.shellEmpty')}
+              <section className="space-y-2 border-t border-[hsl(var(--memory-divider)/0.56)] pt-4">
+                <div className="text-sm font-medium text-[hsl(var(--memory-title))]">
+                  {t('memory.l0.attentionItems')}
                 </div>
-              ) : null}
-
-              <div className="space-y-4">
-                <section className="space-y-2 border-t border-[hsl(var(--memory-divider)/0.56)] pt-4">
-                  <div className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.l0.goalStack')}</div>
-                  {goalStack.length > 0 ? (
-                    <div className="space-y-2">
-                      {goalStack.map((goal, index) => {
-                        const item = goal as Record<string, unknown>;
-                        const label =
-                          (typeof item.description === 'string' && item.description) ||
-                          (typeof item.goal_id === 'string' && item.goal_id) ||
-                          `Goal ${index + 1}`;
-                        return (
-                          <div
-                            key={String(item.goal_id ?? index)}
-                            className="rounded-lg border border-[hsl(var(--memory-border)/0.48)] px-3 py-2 text-sm text-[hsl(var(--memory-body))]"
-                          >
-                            {label}
+                {attentionItems.length === 0 ? (
+                  <div className={EMPTY_PANEL_CLASS}>
+                    {t('memory.pages.workbench.shellEmpty')}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {attentionItems.map((item) => {
+                      const reinforcedAt = formatTimestamp(item.last_reinforced_at);
+                      const expiresAt = formatTimestamp(item.expires_at);
+                      return (
+                        <article
+                          key={item.item_id}
+                          className="rounded-lg border border-[hsl(var(--memory-border)/0.48)] px-3 py-3"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-semibold text-[hsl(var(--memory-title))]">
+                              {t(`memory.l0.kinds.${item.kind}`)}
+                            </span>
+                            <span className={cn(
+                              'rounded-full px-2 py-0.5 text-[11px] font-medium',
+                              statusClassName(item.status)
+                            )}>
+                              {t(`memory.l0.statuses.${item.status}`)}
+                            </span>
+                            <span className={cn(
+                              'rounded-full px-2 py-0.5 text-[11px] font-medium',
+                              item.evidence_mode === 'direct'
+                                ? 'bg-sky-500/10 text-sky-700 dark:text-sky-300'
+                                : 'bg-violet-500/10 text-violet-700 dark:text-violet-300'
+                            )}>
+                              {t(`memory.l0.evidenceModes.${item.evidence_mode}`)}
+                            </span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-[hsl(var(--memory-muted))]">{t('memory.l0.noGoals')}</div>
-                  )}
-                </section>
-
-                <section className="space-y-2 border-t border-[hsl(var(--memory-divider)/0.56)] pt-4">
-                  <div className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.l0.activeEntities')}</div>
-                  {activeEntities.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {activeEntities.map((entity, index) => {
-                        const item = entity as Record<string, unknown>;
-                        return (
-                          <div
-                            key={String(item.entity_id ?? index)}
-                            className="rounded-sm border border-[hsl(var(--memory-border)/0.48)] px-2.5 py-1 text-xs text-[hsl(var(--memory-body))]"
-                          >
-                            {getEntityLabel(item)}
+                          <p className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">
+                            {item.summary}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[hsl(var(--memory-muted))]">
+                            <span>{t('memory.l0.salience')}: {formatScore(item.salience)}</span>
+                            <span>{t('memory.l0.confidence')}: {formatScore(item.confidence)}</span>
+                            {reinforcedAt ? (
+                              <span>{t('memory.l0.lastReinforced')}: {reinforcedAt}</span>
+                            ) : null}
+                            {expiresAt ? (
+                              <span>{t('memory.l0.expiresAt')}: {expiresAt}</span>
+                            ) : null}
                           </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-[hsl(var(--memory-muted))]">{t('memory.l0.noEntities')}</div>
-                  )}
-                </section>
-
-                <section className="space-y-2 border-t border-[hsl(var(--memory-divider)/0.56)] pt-4">
-                  <div className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.l0.tactics')}</div>
-                  {temporaryTactics.length > 0 ? (
-                    <div className="space-y-2">
-                      {temporaryTactics.map((tactic, index) => {
-                        const item = tactic as Record<string, unknown>;
-                        return (
-                          <div
-                            key={String(item.tactic_id ?? index)}
-                            className="rounded-lg border border-[hsl(var(--memory-border)/0.48)] px-3 py-2 text-sm text-[hsl(var(--memory-body))]"
-                          >
-                            {getTacticLabel(item)}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-[hsl(var(--memory-muted))]">{t('memory.l0.noTactics')}</div>
-                  )}
-                </section>
-              </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
             </div>
           )}
         </section>
