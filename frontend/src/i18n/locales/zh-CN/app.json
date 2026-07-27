@@ -1255,7 +1255,6 @@
       "llmProviders": "供应商配置",
       "llmModels": "模型选择",
       "conversation": "对话设置",
-      "personalProfile": "个人资料",
       "statistics": "统计",
       "statisticsLlm": "大模型统计",
       "statisticsRuntime": "系统实时数据",
@@ -1297,46 +1296,7 @@
       "matcherPrefix": "匹配"
     },
     "preferencesDesc": "配置界面语言、主题和桌面行为",
-    "personalProfileDesc": "管理 Magi 用来称呼和理解你的个人资料。",
     "conversationDesc": "配置新对话默认使用的工作目录",
-    "personalProfile": {
-      "loading": "正在加载个人资料...",
-      "description": "这些是你主动告诉 Magi 的信息，会优先用于称呼、上下文和画像。",
-      "identityTitle": "基本资料",
-      "identityDesc": "用于展示、上下文和画像的稳定身份字段。",
-      "communicationTitle": "称呼与沟通",
-      "communicationDesc": "Magi 应该如何称呼你，以及基础沟通上下文。",
-      "save": "保存资料",
-      "refresh": "查看记忆建议",
-      "refreshing": "查找中...",
-      "loadFailed": "加载个人资料失败：{{message}}",
-      "saveSuccess": "个人资料已保存",
-      "saveFailed": "保存个人资料失败：{{message}}",
-      "refreshSuccess": "已生成记忆建议",
-      "suggestionsTitle": "记忆建议",
-      "suggestionsDesc": "这些来自已有记忆。采纳后再保存，才会成为你手动确认的资料。",
-      "suggestionsCount": "{{count}} 条",
-      "suggestionsEmpty": "暂时没有新的建议。",
-      "applySuggestion": "采纳",
-      "derivedAge": "年龄 {{age}} 根据生日推算，日期为 {{date}}。",
-      "source": "来源：{{source}}",
-      "sources": {
-        "settings_profile": "个人资料设置",
-        "chat": "对话记忆",
-        "derived": "派生"
-      },
-      "fields": {
-        "realName": "真实姓名",
-        "birthDate": "生日",
-        "homeLocation": "常住地",
-        "preferredFormOfAddress": "希望如何称呼我",
-        "disallowedFormsOfAddress": "不希望使用的称呼"
-      },
-      "placeholders": {
-        "homeLocation": "城市或地区",
-        "disallowedForms": "用英文逗号分隔多个称呼"
-      }
-    },
     "codeAgent": {
       "loading": "加载中…",
       "rescan": "重新探测",
@@ -3213,6 +3173,46 @@
         "photo_library_apple_photos": "照片库",
         "user_profile_projection": "个人资料",
         "tom": "总结"
+      },
+      "identity": {
+        "title": "你是谁",
+        "fields": {
+          "preferredFormOfAddress": "称呼",
+          "realName": "真实姓名",
+          "birthDate": "生日",
+          "homeLocation": "常住地",
+          "disallowedFormsOfAddress": "不希望使用的称呼"
+        },
+        "placeholders": {
+          "homeLocation": "城市或地区",
+          "disallowedForms": "用英文逗号分隔多个称呼"
+        },
+        "empty": "未填写",
+        "add": "点击补充",
+        "editField": "修改{{field}}",
+        "source": "来源：{{source}}",
+        "sources": {
+          "settings_profile": "你的设置",
+          "chat": "对话记忆",
+          "derived": "派生"
+        },
+        "saveSuccess": "已保存",
+        "saveFailed": "保存失败：{{message}}",
+        "loadFailed": "个人资料加载失败",
+        "retry": "重试",
+        "refresh": "从记忆刷新建议",
+        "refreshing": "查找中...",
+        "refreshSuccess": "已生成记忆建议",
+        "suggestionsTitle": "记忆建议",
+        "suggestionsDesc": "这些来自已有记忆。采纳后即成为你手动确认的资料。",
+        "suggestionsEmpty": "暂时没有新的建议。",
+        "applySuggestion": "采纳"
+      },
+      "addFact": {
+        "placeholder": "告诉 Magi 关于你的一件事…",
+        "submit": "提交",
+        "success": "已记下。Magi 消化后会出现在「需要你看一眼」，确认后即进入画像。",
+        "failed": "提交失败：{{message}}"
       }
     },
     "recall": {

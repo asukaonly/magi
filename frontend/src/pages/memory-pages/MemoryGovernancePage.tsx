@@ -383,14 +383,14 @@ export const MemoryGovernancePage = () => {
       title={label('title', '记忆管理')}
       description={label('objectSubtitle', '按记忆对象查看、整理、遗忘和诊断。')}
       hideHeader
-      className="max-w-[1280px] px-5 py-5 lg:px-7 lg:py-6"
-      contentClassName="min-h-0 flex-1 overflow-hidden pb-0"
+      className="max-w-[1040px] gap-3 px-5 pb-5 pt-3"
+      contentClassName="min-h-0 flex-1 overflow-hidden"
       scrollable={false}
     >
       <div className="flex h-full min-h-0 flex-col">
         <h1 className="sr-only">{label('title', '记忆管理')}</h1>
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GovernanceTab)} className="flex min-h-0 flex-1 flex-col space-y-5">
-          <div className="flex shrink-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GovernanceTab)} className="flex min-h-0 flex-1 flex-col space-y-6">
+          <div className="flex shrink-0 flex-col gap-3 border-b border-[hsl(var(--memory-divider)/0.5)] lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.72)]">
               <TabsList className="inline-flex h-auto min-w-max justify-start gap-7 bg-transparent p-0">
                 {[

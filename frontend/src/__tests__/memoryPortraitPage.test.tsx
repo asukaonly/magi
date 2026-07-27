@@ -5,6 +5,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { MemoryPortraitPage } from '@/pages/memory-pages/MemoryPortraitPage';
 import { memoryPortraitSelfApi } from '@/api/modules/memoryPortraitSelf';
 import { memoryApi } from '@/api/modules/memory';
+import { profileApi } from '@/api/modules/profile';
+import { manualEntriesApi } from '@/api/modules/manualEntries';
 
 const MAGI_CONTEXT_ID = `ctx_project_${'a'.repeat(64)}`;
 
@@ -27,7 +29,6 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.world.inspectItems': '查看并修正 {{count}} 条具体记忆',
     'memory.portrait.world.correct': '修正',
     'memory.portrait.world.correctItem': '修正 {{value}}',
-    'memory.portrait.world.editProfile': '修改个人资料',
     'memory.portrait.world.groups.identity': '身份信息',
     'memory.portrait.world.groups.projects': '长期项目',
     'memory.portrait.world.groups.preferences': '偏好与关注',
@@ -56,6 +57,33 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.sources.photo_library_apple_photos': '照片库',
     'memory.portrait.sources.user_profile_projection': '个人资料',
     'memory.portrait.sources.tom': '总结',
+    'memory.portrait.identity.title': '你是谁',
+    'memory.portrait.identity.fields.preferredFormOfAddress': '称呼',
+    'memory.portrait.identity.fields.realName': '真实姓名',
+    'memory.portrait.identity.fields.birthDate': '生日',
+    'memory.portrait.identity.fields.homeLocation': '常住地',
+    'memory.portrait.identity.fields.disallowedFormsOfAddress': '不希望使用的称呼',
+    'memory.portrait.identity.empty': '未填写',
+    'memory.portrait.identity.add': '点击补充',
+    'memory.portrait.identity.editField': '修改{{field}}',
+    'memory.portrait.identity.source': '来源：{{source}}',
+    'memory.portrait.identity.sources.settings_profile': '你的设置',
+    'memory.portrait.identity.sources.chat': '对话记忆',
+    'memory.portrait.identity.saveSuccess': '已保存',
+    'memory.portrait.identity.saveFailed': '保存失败：{{message}}',
+    'memory.portrait.identity.loadFailed': '个人资料加载失败',
+    'memory.portrait.identity.retry': '重试',
+    'memory.portrait.identity.refresh': '从记忆刷新建议',
+    'memory.portrait.identity.refreshing': '查找中...',
+    'memory.portrait.identity.refreshSuccess': '已生成记忆建议',
+    'memory.portrait.identity.suggestionsTitle': '记忆建议',
+    'memory.portrait.identity.suggestionsDesc': '这些来自已有记忆。',
+    'memory.portrait.identity.suggestionsEmpty': '暂时没有新的建议。',
+    'memory.portrait.identity.applySuggestion': '采纳',
+    'memory.portrait.addFact.placeholder': '告诉 Magi 关于你的一件事…',
+    'memory.portrait.addFact.submit': '提交',
+    'memory.portrait.addFact.success': '已记下',
+    'memory.portrait.addFact.failed': '提交失败：{{message}}',
     'memory.stories.actions.confirm': '确认',
     'memory.stories.actions.reject': '拒绝',
   };
@@ -84,6 +112,44 @@ vi.mock('@/api/modules/memory', () => ({
   },
 }));
 
+vi.mock('@/api/modules/profile', () => ({
+  profileApi: {
+    getMe: vi.fn(),
+    updateMe: vi.fn(),
+    refreshMe: vi.fn(),
+  },
+}));
+
+vi.mock('@/api/modules/manualEntries', () => ({
+  manualEntriesApi: { create: vi.fn() },
+}));
+
+const buildProfile = () => ({
+  user_id: 'user-1',
+  entity_id: 'entity-1',
+  display_name: '明日香',
+  preferred_form_of_address: '明日香',
+  real_name: '',
+  birth_date: '',
+  birth_year: null,
+  age_years: null,
+  age_as_of: '',
+  home_location: '上海',
+  communication: {},
+  identity: {},
+  preferences: {},
+  state: {},
+  field_sources: {
+    preferred_form_of_address: { source: 'settings_profile' },
+    home_location: { source: 'chat' },
+  },
+  field_conflicts: {},
+  completeness_score: 0.5,
+  refreshed_at: 0,
+  created_at: 0,
+  updated_at: 0,
+});
+
 const renderPage = () => render(
   <MemoryRouter>
     <MemoryPortraitPage />
@@ -92,6 +158,8 @@ const renderPage = () => render(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(profileApi.getMe).mockResolvedValue(buildProfile());
+  vi.mocked(manualEntriesApi.create).mockResolvedValue({} as any);
   vi.mocked(memoryApi.getCorrectionContextOptions).mockResolvedValue({
     items: [{
       context_id: MAGI_CONTEXT_ID,
@@ -248,10 +316,29 @@ describe('MemoryPortraitPage', () => {
     expect(within(review).getByText('需要你看一眼')).toBeInTheDocument();
     expect(within(review).getByText('Magi 记忆体验')).toBeInTheDocument();
 
+    const identity = await screen.findByTestId('portrait-identity');
+    expect(within(identity).getByText('你是谁')).toBeInTheDocument();
+    expect(within(identity).getByText('明日香')).toBeInTheDocument();
+    expect(within(identity).getByText('上海')).toBeInTheDocument();
+    expect(within(identity).getByText('来源：你的设置')).toBeInTheDocument();
+    expect(within(identity).getByText('来源：对话记忆')).toBeInTheDocument();
+
+    const addFact = screen.getByTestId('portrait-add-fact');
+    expect(within(addFact).getByPlaceholderText('告诉 Magi 关于你的一件事…')).toBeInTheDocument();
+
     const recent = screen.getByTestId('portrait-recent-state');
     expect(within(recent).getByText('最近的你')).toBeInTheDocument();
     expect(within(recent).getByText('插件导入')).toBeInTheDocument();
     expect(within(recent).getByText('最近对话更偏产品设计判断，同时会追问实现链路是否闭环。')).toBeInTheDocument();
+
+    // 单列文档流:待确认 → 你是谁 → 主动补充 → 理解 → 最近的你
+    const world = screen.getByTestId('portrait-world-map');
+    const ordered = [review, identity, addFact, world, recent];
+    for (let index = 0; index < ordered.length - 1; index += 1) {
+      expect(
+        ordered[index].compareDocumentPosition(ordered[index + 1]) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
 
     expect(screen.queryByText('身份')).not.toBeInTheDocument();
     expect(screen.queryByText(/assertion|trait|family|L2/i)).not.toBeInTheDocument();
@@ -289,7 +376,8 @@ describe('MemoryPortraitPage', () => {
     expect(await screen.findByText('你希望 Magi 称呼你为 Asuka')).toBeInTheDocument();
     expect(screen.getByText('长期推进 Magi 记忆系统')).toBeInTheDocument();
     expect(screen.getByText('Asuka')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '修改个人资料' })).toBeInTheDocument();
+    // 个人资料编辑已并入本页「你是谁」一节,画像条目不再提供跳转按钮
+    expect(screen.queryByRole('button', { name: '修改个人资料' })).not.toBeInTheDocument();
     expect(screen.getByText('画像页面')).toBeInTheDocument();
     expect(screen.getByText('正在验证 L2 页面模型')).toBeInTheDocument();
     expect(screen.getByText('已形成 3 条理解')).toBeInTheDocument();
@@ -846,5 +934,37 @@ describe('MemoryPortraitPage', () => {
     });
     expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledWith('assert-1', 'confirmed');
     expect(screen.queryByTestId('portrait-review-queue')).not.toBeInTheDocument();
+  });
+
+  it('submits a self-declared fact through the manual entries channel', async () => {
+    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
+      generated_at: 0,
+      self_view: {
+        world: { total_count: 0, groups: [] },
+        review: { items: [] },
+        recent: { items: [] },
+      },
+      is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
+    });
+
+    renderPage();
+
+    const addFact = await screen.findByTestId('portrait-add-fact');
+    const input = within(addFact).getByPlaceholderText('告诉 Magi 关于你的一件事…');
+    const submit = within(addFact).getByRole('button', { name: '提交' });
+    expect(submit).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: '我喜欢爵士乐' } });
+    expect(submit).toBeEnabled();
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(manualEntriesApi.create).toHaveBeenCalledTimes(1));
+    expect(manualEntriesApi.create).toHaveBeenCalledWith({
+      entry_id: expect.stringMatching(/^me-/),
+      body: '我喜欢爵士乐',
+    });
+    await waitFor(() => expect(input).toHaveValue(''));
+    // 提交后触发画像刷新,新的 tentative 线索会进入「需要你看一眼」
+    await waitFor(() => expect(memoryPortraitSelfApi.get).toHaveBeenCalledTimes(2));
   });
 });

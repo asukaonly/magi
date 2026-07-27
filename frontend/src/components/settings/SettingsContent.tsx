@@ -23,7 +23,6 @@ import { EmbeddingPreflightConfirmDialog } from '@/components/settings/Embedding
 import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigationSidebar';
 import { SettingsPersonalityRuntimeSection } from '@/components/settings/SettingsPersonalityRuntimeSection';
 import { SettingsPreferencesSection } from '@/components/settings/SettingsPreferencesSection';
-import { SettingsPersonalProfileSection } from '@/components/settings/SettingsPersonalProfileSection';
 import { SettingsToolsSection } from '@/components/settings/SettingsToolsSection';
 import { MCPServersSection } from '@/components/settings/MCPServersSection';
 import { CodeAgentSection } from '@/components/settings/CodeAgentSection';
@@ -197,7 +196,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const effectiveActiveSection = quickMode && ADVANCED_MEMORY_SECTION_IDS.has(activeSection)
     ? 'memoryGeneral'
     : activeSection;
-  const showSettingsFooter = !['personalitySelection', 'personalProfile'].includes(effectiveActiveSection);
+  const showSettingsFooter = !['personalitySelection'].includes(effectiveActiveSection);
   const browsePluginMarketplace = () => {
     setGroupExpanded('plugins', true);
     handleNavItemClick('pluginsMarketplace', false);
@@ -232,9 +231,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             onLanguageDraftChange={handleLanguageDraftChange}
           />
         );
-
-      case 'personalProfile':
-        return <SettingsPersonalProfileSection />;
 
       case 'conversation':
         return (

@@ -140,8 +140,8 @@ export const MemoryPendingPage = () => {
       title=""
       description=""
       hideHeader
-      className="max-w-[900px]"
-      contentClassName="pt-4"
+      className="max-w-[1040px] gap-3 px-5 pb-5 pt-3"
+      contentClassName="pb-6"
     >
       {loading ? (
         <section className={`${MEMORY_EMPTY_PANEL_CLASS} flex items-center gap-2`}>
@@ -154,12 +154,14 @@ export const MemoryPendingPage = () => {
         </section>
       ) : (
         <div>
-          <PendingFilterTabs
-            options={filterOptions}
-            activeFilter={activeFilter}
-            onChange={setActiveFilter}
-          />
-          <div className="mt-10 [&>section+section]:mt-10 [&>section+section]:border-t [&>section+section]:border-[hsl(var(--memory-divider)/0.5)] [&>section+section]:pt-10">
+          <div className="border-b border-[hsl(var(--memory-divider)/0.5)]">
+            <PendingFilterTabs
+              options={filterOptions}
+              activeFilter={activeFilter}
+              onChange={setActiveFilter}
+            />
+          </div>
+          <div className="mt-6 [&>section+section]:mt-10 [&>section+section]:border-t [&>section+section]:border-[hsl(var(--memory-divider)/0.5)] [&>section+section]:pt-10">
             <PendingReviewGroups
               assertions={assertions}
               stories={stories}

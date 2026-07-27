@@ -15,7 +15,6 @@ import {
   Radio,
   Network,
   Code2,
-  IdCard,
   Webhook,
 } from 'lucide-react';
 
@@ -34,7 +33,6 @@ export const LANGUAGE_STORAGE_KEY = 'magi_language';
 
 export const NAV_ITEMS: NavItem[] = [
   { id: 'preferences', icon: Settings2 },
-  { id: 'personalProfile', icon: IdCard },
   { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },
   { id: 'conversation', icon: MessageSquare },
   { id: 'codeAgent', icon: Code2 },
