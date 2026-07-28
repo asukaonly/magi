@@ -48,6 +48,10 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      - name: Check frontend import boundaries
+        working-directory: frontend
+        run: npm run check:boundaries
+
       - name: Build frontend
         working-directory: frontend
         run: npm run build
