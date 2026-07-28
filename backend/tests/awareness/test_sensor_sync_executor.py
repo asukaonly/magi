@@ -7,7 +7,12 @@ import time
 
 import pytest
 
-from magi.awareness.sensor_sync_executor import SensorSyncExecutor
+from magi.awareness.lifecycle import SensorSyncExecutorModule
+from magi.awareness.sensor_sync_executor import (
+    SensorSyncExecutor,
+    SensorSyncExecutorState,
+)
+from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.scheduler import (
     ScheduleDefinition,
     ScheduledExecutionResult,
@@ -86,6 +91,17 @@ def _load_execution_status(db_path, execution_id: str) -> tuple[str, str | None]
     return str(row[0]), str(row[1]) if row[1] is not None else None
 
 
+class _StoppingExecutor:
+    def __init__(self) -> None:
+        self.state = SensorSyncExecutorState.STOPPING
+        self.timeout = True
+
+    async def stop(self) -> None:
+        if self.timeout:
+            raise TimeoutError("worker still running")
+        self.state = SensorSyncExecutorState.STOPPED
+
+
 @pytest.mark.asyncio
 async def test_sensor_sync_executor_claims_and_completes_queued_job(tmp_path):
     db_path = tmp_path / "scheduler.db"
@@ -154,6 +170,141 @@ async def test_sensor_sync_executor_runs_jobs_on_owner_loop(tmp_path):
     await executor.stop()
 
     assert observed_loop_ids == [id(owner_loop)]
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_stop_timeout_retains_worker_and_blocks_restart(tmp_path):
+    repository = ScheduleRepository(tmp_path / "scheduler.db")
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+    run_started = asyncio.Event()
+    release_run = asyncio.Event()
+    run_calls = 0
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        nonlocal run_calls
+        assert job_record["job_id"] == job_id
+        run_calls += 1
+        run_started.set()
+        await release_run.wait()
+        return ScheduledExecutionResult(success=True, message="released")
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+        stop_timeout_seconds=0.2,
+    )
+    await executor.start()
+    await asyncio.wait_for(run_started.wait(), timeout=2.0)
+    worker_thread = executor._thread
+    worker_loop = executor._loop
+    owner_loop = executor._owner_loop
+
+    try:
+        with pytest.raises(TimeoutError, match="existing worker is still running"):
+            await executor.stop()
+
+        assert executor.state is SensorSyncExecutorState.STOPPING
+        assert executor._thread is worker_thread
+        assert worker_thread is not None and worker_thread.is_alive()
+        assert executor._loop is worker_loop
+        assert executor._owner_loop is owner_loop
+
+        with pytest.raises(RuntimeError, match="still stopping"):
+            await executor.start()
+        await asyncio.sleep(0.05)
+        assert run_calls == 1
+
+        release_run.set()
+        await executor.stop()
+    finally:
+        release_run.set()
+        if executor.state is not SensorSyncExecutorState.STOPPED:
+            await executor.stop()
+
+    completed_job = await _wait_for_job_status(repository, job_id, "success")
+    assert completed_job["result_message"] == "released"
+    assert run_calls == 1
+    assert executor.state is SensorSyncExecutorState.STOPPED
+    assert executor._thread is None
+    assert executor._loop is None
+    assert executor._owner_loop is None
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_executor_can_restart_after_timed_out_worker_exits(tmp_path):
+    repository = ScheduleRepository(tmp_path / "scheduler.db")
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+    run_started = asyncio.Event()
+    release_run = asyncio.Event()
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        assert job_record["job_id"] == job_id
+        run_started.set()
+        await release_run.wait()
+        return ScheduledExecutionResult(success=True, message="released")
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+        stop_timeout_seconds=0.2,
+    )
+    await executor.start()
+    await asyncio.wait_for(run_started.wait(), timeout=2.0)
+    with pytest.raises(TimeoutError):
+        await executor.stop()
+
+    release_run.set()
+    await executor.stop()
+    assert executor.state is SensorSyncExecutorState.STOPPED
+
+    await executor.start()
+    assert executor.state is SensorSyncExecutorState.RUNNING
+    await executor.stop()
+    assert executor.state is SensorSyncExecutorState.STOPPED
+    await executor.stop()
+    assert executor.state is SensorSyncExecutorState.STOPPED
+
+
+@pytest.mark.asyncio
+async def test_executor_module_keeps_timed_out_worker_for_later_shutdown() -> None:
+    context = RuntimeBootstrapContext()
+    module = SensorSyncExecutorModule(context)
+    executor = _StoppingExecutor()
+    module._executor = executor
+    context.agent_runtime.sensor_sync_executor = executor
+
+    with pytest.raises(TimeoutError, match="worker still running"):
+        await module.shutdown()
+
+    assert module._executor is executor
+    assert context.agent_runtime.sensor_sync_executor is executor
+
+    executor.timeout = False
+    await module.shutdown()
+
+    assert module._executor is None
+    assert context.agent_runtime.sensor_sync_executor is None
+
+
+@pytest.mark.asyncio
+async def test_executor_module_rejects_restart_while_previous_worker_is_stopping() -> None:
+    context = RuntimeBootstrapContext()
+    module = SensorSyncExecutorModule(context)
+    executor = _StoppingExecutor()
+    module._executor = executor
+    context.agent_runtime.sensor_sync_executor = executor
+
+    with pytest.raises(RuntimeError, match="has not stopped"):
+        await module.init()
+
+    assert module._executor is executor
+    assert context.agent_runtime.sensor_sync_executor is executor
 
 
 @pytest.mark.asyncio
@@ -348,30 +499,17 @@ async def test_sensor_sync_has_more_queues_continuation_and_defers_derivations(t
     schedule = _build_sensor_schedule()
     job_id = await _enqueue_job(repository, schedule)
 
-    continuation_calls: list[dict[str, object]] = []
     derive_calls: list[str] = []
     summarize_calls: list[dict[str, object]] = []
-
-    async def _fake_schedule_once(**kwargs):
-        continuation_calls.append(kwargs)
-        return ScheduleDefinition(
-            schedule_id=str(kwargs["schedule_id"]),
-            target_type=kwargs["target_type"],
-            target_key=str(kwargs["target_key"]),
-            trigger=TriggerDefinition(
-                trigger_type=TriggerType.ONCE,
-                config={"run_at": kwargs["run_at"]},
-            ),
-            target_payload=dict(kwargs["target_payload"]),
-            metadata=dict(kwargs.get("metadata") or {}),
-        )
+    second_started = asyncio.Event()
+    release_second = asyncio.Event()
+    run_job_ids: list[str] = []
 
     async def _fake_execute_schedule_async(schedule_id: str, *, manual: bool = True, **kwargs):
         derive_calls.append(schedule_id)
         return ScheduledExecutionResult(success=True, message="queued", stats={})
 
     class _FakeSchedulerService:
-        schedule_once = staticmethod(_fake_schedule_once)
         execute_schedule_async = staticmethod(_fake_execute_schedule_async)
 
     class _FakeL1:
@@ -391,7 +529,7 @@ async def test_sensor_sync_has_more_queues_continuation_and_defers_derivations(t
         l1 = _FakeL1()
 
         async def backfill_l3_gaps(self, **kwargs):
-            raise AssertionError("L3 backfill should wait until the final catch-up batch")
+            return {"generated": [], "skipped_existing": 0, "skipped_sparse": 0}
 
     monkeypatch.setattr(
         "magi.memory.provider.get_unified_memory",
@@ -399,12 +537,22 @@ async def test_sensor_sync_has_more_queues_continuation_and_defers_derivations(t
     )
 
     async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
-        assert job_record["job_id"] == job_id
+        run_job_ids.append(str(job_record["job_id"]))
+        if len(run_job_ids) == 1:
+            assert job_record["job_id"] == job_id
+            return ScheduledExecutionResult(
+                success=True,
+                message="sensor_sync_completed",
+                next_cursor="cursor-2",
+                stats={"items": 200, "has_more": True},
+            )
+        second_started.set()
+        await release_second.wait()
         return ScheduledExecutionResult(
             success=True,
             message="sensor_sync_completed",
-            next_cursor="cursor-2",
-            stats={"items": 200, "has_more": True},
+            next_cursor="cursor-3",
+            stats={"items": 20, "has_more": False},
         )
 
     executor = SensorSyncExecutor(
@@ -415,29 +563,40 @@ async def test_sensor_sync_has_more_queues_continuation_and_defers_derivations(t
     )
     await executor.start()
     await _wait_for_job_status(repository, job_id, "success")
-    deadline = time.time() + 2.0
-    while time.time() < deadline and not continuation_calls:
-        await asyncio.sleep(0.02)
-    await executor.stop()
-
-    assert len(continuation_calls) == 1
-    continuation = continuation_calls[0]
-    assert str(continuation["schedule_id"]).startswith("sensor-sync-continuation:test-plugin:test-source:")
-    assert continuation["target_type"] == ScheduledTargetType.SENSOR_SYNC
-    assert continuation["target_key"] == schedule.target_key
-    assert continuation["target_payload"] == {
+    await asyncio.wait_for(second_started.wait(), timeout=2.0)
+    continuation = await repository.get_outstanding_sensor_sync_job(
+        schedule.target_type,
+        schedule.target_key,
+    )
+    assert continuation is not None
+    continuation_job_id = str(continuation["job_id"])
+    assert continuation_job_id != job_id
+    assert continuation["status"] == "running"
+    assert str(continuation["schedule_id"]).startswith(
+        "sensor-sync-continuation:test-plugin:test-source:"
+    )
+    assert continuation["payload"] == {
         "plugin_id": "test-plugin",
         "source_type": "test-source",
         "manual": False,
     }
-    assert continuation["metadata"]["continuation"] is True
-    assert continuation["metadata"]["parent_job_id"] == job_id
     assert summarize_calls == []
     assert derive_calls == []
 
+    release_second.set()
+    await _wait_for_job_status(repository, continuation_job_id, "success")
+    deadline = time.time() + 2.0
+    while time.time() < deadline and not derive_calls:
+        await asyncio.sleep(0.02)
+    await executor.stop()
+
+    assert run_job_ids == [job_id, continuation_job_id]
+    assert len(summarize_calls) == 1
+    assert len(derive_calls) == 1
+
 
 @pytest.mark.asyncio
-async def test_sensor_sync_continuation_preserves_backfill_request(tmp_path):
+async def test_sensor_sync_continuation_preserves_backfill_request(tmp_path, monkeypatch):
     db_path = tmp_path / "scheduler.db"
     repository = ScheduleRepository(db_path)
     await repository.initialize()
@@ -448,29 +607,30 @@ async def test_sensor_sync_continuation_preserves_backfill_request(tmp_path):
     }
     schedule = _build_sensor_schedule(target_payload={"sync_request": sync_request})
     job_id = await _enqueue_job(repository, schedule)
+    run_jobs: list[dict[str, object]] = []
 
-    continuation_calls: list[dict[str, object]] = []
+    class _FakeL1:
+        async def summarize_event_sources(self, **kwargs):
+            return []
 
-    async def _fake_schedule_once(**kwargs):
-        continuation_calls.append(kwargs)
-        return ScheduleDefinition(
-            schedule_id=str(kwargs["schedule_id"]),
-            target_type=kwargs["target_type"],
-            target_key=str(kwargs["target_key"]),
-            trigger=TriggerDefinition(
-                trigger_type=TriggerType.ONCE,
-                config={"run_at": kwargs["run_at"]},
-            ),
-            target_payload=dict(kwargs["target_payload"]),
-            metadata=dict(kwargs.get("metadata") or {}),
-        )
+    class _FakeUnifiedMemory:
+        l1 = _FakeL1()
 
-    class _FakeSchedulerService:
-        schedule_once = staticmethod(_fake_schedule_once)
+    monkeypatch.setattr(
+        "magi.memory.provider.get_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
 
     async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
-        assert job_record["job_id"] == job_id
+        run_jobs.append(job_record)
         assert dict(job_record["payload"])["sync_request"] == sync_request
+        if len(run_jobs) > 1:
+            return ScheduledExecutionResult(
+                success=True,
+                message="sensor_sync_completed",
+                next_cursor="cursor-3",
+                stats={"items": 20, "has_more": False},
+            )
         return ScheduledExecutionResult(
             success=True,
             message="sensor_sync_completed",
@@ -481,20 +641,30 @@ async def test_sensor_sync_continuation_preserves_backfill_request(tmp_path):
     executor = SensorSyncExecutor(
         repository=repository,
         run_job=run_job,
-        scheduler_service=_FakeSchedulerService(),
+        scheduler_service=None,
         poll_interval_seconds=0.01,
     )
     await executor.start()
     await _wait_for_job_status(repository, job_id, "success")
     deadline = time.time() + 2.0
-    while time.time() < deadline and not continuation_calls:
+    continuation = None
+    while time.time() < deadline:
+        latest = await repository.get_latest_sensor_sync_job(
+            schedule.target_type,
+            schedule.target_key,
+        )
+        if latest is not None and latest["job_id"] != job_id and latest["status"] == "success":
+            continuation = latest
+            break
         await asyncio.sleep(0.02)
     await executor.stop()
 
-    assert len(continuation_calls) == 1
-    continuation = continuation_calls[0]
-    assert continuation["target_payload"]["sync_request"] == sync_request
-    assert continuation["metadata"]["sync_request"] == sync_request
+    assert continuation is not None
+    assert len(run_jobs) == 2
+    assert str(continuation["schedule_id"]).startswith(
+        "sensor-sync-continuation:test-plugin:test-source:"
+    )
+    assert dict(continuation["payload"])["sync_request"] == sync_request
 
 
 @pytest.mark.asyncio
@@ -505,25 +675,7 @@ async def test_first_context_sensor_sync_does_not_queue_continuation(tmp_path, m
     schedule = _build_sensor_schedule(target_payload={"first_context": True})
     job_id = await _enqueue_job(repository, schedule)
 
-    continuation_calls: list[dict[str, object]] = []
-
-    async def _fake_schedule_once(**kwargs):
-        continuation_calls.append(kwargs)
-        return ScheduleDefinition(
-            schedule_id=str(kwargs["schedule_id"]),
-            target_type=kwargs["target_type"],
-            target_key=str(kwargs["target_key"]),
-            trigger=TriggerDefinition(
-                trigger_type=TriggerType.ONCE,
-                config={"run_at": kwargs["run_at"]},
-            ),
-            target_payload=dict(kwargs["target_payload"]),
-            metadata=dict(kwargs.get("metadata") or {}),
-        )
-
     class _FakeSchedulerService:
-        schedule_once = staticmethod(_fake_schedule_once)
-
         async def execute_schedule_async(self, *args, **kwargs):
             return ScheduledExecutionResult(success=True, message="queued", stats={})
 
@@ -548,7 +700,17 @@ async def test_first_context_sensor_sync_does_not_queue_continuation(tmp_path, m
     await asyncio.sleep(0.05)
     await executor.stop()
 
-    assert continuation_calls == []
+    outstanding = await repository.get_outstanding_sensor_sync_job(
+        schedule.target_type,
+        schedule.target_key,
+    )
+    latest = await repository.get_latest_sensor_sync_job(
+        schedule.target_type,
+        schedule.target_key,
+    )
+    assert outstanding is None
+    assert latest is not None
+    assert latest["job_id"] == job_id
 
 
 @pytest.mark.asyncio

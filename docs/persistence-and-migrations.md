@@ -34,6 +34,12 @@ state across multiple SQLite files, grouped by lifecycle ownership:
 | `data/batch/batch.db` | batch | batch job and item manifests |
 | `data/memory/self_memory_v2.db` | (reserved) | — |
 
+Sensor pagination is part of scheduler truth. When a completed sensor batch
+reports more source data, `scheduler.db` records the parent success and admits
+the next queued job plus execution row in one transaction. A failed
+continuation insert rolls back the parent success instead of leaving a
+successful record with unqueued source data.
+
 The stable-context migration converts legacy free-text correction scopes into
 typed local identities. Scoped relationship IDs and uniqueness are rebuilt at
 the same boundary, and all version, correction, dependency, snapshot, profile,

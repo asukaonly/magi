@@ -14,7 +14,7 @@ from .sensor_state import SensorStateWriteQueue, SqliteSensorStateStore
 from .sensor_hub import SensorHub
 from .event_emitter import RuntimeEventEmitter
 from .scheduler_contrib import SensorSchedulerContrib
-from .sensor_sync_executor import SensorSyncExecutor
+from .sensor_sync_executor import SensorSyncExecutor, SensorSyncExecutorState
 
 logger = get_logger(__name__)
 
@@ -137,6 +137,19 @@ class SensorSyncExecutorModule(LifecycleModule):
         self._executor: SensorSyncExecutor | None = None
 
     async def init(self) -> None:
+        previous_executor = self._executor
+        if previous_executor is not None:
+            if previous_executor.state is not SensorSyncExecutorState.STOPPED:
+                raise RuntimeError(
+                    "Previous sensor sync executor worker has not stopped"
+                )
+            if (
+                self._context.agent_runtime.sensor_sync_executor
+                is previous_executor
+            ):
+                self._context.agent_runtime.sensor_sync_executor = None
+            self._executor = None
+
         scheduler_service = require_initialized(
             self._context.scheduler.scheduler_service, "scheduler service"
         )

@@ -18,3 +18,12 @@ class SensorSyncEnqueueResult:
 
     job_id: str
     execution_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SensorSyncSuccessSettlement:
+    """Result of one idempotent sensor-sync success transaction."""
+
+    committed: bool
+    continuation_job_id: str | None = None
+    continuation_execution_id: str | None = None

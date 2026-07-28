@@ -6,12 +6,11 @@ import asyncio
 import concurrent.futures
 import threading
 import time
-import uuid
+from enum import Enum
 from typing import Any, Awaitable, Callable, Protocol, TypeVar
 
 from ..core.logger import get_logger
 from ..scheduler.contracts import (
-    ScheduleDefinition,
     ScheduledExecutionResult,
     ScheduledTargetType,
 )
@@ -26,19 +25,16 @@ _ResultT = TypeVar("_ResultT")
 _POST_SYNC_L3_BACKFILL_MAX_PERIODS = 4
 
 
+class SensorSyncExecutorState(str, Enum):
+    """Lifecycle state for the dedicated sensor sync worker."""
+
+    STOPPED = "stopped"
+    RUNNING = "running"
+    STOPPING = "stopping"
+
+
 class SensorSyncScheduler(Protocol):
     """Scheduler operations used after a sensor job commits."""
-
-    async def schedule_once(
-        self,
-        *,
-        schedule_id: str,
-        target_type: ScheduledTargetType,
-        target_key: str,
-        run_at: float,
-        target_payload: dict[str, object],
-        metadata: dict[str, object] | None = None,
-    ) -> ScheduleDefinition: ...
 
     async def execute_schedule_async(
         self,
@@ -63,6 +59,7 @@ class SensorSyncExecutor:
         max_attempts: int = 4,
         retry_base_seconds: float = 2.0,
         retry_max_seconds: float = 300.0,
+        stop_timeout_seconds: float = 5.0,
         worker_id: str = "sensor-sync-executor",
     ) -> None:
         self._repository = repository
@@ -76,53 +73,162 @@ class SensorSyncExecutor:
             self._retry_base_seconds,
             float(retry_max_seconds),
         )
+        self._stop_timeout_seconds = max(0.0, float(stop_timeout_seconds))
         self._worker_id = worker_id
+        self._lifecycle_lock = threading.Lock()
+        self._state = SensorSyncExecutorState.STOPPED
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._owner_loop: asyncio.AbstractEventLoop | None = None
         self._stop_event: asyncio.Event | None = None
+        self._stop_requested: threading.Event | None = None
         self._execution_lock: asyncio.Lock | None = None
         self._post_sync_lock = threading.Lock()
         self._post_sync_sources: set[str] = set()
         self._post_sync_future: concurrent.futures.Future[None] | None = None
         self._ready = threading.Event()
 
+    @property
+    def state(self) -> SensorSyncExecutorState:
+        """Return the current lifecycle state."""
+        with self._lifecycle_lock:
+            self._reap_exited_thread_locked()
+            return self._state
+
     async def start(self) -> None:
-        if self._thread is not None and self._thread.is_alive():
-            return
-        self._owner_loop = asyncio.get_running_loop()
-        self._ready.clear()
-        self._thread = threading.Thread(
-            target=self._run_thread,
-            name=self._worker_id,
-            daemon=True,
-        )
-        self._thread.start()
+        owner_loop = asyncio.get_running_loop()
+        with self._lifecycle_lock:
+            self._reap_exited_thread_locked()
+            if self._state is SensorSyncExecutorState.STOPPING:
+                raise RuntimeError(
+                    "Sensor sync executor is still stopping; wait for the existing worker to exit"
+                )
+            if self._state is SensorSyncExecutorState.RUNNING:
+                thread = self._thread
+                if thread is not None and thread.is_alive():
+                    return
+                raise RuntimeError("Sensor sync executor worker state is inconsistent")
+
+            existing_thread = self._thread
+            if existing_thread is not None and existing_thread.is_alive():
+                raise RuntimeError("Previous sensor sync executor worker has not exited")
+
+            stop_requested = threading.Event()
+            self._owner_loop = owner_loop
+            self._stop_requested = stop_requested
+            self._ready.clear()
+            thread = threading.Thread(
+                target=self._run_thread,
+                args=(stop_requested,),
+                name=self._worker_id,
+                daemon=True,
+            )
+            self._thread = thread
+            self._state = SensorSyncExecutorState.RUNNING
+
+            try:
+                thread.start()
+            except Exception:
+                if self._thread is thread:
+                    self._thread = None
+                    self._owner_loop = None
+                    self._stop_requested = None
+                    self._state = SensorSyncExecutorState.STOPPED
+                raise
+
         ready = await asyncio.to_thread(self._ready.wait, 5.0)
         if not ready:
-            raise RuntimeError("Timed out starting sensor sync executor thread")
+            await self._handle_start_timeout(thread, stop_requested)
 
     async def stop(self) -> None:
-        thread = self._thread
-        if thread is None:
-            return
-        loop = self._loop
-        stop_event = self._stop_event
-        if loop is not None and stop_event is not None:
-            loop.call_soon_threadsafe(stop_event.set)
-        await asyncio.to_thread(thread.join, 5.0)
-        post_sync_future = self._clear_post_sync_queue()
-        if post_sync_future is not None and not post_sync_future.done():
-            post_sync_future.cancel()
-        self._thread = None
-        self._owner_loop = None
+        with self._lifecycle_lock:
+            self._reap_exited_thread_locked()
+            if self._state is SensorSyncExecutorState.STOPPED:
+                return
+            thread = self._thread
+            if thread is None:
+                raise RuntimeError("Sensor sync executor worker state is inconsistent")
+            self._state = SensorSyncExecutorState.STOPPING
+            stop_requested = self._stop_requested
+            loop = self._loop
+            stop_event = self._stop_event
 
-    def _run_thread(self) -> None:
+        if stop_requested is not None:
+            stop_requested.set()
+        self._signal_stop(loop, stop_event)
+        await asyncio.to_thread(thread.join, self._stop_timeout_seconds)
+        if thread.is_alive():
+            raise TimeoutError(
+                "Timed out stopping sensor sync executor; the existing worker is still running"
+            )
+
+        with self._lifecycle_lock:
+            self._reap_exited_thread_locked()
+
+    async def _handle_start_timeout(
+        self,
+        thread: threading.Thread,
+        stop_requested: threading.Event,
+    ) -> None:
+        stop_requested.set()
+        with self._lifecycle_lock:
+            if self._thread is thread:
+                self._state = SensorSyncExecutorState.STOPPING
+                loop = self._loop
+                stop_event = self._stop_event
+            else:
+                loop = None
+                stop_event = None
+        self._signal_stop(loop, stop_event)
+        await asyncio.to_thread(thread.join, self._stop_timeout_seconds)
+        if thread.is_alive():
+            raise TimeoutError(
+                "Timed out starting sensor sync executor; the worker is still stopping"
+            )
+        with self._lifecycle_lock:
+            self._reap_exited_thread_locked()
+        raise RuntimeError("Timed out starting sensor sync executor thread")
+
+    @staticmethod
+    def _signal_stop(
+        loop: asyncio.AbstractEventLoop | None,
+        stop_event: asyncio.Event | None,
+    ) -> None:
+        if loop is None or stop_event is None:
+            return
+        try:
+            loop.call_soon_threadsafe(stop_event.set)
+        except RuntimeError:
+            return
+
+    def _reap_exited_thread_locked(self) -> None:
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            return
+        if thread is None and self._state is SensorSyncExecutorState.STOPPED:
+            return
+        self._thread = None
+        self._loop = None
+        self._owner_loop = None
+        self._stop_event = None
+        self._stop_requested = None
+        self._execution_lock = None
+        self._state = SensorSyncExecutorState.STOPPED
+
+    def _run_thread(self, stop_requested: threading.Event) -> None:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        self._loop = loop
-        self._stop_event = asyncio.Event()
-        self._execution_lock = asyncio.Lock()
+        stop_event = asyncio.Event()
+        execution_lock = asyncio.Lock()
+        with self._lifecycle_lock:
+            if self._thread is not threading.current_thread():
+                loop.close()
+                return
+            self._loop = loop
+            self._stop_event = stop_event
+            self._execution_lock = execution_lock
+        if stop_requested.is_set():
+            stop_event.set()
         self._ready.set()
         try:
             loop.run_until_complete(self._run_loop())
@@ -131,9 +237,15 @@ class SensorSyncExecutor:
                 loop.run_until_complete(loop.shutdown_asyncgens())
             finally:
                 loop.close()
-                self._loop = None
-                self._stop_event = None
-                self._execution_lock = None
+                post_sync_future = self._clear_post_sync_queue()
+                if post_sync_future is not None and not post_sync_future.done():
+                    post_sync_future.cancel()
+                with self._lifecycle_lock:
+                    if self._thread is threading.current_thread():
+                        self._loop = None
+                        self._owner_loop = None
+                        self._stop_event = None
+                        self._execution_lock = None
 
     async def _run_loop(self) -> None:
         await self._repository.recover_running_sensor_sync_jobs()
@@ -184,12 +296,16 @@ class SensorSyncExecutor:
             return
 
         finished_at = time.time()
+        continue_sync = self._result_requests_continuation(
+            result
+        ) and not self._job_disables_continuation(job)
         try:
             await self._repository.settle_sensor_sync_job_success(
                 str(job["job_id"]),
                 result=result,
                 finished_at=finished_at,
                 scheduler_job_id=scheduler_job_id,
+                continue_sync=continue_sync,
             )
         except Exception as exc:
             persisted = await self._repository.get_sensor_sync_job(str(job["job_id"]))
@@ -206,10 +322,7 @@ class SensorSyncExecutor:
                 error=str(exc),
             )
 
-        continuation_queued = False
-        if self._result_requests_continuation(result) and not self._job_disables_continuation(job):
-            continuation_queued = await self._schedule_sync_continuation(job)
-        if not continuation_queued:
+        if not continue_sync:
             self._queue_post_sync_maintenance(str(job["source_type"]))
 
     async def _settle_failed_job(
@@ -266,54 +379,6 @@ class SensorSyncExecutor:
         if isinstance(payload, dict) and bool(payload.get("first_context")):
             return True
         return bool(job.get("first_context"))
-
-    async def _schedule_sync_continuation(self, job: dict[str, object]) -> bool:
-        if self._scheduler_service is None:
-            return False
-        plugin_id = str(job.get("plugin_id") or "").strip()
-        source_type = str(job.get("source_type") or "").strip()
-        if not plugin_id or not source_type:
-            return False
-        parent_payload = job.get("payload")
-        sync_request = None
-        if isinstance(parent_payload, dict) and isinstance(parent_payload.get("sync_request"), dict):
-            sync_request = dict(parent_payload["sync_request"])
-        target_payload: dict[str, object] = {
-            "plugin_id": plugin_id,
-            "source_type": source_type,
-            "manual": bool(job.get("manual")),
-        }
-        metadata: dict[str, object] = {
-            "continuation": True,
-            "plugin_id": plugin_id,
-            "source_type": source_type,
-            "parent_job_id": str(job.get("job_id") or ""),
-        }
-        if sync_request is not None:
-            target_payload["sync_request"] = sync_request
-            metadata["sync_request"] = sync_request
-        try:
-            await self._run_on_owner_loop(
-                self._scheduler_service.schedule_once(
-                    schedule_id=(
-                        f"sensor-sync-continuation:{plugin_id}:{source_type}:"
-                        f"{uuid.uuid4().hex}"
-                    ),
-                    target_type=ScheduledTargetType.SENSOR_SYNC,
-                    target_key=str(job["target_key"]),
-                    run_at=time.time() + 0.2,
-                    target_payload=target_payload,
-                    metadata=metadata,
-                )
-            )
-            return True
-        except Exception:
-            logger.exception(
-                "sensor sync continuation scheduling failed (non-fatal)",
-                plugin_id=plugin_id,
-                source_type=source_type,
-            )
-            return False
 
     def _queue_post_sync_maintenance(self, source_name: str) -> None:
         source_name = source_name.strip()

@@ -1539,12 +1539,22 @@ For `sensor_sync` targets, the scheduler does not execute any sensor plugin code
    Each successful or terminal attempt settles the job, target state, and
    execution history together so a restart cannot expose a half-finished
    scheduler record.
+6. When a successful batch reports more source data, the same success
+   transaction also inserts the next queued sensor job and its execution row.
+   The completed batch and its continuation therefore commit together or both
+   roll back; continuation does not depend on a later one-off scheduler call.
 
 The `sensor_sync_jobs` table enforces at most one outstanding job per `(target_type, target_key)` via a partial unique index. A slow sensor causes skipped ticks, not backlog growth.
 
 Manual sync requests reuse the same queueing model through `SensorSchedulerContributor.queue_manual_sync()`. Sensor runtime-state flushes also run on the executor thread to avoid cross-thread access to shared sensor instances.
 
-Post-sync memory maintenance is deliberately outside the serial sensor-sync queue. After a sync job commits success, L3 historical backfill and the L2 derive kick are queued as best-effort owner-loop maintenance so long LLM-backed summary work cannot stop later sensor-sync jobs from being claimed. This post-sync backfill is intentionally small-batch; full historical summary catch-up must run through explicit memory maintenance rather than the sensor recovery path. A continuation sync (`has_more` / `continue_sync`) still defers these maintenance kicks until the final batch.
+The executor has explicit `running`, `stopping`, and `stopped` lifecycle states.
+Shutdown waits for the active worker for a bounded interval. If that wait times
+out, shutdown reports failure and keeps ownership of the live worker; another
+worker cannot start until the original thread has actually exited. This avoids
+two executors claiming the same queue after a slow or stuck sensor call.
+
+Post-sync memory maintenance is deliberately outside the serial sensor-sync queue. After a sync job commits success, L3 historical backfill and the L2 derive kick are queued as best-effort owner-loop maintenance so long LLM-backed summary work cannot stop later sensor-sync jobs from being claimed. This post-sync backfill is intentionally small-batch; full historical summary catch-up must run through explicit memory maintenance rather than the sensor recovery path. A continuation sync (`has_more` / `continue_sync`) is admitted durably in the parent success transaction and still defers these maintenance kicks until the final batch.
 
 Failed sensor jobs stay in the same durable execution record and are retried with
 bounded exponential backoff. The job remains `queued` with its next-attempt time,

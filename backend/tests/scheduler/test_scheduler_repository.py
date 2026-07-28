@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import sqlite3
 import time
 
 import pytest
@@ -175,6 +177,7 @@ async def test_settle_sensor_sync_job_success_persists_all_runtime_state(tmp_pat
         result=result,
         finished_at=time.time(),
         scheduler_job_id="scheduler-job-1",
+        continue_sync=False,
     )
 
     outstanding = await repository.get_outstanding_sensor_sync_job(
@@ -205,6 +208,211 @@ async def test_settle_sensor_sync_job_success_persists_all_runtime_state(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_settle_sensor_sync_job_success_atomically_admits_continuation(tmp_path):
+    repository = ScheduleRepository(tmp_path / "scheduler.db")
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    schedule.target_payload["sync_request"] = {
+        "mode": "backfill",
+        "backfill_scope": "last_30_days",
+    }
+    admitted = await _enqueue_sensor_sync(repository, schedule, manual=True)
+    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    assert claimed is not None
+
+    settlement = await repository.settle_sensor_sync_job_success(
+        claimed["job_id"],
+        result=ScheduledExecutionResult(
+            success=True,
+            message="sensor_sync_completed",
+            next_cursor="cursor-2",
+            stats={"items": 200, "has_more": True},
+        ),
+        finished_at=time.time(),
+        scheduler_job_id="scheduler-job-1",
+        continue_sync=True,
+    )
+
+    parent = await repository.get_sensor_sync_job(admitted.job_id)
+    continuation = await repository.get_outstanding_sensor_sync_job(
+        schedule.target_type,
+        schedule.target_key,
+    )
+    target_state = await repository.get_target_state(
+        schedule.target_type,
+        schedule.target_key,
+    )
+    continuation_executions = await repository.list_executions(
+        schedule_id=str(continuation["schedule_id"]) if continuation is not None else "",
+    )
+
+    assert settlement.committed is True
+    assert parent is not None
+    assert parent["status"] == "success"
+    assert continuation is not None
+    assert continuation["job_id"] == settlement.continuation_job_id
+    assert continuation["execution_id"] == settlement.continuation_execution_id
+    assert continuation["status"] == "queued"
+    assert continuation["manual"] is True
+    assert str(continuation["schedule_id"]).startswith(
+        "sensor-sync-continuation:test-plugin:test-source:"
+    )
+    assert continuation["payload"] == {
+        "plugin_id": "test-plugin",
+        "source_type": "test-source",
+        "manual": True,
+        "sync_request": schedule.target_payload["sync_request"],
+    }
+    assert target_state.running is True
+    assert target_state.last_cursor == "cursor-2"
+    assert len(continuation_executions) == 1
+    assert continuation_executions[0]["execution_id"] == settlement.continuation_execution_id
+    assert continuation_executions[0]["status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_settle_sensor_sync_job_success_continuation_is_idempotent(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    admitted = await _enqueue_sensor_sync(repository, schedule)
+    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    assert claimed is not None
+    result = ScheduledExecutionResult(
+        success=True,
+        message="sensor_sync_completed",
+        stats={"has_more": True},
+    )
+
+    first = await repository.settle_sensor_sync_job_success(
+        admitted.job_id,
+        result=result,
+        finished_at=time.time(),
+        scheduler_job_id=None,
+        continue_sync=True,
+    )
+    repeated = await repository.settle_sensor_sync_job_success(
+        admitted.job_id,
+        result=result,
+        finished_at=time.time(),
+        scheduler_job_id=None,
+        continue_sync=True,
+    )
+
+    connection = sqlite3.connect(db_path)
+    job_count = connection.execute("SELECT COUNT(*) FROM sensor_sync_jobs").fetchone()[0]
+    execution_count = connection.execute(
+        "SELECT COUNT(*) FROM schedule_executions"
+    ).fetchone()[0]
+    connection.close()
+
+    assert first.committed is True
+    assert repeated.committed is False
+    assert repeated.continuation_job_id == first.continuation_job_id
+    assert repeated.continuation_execution_id == first.continuation_execution_id
+    assert job_count == 2
+    assert execution_count == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_sensor_sync_success_settlement_admits_one_continuation(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    admitted = await _enqueue_sensor_sync(repository, schedule)
+    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    assert claimed is not None
+    result = ScheduledExecutionResult(
+        success=True,
+        message="sensor_sync_completed",
+        stats={"has_more": True},
+    )
+    finished_at = time.time()
+
+    settlements = await asyncio.gather(
+        *(
+            repository.settle_sensor_sync_job_success(
+                admitted.job_id,
+                result=result,
+                finished_at=finished_at,
+                scheduler_job_id=None,
+                continue_sync=True,
+            )
+            for _ in range(2)
+        )
+    )
+
+    connection = sqlite3.connect(db_path)
+    job_count = connection.execute("SELECT COUNT(*) FROM sensor_sync_jobs").fetchone()[0]
+    execution_count = connection.execute(
+        "SELECT COUNT(*) FROM schedule_executions"
+    ).fetchone()[0]
+    connection.close()
+
+    assert sorted(settlement.committed for settlement in settlements) == [False, True]
+    assert len({settlement.continuation_job_id for settlement in settlements}) == 1
+    assert job_count == 2
+    assert execution_count == 2
+
+
+@pytest.mark.asyncio
+async def test_continuation_admission_failure_rolls_back_success_settlement(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    admitted = await _enqueue_sensor_sync(repository, schedule)
+    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    assert claimed is not None
+    connection = sqlite3.connect(db_path)
+    connection.execute(
+        """
+        CREATE TRIGGER fail_sensor_continuation_admission
+        BEFORE INSERT ON sensor_sync_jobs
+        WHEN NEW.schedule_id LIKE 'sensor-sync-continuation:%'
+        BEGIN
+            SELECT RAISE(ABORT, 'continuation admission failed');
+        END
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(sqlite3.IntegrityError, match="continuation admission failed"):
+        await repository.settle_sensor_sync_job_success(
+            admitted.job_id,
+            result=ScheduledExecutionResult(
+                success=True,
+                message="sensor_sync_completed",
+                stats={"has_more": True},
+            ),
+            finished_at=time.time(),
+            scheduler_job_id=None,
+            continue_sync=True,
+        )
+
+    parent = await repository.get_sensor_sync_job(admitted.job_id)
+    outstanding = await repository.get_outstanding_sensor_sync_job(
+        schedule.target_type,
+        schedule.target_key,
+    )
+    target_state = await repository.get_target_state(
+        schedule.target_type,
+        schedule.target_key,
+    )
+    executions = await repository.list_executions(schedule_id=schedule.schedule_id)
+
+    assert parent is not None
+    assert parent["status"] == "running"
+    assert outstanding is not None
+    assert outstanding["job_id"] == admitted.job_id
+    assert target_state.running is True
+    assert executions[0]["status"] == "running"
+
+
+@pytest.mark.asyncio
 async def test_latest_sensor_sync_job_keeps_completed_backfill_details(tmp_path):
     repository = ScheduleRepository(tmp_path / "scheduler.db")
     await repository.initialize()
@@ -227,6 +435,7 @@ async def test_latest_sensor_sync_job_keeps_completed_backfill_details(tmp_path)
         result=ScheduledExecutionResult(success=True, stats={"items": 3}),
         finished_at=time.time(),
         scheduler_job_id=None,
+        continue_sync=False,
     )
 
     latest = await repository.get_latest_sensor_sync_job(

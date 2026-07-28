@@ -1,7 +1,7 @@
 """Sensor sync job queue persistence for the scheduler repository."""
 
 from .admission import _SensorSyncJobAdmissionMixin
-from .contracts import SensorSyncEnqueueResult
+from .contracts import SensorSyncEnqueueResult, SensorSyncSuccessSettlement
 from .queries import _SensorSyncJobQueriesMixin
 from .settlement import _SensorSyncJobSettlementMixin
 
@@ -17,4 +17,5 @@ class SensorSyncJobRepositoryMixin(
 __all__ = [
     "SensorSyncEnqueueResult",
     "SensorSyncJobRepositoryMixin",
+    "SensorSyncSuccessSettlement",
 ]
