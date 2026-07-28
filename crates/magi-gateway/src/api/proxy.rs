@@ -364,6 +364,7 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
+    use tokio::io::AsyncWriteExt;
 
     #[test]
     fn stages_binary_request_body_in_temp_file() {
@@ -489,6 +490,7 @@ mod tests {
 
         assert_eq!(result, Err(StageBodyError::TooLarge));
         assert_eq!(chunks_polled.load(Ordering::SeqCst), 3);
+        guard.streaming_file_mut().flush().await.unwrap();
         guard.close_streaming_file();
         assert_eq!(std::fs::read(&staged_path).unwrap(), b"12341234");
         drop(guard);
