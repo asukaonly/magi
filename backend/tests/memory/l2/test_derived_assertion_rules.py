@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime
 from typing import Any
 
 import aiosqlite
@@ -370,7 +371,7 @@ async def test_rule_uses_l1_evidence_times_for_recent_promotion(l2_store_with_sc
 @pytest.mark.asyncio
 async def test_rule_requires_exact_l1_distinct_days_not_graph_span(l2_store_with_schema):
     store = l2_store_with_schema
-    now = time.time()
+    now = datetime.now().replace(hour=12, minute=0, second=0, microsecond=0).timestamp()
     event_ids = ["same-day-1", "same-day-2", "same-day-3"]
     await _seed_edge(
         store,
