@@ -469,12 +469,13 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(nextButton).toHaveClass("bg-primary", "disabled:bg-muted");
   });
 
-  it("returns legacy recovered progress to model setup before later steps", async () => {
+  it("returns recovered progress to model setup before later steps", async () => {
     localStorageMock.getItem.mockImplementation((key: string) => {
       if (key !== "magi_onboarding_state") {
         return null;
       }
       return JSON.stringify({
+        version: 1,
         current: 3,
         values: DEFAULT_SYSTEM_CONFIG,
         seedSlug: "ember",
@@ -1105,6 +1106,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
         return null;
       }
       return JSON.stringify({
+        version: 1,
         current: 3,
         values: DEFAULT_SYSTEM_CONFIG,
         seedSlug: "ember",
@@ -2244,8 +2246,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
     localStorageMock.getItem.mockImplementation((key: string) => {
       if (key !== "magi_onboarding_state") return null;
       return JSON.stringify({
+        version: 1,
         current: 2,
-        personaGenerationDraftVersion: 2,
         values: DEFAULT_SYSTEM_CONFIG,
         seedSlug: slug,
         customPersonas: [

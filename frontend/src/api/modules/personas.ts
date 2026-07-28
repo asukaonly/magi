@@ -305,11 +305,38 @@ export interface PersonalityGenerationJobResponse {
 
 export type PersonalityGenerationProgressCallback = (snapshot: PersonalityGenerationJobSnapshot) => void;
 
+export interface PersonalityGenerationJobError extends Error {
+  code?: string;
+  generationJobId?: string;
+  terminal: boolean;
+}
+
 const GENERATION_JOB_POLL_MS = 1000;
 const GENERATION_JOB_TIMEOUT_MS = 600000;
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
 const AVATAR_IMAGE_FILENAME_RE = /\.(?:avif|gif|jpe?g|png|svg|webp)$/i;
+
+function generationJobError(
+  error: unknown,
+  terminal: boolean,
+  generationJobId?: string,
+): PersonalityGenerationJobError {
+  const message =
+    error instanceof Error && error.message
+      ? error.message
+      : String(error || 'Personality generation failed');
+  const wrapped = new Error(message) as PersonalityGenerationJobError;
+  wrapped.terminal = terminal;
+  wrapped.generationJobId = generationJobId;
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === 'string') {
+      wrapped.code = code;
+    }
+  }
+  return wrapped;
+}
 
 // ---------------------------------------------------------------------------
 // Personality config defaults
@@ -597,41 +624,68 @@ export const personasApi = {
     existingJobId?: string,
   ): Promise<PersonalityGenerateResponse> => {
     let snapshot: PersonalityGenerationJobSnapshot | undefined;
-    if (existingJobId) {
-      const existing = await personasApi.getGenerationJob(existingJobId);
-      snapshot = existing.data;
-    } else {
-      const started = await personasApi.startGenerationJob(request);
-      snapshot = started.data;
+    try {
+      if (existingJobId) {
+        const existing = await personasApi.getGenerationJob(existingJobId);
+        snapshot = existing.data;
+      } else {
+        const started = await personasApi.startGenerationJob(request);
+        snapshot = started.data;
+      }
+    } catch (error) {
+      throw generationJobError(error, false, existingJobId);
     }
     if (!snapshot?.job_id) {
-      throw new Error('Personality generation job did not start');
+      throw generationJobError(
+        new Error('Personality generation job did not start'),
+        false,
+        existingJobId,
+      );
     }
     onProgress?.(snapshot);
 
     const startedAt = Date.now();
     while (snapshot.status !== 'completed' && snapshot.status !== 'failed') {
       if (Date.now() - startedAt > GENERATION_JOB_TIMEOUT_MS) {
-        throw new Error('Personality generation timed out');
+        throw generationJobError(
+          new Error('Personality generation timed out'),
+          false,
+          snapshot.job_id,
+        );
       }
       await wait(GENERATION_JOB_POLL_MS);
-      const polled = await personasApi.getGenerationJob(snapshot.job_id);
+      let polled: PersonalityGenerationJobResponse;
+      try {
+        polled = await personasApi.getGenerationJob(snapshot.job_id);
+      } catch (error) {
+        throw generationJobError(error, false, snapshot.job_id);
+      }
       if (!polled.data) {
-        throw new Error('Personality generation job status is unavailable');
+        throw generationJobError(
+          new Error('Personality generation job status is unavailable'),
+          false,
+          snapshot.job_id,
+        );
       }
       snapshot = polled.data;
       onProgress?.(snapshot);
     }
 
     if (snapshot.status === 'failed') {
-      const error = new Error(snapshot.error || 'Personality generation failed') as Error & {
-        code?: string;
-      };
+      const error = generationJobError(
+        new Error(snapshot.error || 'Personality generation failed'),
+        true,
+        snapshot.job_id,
+      );
       error.code = snapshot.error_code;
       throw error;
     }
     if (!snapshot.data) {
-      throw new Error('Personality generation completed without a result');
+      throw generationJobError(
+        new Error('Personality generation completed without a result'),
+        true,
+        snapshot.job_id,
+      );
     }
     return {
       success: true,

@@ -83,6 +83,74 @@ describe('personasApi generation jobs', () => {
       data: { name: 'Soryu' },
     });
   });
+
+  it('marks a poll network failure as non-terminal and keeps the job id', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(personasApi, 'startGenerationJob').mockResolvedValue({
+      success: true,
+      message: 'started',
+      data: { job_id: 'job-poll', status: 'running', stages: [] },
+    });
+    vi.spyOn(personasApi, 'getGenerationJob').mockRejectedValue(
+      new Error('poll network unavailable'),
+    );
+
+    const resultPromise = personasApi.generateWithProgress({
+      description: 'retryable persona',
+      request_id: 'request-poll',
+    });
+    const expectation = expect(resultPromise).rejects.toMatchObject({
+      message: 'poll network unavailable',
+      terminal: false,
+      generationJobId: 'job-poll',
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expectation;
+  });
+
+  it('marks an explicit failed job as terminal', async () => {
+    vi.spyOn(personasApi, 'startGenerationJob').mockResolvedValue({
+      success: true,
+      message: 'failed',
+      data: {
+        job_id: 'job-failed',
+        status: 'failed',
+        stages: [],
+        error: 'generation rejected',
+        error_code: 'GENERATION_REJECTED',
+      },
+    });
+
+    await expect(
+      personasApi.generateWithProgress({
+        description: 'terminal persona',
+        request_id: 'request-failed',
+      }),
+    ).rejects.toMatchObject({
+      message: 'generation rejected',
+      code: 'GENERATION_REJECTED',
+      terminal: true,
+      generationJobId: 'job-failed',
+    });
+  });
+
+  it('keeps a failed start request retryable without inventing a job id', async () => {
+    const startSpy = vi
+      .spyOn(personasApi, 'startGenerationJob')
+      .mockRejectedValue(new Error('start response lost'));
+    const request = {
+      description: 'start retry',
+      request_id: 'request-stable',
+    };
+
+    await expect(personasApi.generateWithProgress(request)).rejects.toMatchObject({
+      message: 'start response lost',
+      terminal: false,
+      generationJobId: undefined,
+    });
+    expect(startSpy).toHaveBeenCalledWith(request);
+  });
 });
 
 describe('personasApi avatar URLs', () => {

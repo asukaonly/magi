@@ -10,22 +10,17 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router";
-import { apiClient } from "@/api/client";
-import { messagesApi } from "@/api/modules/messages";
 import {
   CHAT_SESSION_KEY,
   DEFAULT_USER_ID,
   STORAGE_KEYS,
 } from "@/constants/app";
-import { createClientTurnId } from "@/domain/chat/state";
-import { activateRealtimeChatSession } from "@/realtime/chat-projection-retirement";
 import { useConversationStore } from "@/stores/conversation-store";
 import { configApi } from "../../api/modules/config";
 import type {
   LanguageCode,
   LLMConfig,
   SystemConfig,
-  TestLLMProviderConnectionRequest,
 } from "../../api/modules/config";
 import { personasApi } from "../../api/modules/personas";
 import type { SeedPreview } from "../../api/modules/personas";
@@ -34,19 +29,12 @@ import {
   type InstallableCatalogMode,
   type InstallableItem,
 } from "../../api/modules/systemSuggestions";
-import { cloneLLMConfig, cloneProvider } from "../config-forms/llm-form-state";
 import GuidedConfigFrame from "../config-forms/GuidedConfigFrame";
 import WelcomeScreen from "./WelcomeScreen";
 import StepIndicator from "./StepIndicator";
 import CompletionScreen from "./CompletionScreen";
-import FirstContextStep, {
-  FIRST_CONTEXT_QUESTION_IDS,
-  isFirstContextQuestionId,
-  isFirstContextRoute,
-  type FirstContextQuestionId,
-  type FirstContextRoute,
-} from "./FirstContextStep";
-import LLMSetupStep, { type LLMConnectionTestState } from "./LLMSetupStep";
+import FirstContextStep from "./FirstContextStep";
+import LLMSetupStep from "./LLMSetupStep";
 import {
   PersonaPreviewChat,
   type CustomPersonaDraft,
@@ -59,13 +47,17 @@ import {
   ONBOARDING_PRIMARY_ACTION_CLASS,
   ONBOARDING_SECONDARY_ACTION_CLASS,
 } from "./onboardingStyles";
+import {
+  useOnboardingProgress,
+  type FirstContextProgress,
+} from "./onboardingProgress";
+import { useOnboardingLlmSetup } from "./useOnboardingLlmSetup";
+import { usePersonaConfirmation } from "./usePersonaConfirmation";
+import { useFirstContextSubmission } from "./useFirstContextSubmission";
+import { waitForRuntimeReadyAfterOnboarding } from "./firstContextSubmissionFlow";
 
 const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
-const PERSONA_GENERATION_DRAFT_VERSION = 2;
-const RUNTIME_READY_WAIT_INTERVAL_MS = 500;
-const RUNTIME_READY_WAIT_TIMEOUT_MS = 12_000;
 const ONBOARDING_SAVE_TIMEOUT_MS = 20_000;
-const PERSONA_SETUP_TIMEOUT_MS = 15_000;
 const normalizeLanguageCode = (language?: string): LanguageCode =>
   language === "en" ? "en" : "zh";
 const toI18nLanguage = (language?: string): "en" | "zh-CN" =>
@@ -74,40 +66,6 @@ const LLM_SETUP_STEP = 1;
 const PERSONA_STEP = 2;
 const FIRST_CONTEXT_STEP = 3;
 const COMPLETE_STEP = 4;
-const createFirstContextSessionCreationKey = (): string => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `first_context_${crypto.randomUUID()}`;
-  }
-  return `first_context_${Date.now().toString(36)}_${Math.random()
-    .toString(36)
-    .slice(2, 10)}`;
-};
-
-interface FirstContextProgress {
-  route: FirstContextRoute;
-  questionId: FirstContextQuestionId;
-  seenQuestionIds: FirstContextQuestionId[];
-  draft: string;
-  sessionCreationKey: string | null;
-  sessionId: string | null;
-  turnId: string | null;
-  messageId: string | null;
-  submitted: boolean;
-  sendUncertain: boolean;
-}
-
-const DEFAULT_FIRST_CONTEXT_PROGRESS: FirstContextProgress = {
-  route: "choose",
-  questionId: FIRST_CONTEXT_QUESTION_IDS[0],
-  seenQuestionIds: [FIRST_CONTEXT_QUESTION_IDS[0]],
-  draft: "",
-  sessionCreationKey: null,
-  sessionId: null,
-  turnId: null,
-  messageId: null,
-  submitted: false,
-  sendUncertain: false,
-};
 
 interface FinishOnboardingOptions {
   destination?: "/" | "/chat";
@@ -115,89 +73,10 @@ interface FinishOnboardingOptions {
   onError?: (message: string) => void;
 }
 
-interface RuntimeReadyResponse {
-  success: boolean;
-  data?: {
-    ready: boolean;
-    status: string;
-    runtime_ready: boolean;
-    runtime_status: string;
-    startup_state?: string;
-    deferred_reason?: string | null;
-  };
-}
-
-interface LlmConnectionTestTarget {
-  fingerprint: string;
-  request: TestLLMProviderConnectionRequest;
-}
-
-const EMPTY_LLM_CONNECTION_TEST_STATE: LLMConnectionTestState = {
-  loading: false,
-  error: null,
-  result: null,
-};
-
-function buildLlmConnectionTestTarget(
-  value: LLMConfig,
-): LlmConnectionTestTarget | null {
-  const providerId = String(value.selections?.core?.provider_id || "").trim();
-  const model = String(value.selections?.core?.model || "").trim();
-  const sourceProvider = providerId ? value.providers?.[providerId] : undefined;
-  if (!providerId || !model || !sourceProvider) {
-    return null;
-  }
-
-  const provider = cloneProvider(sourceProvider);
-  const apiKey = provider.services.chat.api_key || provider.api_key || "";
-  const baseUrl = provider.services.chat.base_url || provider.base_url || "";
-  provider.api_key = provider.api_key || apiKey;
-  provider.base_url = provider.base_url || baseUrl;
-  provider.services.chat.api_key = apiKey;
-  provider.services.chat.base_url = baseUrl;
-
-  return {
-    fingerprint: JSON.stringify([
-      providerId,
-      provider.provider_type,
-      provider.provider_plan || "",
-      provider.api_format,
-      model,
-      apiKey,
-      baseUrl,
-    ]),
-    request: {
-      provider_id: providerId,
-      provider,
-      model,
-    },
-  };
-}
-
-function waitFor(durationMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, durationMs);
-  });
-}
-
 class OnboardingTimeoutError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "OnboardingTimeoutError";
-  }
-}
-
-class PersonaConfirmationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PersonaConfirmationError";
-  }
-}
-
-class PersonaConfirmationCancelledError extends Error {
-  constructor() {
-    super("Persona confirmation was superseded");
-    this.name = "PersonaConfirmationCancelledError";
   }
 }
 
@@ -220,28 +99,6 @@ function withTimeout<T>(
   });
 }
 
-async function waitForRuntimeReadyAfterOnboarding() {
-  const deadline = Date.now() + RUNTIME_READY_WAIT_TIMEOUT_MS;
-  let lastSnapshot: RuntimeReadyResponse["data"] | null = null;
-
-  while (Date.now() <= deadline) {
-    try {
-      const response = await apiClient.get<RuntimeReadyResponse>("/ready");
-      const snapshot = response.data?.data;
-      lastSnapshot = snapshot || null;
-      if (snapshot?.runtime_ready) {
-        return snapshot;
-      }
-    } catch {
-      // Keep polling for a short window while the runtime finishes starting.
-    }
-
-    await waitFor(RUNTIME_READY_WAIT_INTERVAL_MS);
-  }
-
-  return lastSnapshot;
-}
-
 interface OnboardingFlowProps {
   initialConfig: SystemConfig;
 }
@@ -253,45 +110,41 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const shouldReduceMotion = useReducedMotion();
   const [form] = Form.useForm();
   const navigate = useNavigate();
-  const [current, setCurrent] = useState(0);
+  const {
+    state: onboardingProgress,
+    stateRef: onboardingProgressRef,
+    save: saveOnboardingProgress,
+    clear: clearOnboardingProgress,
+  } = useOnboardingProgress({ storageKey: STORAGE_KEY, initialConfig });
+  const {
+    current,
+    seedSlug,
+    customPersonas,
+    personaCreationDraft,
+    firstContextPluginIds,
+    firstContextCountsByPluginId,
+    firstContextProgress,
+  } = onboardingProgress;
   const [saving, setSaving] = useState(false);
   const [finishingRuntime, setFinishingRuntime] = useState(false);
   const finishInFlightRef = useRef(false);
   const [renderLanguage, setRenderLanguage] = useState(() =>
-    toI18nLanguage(initialConfig.preferences?.language || "zh"),
+    toI18nLanguage(
+      onboardingProgress.values.preferences?.language || "zh",
+    ),
   );
-  const [llmValid, setLlmValid] = useState(false);
-  const [llmValue, setLlmValue] = useState<LLMConfig>(() =>
-    cloneLLMConfig(initialConfig.llm),
-  );
-  const [llmConnectionTestState, setLlmConnectionTestState] =
-    useState<LLMConnectionTestState>(EMPTY_LLM_CONNECTION_TEST_STATE);
-  const [validatedLlmFingerprint, setValidatedLlmFingerprint] = useState<
-    string | null
-  >(null);
-  const [llmConnectionConfigPending, setLlmConnectionConfigPending] =
-    useState(false);
-  const llmConnectionTestRequestIdRef = useRef(0);
-  const [seedSlug, setSeedSlug] = useState<string | null>(null);
-  const seedSlugRef = useRef<string | null>(null);
-  // Onboarding-generated personas carry their final registry IDs before creation.
-  const [customPersonas, setCustomPersonas] = useState<CustomPersonaDraft[]>(
-    [],
-  );
-  const customPersonasRef = useRef<CustomPersonaDraft[]>([]);
-  const [personaCreationDraft, setPersonaCreationDraft] =
-    useState<PersonaCreationDraft | null>(null);
-  const personaCreationDraftRef = useRef<PersonaCreationDraft | null>(null);
+  const llmSetup = useOnboardingLlmSetup(onboardingProgress.values.llm);
+  const {
+    value: llmValue,
+    valid: llmValid,
+    connectionTestState: llmConnectionTestState,
+    connectionConfigPending: llmConnectionConfigPending,
+    setValid: setLlmValid,
+    setConnectionConfigPending: setLlmConnectionConfigPending,
+    testConnection: testLlmConnection,
+  } = llmSetup;
   // True while a custom persona is being generated on the persona step.
   const [personaGenerating, setPersonaGenerating] = useState(false);
-  const [personaConfirming, setPersonaConfirming] = useState(false);
-  const [personaConfirmationError, setPersonaConfirmationError] = useState<
-    string | null
-  >(null);
-  const [confirmedPersonaFingerprint, setConfirmedPersonaFingerprint] =
-    useState<string | null>(null);
-  const personaConfirmationRequestIdRef = useRef(0);
-  const personaConfirmationInFlightRef = useRef(false);
   const [installableItems, setInstallableItems] = useState<InstallableItem[]>(
     [],
   );
@@ -299,37 +152,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     useState<InstallableCatalogMode | null>(null);
   const [installableLoading, setInstallableLoading] = useState(true);
   const [installableError, setInstallableError] = useState<Error | null>(null);
-  const [firstContextPluginIds, setFirstContextPluginIds] = useState<string[]>(
-    [],
-  );
-  const [firstContextCountsByPluginId, setFirstContextCountsByPluginId] =
-    useState<Record<string, number | null>>({});
-  const [firstContextProgress, setFirstContextProgress] =
-    useState<FirstContextProgress>(DEFAULT_FIRST_CONTEXT_PROGRESS);
-  const firstContextProgressRef = useRef<FirstContextProgress>(
-    DEFAULT_FIRST_CONTEXT_PROGRESS,
-  );
-  const [firstContextStorySubmitting, setFirstContextStorySubmitting] =
-    useState(false);
-  const [firstContextStoryError, setFirstContextStoryError] = useState<
-    string | null
-  >(null);
-  const firstContextStorySubmitInFlightRef = useRef(false);
   const installablePreloadStartedRef = useRef(false);
   const lastPersistedLanguageRef = useRef<LanguageCode | null>(null);
   const initializedLanguageRef = useRef<LanguageCode | null>(null);
   const mountedRef = useRef(true);
-  const llmConnectionTestTarget = useMemo(
-    () => buildLlmConnectionTestTarget(llmValue),
-    [llmValue],
-  );
-  const currentLlmFingerprint = llmConnectionTestTarget?.fingerprint || "";
-  const currentLlmFingerprintRef = useRef(currentLlmFingerprint);
-  currentLlmFingerprintRef.current = currentLlmFingerprint;
-  seedSlugRef.current = seedSlug;
-  customPersonasRef.current = customPersonas;
-  personaCreationDraftRef.current = personaCreationDraft;
-
   const loadInstallableSources = useCallback(async () => {
     setInstallableLoading(true);
     setInstallableError(null);
@@ -367,8 +193,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      personaConfirmationRequestIdRef.current += 1;
-      personaConfirmationInFlightRef.current = false;
     };
   }, []);
 
@@ -388,7 +212,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   useEffect(() => {
     const formLanguage = normalizeLanguageCode(
-      initialConfig.preferences?.language,
+      onboardingProgress.values.preferences?.language,
     );
     if (initializedLanguageRef.current === formLanguage) {
       return;
@@ -406,7 +230,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }
   }, [
     i18n,
-    initialConfig.preferences?.language,
+    onboardingProgress.values.preferences?.language,
     persistOnboardingLanguagePreference,
   ]);
 
@@ -427,13 +251,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const onboardingLanguage = renderLanguage.startsWith("zh") ? "zh" : "en";
   const onboardingInitialValues = useMemo<SystemConfig>(
     () => ({
-      ...initialConfig,
+      ...onboardingProgress.values,
       preferences: {
-        ...initialConfig.preferences,
+        ...onboardingProgress.values.preferences,
         language: onboardingLanguage,
       },
     }),
-    [initialConfig, onboardingLanguage],
+    [onboardingLanguage, onboardingProgress.values],
   );
 
   // Seed locale folder ("zh" / "en"). Drives both which previews we load and
@@ -444,22 +268,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     () => customPersonas.find((draft) => draft.slug === seedSlug) ?? null,
     [customPersonas, seedSlug],
   );
-  const personaConfirmationFingerprint = useMemo(
-    () =>
-      seedSlug
-        ? JSON.stringify([
-            seedLocale,
-            seedSlug,
-            selectedCustomPersona?.personaId ?? null,
-            selectedCustomPersona?.config ?? null,
-          ])
-        : null,
-    [seedLocale, seedSlug, selectedCustomPersona],
-  );
-  const currentPersonaFingerprintRef = useRef<string | null>(
-    personaConfirmationFingerprint,
-  );
-  currentPersonaFingerprintRef.current = personaConfirmationFingerprint;
+  const personaConfirmation = usePersonaConfirmation({
+    seedSlug,
+    seedLocale,
+    selectedCustomPersona,
+  });
+  const personaConfirming = personaConfirmation.confirming;
+  const personaConfirmationError = personaConfirmation.error;
 
   // Load persona seed previews for the current locale once on mount and when
   // language changes. This keeps the avatar rail in sync with i18n.
@@ -472,7 +287,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       try {
         const resp = await personasApi.seedPreviews(locale);
         if (cancelled) return;
-        const data = (resp as any)?.data ?? [];
+        const data = resp.data ?? [];
         setSeedPreviews(Array.isArray(data) ? data : []);
       } catch {
         // Persona preview is best-effort; chat preview server may be offline.
@@ -487,157 +302,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     };
   }, [seedLocale]);
 
-  // Restore saved progress
-  useEffect(() => {
-    const cached = localStorage.getItem(STORAGE_KEY);
-    if (!cached) return;
-    try {
-      const parsed = JSON.parse(cached) as {
-        current?: number;
-        values?: SystemConfig;
-        seedSlug?: string | null;
-        customPersonas?: CustomPersonaDraft[];
-        personaCreationDraft?: PersonaCreationDraft | null;
-        personaGenerationDraftVersion?: number;
-        firstContextPluginIds?: string[];
-        firstContextCountsByPluginId?: Record<string, number | null>;
-        firstContextProgress?: Partial<FirstContextProgress>;
-      };
-      if (typeof parsed.current === "number") {
-        const recoveredStep = Math.max(
-          0,
-          Math.min(COMPLETE_STEP, parsed.current),
-        );
-        setCurrent(
-          recoveredStep > LLM_SETUP_STEP ? LLM_SETUP_STEP : recoveredStep,
-        );
-      }
-      if (
-        parsed.seedSlug &&
-        (
-          !parsed.seedSlug.startsWith('onboarding-custom-') ||
-          parsed.personaGenerationDraftVersion === PERSONA_GENERATION_DRAFT_VERSION
-        )
-      ) {
-        setSeedSlug(parsed.seedSlug);
-      }
-      if (
-        parsed.personaGenerationDraftVersion === PERSONA_GENERATION_DRAFT_VERSION &&
-        Array.isArray(parsed.customPersonas)
-      ) {
-        setCustomPersonas(parsed.customPersonas);
-      }
-      if (
-        parsed.personaGenerationDraftVersion === PERSONA_GENERATION_DRAFT_VERSION &&
-        parsed.personaCreationDraft &&
-        typeof parsed.personaCreationDraft === "object"
-      ) {
-        setPersonaCreationDraft(parsed.personaCreationDraft);
-      }
-      if (Array.isArray(parsed.firstContextPluginIds)) {
-        setFirstContextPluginIds(
-          parsed.firstContextPluginIds.filter(
-            (pluginId) => typeof pluginId === "string",
-          ),
-        );
-      }
-      if (
-        parsed.firstContextCountsByPluginId &&
-        typeof parsed.firstContextCountsByPluginId === "object"
-      ) {
-        const nextCounts: Record<string, number | null> = {};
-        for (const [pluginId, count] of Object.entries(
-          parsed.firstContextCountsByPluginId,
-        )) {
-          if (
-            typeof pluginId === "string" &&
-            (typeof count === "number" || count === null)
-          ) {
-            nextCounts[pluginId] = count;
-          }
-        }
-        setFirstContextCountsByPluginId(nextCounts);
-      }
-      if (
-        parsed.firstContextProgress &&
-        typeof parsed.firstContextProgress === "object"
-      ) {
-        const rawProgress = parsed.firstContextProgress;
-        const sessionCreationKey =
-          typeof rawProgress.sessionCreationKey === "string" &&
-          rawProgress.sessionCreationKey.trim()
-            ? rawProgress.sessionCreationKey.trim()
-            : null;
-        const sessionId = sessionCreationKey &&
-          typeof rawProgress.sessionId === "string" &&
-          rawProgress.sessionId.trim()
-            ? rawProgress.sessionId.trim()
-            : null;
-        const turnId =
-          typeof rawProgress.turnId === "string" && rawProgress.turnId.trim()
-            ? rawProgress.turnId.trim()
-            : null;
-        const messageId =
-          typeof rawProgress.messageId === "string" && rawProgress.messageId.trim()
-            ? rawProgress.messageId.trim()
-            : null;
-        const submitted = Boolean(
-          rawProgress.submitted && sessionId && turnId,
-        );
-        const questionId = isFirstContextQuestionId(rawProgress.questionId)
-          ? rawProgress.questionId
-          : DEFAULT_FIRST_CONTEXT_PROGRESS.questionId;
-        const seenQuestionIds = Array.isArray(rawProgress.seenQuestionIds)
-          ? rawProgress.seenQuestionIds.filter(isFirstContextQuestionId)
-          : [];
-        const restoredProgress: FirstContextProgress = {
-          route: isFirstContextRoute(rawProgress.route)
-            ? rawProgress.route
-            : DEFAULT_FIRST_CONTEXT_PROGRESS.route,
-          questionId,
-          seenQuestionIds: seenQuestionIds.includes(questionId)
-            ? seenQuestionIds
-            : [...seenQuestionIds, questionId],
-          draft:
-            typeof rawProgress.draft === "string" ? rawProgress.draft : "",
-          sessionCreationKey,
-          sessionId,
-          turnId,
-          messageId,
-          submitted,
-          sendUncertain: Boolean(
-            rawProgress.sendUncertain && sessionId && turnId && !submitted,
-          ),
-        };
-        firstContextProgressRef.current = restoredProgress;
-        setFirstContextProgress(restoredProgress);
-      }
-      if (parsed.values) {
-        const savedLanguage = localStorage.getItem("magi_language");
-        const mergedValues = {
-          ...parsed.values,
-          preferences: {
-            ...parsed.values?.preferences,
-            language: savedLanguage || parsed.values?.preferences?.language,
-          },
-        };
-        form.setFieldsValue(mergedValues);
-        if (parsed.values.llm) {
-          setLlmValue(cloneLLMConfig(parsed.values.llm));
-        }
-      }
-    } catch {
-      // Ignore invalid cached state.
-    }
-  }, [form]);
-
-  useEffect(() => {
-    const language = form.getFieldValue(["preferences", "language"]);
-    if (!language) {
-      form.setFieldValue(["preferences", "language"], "zh");
-    }
-  }, [form]);
-
   useEffect(() => {
     if (current < 1 || installablePreloadStartedRef.current) {
       return;
@@ -649,33 +313,33 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   const saveProgress = (
     values: SystemConfig,
-    nextSeedSlug: string | null = seedSlugRef.current,
-    nextCustomPersonas: CustomPersonaDraft[] = customPersonasRef.current,
-    nextCurrent: number = current,
-    nextFirstContextPluginIds: string[] = firstContextPluginIds,
-    nextFirstContextCountsByPluginId: Record<
-      string,
-      number | null
-    > = firstContextCountsByPluginId,
-    nextFirstContextProgress: FirstContextProgress =
-      firstContextProgressRef.current,
-    nextPersonaCreationDraft: PersonaCreationDraft | null =
-      personaCreationDraftRef.current,
+    nextSeedSlug?: string | null,
+    nextCustomPersonas?: CustomPersonaDraft[],
+    nextCurrent?: number,
+    nextFirstContextPluginIds?: string[],
+    nextFirstContextCountsByPluginId?: Record<string, number | null>,
+    nextFirstContextProgress?: FirstContextProgress,
+    nextPersonaCreationDraft?: PersonaCreationDraft | null,
   ) => {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        current: nextCurrent,
-        personaGenerationDraftVersion: PERSONA_GENERATION_DRAFT_VERSION,
-        values,
-        seedSlug: nextSeedSlug,
-        customPersonas: nextCustomPersonas,
-        personaCreationDraft: nextPersonaCreationDraft,
-        firstContextPluginIds: nextFirstContextPluginIds,
-        firstContextCountsByPluginId: nextFirstContextCountsByPluginId,
-        firstContextProgress: nextFirstContextProgress,
-      }),
-    );
+    const saved = onboardingProgressRef.current;
+    saveOnboardingProgress({
+      values,
+      current: nextCurrent ?? saved.current,
+      seedSlug:
+        nextSeedSlug === undefined ? saved.seedSlug : nextSeedSlug,
+      customPersonas: nextCustomPersonas ?? saved.customPersonas,
+      personaCreationDraft:
+        nextPersonaCreationDraft === undefined
+          ? saved.personaCreationDraft
+          : nextPersonaCreationDraft,
+      firstContextPluginIds:
+        nextFirstContextPluginIds ?? saved.firstContextPluginIds,
+      firstContextCountsByPluginId:
+        nextFirstContextCountsByPluginId ??
+        saved.firstContextCountsByPluginId,
+      firstContextProgress:
+        nextFirstContextProgress ?? saved.firstContextProgress,
+    });
   };
 
   const updateFirstContextProgress = (
@@ -683,20 +347,19 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       | Partial<FirstContextProgress>
       | ((currentProgress: FirstContextProgress) => FirstContextProgress),
   ): FirstContextProgress => {
-    const currentProgress = firstContextProgressRef.current;
+    const currentProgress =
+      onboardingProgressRef.current.firstContextProgress;
     const nextProgress =
       typeof update === "function"
         ? update(currentProgress)
         : { ...currentProgress, ...update };
-    firstContextProgressRef.current = nextProgress;
-    setFirstContextProgress(nextProgress);
     saveProgress(
       form.getFieldsValue(true),
-      seedSlugRef.current,
-      customPersonasRef.current,
-      current,
-      firstContextPluginIds,
-      firstContextCountsByPluginId,
+      onboardingProgressRef.current.seedSlug,
+      onboardingProgressRef.current.customPersonas,
+      onboardingProgressRef.current.current,
+      onboardingProgressRef.current.firstContextPluginIds,
+      onboardingProgressRef.current.firstContextCountsByPluginId,
       nextProgress,
     );
     return nextProgress;
@@ -746,195 +409,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   }, [i18n]);
 
   const handleLlmChange = (next: LLMConfig) => {
-    const nextFingerprint =
-      buildLlmConnectionTestTarget(next)?.fingerprint || "";
-    if (nextFingerprint !== currentLlmFingerprint) {
-      llmConnectionTestRequestIdRef.current += 1;
-      setValidatedLlmFingerprint(null);
-      setLlmConnectionTestState(EMPTY_LLM_CONNECTION_TEST_STATE);
-    }
-    setLlmValue(next);
+    llmSetup.change(next);
     form.setFieldValue(["llm"], next);
     saveProgress(form.getFieldsValue(true));
   };
 
-  const testLlmConnection = async (force = false): Promise<boolean> => {
-    const target = buildLlmConnectionTestTarget(llmValue);
-    if (!target) {
-      setValidatedLlmFingerprint(null);
-      setLlmConnectionTestState({
-        loading: false,
-        error: t("llm.providerConfiguration.testModelRequired"),
-        result: null,
-      });
-      return false;
-    }
-
-    if (
-      !force &&
-      validatedLlmFingerprint === target.fingerprint &&
-      llmConnectionTestState.result
-    ) {
-      return true;
-    }
-
-    const requestId = ++llmConnectionTestRequestIdRef.current;
-    setValidatedLlmFingerprint(null);
-    setLlmConnectionTestState({ loading: true, error: null, result: null });
-    try {
-      const result = await configApi.testLLMProviderConnection(target.request);
-      if (
-        requestId !== llmConnectionTestRequestIdRef.current ||
-        currentLlmFingerprintRef.current !== target.fingerprint
-      ) {
-        return false;
-      }
-      setValidatedLlmFingerprint(target.fingerprint);
-      setLlmConnectionTestState({ loading: false, error: null, result });
-      return true;
-    } catch (testError: any) {
-      if (
-        requestId !== llmConnectionTestRequestIdRef.current ||
-        currentLlmFingerprintRef.current !== target.fingerprint
-      ) {
-        return false;
-      }
-      setLlmConnectionTestState({
-        loading: false,
-        error: testError?.message || t("llm.providerConfiguration.testFailed"),
-        result: null,
-      });
-      return false;
-    }
-  };
-
-  const invalidatePersonaConfirmation = () => {
-    personaConfirmationRequestIdRef.current += 1;
-    personaConfirmationInFlightRef.current = false;
-    setPersonaConfirming(false);
-    setPersonaConfirmationError(null);
-    setConfirmedPersonaFingerprint(null);
-  };
-
-  const confirmPersonaSelection = async (): Promise<boolean> => {
-    const fingerprint = personaConfirmationFingerprint;
-    const selectedSlug = seedSlug;
-    const customDraft = selectedCustomPersona;
-
-    if (!fingerprint || !selectedSlug) {
-      personaConfirmationRequestIdRef.current += 1;
-      personaConfirmationInFlightRef.current = false;
-      setPersonaConfirming(false);
-      setConfirmedPersonaFingerprint(null);
-      setPersonaConfirmationError(t("messages.personaSelectionRequired"));
-      return false;
-    }
-    if (confirmedPersonaFingerprint === fingerprint) {
-      return true;
-    }
-    if (personaConfirmationInFlightRef.current) {
-      return false;
-    }
-
-    const requestId = ++personaConfirmationRequestIdRef.current;
-    personaConfirmationInFlightRef.current = true;
-    setPersonaConfirming(true);
-    setPersonaConfirmationError(null);
-    setConfirmedPersonaFingerprint(null);
-
-    const assertCurrentRequest = () => {
-      if (
-        requestId !== personaConfirmationRequestIdRef.current ||
-        currentPersonaFingerprintRef.current !== fingerprint
-      ) {
-        throw new PersonaConfirmationCancelledError();
-      }
-    };
-
-    const runConfirmation = async () => {
-      let personaId: string;
-
-      if (customDraft) {
-        // Persist the final ID and config before any create request can leave the client.
-        saveProgress(
-          form.getFieldsValue(true),
-          selectedSlug,
-          customPersonasRef.current,
-        );
-        const created = await personasApi.create({
-          persona_id: customDraft.personaId,
-          slug: customDraft.slug,
-          config_json: JSON.stringify(customDraft.config),
-          locale: seedLocale,
-          reference_dossier: customDraft.referenceDossier,
-        });
-        assertCurrentRequest();
-        if (created?.data?.persona_id !== customDraft.personaId) {
-          throw new PersonaConfirmationError(
-            t("messages.personaActivationFailed"),
-          );
-        }
-        personaId = customDraft.personaId;
-      } else {
-        await personasApi.seed(seedLocale);
-        assertCurrentRequest();
-        const listResult = await personasApi.list();
-        assertCurrentRequest();
-        const builtin = (listResult.data || []).find(
-          (persona) =>
-            persona.is_builtin === true && persona.seed_slug === selectedSlug,
-        );
-        if (!builtin) {
-          throw new PersonaConfirmationError(t("messages.personaUnavailable"));
-        }
-        personaId = builtin.persona_id;
-      }
-
-      const activated = await personasApi.setActive(personaId);
-      assertCurrentRequest();
-      if (activated.persona_id !== personaId) {
-        throw new PersonaConfirmationError(
-          t("messages.personaActivationFailed"),
-        );
-      }
-    };
-
-    try {
-      await withTimeout(
-        runConfirmation(),
-        PERSONA_SETUP_TIMEOUT_MS,
-        t("messages.personaSetupTimedOut"),
+  const invalidatePersonaConfirmation = personaConfirmation.invalidate;
+  const confirmPersonaSelection = (): Promise<boolean> =>
+    personaConfirmation.confirm(() => {
+      saveProgress(
+        form.getFieldsValue(true),
+        seedSlug,
+        onboardingProgressRef.current.customPersonas,
       );
-      assertCurrentRequest();
-      personaConfirmationInFlightRef.current = false;
-      setPersonaConfirming(false);
-      setPersonaConfirmationError(null);
-      setConfirmedPersonaFingerprint(fingerprint);
-      return true;
-    } catch (error: unknown) {
-      if (
-        error instanceof PersonaConfirmationCancelledError ||
-        requestId !== personaConfirmationRequestIdRef.current ||
-        currentPersonaFingerprintRef.current !== fingerprint
-      ) {
-        return false;
-      }
-
-      personaConfirmationRequestIdRef.current += 1;
-      personaConfirmationInFlightRef.current = false;
-      setPersonaConfirming(false);
-      setConfirmedPersonaFingerprint(null);
-      if (
-        error instanceof OnboardingTimeoutError ||
-        error instanceof PersonaConfirmationError
-      ) {
-        setPersonaConfirmationError(error.message);
-      } else {
-        setPersonaConfirmationError(t("messages.personaActivationFailed"));
-      }
-      return false;
-    }
-  };
+    });
 
   const markFirstContextHandled = () => {
     const values = form.getFieldsValue(true) as SystemConfig;
@@ -955,7 +443,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   const finishFirstContextStep = () => {
     markFirstContextHandled();
-    setCurrent(COMPLETE_STEP);
   };
 
   const handleFirstContextConnectDone = (
@@ -969,24 +456,22 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         ? info.firstContextCount
         : null;
 
-    setFirstContextPluginIds((prev) => {
-      const nextPluginIds = prev.includes(pluginId)
-        ? prev
-        : [...prev, pluginId];
-      setFirstContextCountsByPluginId((prevCounts) => {
-        const nextCounts = { ...prevCounts, [pluginId]: count };
-        saveProgress(
-          values,
-          seedSlug,
-          customPersonas,
-          FIRST_CONTEXT_STEP,
-          nextPluginIds,
-          nextCounts,
-        );
-        return nextCounts;
-      });
-      return nextPluginIds;
-    });
+    const saved = onboardingProgressRef.current;
+    const nextPluginIds = saved.firstContextPluginIds.includes(pluginId)
+      ? saved.firstContextPluginIds
+      : [...saved.firstContextPluginIds, pluginId];
+    const nextCounts = {
+      ...saved.firstContextCountsByPluginId,
+      [pluginId]: count,
+    };
+    saveProgress(
+      values,
+      saved.seedSlug,
+      saved.customPersonas,
+      FIRST_CONTEXT_STEP,
+      nextPluginIds,
+      nextCounts,
+    );
   };
 
   const persistRuntimeConfigBeforeFirstContext = async (): Promise<boolean> => {
@@ -1035,7 +520,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       );
       useConversationStore.getState().setCurrentSessionId(normalizedSessionId);
     }
-    localStorage.removeItem(STORAGE_KEY);
+    clearOnboardingProgress();
     if (language) {
       localStorage.setItem("magi_language", language);
     }
@@ -1044,35 +529,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       return;
     }
     navigate(destination);
-  };
-
-  const showFirstContextMessageInChat = (
-    sessionId: string,
-    turnId: string,
-    message: string,
-    questionId: FirstContextQuestionId,
-    messageId?: string | null,
-  ) => {
-    const normalizedMessageId = String(messageId || "").trim();
-    const questionText = t(`firstContext.story.questions.${questionId}`);
-    useConversationStore.getState().upsertMessage(sessionId, {
-      id: normalizedMessageId || `${turnId}-user`,
-      messageId: normalizedMessageId || undefined,
-      messageKind: "user_text",
-      role: "user",
-      kind: "user",
-      content: message,
-      timestamp: Date.now(),
-      turnId,
-      traceAvailable: false,
-      payload: {
-        interaction_kind: "first_context_story",
-        first_context: {
-          question_id: questionId,
-          question_text: questionText,
-        },
-      },
-    });
   };
 
   const recoverCompletedOnboarding = async (
@@ -1155,227 +611,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }
   };
 
-  const handleFirstContextRouteChange = (route: FirstContextRoute) => {
-    setFirstContextStoryError(null);
-    updateFirstContextProgress({ route });
-  };
-
-  const handleFirstContextQuestionChange = () => {
-    setFirstContextStoryError(null);
-    updateFirstContextProgress((progress) => {
-      const unseenAlternatives = FIRST_CONTEXT_QUESTION_IDS.filter(
-        (questionId) =>
-          questionId !== progress.questionId
-          && !progress.seenQuestionIds.includes(questionId),
-      );
-      const startsNewCycle = unseenAlternatives.length === 0;
-      const alternatives = startsNewCycle
-        ? FIRST_CONTEXT_QUESTION_IDS.filter(
-          (questionId) => questionId !== progress.questionId,
-        )
-        : unseenAlternatives;
-      const questionId =
-        alternatives[Math.floor(Math.random() * alternatives.length)]
-        ?? progress.questionId;
-      return {
-        ...progress,
-        questionId,
-        seenQuestionIds: startsNewCycle
-          ? [progress.questionId, questionId]
-          : [...progress.seenQuestionIds, questionId],
-        turnId: null,
-        messageId: null,
-      };
-    });
-  };
-
-  const handleFirstContextStoryDraftChange = (draft: string) => {
-    setFirstContextStoryError(null);
-    updateFirstContextProgress({ draft, turnId: null, messageId: null });
-  };
-
-  const handleFirstContextStorySubmit = async () => {
-    if (firstContextStorySubmitInFlightRef.current) {
-      return;
-    }
-
-    const initialProgress = firstContextProgressRef.current;
-    const message = initialProgress.draft.trim();
-    if (!message) {
-      setFirstContextStoryError(t("firstContext.story.errors.empty"));
-      return;
-    }
-
-    firstContextStorySubmitInFlightRef.current = true;
-    setFirstContextStorySubmitting(true);
-    setFirstContextStoryError(null);
-
-    try {
-      let progress = firstContextProgressRef.current;
-
-      if (!progress.submitted) {
-        const runtimeSnapshot = await waitForRuntimeReadyAfterOnboarding();
-        if (!runtimeSnapshot?.runtime_ready) {
-          setFirstContextStoryError(
-            t("firstContext.story.errors.runtimeNotReady"),
-          );
-          return;
-        }
-      }
-
-      let sessionId = String(progress.sessionId || "").trim();
-      if (!sessionId) {
-        let sessionCreationKey = String(
-          progress.sessionCreationKey || "",
-        ).trim();
-        if (!sessionCreationKey) {
-          sessionCreationKey = createFirstContextSessionCreationKey();
-          progress = updateFirstContextProgress({ sessionCreationKey });
-        }
-        let created: Awaited<ReturnType<typeof messagesApi.createNewSession>>;
-        try {
-          created = await messagesApi.createNewSession(
-            DEFAULT_USER_ID,
-            sessionCreationKey,
-          );
-        } catch {
-          setFirstContextStoryError(
-            t("firstContext.story.errors.sessionFailed"),
-          );
-          return;
-        }
-        const createdSessionId = String(created.session_id || "").trim();
-        if (
-          !created.success ||
-          !createdSessionId
-        ) {
-          setFirstContextStoryError(
-            t("firstContext.story.errors.sessionFailed"),
-          );
-          return;
-        }
-        sessionId = createdSessionId;
-        progress = updateFirstContextProgress({ sessionId });
-        activateRealtimeChatSession(createdSessionId);
-      }
-
-      let turnId = String(progress.turnId || "").trim();
-      if (!turnId) {
-        turnId = createClientTurnId();
-        progress = updateFirstContextProgress({ turnId });
-      }
-
-      if (!progress.submitted) {
-        progress = updateFirstContextProgress({ sendUncertain: true });
-        const questionText = t(
-          `firstContext.story.questions.${progress.questionId}`,
-        );
-        let sendErrorMessage = t("firstContext.story.errors.sendFailed");
-        let sendAccepted = false;
-        let acceptedMessageId: string | null = null;
-
-        try {
-          const response = await messagesApi.sendMessage({
-            user_id: DEFAULT_USER_ID,
-            session_id: sessionId,
-            message,
-            client_turn_id: turnId,
-            interaction_kind: "first_context_story",
-            first_context: {
-              question_id: progress.questionId,
-              question_text: questionText,
-            },
-          });
-          acceptedMessageId = String(response.data?.message_id || "").trim() || null;
-          sendAccepted = response.success === true && acceptedMessageId !== null;
-          if (response.success === true && !acceptedMessageId) {
-            sendErrorMessage = t(
-              "firstContext.story.errors.confirmationUnavailable",
-            );
-          } else if (!sendAccepted && !acceptedMessageId) {
-            progress = updateFirstContextProgress({ sendUncertain: false });
-          } else if (!sendAccepted && acceptedMessageId) {
-            sendErrorMessage = t(
-              "firstContext.story.errors.confirmationUnavailable",
-            );
-            progress = updateFirstContextProgress({ messageId: acceptedMessageId });
-          }
-        } catch {
-          sendErrorMessage = t(
-            "firstContext.story.errors.confirmationUnavailable",
-          );
-        }
-
-        if (!sendAccepted) {
-          setFirstContextStoryError(sendErrorMessage);
-          return;
-        }
-
-        progress = updateFirstContextProgress({
-          messageId: acceptedMessageId,
-          submitted: true,
-          sendUncertain: false,
-        });
-      }
-
-      showFirstContextMessageInChat(
-        sessionId,
-        turnId,
-        message,
-        progress.questionId,
-        progress.messageId,
-      );
-
-      await handleFinish({
-        destination: "/chat",
-        sessionId,
-        onError: setFirstContextStoryError,
-      });
-    } catch {
-      setFirstContextStoryError(t("firstContext.story.errors.sendFailed"));
-    } finally {
-      firstContextStorySubmitInFlightRef.current = false;
-      if (mountedRef.current) {
-        setFirstContextStorySubmitting(false);
-      }
-    }
-  };
-
-  const handleFirstContextContinueWithoutConfirmation = async () => {
-    if (firstContextStorySubmitInFlightRef.current) {
-      return;
-    }
-    const progress = firstContextProgressRef.current;
-    if (!progress.sendUncertain) {
-      return;
-    }
-    firstContextStorySubmitInFlightRef.current = true;
-    setFirstContextStorySubmitting(true);
-    setFirstContextStoryError(null);
-    try {
-      const sessionId = String(progress.sessionId || "").trim();
-      const turnId = String(progress.turnId || "").trim();
-      if (sessionId && turnId && progress.messageId && progress.draft.trim()) {
-        showFirstContextMessageInChat(
-          sessionId,
-          turnId,
-          progress.draft.trim(),
-          progress.questionId,
-          progress.messageId,
-        );
-      }
-      await handleFinish({
-        destination: "/chat",
-        sessionId,
-        onError: setFirstContextStoryError,
-      });
-    } finally {
-      firstContextStorySubmitInFlightRef.current = false;
-      if (mountedRef.current) {
-        setFirstContextStorySubmitting(false);
-      }
-    }
-  };
+  const firstContextSubmission = useFirstContextSubmission({
+    progress: firstContextProgress,
+    readProgress: () =>
+      onboardingProgressRef.current.firstContextProgress,
+    updateProgress: updateFirstContextProgress,
+    finishOnboarding: handleFinish,
+  });
+  const firstContextStorySubmitting = firstContextSubmission.submitting;
+  const firstContextStoryError = firstContextSubmission.error;
 
   /** Handle language change from welcome screen. */
   const handleWelcomeLanguageChange = (lang: "zh" | "en") => {
@@ -1411,7 +655,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
     if (current === FIRST_CONTEXT_STEP) {
       if (firstContextProgress.route === "question") {
-        await handleFirstContextStorySubmit();
+        await firstContextSubmission.submit();
         return;
       }
       finishFirstContextStep();
@@ -1425,7 +669,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
     const next = Math.min(steps.length - 1, current + 1);
     saveProgress(form.getFieldsValue(true), seedSlug, customPersonas, next);
-    setCurrent(next);
   };
 
   const handlePrev = () => {
@@ -1433,12 +676,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       current === FIRST_CONTEXT_STEP &&
       firstContextProgress.route !== "choose"
     ) {
-      handleFirstContextRouteChange("choose");
+      firstContextSubmission.changeRoute("choose");
       return;
     }
     const prev = Math.max(0, current - 1);
     saveProgress(form.getFieldsValue(true), seedSlug, customPersonas, prev);
-    setCurrent(prev);
   };
 
   // The persona preview step uses the standard Previous/Next footer (the
@@ -1512,39 +754,36 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           initialCustomPersonas={customPersonas}
           initialCreationDraft={personaCreationDraft}
           onActiveSeedChange={(slug) => {
-            if (slug === seedSlugRef.current) {
+            const saved = onboardingProgressRef.current;
+            if (slug === saved.seedSlug) {
               return;
             }
             invalidatePersonaConfirmation();
-            seedSlugRef.current = slug;
-            setSeedSlug(slug);
             saveProgress(
               form.getFieldsValue(true),
               slug,
-              customPersonasRef.current,
+              saved.customPersonas,
             );
           }}
           onCustomPersonasChange={(drafts) => {
             invalidatePersonaConfirmation();
-            customPersonasRef.current = drafts;
-            setCustomPersonas(drafts);
+            const saved = onboardingProgressRef.current;
             saveProgress(
               form.getFieldsValue(true),
-              seedSlugRef.current,
+              saved.seedSlug,
               drafts,
             );
           }}
           onCreationDraftChange={(draft) => {
-            personaCreationDraftRef.current = draft;
-            setPersonaCreationDraft(draft);
+            const saved = onboardingProgressRef.current;
             saveProgress(
               form.getFieldsValue(true),
-              seedSlugRef.current,
-              customPersonasRef.current,
-              current,
-              firstContextPluginIds,
-              firstContextCountsByPluginId,
-              firstContextProgressRef.current,
+              saved.seedSlug,
+              saved.customPersonas,
+              saved.current,
+              saved.firstContextPluginIds,
+              saved.firstContextCountsByPluginId,
+              saved.firstContextProgress,
               draft,
             );
           }}
@@ -1562,16 +801,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           storyDraft={firstContextProgress.draft}
           storySubmitting={firstContextStorySubmitting}
           storyLocked={
-            firstContextProgress.submitted ||
-            firstContextProgress.sendUncertain
+            firstContextSubmission.locked
           }
-          storySubmitted={firstContextProgress.submitted}
+          storySubmitted={firstContextSubmission.submitted}
           storyError={firstContextStoryError}
-          onRouteChange={handleFirstContextRouteChange}
-          onQuestionChange={handleFirstContextQuestionChange}
-          onStoryDraftChange={handleFirstContextStoryDraftChange}
+          onRouteChange={firstContextSubmission.changeRoute}
+          onQuestionChange={firstContextSubmission.changeQuestion}
+          onStoryDraftChange={firstContextSubmission.changeDraft}
           onStoryContinueWithoutConfirmation={() =>
-            void handleFirstContextContinueWithoutConfirmation()
+            void firstContextSubmission.continueWithoutConfirmation()
           }
           installableItems={installableItems}
           installableCatalogMode={installableCatalogMode}
@@ -1607,7 +845,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   if (current === 0) {
     const currentLang =
       (form.getFieldValue(["preferences", "language"]) as "zh" | "en") ||
-      (initialConfig.preferences?.language as "zh" | "en") ||
+      (onboardingProgress.values.preferences?.language as "zh" | "en") ||
       "zh";
 
     return (
@@ -1621,7 +859,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           language={currentLang}
           onLanguageChange={handleWelcomeLanguageChange}
           onContinue={() => {
-            setCurrent(LLM_SETUP_STEP);
             saveProgress(
               form.getFieldsValue(true),
               seedSlug,
