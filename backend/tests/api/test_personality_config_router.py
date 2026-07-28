@@ -2,13 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from types import SimpleNamespace
 
 from fastapi import HTTPException
 import pytest
 from pydantic import ValidationError
 
+from magi.api.routers.personality_config_schemas import (
+    PersonaGenerationIntentModel,
+)
+import magi.api.services.personality_generation.contracts as generation_contracts
+import magi.api.services.personality_generation.jobs as generation_jobs
+import magi.api.services.personality_generation.model_stages as generation_model_stages
+import magi.api.services.personality_generation.normalization as generation_normalization
+import magi.api.services.personality_generation.prompting as generation_prompting
+import magi.api.services.personality_generation.quality as generation_quality
+import magi.api.services.personality_generation.reference as generation_reference
+import magi.api.services.personality_generation.stage_pipeline as generation_stage_pipeline
+from magi.api.services import (
+    personality_generation_prompts as generation_prompts,
+)
 from magi.config.models import LLMProviderSettings, LLMScenario, LLMSelectionSettings, LLMSettings
 from magi.i18n import language_context
 
@@ -702,15 +715,13 @@ def test_normalize_generated_personality_payload_uses_chinese_fallback_copy() ->
 
 
 def test_generation_quality_findings_flags_assistantized_identity() -> None:
-    from magi.api.services import personality_generation
-
     combined = {
         "name": "明日香",
         "description": "一位自信、直率且好胜的助手，在自然交流模式下提供帮助。",
         "identity_core": {"identity_statement": "她是被公开形象启发的陪伴者。"},
     }
 
-    findings = personality_generation._generation_quality_findings(combined, "eva里的明日香", None)
+    findings = generation_quality._generation_quality_findings(combined, "eva里的明日香", None)
 
     assert any("助手" in item and "description" in item for item in findings)
     assert any("自然交流模式" in item for item in findings)
@@ -718,11 +729,9 @@ def test_generation_quality_findings_flags_assistantized_identity() -> None:
 
 
 def test_generation_quality_findings_respect_user_requested_assistant_role() -> None:
-    from magi.api.services import personality_generation
-
     combined = {"name": "Echo", "description": "一个冷静可靠的助手。"}
 
-    findings = personality_generation._generation_quality_findings(combined, "一个冷静可靠的助手", None)
+    findings = generation_quality._generation_quality_findings(combined, "一个冷静可靠的助手", None)
 
     assert findings == []
 
@@ -742,7 +751,6 @@ def test_reference_profile_stage_only_runs_for_confirmed_public_references(
     expected: bool,
 ) -> None:
     from magi.api.routers.personality_config_schemas import PersonaReferenceModel
-    from magi.api.services import personality_generation
 
     reference = None
     if source_kind != "original":
@@ -751,7 +759,7 @@ def test_reference_profile_stage_only_runs_for_confirmed_public_references(
             name="Reference",
             user_confirmed=True,
         )
-    intent = personality_generation.PersonaGenerationIntentModel(
+    intent = PersonaGenerationIntentModel(
         source_kind=source_kind,
         reference=reference,
         fidelity_level=fidelity_level,
@@ -759,14 +767,13 @@ def test_reference_profile_stage_only_runs_for_confirmed_public_references(
         research={"preference": "disabled"},
     )
 
-    assert personality_generation._should_prepare_reference_profile(intent) is expected
+    assert generation_reference._should_prepare_reference_profile(intent) is expected
 
 
 def test_reference_profile_normalization_preserves_unverified_provenance() -> None:
     from magi.api.routers.personality_config_schemas import PersonaReferenceModel
-    from magi.api.services import personality_generation
 
-    intent = personality_generation.PersonaGenerationIntentModel(
+    intent = PersonaGenerationIntentModel(
         source_kind="fictional_reference",
         reference=PersonaReferenceModel(
             source_kind="fictional_reference",
@@ -780,7 +787,7 @@ def test_reference_profile_normalization_preserves_unverified_provenance() -> No
         research={"preference": "disabled"},
     )
 
-    profile = personality_generation._normalize_reference_profile_payload(
+    profile = generation_reference._normalize_reference_profile_payload(
         {
             "provenance_kind": "verified_source",
             "reference": {"name": "Wrong reference"},
@@ -812,24 +819,22 @@ def test_reference_profile_normalization_preserves_unverified_provenance() -> No
 
 
 def test_reference_profile_slices_match_generation_stage_needs() -> None:
-    from magi.api.services import personality_generation
-
     profile = {
         "provenance_kind": "parametric_prior",
         "reference": {"name": "Reference"},
         "dimensions": {
             key: [f"{key} observation"]
-            for key in personality_generation.REFERENCE_PROFILE_DIMENSIONS
+            for key in generation_reference.REFERENCE_PROFILE_DIMENSIONS
         },
         "unknowns": ["version unclear"],
         "confidence_by_dimension": {
             key: "medium"
-            for key in personality_generation.REFERENCE_PROFILE_DIMENSIONS
+            for key in generation_reference.REFERENCE_PROFILE_DIMENSIONS
         },
     }
 
-    base_block = personality_generation._reference_profile_block(profile, "base")
-    rules_block = personality_generation._reference_profile_block(profile, "rules")
+    base_block = generation_reference._reference_profile_block(profile, "base")
+    rules_block = generation_reference._reference_profile_block(profile, "rules")
 
     assert "ordinary_baseline observation" in base_block
     assert "judgment_patterns observation" in base_block
@@ -842,7 +847,6 @@ def test_reference_profile_slices_match_generation_stage_needs() -> None:
 @pytest.mark.asyncio
 async def test_reference_profile_stage_uses_one_unverified_profile_call() -> None:
     from magi.api.routers.personality_config_schemas import PersonaReferenceModel
-    from magi.api.services import personality_generation
 
     adapter = _SequentialLLMAdapter([
         json.dumps(
@@ -864,7 +868,7 @@ async def test_reference_profile_stage_uses_one_unverified_profile_call() -> Non
             ensure_ascii=False,
         )
     ])
-    intent = personality_generation.PersonaGenerationIntentModel(
+    intent = PersonaGenerationIntentModel(
         source_kind="fictional_reference",
         reference=PersonaReferenceModel(
             source_kind="fictional_reference",
@@ -876,7 +880,7 @@ async def test_reference_profile_stage_uses_one_unverified_profile_call() -> Non
         expression_level="balanced",
         research={"preference": "disabled"},
     )
-    context = personality_generation._GenerationRunContext(
+    context = generation_contracts._GenerationRunContext(
         description="EVA里的明日香，日常一点",
         target_language="Chinese",
         current_config=None,
@@ -887,7 +891,7 @@ async def test_reference_profile_stage_uses_one_unverified_profile_call() -> Non
         stage_progress_callback=None,
     )
 
-    profile = await personality_generation._run_reference_profile_stage(context)
+    profile = await generation_reference._run_reference_profile_stage(context)
 
     assert profile is not None
     assert profile["provenance_kind"] == "parametric_prior"
@@ -903,7 +907,7 @@ async def test_referenced_persona_generation_injects_profile_before_base() -> No
     from magi.api.services import personality_generation
 
     adapter = _FakeLLMAdapter()
-    intent = personality_generation.PersonaGenerationIntentModel(
+    intent = PersonaGenerationIntentModel(
         source_kind="fictional_reference",
         reference=PersonaReferenceModel(
             source_kind="fictional_reference",
@@ -929,7 +933,7 @@ async def test_referenced_persona_generation_injects_profile_before_base() -> No
     base_call = next(
         call
         for call in adapter.calls
-        if str(call["system_prompt"]) == personality_generation.BASE_SPINE_SYSTEM_PROMPT
+        if str(call["system_prompt"]) == generation_prompts.BASE_SPINE_SYSTEM_PROMPT
     )
     assert "# Unverified Reference Profile" in str(base_call["prompt"])
     assert '"provenance_kind": "parametric_prior"' in str(base_call["prompt"])
@@ -938,8 +942,6 @@ async def test_referenced_persona_generation_injects_profile_before_base() -> No
 
 @pytest.mark.asyncio
 async def test_post_integration_quality_check_repairs_and_rechecks(monkeypatch) -> None:
-    from magi.api.services import personality_generation
-
     responses = iter([
         {},
         {
@@ -953,8 +955,8 @@ async def test_post_integration_quality_check_repairs_and_rechecks(monkeypatch) 
         stage_ids.append(str(kwargs["stage_id"]))
         return next(responses)
 
-    monkeypatch.setattr(personality_generation, "_run_generation_stage", _fake_stage)
-    context = personality_generation._GenerationRunContext(
+    monkeypatch.setattr(generation_stage_pipeline, "_run_generation_stage", _fake_stage)
+    context = generation_contracts._GenerationRunContext(
         description="EVA里的明日香",
         target_language="Chinese",
         current_config=None,
@@ -970,7 +972,7 @@ async def test_post_integration_quality_check_repairs_and_rechecks(monkeypatch) 
     }
     stages: list[dict[str, str]] = []
 
-    await personality_generation._run_integration_personality_stage(
+    await generation_stage_pipeline._run_integration_personality_stage(
         context,
         stages,
         combined,
@@ -978,19 +980,17 @@ async def test_post_integration_quality_check_repairs_and_rechecks(monkeypatch) 
     )
 
     assert stage_ids == ["integrate", "integrate_quality_repair"]
-    assert personality_generation._generation_quality_findings(combined, context.description, None) == []
+    assert generation_quality._generation_quality_findings(combined, context.description, None) == []
 
 
 @pytest.mark.asyncio
 async def test_post_integration_quality_check_rejects_known_bad_result(monkeypatch) -> None:
-    from magi.api.services import personality_generation
-
     async def _fake_stage(**kwargs):  # type: ignore[no-untyped-def]
         _ = kwargs
         return {}
 
-    monkeypatch.setattr(personality_generation, "_run_generation_stage", _fake_stage)
-    context = personality_generation._GenerationRunContext(
+    monkeypatch.setattr(generation_stage_pipeline, "_run_generation_stage", _fake_stage)
+    context = generation_contracts._GenerationRunContext(
         description="EVA里的明日香",
         target_language="Chinese",
         current_config=None,
@@ -1003,7 +1003,7 @@ async def test_post_integration_quality_check_rejects_known_bad_result(monkeypat
     combined = {"description": "一位自信但通用的助手。"}
 
     with pytest.raises(ValueError, match="quality checks still fail"):
-        await personality_generation._run_integration_personality_stage(
+        await generation_stage_pipeline._run_integration_personality_stage(
             context,
             [],
             combined,
@@ -1012,9 +1012,7 @@ async def test_post_integration_quality_check_rejects_known_bad_result(monkeypat
 
 
 def test_integration_prompt_includes_quality_findings_block() -> None:
-    from magi.api.services import personality_generation
-
-    prompt = personality_generation._integration_user_prompt(
+    prompt = generation_prompting._integration_user_prompt(
         "eva里的明日香",
         "Chinese",
         {"name": "明日香"},
@@ -1025,7 +1023,7 @@ def test_integration_prompt_includes_quality_findings_block() -> None:
     assert "# Detected Quality Findings" in prompt
     assert "service role" in prompt
 
-    clean_prompt = personality_generation._integration_user_prompt(
+    clean_prompt = generation_prompting._integration_user_prompt(
         "eva里的明日香",
         "Chinese",
         {"name": "明日香"},
@@ -1035,59 +1033,83 @@ def test_integration_prompt_includes_quality_findings_block() -> None:
 
 
 def test_persona_generation_shared_directives_avoid_assistant_framing() -> None:
-    from magi.api.services import personality_generation
-
-    directives = personality_generation.PERSONA_GENERATION_SHARED_DIRECTIVES
+    directives = generation_prompts.PERSONA_GENERATION_SHARED_DIRECTIVES
     assert "always create an assistant" not in directives
     assert "not part of any persona's identity" in directives
     assert "configuration vocabulary" in directives
 
 
 def test_personality_generation_stage_prompts_share_directives() -> None:
-    from magi.api.services import personality_generation
-
     stage_prompts = [
-        personality_generation.BASE_SPINE_SYSTEM_PROMPT,
-        personality_generation.REGISTER_SYSTEM_PROMPT,
-        personality_generation.RULES_SYSTEM_PROMPT,
-        personality_generation.LAYERS_SYSTEM_PROMPT,
-        personality_generation.BOOTSTRAP_SYSTEM_PROMPT,
-        personality_generation.APPEARANCE_SYSTEM_PROMPT,
-        personality_generation.INTEGRATION_SYSTEM_PROMPT,
+        generation_prompts.BASE_SPINE_SYSTEM_PROMPT,
+        generation_prompts.REGISTER_SYSTEM_PROMPT,
+        generation_prompts.RULES_SYSTEM_PROMPT,
+        generation_prompts.LAYERS_SYSTEM_PROMPT,
+        generation_prompts.BOOTSTRAP_SYSTEM_PROMPT,
+        generation_prompts.APPEARANCE_SYSTEM_PROMPT,
+        generation_prompts.INTEGRATION_SYSTEM_PROMPT,
     ]
 
     for prompt in stage_prompts:
-        assert personality_generation.PERSONA_GENERATION_SHARED_DIRECTIVES in prompt
+        assert generation_prompts.PERSONA_GENERATION_SHARED_DIRECTIVES in prompt
         assert "Output ONLY valid JSON" in prompt
         assert "Stage Quality Checks" in prompt
         assert "state_transition_protocol" in prompt
 
-    assert not hasattr(personality_generation, "PERSONALITY_GENERATION_SYSTEM_PROMPT")
-    assert "generation-only design anchor" in personality_generation.BASE_SPINE_SYSTEM_PROMPT
-    assert "licensed or regulated professional expertise" in personality_generation.PERSONA_GENERATION_SHARED_DIRECTIVES
-    assert "Do not add behavior, secrets, modifiers" in personality_generation.LAYERS_SYSTEM_PROMPT
-    assert "single owner of runtime examples" in personality_generation.REGISTER_SYSTEM_PROMPT
-    assert "six to nine good-only examples" in personality_generation.BOOTSTRAP_SYSTEM_PROMPT
-    assert "Never return registers.examples" in personality_generation.BOOTSTRAP_SYSTEM_PROMPT
-    assert "examples must be string arrays" in personality_generation.BOOTSTRAP_SYSTEM_PROMPT
-    assert "few coherent rules" in personality_generation.RULES_SYSTEM_PROMPT
-    assert "cross-field consistency review" in personality_generation.INTEGRATION_SYSTEM_PROMPT
-    assert "Do not include _meta_design" in personality_generation.INTEGRATION_SYSTEM_PROMPT
+    assert "generation-only design anchor" in generation_prompts.BASE_SPINE_SYSTEM_PROMPT
+    assert (
+        "licensed or regulated professional expertise"
+        in generation_prompts.PERSONA_GENERATION_SHARED_DIRECTIVES
+    )
+    assert "Do not add behavior, secrets, modifiers" in generation_prompts.LAYERS_SYSTEM_PROMPT
+    assert "single owner of runtime examples" in generation_prompts.REGISTER_SYSTEM_PROMPT
+    assert "six to nine good-only examples" in generation_prompts.BOOTSTRAP_SYSTEM_PROMPT
+    assert "Never return registers.examples" in generation_prompts.BOOTSTRAP_SYSTEM_PROMPT
+    assert "examples must be string arrays" in generation_prompts.BOOTSTRAP_SYSTEM_PROMPT
+    assert "few coherent rules" in generation_prompts.RULES_SYSTEM_PROMPT
+    assert "cross-field consistency review" in generation_prompts.INTEGRATION_SYSTEM_PROMPT
+    assert "Do not include _meta_design" in generation_prompts.INTEGRATION_SYSTEM_PROMPT
+
+
+def test_personality_generation_root_exposes_only_public_contract() -> None:
+    from magi.api.services import personality_generation
+
+    assert personality_generation.__all__ == [
+        "GENERATION_STAGE_DEFINITIONS",
+        "PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS",
+        "PERSONALITY_GENERATION_JOB_TTL_SECONDS",
+        "PERSONA_GENERATION_SHARED_DIRECTIVES",
+        "PersonalityGenerationJob",
+        "PersonalityGenerationResult",
+        "REQUIRED_REGISTERS",
+        "get_personality_generation_job",
+        "generate_personality_config",
+        "generate_personality_config_result",
+        "normalize_generated_personality_payload",
+        "start_personality_generation_job",
+    ]
+    for private_name in (
+        "_GenerationRunContext",
+        "_deep_merge_payload",
+        "_run_generation_stage",
+        "_personality_generation_job_snapshot",
+        "asyncio",
+        "logger",
+    ):
+        assert not hasattr(personality_generation, private_name)
 
 
 @pytest.mark.asyncio
 async def test_generation_stage_repairs_invalid_json_once() -> None:
-    from magi.api.services import personality_generation
-
     adapter = _SequentialLLMAdapter([
         '{"name": "明日香" "description": "少了逗号"}',
         '{"name": "明日香", "description": "修好了"}',
     ])
 
-    result = await personality_generation._run_generation_stage(
+    result = await generation_model_stages._run_generation_stage(
         stage_id="integrate",
         prompt="Return final JSON.",
-        system_prompt=personality_generation.INTEGRATION_SYSTEM_PROMPT,
+        system_prompt=generation_prompts.INTEGRATION_SYSTEM_PROMPT,
         max_tokens=400,
         temperature=0.4,
         llm_override=None,
@@ -1103,25 +1125,22 @@ async def test_generation_stage_repairs_invalid_json_once() -> None:
 
 @pytest.mark.asyncio
 async def test_generation_stage_logs_invalid_json_diagnostics_before_repair(monkeypatch) -> None:
-    from magi.api.routers import personality_config  # noqa: F401
-    import magi.api.services.personality_generation as personality_generation
-
     warning_calls: list[dict[str, object]] = []
 
     def _capture_warning(event: str, *args, **kwargs):  # type: ignore[no-untyped-def]
         warning_calls.append({"event": event, "args": args, **kwargs})
 
-    monkeypatch.setattr(personality_generation.logger, "warning", _capture_warning)
+    monkeypatch.setattr(generation_model_stages.logger, "warning", _capture_warning)
 
     adapter = _SequentialLLMAdapter([
         '{\n  "name": "明日香"\n  "description": "少了逗号"\n}',
         '{"name": "明日香", "description": "修好了"}',
     ])
 
-    result = await personality_generation._run_generation_stage(
+    result = await generation_model_stages._run_generation_stage(
         stage_id="integrate",
         prompt="Return final JSON.",
-        system_prompt=personality_generation.INTEGRATION_SYSTEM_PROMPT,
+        system_prompt=generation_prompts.INTEGRATION_SYSTEM_PROMPT,
         max_tokens=400,
         temperature=0.4,
         llm_override=None,
@@ -1144,15 +1163,12 @@ async def test_generation_stage_logs_invalid_json_diagnostics_before_repair(monk
 
 @pytest.mark.asyncio
 async def test_generation_stage_logs_repair_output_when_repair_is_still_invalid(monkeypatch) -> None:
-    from magi.api.routers import personality_config  # noqa: F401
-    import magi.api.services.personality_generation as personality_generation
-
     warning_calls: list[dict[str, object]] = []
 
     def _capture_warning(event: str, *args, **kwargs):  # type: ignore[no-untyped-def]
         warning_calls.append({"event": event, "args": args, **kwargs})
 
-    monkeypatch.setattr(personality_generation.logger, "warning", _capture_warning)
+    monkeypatch.setattr(generation_model_stages.logger, "warning", _capture_warning)
 
     adapter = _SequentialLLMAdapter([
         '{\n  "name": "明日香"\n  "description": "少了逗号"\n}',
@@ -1160,10 +1176,10 @@ async def test_generation_stage_logs_repair_output_when_repair_is_still_invalid(
     ])
 
     with pytest.raises(json.JSONDecodeError):
-        await personality_generation._run_generation_stage(
+        await generation_model_stages._run_generation_stage(
             stage_id="integrate",
             prompt="Return final JSON.",
-            system_prompt=personality_generation.INTEGRATION_SYSTEM_PROMPT,
+            system_prompt=generation_prompts.INTEGRATION_SYSTEM_PROMPT,
             max_tokens=400,
             temperature=0.4,
             llm_override=None,
@@ -1183,9 +1199,7 @@ async def test_generation_stage_logs_repair_output_when_repair_is_still_invalid(
 
 
 def test_personality_generation_module_prompt_injects_meta_design_anchors() -> None:
-    from magi.api.services import personality_generation
-
-    prompt = personality_generation._module_user_prompt(
+    prompt = generation_prompting._module_user_prompt(
         "一个锋利但可靠的人格",
         "Chinese",
         {
@@ -1207,9 +1221,7 @@ def test_personality_generation_module_prompt_injects_meta_design_anchors() -> N
 
 
 def test_personality_generation_runtime_payload_drops_internal_meta_design() -> None:
-    from magi.api.services import personality_generation
-
-    runtime_payload = personality_generation._runtime_payload_from_combined({
+    runtime_payload = generation_normalization._runtime_payload_from_combined({
         "name": "Seven",
         "_meta_design": {
             "core_theme": "Sharp outside, curious inside.",
@@ -1226,10 +1238,6 @@ def test_personality_generation_runtime_payload_drops_internal_meta_design() -> 
 
 
 def test_personality_generation_cleanup_uses_lifecycle_ttl(monkeypatch) -> None:
-    from magi.api.routers import personality_config  # noqa: F401
-
-    personality_generation = sys.modules["magi.api.services.personality_generation"]
-
     monkeypatch.setattr(
         "magi.config.get_config",
         lambda: SimpleNamespace(
@@ -1239,17 +1247,17 @@ def test_personality_generation_cleanup_uses_lifecycle_ttl(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(
-        personality_generation,
+        generation_jobs,
         "_PERSONALITY_GENERATION_JOBS",
         {
-            "expired": personality_generation.PersonalityGenerationJob(
+            "expired": generation_contracts.PersonalityGenerationJob(
                 job_id="expired",
                 status="completed",
                 stages=[],
                 created_at=0,
                 updated_at=80,
             ),
-            "recent": personality_generation.PersonalityGenerationJob(
+            "recent": generation_contracts.PersonalityGenerationJob(
                 job_id="recent",
                 status="completed",
                 stages=[],
@@ -1259,16 +1267,14 @@ def test_personality_generation_cleanup_uses_lifecycle_ttl(monkeypatch) -> None:
         },
     )
 
-    personality_generation._cleanup_personality_generation_jobs(now=100)
+    generation_jobs._cleanup_personality_generation_jobs(now=100)
 
-    assert set(personality_generation._PERSONALITY_GENERATION_JOBS) == {"recent"}
+    assert set(generation_jobs._PERSONALITY_GENERATION_JOBS) == {"recent"}
 
 
 def test_personality_generation_job_snapshot_preserves_error_code() -> None:
-    from magi.api.services import personality_generation
-
-    snapshot = personality_generation._personality_generation_job_snapshot(
-        personality_generation.PersonalityGenerationJob(
+    snapshot = generation_jobs._personality_generation_job_snapshot(
+        generation_contracts.PersonalityGenerationJob(
             job_id="failed-job",
             status="failed",
             stages=[],
@@ -1280,6 +1286,49 @@ def test_personality_generation_job_snapshot_preserves_error_code() -> None:
     )
 
     assert snapshot["error_code"] == "FAKE_IP_COMPATIBILITY_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_personality_generation_job_records_pipeline_failure(monkeypatch) -> None:
+    class _GenerationFailure(RuntimeError):
+        code = "GENERATION_FAILED"
+
+    async def _fail_generation(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        raise _GenerationFailure("generation stopped")
+
+    monkeypatch.setattr(
+        generation_jobs,
+        "generate_personality_config_result",
+        _fail_generation,
+    )
+    job = generation_contracts.PersonalityGenerationJob(
+        job_id="failed-job",
+        status="running",
+        stages=[],
+        created_at=0,
+        updated_at=0,
+    )
+
+    await generation_jobs._run_personality_generation_job(
+        job,
+        description="A stable persona",
+        target_language="English",
+        current_config=None,
+        llm_override=None,
+        intent=None,
+        adapter_resolver=lambda *args, **kwargs: object(),
+        adapter_factory=lambda *args, **kwargs: object(),
+        search_port=None,
+        fetch_port=None,
+    )
+
+    assert job.status == "failed"
+    assert job.error == "generation stopped"
+    assert job.error_code == "GENERATION_FAILED"
+    snapshot = generation_jobs._personality_generation_job_snapshot(job)
+    assert snapshot["status"] == "failed"
+    assert snapshot["error_code"] == "GENERATION_FAILED"
 
 
 def test_normalize_generated_personality_payload_keeps_surface_fixed() -> None:
@@ -1316,7 +1365,6 @@ def test_persona_generation_intent_rejects_private_reference_faithful_fidelity()
 
 
 def test_personality_generation_prompt_includes_confirmed_reference_intent() -> None:
-    from magi.api.services import personality_generation
     from magi.api.routers.personality_config_schemas import PersonaGenerationIntentModel
 
     intent = PersonaGenerationIntentModel(
@@ -1334,7 +1382,7 @@ def test_personality_generation_prompt_includes_confirmed_reference_intent() -> 
         explicit_constraints=["少用作品黑话"],
     )
 
-    prompt = personality_generation._base_user_prompt(
+    prompt = generation_prompting._base_user_prompt(
         "孙悟空",
         "Chinese",
         None,
@@ -1349,23 +1397,21 @@ def test_personality_generation_prompt_includes_confirmed_reference_intent() -> 
 
 @pytest.mark.asyncio
 async def test_personality_generation_request_id_is_idempotent(monkeypatch) -> None:
-    import magi.api.services.personality_generation as personality_generation
-
-    personality_generation._PERSONALITY_GENERATION_JOBS.clear()
-    personality_generation._PERSONALITY_GENERATION_REQUEST_INDEX.clear()
+    generation_jobs._PERSONALITY_GENERATION_JOBS.clear()
+    generation_jobs._PERSONALITY_GENERATION_REQUEST_INDEX.clear()
 
     def _discard_task(coro):  # type: ignore[no-untyped-def]
         coro.close()
         return None
 
-    monkeypatch.setattr(personality_generation.asyncio, "create_task", _discard_task)
+    monkeypatch.setattr(generation_jobs.asyncio, "create_task", _discard_task)
 
-    first = await personality_generation.start_personality_generation_job(
+    first = await generation_jobs.start_personality_generation_job(
         "一个冷静的人格",
         draft_id="draft-1",
         request_id="request-1",
     )
-    second = await personality_generation.start_personality_generation_job(
+    second = await generation_jobs.start_personality_generation_job(
         "一个冷静的人格",
         draft_id="draft-1",
         request_id="request-1",

@@ -13,9 +13,9 @@ from ..routers.personality_config_schemas import (
     PersonaGenerationIntentModel,
     PersonalityConfigModel,
 )
-from .personality_generation import (
+from .personality_generation.model_stages import _run_generation_stage
+from .personality_generation.normalization import (
     _deep_merge_payload,
-    _run_generation_stage,
     normalize_generated_personality_payload,
 )
 

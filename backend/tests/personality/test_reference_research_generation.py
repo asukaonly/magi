@@ -6,7 +6,8 @@ from magi.api.routers.personality_config_schemas import (
     PersonaGenerationIntentModel,
     PersonaReferenceModel,
 )
-from magi.api.services import personality_generation
+from magi.api.services.personality_generation.contracts import _GenerationRunContext
+import magi.api.services.personality_generation.reference as generation_reference
 from magi.personality.reference_research.models import (
     ReferenceDossier,
     ReferenceIdentity,
@@ -14,8 +15,8 @@ from magi.personality.reference_research.models import (
 )
 
 
-def _context(intent: PersonaGenerationIntentModel) -> personality_generation._GenerationRunContext:
-    return personality_generation._GenerationRunContext(
+def _context(intent: PersonaGenerationIntentModel) -> _GenerationRunContext:
+    return _GenerationRunContext(
         description="Reference in ordinary conversation",
         target_language="English",
         current_config=None,
@@ -57,8 +58,12 @@ async def test_generation_never_researches_private_reference(monkeypatch) -> Non
         called = True
         raise AssertionError("private reference must not use public research")
 
-    monkeypatch.setattr(personality_generation, "research_reference", fake_research)
-    dossier = await personality_generation._run_reference_research_stage(
+    monkeypatch.setattr(
+        generation_reference,
+        "research_reference",
+        fake_research,
+    )
+    dossier = await generation_reference._run_reference_research_stage(
         _context(_intent(source_kind="private_person_reference", fidelity="traits", preference="disabled")),
         None,
     )
@@ -98,8 +103,12 @@ async def test_generation_uses_representative_research_for_sparse_natural_prior(
         captured.update(kwargs)
         return expected
 
-    monkeypatch.setattr(personality_generation, "research_reference", fake_research)
-    result = await personality_generation._run_reference_research_stage(
+    monkeypatch.setattr(
+        generation_reference,
+        "research_reference",
+        fake_research,
+    )
+    result = await generation_reference._run_reference_research_stage(
         _context(_intent()),
         {
             "dimensions": {"ordinary_baseline": ["Weak prior"]},
@@ -127,7 +136,11 @@ async def test_generation_still_researches_natural_reference_when_model_prior_is
             sufficient=True,
         )
 
-    monkeypatch.setattr(personality_generation, "research_reference", fake_research)
+    monkeypatch.setattr(
+        generation_reference,
+        "research_reference",
+        fake_research,
+    )
     complete_prior = {
         "dimensions": {
             dimension: [f"Model-prior {dimension} claim"]
@@ -144,7 +157,7 @@ async def test_generation_still_researches_natural_reference_when_model_prior_is
         "volatility": "stable",
     }
 
-    await personality_generation._run_reference_research_stage(
+    await generation_reference._run_reference_research_stage(
         _context(_intent()),
         complete_prior,
     )
@@ -155,7 +168,7 @@ async def test_generation_still_researches_natural_reference_when_model_prior_is
 @pytest.mark.asyncio
 async def test_faithful_generation_never_silently_downgrades_without_network() -> None:
     with pytest.raises(ValueError, match="requires public-source verification"):
-        await personality_generation._run_reference_research_stage(
+        await generation_reference._run_reference_research_stage(
             _context(_intent(fidelity="faithful", preference="disabled")),
             None,
         )
@@ -173,9 +186,13 @@ async def test_faithful_generation_rejects_insufficient_public_evidence(monkeypa
             sufficient=False,
         )
 
-    monkeypatch.setattr(personality_generation, "research_reference", fake_research)
+    monkeypatch.setattr(
+        generation_reference,
+        "research_reference",
+        fake_research,
+    )
     with pytest.raises(ValueError, match="insufficient for faithful"):
-        await personality_generation._run_reference_research_stage(
+        await generation_reference._run_reference_research_stage(
             _context(_intent(fidelity="faithful")),
             None,
         )
@@ -202,7 +219,7 @@ def test_source_backed_profile_overrides_prior_dimension_and_keeps_source_ids() 
         sufficient=True,
     )
 
-    merged = personality_generation._merge_reference_profile_with_dossier(
+    merged = generation_reference._merge_reference_profile_with_dossier(
         {"dimensions": {"speech_rhythm": ["Unverified prior rhythm."]}},
         dossier,
     )

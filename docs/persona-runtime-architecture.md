@@ -439,6 +439,15 @@ New user-facing copy must use i18n keys and keep Simplified Chinese and English 
 
 The generator should produce the target schema through a staged pipeline rather than one oversized prompt. A short base-spine pass should establish the stable identity first; focused module passes should then generate registers, trigger/quiet-hour rules, deep persona layers, examples/bootstrap, and appearance prompt details. Module passes may run in parallel, but LLM concurrency must be capped so one personality generation cannot exhaust the configured provider.
 
+The application-service implementation lives under
+`api/services/personality_generation/`. Its dependency direction is
+contracts/constants and deterministic normalization first, then model stages,
+reference preparation/research, prompt construction, pipeline orchestration,
+and finally background-job lifecycle. The package entry point keeps the public
+generation API stable for routers and callers; lower-level modules must not
+import the pipeline or job layer back into normalization, quality checks, or
+contracts.
+
 Each generation stage should share one compact directive set for cross-cutting rules: JSON-only output, ordinary baseline behavior, target-language handling, no legacy fields, no unsupported physical-human claims, fixed `surface`, and utility-first behavior for focus/safety/crisis contexts. Stage-specific prompts should then add a narrow output contract and quality checks for that module instead of repeating one large full-schema prompt. This keeps the model focused while preventing stage prompts from drifting away from the same persona-design principles.
 
 Persona generation should follow the product language instead of exposing a separate language mode. Product UI should send a concrete target language derived from the active interface language. Backend generation defaults must also be concrete, and any legacy ambiguous language value should be normalized before prompts reach the LLM. The model should see `Target Language: Chinese`, `Target Language: English`, or another explicit language, so generated descriptions, identity prose, registers, triggers, and bootstrap copy stay aligned with the user's language. `appearance_prompt` remains English.
