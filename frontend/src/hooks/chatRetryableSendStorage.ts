@@ -384,7 +384,7 @@ const inlineSkillOperationSchema = z.object({
   request: requestSchema,
   confirmation: turnConfirmationSchema,
 }).strict().superRefine((operation, context) => {
-  let retryParts: unknown = null;
+  let retryParts: unknown;
   try {
     retryParts = JSON.parse(operation.retryKey);
   } catch {
