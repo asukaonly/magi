@@ -28,7 +28,7 @@
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:ci": "vitest run src/__tests__",
+    "test:ci": "vitest run",
     "gen:api-types": "bash ../scripts/gen-api-types.sh",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

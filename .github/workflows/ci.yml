@@ -48,6 +48,10 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
   backend:
     name: Backend validation
     runs-on: ubuntu-latest
