@@ -78,8 +78,8 @@ describe("PeriodCard", () => {
       />
     );
 
-    expect(screen.getByText("上午你在调试。")).toBeInTheDocument();
-    expect(screen.getByText("下午你换了一个新方向。")).toBeInTheDocument();
+    expect(screen.getAllByText("上午你在调试。").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("下午你换了一个新方向。").length).toBeGreaterThan(0);
   });
 
   it("renders ThemesRow when theme_cards is non-empty", () => {
@@ -89,7 +89,7 @@ describe("PeriodCard", () => {
     ];
     render(
       <PeriodCard
-        scale="day"
+        scale="week"
         viewport={makeViewport({ theme_cards: themes })}
         dateLabel="2026 · 5 · 17 · 周日"
         onTogglePinned={vi.fn()}
@@ -102,7 +102,9 @@ describe("PeriodCard", () => {
     expect(screen.getByText("timeline-domain")).toBeInTheDocument();
   });
 
-  it("renders PeriodCardEmpty when viewport has zero events, zero clusters, and no essence_prose", () => {
+  it("keeps an inline note action visible on an empty day", async () => {
+    const user = userEvent.setup();
+    const onAddNote = vi.fn();
     render(
       <PeriodCard
         scale="day"
@@ -111,10 +113,55 @@ describe("PeriodCard", () => {
         onTogglePinned={vi.fn()}
         onHide={vi.fn()}
         pendingAction={{}}
+        onAddNote={onAddNote}
       />
     );
 
-    expect(screen.getByText(/再陪你几天/)).toBeInTheDocument();
+    expect(screen.getByText("这一天还没有留下记录")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "补一句只有你记得的事" }));
+    expect(onAddNote).toHaveBeenCalledOnce();
+  });
+
+  it("shows the selected cover in the day reader", () => {
+    render(
+      <PeriodCard
+        scale="day"
+        viewport={makeViewport({
+          clusters: [
+            {
+              block_id: "cluster-a",
+              time_start: 10,
+              time_end: 20,
+              duration_seconds: 10,
+              label: "一段记录",
+              summary: "",
+              dominant_mode: "photo",
+              source_types: ["photo_library"],
+              event_count: 1,
+              representative_event_ids: ["event-a"],
+              keywords: [],
+              media_refs: [],
+            },
+          ],
+          cover: {
+            mode: "asset",
+            asset_ref: "photo-library://manual",
+            source: "current_period",
+            candidates: [],
+          },
+        })}
+        dateLabel="2026 · 5 · 17 · 周日"
+        onTogglePinned={vi.fn()}
+        onHide={vi.fn()}
+        pendingAction={{}}
+        onChangeCover={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("timeline-day-cover")).toHaveAttribute(
+      "src",
+      expect.stringContaining("photo-library%3A%2F%2Fmanual"),
+    );
   });
 
   it("uses a manually selected timeline cover over the automatic cluster photo", () => {
@@ -131,7 +178,7 @@ describe("PeriodCard", () => {
 
     render(
       <PeriodCard
-        scale="day"
+        scale="week"
         viewport={makeViewport({
           clusters,
           cover: {
@@ -168,7 +215,7 @@ describe("PeriodCard", () => {
 
     render(
       <PeriodCard
-        scale="day"
+        scale="week"
         viewport={makeViewport({
           clusters,
           cover: {
@@ -204,7 +251,7 @@ describe("PeriodCard", () => {
 
     render(
       <PeriodCard
-        scale="day"
+        scale="week"
         viewport={makeViewport({
           clusters,
           cover: {
@@ -262,7 +309,7 @@ describe("PeriodCard", () => {
 
     render(
       <PeriodCard
-        scale="day"
+        scale="week"
         viewport={makeViewport({
           clusters,
           cover: {
@@ -305,7 +352,7 @@ describe("PeriodCard", () => {
 
     render(
       <PeriodCard
-        scale="day"
+        scale="week"
         viewport={makeViewport({
           cover: {
             mode: "auto",
@@ -336,5 +383,53 @@ describe("PeriodCard", () => {
       asset_ref: "manual-entry-asset://custom-cover.jpg",
       source: "custom_upload",
     });
+  });
+
+  it("keeps a day with only a manual note out of the empty state", () => {
+    render(
+      <PeriodCard
+        scale="day"
+        viewport={makeViewport({
+          overview: {
+            title: "",
+            summary: "",
+            key_takeaways: [],
+            confidence: 0,
+            essence_prose: "",
+          },
+        })}
+        dateLabel="2026 · 5 · 17 · 周日"
+        onTogglePinned={vi.fn()}
+        onHide={vi.fn()}
+        pendingAction={{}}
+        manualEntries={[
+          {
+            entry_id: "note-a",
+            created_at: 100,
+            event_at: 100,
+            kind: "quick",
+            body: "傍晚走回家的风很好。",
+            body_doc: null,
+            mood: null,
+            location_label: null,
+            location_lat: null,
+            location_lng: null,
+            attachments: [],
+            exclude_from_llm: false,
+            user_pinned: false,
+            deleted_at: null,
+            l1_event_id: null,
+            weather: null,
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getAllByText("傍晚走回家的风很好。").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("只有你记得")).toHaveLength(2);
+    expect(
+      screen.getByText("这是你亲自留给这一天的一句话，不需要再被补写成完整故事。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/再陪你几天/)).not.toBeInTheDocument();
   });
 });

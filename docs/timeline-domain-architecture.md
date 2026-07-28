@@ -131,6 +131,10 @@ Produced by `TimelineClusterBuilder`:
 - `source_types`, `event_count`, `keywords`
 - `state_snapshot` — optional valence/stress/engagement at cluster time
 - `episode_id`, `user_label`, `user_note` — present when backed by a durable L2 episode
+- `experience_id`, `experience_title` — present only when the cluster's episode or
+  representative events are members of an active L2 experience
+- `experience_chapter_id`, `experience_chapter_title` — present only when the same
+  cluster also matches that experience's existing durable chapter structure
 
 ### State Band
 
@@ -180,6 +184,18 @@ with the user's correction.
 Episode-backed review periods expose durable user label, note, and pin metadata
 from L2 episodes; transient clusters remain read-only until they are promoted to
 durable episodes.
+Timeline may decorate day clusters with existing L2 experience and
+chapter references for navigation and presentation. This decoration is read-only:
+it does not promote an episode, create an experience, or infer a chapter. A
+cluster linked to an experience without a matching durable chapter must remain an
+experience fragment rather than being presented as a chapter.
+The day viewport uses a scene-first reading surface: one period headline and
+prose lead into chronological scene blocks, while source facts remain behind a
+collapsed evidence drawer. It must distinguish a durable experience chapter, an
+experience member without a chapter, and an independent fragment. Empty days
+keep the same reading surface and expose the manual-entry action instead of
+falling back to a dead-end placeholder. Manual notes remain user-authored
+records; adding one does not create or promote an experience.
 Hiding an episode-backed review period invalidates the L2 episode only; timeline
 must not delete member L1 source events unless a separate explicit forget action
 requests source deletion.

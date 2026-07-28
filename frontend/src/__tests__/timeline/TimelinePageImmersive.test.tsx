@@ -1,5 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 // Mock the API modules BEFORE importing the page
 vi.mock("@/api/modules/timeline", async () => {
@@ -26,10 +28,30 @@ vi.mock("@/api/modules/memory", () => ({
   },
 }));
 
+vi.mock("@/api/modules/manualEntries", async () => {
+  const actual = await vi.importActual<typeof import("@/api/modules/manualEntries")>(
+    "@/api/modules/manualEntries",
+  );
+  return {
+    ...actual,
+    manualEntriesApi: {
+      ...actual.manualEntriesApi,
+      list: vi.fn().mockResolvedValue([]),
+    },
+  };
+});
+
 import { timelineApi } from "@/api/modules/timeline";
 import { TimelinePage } from "@/pages/Timeline";
 
 describe("TimelinePage (immersive)", () => {
+  const renderPage = () =>
+    render(
+      <MemoryRouter>
+        <TimelinePage />
+      </MemoryRouter>,
+    );
+
   beforeEach(() => {
     vi.clearAllMocks();
     (timelineApi.getViewport as any).mockResolvedValue({
@@ -59,10 +81,27 @@ describe("TimelinePage (immersive)", () => {
     });
     (timelineApi.getStandout as any).mockResolvedValue({ month: null, items: [] }); // options-object signature
     (timelineApi.getMoodCalendar as any).mockResolvedValue({ month: "2026-05", days: [] });
+    (timelineApi.getContext as any).mockResolvedValue({
+      anchor: { anchor_id: "episode:ep-a", anchor_type: "episode", title: "ep-a", summary: "" },
+      l1_events: [
+        {
+          event_id: "event-a",
+          timestamp: 100,
+          title: "聊天",
+          summary: "当时留下的原话",
+          source_type: "chat",
+        },
+      ],
+      l2_state_evidence: [],
+      l3_reflections: [],
+      l4_related_procedures: [],
+      chat_excerpts: [],
+      runtime_trace: [],
+    });
   });
 
   it("renders the immersive page with essence_prose on initial load", async () => {
-    render(<TimelinePage />);
+    renderPage();
 
     await waitFor(() => {
       expect(screen.getByText(/localhost/)).toBeInTheDocument();
@@ -70,7 +109,7 @@ describe("TimelinePage (immersive)", () => {
   });
 
   it("defaults to day scale on mount", async () => {
-    render(<TimelinePage />);
+    renderPage();
 
     await waitFor(() => {
       expect(timelineApi.getViewport).toHaveBeenCalled();
@@ -79,8 +118,19 @@ describe("TimelinePage (immersive)", () => {
     expect(call.scale).toBe("day");
   });
 
-  it("does not render a TimelineContextDrawer", () => {
-    render(<TimelinePage />);
+  it("opens the evidence drawer only after the scene is selected", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findAllByText("narrative");
     expect(document.querySelector("[data-testid='timeline-context-drawer']")).toBeNull();
+
+    const evidenceAction = screen.getByText("查看当时说了什么");
+    await user.click(evidenceAction.closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("timeline-context-drawer")).toBeInTheDocument();
+      expect(screen.getByText("当时留下的原话")).toBeInTheDocument();
+    });
   });
 });

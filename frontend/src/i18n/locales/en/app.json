@@ -441,7 +441,76 @@
       "emptyDay": "Give it a few more days, and this page will fill with who you are.",
       "emptyMonth": "A monthly view takes a few weeks to take shape. Start with a day?",
       "sourceItemCount": "{{count}} items",
-      "noSourceLabel": "No label"
+      "noSourceLabel": "No label",
+      "scene": {
+        "eyebrow": {
+          "chapter": "A day within an experience",
+          "experience": "A fragment within an experience",
+          "independent": "Fragments from a day",
+          "manual": "Only you remember",
+          "empty": "An unwritten day"
+        },
+        "timeOfDay": {
+          "lateNight": "late night",
+          "morning": "morning",
+          "afternoon": "afternoon",
+          "evening": "evening"
+        },
+        "dayFallbackTitle": "This day left a few fragments",
+        "dayFallbackBody": "This view keeps what can be confirmed without rushing scattered records into a conclusion.",
+        "manualOnlyBody": "This is a line you left for the day yourself. It does not need to be expanded into a complete story.",
+        "emptyDayTitle": "Nothing has been recorded for this day yet",
+        "emptyDayBody": "If something comes back to you, leave a line here. It will stay with the day without being rushed into a conclusion.",
+        "untitledScene": "A moment that remained",
+        "evidenceCount": "{{count}} pieces of evidence",
+        "instant": "a moment",
+        "aboutMinute": "about 1 minute",
+        "minutes": "about {{count}} minutes",
+        "hours": "about {{count}} hours",
+        "relation": {
+          "label": "Relationship to experiences",
+          "chapterLabel": "Part of an experience",
+          "fragmentLabel": "Experience fragment",
+          "independentLabel": "Current status",
+          "independentTitle": "Not yet an experience",
+          "untitledExperience": "An experience",
+          "chapterBody": "This scene is a chapter in the experience, with its own time and evidence intact.",
+          "fragmentBody": "It already belongs to an experience, but no formal chapter exists yet.",
+          "independentBody": "Keep it as an independent fragment for now, and organize it only if it becomes worth revisiting.",
+          "openExperience": "View full experience",
+          "organize": "Organize as experience"
+        },
+        "section": {
+          "chapter": "This chapter",
+          "day": "That day"
+        },
+        "kind": {
+          "chapter": "Experience chapter",
+          "experience": "Experience fragment",
+          "independent": "Independent fragment"
+        },
+        "sourceEvidence": "{{count}} source records",
+        "viewEvidence": "See what was recorded then",
+        "openEvidenceFor": "See the records behind “{{title}}”",
+        "drawer": {
+          "title": "Records from the moment",
+          "eyebrow": "Scene evidence",
+          "loading": "Retrieving the records from then",
+          "failed": "These records could not be retrieved right now. The scene itself is still preserved.",
+          "sourceFacts": "Source facts",
+          "originalChat": "Original conversation",
+          "chatLine": "Conversation",
+          "empty": "This fragment currently has only time, source, and count information.",
+          "moreItems": "{{count}} more records are available from the source."
+        },
+        "notes": {
+          "title": "Only you remember",
+          "empty": "It is still a record from the day. Adding a sentence will not automatically turn it into an experience.",
+          "emptyDay": "You do not have to fill in the whole day. Keep only what matters to you.",
+          "add": "Add something only you remember",
+          "addAnother": "Add another line"
+        }
+      }
     },
     "title": "Timeline",
     "subtitle": "Review what happened over time through reflective windows, clustered periods, and self-state patterns.",

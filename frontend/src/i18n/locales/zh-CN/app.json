@@ -662,7 +662,76 @@
       "emptyDay": "再陪你几天，这页就会写满你的样子。",
       "emptyMonth": "月度回顾需要几周时间慢慢长出来。先从日开始翻？",
       "sourceItemCount": "{{count}} 次",
-      "noSourceLabel": "无标签"
+      "noSourceLabel": "无标签",
+      "scene": {
+        "eyebrow": {
+          "chapter": "经历中的一天",
+          "experience": "经历中的片段",
+          "independent": "一天中的片段",
+          "manual": "只有你记得",
+          "empty": "一天的留白"
+        },
+        "timeOfDay": {
+          "lateNight": "深夜",
+          "morning": "上午",
+          "afternoon": "下午",
+          "evening": "晚间"
+        },
+        "dayFallbackTitle": "这一天留下了一些片段",
+        "dayFallbackBody": "这里保留当天能确认的场景，不急着把零散记录写成结论。",
+        "manualOnlyBody": "这是你亲自留给这一天的一句话，不需要再被补写成完整故事。",
+        "emptyDayTitle": "这一天还没有留下记录",
+        "emptyDayBody": "想起什么时，可以先留下一句话。它会留在当天，不会被急着写成结论。",
+        "untitledScene": "一个被留下的片段",
+        "evidenceCount": "{{count}} 条依据",
+        "instant": "一个瞬间",
+        "aboutMinute": "约 1 分钟",
+        "minutes": "约 {{count}} 分钟",
+        "hours": "约 {{count}} 小时",
+        "relation": {
+          "label": "与经历的关系",
+          "chapterLabel": "所属经历",
+          "fragmentLabel": "经历片段",
+          "independentLabel": "当前状态",
+          "independentTitle": "尚未形成经历",
+          "untitledExperience": "一段经历",
+          "chapterBody": "当前场景是这段经历中的一个章节，保留独立的时间和依据。",
+          "fragmentBody": "它已经属于一段经历，但还没有形成正式章节。",
+          "independentBody": "先按独立片段保留；只有在值得长期回看时再整理。",
+          "openExperience": "查看完整经历",
+          "organize": "整理为经历"
+        },
+        "section": {
+          "chapter": "这一章",
+          "day": "当天"
+        },
+        "kind": {
+          "chapter": "经历章节",
+          "experience": "经历片段",
+          "independent": "独立片段"
+        },
+        "sourceEvidence": "{{count}} 条原始记录",
+        "viewEvidence": "查看当时说了什么",
+        "openEvidenceFor": "查看“{{title}}”的当时记录",
+        "drawer": {
+          "title": "当时的记录",
+          "eyebrow": "场景依据",
+          "loading": "正在取回当时的记录",
+          "failed": "暂时没能取回这些记录，场景本身仍然保留。",
+          "sourceFacts": "来源事实",
+          "originalChat": "原始对话",
+          "chatLine": "对话",
+          "empty": "这个片段目前只有时间、来源和数量，没有可展开的原始内容。",
+          "moreItems": "另有 {{count}} 条记录，可在来源中继续查看。"
+        },
+        "notes": {
+          "title": "只有你记得",
+          "empty": "它还只是当天的记录，不会因为补充一句话就自动变成经历。",
+          "emptyDay": "不用补全这一天，只记你真正想留下的。",
+          "add": "补一句只有你记得的事",
+          "addAnother": "再补一句"
+        }
+      }
     },
     "emptyState": {
       "heading": "让我看看你的活动",

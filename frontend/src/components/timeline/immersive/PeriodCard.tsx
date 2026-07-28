@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { resolveTimelineAssetUrl } from "@/utils/timelineAssetUrl";
 
 import { CoverPickerSheet, type TimelineCoverChangeRequest } from "./CoverPickerSheet";
-import { DayBuckets } from "./DayBuckets";
+import { DaySceneReader } from "./DaySceneReader";
 import { Hero, type HeroFallbackTone } from "./Hero";
 import { PeriodCardEmpty } from "./PeriodCardEmpty";
 import { Slice } from "./Slice";
@@ -38,6 +38,9 @@ interface PeriodCardProps {
   onChangeCover?: (payload: TimelineCoverChangeRequest) => void | Promise<void>;
   onUploadCover?: (file: File) => Promise<string>;
   coverSaving?: boolean;
+  onOpenExperience?: (experienceId: string) => void;
+  onOrganizeExperience?: () => void;
+  onAddNote?: () => void;
 }
 
 function formatTimeRange(startSec: number, endSec: number): string {
@@ -134,13 +137,17 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
   onChangeCover,
   onUploadCover,
   coverSaving = false,
+  onOpenExperience,
+  onOrganizeExperience,
+  onAddNote,
 }) => {
   const { t } = useTranslation("app");
   const [coverSheetOpen, setCoverSheetOpen] = useState(false);
   const hasContent =
     (viewport.clusters?.length ?? 0) > 0 ||
     (viewport.summary?.event_count ?? 0) > 0 ||
-    (viewport.overview?.essence_prose ?? "").length > 0;
+    (viewport.overview?.essence_prose ?? "").length > 0 ||
+    (scale === "day" && (manualEntries?.some((entry) => !entry.deleted_at) ?? false));
 
   const heroAssetRef = useMemo(() => pickHeroAssetRef(viewport), [viewport]);
   const coverForPicker = useMemo(() => resolveCoverForPicker(viewport), [viewport]);
@@ -159,6 +166,36 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
     if (hints.length === 1) return hints[0];
     return `${hints[0]} · ${hints.slice(1, 3).join(" · ")}`;
   })();
+
+  if (scale === "day") {
+    return (
+      <div className="bg-background">
+        <DaySceneReader
+          viewport={viewport}
+          dateLabel={dateLabel}
+          placeLine={resolvedPlaceLine}
+          coverUrl={photoUrl}
+          manualEntries={manualEntries ?? []}
+          onOpenExperience={onOpenExperience}
+          onOrganizeExperience={onOrganizeExperience}
+          onAddNote={onAddNote}
+          onEditManualEntry={onEditManualEntry}
+          onDeleteManualEntry={onDeleteManualEntry}
+          onOpenCover={onChangeCover ? () => setCoverSheetOpen(true) : undefined}
+        />
+        {onChangeCover ? (
+          <CoverPickerSheet
+            open={coverSheetOpen}
+            cover={coverForPicker}
+            onOpenChange={setCoverSheetOpen}
+            onChangeCover={onChangeCover}
+            onUploadCover={onUploadCover}
+            saving={coverSaving}
+          />
+        ) : null}
+      </div>
+    );
+  }
 
   if (!hasContent) {
     return <PeriodCardEmpty scale={scale} dateLabel={dateLabel} />;
@@ -204,14 +241,7 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
         periodEnd={viewport.viewport.end}
       />
       <ThemesRow themes={viewport.theme_cards ?? []} />
-      {scale === "day" ? (
-        <DayBuckets
-          clusters={viewport.clusters ?? []}
-          manualEntries={manualEntries ?? []}
-          onEditManualEntry={onEditManualEntry}
-          onDeleteManualEntry={onDeleteManualEntry}
-        />
-      ) : scale === "week" ? (
+      {scale === "week" ? (
         <WeekStrip
           clusters={viewport.clusters ?? []}
           weekStart={viewport.viewport.start}

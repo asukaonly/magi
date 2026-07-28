@@ -17,6 +17,7 @@ from .context_bundle_builder import TimelineContextBundleBuilder
 from .query_interpreter import TimelineQueryInterpretation, TimelineQueryInterpreter
 from .state_band_builder import TimelineStateBandBuilder
 from .viewport_clusters import TimelineClusterPresentationBuilder
+from .viewport_experiences import TimelineExperienceLinker
 from .viewport_i18n import is_zh_locale, normalize_locale, source_label, timeline_t
 from .viewport_overview import TimelineOverviewBuilder
 from .viewport_state_summary import TimelineStateSummaryBuilder
@@ -108,6 +109,7 @@ class TimelineViewportBuilder:
         self._state_summary_builder = TimelineStateSummaryBuilder()
         self._cluster_builder = TimelineClusterBuilder()
         self._cluster_presentation_builder = TimelineClusterPresentationBuilder()
+        self._experience_linker = TimelineExperienceLinker(l2_store=l2_store)
         self._query_interpreter = TimelineQueryInterpreter()
         self._context_bundle_builder = TimelineContextBundleBuilder(
             l1_store=l1_store,
@@ -266,6 +268,21 @@ class TimelineViewportBuilder:
             query=query,
             locale=locale,
         )
+        if scale == "day":
+            try:
+                clusters = await self._experience_linker.decorate(
+                    clusters,
+                    start=query.start,
+                    end=query.end,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Timeline experience decoration failed; rendering clusters without links",
+                    error=str(exc),
+                    scale=scale,
+                    window_start=query.start,
+                    window_end=query.end,
+                )
         raw_events = self._build_raw_events_for_scale(scale, sources.events, locale=locale)
         source_mix = self._build_source_mix(
             events=sources.events,

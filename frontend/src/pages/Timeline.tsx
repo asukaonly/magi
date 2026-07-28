@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 
 import { memoryApi } from "@/api/modules/memory";
 import { manualEntriesApi, type ManualEntry } from "@/api/modules/manualEntries";
@@ -115,6 +116,7 @@ function isoDateForTimestamp(timestampSec: number): string {
 
 export const TimelinePage: React.FC = () => {
   const { t, i18n } = useTranslation("app");
+  const navigate = useNavigate();
   const timelineLocale = i18n.resolvedLanguage || i18n.language || "en";
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const setTimelinePanel = useChatShellStore((state) => state.setTimelinePanel);
@@ -373,6 +375,17 @@ export const TimelinePage: React.FC = () => {
     setViewportStart(clampToLatestCompletePeriod(scale, parsed));
   }, [scale]);
 
+  const handleOpenExperience = useCallback(
+    (experienceId: string) => {
+      navigate(`/memory/episodes/${encodeURIComponent(experienceId)}`);
+    },
+    [navigate],
+  );
+
+  const handleOrganizeExperience = useCallback(() => {
+    navigate("/memory/episodes");
+  }, [navigate]);
+
   // Selection range covered by the current viewport — used by the sidebar
   // calendar to highlight one cell (day/hour), a 7-cell band (week), or the
   // full month (month scale).
@@ -510,6 +523,9 @@ export const TimelinePage: React.FC = () => {
               onChangeCover={handleChangeCover}
               onUploadCover={handleUploadCover}
               coverSaving={coverSaving}
+              onOpenExperience={handleOpenExperience}
+              onOrganizeExperience={handleOrganizeExperience}
+              onAddNote={() => setEntrySheetOpen(true)}
             />
           )
         ) : null}
@@ -517,7 +533,7 @@ export const TimelinePage: React.FC = () => {
 
       {/* Floating ✎ button for manual memory entries. Hidden while the
           sheet is open so it doesn't sit on top of the dialog overlay. */}
-      {!entrySheetOpen ? (
+      {!entrySheetOpen && scale !== "day" ? (
         <button
           type="button"
           onClick={() => setEntrySheetOpen(true)}

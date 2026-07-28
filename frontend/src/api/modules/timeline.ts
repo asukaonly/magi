@@ -45,6 +45,12 @@ export interface TimelineClusterBlock {
   user_label?: string | null;
   user_note?: string | null;
   user_pinned?: boolean;
+  /** Existing durable experience relation, when this cluster is a member. */
+  experience_id?: string | null;
+  experience_title?: string | null;
+  /** Present only when a persisted experience chapter explicitly owns the cluster. */
+  experience_chapter_id?: string | null;
+  experience_chapter_title?: string | null;
 
   // Plan 1+2 immersive fields (Plan 3 backend Task 1 surfaces them)
   slice_narrative?: string;
