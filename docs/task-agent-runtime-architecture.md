@@ -435,6 +435,28 @@ exception there returns to the idempotent failure finalizer, which preserves an
 already-persisted answer without replacing it with a failure message and then
 releases the exact active run.
 
+The chat-owned delivery implementation preserves these boundaries through
+separate durable responsibilities. `chat/storage/user_turn_acceptance.py` owns
+the single `BEGIN IMMEDIATE` transaction that accepts a user turn: its session
+metadata, turn row, first visible user message, managed attachment ownership,
+and initial ready delivery record either commit together or all roll back.
+`chat/storage/user_turn_delivery_ledger.py` owns attempt-scoped
+compare-and-set transitions, while
+`chat/storage/user_turn_delivery_recovery.py` owns the two multi-row recovery
+transactions: reconciling a verified terminal surface, and quarantining an
+unreplayable envelope with a visible failure result. A recovery transaction
+must not leave the turn terminal while its delivery remains open, or expose a
+failure message while the ledger remains replayable.
+
+Runtime-envelope JSON validation and deterministic encoding live in
+`chat/user_turn_delivery/envelope.py`; runtime queue attachment and restart
+recovery live in the adjacent scheduler and recovery modules. These services
+depend only on the narrow ports declared in
+`chat/user_turn_delivery/contracts.py`. The storage composition entry exposes
+the combined write surface to `ChatStore`, but does not absorb transaction
+logic. This separation is an ownership boundary, not a change to retry,
+idempotency, privacy-barrier, or restart-recovery behavior.
+
 Explicit chat stop is scoped to the exact user, session, and turn rather than
 only to an in-memory active run. In one `chat.db` transaction, cancellation
 verifies that ownership still matches, changes a queued or running turn to

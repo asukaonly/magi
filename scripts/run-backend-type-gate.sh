@@ -43,6 +43,7 @@ TYPE_GATE_DIRS=(
   magi/runtime_trace/chat_trace/builders
   magi/chat/read
   magi/chat/storage
+  magi/chat/user_turn_delivery
 )
 
 TYPE_GATE_FILES=(
