@@ -447,15 +447,19 @@ class SchedulerService:
             return early_result
         assert schedule is not None
 
-        early_result = await self._sensor_sync_busy_prep(schedule)
-        if early_result is not None:
-            return early_result
+        effective_manual = manual or bool(schedule.metadata.get("manual", False))
+        started_at = time.time()
+        if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
+            return await self._prepare_sensor_sync_execution(
+                schedule=schedule,
+                effective_manual=effective_manual,
+                started_at=started_at,
+            )
 
         started_at, early_result = await self._acquire_execution_lock(schedule)
         if early_result is not None:
             return early_result
 
-        effective_manual = manual or bool(schedule.metadata.get("manual", False))
         execution_id = await self._repository.create_execution_record(
             schedule_id=schedule.schedule_id,
             target_type=schedule.target_type,
@@ -463,12 +467,6 @@ class SchedulerService:
             manual=effective_manual,
             started_at=started_at,
         )
-        if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
-            return await self._prepare_sensor_sync_execution(
-                schedule=schedule,
-                execution_id=execution_id,
-                effective_manual=effective_manual,
-            )
 
         return await self._prepare_handler_execution(
             schedule=schedule,
@@ -513,20 +511,6 @@ class SchedulerService:
             )
         return schedule, None
 
-    async def _sensor_sync_busy_prep(
-        self,
-        schedule: ScheduleDefinition,
-    ) -> _ExecutionPrep | None:
-        if schedule.target_type is not ScheduledTargetType.SENSOR_SYNC:
-            return None
-        outstanding = await self._repository.get_outstanding_sensor_sync_job(
-            schedule.target_type,
-            schedule.target_key,
-        )
-        if outstanding is None:
-            return None
-        return self._early_execution_prep("target_busy")
-
     async def _acquire_execution_lock(
         self,
         schedule: ScheduleDefinition,
@@ -544,24 +528,27 @@ class SchedulerService:
         self,
         *,
         schedule: ScheduleDefinition,
-        execution_id: str,
         effective_manual: bool,
+        started_at: float,
     ) -> _ExecutionPrep:
         # SENSOR_SYNC has its own enqueue-and-return path so the sync caller
         # still gets the "sensor_sync_enqueued" reply.
-        job_id = await self._repository.enqueue_sensor_sync_job(
+        admitted = await self._repository.enqueue_sensor_sync_execution(
             schedule=schedule,
-            execution_id=execution_id,
             manual=effective_manual,
+            started_at=started_at,
         )
-        if job_id is None:
+        if admitted is None:
             return self._early_execution_prep("target_busy")
         if schedule.trigger.trigger_type == TriggerType.ONCE:
             await self._repository.delete_schedule(schedule.schedule_id)
         return self._early_execution_prep(
             "sensor_sync_enqueued",
             success=True,
-            stats={"job_id": job_id, "execution_id": execution_id},
+            stats={
+                "job_id": admitted.job_id,
+                "execution_id": admitted.execution_id,
+            },
         )
 
     @staticmethod

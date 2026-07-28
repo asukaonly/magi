@@ -46,22 +46,13 @@ def _build_sensor_schedule(
 
 async def _enqueue_job(repository: ScheduleRepository, schedule: ScheduleDefinition) -> str:
     await repository.upsert_schedule(schedule)
-    acquired = await repository.acquire_target_lock(schedule.target_type, schedule.target_key)
-    assert acquired is True
-    execution_id = await repository.create_execution_record(
-        schedule_id=schedule.schedule_id,
-        target_type=schedule.target_type,
-        target_key=schedule.target_key,
+    admitted = await repository.enqueue_sensor_sync_execution(
+        schedule=schedule,
         manual=False,
         started_at=time.time(),
     )
-    job_id = await repository.enqueue_sensor_sync_job(
-        schedule=schedule,
-        execution_id=execution_id,
-        manual=False,
-    )
-    assert job_id is not None
-    return job_id
+    assert admitted is not None
+    return admitted.job_id
 
 
 async def _wait_for_job_status(
@@ -120,7 +111,6 @@ async def test_sensor_sync_executor_claims_and_completes_queued_job(tmp_path):
         repository=repository,
         run_job=run_job,
         poll_interval_seconds=0.01,
-        running_timeout_seconds=30.0,
     )
     await executor.start()
     completed_job = await _wait_for_job_status(repository, job_id, "success")
@@ -158,7 +148,6 @@ async def test_sensor_sync_executor_runs_jobs_on_owner_loop(tmp_path):
         repository=repository,
         run_job=run_job,
         poll_interval_seconds=0.01,
-        running_timeout_seconds=30.0,
     )
     await executor.start()
     await _wait_for_job_status(repository, job_id, "success")
@@ -217,7 +206,6 @@ async def test_sensor_sync_success_triggers_l3_backfill(tmp_path, monkeypatch):
         repository=repository,
         run_job=run_job,
         poll_interval_seconds=0.01,
-        running_timeout_seconds=30.0,
     )
     await executor.start()
     await _wait_for_job_status(repository, job_id, "success")
@@ -279,7 +267,6 @@ async def test_sensor_sync_l3_backfill_does_not_block_next_sensor_job(tmp_path, 
         repository=repository,
         run_job=run_job,
         poll_interval_seconds=0.01,
-        running_timeout_seconds=30.0,
     )
     try:
         await executor.start()
@@ -338,7 +325,6 @@ async def test_sensor_sync_success_triggers_l2_derive(tmp_path, monkeypatch):
         run_job=run_job,
         scheduler_service=_FakeSchedulerService(),
         poll_interval_seconds=0.01,
-        running_timeout_seconds=30.0,
     )
     await executor.start()
     await _wait_for_job_status(repository, job_id, "success")
@@ -426,7 +412,6 @@ async def test_sensor_sync_has_more_queues_continuation_and_defers_derivations(t
         run_job=run_job,
         scheduler_service=_FakeSchedulerService(),
         poll_interval_seconds=0.01,
-        running_timeout_seconds=30.0,
     )
     await executor.start()
     await _wait_for_job_status(repository, job_id, "success")
@@ -498,7 +483,6 @@ async def test_sensor_sync_continuation_preserves_backfill_request(tmp_path):
         run_job=run_job,
         scheduler_service=_FakeSchedulerService(),
         poll_interval_seconds=0.01,
-        running_timeout_seconds=30.0,
     )
     await executor.start()
     await _wait_for_job_status(repository, job_id, "success")
@@ -558,7 +542,6 @@ async def test_first_context_sensor_sync_does_not_queue_continuation(tmp_path, m
         run_job=run_job,
         scheduler_service=_FakeSchedulerService(),
         poll_interval_seconds=0.01,
-        running_timeout_seconds=30.0,
     )
     await executor.start()
     await _wait_for_job_status(repository, job_id, "success")
@@ -597,7 +580,6 @@ async def test_sensor_sync_success_no_scheduler_service(tmp_path, monkeypatch):
         run_job=run_job,
         scheduler_service=None,  # explicitly no scheduler
         poll_interval_seconds=0.01,
-        running_timeout_seconds=30.0,
     )
     await executor.start()
     completed_job = await _wait_for_job_status(repository, job_id, "success")
@@ -641,7 +623,6 @@ async def test_sensor_sync_l2_derive_trigger_failure_does_not_fail_sync(tmp_path
         run_job=run_job,
         scheduler_service=_BrokenSchedulerService(),
         poll_interval_seconds=0.01,
-        running_timeout_seconds=30.0,
     )
     await executor.start()
     completed_job = await _wait_for_job_status(repository, job_id, "success")
@@ -653,7 +634,7 @@ async def test_sensor_sync_l2_derive_trigger_failure_does_not_fail_sync(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_sensor_sync_executor_requeues_stale_running_job_on_startup(tmp_path):
+async def test_sensor_sync_executor_recovers_recent_running_job_on_startup(tmp_path):
     db_path = tmp_path / "scheduler.db"
     repository = ScheduleRepository(db_path)
     await repository.initialize()
@@ -661,18 +642,6 @@ async def test_sensor_sync_executor_requeues_stale_running_job_on_startup(tmp_pa
     job_id = await _enqueue_job(repository, schedule)
     claimed = await repository.claim_next_sensor_sync_job(claimed_by="stale-executor")
     assert claimed is not None
-
-    connection = sqlite3.connect(str(db_path))
-    connection.execute(
-        """
-        UPDATE sensor_sync_jobs
-        SET started_at = ?, claimed_at = ?
-        WHERE job_id = ?
-        """,
-        (time.time() - 3600.0, time.time() - 3600.0, job_id),
-    )
-    connection.commit()
-    connection.close()
 
     async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
         return ScheduledExecutionResult(
@@ -685,10 +654,190 @@ async def test_sensor_sync_executor_requeues_stale_running_job_on_startup(tmp_pa
         repository=repository,
         run_job=run_job,
         poll_interval_seconds=0.01,
-        running_timeout_seconds=0.01,
     )
     await executor.start()
     completed_job = await _wait_for_job_status(repository, job_id, "success")
     await executor.stop()
 
     assert completed_job["result_message"] == "recovered"
+    assert completed_job["attempt_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_executor_retries_transient_failure_until_success(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+    job = await repository.get_sensor_sync_job(job_id)
+    assert job is not None
+    execution_id = str(job["execution_id"])
+    attempt_count = 0
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        nonlocal attempt_count
+        attempt_count += 1
+        if attempt_count == 1:
+            raise RuntimeError("temporary source failure")
+        return ScheduledExecutionResult(
+            success=True,
+            message="recovered",
+            stats={"items": 1},
+        )
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+        retry_base_seconds=0.0,
+        max_attempts=3,
+    )
+    await executor.start()
+    completed_job = await _wait_for_job_status(repository, job_id, "success")
+    await executor.stop()
+
+    execution_status, execution_message = _load_execution_status(db_path, execution_id)
+    target_state = await repository.get_target_state(schedule.target_type, schedule.target_key)
+    assert attempt_count == 2
+    assert completed_job["attempt_count"] == 2
+    assert completed_job["error"] is None
+    assert execution_status == "success"
+    assert execution_message == "recovered"
+    assert target_state.running is False
+    assert target_state.last_error is None
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_executor_fails_after_retry_budget_is_exhausted(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+    job = await repository.get_sensor_sync_job(job_id)
+    assert job is not None
+    execution_id = str(job["execution_id"])
+    attempt_count = 0
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        nonlocal attempt_count
+        attempt_count += 1
+        raise RuntimeError("persistent source failure")
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+        retry_base_seconds=0.0,
+        max_attempts=3,
+    )
+    await executor.start()
+    failed_job = await _wait_for_job_status(repository, job_id, "failed")
+    await executor.stop()
+
+    execution_status, execution_message = _load_execution_status(db_path, execution_id)
+    target_state = await repository.get_target_state(schedule.target_type, schedule.target_key)
+    assert attempt_count == 3
+    assert failed_job["attempt_count"] == 3
+    assert failed_job["error"] == "persistent source failure"
+    assert execution_status == "failed"
+    assert execution_message is None
+    assert target_state.running is False
+    assert target_state.last_error == "persistent source failure"
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_executor_retries_when_success_settlement_is_temporarily_unavailable(
+    tmp_path,
+    monkeypatch,
+):
+    repository = ScheduleRepository(tmp_path / "scheduler.db")
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+    run_attempts = 0
+    settlement_attempts = 0
+    settle_success = repository.settle_sensor_sync_job_success
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        nonlocal run_attempts
+        run_attempts += 1
+        return ScheduledExecutionResult(success=True, message="committed")
+
+    async def flaky_settle_success(*args, **kwargs):
+        nonlocal settlement_attempts
+        settlement_attempts += 1
+        if settlement_attempts == 1:
+            raise RuntimeError("scheduler database temporarily unavailable")
+        return await settle_success(*args, **kwargs)
+
+    monkeypatch.setattr(
+        repository,
+        "settle_sensor_sync_job_success",
+        flaky_settle_success,
+    )
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+        retry_base_seconds=0.0,
+        max_attempts=3,
+    )
+
+    await executor.start()
+    completed_job = await _wait_for_job_status(repository, job_id, "success")
+    await executor.stop()
+
+    assert run_attempts == 2
+    assert settlement_attempts == 2
+    assert completed_job["attempt_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_executor_recovers_when_failure_settlement_is_interrupted(
+    tmp_path,
+    monkeypatch,
+):
+    repository = ScheduleRepository(tmp_path / "scheduler.db")
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+    run_attempts = 0
+    settlement_attempts = 0
+    settle_failure = repository.settle_sensor_sync_job_failure
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        nonlocal run_attempts
+        run_attempts += 1
+        if run_attempts == 1:
+            raise RuntimeError("temporary source failure")
+        return ScheduledExecutionResult(success=True, message="recovered")
+
+    async def flaky_settle_failure(*args, **kwargs):
+        nonlocal settlement_attempts
+        settlement_attempts += 1
+        if settlement_attempts == 1:
+            raise RuntimeError("scheduler database temporarily unavailable")
+        return await settle_failure(*args, **kwargs)
+
+    monkeypatch.setattr(
+        repository,
+        "settle_sensor_sync_job_failure",
+        flaky_settle_failure,
+    )
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+        retry_base_seconds=0.0,
+        max_attempts=3,
+    )
+
+    await executor.start()
+    completed_job = await _wait_for_job_status(repository, job_id, "success")
+    await executor.stop()
+
+    assert run_attempts == 2
+    assert settlement_attempts == 1
+    assert completed_job["attempt_count"] == 2

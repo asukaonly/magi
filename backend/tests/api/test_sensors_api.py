@@ -255,20 +255,13 @@ def test_get_sensor_source_status_includes_queued_backfill(monkeypatch):
             metadata={"manual": True},
         )
         await repository.upsert_schedule(schedule)
-        execution_id = await repository.create_execution_record(
-            schedule_id=schedule.schedule_id,
-            target_type=schedule.target_type,
-            target_key=schedule.target_key,
+        admitted = await repository.enqueue_sensor_sync_execution(
+            schedule=schedule,
             manual=True,
             started_at=time.time(),
         )
-        job_id = await repository.enqueue_sensor_sync_job(
-            schedule=schedule,
-            execution_id=execution_id,
-            manual=True,
-        )
-        assert job_id is not None
-        return job_id
+        assert admitted is not None
+        return admitted.job_id
 
     job_id = asyncio.run(_seed_backfill_job())
     response = client.get("/api/sensors/status")

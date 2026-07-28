@@ -7,18 +7,46 @@ import concurrent.futures
 import threading
 import time
 import uuid
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Protocol, TypeVar
 
 from ..core.logger import get_logger
-from ..scheduler.contracts import ScheduledExecutionResult, ScheduledTargetType
+from ..scheduler.contracts import (
+    ScheduleDefinition,
+    ScheduledExecutionResult,
+    ScheduledTargetType,
+)
 from ..scheduler.repository import ScheduleRepository
 
 logger = get_logger(__name__)
 
 SensorSyncJobRunner = Callable[[dict[str, object]], Awaitable[ScheduledExecutionResult]]
 SensorStateFlushRunner = Callable[[str], Awaitable[dict[str, Any]]]
+_ResultT = TypeVar("_ResultT")
 
 _POST_SYNC_L3_BACKFILL_MAX_PERIODS = 4
+
+
+class SensorSyncScheduler(Protocol):
+    """Scheduler operations used after a sensor job commits."""
+
+    async def schedule_once(
+        self,
+        *,
+        schedule_id: str,
+        target_type: ScheduledTargetType,
+        target_key: str,
+        run_at: float,
+        target_payload: dict[str, object],
+        metadata: dict[str, object] | None = None,
+    ) -> ScheduleDefinition: ...
+
+    async def execute_schedule_async(
+        self,
+        schedule_id: str,
+        *,
+        manual: bool = True,
+        override_payload: dict[str, Any] | None = None,
+    ) -> ScheduledExecutionResult: ...
 
 
 class SensorSyncExecutor:
@@ -30,9 +58,11 @@ class SensorSyncExecutor:
         repository: ScheduleRepository,
         run_job: SensorSyncJobRunner,
         flush_state: SensorStateFlushRunner | None = None,
-        scheduler_service: object | None = None,
+        scheduler_service: SensorSyncScheduler | None = None,
         poll_interval_seconds: float = 0.1,
-        running_timeout_seconds: float = 1800.0,
+        max_attempts: int = 4,
+        retry_base_seconds: float = 2.0,
+        retry_max_seconds: float = 300.0,
         worker_id: str = "sensor-sync-executor",
     ) -> None:
         self._repository = repository
@@ -40,7 +70,12 @@ class SensorSyncExecutor:
         self._flush_state = flush_state
         self._scheduler_service = scheduler_service
         self._poll_interval_seconds = poll_interval_seconds
-        self._running_timeout_seconds = running_timeout_seconds
+        self._max_attempts = max(1, int(max_attempts))
+        self._retry_base_seconds = max(0.0, float(retry_base_seconds))
+        self._retry_max_seconds = max(
+            self._retry_base_seconds,
+            float(retry_max_seconds),
+        )
         self._worker_id = worker_id
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -101,9 +136,7 @@ class SensorSyncExecutor:
                 self._execution_lock = None
 
     async def _run_loop(self) -> None:
-        await self._repository.requeue_stale_sensor_sync_jobs(
-            running_timeout_seconds=self._running_timeout_seconds,
-        )
+        await self._repository.recover_running_sensor_sync_jobs()
         stop_event = self._stop_event
         if stop_event is None:
             raise RuntimeError("Sensor sync executor stop event was not initialized")
@@ -119,6 +152,10 @@ class SensorSyncExecutor:
                 raise
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.exception("Sensor sync executor loop failed", error=str(exc))
+                try:
+                    await self._repository.recover_running_sensor_sync_jobs()
+                except Exception:
+                    logger.exception("Sensor sync executor could not recover running jobs")
                 await self._wait_for_next_poll(stop_event)
 
     async def _wait_for_next_poll(self, stop_event: asyncio.Event) -> None:
@@ -131,7 +168,6 @@ class SensorSyncExecutor:
         finished_at = time.time()
         target_type = ScheduledTargetType(str(job["target_type"]))
         target_key = str(job["target_key"])
-        execution_id = str(job["execution_id"])
         scheduler_binding = await self._repository.get_recurring_target_binding(target_type, target_key)
         scheduler_job_id = str(scheduler_binding[0]) if scheduler_binding is not None else None
 
@@ -139,49 +175,76 @@ class SensorSyncExecutor:
             result = await self._run_with_execution_lock(self._run_on_owner_loop(self._run_job(job)))
             if not result.success:
                 raise RuntimeError(result.message or "sensor_sync_failed")
-            finished_at = time.time()
-            await self._repository.complete_sensor_sync_job_success(
-                str(job["job_id"]),
-                result=result,
-                finished_at=finished_at,
-            )
-            await self._repository.record_target_success(
-                target_type,
-                target_key,
-                result=result,
-                scheduler_job_id=scheduler_job_id,
-            )
-            await self._repository.complete_execution_success(
-                execution_id,
-                result=result,
-                scheduler_job_id=scheduler_job_id,
-                finished_at=finished_at,
-            )
-            continuation_queued = False
-            if self._result_requests_continuation(result) and not self._job_disables_continuation(
-                job
-            ):
-                continuation_queued = await self._schedule_sync_continuation(job)
-            if not continuation_queued:
-                self._queue_post_sync_maintenance(str(job["source_type"]))
         except Exception as exc:
-            finished_at = time.time()
-            await self._repository.complete_sensor_sync_job_failure(
+            await self._settle_failed_job(
+                job,
+                scheduler_job_id=scheduler_job_id,
+                error=exc,
+            )
+            return
+
+        finished_at = time.time()
+        try:
+            await self._repository.settle_sensor_sync_job_success(
                 str(job["job_id"]),
-                error=str(exc),
+                result=result,
                 finished_at=finished_at,
-            )
-            await self._repository.record_target_failure(
-                target_type,
-                target_key,
-                error=str(exc),
                 scheduler_job_id=scheduler_job_id,
             )
-            await self._repository.complete_execution_failure(
-                execution_id,
+        except Exception as exc:
+            persisted = await self._repository.get_sensor_sync_job(str(job["job_id"]))
+            if persisted is None or persisted.get("status") != "success":
+                await self._settle_failed_job(
+                    job,
+                    scheduler_job_id=scheduler_job_id,
+                    error=exc,
+                )
+                return
+            logger.warning(
+                "Sensor sync success commit returned an error after persistence",
+                job_id=str(job["job_id"]),
                 error=str(exc),
-                scheduler_job_id=scheduler_job_id,
-                finished_at=finished_at,
+            )
+
+        continuation_queued = False
+        if self._result_requests_continuation(result) and not self._job_disables_continuation(job):
+            continuation_queued = await self._schedule_sync_continuation(job)
+        if not continuation_queued:
+            self._queue_post_sync_maintenance(str(job["source_type"]))
+
+    async def _settle_failed_job(
+        self,
+        job: dict[str, object],
+        *,
+        scheduler_job_id: str | None,
+        error: Exception,
+    ) -> None:
+        finished_at = time.time()
+        raw_attempt_count = job.get("attempt_count")
+        attempt_count = max(
+            1,
+            raw_attempt_count if isinstance(raw_attempt_count, int) else 1,
+        )
+        retry_delay_seconds = min(
+            self._retry_max_seconds,
+            self._retry_base_seconds * (2 ** min(attempt_count - 1, 16)),
+        )
+        requeued = await self._repository.settle_sensor_sync_job_failure(
+            str(job["job_id"]),
+            error=str(error),
+            failed_at=finished_at,
+            retry_delay_seconds=retry_delay_seconds,
+            max_attempts=self._max_attempts,
+            scheduler_job_id=scheduler_job_id,
+        )
+        if requeued:
+            logger.warning(
+                "Sensor sync scheduled for retry",
+                job_id=str(job["job_id"]),
+                target_key=str(job["target_key"]),
+                attempt_count=attempt_count,
+                next_attempt_at=finished_at + retry_delay_seconds,
+                error=str(error),
             )
 
     @staticmethod
@@ -215,12 +278,12 @@ class SensorSyncExecutor:
         sync_request = None
         if isinstance(parent_payload, dict) and isinstance(parent_payload.get("sync_request"), dict):
             sync_request = dict(parent_payload["sync_request"])
-        target_payload = {
+        target_payload: dict[str, object] = {
             "plugin_id": plugin_id,
             "source_type": source_type,
             "manual": bool(job.get("manual")),
         }
-        metadata = {
+        metadata: dict[str, object] = {
             "continuation": True,
             "plugin_id": plugin_id,
             "source_type": source_type,
@@ -231,7 +294,7 @@ class SensorSyncExecutor:
             metadata["sync_request"] = sync_request
         try:
             await self._run_on_owner_loop(
-                self._scheduler_service.schedule_once(  # type: ignore[union-attr]
+                self._scheduler_service.schedule_once(
                     schedule_id=(
                         f"sensor-sync-continuation:{plugin_id}:{source_type}:"
                         f"{uuid.uuid4().hex}"
@@ -392,8 +455,9 @@ class SensorSyncExecutor:
         try:
             from ..memory.l2.derive_schedule import SCHEDULE_ID_L2_DERIVE
 
-            await self._scheduler_service.execute_schedule_async(  # type: ignore[union-attr]
-                SCHEDULE_ID_L2_DERIVE, manual=True
+            await self._scheduler_service.execute_schedule_async(
+                SCHEDULE_ID_L2_DERIVE,
+                manual=True,
             )
         except Exception:
             logger.exception("post-sync L2 derive trigger failed (non-fatal)")
@@ -421,16 +485,29 @@ class SensorSyncExecutor:
             raise RuntimeError("Sensor sync executor does not support state flush")
         return await self._run_with_execution_lock(self._run_on_owner_loop(self._flush_state(source_name)))
 
-    async def _run_with_execution_lock(self, coro: Awaitable[Any]) -> Any:
+    async def _run_with_execution_lock(
+        self,
+        coro: Awaitable[_ResultT],
+    ) -> _ResultT:
         execution_lock = self._execution_lock
         if execution_lock is None:
             raise RuntimeError("Sensor sync executor execution lock is not initialized")
         async with execution_lock:
             return await coro
 
-    async def _run_on_owner_loop(self, coro: Awaitable[Any]) -> Any:
+    async def _run_on_owner_loop(
+        self,
+        awaitable: Awaitable[_ResultT],
+    ) -> _ResultT:
         owner_loop = self._owner_loop
         if owner_loop is None:
             raise RuntimeError("Sensor sync executor owner loop is not initialized")
-        future = asyncio.run_coroutine_threadsafe(coro, owner_loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self._await_value(awaitable),
+            owner_loop,
+        )
         return await asyncio.wrap_future(future)
+
+    @staticmethod
+    async def _await_value(awaitable: Awaitable[_ResultT]) -> _ResultT:
+        return await awaitable

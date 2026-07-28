@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS sensor_sync_jobs (
     manual INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
     payload_json TEXT NOT NULL,
+    next_attempt_at REAL NOT NULL DEFAULT 0,
     created_at REAL NOT NULL,
     claimed_at REAL,
     started_at REAL,
@@ -91,8 +92,8 @@ CREATE INDEX IF NOT EXISTS idx_schedule_executions_target
 CREATE INDEX IF NOT EXISTS idx_schedule_executions_started_at
     ON schedule_executions(started_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_sensor_sync_jobs_status_created
-    ON sensor_sync_jobs(status, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_sensor_sync_jobs_status_due_created
+    ON sensor_sync_jobs(status, next_attempt_at ASC, created_at ASC);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sensor_sync_jobs_one_outstanding_per_target
     ON sensor_sync_jobs(target_type, target_key)
@@ -102,7 +103,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sensor_sync_jobs_one_outstanding_per_targe
 DROP_SQL = """
 DROP INDEX IF EXISTS idx_sensor_sync_jobs_one_outstanding_per_target;
 
-DROP INDEX IF EXISTS idx_sensor_sync_jobs_status_created;
+DROP INDEX IF EXISTS idx_sensor_sync_jobs_status_due_created;
 
 DROP INDEX IF EXISTS idx_schedule_executions_started_at;
 

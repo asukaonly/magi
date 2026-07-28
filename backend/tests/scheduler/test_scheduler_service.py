@@ -568,6 +568,7 @@ async def test_scheduler_service_coalesces_sensor_sync_when_outstanding_job_exis
         ScheduledTargetType.SENSOR_SYNC,
         "test-plugin:test-source",
     )
+    executions = await service.repository.list_executions(schedule_id="sensor-sync-coalesce")
 
     await service.stop()
 
@@ -575,6 +576,8 @@ async def test_scheduler_service_coalesces_sensor_sync_when_outstanding_job_exis
     assert second.message == "target_busy"
     assert outstanding is not None
     assert outstanding["status"] == "queued"
+    assert len(executions) == 1
+    assert executions[0]["execution_id"] == outstanding["execution_id"]
 
 
 @pytest.mark.asyncio

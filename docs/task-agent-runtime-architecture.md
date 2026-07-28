@@ -1507,8 +1507,16 @@ For `sensor_sync` targets, the scheduler does not execute any sensor plugin code
 1. APScheduler fires a `sensor_sync` schedule.
 2. `SchedulerService.execute_schedule()` checks whether the target already has an outstanding (queued or running) job in `sensor_sync_jobs`.
 3. If one exists, the trigger is coalesced; no new job is created.
-4. If none exists, the scheduler writes one `schedule_executions` row and one `sensor_sync_jobs` row with status `queued`, then returns.
-5. `SensorSyncExecutor` (awareness layer, dedicated thread with its own asyncio event loop) claims queued jobs, runs `collect_items → fetch_item → build_output → extract_metadata → ingest`, and writes final success or failure state.
+4. If none exists, the scheduler acquires the target and writes one
+   `schedule_executions` row plus one `sensor_sync_jobs` row with status
+   `queued` in one transaction, then returns. A competing trigger creates
+   neither row.
+5. `SensorSyncExecutor` (awareness layer, dedicated thread with its own asyncio
+   event loop) claims queued jobs and runs
+   `collect_items → fetch_item → build_output → extract_metadata → ingest`.
+   Each successful or terminal attempt settles the job, target state, and
+   execution history together so a restart cannot expose a half-finished
+   scheduler record.
 
 The `sensor_sync_jobs` table enforces at most one outstanding job per `(target_type, target_key)` via a partial unique index. A slow sensor causes skipped ticks, not backlog growth.
 
@@ -1516,7 +1524,14 @@ Manual sync requests reuse the same queueing model through `SensorSchedulerContr
 
 Post-sync memory maintenance is deliberately outside the serial sensor-sync queue. After a sync job commits success, L3 historical backfill and the L2 derive kick are queued as best-effort owner-loop maintenance so long LLM-backed summary work cannot stop later sensor-sync jobs from being claimed. This post-sync backfill is intentionally small-batch; full historical summary catch-up must run through explicit memory maintenance rather than the sensor recovery path. A continuation sync (`has_more` / `continue_sync`) still defers these maintenance kicks until the final batch.
 
-On startup, the executor requeues stale `running` jobs. Stale detection uses `started_at` with a configurable timeout. Memory targets such as `memory_l2_maintenance` and `memory_l2_consolidate` keep the existing direct scheduler execution path and are unaffected.
+Failed sensor jobs stay in the same durable execution record and are retried with
+bounded exponential backoff. The job remains `queued` with its next-attempt time,
+last error, and attempt count visible until it succeeds or exhausts its retry
+budget. A terminal failure is written only after that budget is exhausted. On
+startup, the executor immediately returns every interrupted `running` job to the
+queue because no executor from the previous process can still own it. Memory
+targets such as `memory_l2_maintenance` and `memory_l2_consolidate` keep the
+existing direct scheduler execution path and are unaffected.
 
 ## Memory Event Flow
 
