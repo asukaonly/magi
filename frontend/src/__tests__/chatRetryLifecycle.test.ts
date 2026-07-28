@@ -1,4 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 
 import type { ClearMemoryResponse } from '@/api/modules/memory';
 import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
@@ -19,9 +27,11 @@ import {
 } from '@/hooks/chatRetryableSendStorage';
 import { useConversationStore } from '@/stores/conversation-store';
 
-const { clearAllMock } = vi.hoisted(() => ({
+const { clearAllMock, listNotificationsMock } = vi.hoisted(() => ({
   clearAllMock: vi.fn(),
+  listNotificationsMock: vi.fn(),
 }));
+const xhrOpenSpy = vi.spyOn(XMLHttpRequest.prototype, 'open');
 
 vi.mock('@/api/modules/memory', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/modules/memory')>();
@@ -35,6 +45,14 @@ vi.mock('@/api/modules/memory', async (importOriginal) => {
       ...actual.default,
       clearAll: clearAllMock,
     },
+  };
+});
+
+vi.mock('@/api/modules/notifications', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/modules/notifications')>();
+  return {
+    ...actual,
+    listNotifications: listNotificationsMock,
   };
 });
 
@@ -121,6 +139,19 @@ describe('chat retry lifecycle', () => {
     window.localStorage.clear();
     useConversationStore.getState().reset();
     clearAllMock.mockReset();
+    listNotificationsMock.mockReset().mockResolvedValue({
+      items: [],
+      unread_count: 0,
+    });
+    xhrOpenSpy.mockClear();
+  });
+
+  afterEach(() => {
+    expect(xhrOpenSpy).not.toHaveBeenCalled();
+  });
+
+  afterAll(() => {
+    xhrOpenSpy.mockRestore();
   });
 
   it('clears only the deleted session and announces it after durable success', () => {
@@ -192,6 +223,7 @@ describe('chat retry lifecycle', () => {
     expect(window.localStorage.getItem(
       CHAT_SESSION_KEY(DEFAULT_USER_ID),
     )).toBeNull();
+    expect(listNotificationsMock).toHaveBeenCalledTimes(1);
     expect(listener).toHaveBeenCalledTimes(1);
     window.removeEventListener(APP_EVENTS.MEMORY_CLEARED, listener);
   });

@@ -4,6 +4,7 @@ import {
   afterEach,
   beforeEach,
   describe,
+  expect,
   vi,
 } from 'vitest';
 import { useConversationStore } from '@/stores/conversation-store';
@@ -40,6 +41,8 @@ const hoistedMocks = vi.hoisted(() => ({
   convertFileSrcMock: vi.fn((path: string) => `asset://${path}`),
   toastErrorMock: vi.fn(),
   toastWarningMock: vi.fn(),
+  checkSystemSuggestionsMock: vi.fn(),
+  dismissSystemSuggestionMock: vi.fn(),
 }));
 
 export const pickDirectoryMock = hoistedMocks.pickDirectoryMock;
@@ -47,6 +50,9 @@ export const openExternalUrlMock = hoistedMocks.openExternalUrlMock;
 export const convertFileSrcMock = hoistedMocks.convertFileSrcMock;
 export const toastErrorMock = hoistedMocks.toastErrorMock;
 export const toastWarningMock = hoistedMocks.toastWarningMock;
+export const checkSystemSuggestionsMock = hoistedMocks.checkSystemSuggestionsMock;
+export const dismissSystemSuggestionMock = hoistedMocks.dismissSystemSuggestionMock;
+const xhrOpenSpy = vi.spyOn(XMLHttpRequest.prototype, 'open');
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -170,6 +176,17 @@ vi.mock('@/api/modules/config', async () => {
       ...actual.configApi,
       get: vi.fn(),
     },
+  };
+});
+
+vi.mock('@/api/modules/systemSuggestions', async () => {
+  const actual = await vi.importActual<
+    typeof import('@/api/modules/systemSuggestions')
+  >('@/api/modules/systemSuggestions');
+  return {
+    ...actual,
+    checkSystemSuggestions: hoistedMocks.checkSystemSuggestionsMock,
+    dismissSystemSuggestion: hoistedMocks.dismissSystemSuggestionMock,
   };
 });
 
@@ -341,9 +358,11 @@ export function defineChatPageSuite(
   describe(title, () => {
     afterAll(() => {
       consoleErrorSpy.mockRestore();
+      xhrOpenSpy.mockRestore();
     });
 
     afterEach(() => {
+      expect(xhrOpenSpy).not.toHaveBeenCalled();
       vi.useRealTimers();
       realtimeListener = null;
       useConversationStore.getState().reset();
@@ -363,6 +382,12 @@ export function defineChatPageSuite(
       openExternalUrlMock.mockResolvedValue(undefined);
       toastErrorMock.mockReset();
       toastWarningMock.mockReset();
+      checkSystemSuggestionsMock.mockReset().mockResolvedValue([]);
+      dismissSystemSuggestionMock.mockReset().mockResolvedValue({
+        dedupe_key: '',
+        dismissed: true,
+      });
+      xhrOpenSpy.mockClear();
       vi.mocked(personasApi.list).mockReset().mockResolvedValue({
         success: true,
         data: [],
