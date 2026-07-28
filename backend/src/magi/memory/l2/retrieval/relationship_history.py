@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal, overload
 
 import aiosqlite
 
@@ -334,6 +334,24 @@ async def _apply_relationship_forget_rules(
                 break
         governed.extend(segments)
     return governed
+
+
+@overload
+def _without_forgotten_relationship_evidence(
+    relationship: Dict[str, Any],
+    *,
+    forgotten_event_ids: set[str],
+    preserve_empty: Literal[True],
+) -> Dict[str, Any]: ...
+
+
+@overload
+def _without_forgotten_relationship_evidence(
+    relationship: Dict[str, Any],
+    *,
+    forgotten_event_ids: set[str],
+    preserve_empty: Literal[False] = False,
+) -> Dict[str, Any] | None: ...
 
 
 def _without_forgotten_relationship_evidence(

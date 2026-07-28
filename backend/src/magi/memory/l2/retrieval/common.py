@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from itertools import combinations
 from typing import Any, Dict, Protocol
 
@@ -326,7 +326,7 @@ async def restore_committed_situation_change_heads(
     db: aiosqlite.Connection,
     *,
     target_kind: str,
-    rows: list[Mapping[str, Any]],
+    rows: Sequence[Mapping[str, Any]],
     identity_field: str,
 ) -> list[dict[str, Any]]:
     """Replace reused future rows with the last committed durable snapshot."""

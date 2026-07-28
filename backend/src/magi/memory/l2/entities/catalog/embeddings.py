@@ -160,7 +160,8 @@ class L2EntityCatalogEmbeddingMixin:
         if not self._vectors_enabled():
             return 0
         pipeline = self._build_embedding_pipeline()
-        if pipeline is None:
+        vector_index = host._vector_index
+        if pipeline is None or vector_index is None:
             return 0
         snapshots = [
             snapshot
@@ -210,7 +211,7 @@ class L2EntityCatalogEmbeddingMixin:
                 if not isinstance(snapshot, _EntityEmbeddingSnapshot):
                     continue
                 if not await self._entity_snapshot_matches(snapshot):
-                    await host._vector_index.delete_embedding(
+                    await vector_index.delete_embedding(
                         entity_id=result.parent_id,
                         embedding=result.embeddings[0],
                     )
@@ -224,7 +225,7 @@ class L2EntityCatalogEmbeddingMixin:
                 ):
                     updated += 1
                 else:
-                    await host._vector_index.delete_embedding(
+                    await vector_index.delete_embedding(
                         entity_id=result.parent_id,
                         embedding=result.embeddings[0],
                     )

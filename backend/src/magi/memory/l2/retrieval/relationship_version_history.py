@@ -147,7 +147,14 @@ def _apply_latest_closed_segment_payloads(
             for snapshot in candidates
             if not str(snapshot.get("_governed_version_id") or "").startswith("current:")
         ]
-        replacement = dict(max(immutable or candidates, key=_snapshot_recorded_order))
+        replacement_candidates: List[Dict[str, Any]] = (
+            immutable if immutable else candidates
+        )
+        latest_snapshot = max(
+            replacement_candidates,
+            key=_snapshot_recorded_order,
+        )
+        replacement = dict(latest_snapshot)
         replacement["valid_from"] = relationship_start
         replacement["valid_to"] = relationship_end
         replacement["status"] = "active"

@@ -88,11 +88,13 @@ class L2StoreSourceEventForgettingMixin:
             async with sqlite_connection_async(host.db_path) as db:
                 await db.execute("BEGIN IMMEDIATE")
                 try:
-                    inserted = await tombstone_source_event_ids(
-                        db,
-                        event_ids=normalized,
-                        reason=reason,
-                        created_at=time.time(),
+                    inserted = int(
+                        await tombstone_source_event_ids(
+                            db,
+                            event_ids=normalized,
+                            reason=reason,
+                            created_at=time.time(),
+                        )
                     )
                     await _complete_forgotten_projection_jobs(
                         db,
@@ -1578,7 +1580,7 @@ def _reduced_relationship_confidence(
     bounded = min(max(confidence, 0.0), 1.0)
     if retained_count <= 0:
         return 0.0
-    return 1.0 - ((1.0 - bounded) ** (retained_count / original_count))
+    return 1.0 - math.pow(1.0 - bounded, retained_count / original_count)
 
 
 def _event_json(event_ids: tuple[str, ...]) -> str:

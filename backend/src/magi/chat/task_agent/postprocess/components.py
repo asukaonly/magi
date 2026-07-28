@@ -140,7 +140,7 @@ class ChatOutcomeWriter:
         """Atomically commit one exact admitted segmented outcome."""
 
         if self._chat_store is None:
-            messages = await self.persist_segmented_chat_outcome(
+            persisted_messages = await self.persist_segmented_chat_outcome(
                 turn_id=turn_id,
                 orchestration_id=orchestration_id,
                 execution_mode=execution_mode,
@@ -157,7 +157,7 @@ class ChatOutcomeWriter:
                 reply_to_message_id=reply_to_message_id,
                 persona_id=persona_id,
             )
-            return True, messages
+            return True, persisted_messages
         turn_write = await self._turn_state_writer.resolve_turn_completion(
             turn_id=turn_id,
             ux_plan=ux_plan,

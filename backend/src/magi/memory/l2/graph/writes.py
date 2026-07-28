@@ -34,7 +34,7 @@ from ..corrections.relationship_conflict_effects import (
     record_relationship_shadow_conflict_effect,
 )
 from ..corrections.repository import MemoryCorrectionRepository
-from ..graph_conflicts import relationship_predicate_slot
+from ..graph_conflicts import GraphConflictRule, relationship_predicate_slot
 from .versions import append_knowledge_graph_version
 from ..ontology import are_predicates_synonymous
 from ..storage.utils import (
@@ -77,11 +77,13 @@ class _KnowledgeEdgeWrite:
 
     @property
     def triple_id(self) -> str:
-        return relationship_triple_id(
-            subject_id=self.subject_id,
-            predicate=self.predicate,
-            object_id=self.object_id,
-            scope_key_value=self.scope_key,
+        return str(
+            relationship_triple_id(
+                subject_id=self.subject_id,
+                predicate=self.predicate,
+                object_id=self.object_id,
+                scope_key_value=self.scope_key,
+            )
         )
 
     @property
@@ -264,6 +266,8 @@ class _GraphWriteHostProtocol(Protocol):
 
 class L2StoreGraphWriteMixin:
     """Insert, refresh, and corroborate knowledge-graph edges."""
+
+    _graph_conflict_rules: Mapping[str, GraphConflictRule]
 
     async def upsert_knowledge_edge(
         self,
@@ -582,15 +586,17 @@ class L2StoreGraphWriteMixin:
     ) -> str:
         """Return the governed slot for a relationship candidate."""
         normalized_predicate = str(predicate).strip().upper()
-        return relationship_slot_key(
-            subject_id=subject_id,
-            predicate=normalized_predicate,
-            object_id=object_id,
-            predicate_slot=relationship_predicate_slot(
-                self._graph_conflict_rules,
+        return str(
+            relationship_slot_key(
+                subject_id=subject_id,
                 predicate=normalized_predicate,
                 object_id=object_id,
-            ),
+                predicate_slot=relationship_predicate_slot(
+                    self._graph_conflict_rules,
+                    predicate=normalized_predicate,
+                    object_id=object_id,
+                ),
+            )
         )
 
     def _with_edge_governance_identity(

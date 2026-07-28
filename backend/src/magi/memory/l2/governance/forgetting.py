@@ -129,6 +129,11 @@ class L2StoreForgettingMixin:
             if source_event_id is not None
             else {}
         )
+        source_event_observed_at = (
+            source_event_timestamps.get(source_event_id)
+            if source_event_id is not None
+            else None
+        )
         result = await MemoryCorrectionService(
             host.db_path,
             graph_conflict_rules=host._graph_conflict_rules,
@@ -143,7 +148,7 @@ class L2StoreForgettingMixin:
                 effective_at=effective_at,
                 scope=scope,
                 source_event_id=source_event_id,
-                source_event_observed_at=source_event_timestamps.get(source_event_id),
+                source_event_observed_at=source_event_observed_at,
                 audit_event_id=audit_event_id,
                 expected_updated_at=expected_updated_at,
             )

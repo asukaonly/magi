@@ -658,7 +658,7 @@ class L2StoreRelationshipQueryMixin:
             placeholders = ", ".join("?" for _ in status_filters)
             sql = f"SELECT * FROM knowledge_graph WHERE status IN ({placeholders})"
             sql += _FORGOTTEN_RELATIONSHIP_EXCLUSION_SQL
-            args: list[Any] = [str(item).strip() for item in status_filters]
+            args = [str(item).strip() for item in status_filters]
         else:
             sql = "SELECT * FROM knowledge_graph WHERE status = ?"
             sql += _FORGOTTEN_RELATIONSHIP_EXCLUSION_SQL

@@ -233,7 +233,7 @@ class ChatDeliveryOutcomePersistenceMixin:
                         run_id=run_id,
                         run_revision=run_revision,
                     )
-                if not owner_matches:
+                if owner is None or not owner_matches:
                     await db.rollback()
                     return None
 

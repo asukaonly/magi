@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import AbstractAsyncContextManager
 from typing import Any, Dict, List, Tuple
 
 import aiosqlite
@@ -10,6 +11,7 @@ import aiosqlite
 from ....core.sqlite import sqlite_connection_async
 from ...sql_search import build_like_search_clause
 from ...hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
+from ...embedding.embedding_service import MemoryEmbeddingService
 from ..advisory.tools import build_tool_advisory, is_tool_advisory_notable
 from ..source_event_governance import active_skill_predicate
 from ..storage.schema import EXECUTION_TRACES_TABLE, SKILL_CHUNKS_TABLE
@@ -31,12 +33,16 @@ class L4ProceduralRetrievalMixin:
 
     db_path: str
     _initialized: bool
+    _embedding_service: MemoryEmbeddingService | None
     _vector_index: Any | None
 
     async def initialize(self) -> None:
         raise NotImplementedError
 
     async def _semantic_query_strategies(self, *, query: str, limit: int) -> List[Dict[str, Any]]:
+        raise NotImplementedError
+
+    def embedding_mutation_guard(self) -> AbstractAsyncContextManager[None]:
         raise NotImplementedError
 
     async def get_skill(self, *, skill_name: str, skill_category: str) -> Dict[str, Any] | None:
