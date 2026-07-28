@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 import sqlite3
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +19,7 @@ from magi.chat import (
 from magi.chat.assistant_memory_projection import (
     ChatAssistantMemoryProjectionService,
 )
+from magi.chat.storage import assistant_memory_outbox
 
 
 class _FakeL1:
@@ -658,10 +660,16 @@ async def test_crash_after_publish_replays_by_confirmation_without_republish(
 
 @pytest.mark.asyncio
 async def test_projection_timeout_keeps_content_with_exponential_backoff(
+    monkeypatch: pytest.MonkeyPatch,
     runtime_paths_with_schema,
 ) -> None:
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await _create_unmanaged_projection(store)
+    monkeypatch.setattr(
+        assistant_memory_outbox,
+        "time",
+        SimpleNamespace(time=lambda: 1.0),
+    )
     l1 = _FakeL1()
     service = ChatAssistantMemoryProjectionService(
         outbox=store,
@@ -691,7 +699,7 @@ async def test_projection_timeout_keeps_content_with_exponential_backoff(
     assert row is not None
     assert row[0] == "pending"
     assert row[1] == 1
-    assert row[2] > int(time.time() * 1000)
+    assert row[2] == 1_100
     assert "TimeoutError" in str(row[3])
     assert row[4] == "A durable answer"
     assert row[5] is None
