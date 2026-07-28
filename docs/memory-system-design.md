@@ -997,7 +997,11 @@ Batch policy:
 - For high-throughput sources, plugins can provide `catch_up_owner` for coarser-grained catch-up shards
 - The pipeline switches between `catch_up` (throughput-focused) and `steady_state` (latency-focused) modes based on backlog
 - Durable claim is subject to runtime backpressure
-- Plugin sync cursors only track "synced to L1", not L2 progress
+- Plugin sync cursors only track "synced to L1", not L2 progress. A sensor item
+  may advance that cursor only after the memory-owned sensor commit boundary
+  returns an explicit L1 confirmation (new write, idempotent duplicate, or an
+  intentional forget-governance rejection). Transient write failures and
+  memory-clear races fail the sensor job and retain the previous cursor.
 - The `runtime_worker` registers `memory_l1_maintenance` as a periodic task for L1 retention cleanup, including compressible L1 events that are already covered by L3 summaries and pinned-payload pruning.
 - The `runtime_worker` registers `memory_l2_maintenance` as a periodic task for offline entity catalog / knowledge graph maintenance, including ghost references, mergeable types, orphan entities, assertion reconciliation, edge embedding refresh, predicate consolidation, and promotion-counter pruning.
 - The `runtime_worker` registers `memory_l2_consolidate` as a separate periodic task for episode promotion/merge/invalidations, experience promotion, and missing episodic/experience summary generation.

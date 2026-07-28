@@ -4,6 +4,7 @@ Heavy work (translation + DB writes) is offloaded onto asyncio.create_task so th
 event-bus publish loop is never blocked. Tests can call drain() to await all
 inflight ingest tasks before assertions or before shutdown.
 """
+
 from __future__ import annotations
 import asyncio
 import logging
@@ -20,7 +21,6 @@ _SUBSCRIBED_EVENT_TYPES = (
     EventTypes.SPAN_COMPLETED,
     EventTypes.USER_MESSAGE_RECEIVED,
     EventTypes.ASSISTANT_RESPONSE_PRODUCED,
-    EventTypes.SENSOR_EVENT_EMITTED,
     EventTypes.TASK_STARTED,
     EventTypes.TASK_COMPLETED,
     EventTypes.TASK_FAILED,
@@ -58,8 +58,7 @@ class MemoryIngestionSubscriber:
         expected_epoch = published_memory_epoch(event)
         if expected_epoch is None:
             logger.error(
-                "memory ingest rejected event without a valid publication epoch: "
-                "event_type=%s",
+                "memory ingest rejected event without a valid publication epoch: " "event_type=%s",
                 event.type,
             )
             return

@@ -55,4 +55,8 @@ async def test_l1_ingest_without_finder_writes():
 
     layer = L1Layer(StoreNoFinder())
     result = await layer.ingest(make_event(), FanOutContext())
-    assert result.markers == {"l1_written": True, "stored_event_id": "newid"}
+    assert result.markers == {
+        "l1_written": True,
+        "l1_confirmed": True,
+        "stored_event_id": "newid",
+    }

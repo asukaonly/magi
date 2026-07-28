@@ -54,6 +54,7 @@ class MemoryIngestionMixin:
                     "event_id": memory_event.event_id,
                     "ingest_target": memory_event.ingest_target.label,
                     "l1_written": False,
+                    "l1_confirmed": False,
                     "l2_job_enqueued": False,
                     "l2_relation_count": 0,
                     "l2_assertion_count": 0,
@@ -115,6 +116,7 @@ class MemoryIngestionMixin:
                 "event_id": stored_event_id,
                 "ingest_target": memory_event.ingest_target.label,
                 "l1_written": bool(ctx.markers.get("l1_written")),
+                "l1_confirmed": bool(ctx.markers.get("l1_confirmed")),
                 "l2_job_enqueued": False,
                 "l2_relation_count": 0,
                 "l2_assertion_count": 0,
@@ -131,6 +133,7 @@ class MemoryIngestionMixin:
             "event_id": stored_event_id,
             "ingest_target": memory_event.ingest_target.label,
             "l1_written": bool(ctx.markers.get("l1_written")),
+            "l1_confirmed": bool(ctx.markers.get("l1_confirmed")),
             "l2_job_enqueued": bool(ctx.markers.get("l2_job_enqueued")),
             "l2_relation_count": 0,
             "l2_assertion_count": 0,
@@ -144,6 +147,7 @@ class MemoryIngestionMixin:
             "event_id": memory_event.event_id,
             "ingest_target": memory_event.ingest_target.label,
             "l1_written": False,
+            "l1_confirmed": False,
             "l2_job_enqueued": False,
             "l2_relation_count": 0,
             "l2_assertion_count": 0,
@@ -159,6 +163,7 @@ class MemoryIngestionMixin:
             "event_id": memory_event.event_id,
             "ingest_target": memory_event.ingest_target.label,
             "l1_written": False,
+            "l1_confirmed": False,
             "l2_job_enqueued": False,
             "l2_relation_count": 0,
             "l2_assertion_count": 0,
@@ -206,6 +211,8 @@ class MemoryIngestionMixin:
                 event.event_id,
                 event.event_type,
             )
+            if layer.required_for_acceptance:
+                raise
             return
         if result.markers:
             ctx.markers.update(result.markers)

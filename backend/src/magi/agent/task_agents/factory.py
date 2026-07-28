@@ -22,6 +22,7 @@ def create_default_agent_factory(
     unified_memory: UnifiedMemoryStore,
     plugin_manager: Any,
     sensor_registry: Any,
+    sensor_ingestion_gateway: Any,
     build_timeline_handler: Callable[..., Any],
     control_session_store_provider: Callable[[], Any] | None = None,
 ) -> Callable[[str, str], Any]:
@@ -43,6 +44,7 @@ def create_default_agent_factory(
                     unified_memory,
                     sensor_registry=sensor_registry,
                     plugin_manager=plugin_manager,
+                    ingestion_gateway=sensor_ingestion_gateway,
                 ),
                 config=config,
                 unified_memory=unified_memory,

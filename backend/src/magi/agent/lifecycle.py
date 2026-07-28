@@ -163,18 +163,13 @@ class AgentRuntimeModule(LifecycleModule):
                         f"background-task:{task.task_id}:"
                         f"attempt:{int(task.attempt_index)}:started"
                     ),
-                    source_turn_id=(
-                        str(getattr(spec, "origin_turn_id", "") or "").strip()
-                        or None
-                    ),
+                    source_turn_id=(str(getattr(spec, "origin_turn_id", "") or "").strip() or None),
                     user_id=str(getattr(spec, "user_id", "") or ""),
                     session_id=str(getattr(spec, "session_id", "") or ""),
                     task_id=str(task.task_id),
                     task_attempt=int(task.attempt_index),
                     accepted_at=float(
-                        task.started_at
-                        if task.started_at is not None
-                        else task.updated_at
+                        task.started_at if task.started_at is not None else task.updated_at
                     ),
                 )
             )
@@ -201,9 +196,7 @@ class AgentRuntimeModule(LifecycleModule):
                 deps.runtime_command_queue.current_user_message_generation
             ),
             user_message_scope_blocker=(deps.runtime_command_queue.is_user_message_scope_blocked),
-            user_message_delivery_admitter=(
-                deps.chat_store.mark_user_turn_delivery_admitted
-            ),
+            user_message_delivery_admitter=(deps.chat_store.mark_user_turn_delivery_admitted),
             runtime_command_acknowledger=deps.runtime_command_queue.ack,
         )
 
@@ -249,6 +242,10 @@ class AgentRuntimeModule(LifecycleModule):
             unified_memory=deps.unified_memory,
             plugin_manager=deps.plugin_manager,
             sensor_registry=deps.sensor_registry,
+            sensor_ingestion_gateway=require_initialized(
+                self._context.agent_runtime.sensor_ingestion_gateway,
+                "sensor ingestion gateway",
+            ),
             build_timeline_handler=self._build_timeline_handler,
             control_session_store_provider=resolve_control_session_store,
         )
@@ -354,9 +351,7 @@ class AgentRuntimeModule(LifecycleModule):
                 timeout_seconds=5.0,
             )
             if not flushed:
-                logger.warning(
-                    "Timed out while flushing accepted conversation outcomes"
-                )
+                logger.warning("Timed out while flushing accepted conversation outcomes")
         self._context.agent_runtime.post_turn_understanding_service = None
 
 

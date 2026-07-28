@@ -17,7 +17,11 @@ from magi.awareness.scheduler_contrib import SensorSchedulerContrib
 from magi.awareness.sensor_sync import PullSyncSensor, SensorSyncResult
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.plugins.sensors import SensorRegistry, SensorSpec
-from magi.scheduler.contracts import ScheduledTargetState, ScheduledTargetType, build_sensor_target_key
+from magi.scheduler.contracts import (
+    ScheduledTargetState,
+    ScheduledTargetType,
+    build_sensor_target_key,
+)
 from magi.utils.runtime import RuntimePaths
 
 
@@ -79,7 +83,9 @@ class _FakeSchedulerService:
 
     async def schedule_interval(self, **kwargs):  # type: ignore[no-untyped-def]
         self.interval_calls.append(kwargs)
-        schedule = type("Schedule", (), {"schedule_id": kwargs["schedule_id"], "job_id": kwargs["schedule_id"]})()
+        schedule = type(
+            "Schedule", (), {"schedule_id": kwargs["schedule_id"], "job_id": kwargs["schedule_id"]}
+        )()
         self.repository.schedules[kwargs["schedule_id"]] = schedule
         return schedule
 
@@ -249,7 +255,9 @@ class _FakeIngestionGateway:
 
 
 @pytest.mark.asyncio
-async def test_sensor_schedule_registration_module_registers_handler_and_syncs_schedules(monkeypatch, tmp_path) -> None:
+async def test_sensor_schedule_registration_module_registers_handler_and_syncs_schedules(
+    monkeypatch, tmp_path
+) -> None:
     from magi.awareness.lifecycle import SensorScheduleRegistrationModule
     from magi.scheduler.contracts import ScheduledTargetType, build_sensor_schedule_id
 
@@ -261,6 +269,7 @@ async def test_sensor_schedule_registration_module_registers_handler_and_syncs_s
     context.scheduler.scheduler_service = _FakeSchedulerService()
     context.memory.unified_memory = _FakeUnifiedMemory()
     context.message_bus.message_bus = MagicMock(publish=AsyncMock())
+    context.agent_runtime.sensor_ingestion_gateway = _FakeIngestionGateway()
 
     module = SensorScheduleRegistrationModule(context)
     await module.init()
@@ -268,7 +277,9 @@ async def test_sensor_schedule_registration_module_registers_handler_and_syncs_s
     registrations = context.scheduler.scheduler_service.registrations
     assert len(registrations) == 1
     assert registrations[0][0] == ScheduledTargetType.SENSOR_SYNC
-    assert context.scheduler.scheduler_service.interval_calls[0]["schedule_id"] == build_sensor_schedule_id(
+    assert context.scheduler.scheduler_service.interval_calls[0][
+        "schedule_id"
+    ] == build_sensor_schedule_id(
         "pull-plugin",
         "pull_history",
     )
@@ -290,6 +301,7 @@ async def test_sensor_schedule_registration_module_supports_manual_sync(tmp_path
     context.scheduler.scheduler_service = _FakeSchedulerService()
     context.memory.unified_memory = _FakeUnifiedMemory()
     context.message_bus.message_bus = MagicMock(publish=AsyncMock())
+    context.agent_runtime.sensor_ingestion_gateway = _FakeIngestionGateway()
 
     module = SensorScheduleRegistrationModule(context)
     await module.init()
@@ -303,7 +315,9 @@ async def test_sensor_schedule_registration_module_supports_manual_sync(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_sensor_schedule_registration_module_queues_backfill_with_stable_scope(tmp_path) -> None:
+async def test_sensor_schedule_registration_module_queues_backfill_with_stable_scope(
+    tmp_path,
+) -> None:
     from magi.awareness.lifecycle import SensorScheduleRegistrationModule
 
     context = RuntimeBootstrapContext()
@@ -314,6 +328,7 @@ async def test_sensor_schedule_registration_module_queues_backfill_with_stable_s
     context.scheduler.scheduler_service = _FakeSchedulerService()
     context.memory.unified_memory = _FakeUnifiedMemory()
     context.message_bus.message_bus = MagicMock(publish=AsyncMock())
+    context.agent_runtime.sensor_ingestion_gateway = _FakeIngestionGateway()
 
     module = SensorScheduleRegistrationModule(context)
     await module.init()
@@ -349,7 +364,9 @@ async def test_sensor_schedule_registration_module_queues_backfill_with_stable_s
 
 
 @pytest.mark.asyncio
-async def test_sensor_schedule_registration_module_queues_custom_backfill_with_stable_range(tmp_path) -> None:
+async def test_sensor_schedule_registration_module_queues_custom_backfill_with_stable_range(
+    tmp_path,
+) -> None:
     from magi.awareness.lifecycle import SensorScheduleRegistrationModule
 
     context = RuntimeBootstrapContext()
@@ -360,6 +377,7 @@ async def test_sensor_schedule_registration_module_queues_custom_backfill_with_s
     context.scheduler.scheduler_service = _FakeSchedulerService()
     context.memory.unified_memory = _FakeUnifiedMemory()
     context.message_bus.message_bus = MagicMock(publish=AsyncMock())
+    context.agent_runtime.sensor_ingestion_gateway = _FakeIngestionGateway()
 
     module = SensorScheduleRegistrationModule(context)
     await module.init()
@@ -379,7 +397,10 @@ async def test_sensor_schedule_registration_module_queues_custom_backfill_with_s
         backfill_end_date="2026-06-30",
     )
 
-    assert first.schedule_id == "sensor-sync-backfill:pull-plugin:pull_history:custom:2026-06-01:2026-06-30"
+    assert (
+        first.schedule_id
+        == "sensor-sync-backfill:pull-plugin:pull_history:custom:2026-06-01:2026-06-30"
+    )
     assert second.schedule_id == first.schedule_id
     once_call = context.scheduler.scheduler_service.once_calls[0]
     assert once_call["target_payload"]["sync_request"] == {
@@ -520,7 +541,10 @@ async def test_sensor_sync_backfill_continuation_keeps_backfill_cursor(tmp_path)
     )
 
     assert len(sensor.contexts) == 1
-    assert sensor.contexts[0].last_cursor == '{"version":1,"mode":"backfill","capture_before":1718409600}'
+    assert (
+        sensor.contexts[0].last_cursor
+        == '{"version":1,"mode":"backfill","capture_before":1718409600}'
+    )
 
 
 @pytest.mark.asyncio

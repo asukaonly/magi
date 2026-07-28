@@ -25,6 +25,10 @@ from magi.awareness.sensor_output import (
 )
 from magi.events.domain_payloads import SensorEventEmitted
 from magi.events.events import EventTypes
+from magi.memory.sensor_ingestion import (
+    SensorCommitOutcome,
+    SensorCommitReceipt,
+)
 
 
 class _FakeSensor(SensorBase):
@@ -99,15 +103,29 @@ def _make_output(**overrides: Any) -> SensorOutput:
 
 def _make_bus() -> MagicMock:
     bus = MagicMock()
-    bus.publish = AsyncMock()
+    bus.publish = AsyncMock(return_value=True)
     return bus
+
+
+def _make_committer() -> MagicMock:
+    committer = MagicMock()
+
+    async def _commit(event):
+        return SensorCommitReceipt(
+            event_id=event.event_id,
+            outcome=SensorCommitOutcome.PERSISTED,
+        )
+
+    committer.commit = AsyncMock(side_effect=_commit)
+    return committer
 
 
 class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_ingest_publishes_sensor_event_emitted(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus)
+        committer = _make_committer()
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=committer)
         sensor = _FakeSensor()
         output = _make_output()
 
@@ -116,7 +134,12 @@ class TestSensorIngestionGatewayPublishes:
         assert isinstance(result, SensorIngestionResult)
         assert result.ingested is True
         assert result.event_id  # ULID assigned
-        assert result.stats == {}
+        assert result.stats == {
+            "memory_outcome": "persisted",
+            "projection_published": True,
+            "projection_skipped": False,
+        }
+        committer.commit.assert_awaited_once()
         bus.publish.assert_awaited_once()
 
         event = bus.publish.await_args.args[0]
@@ -135,7 +158,7 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_carries_policy_dict(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus)
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
         sensor = _FakeSensor()
 
         await gateway.ingest(sensor, _make_output())
@@ -149,19 +172,24 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_carries_projection_dict(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus)
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
         sensor = _FakeSensor()
 
         await gateway.ingest(sensor, _make_output())
 
         payload = bus.publish.await_args.args[0].data
         assert payload.projection_dict.get("embedding_head") == "Fake Source Observed"
-        assert payload.projection_dict.get("metadata", {}).get("projection", {}).get("renderer_version") == "sensor_activity_v1"
+        assert (
+            payload.projection_dict.get("metadata", {})
+            .get("projection", {})
+            .get("renderer_version")
+            == "sensor_activity_v1"
+        )
 
     @pytest.mark.asyncio
     async def test_payload_carries_owner_from_provenance(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus)
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
         sensor = _FakeSensor()
         output = _make_output(provenance={"user_id": "owner-42"})
 
@@ -174,7 +202,7 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_carries_metadata_dict(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus)
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
         sensor = _FakeSensor()
         metadata = SensorOutputMetadata(
             tags=["j-pop", "electropop"],
@@ -193,7 +221,7 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_metadata_dict_none_when_no_metadata(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus)
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
         sensor = _FakeSensor()
 
         await gateway.ingest(sensor, _make_output())
@@ -204,7 +232,7 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_carries_relation_candidates_and_whitelist(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus)
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
         sensor = _FakeSensor()
         metadata = SensorOutputMetadata(
             relation_candidates=[
@@ -228,7 +256,7 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_relation_candidates_default_empty(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus)
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
         sensor = _FakeSensor()
 
         await gateway.ingest(sensor, _make_output())
@@ -240,7 +268,7 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_carries_l2_batch_policy_dict(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus)
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
         sensor = _FakeBatchingSensor()
 
         await gateway.ingest(sensor, _make_output())
@@ -255,7 +283,7 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_l2_batch_policy_dict_none_when_no_policy(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus)
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
         sensor = _FakeSensor()
 
         await gateway.ingest(sensor, _make_output())
@@ -266,7 +294,7 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_carries_fingerprint_and_idempotency_key(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus)
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
         sensor = _FakeSensor()
 
         await gateway.ingest(sensor, _make_output())
@@ -276,13 +304,47 @@ class TestSensorIngestionGatewayPublishes:
         assert payload.sensor_fingerprint  # non-empty string
 
     @pytest.mark.asyncio
-    async def test_publish_failure_does_not_raise(self):
-        """Gateway logs but swallows publish exceptions."""
+    async def test_projection_publish_failure_keeps_confirmed_memory_success(self):
+        """Derived projection failure cannot erase an already confirmed L1 commit."""
         bus = _make_bus()
         bus.publish = AsyncMock(side_effect=RuntimeError("boom"))
-        gateway = SensorIngestionGateway(event_bus=bus)
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
         sensor = _FakeSensor()
 
-        # Should not raise
         result = await gateway.ingest(sensor, _make_output())
         assert result.ingested is True
+        assert result.stats["projection_published"] is False
+
+    @pytest.mark.asyncio
+    async def test_memory_commit_failure_raises_without_publishing(self):
+        bus = _make_bus()
+        committer = _make_committer()
+        committer.commit = AsyncMock(side_effect=RuntimeError("l1 unavailable"))
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=committer)
+
+        with pytest.raises(RuntimeError, match="l1 unavailable"):
+            await gateway.ingest(_FakeSensor(), _make_output())
+
+        bus.publish.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_governed_skip_does_not_recreate_downstream_projection(self):
+        bus = _make_bus()
+        committer = _make_committer()
+        committer.commit = AsyncMock(
+            return_value=SensorCommitReceipt(
+                event_id="forgotten-event",
+                outcome=SensorCommitOutcome.GOVERNED_SKIP,
+            )
+        )
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=committer)
+
+        result = await gateway.ingest(_FakeSensor(), _make_output())
+
+        assert result.ingested is True
+        assert result.stats == {
+            "memory_outcome": "governed_skip",
+            "projection_published": False,
+            "projection_skipped": True,
+        }
+        bus.publish.assert_not_awaited()

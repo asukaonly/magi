@@ -195,6 +195,7 @@ class AgentRuntimeBootstrapState:
 
     sensor_hub: SensorHub | None = None
     event_emitter: RuntimeEventEmitter | None = None
+    sensor_ingestion_gateway: Any = None
     sensor_scheduler_contrib: SensorSchedulerContrib | None = None
     sensor_sync_executor: Any = None
     agent_runtime: AgentRuntime | None = None

@@ -1,9 +1,10 @@
 """L1 fan-out layer adapter."""
+
 from __future__ import annotations
 import logging
 from typing import Any
 
-from ..layer_protocol import FanOutContext, LayerIngestResult, MemoryLayer, WILDCARD_EVENT_TYPES
+from ..layer_protocol import FanOutContext, LayerIngestResult, WILDCARD_EVENT_TYPES
 from ..event_contracts import MemoryEvent
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,7 @@ class L1Layer:
     layer_name = "l1"
     accepts_event_types = WILDCARD_EVENT_TYPES
     requires_write_lock = True
+    required_for_acceptance = True
 
     def __init__(self, store: Any) -> None:
         self._store = store
@@ -54,6 +56,7 @@ class L1Layer:
             ok=True,
             markers={
                 "l1_written": l1_written,
+                "l1_confirmed": True,
                 "stored_event_id": stored_event_id,
             },
         )

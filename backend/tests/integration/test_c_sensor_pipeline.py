@@ -1,9 +1,5 @@
-"""End-to-end: gateway publishes SensorEventEmitted; subscribers project to all sinks.
+"""End-to-end: gateway commits L1 before publishing derived sensor projections."""
 
-Phase 9 contract test. Gateway is a thin publisher; the 4 subscribers
-(memory / timeline / KG / sensor_state) read the published payload and
-project independently.
-"""
 from __future__ import annotations
 
 import asyncio
@@ -32,10 +28,7 @@ from magi.awareness.subscribers.sensor_state_update_subscriber import (
 from magi.timeline.subscribers.kg_subscriber import KGSubscriber
 from magi.timeline.subscribers.timeline_subscriber import TimelineSubscriber
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
-from magi.memory import UnifiedMemoryStore
-from magi.memory.subscribers.memory_ingestion_subscriber import (
-    MemoryIngestionSubscriber,
-)
+from magi.memory import SensorEventCommitter, UnifiedMemoryStore
 
 
 def _init_l1_schema(db_path: Path) -> None:
@@ -68,8 +61,8 @@ class _PipelineSensor(SensorBase):
 
 
 @pytest.mark.asyncio
-async def test_sensor_ingest_lands_in_all_4_subscribers():
-    """Publish SensorEventEmitted -> memory + timeline + KG + state subscribers fire."""
+async def test_sensor_ingest_commits_memory_before_derived_subscribers():
+    """Commit L1 synchronously, then publish timeline, graph, and state projections."""
     bus = InMemoryMessageBusBackend()
     await bus.start()
 
@@ -89,22 +82,15 @@ async def test_sensor_ingest_lands_in_all_4_subscribers():
     await store.initialize()
     bus.bind_memory_operation_epoch(store.memory_operation_epoch)
 
-    memory_sub = MemoryIngestionSubscriber(event_bus=bus, unified_memory=store)
-    await memory_sub.start()
-
     fake_timeline_adapter = MagicMock()
     fake_timeline_adapter.on_timeline_event = AsyncMock()
-    timeline_sub = TimelineSubscriber(
-        event_bus=bus, timeline_adapter=fake_timeline_adapter
-    )
+    timeline_sub = TimelineSubscriber(event_bus=bus, timeline_adapter=fake_timeline_adapter)
     await timeline_sub.start()
 
     fake_state_store = MagicMock()
     fake_state_store.add_fingerprint_groups = AsyncMock()
     state_writer = SensorStateWriteQueue(sensor_state_store=fake_state_store)
-    state_sub = SensorStateUpdateSubscriber(
-        event_bus=bus, sensor_state_writer=state_writer
-    )
+    state_sub = SensorStateUpdateSubscriber(event_bus=bus, sensor_state_writer=state_writer)
     await state_sub.start()
 
     kg_writer = KnowledgeGraphWriteQueue(unified_memory=store)
@@ -132,13 +118,15 @@ async def test_sensor_ingest_lands_in_all_4_subscribers():
         narration=SensorNarration(body="something happened"),
     )
 
-    gateway = SensorIngestionGateway(event_bus=bus)
+    gateway = SensorIngestionGateway(
+        event_bus=bus,
+        memory_committer=SensorEventCommitter(unified_memory=store),
+    )
     result = await gateway.ingest(sensor, output)
     assert result.ingested is True
     envelope_event_id = result.event_id
 
     await asyncio.sleep(0.1)
-    await memory_sub.drain()
     await timeline_sub.drain()
     await state_sub.drain()
     await kg_sub.drain()
@@ -170,7 +158,6 @@ async def test_sensor_ingest_lands_in_all_4_subscribers():
     # We can't easily assert "not called" against UnifiedMemoryStore, but the
     # subscriber's early-exit path in _enqueue_relations covers this.
 
-    await memory_sub.stop()
     await timeline_sub.stop()
     await state_sub.stop()
     await kg_sub.stop()

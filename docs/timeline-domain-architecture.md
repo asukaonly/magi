@@ -31,7 +31,9 @@ Timeline does not own:
 
 ```
 Sensor plugin
-  → SensorIngestionGateway (L10, publishes SensorEventEmitted)
+  → SensorIngestionGateway (L10)
+  → memory-owned L1 commit confirmation
+  → committed SensorEventEmitted publication
   → TimelineSubscriber
   → timeline-owned SensorEventEmitted projection
   → TimelineEvent (L13 read model)
@@ -39,6 +41,10 @@ Sensor plugin
       ├─ TimelineInsightPipeline (relation → L2 graph)
       └─ Timeline read model persistence
 ```
+
+Timeline projection failure does not revoke an already confirmed sensor-memory
+commit. The canonical L1 event remains the source from which downstream read
+models can be rebuilt.
 
 The frontend reads the timeline through viewport and context-bundle APIs:
 

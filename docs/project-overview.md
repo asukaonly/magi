@@ -295,6 +295,12 @@ When adding a new SQLite write path, update this matrix, `contracts/sqlite/gatew
 
 High-volume Python write paths must have a single owning service or bounded writer queue. Event subscribers, sensors, schedulers, and trace projectors should not create unbounded per-event write tasks against SQLite. Low-frequency CRUD may keep using short-lived repository connections; bursty ingestion paths must apply backpressure, batch related writes, and expose lightweight queue statistics.
 
+Sensor pull sync has one additional acceptance rule: the scheduler may report
+an item as ingested and advance its cursor only after the memory-owned commit
+boundary confirms the L1 result. The in-process event bus is used afterward for
+rebuildable timeline, graph, and fingerprint projections; queue admission is
+not a substitute for durable-memory confirmation.
+
 | Database | Tables / state | Source of truth | Rust gateway access | Python access | Migration owner |
 |---|---|---|---|---|---|
 | `chat.db` | sessions, session-creation idempotency mappings, turns, messages, attachment metadata, asset/code-delegation ownership, private cleanup registries, delivery attempts, assistant-memory projection intents, clear intents, cleared-session scopes, cleared-message scopes | Chat transcript, server-owned session identity, presentation state, delivery convergence, and deletion barriers | Reads history/session/attachment views; atomically writes server-generated lightweight sessions and their client idempotency mappings; writes presentation fields such as title and workspace | Writes runtime turns and messages; owns stop, message/session/history deletion, permanent session and message tombstones, attachment/code-delegation cleanup, projection handoff, and recovery invariants. Governed deletion is forwarded to Python and is never a native Rust soft-delete | Python chat store schema; Rust route tests must track response/write expectations |

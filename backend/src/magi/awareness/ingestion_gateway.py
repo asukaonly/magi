@@ -1,19 +1,19 @@
 """Sensor ingestion publisher.
 
-Builds a SensorEventEmitted payload from sensor + output + metadata and publishes
-to the event bus. Side-effects (memory / timeline / KG / sensor_state) are handled
-by independent subscribers (see magi.awareness.subscribers).
+Builds a SensorEventEmitted payload, commits it to L1 memory, then publishes the
+committed event for downstream timeline, graph, and sensor-state projections.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass, field, replace
+from typing import Any, Protocol
 from ulid import ULID
 
 from ..core.logger import get_logger
 from ..events.events import Event, EventTypes
 from ..events.domain_payloads import SensorEventEmitted, TaskContext
+from ..memory.sensor_ingestion import SensorCommitOutcome, SensorCommitReceipt
 from ..identity import canonicalize_user_id as _canonicalize_user_id
 from ..identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .sensor_base import SensorBase
@@ -23,9 +23,15 @@ from .sensor_projection import build_sensor_projection
 logger = get_logger(__name__)
 
 
+class SensorMemoryCommitter(Protocol):
+    """Memory-owned port that proves the terminal L1 outcome of a sensor event."""
+
+    async def commit(self, event: Event) -> SensorCommitReceipt: ...
+
+
 @dataclass(slots=True)
 class SensorIngestionResult:
-    """Outcome of a sensor ingestion publish."""
+    """Outcome of an authoritative sensor-memory commit."""
 
     event_id: str
     ingested: bool = True
@@ -33,10 +39,11 @@ class SensorIngestionResult:
 
 
 class SensorIngestionGateway:
-    """Publishes SensorEventEmitted; lets subscribers handle side effects."""
+    """Commit sensor events to memory before publishing derived projections."""
 
-    def __init__(self, *, event_bus) -> None:
+    def __init__(self, *, event_bus, memory_committer: SensorMemoryCommitter) -> None:
         self._event_bus = event_bus
+        self._memory_committer = memory_committer
 
     async def ingest(
         self,
@@ -53,12 +60,32 @@ class SensorIngestionGateway:
             metadata=metadata,
             allowed_edge_whitelist=allowed_edge_whitelist,
         )
-        await self._publish_sensor_event(
+        event = Event(
+            type=EventTypes.SENSOR_EVENT_EMITTED,
+            data=payload,
             event_id=event_id,
-            sensor_id=sensor.sensor_id,
-            payload=payload,
+            source="sensor_ingestion_gateway",
         )
-        return SensorIngestionResult(event_id=event_id, ingested=True, stats={})
+        receipt = await self._memory_committer.commit(event)
+        committed_event = replace(event, event_id=receipt.event_id)
+        projection_skipped = receipt.outcome is SensorCommitOutcome.GOVERNED_SKIP
+        projection_published = (
+            False
+            if projection_skipped
+            else await self._publish_sensor_event(
+                event=committed_event,
+                sensor_id=sensor.sensor_id,
+            )
+        )
+        return SensorIngestionResult(
+            event_id=receipt.event_id,
+            ingested=True,
+            stats={
+                "memory_outcome": receipt.outcome.value,
+                "projection_published": projection_published,
+                "projection_skipped": projection_skipped,
+            },
+        )
 
     def _build_sensor_event_payload(
         self,
@@ -133,21 +160,22 @@ class SensorIngestionGateway:
     async def _publish_sensor_event(
         self,
         *,
-        event_id: str,
+        event: Event,
         sensor_id: str,
-        payload: SensorEventEmitted,
-    ) -> None:
+    ) -> bool:
         try:
-            await self._event_bus.publish(
-                Event(
-                    type=EventTypes.SENSOR_EVENT_EMITTED,
-                    data=payload,
-                    event_id=event_id,
-                    source="sensor_ingestion_gateway",
-                )
-            )
+            published = await self._event_bus.publish(event)
         except Exception:
             logger.exception("publish SensorEventEmitted failed (sensor=%s)", sensor_id)
+            return False
+        if not published:
+            logger.warning(
+                "SensorEventEmitted downstream projection publish was rejected",
+                sensor_id=sensor_id,
+                event_id=event.event_id,
+            )
+            return False
+        return True
 
     @staticmethod
     def _resolve_memory_owner_user_id(output: SensorOutput) -> str:

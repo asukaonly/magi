@@ -1601,8 +1601,11 @@ Pull-capable timeline sensors participate in the runtime like this:
 1. the scheduler fires a `sensor_sync` schedule and the scheduler enqueues a durable job (see Sensor sync execution model above)
 2. `SensorSyncExecutor` claims the job on its dedicated thread
 3. the executor resolves the sensor from `SensorRegistry`, runs `collect_items`, `fetch_item`, `build_output`, and `extract_metadata`
-4. ingested outputs flow through `SensorIngestionGateway` into memory and timeline stores
-5. downstream consumers such as `TimelineAdapter` project the ingested outputs into timeline read models
+4. `SensorIngestionGateway` waits for the memory-owned sensor commit boundary
+   to confirm the canonical L1 outcome; only confirmed items are eligible for
+   cursor progress
+5. the committed event is published to downstream consumers such as
+   `TimelineAdapter`, which build rebuildable timeline and graph projections
 
 This is how plugin-backed local sources participate in timeline ingestion without each source inventing its own background loop.
 

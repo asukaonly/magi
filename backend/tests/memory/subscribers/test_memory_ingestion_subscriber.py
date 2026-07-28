@@ -12,7 +12,9 @@ from magi.events.events import (
 )
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.events.domain_payloads import (
-    ToolInvocationCompleted, TaskContext, UserMessageReceived,
+    ToolInvocationCompleted,
+    TaskContext,
+    UserMessageReceived,
 )
 from magi.memory.operation_barrier import AsyncOperationBarrier
 
@@ -52,7 +54,6 @@ async def test_subscribes_to_all_canonical_event_types(fake_bus):
         EventTypes.SPAN_COMPLETED,
         EventTypes.USER_MESSAGE_RECEIVED,
         EventTypes.ASSISTANT_RESPONSE_PRODUCED,
-        EventTypes.SENSOR_EVENT_EMITTED,
         EventTypes.TASK_STARTED,
         EventTypes.TASK_COMPLETED,
         EventTypes.TASK_FAILED,
@@ -70,10 +71,15 @@ async def test_translates_and_calls_ingest(fake_bus):
     await sub.start()
 
     payload = ToolInvocationCompleted(
-        tool_name="x", tool_category="external_tool",
-        success=True, duration_ms=1.0,
-        started_at=1.0, finished_at=2.0,
-        args_summary=None, result_summary=None, error=None,
+        tool_name="x",
+        tool_category="external_tool",
+        success=True,
+        duration_ms=1.0,
+        started_at=1.0,
+        finished_at=2.0,
+        args_summary=None,
+        result_summary=None,
+        error=None,
         context=TaskContext("s", "t", None, "u"),
     )
     await sub._on_event(
@@ -110,9 +116,7 @@ async def test_handler_returns_immediately_even_if_ingest_slow(fake_bus):
     )
     loop = asyncio.get_event_loop()
     start_t = loop.time()
-    await sub._on_event(
-        _published_event(event_type=EventTypes.USER_MESSAGE_RECEIVED, data=payload)
-    )
+    await sub._on_event(_published_event(event_type=EventTypes.USER_MESSAGE_RECEIVED, data=payload))
     elapsed = loop.time() - start_t
     assert elapsed < 0.05  # handler did not await ingest
 
@@ -141,11 +145,8 @@ async def test_ingest_failure_is_swallowed(fake_bus):
     sub = MemoryIngestionSubscriber(event_bus=fake_bus, unified_memory=unified)
     await sub.start()
 
-    payload = UserMessageReceived(
-        content="hi", context=TaskContext("s", "t", None, "u"))
-    await sub._on_event(
-        _published_event(event_type=EventTypes.USER_MESSAGE_RECEIVED, data=payload)
-    )
+    payload = UserMessageReceived(content="hi", context=TaskContext("s", "t", None, "u"))
+    await sub._on_event(_published_event(event_type=EventTypes.USER_MESSAGE_RECEIVED, data=payload))
     await sub.drain()  # must not raise
 
 
@@ -162,11 +163,7 @@ async def test_missing_or_invalid_publication_epoch_is_rejected(
         content="must not be ingested",
         context=TaskContext("s", "t", None, "u"),
     )
-    metadata = (
-        {}
-        if invalid_epoch is None
-        else {PUBLISHED_MEMORY_EPOCH_METADATA_KEY: invalid_epoch}
-    )
+    metadata = {} if invalid_epoch is None else {PUBLISHED_MEMORY_EPOCH_METADATA_KEY: invalid_epoch}
 
     await sub._on_event(
         Event(
@@ -188,7 +185,7 @@ async def test_stop_unsubscribes_and_drains(fake_bus):
     sub = MemoryIngestionSubscriber(event_bus=fake_bus, unified_memory=unified)
     await sub.start()
     await sub.stop()
-    assert fake_bus.unsubscribe.await_count == 9
+    assert fake_bus.unsubscribe.await_count == 8
 
 
 @pytest.mark.asyncio
@@ -268,9 +265,7 @@ async def test_pre_clear_queued_chat_projection_is_dropped_and_new_projection_is
         await sub.drain()
 
         expected_type = (
-            EventTypes.USER_MESSAGE
-            if projection_kind == "user"
-            else EventTypes.AI_RESPONSE
+            EventTypes.USER_MESSAGE if projection_kind == "user" else EventTypes.AI_RESPONSE
         )
         assert memory.written == [
             (expected_type, "new content after clear", 1),

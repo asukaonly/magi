@@ -38,14 +38,13 @@ logger = logging.getLogger(__name__)
 class L2ProjectionLayer:
     layer_name = "l2"
     requires_write_lock = True
+    required_for_acceptance = False
     accepts_event_types = WILDCARD_EVENT_TYPES
 
     def __init__(self, store: Any, *, batch_flush_interval_seconds: int | None = None) -> None:
         self._store = store
         self._batch_flush_interval_seconds = (
-            int(batch_flush_interval_seconds)
-            if batch_flush_interval_seconds is not None
-            else None
+            int(batch_flush_interval_seconds) if batch_flush_interval_seconds is not None else None
         )
 
     def accepts(self, event: MemoryEvent, ctx: FanOutContext) -> bool:
@@ -137,10 +136,7 @@ class L2ProjectionLayer:
         }
 
     def _batching_enabled(self) -> bool:
-        return (
-            self._batch_flush_interval_seconds is None
-            or self._batch_flush_interval_seconds > 0
-        )
+        return self._batch_flush_interval_seconds is None or self._batch_flush_interval_seconds > 0
 
     def _effective_max_wait_seconds(self) -> int:
         if self._batch_flush_interval_seconds is None:
@@ -151,6 +147,7 @@ class L2ProjectionLayer:
 class L2PipelineLayer:
     layer_name = "l2_pipeline"
     requires_write_lock = False
+    required_for_acceptance = False
     accepts_event_types = WILDCARD_EVENT_TYPES
 
     def __init__(self, store: Any, pipeline: Any) -> None:

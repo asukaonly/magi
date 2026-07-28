@@ -18,7 +18,7 @@ from magi.awareness.sensor_output import (
 from magi.config import AppConfig
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.memory.event_contracts import MemoryEvent
-from magi.memory.subscribers.memory_ingestion_subscriber import MemoryIngestionSubscriber
+from magi.memory.sensor_ingestion import SensorEventCommitter
 from magi.timeline.handler import build_timeline_handler
 from magi.timeline.subscribers.kg_subscriber import KGSubscriber
 
@@ -40,18 +40,13 @@ class _FakeUnifiedMemory:
     async def ingest_event(  # type: ignore[no-untyped-def]
         self,
         event,
-        *,
-        expected_epoch: int,
     ) -> dict:
-        if expected_epoch != self.epoch:
-            return {"event_id": None, "l1_written": False, "skipped": True}
         self.l1.timeline_events.append(event)
-        correlation_id = (
-            event.get("correlation_id")
-            if isinstance(event, dict)
-            else getattr(event, "correlation_id", None)
-        )
-        return {"event_id": correlation_id, "l1_written": True}
+        return {
+            "event_id": event.event_id,
+            "l1_written": True,
+            "l1_confirmed": True,
+        }
 
     async def upsert_user_graph_edge(self, **kwargs) -> None:
         self.edges.append(kwargs)
@@ -102,7 +97,11 @@ class _FakeSensorRegistry:
     def resolve_domain_sensor(self, domain: str, source_type: str):
         if domain != "timeline" or source_type != "photo_library":
             return None
-        spec = type("Spec", (), {"metadata": {"default_settings": {"enabled": True, "edge_whitelist": ["LIKES"]}}})()
+        spec = type(
+            "Spec",
+            (),
+            {"metadata": {"default_settings": {"enabled": True, "edge_whitelist": ["LIKES"]}}},
+        )()
         return ("photo-library", "timeline.photo_library", _FakePhotoLibrarySensor(), spec)
 
 
@@ -110,33 +109,27 @@ class _FakePluginManager:
     def get_package(self, plugin_id: str):
         if plugin_id != "photo-library":
             return None
-        return type("Package", (), {"current_settings": {"sensors": {"photo_library": {"enabled": True}}}})()
+        return type(
+            "Package", (), {"current_settings": {"sensors": {"photo_library": {"enabled": True}}}}
+        )()
 
 
 @pytest.mark.asyncio
 async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_graph_edges() -> None:
-    """The timeline handler routes a photo_library payload through the
-    SensorIngestionGateway publisher; independent subscribers (memory + KG)
-    consume the published SensorEventEmitted and project the canonical
-    MemoryEvent and user graph edge.
-
-    The gateway is now a thin publisher (``SensorIngestionGateway(event_bus=…)``);
-    persistence side-effects live in subscribers, so the test wires the two
-    relevant subscribers and drives the in-memory bus end to end.
-    """
+    """The timeline handler commits memory before publishing graph projections."""
     memory = _FakeUnifiedMemory()
     bus = InMemoryMessageBusBackend()
     await bus.start()
     bus.bind_memory_operation_epoch(memory.memory_operation_epoch)
 
-    memory_sub = MemoryIngestionSubscriber(event_bus=bus, unified_memory=memory)
-    await memory_sub.start()
-
     kg_writer = KnowledgeGraphWriteQueue(unified_memory=memory)
     kg_sub = KGSubscriber(event_bus=bus, kg_writer=kg_writer)
     await kg_sub.start()
 
-    gateway = SensorIngestionGateway(event_bus=bus)
+    gateway = SensorIngestionGateway(
+        event_bus=bus,
+        memory_committer=SensorEventCommitter(unified_memory=memory),
+    )
     handler = build_timeline_handler(
         AppConfig(),
         memory,
@@ -168,13 +161,11 @@ async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_gr
             }
         )
 
-        # Let the bus fan out, then await all inflight subscriber work.
+        # Memory is already committed; let the bus finish graph projection.
         await asyncio.sleep(0.05)
-        await memory_sub.drain()
         await kg_sub.drain()
     finally:
         await kg_sub.stop()
-        await memory_sub.stop()
         await bus.stop()
 
     assert result["handled"] is True

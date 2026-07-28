@@ -12,6 +12,7 @@ from ..layer_protocol import FanOutContext, LayerIngestResult, WILDCARD_EVENT_TY
 class L4Layer:
     layer_name = "l4"
     requires_write_lock = False
+    required_for_acceptance = False
     accepts_event_types = WILDCARD_EVENT_TYPES
 
     def __init__(self, store: Any) -> None:
