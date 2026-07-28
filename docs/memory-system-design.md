@@ -1411,6 +1411,18 @@ before colliding records are combined. Existing snapshots for both identities
 are removed inside the rekey transaction and the survivor is rebuilt afterward,
 so a failed refresh leaves no stale pre-merge portrait visible.
 
+Identity maintenance keeps relationship and assertion rewrites as separate
+connection-scoped operations. The relationship coordinator owns graph identity,
+relationship versions, conflict effects, and relationship-shaped derived
+references. The assertion coordinator owns assertion slots, assertion
+collisions, assertion correction payloads, and snapshot invalidation. They share
+only the established correction-governance primitives; neither is a generic
+claim-rewrite framework. The caller must already hold the write transaction,
+and the coordinators never commit or roll back it themselves. This makes an
+entity merge, ghost repair, or predicate consolidation one atomic unit:
+failure restores the complete pre-rekey state, while repeating a completed
+rewrite converges on the same surviving identity without duplicating evidence.
+
 One exception keeps a rejected duplicate from contaminating an independent
 survivor. If a correction removed a claim without a replacement and identity
 repair later proves that rejected branch identical to a separately supported

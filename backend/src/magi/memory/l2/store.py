@@ -54,9 +54,9 @@ from .governance.source_event_forgetting import L2StoreSourceEventForgettingMixi
 from .graph.conflicts import L2StoreGraphConflictMixin
 from .graph.edge_embeddings import L2StoreEdgeEmbeddingMixin
 from .graph.fact_kind import L2StoreFactKindMixin
-from .graph.identity_rekey import (
+from .graph.relationship_rekey_coordinator import RelationshipIdentityRekeyCoordinator
+from .graph.relationship_rekey_history import (
     refresh_relationship_governance_history_for_predicate,
-    rekey_relationship_identity,
 )
 from .graph.rule_convergence import converge_existing_graph_conflicts
 from .graph.writes import L2StoreGraphWriteMixin
@@ -239,8 +239,7 @@ class L2CognitionStore(
                         and str(edge["claim_fingerprint"] or "") == expected_fingerprint
                     ):
                         continue
-                    await rekey_relationship_identity(
-                        db,
+                    await RelationshipIdentityRekeyCoordinator(db).rekey(
                         source_triple_id=str(edge["triple_id"]),
                         subject_id=str(edge["subject_id"]),
                         predicate=str(edge["predicate"]),

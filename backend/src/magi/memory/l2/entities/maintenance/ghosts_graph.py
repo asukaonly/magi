@@ -9,8 +9,8 @@ import aiosqlite
 
 from .....core.logger import get_logger
 from .....core.sqlite import sqlite_connection_async
-from ...graph.identity_rekey import (
-    rekey_relationship_identity,
+from ...graph.relationship_rekey_coordinator import RelationshipIdentityRekeyCoordinator
+from ...graph.relationship_rekey_references import (
     rewrite_materialized_relationship_references,
 )
 from .ghosts_common import (
@@ -205,8 +205,7 @@ class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
                     if not current:
                         continue
                     current_row = current[0]
-                    result = await rekey_relationship_identity(
-                        db=db,
+                    result = await RelationshipIdentityRekeyCoordinator(db).rekey(
                         source_triple_id=str(current_row["triple_id"]),
                         subject_id=(
                             to_id if column == "subject_id" else str(current_row["subject_id"])
@@ -276,8 +275,7 @@ class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
             if not current:
                 continue
             current_row = current[0]
-            result = await rekey_relationship_identity(
-                db,
+            result = await RelationshipIdentityRekeyCoordinator(db).rekey(
                 source_triple_id=str(current_row["triple_id"]),
                 subject_id=(
                     winner_id if column == "subject_id" else str(current_row["subject_id"])

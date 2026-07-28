@@ -9,9 +9,11 @@ import aiosqlite
 
 from .....core.logger import get_logger
 from .....core.sqlite import sqlite_connection_async
-from ...graph.identity_rekey import (
+from ...graph.relationship_rekey_coordinator import (
     RelationshipIdentityRekeyResult,
-    rekey_relationship_identity,
+    RelationshipIdentityRekeyCoordinator,
+)
+from ...graph.relationship_rekey_references import (
     rewrite_materialized_relationship_references,
 )
 from ...ontology import PREDICATE_REGISTRY
@@ -124,8 +126,7 @@ async def _consolidate_open_predicate_row(
 ) -> RelationshipIdentityRekeyResult:
     existing = await _fetch_existing_core_predicates(db, row, core_predicates)
     target_predicate = str(existing[0]["predicate"]) if existing else core_predicates[0]
-    return await rekey_relationship_identity(
-        db,
+    return await RelationshipIdentityRekeyCoordinator(db).rekey(
         source_triple_id=str(row["triple_id"]),
         subject_id=str(row["subject_id"]),
         predicate=target_predicate,

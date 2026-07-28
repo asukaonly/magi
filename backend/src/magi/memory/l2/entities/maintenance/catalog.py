@@ -8,7 +8,7 @@ import aiosqlite
 
 from .....core.logger import get_logger
 from .....core.sqlite import sqlite_connection_async
-from ...assertions.identity_rekey import rekey_assertion_entity_identity
+from ...assertions.assertion_rekey_coordinator import AssertionEntityRekeyCoordinator
 from ...pipeline import L2Pipeline
 from .ghosts import (
     MAX_EVIDENCE_EVENT_IDS,
@@ -211,8 +211,7 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
                     await self._merge_kg_ids_locked(db, "object_id", loser_id, winner_id, now)
                 )
 
-                await rekey_assertion_entity_identity(
-                    db,
+                await AssertionEntityRekeyCoordinator(db).rekey(
                     source_entity_id=loser_id,
                     target_entity_id=winner_id,
                     now=now,

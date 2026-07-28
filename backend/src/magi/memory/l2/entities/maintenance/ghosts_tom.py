@@ -9,7 +9,7 @@ import aiosqlite
 
 from .....core.logger import get_logger
 from .....core.sqlite import sqlite_connection_async
-from ...assertions.identity_rekey import rekey_assertion_entity_identity
+from ...assertions.assertion_rekey_coordinator import AssertionEntityRekeyCoordinator
 from .ghosts_common import L2EntityGhostHostMixin, _CatalogMaintenanceStatsProtocol
 
 logger = get_logger("magi.memory.l2.entities.maintenance")
@@ -42,8 +42,7 @@ async def _rewrite_one_tom_ghost_entity_ref(
         await db.execute("BEGIN IMMEDIATE")
         try:
             db.row_factory = aiosqlite.Row
-            await rekey_assertion_entity_identity(
-                db,
+            await AssertionEntityRekeyCoordinator(db).rekey(
                 source_entity_id=ghost_id,
                 target_entity_id=target,
                 now=time.time(),

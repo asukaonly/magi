@@ -26,8 +26,10 @@ from magi.memory.l2.corrections.repository import MemoryCorrectionRepository
 from magi.memory.l2.corrections.service import MemoryCorrectionConflictError
 from magi.memory.l2.entities.catalog import L2EntityCatalog
 from magi.memory.l2.entities.maintenance import L2EntityMaintenance, _canonical_entity_id
-from magi.memory.l2.graph.identity_rekey import (
-    rekey_relationship_identity,
+from magi.memory.l2.graph.relationship_rekey_coordinator import (
+    RelationshipIdentityRekeyCoordinator,
+)
+from magi.memory.l2.graph.relationship_rekey_identity import (
     relationship_slot_key_on_connection,
 )
 from magi.memory.l2.store import L2CognitionStore
@@ -1831,16 +1833,14 @@ async def test_relationship_rekey_preserves_conflict_effect_ownership(
     async with sqlite_connection_async(store.db_path) as db:
         db.row_factory = aiosqlite.Row
         await db.execute("BEGIN IMMEDIATE")
-        victim_rekey = await rekey_relationship_identity(
-            db,
+        victim_rekey = await RelationshipIdentityRekeyCoordinator(db).rekey(
             source_triple_id=victim_id,
             subject_id="user:u1",
             predicate="DISLIKES",
             object_id="food:ramen-canonical",
             now=time.time(),
         )
-        replacement_rekey = await rekey_relationship_identity(
-            db,
+        replacement_rekey = await RelationshipIdentityRekeyCoordinator(db).rekey(
             source_triple_id=replacement_id,
             subject_id="user:u1",
             predicate="LIKES",
@@ -2306,8 +2306,7 @@ async def test_forgotten_relationship_stays_forgotten_after_identity_merge() -> 
         async with sqlite_connection_async(db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
-            await rekey_relationship_identity(
-                db,
+            await RelationshipIdentityRekeyCoordinator(db).rekey(
                 source_triple_id=canonical_triple_id,
                 subject_id="user:self",
                 predicate="LIKES",
