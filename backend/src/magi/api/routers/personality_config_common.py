@@ -10,6 +10,10 @@ from ...config.models import LLMSettings
 from ...identity.defaults import CANONICAL_LOCAL_USER
 from ...personality.loader import PersonalityConfig
 from ...personality.reference_research.models import ReferenceIdentityVerification
+from ..services.personality_reference_tools import (
+    ToolReferenceFetchAdapter,
+    ToolReferenceSearchAdapter,
+)
 from .personality_config_schemas import (
     PersonaGenerationIntentModel,
     PersonaIntentResolutionModel,
@@ -276,8 +280,8 @@ async def ai_verify_persona_reference_identity(
     return await legacy.verify_reference_identity(
         identity,
         target_language=target_language,
-        search_port=legacy.ToolReferenceSearchPort(),
-        fetch_port=legacy.ToolReferenceFetchPort(),
+        search_port=ToolReferenceSearchAdapter(),
+        fetch_port=ToolReferenceFetchAdapter(),
         reference_urls=reference_urls,
         llm_override=llm_override,
         adapter_resolver=legacy.resolve_adapter_for_scenario,

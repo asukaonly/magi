@@ -1,28 +1,29 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
-from magi.personality.reference_research.tool_ports import (
-    ToolReferenceFetchPort,
-    ToolReferenceSearchPort,
+from magi.api.services.personality_reference_tools import (
+    ToolReferenceFetchAdapter,
+    ToolReferenceSearchAdapter,
 )
 from magi.personality.reference_research.ports import ReferenceFetchError
 
 
 class _InvocationService:
-    def __init__(self, result) -> None:  # type: ignore[no-untyped-def]
+    def __init__(self, result: Any) -> None:
         self.result = result
-        self.calls = []
+        self.calls: list[tuple[Any, Any]] = []
 
-    async def invoke(self, call, context):  # type: ignore[no-untyped-def]
+    async def invoke(self, call: Any, context: Any) -> Any:
         self.calls.append((call, context))
         return self.result
 
 
 @pytest.mark.asyncio
-async def test_search_port_uses_governed_web_search_invocation() -> None:
+async def test_search_adapter_uses_governed_web_search_invocation() -> None:
     invocation = _InvocationService(
         SimpleNamespace(
             success=True,
@@ -30,7 +31,7 @@ async def test_search_port_uses_governed_web_search_invocation() -> None:
         )
     )
 
-    results = await ToolReferenceSearchPort(invocation).search("reference query", limit=3)
+    results = await ToolReferenceSearchAdapter(invocation).search("reference query", limit=3)
 
     assert results == [{"title": "Source", "url": "https://example.com"}]
     call, context = invocation.calls[0]
@@ -41,12 +42,12 @@ async def test_search_port_uses_governed_web_search_invocation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fetch_port_uses_safe_web_fetch_invocation() -> None:
+async def test_fetch_adapter_uses_safe_web_fetch_invocation() -> None:
     invocation = _InvocationService(
         SimpleNamespace(success=True, data={"title": "Source", "content": "Evidence"})
     )
 
-    result = await ToolReferenceFetchPort(invocation).fetch(
+    result = await ToolReferenceFetchAdapter(invocation).fetch(
         "https://example.com/source",
         max_chars=5000,
     )
@@ -59,16 +60,17 @@ async def test_fetch_port_uses_safe_web_fetch_invocation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_ports_surface_web_failures() -> None:
+async def test_search_adapter_surfaces_web_failures() -> None:
     invocation = _InvocationService(
         SimpleNamespace(success=False, error="Network unavailable")
     )
 
     with pytest.raises(RuntimeError, match="Network unavailable"):
-        await ToolReferenceSearchPort(invocation).search("reference query")
+        await ToolReferenceSearchAdapter(invocation).search("reference query")
+
 
 @pytest.mark.asyncio
-async def test_fetch_port_preserves_fake_ip_compatibility_code() -> None:
+async def test_fetch_adapter_preserves_fake_ip_compatibility_code() -> None:
     invocation = _InvocationService(
         SimpleNamespace(
             success=False,
@@ -78,6 +80,6 @@ async def test_fetch_port_preserves_fake_ip_compatibility_code() -> None:
     )
 
     with pytest.raises(ReferenceFetchError) as exc_info:
-        await ToolReferenceFetchPort(invocation).fetch("https://example.com")
+        await ToolReferenceFetchAdapter(invocation).fetch("https://example.com")
 
     assert exc_info.value.code == "FAKE_IP_COMPATIBILITY_REQUIRED"

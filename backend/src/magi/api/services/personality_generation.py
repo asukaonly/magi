@@ -26,10 +26,6 @@ from ...personality.reference_research.service import (
   calculate_profile_coverage,
   research_reference,
 )
-from ...personality.reference_research.tool_ports import (
-  ToolReferenceFetchPort,
-  ToolReferenceSearchPort,
-)
 from ..routers.personality_config_schemas import (
   LayerModifiersModel,
   PersonaGenerationIntentModel,
@@ -46,6 +42,10 @@ from .personality_generation_prompts import (
     REFERENCE_PROFILE_SYSTEM_PROMPT,
     REGISTER_SYSTEM_PROMPT,
     RULES_SYSTEM_PROMPT,
+)
+from .personality_reference_tools import (
+  ToolReferenceFetchAdapter,
+  ToolReferenceSearchAdapter,
 )
 
 logger = get_logger(__name__)
@@ -1685,8 +1685,8 @@ async def _run_reference_research_stage(
       ),
     )
 
-  search_port = context.search_port or ToolReferenceSearchPort()
-  fetch_port = context.fetch_port or ToolReferenceFetchPort()
+  search_port = context.search_port or ToolReferenceSearchAdapter()
+  fetch_port = context.fetch_port or ToolReferenceFetchAdapter()
   dossier = await research_reference(
     identity,
     research_level=decision.level,

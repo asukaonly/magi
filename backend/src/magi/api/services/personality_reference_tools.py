@@ -1,9 +1,9 @@
-"""Web-tool-backed ports for reference research."""
+"""Runtime-tool adapters for personality reference research."""
 
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Protocol
 
 from ...agent.execution.tool_invocation_service import (
     InvocationContext,
@@ -11,9 +11,13 @@ from ...agent.execution.tool_invocation_service import (
     ToolInvocationService,
 )
 from ...events.domain_payloads import TaskContext
+from ...personality.reference_research.ports import (
+    ReferenceFetchError,
+    ReferenceFetchPort,
+    ReferenceSearchPort,
+)
 from ...tools.registry import tool_registry
 from ...tools.schema import ToolExecutionContext
-from .ports import ReferenceFetchError
 
 
 def _invocation_context(task_id: str) -> InvocationContext:
@@ -36,10 +40,15 @@ def _invocation_context(task_id: str) -> InvocationContext:
     )
 
 
-class ToolReferenceSearchPort:
-    """Search through the runtime web-search tool and its safety boundary."""
+class _ToolInvocationPort(Protocol):
+    async def invoke(self, call: ToolCall, ctx: InvocationContext) -> Any:
+        """Invoke one governed runtime tool call."""
 
-    def __init__(self, invocation_service: ToolInvocationService | None = None) -> None:
+
+class ToolReferenceSearchAdapter(ReferenceSearchPort):
+    """Adapt the runtime web-search tool to the personality search port."""
+
+    def __init__(self, invocation_service: _ToolInvocationPort | None = None) -> None:
         self._service = invocation_service or ToolInvocationService(tool_registry)
 
     async def search(self, query: str, *, limit: int = 6) -> list[dict[str, Any]]:
@@ -59,10 +68,10 @@ class ToolReferenceSearchPort:
         return [item for item in raw_results if isinstance(item, dict)][:limit]
 
 
-class ToolReferenceFetchPort:
-    """Fetch through the runtime web-fetch tool and its network guards."""
+class ToolReferenceFetchAdapter(ReferenceFetchPort):
+    """Adapt the runtime web-fetch tool to the personality fetch port."""
 
-    def __init__(self, invocation_service: ToolInvocationService | None = None) -> None:
+    def __init__(self, invocation_service: _ToolInvocationPort | None = None) -> None:
         self._service = invocation_service or ToolInvocationService(tool_registry)
 
     async def fetch(self, url: str, *, max_chars: int = 12000) -> dict[str, Any]:
@@ -94,4 +103,4 @@ class ToolReferenceFetchPort:
         return dict(data) if isinstance(data, dict) else {}
 
 
-__all__ = ["ToolReferenceFetchPort", "ToolReferenceSearchPort"]
+__all__ = ["ToolReferenceFetchAdapter", "ToolReferenceSearchAdapter"]

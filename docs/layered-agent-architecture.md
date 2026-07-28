@@ -245,6 +245,7 @@ Primary packages:
 Notes:
 
 - L9 owns `PersonaTurnPlanner` and the `PersonaTurnPlan` contract described in [Persona Runtime Architecture](./persona-runtime-architecture.md).
+- L9 owns reference-research policy and its search/fetch ports; runtime-tool adapters live in the L14 application-service layer and are injected into those ports.
 - L9 may consume task/runtime hints from L12 and profile/memory state from lower layers, but persona-specific trigger interpretation must not be duplicated in chat handlers, context rendering, or post-processing.
 - post-processing may update future relationship and dynamic state; it should not be the primary place where the already emitted turn's persona mode is chosen.
 

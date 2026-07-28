@@ -27,10 +27,6 @@ from ...personality.persona_journal_service import PersonaJournalService
 from ...personality.persona_repository import PersonaRepository
 from ...personality.reference_research.models import ReferenceIdentity
 from ...personality.reference_research.service import verify_reference_identity
-from ...personality.reference_research.tool_ports import (
-    ToolReferenceFetchPort,
-    ToolReferenceSearchPort,
-)
 from ...utils.runtime import get_runtime_paths
 from ..avatar_paths import resolve_avatar_public_url
 from ..services.personality_bootstrap_messages import (
@@ -242,8 +238,6 @@ __all__ = [
     "set_current_personality_name",
     "start_personality_generation_job",
     "start_personality_generation",
-    "ToolReferenceFetchPort",
-    "ToolReferenceSearchPort",
     "create_personality",
     "update_personality",
 ]
