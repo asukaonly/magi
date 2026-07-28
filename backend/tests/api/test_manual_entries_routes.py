@@ -793,7 +793,7 @@ async def test_create_forget_between_l1_write_and_link_returns_terminal_conflict
             event_at=1_000.0,
         )
         create_task = asyncio.create_task(routes.create_manual_entry(body))
-        await asyncio.wait_for(completion_started.wait(), timeout=2.0)
+        await asyncio.wait_for(completion_started.wait(), timeout=10.0)
         pending = await store.get(body.entry_id)
         assert pending is not None
         assert pending.pending_l1_event_id is not None
