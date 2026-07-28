@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { ChevronDown } from 'lucide-react';
 

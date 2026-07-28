@@ -16,7 +16,7 @@ import {
   UserRound,
   type LucideIcon,
 } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';

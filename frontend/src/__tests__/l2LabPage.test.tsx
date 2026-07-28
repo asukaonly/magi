@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 
 import { L2Tab } from '@/components/memory/L2Tab';
 import { MemoryKnowledgePage } from '@/pages/memory-pages/MemoryKnowledgePage';

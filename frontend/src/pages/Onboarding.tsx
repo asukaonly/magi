@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import OnboardingLoadError from '@/components/onboarding/OnboardingLoadError';
 import { PluginInstallPanel } from '@/components/plugins/PluginInstallPanel';

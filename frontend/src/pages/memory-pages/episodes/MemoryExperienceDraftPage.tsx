@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, ImageIcon, PencilLine, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import {
   memoryApi,
   type ExperienceDraft,

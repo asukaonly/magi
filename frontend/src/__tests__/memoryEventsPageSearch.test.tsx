@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 
 import { MemoryEventsPage } from '@/pages/memory-pages/MemoryEventsPage';
 import { useMemory } from '@/hooks/useMemory';

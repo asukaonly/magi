@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { useBackendHealth } from '@/hooks/useBackendHealth';

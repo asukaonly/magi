@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { AlertTriangle, ArrowUpRight, CheckCircle2, Loader2, Play } from 'lucide-react';
 import { type EpisodeReconsolidateResult } from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { memoryApi } from "@/api/modules/memory";
 import { manualEntriesApi, type ManualEntry } from "@/api/modules/manualEntries";

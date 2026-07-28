@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';

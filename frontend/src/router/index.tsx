@@ -2,7 +2,7 @@
  * Router configuration.
  */
 import React from 'react';
-import { createBrowserRouter, Navigate, RouterProvider, useRouteError } from 'react-router-dom';
+import { createBrowserRouter, Navigate, RouterProvider, useRouteError } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import MainLayout from '../components/layout/MainLayout';
 import OnboardingLoadError from '../components/onboarding/OnboardingLoadError';
@@ -400,7 +400,7 @@ const router = createBrowserRouter([
 ]);
 
 const AppRouter: React.FC = () => {
-  return <RouterProvider router={router} future={{ v7_startTransition: true }} />;
+  return <RouterProvider router={router} />;
 };
 
 export default AppRouter;

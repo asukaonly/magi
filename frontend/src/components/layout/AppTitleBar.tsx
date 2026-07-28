@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { isMacPlatform } from '@/lib/platform';
 import { cn } from '@/lib/utils';

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, CheckCircle2, MessageSquare, Settings, Sparkles, UserRound } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

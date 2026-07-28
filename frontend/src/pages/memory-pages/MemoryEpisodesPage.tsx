@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Loader2, Plus, SearchX, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import {
   memoryApi,
   type ExperienceDraft,

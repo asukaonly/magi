@@ -1,6 +1,6 @@
 import React from 'react';
 import { Activity, Brain, Settings2, Sparkles } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { useChatShellStore } from '@/stores';

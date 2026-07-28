@@ -9,7 +9,7 @@ import { SimpleForm as Form } from "./simple-form";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { apiClient } from "@/api/client";
 import { messagesApi } from "@/api/modules/messages";
 import {
