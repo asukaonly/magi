@@ -3129,7 +3129,6 @@
         "retry": "重新读取"
       },
       "refreshFailed": "修正已经生效，但“关于你”暂时没有刷新。",
-      "confirmFailed": "暂时没能确认，这条信息没有被重复处理。请稍后再试。",
       "segments": {
         "identity": "身份",
         "state": "当下",
@@ -3159,19 +3158,6 @@
         "actions": {
           "chat": "开始对话",
           "sources": "连接来源"
-        }
-      },
-      "review": {
-        "title": "需要你看一眼",
-        "count": "{{count}} 条",
-        "source": "来源：{{source}}",
-        "editLabel": "改成",
-        "actions": {
-          "confirm": "确认",
-          "reject": "不准确",
-          "edit": "修改",
-          "save": "保存",
-          "cancel": "取消"
         }
       },
       "recent": {
@@ -3211,11 +3197,14 @@
         "empty": "未填写",
         "add": "点击补充",
         "editField": "修改{{field}}",
+        "completeFields": "补充 {{fields}}",
+        "fieldSeparator": "、",
         "source": "来源：{{source}}",
         "sources": {
           "settings_profile": "你的设置",
           "chat": "对话记忆",
-          "derived": "派生"
+          "derived": "派生",
+          "user_authored": "你告诉 Magi 的"
         },
         "saveSuccess": "已保存",
         "saveFailed": "保存失败：{{message}}",
@@ -3232,7 +3221,7 @@
       "addFact": {
         "placeholder": "告诉 Magi 关于你的一件事…",
         "submit": "提交",
-        "success": "已记下。Magi 消化后会出现在「需要你看一眼」，确认后即进入画像。",
+        "success": "已记下。Magi 消化后会出现在「待确认」页面，确认后即进入画像。",
         "failed": "提交失败：{{message}}"
       }
     },

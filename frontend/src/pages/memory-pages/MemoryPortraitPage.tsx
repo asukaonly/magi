@@ -4,15 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { memoryPortraitSelfApi, type SelfPortraitPayload } from '@/api/modules/memoryPortraitSelf';
-import { memoryApi } from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';
 import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
 import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 import PortraitWorldMap from '@/components/memory/portrait/PortraitWorldMap';
-import PortraitReviewQueue from '@/components/memory/portrait/PortraitReviewQueue';
 import PortraitRecentState from '@/components/memory/portrait/PortraitRecentState';
 import PortraitIdentitySection from '@/components/memory/portrait/PortraitIdentitySection';
-import PortraitAddFactRow from '@/components/memory/portrait/PortraitAddFactRow';
 import { buildPortraitViewModel, type PortraitDisplayItem } from '@/components/memory/portrait/portraitGrouping';
 import MemoryPageFrame from './MemoryPageFrame';
 import { DEFAULT_USER_ID } from '@/constants';
@@ -73,9 +70,7 @@ export const MemoryPortraitPage = () => {
   const [loadError, setLoadError] = useState(false);
   const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
   const [correctionAction, setCorrectionAction] = useState<'replace' | 'remove'>('replace');
-  const [confirmingAssertionId, setConfirmingAssertionId] = useState<string | null>(null);
   const portraitLoadRequestRef = useRef(0);
-  const confirmingAssertionRef = useRef<string | null>(null);
 
   const loadPortrait = useCallback(async () => {
     const requestId = portraitLoadRequestRef.current + 1;
@@ -104,23 +99,6 @@ export const MemoryPortraitPage = () => {
     () => (payload ? buildPortraitViewModel(payload.self_view) : null),
     [payload]
   );
-
-  const handleConfirm = async (assertionId: string) => {
-    if (confirmingAssertionRef.current) return;
-    confirmingAssertionRef.current = assertionId;
-    setConfirmingAssertionId(assertionId);
-    try {
-      await memoryApi.submitAssertionFeedback(assertionId, 'confirmed');
-      await loadPortrait();
-    } catch {
-      toast.error(t('memory.portrait.confirmFailed', {
-        defaultValue: '暂时没能确认，这条信息没有被重复处理。请稍后再试。',
-      }));
-    } finally {
-      confirmingAssertionRef.current = null;
-      setConfirmingAssertionId(null);
-    }
-  };
 
   const openCorrection = (item: PortraitDisplayItem, action: 'replace' | 'remove' = 'replace') => {
     if (!item.assertionId || item.correctionValue == null) return;
@@ -174,14 +152,7 @@ export const MemoryPortraitPage = () => {
       <div className="mx-auto max-w-5xl px-2 pb-10 pt-6 [&>section+section]:mt-10 [&>section+section]:border-t [&>section+section]:border-[hsl(var(--memory-divider)/0.5)] [&>section+section]:pt-10">
         {viewModel ? (
           <>
-            <PortraitReviewQueue
-              items={viewModel.reviewItems}
-              onConfirm={handleConfirm}
-              confirmingAssertionId={confirmingAssertionId}
-              onRequestCorrection={openCorrection}
-            />
-            <PortraitIdentitySection />
-            <PortraitAddFactRow onSubmitted={() => void loadPortrait()} />
+            <PortraitIdentitySection onFactSubmitted={() => void loadPortrait()} />
             <PortraitWorldMap
               groups={viewModel.worldGroups}
               totalCount={viewModel.totalUnderstandingCount}

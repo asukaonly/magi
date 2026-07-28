@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, Pencil, Sparkles } from 'lucide-react';
+import { Loader2, Pencil, Plus, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { profileApi, type UserProfileProjection } from '@/api/modules/profile';
 import {
@@ -9,6 +9,7 @@ import {
   type ProfileFieldKey,
 } from '@/components/profile/profileDraft';
 import { ProfileFieldSource } from '@/components/profile/ProfileFieldSource';
+import { PortraitAddFactRow } from '@/components/memory/portrait/PortraitAddFactRow';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -32,7 +33,11 @@ const IDENTITY_FIELDS: IdentityFieldDef[] = [
   },
 ];
 
-export const PortraitIdentitySection = () => {
+export const PortraitIdentitySection = ({
+  onFactSubmitted,
+}: {
+  onFactSubmitted?: () => void;
+}) => {
   const { t } = useTranslation('app');
   const [profile, setProfile] = useState<UserProfileProjection | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,6 +47,7 @@ export const PortraitIdentitySection = () => {
   const [savingField, setSavingField] = useState<ProfileFieldKey | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [suggestion, setSuggestion] = useState<ReturnType<typeof toProfileDraft> | null>(null);
+  const [showEmptyFields, setShowEmptyFields] = useState(false);
   const loadRequestRef = useRef(0);
 
   const loadProfile = useCallback(async () => {
@@ -67,6 +73,15 @@ export const PortraitIdentitySection = () => {
   }, [loadProfile]);
 
   const draft = useMemo(() => toProfileDraft(profile), [profile]);
+
+  const { filledFields, emptyFields } = useMemo(() => {
+    const filled: IdentityFieldDef[] = [];
+    const empty: IdentityFieldDef[] = [];
+    for (const field of IDENTITY_FIELDS) {
+      (draft[field.key].trim() ? filled : empty).push(field);
+    }
+    return { filledFields: filled, emptyFields: empty };
+  }, [draft]);
 
   const suggestionItems = useMemo(() => {
     if (!suggestion) return [];
@@ -129,6 +144,79 @@ export const PortraitIdentitySection = () => {
     }
   };
 
+  const renderFieldRow = (field: IdentityFieldDef) => {
+    const isEditing = editingField === field.key;
+    const isSaving = savingField === field.key;
+    const value = draft[field.key].trim();
+    return (
+      <div
+        key={field.key}
+        data-testid={`portrait-identity-field-${field.sourceKey}`}
+        className="group grid gap-1 border-b border-[hsl(var(--memory-divider)/0.4)] py-2.5 last:border-b-0 sm:grid-cols-[minmax(7rem,9rem)_minmax(0,1fr)_auto] sm:items-center sm:gap-4"
+      >
+        <span className="text-xs text-[hsl(var(--memory-muted))]">
+          {t(`memory.portrait.identity.fields.${field.key}`)}
+        </span>
+        {isEditing ? (
+          <Input
+            autoFocus
+            type={field.type ?? 'text'}
+            value={editValue}
+            disabled={isSaving}
+            aria-label={t(`memory.portrait.identity.fields.${field.key}`)}
+            placeholder={
+              field.placeholderKey
+                ? t(`memory.portrait.identity.placeholders.${field.placeholderKey}`)
+                : undefined
+            }
+            onChange={(event) => setEditValue(event.target.value)}
+            onBlur={() => commitEdit(field.key, editValue)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitEdit(field.key, editValue);
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                cancelEdit();
+              }
+            }}
+            className="h-8 max-w-sm text-sm"
+          />
+        ) : (
+          <span className="flex min-w-0 flex-wrap items-baseline gap-x-3">
+            <button
+              type="button"
+              onClick={() => startEdit(field)}
+              className="min-w-0 truncate text-left text-[0.95rem] leading-7 text-[hsl(var(--memory-title))] outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]"
+            >
+              {value || (
+                <span className="text-[hsl(var(--memory-muted))]">
+                  {t('memory.portrait.identity.empty')}
+                </span>
+              )}
+            </button>
+            <ProfileFieldSource profile={profile} fieldKey={field.sourceKey} />
+          </span>
+        )}
+        {!isEditing ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => startEdit(field)}
+            disabled={savingField !== null}
+            aria-label={t('memory.portrait.identity.editField', {
+              field: t(`memory.portrait.identity.fields.${field.key}`),
+            })}
+            className="min-h-9 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] opacity-0 transition-opacity hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))] focus-visible:opacity-100 group-hover:opacity-100 max-sm:hidden"
+          >
+            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
+    );
+  };
+
   return (
     <section data-testid="portrait-identity">
       <header className="flex items-baseline justify-between gap-4">
@@ -176,79 +264,26 @@ export const PortraitIdentitySection = () => {
         </div>
       ) : (
         <div className="mt-2">
-          {IDENTITY_FIELDS.map((field) => {
-            const isEditing = editingField === field.key;
-            const isSaving = savingField === field.key;
-            const value = draft[field.key].trim();
-            return (
-              <div
-                key={field.key}
-                data-testid={`portrait-identity-field-${field.sourceKey}`}
-                className="group grid gap-1 border-b border-[hsl(var(--memory-divider)/0.4)] py-2.5 last:border-b-0 sm:grid-cols-[minmax(7rem,9rem)_minmax(0,1fr)_auto] sm:items-center sm:gap-4"
+          {filledFields.map(renderFieldRow)}
+          {emptyFields.length > 0 ? (
+            showEmptyFields ? (
+              emptyFields.map(renderFieldRow)
+            ) : (
+              <button
+                type="button"
+                data-testid="portrait-identity-show-empty"
+                onClick={() => setShowEmptyFields(true)}
+                className="mt-1 flex min-h-9 items-center gap-1.5 rounded-mem-sm px-1 text-xs text-[hsl(var(--memory-muted))] outline-none transition-colors hover:text-[hsl(var(--memory-title))] focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]"
               >
-                <span className="text-xs text-[hsl(var(--memory-muted))]">
-                  {t(`memory.portrait.identity.fields.${field.key}`)}
-                </span>
-                {isEditing ? (
-                  <Input
-                    autoFocus
-                    type={field.type ?? 'text'}
-                    value={editValue}
-                    disabled={isSaving}
-                    aria-label={t(`memory.portrait.identity.fields.${field.key}`)}
-                    placeholder={
-                      field.placeholderKey
-                        ? t(`memory.portrait.identity.placeholders.${field.placeholderKey}`)
-                        : undefined
-                    }
-                    onChange={(event) => setEditValue(event.target.value)}
-                    onBlur={() => commitEdit(field.key, editValue)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        commitEdit(field.key, editValue);
-                      } else if (event.key === 'Escape') {
-                        event.preventDefault();
-                        cancelEdit();
-                      }
-                    }}
-                    className="h-8 max-w-sm text-sm"
-                  />
-                ) : (
-                  <span className="flex min-w-0 flex-wrap items-baseline gap-x-3">
-                    <button
-                      type="button"
-                      onClick={() => startEdit(field)}
-                      className="min-w-0 truncate text-left text-[0.95rem] leading-7 text-[hsl(var(--memory-title))] outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]"
-                    >
-                      {value || (
-                        <span className="text-[hsl(var(--memory-muted))]">
-                          {t('memory.portrait.identity.empty')}
-                          <span className="ml-2 text-xs">{t('memory.portrait.identity.add')}</span>
-                        </span>
-                      )}
-                    </button>
-                    <ProfileFieldSource profile={profile} fieldKey={field.sourceKey} />
-                  </span>
-                )}
-                {!isEditing ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => startEdit(field)}
-                    disabled={savingField !== null}
-                    aria-label={t('memory.portrait.identity.editField', {
-                      field: t(`memory.portrait.identity.fields.${field.key}`),
-                    })}
-                    className="min-h-9 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] opacity-0 transition-opacity hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))] focus-visible:opacity-100 group-hover:opacity-100 max-sm:hidden"
-                  >
-                    <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                  </Button>
-                ) : null}
-              </div>
-            );
-          })}
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('memory.portrait.identity.completeFields', {
+                  fields: emptyFields
+                    .map((field) => t(`memory.portrait.identity.fields.${field.key}`))
+                    .join(t('memory.portrait.identity.fieldSeparator')),
+                })}
+              </button>
+            )
+          ) : null}
         </div>
       )}
 
@@ -290,6 +325,10 @@ export const PortraitIdentitySection = () => {
             </p>
           )}
         </div>
+      ) : null}
+
+      {!loading && !loadFailed ? (
+        <PortraitAddFactRow onSubmitted={onFactSubmitted} />
       ) : null}
     </section>
   );

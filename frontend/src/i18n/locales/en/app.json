@@ -3131,7 +3131,6 @@
         "retry": "Try again"
       },
       "refreshFailed": "The correction is active, but About You could not refresh yet.",
-      "confirmFailed": "Could not confirm this item. It was not processed twice; try again later.",
       "segments": {
         "identity": "Identity",
         "state": "Right now",
@@ -3161,19 +3160,6 @@
         "actions": {
           "chat": "Start a conversation",
           "sources": "Connect a source"
-        }
-      },
-      "review": {
-        "title": "Needs your eye",
-        "count": "{{count}} item(s)",
-        "source": "Source: {{source}}",
-        "editLabel": "Change to",
-        "actions": {
-          "confirm": "Confirm",
-          "reject": "Not right",
-          "edit": "Edit",
-          "save": "Save",
-          "cancel": "Cancel"
         }
       },
       "recent": {
@@ -3213,11 +3199,14 @@
         "empty": "Not set",
         "add": "Add",
         "editField": "Edit {{field}}",
+        "completeFields": "Add {{fields}}",
+        "fieldSeparator": ", ",
         "source": "Source: {{source}}",
         "sources": {
           "settings_profile": "your settings",
           "chat": "conversation memory",
-          "derived": "derived"
+          "derived": "derived",
+          "user_authored": "what you told Magi"
         },
         "saveSuccess": "Saved",
         "saveFailed": "Failed to save: {{message}}",
@@ -3234,7 +3223,7 @@
       "addFact": {
         "placeholder": "Tell Magi one thing about you…",
         "submit": "Submit",
-        "success": "Noted. Once Magi digests it, it will show up in \"Needs your look\" — confirm it there to add it to your portrait.",
+        "success": "Noted. Once Magi digests it, it will show up on the Pending page — confirm it there to add it to your portrait.",
         "failed": "Failed to submit: {{message}}"
       }
     },

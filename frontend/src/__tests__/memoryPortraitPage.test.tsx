@@ -8,8 +8,6 @@ import { memoryApi } from '@/api/modules/memory';
 import { profileApi } from '@/api/modules/profile';
 import { manualEntriesApi } from '@/api/modules/manualEntries';
 
-const MAGI_CONTEXT_ID = `ctx_project_${'a'.repeat(64)}`;
-
 vi.mock('react-i18next', async () => {
   const labels: Record<string, string> = {
     'memory.portrait.title': '画像',
@@ -18,12 +16,6 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.loadFailed.title': '暂时没能读取关于你的内容',
     'memory.portrait.loadFailed.body': '已有内容没有丢失，请稍后再试。',
     'memory.portrait.loadFailed.retry': '重新读取',
-    'memory.portrait.segments.identity': '身份',
-    'memory.portrait.segments.state': '当下',
-    'memory.portrait.segments.preferences': '偏好',
-    'memory.portrait.segments.relationships': '关系',
-    'memory.portrait.segments.impression': '总体印象',
-    'memory.portrait.world.title': '关于你',
     'memory.portrait.world.summaryTitle': 'Magi 目前这样理解你',
     'memory.portrait.world.meta': '已形成 {{count}} 条理解',
     'memory.portrait.world.inspectItems': '查看并修正 {{count}} 条具体记忆',
@@ -38,25 +30,10 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.empty.helper': '只有反复出现、较可信的线索，才会成为这里的长期理解。',
     'memory.portrait.empty.actions.chat': '开始对话',
     'memory.portrait.empty.actions.sources': '连接来源',
-    'memory.portrait.review.title': '需要你看一眼',
-    'memory.portrait.review.count': '{{count}} 条',
-    'memory.portrait.review.source': '来源：{{source}}',
-    'memory.portrait.review.actions.confirm': '确认',
-    'memory.portrait.review.actions.reject': '不准确',
-    'memory.portrait.review.actions.edit': '修改',
-    'memory.portrait.review.actions.save': '保存',
-    'memory.portrait.review.actions.cancel': '取消',
-    'memory.portrait.review.editLabel': '改成',
     'memory.portrait.recent.title': '最近的你',
     'memory.portrait.recent.meta': '最近的线索，不会直接当成长期人格',
     'memory.portrait.recent.kinds.active_work': '最近在推进：{{value}}',
     'memory.portrait.recent.kinds.preference_interest': '最近在关注：{{value}}',
-    'memory.portrait.source.default': '记忆线索',
-    'memory.portrait.sources.conversation': '对话',
-    'memory.portrait.sources.chrome_history': 'Chrome 浏览器历史',
-    'memory.portrait.sources.photo_library_apple_photos': '照片库',
-    'memory.portrait.sources.user_profile_projection': '个人资料',
-    'memory.portrait.sources.tom': '总结',
     'memory.portrait.identity.title': '你是谁',
     'memory.portrait.identity.fields.preferredFormOfAddress': '称呼',
     'memory.portrait.identity.fields.realName': '真实姓名',
@@ -66,9 +43,13 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.identity.empty': '未填写',
     'memory.portrait.identity.add': '点击补充',
     'memory.portrait.identity.editField': '修改{{field}}',
+    'memory.portrait.identity.completeFields': '补充 {{fields}}',
+    'memory.portrait.identity.fieldSeparator': '、',
     'memory.portrait.identity.source': '来源：{{source}}',
     'memory.portrait.identity.sources.settings_profile': '你的设置',
     'memory.portrait.identity.sources.chat': '对话记忆',
+    'memory.portrait.identity.sources.derived': '派生',
+    'memory.portrait.identity.sources.user_authored': '你告诉 Magi 的',
     'memory.portrait.identity.saveSuccess': '已保存',
     'memory.portrait.identity.saveFailed': '保存失败：{{message}}',
     'memory.portrait.identity.loadFailed': '个人资料加载失败',
@@ -84,8 +65,6 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.addFact.submit': '提交',
     'memory.portrait.addFact.success': '已记下',
     'memory.portrait.addFact.failed': '提交失败：{{message}}',
-    'memory.stories.actions.confirm': '确认',
-    'memory.stories.actions.reject': '拒绝',
   };
   return {
     useTranslation: () => ({
@@ -150,6 +129,12 @@ const buildProfile = () => ({
   updated_at: 0,
 });
 
+const emptySelfView = () => ({
+  world: { total_count: 0, groups: [] },
+  review: { items: [] },
+  recent: { items: [] },
+});
+
 const renderPage = () => render(
   <MemoryRouter>
     <MemoryPortraitPage />
@@ -160,13 +145,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(profileApi.getMe).mockResolvedValue(buildProfile());
   vi.mocked(manualEntriesApi.create).mockResolvedValue({} as any);
-  vi.mocked(memoryApi.getCorrectionContextOptions).mockResolvedValue({
-    items: [{
-      context_id: MAGI_CONTEXT_ID,
-      dimension: 'project',
-      label: 'Magi',
-    }],
-  });
+  vi.mocked(memoryApi.getCorrectionContextOptions).mockResolvedValue({ items: [] });
 });
 
 describe('MemoryPortraitPage', () => {
@@ -175,11 +154,7 @@ describe('MemoryPortraitPage', () => {
       .mockRejectedValueOnce(new Error('temporary failure'))
       .mockResolvedValueOnce({
         generated_at: 0,
-        self_view: {
-          world: { total_count: 0, groups: [] },
-          review: { items: [] },
-          recent: { items: [] },
-        },
+        self_view: emptySelfView(),
         is_cold_start: true,
         cold_start_line: null,
         cold_start_reason: 'no_understanding',
@@ -200,11 +175,7 @@ describe('MemoryPortraitPage', () => {
     vi.mocked(memoryPortraitSelfApi.get)
       .mockResolvedValueOnce({
         generated_at: 0,
-        self_view: {
-          world: { total_count: 0, groups: [] },
-          review: { items: [] },
-          recent: { items: [] },
-        },
+        self_view: emptySelfView(),
         is_cold_start: false,
         cold_start_line: null,
         cold_start_reason: null,
@@ -212,11 +183,7 @@ describe('MemoryPortraitPage', () => {
       })
       .mockResolvedValueOnce({
         generated_at: 1,
-        self_view: {
-          world: { total_count: 0, groups: [] },
-          review: { items: [] },
-          recent: { items: [] },
-        },
+        self_view: emptySelfView(),
         is_cold_start: true,
         cold_start_line: null,
         cold_start_reason: 'no_understanding',
@@ -236,11 +203,7 @@ describe('MemoryPortraitPage', () => {
   it('renders an actionable cold-start state without an empty portrait shell', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       generated_at: 0,
-      self_view: {
-        world: { total_count: 0, groups: [] },
-        review: { items: [] },
-        recent: { items: [] },
-      },
+      self_view: emptySelfView(),
       is_cold_start: true, cold_start_line: '还没结论', cold_start_reason: 'no_understanding',
       is_stale: false,
     });
@@ -254,13 +217,12 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByRole('link', { name: '连接来源' })).toHaveAttribute('href', '/memory/sources');
     expect(screen.queryByText('还没结论')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-world-map')).not.toBeInTheDocument();
-    expect(screen.queryByText(/已形成 .* 条理解/)).not.toBeInTheDocument();
-    expect(screen.queryByTestId('portrait-review-queue')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('portrait-identity')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-recent-state')).not.toBeInTheDocument();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
   });
 
-  it('renders only meaningful portrait groups followed by review and recent sections', async () => {
+  it('renders identity, world and recent sections as a single document flow', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       generated_at: 0,
       self_view: {
@@ -283,7 +245,7 @@ describe('MemoryPortraitPage', () => {
           ],
         },
         review: {
-          items: [{ id: 'review-1', text: 'Magi 记忆体验', source: 'conversation', source_key: 'conversation', assertion_id: 'assert-1', basis_count: 1, basis_refs: [] }],
+          items: [{ id: 'review-1', text: '待确认内容', source: 'conversation', source_key: 'conversation', assertion_id: 'assert-1', basis_count: 1, basis_refs: [] }],
         },
         recent: {
           items: [
@@ -303,18 +265,13 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByTestId('portrait-world-groups')).toBeInTheDocument();
     expect(screen.queryByTestId('portrait-world-branch-identity')).not.toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-projects')).toBeInTheDocument();
-    expect(screen.queryByTestId('portrait-world-branch-preferences')).not.toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-work_style')).toBeInTheDocument();
     expect(screen.getByText('Magi 记忆系统')).toBeInTheDocument();
-    expect(screen.getByText('协作方式')).toBeInTheDocument();
     expect(screen.getByText('直接深入')).toBeInTheDocument();
-    expect(screen.queryByText('稳定事实')).not.toBeInTheDocument();
-    expect(screen.queryByText('Chrome')).not.toBeInTheDocument();
     expect(within(screen.getByTestId('portrait-world-branch-work_style')).getByText('先看代码再判断')).toBeInTheDocument();
 
-    const review = screen.getByTestId('portrait-review-queue');
-    expect(within(review).getByText('需要你看一眼')).toBeInTheDocument();
-    expect(within(review).getByText('Magi 记忆体验')).toBeInTheDocument();
+    // review queue 已移至「待确认」页面,本页不再渲染
+    expect(screen.queryByText('待确认内容')).not.toBeInTheDocument();
 
     const identity = await screen.findByTestId('portrait-identity');
     expect(within(identity).getByText('你是谁')).toBeInTheDocument();
@@ -322,29 +279,27 @@ describe('MemoryPortraitPage', () => {
     expect(within(identity).getByText('上海')).toBeInTheDocument();
     expect(within(identity).getByText('来源：你的设置')).toBeInTheDocument();
     expect(within(identity).getByText('来源：对话记忆')).toBeInTheDocument();
-
-    const addFact = screen.getByTestId('portrait-add-fact');
-    expect(within(addFact).getByPlaceholderText('告诉 Magi 关于你的一件事…')).toBeInTheDocument();
+    // 主动补充输入行收敛在「你是谁」区块内
+    expect(within(identity).getByTestId('portrait-add-fact')).toBeInTheDocument();
+    expect(within(identity).getByPlaceholderText('告诉 Magi 关于你的一件事…')).toBeInTheDocument();
 
     const recent = screen.getByTestId('portrait-recent-state');
     expect(within(recent).getByText('最近的你')).toBeInTheDocument();
     expect(within(recent).getByText('插件导入')).toBeInTheDocument();
-    expect(within(recent).getByText('最近对话更偏产品设计判断，同时会追问实现链路是否闭环。')).toBeInTheDocument();
 
-    // 单列文档流:待确认 → 你是谁 → 主动补充 → 理解 → 最近的你
+    // 单列文档流:你是谁(含主动补充) → Magi 的理解 → 最近的你
     const world = screen.getByTestId('portrait-world-map');
-    const ordered = [review, identity, addFact, world, recent];
+    const ordered = [identity, world, recent];
     for (let index = 0; index < ordered.length - 1; index += 1) {
       expect(
         ordered[index].compareDocumentPosition(ordered[index + 1]) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     }
 
-    expect(screen.queryByText('身份')).not.toBeInTheDocument();
     expect(screen.queryByText(/assertion|trait|family|L2/i)).not.toBeInTheDocument();
   });
 
-  it('renders the backend grouped self view directly', async () => {
+  it('renders the backend grouped self view directly, hiding profile-projection duplicates', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       generated_at: 0,
       self_view: {
@@ -361,9 +316,7 @@ describe('MemoryPortraitPage', () => {
             { id: 'work_style', items: [] },
           ],
         },
-        review: {
-          items: [{ id: 'review-1', text: '画像页面', source: 'conversation', source_key: 'conversation', assertion_id: 'assert-review', basis_count: 1, basis_refs: ['assertion:assert-review'] }],
-        },
+        review: { items: [] },
         recent: {
           items: [{ id: 'recent-1', text: '正在验证 L2 页面模型', source: 'tom', source_key: 'tom', assertion_id: null, basis_count: 2, basis_refs: [] }],
         },
@@ -373,12 +326,11 @@ describe('MemoryPortraitPage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('你希望 Magi 称呼你为 Asuka')).toBeInTheDocument();
-    expect(screen.getByText('长期推进 Magi 记忆系统')).toBeInTheDocument();
-    expect(screen.getByText('Asuka')).toBeInTheDocument();
-    // 个人资料编辑已并入本页「你是谁」一节,画像条目不再提供跳转按钮
-    expect(screen.queryByRole('button', { name: '修改个人资料' })).not.toBeInTheDocument();
-    expect(screen.getByText('画像页面')).toBeInTheDocument();
+    expect(await screen.findByText('长期推进 Magi 记忆系统')).toBeInTheDocument();
+    // 来自个人资料投影的条目和摘要与「你是谁」一节重复,不再显示
+    expect(screen.queryByText('你希望 Magi 称呼你为 Asuka')).not.toBeInTheDocument();
+    expect(screen.queryByText('Asuka')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('portrait-world-branch-identity')).not.toBeInTheDocument();
     expect(screen.getByText('正在验证 L2 页面模型')).toBeInTheDocument();
     expect(screen.getByText('已形成 3 条理解')).toBeInTheDocument();
   });
@@ -491,11 +443,10 @@ describe('MemoryPortraitPage', () => {
 
     const preferences = await screen.findByTestId('portrait-world-branch-preferences');
     expect(within(preferences).getByText('Codex')).toBeInTheDocument();
-    expect(within(preferences).queryByText('记忆线索')).not.toBeInTheDocument();
     expect(within(preferences).queryByText('external_activity')).not.toBeInTheDocument();
   });
 
-  it('hides source labels from portrait world and recent sections but keeps them in review', async () => {
+  it('hides source labels from portrait world and recent sections', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       generated_at: 0,
       self_view: {
@@ -519,17 +470,7 @@ describe('MemoryPortraitPage', () => {
             { id: 'projects', items: [] },
           ],
         },
-        review: {
-          items: [{
-            id: 'review-1',
-            text: 'Magi 记忆体验',
-            source: 'conversation',
-            source_key: 'conversation',
-            assertion_id: 'assert-review',
-            basis_count: 1,
-            basis_refs: ['assertion:assert-review', 'source:conversation'],
-          }],
-        },
+        review: { items: [] },
         recent: {
           items: [{
             id: 'recent-1',
@@ -550,308 +491,10 @@ describe('MemoryPortraitPage', () => {
     const world = await screen.findByTestId('portrait-world-map');
     expect(within(world).getByText('先看代码再判断')).toBeInTheDocument();
     expect(within(world).queryByText('Chrome 浏览器历史')).not.toBeInTheDocument();
-    expect(within(world).queryByText('照片库')).not.toBeInTheDocument();
 
     const recent = screen.getByTestId('portrait-recent-state');
     expect(within(recent).getByText('最近在验证画像页面')).toBeInTheDocument();
     expect(within(recent).queryByText('总结')).not.toBeInTheDocument();
-
-    const review = screen.getByTestId('portrait-review-queue');
-    expect(within(review).getByText('Magi 记忆体验')).toBeInTheDocument();
-    expect(within(review).getByText('来源：对话')).toBeInTheDocument();
-  });
-
-  it('keeps confirmation quick and routes review edits through the standard correction flow', async () => {
-    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
-      generated_at: 0,
-      self_view: {
-        world: { total_count: 0, groups: [] },
-        review: {
-          items: [{ id: 'review-1', text: 'Magi 记忆体验', correction_value: 'Magi 记忆体验', source: '', source_key: null, assertion_id: 'assert-1', basis_count: 1, basis_refs: [], updated_at: 1719301200 }],
-        },
-        recent: { items: [] },
-      },
-      is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
-    });
-    vi.mocked(memoryApi.submitAssertionFeedback).mockResolvedValue({} as any);
-    vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
-      correction: {
-        correction_id: 'correction-1',
-        correction_kind: 'record_error',
-        before: { trait_value: 'Magi 记忆体验' },
-        replacement: { value: 'Magi 关于你页面' },
-        created_at: 1719301300,
-        state: 'active',
-      },
-      current_claim: { trait_value: 'Magi 关于你页面' },
-      derivation_state: 'completed',
-      created: true,
-    });
-
-    renderPage();
-
-    await screen.findByText('Magi 记忆体验');
-    expect(screen.queryByTestId('portrait-world-groups')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Magi 目前这样理解你' })).not.toBeInTheDocument();
-    const confirmButton = screen.getByRole('button', { name: '确认' });
-    fireEvent.click(confirmButton);
-    fireEvent.click(confirmButton);
-    expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledWith('assert-1', 'confirmed');
-    expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledTimes(1);
-
-    const editButton = screen.getByRole('button', { name: '修改' });
-    await waitFor(() => expect(editButton).not.toBeDisabled());
-    fireEvent.click(editButton);
-    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
-    fireEvent.change(within(dialog).getByLabelText('正确内容'), { target: { value: 'Magi 关于你页面' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: '保存修正' }));
-
-    await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
-    expect(memoryApi.applyCorrection).toHaveBeenCalledWith(expect.objectContaining({
-      target: { kind: 'assertion', id: 'assert-1' },
-      correction_kind: 'record_error',
-      replacement: { value: 'Magi 关于你页面' },
-      expected_updated_at: 1719301200,
-    }));
-    expect(await within(dialog).findByText('Magi 关于你页面')).toBeInTheDocument();
-  });
-
-  it('edits the raw assertion value instead of the portrait sentence', async () => {
-    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
-      generated_at: 0,
-      self_view: {
-        world: { total_count: 0, groups: [] },
-        review: {
-          items: [{
-            id: 'review-location',
-            text: '你的常住地点可能是杭州。',
-            correction_value: '杭州',
-            source: '',
-            source_key: null,
-            assertion_id: 'assert-location',
-            basis_count: 1,
-            basis_refs: [],
-            updated_at: 1719301200,
-          }],
-        },
-        recent: { items: [] },
-      },
-      is_cold_start: false,
-      cold_start_line: null,
-      cold_start_reason: null,
-      is_stale: false,
-    });
-
-    renderPage();
-
-    await screen.findByText('你的常住地点可能是杭州。');
-    fireEvent.click(screen.getByRole('button', { name: '修改' }));
-    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
-
-    expect(within(dialog).getByText('你的常住地点可能是杭州。')).toBeInTheDocument();
-    expect(within(dialog).getByLabelText('正确内容')).toHaveValue('杭州');
-  });
-
-  it('does not offer correction when a portrait item has no raw assertion value', async () => {
-    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
-      generated_at: 0,
-      self_view: {
-        world: { total_count: 0, groups: [] },
-        review: {
-          items: [{
-            id: 'review-without-value',
-            text: '你的常住地点可能是杭州。',
-            source: '',
-            source_key: null,
-            assertion_id: 'assert-without-value',
-            basis_count: 1,
-            basis_refs: [],
-          }],
-        },
-        recent: { items: [] },
-      },
-      is_cold_start: false,
-      cold_start_line: null,
-      cold_start_reason: null,
-      is_stale: false,
-    });
-
-    renderPage();
-
-    await screen.findByText('你的常住地点可能是杭州。');
-    expect(screen.getByRole('button', { name: '确认' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: '不准确' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '修改' })).toBeDisabled();
-  });
-
-  it('keeps a structured value intact when only its scope is corrected', async () => {
-    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
-      generated_at: 0,
-      self_view: {
-        world: { total_count: 0, groups: [] },
-        review: {
-          items: [{
-            id: 'review-structured',
-            text: '子涵、哈基米',
-            correction_value: '["子涵", "哈基米"]',
-            source: '',
-            source_key: null,
-            assertion_id: 'assert-structured',
-            basis_count: 1,
-            basis_refs: [],
-            updated_at: 1719301200,
-          }],
-        },
-        recent: { items: [] },
-      },
-      is_cold_start: false,
-      cold_start_line: null,
-      cold_start_reason: null,
-      is_stale: false,
-    });
-    vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
-      correction: {
-        correction_id: 'correction-structured',
-        correction_kind: 'scope_refinement',
-        before: { trait_value: '["子涵", "哈基米"]' },
-        replacement: { value: '["子涵", "哈基米"]' },
-        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
-        created_at: 1719301300,
-        state: 'active',
-      },
-      current_claim: {
-        trait_value: '["子涵", "哈基米"]',
-      },
-      derivation_state: 'completed',
-      created: true,
-    });
-
-    renderPage();
-
-    await screen.findByText('子涵、哈基米');
-    fireEvent.click(screen.getByRole('button', { name: '修改' }));
-    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
-    expect(within(dialog).getByLabelText('正确内容')).toHaveValue('["子涵", "哈基米"]');
-    fireEvent.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
-    fireEvent.change(await within(dialog).findByLabelText('选择项目'), {
-      target: { value: MAGI_CONTEXT_ID },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: '保存修正' }));
-
-    await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
-    expect(memoryApi.applyCorrection).toHaveBeenCalledWith(expect.objectContaining({
-      target: { kind: 'assertion', id: 'assert-structured' },
-      correction_kind: 'scope_refinement',
-      replacement: { value: '["子涵", "哈基米"]' },
-      scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
-      expected_updated_at: 1719301200,
-    }));
-  });
-
-  it('keeps the portrait and success message visible when the post-save refresh fails', async () => {
-    vi.mocked(memoryPortraitSelfApi.get)
-      .mockResolvedValueOnce({
-        generated_at: 0,
-        self_view: {
-          world: { total_count: 0, groups: [] },
-          review: {
-            items: [{
-              id: 'review-1',
-              text: 'Magi 记忆体验',
-              correction_value: 'Magi 记忆体验',
-              source: '',
-              source_key: null,
-              assertion_id: 'assert-1',
-              basis_count: 1,
-              basis_refs: [],
-              updated_at: 1719301200,
-            }],
-          },
-          recent: { items: [] },
-        },
-        is_cold_start: false,
-        cold_start_line: null,
-        cold_start_reason: null,
-        is_stale: false,
-      })
-      .mockRejectedValueOnce(new Error('portrait refresh failed'));
-    vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
-      correction: {
-        correction_id: 'correction-refresh-failure',
-        correction_kind: 'record_error',
-        before: { trait_value: 'Magi 记忆体验' },
-        replacement: { value: 'Magi 关于你页面' },
-        created_at: 1719301300,
-        state: 'active',
-      },
-      current_claim: { trait_value: 'Magi 关于你页面' },
-      derivation_state: 'completed',
-      created: true,
-    });
-
-    renderPage();
-    await screen.findByText('Magi 记忆体验');
-    fireEvent.click(screen.getByRole('button', { name: '修改' }));
-    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
-    fireEvent.change(within(dialog).getByLabelText('正确内容'), {
-      target: { value: 'Magi 关于你页面' },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: '保存修正' }));
-
-    expect(await within(dialog).findByText('已经按你的意思修正')).toBeInTheDocument();
-    expect(screen.getByTestId('portrait-review-queue')).toBeInTheDocument();
-    expect(screen.getByText('Magi 记忆体验')).toBeInTheDocument();
-    expect(memoryPortraitSelfApi.get).toHaveBeenCalledTimes(2);
-  });
-
-  it('asks for confirmation before removing an inaccurate review item', async () => {
-    vi.mocked(memoryPortraitSelfApi.get)
-      .mockResolvedValueOnce({
-        generated_at: 0,
-        self_view: {
-          world: { total_count: 0, groups: [] },
-          review: {
-            items: [{
-              id: 'review-1', text: '我每天跑步', correction_value: '我每天跑步', source: '', source_key: null,
-              assertion_id: 'assert-1', basis_count: 1, basis_refs: [], updated_at: 1719301200,
-            }],
-          },
-          recent: { items: [] },
-        },
-        is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
-      })
-      .mockResolvedValueOnce({
-        generated_at: 1,
-        self_view: {
-          world: { total_count: 0, groups: [] },
-          review: { items: [] },
-          recent: { items: [] },
-        },
-        is_cold_start: true, cold_start_line: null, cold_start_reason: 'no_understanding', is_stale: false,
-      });
-    vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
-      correction: {
-        correction_id: 'correction-remove',
-        correction_kind: 'record_error', before: { trait_value: '我每天跑步' }, created_at: 1719301300, state: 'active',
-      },
-      current_claim: null,
-      derivation_state: 'completed',
-      created: true,
-    });
-
-    renderPage();
-    await screen.findByText('我每天跑步');
-    fireEvent.click(screen.getByRole('button', { name: '不准确' }));
-
-    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
-    expect(within(dialog).getByRole('button', { name: /这条记忆不存在/ })).toHaveAttribute('aria-pressed', 'true');
-    expect(memoryApi.applyCorrection).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole('button', { name: '确认不再使用' }));
-
-    await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(memoryApi.applyCorrection).mock.calls[0][0]).not.toHaveProperty('replacement');
-    expect(await within(dialog).findByText('已经按你的意思修正')).toBeInTheDocument();
-    expect(memoryPortraitSelfApi.get).toHaveBeenCalledTimes(2);
   });
 
   it('lets users open an exact long-term memory from a grouped summary and correct it', async () => {
@@ -886,76 +529,23 @@ describe('MemoryPortraitPage', () => {
     expect(within(dialog).getByLabelText('正确内容')).toHaveValue('先讲结论');
   });
 
-  it('reloads the backend portrait after confirming a review item', async () => {
-    vi.mocked(memoryPortraitSelfApi.get)
-      .mockResolvedValueOnce({
-        generated_at: 0,
-        self_view: {
-          world: { total_count: 0, groups: [] },
-          review: {
-            items: [{
-              id: 'review-1',
-              text: 'Magi 记忆体验',
-              source: 'conversation',
-              source_key: 'conversation',
-              assertion_id: 'assert-1',
-              basis_count: 1,
-              basis_refs: ['assertion:assert-1'],
-            }],
-          },
-          recent: { items: [] },
-        },
-        is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
-      })
-      .mockResolvedValueOnce({
-        generated_at: 1,
-        self_view: {
-          world: {
-            total_count: 1,
-            groups: [
-              { id: 'identity', items: [] },
-              { id: 'projects', items: [{ id: 'project-1', text: 'Magi 记忆体验', source: '', source_key: null, assertion_id: 'assert-1', basis_count: 1, basis_refs: [] }] },
-            ],
-          },
-          review: { items: [] },
-          recent: { items: [] },
-        },
-        is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
-      });
-    vi.mocked(memoryApi.submitAssertionFeedback).mockResolvedValue({} as any);
-
-    renderPage();
-
-    await screen.findByText('Magi 记忆体验');
-    fireEvent.click(screen.getByRole('button', { name: '确认' }));
-
-    await waitFor(() => {
-      expect(memoryPortraitSelfApi.get).toHaveBeenCalledTimes(2);
-    });
-    expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledWith('assert-1', 'confirmed');
-    expect(screen.queryByTestId('portrait-review-queue')).not.toBeInTheDocument();
-  });
-
   it('submits a self-declared fact through the manual entries channel', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       generated_at: 0,
-      self_view: {
-        world: { total_count: 0, groups: [] },
-        review: { items: [] },
-        recent: { items: [] },
-      },
+      self_view: emptySelfView(),
       is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
     });
 
     renderPage();
 
-    const addFact = await screen.findByTestId('portrait-add-fact');
+    const identity = await screen.findByTestId('portrait-identity');
+    const addFact = await within(identity).findByTestId('portrait-add-fact');
     const input = within(addFact).getByPlaceholderText('告诉 Magi 关于你的一件事…');
-    const submit = within(addFact).getByRole('button', { name: '提交' });
-    expect(submit).toBeDisabled();
+    // 输入前不渲染提交按钮,保持区块安静
+    expect(within(addFact).queryByRole('button', { name: '提交' })).not.toBeInTheDocument();
 
     fireEvent.change(input, { target: { value: '我喜欢爵士乐' } });
-    expect(submit).toBeEnabled();
+    const submit = within(addFact).getByRole('button', { name: '提交' });
     fireEvent.click(submit);
 
     await waitFor(() => expect(manualEntriesApi.create).toHaveBeenCalledTimes(1));
@@ -964,7 +554,7 @@ describe('MemoryPortraitPage', () => {
       body: '我喜欢爵士乐',
     });
     await waitFor(() => expect(input).toHaveValue(''));
-    // 提交后触发画像刷新,新的 tentative 线索会进入「需要你看一眼」
+    // 提交后触发画像刷新
     await waitFor(() => expect(memoryPortraitSelfApi.get).toHaveBeenCalledTimes(2));
   });
 });

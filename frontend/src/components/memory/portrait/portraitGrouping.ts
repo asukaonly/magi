@@ -25,7 +25,6 @@ export interface PortraitWorldGroup {
 
 export interface PortraitViewModel {
   worldGroups: PortraitWorldGroup[];
-  reviewItems: PortraitDisplayItem[];
   recentItems: PortraitDisplayItem[];
   totalUnderstandingCount: number;
 }
@@ -70,12 +69,19 @@ const displayItem = (item: PortraitSelfViewItem): PortraitDisplayItem => {
 export const buildPortraitViewModel = (selfView: PortraitSelfView): PortraitViewModel => {
   const groupsById = new Map(selfView.world.groups.map((group) => [group.id, group]));
   return {
-    worldGroups: WORLD_GROUP_IDS.map((id) => ({
-      id,
-      summary: groupsById.get(id)?.summary ?? '',
-      items: (groupsById.get(id)?.items ?? []).map(displayItem),
-    })),
-    reviewItems: selfView.review.items.map(displayItem),
+    worldGroups: WORLD_GROUP_IDS.map((id) => {
+      const group = groupsById.get(id);
+      const rawItems = group?.items ?? [];
+      // Profile-projection fields (称呼、生日…) are already authoritative in the
+      // 你是谁 section — repeating them here would state the same fact twice.
+      const items = rawItems
+        .filter((item) => item.source_key !== 'user_profile_projection')
+        .map(displayItem);
+      // A group whose items were all profile projections loses its summary too
+      // (summaries are stitched from those same items server-side).
+      const summary = rawItems.length > 0 && items.length === 0 ? '' : group?.summary ?? '';
+      return { id, summary, items };
+    }),
     recentItems: selfView.recent.items.map(displayItem),
     totalUnderstandingCount: selfView.world.total_count,
   };

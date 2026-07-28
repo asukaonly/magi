@@ -16,9 +16,13 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.identity.empty': '未填写',
     'memory.portrait.identity.add': '点击补充',
     'memory.portrait.identity.editField': '修改{{field}}',
+    'memory.portrait.identity.completeFields': '补充 {{fields}}',
+    'memory.portrait.identity.fieldSeparator': '、',
     'memory.portrait.identity.source': '来源：{{source}}',
     'memory.portrait.identity.sources.settings_profile': '你的设置',
     'memory.portrait.identity.sources.chat': '对话记忆',
+    'memory.portrait.identity.sources.derived': '派生',
+    'memory.portrait.identity.sources.user_authored': '你告诉 Magi 的',
     'memory.portrait.identity.saveSuccess': '已保存',
     'memory.portrait.identity.saveFailed': '保存失败：{{message}}',
     'memory.portrait.identity.loadFailed': '个人资料加载失败',
@@ -134,6 +138,7 @@ describe('PortraitIdentitySection', () => {
     vi.mocked(profileApi.updateMe).mockResolvedValue(buildProfile());
 
     render(<PortraitIdentitySection />);
+    fireEvent.click(await screen.findByTestId('portrait-identity-show-empty'));
     const row = await screen.findByTestId('portrait-identity-field-disallowed_forms_of_address');
     fireEvent.click(within(row).getByText('未填写'));
 
@@ -145,6 +150,36 @@ describe('PortraitIdentitySection', () => {
     expect(profileApi.updateMe).toHaveBeenCalledWith({
       disallowed_forms_of_address: ['香香', '小香'],
     });
+  });
+
+  it('collapses empty fields behind an add-more affordance', async () => {
+    render(<PortraitIdentitySection />);
+
+    // 已填字段直接显示
+    expect(await screen.findByText('明日香')).toBeInTheDocument();
+    expect(screen.getByText('上海')).toBeInTheDocument();
+    // 空字段不占行,收进「补充 …」入口
+    expect(screen.queryByTestId('portrait-identity-field-birth_date')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('portrait-identity-field-real_name')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('portrait-identity-show-empty'));
+    expect(await screen.findByTestId('portrait-identity-field-birth_date')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-identity-field-real_name')).toBeInTheDocument();
+  });
+
+  it('renders a readable label for user-authored sources and hides unknown ones', async () => {
+    vi.mocked(profileApi.getMe).mockResolvedValue(
+      buildProfile({
+        field_sources: {
+          preferred_form_of_address: { source: 'user_authored' },
+          home_location: { source: 'internal_pipeline_v2' },
+        },
+      }),
+    );
+
+    render(<PortraitIdentitySection />);
+    expect(await screen.findByText('来源：你告诉 Magi 的')).toBeInTheDocument();
+    expect(screen.queryByText(/internal_pipeline_v2/)).not.toBeInTheDocument();
   });
 
   it('shows a retry action when the profile fails to load', async () => {
