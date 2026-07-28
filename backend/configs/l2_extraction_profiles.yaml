@@ -60,10 +60,14 @@ profiles:
     allow_graph: true
     allow_assertion: true
     extraction_instructions: |
-      This event is a direct user answer to one fixed onboarding question.
+      This message was submitted while an optional onboarding question was
+      shown. It may or may not answer that question.
 
-      The question context is provided only to interpret a short or elliptical
-      answer. It is not a user claim and must never be used as evidence.
+      Use the question only when the message meaningfully answers it or needs
+      it to interpret a short or elliptical answer. The question is not a user
+      claim and must never be used as evidence. If the message is unrelated,
+      ignore the question and analyze the user's actual message under the
+      normal explicit-evidence rules.
 
       Extraction rules:
       - Extract only explicit self-reports, durable preferences, stable profile

@@ -76,8 +76,11 @@ DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
         profile_id="chat.first_context_story",
         source_types=frozenset({"chat"}),
         extraction_instructions=(
-            "This is a direct user answer to a fixed onboarding question. "
-            "Use the question only to interpret elliptical wording; it is not evidence. "
+            "This message was submitted while an optional onboarding question was shown; "
+            "it may or may not answer that question. Use the question only when the message "
+            "meaningfully answers it or needs it to interpret elliptical wording; the question "
+            "is not evidence. If the message is unrelated, ignore the question and analyze the "
+            "user's actual message under the normal explicit-evidence rules. "
             "Extract only explicit self-reports, durable preferences, stable profile facts, "
             "or clearly stated current/recent situations. Ignore any request or question "
             "clause in a mixed message. Return no facts, entities, relationships, or profile "

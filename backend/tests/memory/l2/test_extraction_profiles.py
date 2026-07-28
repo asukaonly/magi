@@ -113,7 +113,9 @@ def test_first_context_story_uses_constrained_chat_profile():
     assert profile.allow_graph is True
     assert profile.allow_assertion is True
     assert profile.extraction_instructions is not None
-    assert "provided only to interpret a short or elliptical" in profile.extraction_instructions
+    assert "may or may not answer that question" in profile.extraction_instructions
+    assert "ignore the question" in profile.extraction_instructions
+    assert "normal explicit-evidence rules" in profile.extraction_instructions
     assert "gibberish" in profile.extraction_instructions
 
 

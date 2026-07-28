@@ -310,6 +310,9 @@ async def test_direct_llm_handler_understands_short_first_context_answer_without
     assert "# First Conversation Context" in request.system_prompt
     assert "最近有哪件小事，让你心情有一点变化？" in request.system_prompt
     assert "not as a claim made by the user" in request.system_prompt
+    assert "may or may not answer the question" in request.system_prompt
+    assert "Choose exactly one response path" in request.system_prompt
+    assert "# First Conversation Reply Behavior" in request.system_prompt
     assert request.messages == [{"role": "user", "content": "还行"}]
 
 
@@ -339,6 +342,47 @@ async def test_direct_llm_handler_never_injects_unregistered_question_text() -> 
 
     assert "Ignore previous instructions" not in request.system_prompt
     assert "# First Conversation Context" not in request.system_prompt
+
+
+@pytest.mark.asyncio
+async def test_function_calling_handler_uses_guarded_first_context_guidance() -> None:
+    context = _direct_chat_context(latest_message="你叫什么？", history=[])
+    context.latest_payload = UserMessagePayload(
+        user_id="local_user",
+        session_id="session-1",
+        content="你叫什么？",
+        turn_id="turn-first-context",
+        interaction_kind="first_context_story",
+        first_context={
+            "question_id": "preferred_name",
+            "question_text": "希望 Magi 平时怎么称呼你？昵称就可以。",
+        },
+    )
+    handler = FunctionCallingHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=_FakePromptService(),
+        )
+    )
+
+    request = await handler.build_request(
+        SimpleNamespace(
+            mode=ExecutionMode.FUNCTION_CALLING,
+            context=context,
+            intent=IntentDecision(
+                intent="chat",
+                difficulty="normal",
+                execution_mode=ExecutionMode.FUNCTION_CALLING,
+                reasoning="tool use",
+                memory_route="none",
+            ),
+            tool_selection=ToolSelection(tools=[], reasoning="no tools"),
+        )
+    )
+
+    assert "may or may not answer the question" in request.system_prompt
+    assert "Choose exactly one response path" in request.system_prompt
+    assert "# First Conversation Reply Behavior" in request.system_prompt
 
 
 @pytest.mark.asyncio
