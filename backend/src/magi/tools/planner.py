@@ -342,7 +342,7 @@ class ExecutionPlanner:
         # Collect results
         for task_result in task_results:
             if isinstance(task_result, Exception):
-                logger.exception(f"Task execution failed with exception")
+                logger.exception("Task execution failed with exception")
                 continue
 
             node_id, result = task_result

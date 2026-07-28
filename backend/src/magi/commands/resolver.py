@@ -17,7 +17,6 @@ import logging
 import sys
 from pathlib import Path
 from threading import Lock
-from typing import Iterable
 
 if sys.version_info >= (3, 11):
     import tomllib

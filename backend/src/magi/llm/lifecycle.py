@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..bootstrap.lifecycle import LifecycleInitDeferred, LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
-from . import LLMScenario, ScenarioLLMPool, get_llm_usage_store
+from . import LLMScenario
 from .factory import create_core_llm_adapter, create_scenario_llm_pool, is_llm_selection_pending
 
 logger = get_logger(__name__)

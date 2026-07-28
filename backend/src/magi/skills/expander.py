@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any
 
 from .loader import SkillLoader
 from .provider import resolve_skill_loader

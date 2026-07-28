@@ -1,7 +1,6 @@
 """Pure helper functions for chat execution handlers."""
 from __future__ import annotations
 
-from typing import Any
 
 from ..common import FunctionCallingRequest
 

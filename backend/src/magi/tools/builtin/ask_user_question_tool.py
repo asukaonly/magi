@@ -20,7 +20,6 @@ from typing import Any, Dict
 
 from ...core.logger import get_logger
 
-_BACKGROUND_AGENT_PREFIX = "background:"
 from ..schema import (
     ParameterType,
     Tool,
@@ -29,6 +28,8 @@ from ..schema import (
     ToolResult,
     ToolSchema,
 )
+
+_BACKGROUND_AGENT_PREFIX = "background:"
 
 logger = get_logger(__name__)
 

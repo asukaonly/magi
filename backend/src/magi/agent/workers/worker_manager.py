@@ -18,8 +18,8 @@ from .worker_prompting import WorkerPromptMixin
 from .worker_result_validation import WorkerResultValidationMixin
 from .worker_schema import WorkerSchemaMixin
 from .worker_state import (
-    WORKER_AGENT_COMPLETED,
-    WORKER_AGENT_FAILED,
+    WORKER_AGENT_COMPLETED as WORKER_AGENT_COMPLETED,
+    WORKER_AGENT_FAILED as WORKER_AGENT_FAILED,
     WORKER_AGENT_PROGRESS,
     WorkerRunState,
 )

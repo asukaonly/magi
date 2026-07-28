@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-from .schema import Tool, ToolSchema, ToolParameter
+from .schema import ToolSchema
 
 if TYPE_CHECKING:
     from .schema import ToolExecutionContext
@@ -336,11 +336,11 @@ class ToolRecommender:
 
         # Check for dangerous operation
         if schema.dangerous and "dangerous_tools" not in context.permissions:
-            return False, f"Tool requires dangerous_tools permission"
+            return False, "Tool requires dangerous_tools permission"
 
         # Check authentication requirement
         if schema.requires_auth and "authenticated" not in context.permissions:
-            return False, f"Tool requires authentication"
+            return False, "Tool requires authentication"
 
         # Check role permission
         if schema.allowed_roles:

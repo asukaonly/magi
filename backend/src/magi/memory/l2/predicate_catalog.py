@@ -7,7 +7,7 @@ into a single PredicateSpec model with derived lookup indexes.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, FrozenSet, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 
 @dataclass(frozen=True)

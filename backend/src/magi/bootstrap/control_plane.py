@@ -34,7 +34,6 @@ and IPC event emission can be layered on later.
 
 from __future__ import annotations
 
-from typing import Any
 
 from dependency_injector import providers
 

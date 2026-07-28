@@ -94,7 +94,6 @@ class FunctionCallingTracingMixin:
         iteration: int,
         execution_agent_id: str,
     ) -> int | None:
-        host = cast(_TracingHostProtocol, self)
         normalized_turn_id = str(turn_id or "").strip()
         writer = self._runtime_trace_writer()
         if writer is None or not normalized_turn_id:
@@ -129,7 +128,6 @@ class FunctionCallingTracingMixin:
         result_preview: str | None = None,
         error_text: str | None = None,
     ) -> None:
-        host = cast(_TracingHostProtocol, self)
         normalized_turn_id = str(turn_id or "").strip()
         writer = self._runtime_trace_writer()
         if writer is None or not normalized_turn_id or started_at_ms is None:
@@ -190,7 +188,6 @@ class FunctionCallingTracingMixin:
         tool_call: ToolCall,
         result: ToolCallResult,
     ) -> None:
-        host = cast(_TracingHostProtocol, self)
         normalized_turn_id = str(turn_id or "").strip()
         writer = self._runtime_trace_writer()
         if writer is None or not normalized_turn_id:

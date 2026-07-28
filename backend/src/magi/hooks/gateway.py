@@ -7,7 +7,7 @@ import logging
 from dataclasses import replace
 from typing import List, Optional
 
-from .contracts import HookContext, HookDecision, HookEventType, HookOutcome
+from .contracts import HookContext, HookDecision, HookOutcome
 from .registry import HookRegistry
 
 logger = logging.getLogger(__name__)

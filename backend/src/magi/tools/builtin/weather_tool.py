@@ -3,7 +3,7 @@ Weather Tool - Query weather using multiple providers
 """
 
 from dataclasses import dataclass
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from urllib.parse import urlparse
 
 from ..schema import (

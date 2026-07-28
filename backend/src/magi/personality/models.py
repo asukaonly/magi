@@ -1,7 +1,7 @@
 """Personality layer data models."""
 
 import time
-from typing import Dict, List
+from typing import List
 from enum import Enum
 from dataclasses import dataclass, field
 

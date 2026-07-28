@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .allowed_tools_rules import parse_allowed_tools, rules_to_strings
-from .schema import SkillContent, SkillFrontmatter, SkillMetadata
+from .schema import SkillContent, SkillFrontmatter
 from .indexer import SkillIndexer
 
 logger = logging.getLogger(__name__)

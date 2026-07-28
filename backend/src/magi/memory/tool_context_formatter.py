@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from .tool_context_common import coalesce_text as _coalesce_text
-from .tool_context_common import truncate_text as _truncate_text
 from .tool_context_historical import compact_historical_recall as _compact_historical_recall
 from .tool_context_layers import (
     compact_assertions as _compact_assertions,
@@ -18,7 +16,6 @@ from .tool_context_layers import (
     compact_relationships as _compact_relationships,
     compact_timeline_summary as _compact_timeline_summary,
     compact_workbench_items as _compact_workbench_items,
-    extract_procedure_hint as _extract_procedure_hint,
 )
 from .tool_context_rendering import compact_trace_meta as _compact_trace_meta
 from .tool_context_rendering import render_memory_context as _render_memory_context

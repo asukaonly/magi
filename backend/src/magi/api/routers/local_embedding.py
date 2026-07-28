@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ... import i18n as core_i18n
 from ...config.local_embedding_registry import (

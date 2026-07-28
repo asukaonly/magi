@@ -20,7 +20,7 @@ from .snapshot import RunSnapshot
 from .spec import NodeSpec
 
 if TYPE_CHECKING:
-    from ..task_agents.common.contracts import ExecutionMode, ExecutionRequest, ExecutionResult
+    from ..task_agents.common.contracts import ExecutionRequest, ExecutionResult
 
 
 class NodeSequenceRunner:

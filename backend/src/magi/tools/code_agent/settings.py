@@ -12,7 +12,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .contracts import AdapterName
 from ._user_paths import code_agent_settings_path
 
 

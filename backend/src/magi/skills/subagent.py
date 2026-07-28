@@ -9,7 +9,9 @@ Provides a dedicated agent instance for skill execution with:
 
 from __future__ import annotations
 
+import contextvars as _contextvars
 import logging
+import os as _os
 import subprocess
 import time
 import uuid
@@ -31,10 +33,6 @@ logger = logging.getLogger(__name__)
 # task. Direct-mode skills are unaffected — they share the parent context
 # and don't recurse the same way. Configurable via env var because the
 # right ceiling depends on how composable a workspace's skill library is.
-import contextvars as _contextvars
-import os as _os
-
-
 def _resolve_max_fork_depth() -> int:
     raw = _os.environ.get("MAGI_SKILLS_MAX_FORK_DEPTH", "").strip()
     if not raw:

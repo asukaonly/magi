@@ -26,7 +26,7 @@ import fnmatch
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable, List, Mapping, Optional, Sequence, Union
+from typing import Any, Iterable, List, Mapping, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 

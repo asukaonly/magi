@@ -5,7 +5,7 @@ Defines the data structures used throughout the skills system.
 """
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 
 @dataclass

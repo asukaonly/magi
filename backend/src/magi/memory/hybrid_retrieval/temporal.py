@@ -22,7 +22,9 @@ def build_knowledge_temporal_clause(
     if tc is None or tc.mode == "none":
         return "", []
 
-    col = lambda name: f"{prefix}{name}" if prefix else name
+    def col(name: str) -> str:
+        return f"{prefix}{name}" if prefix else name
+
     clauses: list[str] = []
     params: list[Any] = []
     now = time.time()
@@ -76,7 +78,9 @@ def build_assertion_temporal_clause(
     if tc is None or tc.mode == "none":
         return "", []
 
-    col = lambda name: f"{prefix}{name}" if prefix else name
+    def col(name: str) -> str:
+        return f"{prefix}{name}" if prefix else name
+
     clauses: list[str] = []
     params: list[Any] = []
     now = time.time()

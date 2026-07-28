@@ -33,7 +33,7 @@ from __future__ import annotations
 import contextvars
 import logging
 from contextlib import contextmanager
-from typing import Iterable, Iterator, Mapping, Optional, Sequence, Tuple
+from typing import Iterable, Iterator, Mapping, Optional, Tuple
 
 from .allowed_tools_rules import ToolRule, any_rule_matches, parse_allowed_tools
 

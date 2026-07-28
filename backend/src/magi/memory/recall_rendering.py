@@ -8,7 +8,7 @@ formatting, text truncation, finding aggregation, and asset manifests.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone, tzinfo
+from datetime import datetime, tzinfo
 from typing import Any
 
 

@@ -8,9 +8,6 @@ import time
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
-EvidenceFocus = Literal["declared", "observed", "both"]
-_VALID_EVIDENCE_FOCI: frozenset[str] = frozenset(("declared", "observed", "both"))
-
 from .answerability import (
     extract_comparison_spans,
     extract_query_tokens,
@@ -35,6 +32,9 @@ from .models import (
     L3Conditions,
     L4Conditions,
 )
+
+EvidenceFocus = Literal["declared", "observed", "both"]
+_VALID_EVIDENCE_FOCI: frozenset[str] = frozenset(("declared", "observed", "both"))
 
 logger = logging.getLogger(__name__)
 

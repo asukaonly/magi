@@ -29,7 +29,7 @@ import json
 import logging
 from typing import Any, Mapping, Optional
 
-from .contracts import HookContext, HookDecision, HookOutcome
+from .contracts import HookContext, HookDecision
 
 logger = logging.getLogger(__name__)
 

@@ -14,7 +14,7 @@ from .schema import (
     RuntimeSystemContext,
     ToolCatalogContext,
 )
-from .renderer import PromptContextRenderer
+from .renderer import PromptContextRenderer as PromptContextRenderer
 from .self_memory import PromptSelfMemoryMixin
 from .user_profile_service import UserProfileService
 from ..personality.persona_journal_service import PersonaJournalService
