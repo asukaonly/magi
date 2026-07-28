@@ -43,7 +43,7 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect }: PortraitWorl
                 </h3>
                 <div className="mt-3 space-y-3">
                   {group.summary ? (
-                    <p className="text-[0.95rem] font-medium leading-7 text-[hsl(var(--memory-title))]">
+                    <p className="text-[1.05rem] font-medium leading-8 text-[hsl(var(--memory-title))]">
                       {group.summary}
                     </p>
                   ) : (

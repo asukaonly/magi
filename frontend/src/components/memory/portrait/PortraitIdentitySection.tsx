@@ -152,7 +152,7 @@ export const PortraitIdentitySection = ({
       <div
         key={field.key}
         data-testid={`portrait-identity-field-${field.sourceKey}`}
-        className="group grid gap-1 border-b border-[hsl(var(--memory-divider)/0.4)] py-2.5 last:border-b-0 sm:grid-cols-[minmax(7rem,9rem)_minmax(0,1fr)_auto] sm:items-center sm:gap-4"
+        className="group grid gap-1 border-b border-[hsl(var(--memory-divider)/0.4)] py-2 last:border-b-0 sm:grid-cols-[minmax(7rem,9rem)_minmax(0,1fr)_auto] sm:items-center sm:gap-4"
       >
         <span className="text-xs text-[hsl(var(--memory-muted))]">
           {t(`memory.portrait.identity.fields.${field.key}`)}

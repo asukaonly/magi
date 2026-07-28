@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { memoryPortraitSelfApi, type SelfPortraitPayload } from '@/api/modules/memoryPortraitSelf';
+import { profileApi } from '@/api/modules/profile';
 import { Button } from '@/components/ui/button';
 import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
 import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
@@ -70,6 +71,7 @@ export const MemoryPortraitPage = () => {
   const [loadError, setLoadError] = useState(false);
   const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
   const [correctionAction, setCorrectionAction] = useState<'replace' | 'remove'>('replace');
+  const [displayName, setDisplayName] = useState<string | null>(null);
   const portraitLoadRequestRef = useRef(0);
 
   const loadPortrait = useCallback(async () => {
@@ -95,10 +97,39 @@ export const MemoryPortraitPage = () => {
     void loadPortrait();
   }, [loadPortrait]);
 
+  useEffect(() => {
+    let cancelled = false;
+    profileApi.getMe()
+      .then((profile) => {
+        if (cancelled) return;
+        setDisplayName(profile.display_name || profile.preferred_form_of_address || null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const viewModel = useMemo(
     () => (payload ? buildPortraitViewModel(payload.self_view) : null),
     [payload]
   );
+
+  const heroMeta = useMemo(() => {
+    if (!viewModel) return null;
+    const parts: string[] = [];
+    if (viewModel.totalUnderstandingCount > 0) {
+      parts.push(t('memory.portrait.hero.understandings', { count: viewModel.totalUnderstandingCount }));
+    }
+    const interest = viewModel.recentItems.find((item) => item.claimKind === 'preference_interest');
+    if (interest) {
+      parts.push(t('memory.portrait.recent.kinds.preference_interest', {
+        value: interest.text,
+        defaultValue: interest.text,
+      }));
+    }
+    return parts.length > 0 ? parts.join(' · ') : t('memory.portrait.hero.coldStart');
+  }, [t, viewModel]);
 
   const openCorrection = (item: PortraitDisplayItem, action: 'replace' | 'remove' = 'replace') => {
     if (!item.assertionId || item.correctionValue == null) return;
@@ -152,12 +183,20 @@ export const MemoryPortraitPage = () => {
       <div className="mx-auto max-w-5xl px-2 pb-10 pt-6 [&>section+section]:mt-10 [&>section+section]:border-t [&>section+section]:border-[hsl(var(--memory-divider)/0.5)] [&>section+section]:pt-10">
         {viewModel ? (
           <>
-            <PortraitIdentitySection onFactSubmitted={() => void loadPortrait()} />
+            <header data-testid="portrait-hero" className="mb-8">
+              <h1 className="text-[1.75rem] font-semibold tracking-[-0.03em] text-[hsl(var(--memory-title))]">
+                {displayName ?? t('memory.portrait.hero.fallbackName')}
+              </h1>
+              {heroMeta ? (
+                <p className="mt-2 text-[13px] text-[hsl(var(--memory-muted))]">{heroMeta}</p>
+              ) : null}
+            </header>
             <PortraitWorldMap
               groups={viewModel.worldGroups}
               totalCount={viewModel.totalUnderstandingCount}
               onCorrect={openCorrection}
             />
+            <PortraitIdentitySection onFactSubmitted={() => void loadPortrait()} />
             <PortraitRecentState items={viewModel.recentItems} />
           </>
         ) : null}

@@ -16,6 +16,9 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.loadFailed.title': '暂时没能读取关于你的内容',
     'memory.portrait.loadFailed.body': '已有内容没有丢失，请稍后再试。',
     'memory.portrait.loadFailed.retry': '重新读取',
+    'memory.portrait.hero.fallbackName': '你',
+    'memory.portrait.hero.understandings': 'Magi 已对你形成 {{count}} 条理解',
+    'memory.portrait.hero.coldStart': 'Magi 还在认识你',
     'memory.portrait.world.summaryTitle': 'Magi 目前这样理解你',
     'memory.portrait.world.meta': '已形成 {{count}} 条理解',
     'memory.portrait.world.inspectItems': '查看并修正 {{count}} 条具体记忆',
@@ -258,6 +261,11 @@ describe('MemoryPortraitPage', () => {
     });
     renderPage();
 
+    // hero:名字 + 一行 meta,是页面唯一的重量级元素
+    const hero = await screen.findByTestId('portrait-hero');
+    expect(within(hero).getByRole('heading', { name: '明日香' })).toBeInTheDocument();
+    expect(within(hero).getByText('Magi 已对你形成 3 条理解')).toBeInTheDocument();
+
     expect(await screen.findByRole('heading', { name: 'Magi 目前这样理解你' })).toBeInTheDocument();
     // 页面不再渲染「关于你」大标题,导航定位由侧栏承担
     expect(screen.queryByRole('heading', { name: '关于你' })).not.toBeInTheDocument();
@@ -275,7 +283,6 @@ describe('MemoryPortraitPage', () => {
 
     const identity = await screen.findByTestId('portrait-identity');
     expect(within(identity).getByText('你是谁')).toBeInTheDocument();
-    expect(within(identity).getByText('明日香')).toBeInTheDocument();
     expect(within(identity).getByText('上海')).toBeInTheDocument();
     expect(within(identity).getByText('来源：你的设置')).toBeInTheDocument();
     expect(within(identity).getByText('来源：对话记忆')).toBeInTheDocument();
@@ -287,9 +294,9 @@ describe('MemoryPortraitPage', () => {
     expect(within(recent).getByText('最近的你')).toBeInTheDocument();
     expect(within(recent).getByText('插件导入')).toBeInTheDocument();
 
-    // 单列文档流:你是谁(含主动补充) → Magi 的理解 → 最近的你
+    // 单列文档流:hero → Magi 的理解 → 你是谁(含主动补充) → 最近的你
     const world = screen.getByTestId('portrait-world-map');
-    const ordered = [identity, world, recent];
+    const ordered = [hero, world, identity, recent];
     for (let index = 0; index < ordered.length - 1; index += 1) {
       expect(
         ordered[index].compareDocumentPosition(ordered[index + 1]) & Node.DOCUMENT_POSITION_FOLLOWING,

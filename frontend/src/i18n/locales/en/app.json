@@ -3131,6 +3131,11 @@
         "retry": "Try again"
       },
       "refreshFailed": "The correction is active, but About You could not refresh yet.",
+      "hero": {
+        "fallbackName": "You",
+        "understandings": "Magi has formed {{count}} understandings of you",
+        "coldStart": "Magi is still getting to know you"
+      },
       "segments": {
         "identity": "Identity",
         "state": "Right now",

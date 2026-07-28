@@ -3129,6 +3129,11 @@
         "retry": "重新读取"
       },
       "refreshFailed": "修正已经生效，但“关于你”暂时没有刷新。",
+      "hero": {
+        "fallbackName": "你",
+        "understandings": "Magi 已对你形成 {{count}} 条理解",
+        "coldStart": "Magi 还在认识你"
+      },
       "segments": {
         "identity": "身份",
         "state": "当下",
