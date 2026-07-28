@@ -160,17 +160,6 @@ jobs:
         shell: bash
         run: npm ci
 
-      - name: Verify generated API types are up to date
-        if: matrix.os_family != 'windows'
-        shell: bash
-        run: |
-          bash scripts/gen-api-types.sh
-          if ! git diff --exit-code -- frontend/src/types/api/generated.ts; then
-            echo "::error::frontend/src/types/api/generated.ts is stale."
-            echo "Run 'bash scripts/gen-api-types.sh' locally and commit the result."
-            exit 1
-          fi
-
       - name: Run frontend validation
         working-directory: frontend
         shell: bash

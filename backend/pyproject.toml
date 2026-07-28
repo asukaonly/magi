@@ -24,18 +24,9 @@ classifiers = [
 dependencies = [
     # Core framework
     #
-    # Lower bounds pin the *minimum* version with the schema-export
-    # behavior the committed ``frontend/src/types/api/generated.ts``
-    # was generated against. Upper bounds pin the *maximum* compatible
-    # minor — without these, ``pip install -e .`` in CI pulls the
-    # latest patch+minor on every fresh setup, whereas a developer
-    # whose .venv is a few weeks stale runs on an older minor, and
-    # the two emit subtly different OpenAPI schemas (Body field
-    # ``format: binary`` vs ``contentMediaType``, ``LLMConfigModel``
-    # split into ``-Input/-Output`` halves vs combined). Both
-    # variants triggered api-types-drift CI failures during the
-    # v0.1.14 ship. Tighten the bounds; when you intentionally
-    # upgrade, regen ``generated.ts`` in the same commit.
+    # Keep FastAPI and Pydantic within the compatibility window exercised by
+    # the transport contract tests. Intentional upgrades must validate the
+    # exported Python route schema and the affected frontend API modules.
     "fastapi>=0.136.0,<0.138.0",
     # Pinned explicitly because fastapi declares no upper bound and pip
     # does not eagerly upgrade transitives; PYSEC-2026-161 is fixed in 1.0.1.

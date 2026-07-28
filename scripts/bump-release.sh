@@ -4,11 +4,10 @@
 # then GATE ON THE REMOTE CI RUN: only after ci.yml goes green do we create and
 # push the release tag (v*), which triggers release.yml's desktop builds.
 #
-# Why remote-CI-gated: the full CI (FastAPI http tests, api-types codegen) is
-# sensitive to the exact fastapi/pydantic versions pinned in pyproject. A local
-# dev env that lags those versions would fail spuriously, so CI on GitHub (which
-# installs the pinned versions) is the source of truth. The local sanity step is
-# just a smoke check on the parts that are environment-independent.
+# Why remote-CI-gated: CI installs the supported dependencies in a clean
+# environment and runs the complete cross-platform validation. A long-lived
+# local environment may lag those versions, so GitHub CI is the source of truth.
+# The local sanity step only checks the environment-independent parts.
 #
 # Usage:
 #   scripts/bump-release.sh <major|minor|patch>

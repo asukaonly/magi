@@ -59,9 +59,6 @@ but they are narrower than the core source-of-truth set.
 - [Persistence & Migrations](./persistence-and-migrations.md)
   Read this when working on SQLite schema, runtime DB layout, Alembic environments, or migration workflow.
 
-- [API Types Codegen Design](./api-types-codegen-design.md)
-  Read this when changing the OpenAPI-to-frontend type generation contract.
-
 - [Plugin Suggestion Descriptor](./plugin-suggestion-descriptor.md)
   Reference for plugin suggestion metadata consumed by product surfaces.
 

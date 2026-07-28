@@ -225,7 +225,7 @@ Declaring a route on its `APIRouter` is NOT enough to make it reachable. Require
 1. **Declare** it: `@some_router.<method>("/path", ...)`.
 2. **Allowlist** it: add `"/path": {"<METHOD>"}` under the router's group in `_PUBLIC_ROUTE_METHODS` (`backend/src/magi/api/routes.py`). `register_api_routes()` filters every router through `_build_public_router`, so a route missing from the allowlist is silently dropped → **HTTP 404 in the running app** (router-import unit tests still pass — they bypass the filter). Use the router-relative path (no `/api/<group>` prefix; the prefix is added when the filtered router is mounted).
 3. **Gateway**: the Rust gateway (`crates/magi-gateway`) proxies all non-native paths to Python via `.fallback(proxy_handler)` — no gateway change needed for proxied routes. Only add `.route(...)` in `crates/magi-gateway/src/api/mod.rs` if the endpoint is implemented natively in Rust.
-4. **Types**: if the request/response schema changed, run `npm run gen:api-types` and update the hand-written client under `frontend/src/api/`; CI drift-checks `generated.ts`.
+4. **Types**: if the request/response schema changed, update the hand-written client types under `frontend/src/api/` and cover the contract with focused backend/frontend tests.
 5. **Reload**: the backend runs as a `--no-reload` IPC sidecar — fully relaunch the app (not webview reload) to pick up route/code changes.
 
 Prove reachability through the public router, not just the raw router:
@@ -387,10 +387,10 @@ runs an environment-independent sanity check, pushes the branch, then **gates on
 remote `ci.yml` run** (`gh run watch`) and only creates + pushes the `v<version>` tag
 once CI is green. The tag triggers `release.yml` (desktop bundle builds).
 
-Remote CI is the source of truth because the full CI (FastAPI http tests + api-types
-codegen) is sensitive to the exact `fastapi`/`pydantic` versions pinned in
-`backend/pyproject.toml`; a local dev env that lags those versions fails spuriously.
-Requires: clean working tree, a checked-out branch, and authenticated `gh`.
+Remote CI is the source of truth because it installs the supported dependency
+versions from a clean environment and runs the complete cross-platform validation;
+a long-lived local environment may lag those versions. Requires: clean working
+tree, a checked-out branch, and authenticated `gh`.
 
 ---
 

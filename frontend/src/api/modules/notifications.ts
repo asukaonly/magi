@@ -8,7 +8,7 @@
  * - `POST /notifications/{id}/action` — record that the user acted on it.
  *
  * Mirrors {@link ../modules/systemSuggestions} — `api.*` + `unwrapGatewayPayload`,
- * with hand-written local TS interfaces (not the generated API types).
+ * with hand-written local TS interfaces.
  */
 import { api, unwrapGatewayPayload } from '../client';
 import type { SuggestionPlugin } from './systemSuggestions';

@@ -1,5 +1,4 @@
 import { api, unwrapGatewayPayload } from '../client';
-import type { components } from '../../types/api/generated';
 import type {
   ActivationFlowSpec,
   ExtensionFieldSpec,
@@ -9,7 +8,14 @@ import type {
 } from './plugins';
 
 /** Honest memory-readiness signal for one sensor source (see backend GET /sensors/{source}/memory-readiness). */
-export type MemoryReadinessResponse = components['schemas']['MemoryReadinessResponse'];
+export interface MemoryReadinessResponse {
+  source_name: string;
+  l1_event_count: number;
+  l2_ready: boolean;
+  l2_total_count: number;
+  l2_processed_count: number;
+  l2_remaining_count: number;
+}
 
 export interface SensorSyncActivity {
   job_id: string;
