@@ -98,7 +98,12 @@ export const buildTimelineCapabilities = (
     if (source.enabled) {
       capability.enabledCount += 1;
     }
-    if (source.last_error || source.status === 'error' || source.available === false) {
+    const retrying = source.status === 'retrying' || source.sync_activity?.status === 'retrying';
+    if (
+      (source.last_error && !retrying)
+      || source.status === 'error'
+      || source.available === false
+    ) {
       capability.attentionCount += 1;
     }
     if (timestampValue(source.last_sync_at) > timestampValue(capability.lastSyncAt)) {

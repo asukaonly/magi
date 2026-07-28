@@ -14,13 +14,15 @@ export type MemoryReadinessResponse = components['schemas']['MemoryReadinessResp
 export interface SensorSyncActivity {
   job_id: string;
   mode: 'latest' | 'backfill';
-  status: 'queued' | 'running' | 'continuing' | 'success' | 'failed' | string;
+  status: 'queued' | 'running' | 'retrying' | 'continuing' | 'success' | 'failed' | string;
   backfill_scope?: SensorBackfillScope | null;
   backfill_start_date?: string | null;
   backfill_end_date?: string | null;
   created_at?: number | null;
   started_at?: number | null;
   finished_at?: number | null;
+  attempt_count?: number;
+  next_attempt_at?: number | null;
   error?: string | null;
 }
 
@@ -70,7 +72,7 @@ export interface SensorSourceStatusItem {
   settings_ui_blocks?: PluginSettingsUiBlockSpec[];
   settings_actions?: PluginSettingsActionSpec[];
   activation_required?: boolean;
-  status?: 'ready' | 'running' | 'stale' | 'error' | 'never_synced' | 'setup_required' | 'disabled' | string;
+  status?: 'ready' | 'running' | 'retrying' | 'stale' | 'error' | 'never_synced' | 'setup_required' | 'disabled' | string;
   running?: boolean;
   last_run_at?: number | string | null;
   last_result_count?: number;

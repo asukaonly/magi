@@ -226,6 +226,7 @@ export const sourceStatusDotClassName = (status: string): string => {
   switch (status) {
     case 'running':
       return 'bg-blue-500';
+    case 'retrying':
     case 'stale':
       return 'bg-amber-500';
     case 'error':

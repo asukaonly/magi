@@ -35,6 +35,8 @@ def test_serialize_sensor_sync_activity_exposes_backfill_range_and_result() -> N
         "created_at": 100.0,
         "started_at": 101.0,
         "finished_at": 102.0,
+        "attempt_count": 0,
+        "next_attempt_at": None,
         "error": None,
     }
 
@@ -62,3 +64,27 @@ def test_serialize_sensor_sync_activity_keeps_batch_transition_active() -> None:
     assert activity is not None
     assert activity["status"] == "continuing"
     assert activity["mode"] == "backfill"
+
+
+def test_serialize_sensor_sync_activity_exposes_durable_retry_state() -> None:
+    activity = _serialize_sensor_sync_activity(
+        {
+            "job_id": "job-3",
+            "status": "queued",
+            "payload": {},
+            "stats": {},
+            "attempt_count": 2,
+            "next_attempt_at": 130.0,
+            "created_at": 100.0,
+            "started_at": None,
+            "finished_at": None,
+            "error": "temporary source failure",
+        },
+        now=110.0,
+    )
+
+    assert activity is not None
+    assert activity["status"] == "retrying"
+    assert activity["attempt_count"] == 2
+    assert activity["next_attempt_at"] == 130.0
+    assert activity["error"] == "temporary source failure"

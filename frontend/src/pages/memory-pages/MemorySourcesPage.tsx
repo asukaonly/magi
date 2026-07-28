@@ -225,7 +225,7 @@ const sourceSyncModeLabel = (syncMode: string | null, t: OverviewTranslateFn): s
 
 const isActiveBackfill = (activity: SensorSyncActivity | null | undefined): boolean => (
   activity?.mode === 'backfill'
-  && ['queued', 'running', 'continuing'].includes(activity.status)
+  && ['queued', 'running', 'retrying', 'continuing'].includes(activity.status)
 );
 
 const backfillRangeLabel = (
@@ -256,13 +256,15 @@ const sourceStatusPresentation = (
   t: OverviewTranslateFn,
 ): { label: string; dotStatus: string; range: string | null } => {
   if (isActiveBackfill(row.syncActivity)) {
+    const activityStatus = row.syncActivity?.status;
+    const statusKey = activityStatus === 'retrying'
+      ? 'memory.sourcesPage.backfillStatus.retrying'
+      : activityStatus === 'queued'
+        ? 'memory.sourcesPage.backfillStatus.queued'
+        : 'memory.sourcesPage.backfillStatus.running';
     return {
-      label: t(
-        row.syncActivity?.status === 'queued'
-          ? 'memory.sourcesPage.backfillStatus.queued'
-          : 'memory.sourcesPage.backfillStatus.running',
-      ),
-      dotStatus: row.syncActivity?.status === 'queued' ? 'stale' : 'running',
+      label: t(statusKey, { count: row.syncActivity?.attempt_count || 0 }),
+      dotStatus: ['queued', 'retrying'].includes(activityStatus || '') ? 'stale' : 'running',
       range: backfillRangeLabel(row.syncActivity, t),
     };
   }

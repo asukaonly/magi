@@ -2407,6 +2407,7 @@
         "idle": "空闲",
         "queued": "已入队",
         "syncing": "同步中",
+        "retrying": "等待重试（已尝试 {{count}} 次）",
         "awaitingSetup": "等待首次配置",
         "notInstalled": "未安装",
         "loading": "正在加载来源状态..."
@@ -2703,6 +2704,7 @@
       "sourceStatus": {
         "ready": "正常",
         "running": "同步中",
+        "retrying": "等待重试",
         "stale": "延迟",
         "error": "异常",
         "never_synced": "未同步",
@@ -2794,7 +2796,8 @@
       },
       "backfillStatus": {
         "queued": "等待补数据",
-        "running": "补数据中"
+        "running": "补数据中",
+        "retrying": "补数据重试中（已尝试 {{count}} 次）"
       },
       "feedback": {
         "pauseSuccess": "{{source}} 已暂停",

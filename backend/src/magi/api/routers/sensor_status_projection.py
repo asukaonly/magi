@@ -112,6 +112,7 @@ def _derive_sensor_status(
     enabled: bool,
     activation_required: bool,
     running: bool,
+    retrying: bool = False,
     last_error: str | None,
     last_success_at: Any,
     sync_mode: str,
@@ -122,6 +123,8 @@ def _derive_sensor_status(
         return "setup_required"
     if not enabled:
         return "disabled"
+    if retrying:
+        return "retrying"
     if running:
         return "running"
     if last_error:
@@ -191,6 +194,7 @@ async def _build_source_status(
     )
     source_settings = _resolve_source_settings(item, current_settings, source_name)
     capabilities = _resolve_sensor_capabilities(sensor, state)
+    sync_activity = _serialize_sensor_sync_activity(latest_sync_job)
 
     return {
         **_source_identity_payload(
@@ -208,8 +212,9 @@ async def _build_source_status(
             state=state,
             source_settings=source_settings,
             capabilities=capabilities,
+            sync_activity=sync_activity,
         ),
-        "sync_activity": _serialize_sensor_sync_activity(latest_sync_job),
+        "sync_activity": sync_activity,
         **_source_schedule_payload(
             recurring_binding=recurring_binding,
             schedule=schedule,
@@ -314,7 +319,9 @@ def _source_run_payload(
     state: Any,
     source_settings: dict[str, Any],
     capabilities: dict[str, Any],
+    sync_activity: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    retrying = bool(sync_activity and sync_activity.get("status") == "retrying")
     return {
         "running": capabilities["running"],
         "last_run_at": state.last_run_at if state is not None else None,
@@ -327,6 +334,7 @@ def _source_run_payload(
             enabled=source_settings["enabled"],
             activation_required=source_settings["activation_required"],
             running=capabilities["running"],
+            retrying=retrying,
             last_error=capabilities["last_error"],
             last_success_at=state.last_success_at if state is not None else None,
             sync_mode=source_settings["sync_mode"],
@@ -403,6 +411,12 @@ def _serialize_sensor_sync_activity(
     )
     mode = "backfill" if sync_request is not None else "latest"
     status = str(job.get("status") or "")
+    raw_attempt_count = job.get("attempt_count")
+    attempt_count = max(0, raw_attempt_count if isinstance(raw_attempt_count, int) else 0)
+    if (status == "queued" and attempt_count > 0) or (
+        status == "running" and attempt_count > 1
+    ):
+        status = "retrying"
     stats = job.get("stats")
     finished_at = _coerce_timestamp_seconds(job.get("finished_at"))
     current_time = time.time() if now is None else now
@@ -428,6 +442,8 @@ def _serialize_sensor_sync_activity(
         "created_at": _coerce_timestamp_seconds(job.get("created_at")),
         "started_at": _coerce_timestamp_seconds(job.get("started_at")),
         "finished_at": finished_at,
+        "attempt_count": attempt_count,
+        "next_attempt_at": _coerce_timestamp_seconds(job.get("next_attempt_at")),
         "error": _sanitize_sensor_error(job.get("error")),
     }
 

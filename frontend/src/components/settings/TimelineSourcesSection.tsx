@@ -131,43 +131,50 @@ const EntryOption: React.FC<{
   enabled: boolean;
   attention: boolean;
   onClick: () => void;
-}> = ({ source, selected, title, description, statusLabel, enabled, attention, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    data-testid={`timeline-entry-option-${source.source_name}`}
-    role="tab"
-    aria-selected={selected}
-    className={cn(
-      'min-h-[104px] w-[280px] flex-none snap-start rounded-lg px-4 py-3 text-left transition-[background-color,box-shadow,color] duration-200 md:w-[300px] xl:w-[320px]',
-      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
-      selected
-        ? 'bg-[hsl(var(--settings-shell-elevated)/0.9)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.7),0_12px_26px_hsl(var(--foreground)/0.045)]'
-        : 'bg-[hsl(var(--settings-shell)/0.32)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)] hover:bg-[hsl(var(--settings-shell-elevated)/0.58)]'
-    )}
-  >
-    <div className="flex h-full flex-col justify-between gap-3">
-      <div className="min-w-0 space-y-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium text-foreground">{title}</span>
-          {attention ? (
-            <span className="h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
-          ) : null}
+}> = ({ source, selected, title, description, statusLabel, enabled, attention, onClick }) => {
+  const retrying = source.status === 'retrying' || source.sync_activity?.status === 'retrying';
+  const activityDetail = retrying
+    ? formatTimestamp(source.sync_activity?.next_attempt_at) || statusLabel
+    : source.last_error || formatTimestamp(source.last_sync_at) || '—';
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={`timeline-entry-option-${source.source_name}`}
+      role="tab"
+      aria-selected={selected}
+      className={cn(
+        'min-h-[104px] w-[280px] flex-none snap-start rounded-lg px-4 py-3 text-left transition-[background-color,box-shadow,color] duration-200 md:w-[300px] xl:w-[320px]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+        selected
+          ? 'bg-[hsl(var(--settings-shell-elevated)/0.9)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.7),0_12px_26px_hsl(var(--foreground)/0.045)]'
+          : 'bg-[hsl(var(--settings-shell)/0.32)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)] hover:bg-[hsl(var(--settings-shell-elevated)/0.58)]'
+      )}
+    >
+      <div className="flex h-full flex-col justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium text-foreground">{title}</span>
+            {attention ? (
+              <span className="h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
+            ) : null}
+          </div>
+          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{description}</p>
         </div>
-        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{description}</p>
+        <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+          <span>{activityDetail}</span>
+          <Badge
+            variant={attention ? 'destructive' : enabled ? 'default' : 'secondary'}
+            className="shrink-0 rounded-md"
+          >
+            {statusLabel}
+          </Badge>
+        </div>
       </div>
-      <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-        <span>{source.last_error || formatTimestamp(source.last_sync_at) || '—'}</span>
-        <Badge
-          variant={attention ? 'destructive' : enabled ? 'default' : 'secondary'}
-          className="shrink-0 rounded-md"
-        >
-          {statusLabel}
-        </Badge>
-      </div>
-    </div>
-  </button>
-);
+    </button>
+  );
+};
 
 const AvailableEntryOption: React.FC<{
   entry: TimelineAvailableEntry;
@@ -460,6 +467,11 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   }, [queuedSource, statuses]);
 
   const getSyncActivityValue = (source: SensorSourceStatusItem, activationRequired: boolean) => {
+    if (source.status === 'retrying' || source.sync_activity?.status === 'retrying') {
+      return t('settings.timeline.statuses.retrying', {
+        count: source.sync_activity?.attempt_count || 0,
+      });
+    }
     if (syncingSource === source.source_name || source.running) {
       return t('settings.timeline.statuses.syncing');
     }
@@ -531,8 +543,14 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   );
   const activationRequired = Boolean(activationFlow && !sourceEnabled && !activationConfigured);
   const operationallyEnabled = selectedSource.enabled && sourceEnabled;
-  const nextRunValue =
-    selectedSource.sync_mode === 'manual'
+  const retrying = selectedSource.status === 'retrying'
+    || selectedSource.sync_activity?.status === 'retrying';
+  const retryAt = retrying
+    ? selectedSource.sync_activity?.next_attempt_at
+    : null;
+  const nextRunValue = retryAt
+    ? formatTimestamp(retryAt) || '—'
+    : selectedSource.sync_mode === 'manual'
       ? t('settings.timeline.workspace.manualTrigger')
       : formatTimestamp(selectedSource.next_run_at) || '—';
   const detailFields = selectedSource.fields.filter((field) => {
@@ -556,7 +574,8 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const visibleDetailFields = settingsLayout
     ? detailFields.filter((field) => field.key !== settingsLayout.controller_key)
     : detailFields;
-  const showPullSupportHint = !selectedSource.supports_pull_sync || Boolean(selectedSource.last_error);
+  const showPullSupportHint = !selectedSource.supports_pull_sync
+    || Boolean(selectedSource.last_error && !retrying);
   const capabilityDisplayName = selectedCapability?.displayName ?? getTimelineCapabilityDisplayName(t, selectedSource);
   const entryDisplayName = getTimelineEntryDisplayName(t, selectedSource);
   const entryDescription = getTimelineEntryDescription(t, selectedSource);
@@ -569,11 +588,18 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const hasMultipleKnownEntries = knownEntryCount > 1;
   const getEntryEnabled = (source: SensorSourceStatusItem) =>
     Boolean(resolveSourceValue(source, getSourceEnabledKey(source), source.enabled));
-  const getEntryAttention = (source: SensorSourceStatusItem) =>
-    Boolean(source.last_error || source.available === false);
+  const getEntryAttention = (source: SensorSourceStatusItem) => {
+    const retrying = source.status === 'retrying' || source.sync_activity?.status === 'retrying';
+    return Boolean((source.last_error && !retrying) || source.available === false);
+  };
   const getEntryStatusLabel = (source: SensorSourceStatusItem) => {
     if (getEntryAttention(source)) {
       return t('settings.timeline.statuses.attention');
+    }
+    if (source.status === 'retrying' || source.sync_activity?.status === 'retrying') {
+      return t('settings.timeline.statuses.retrying', {
+        count: source.sync_activity?.attempt_count || 0,
+      });
     }
     return getEntryEnabled(source)
       ? t('settings.timeline.statuses.enabled')
@@ -621,7 +647,12 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             type="button"
             size="sm"
             onClick={() => void performSync(selectedSource)}
-            disabled={!selectedSource.supports_pull_sync || syncingSource === selectedSource.source_name}
+            disabled={
+              !selectedSource.supports_pull_sync
+              || syncingSource === selectedSource.source_name
+              || selectedSource.running
+              || retrying
+            }
           >
             <RefreshCw
               className={cn('mr-2 h-4 w-4', syncingSource === selectedSource.source_name && 'animate-spin')}
@@ -633,7 +664,12 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             variant="outline"
             size="sm"
             onClick={() => setBackfillDialogSource(selectedSource)}
-            disabled={!selectedSource.supports_pull_sync || backfillingSource === selectedSource.source_name}
+            disabled={
+              !selectedSource.supports_pull_sync
+              || backfillingSource === selectedSource.source_name
+              || selectedSource.running
+              || retrying
+            }
           >
             <History
               className={cn('mr-2 h-4 w-4', backfillingSource === selectedSource.source_name && 'animate-spin')}
@@ -666,7 +702,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                 <Badge variant={(selectedCapability?.enabledCount ?? (sourceEnabled ? 1 : 0)) > 0 ? 'default' : 'secondary'} className="rounded-md">
                   {selectedCapability?.enabledCount ?? (sourceEnabled ? 1 : 0)} {t('settings.timeline.statuses.enabled')}
                 </Badge>
-                {(selectedCapability?.attentionCount ?? (selectedSource.last_error ? 1 : 0)) > 0 ? (
+                {(selectedCapability?.attentionCount ?? (getEntryAttention(selectedSource) ? 1 : 0)) > 0 ? (
                   <Badge variant="destructive" className="rounded-md">
                     {t('settings.timeline.statuses.attention')}
                   </Badge>
@@ -687,7 +723,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                 <span>
                   {t('settings.timeline.statuses.attention')}
                   <span className="ml-2 font-medium text-foreground">
-                    {selectedCapability?.attentionCount ?? (selectedSource.last_error ? 1 : 0)}
+                    {selectedCapability?.attentionCount ?? (getEntryAttention(selectedSource) ? 1 : 0)}
                   </span>
                 </span>
                 <span>
@@ -804,7 +840,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                       <Badge variant={sourceEnabled ? 'default' : 'secondary'} className="rounded-md">
                         {sourceEnabled ? t('settings.timeline.statuses.enabled') : t('settings.timeline.statuses.disabled')}
                       </Badge>
-                      {selectedSource.last_error || selectedSource.available === false ? (
+                      {getEntryAttention(selectedSource) ? (
                         <Badge variant="destructive" className="rounded-md">
                           {t('settings.timeline.statuses.attention')}
                         </Badge>
@@ -849,7 +885,9 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                       </span>
                     ) : null}
                     {unavailableReason ? <span className="text-destructive">{unavailableReason}</span> : null}
-                    {selectedSource.last_error ? <span className="text-destructive">{selectedSource.last_error}</span> : null}
+                    {selectedSource.last_error && !retrying ? (
+                      <span className="text-destructive">{selectedSource.last_error}</span>
+                    ) : null}
                   </div>
                 ) : null}
               </SectionBlock>

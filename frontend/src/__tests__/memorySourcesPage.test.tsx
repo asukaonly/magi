@@ -54,6 +54,7 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.feedback.backfillFailed': '{{source}} 补数据失败：{{message}}',
         'memory.sourcesPage.backfillStatus.queued': '等待补数据',
         'memory.sourcesPage.backfillStatus.running': '补数据中',
+        'memory.sourcesPage.backfillStatus.retrying': '补数据重试中（已尝试 {{count}} 次）',
         'memory.sourcesPage.detail.backfillRange': '补数据范围：{{range}}',
         'sourceBackfill.title': '补回历史',
         'sourceBackfill.description': '选择 {{source}} 要补回的范围。',
@@ -637,6 +638,39 @@ describe('MemorySourcesPage', () => {
 
     expect(await screen.findByText('等待补数据')).toBeInTheDocument();
     expect(screen.getByText('补数据范围：2026-06-01 – 2026-06-30')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '补旧数据' })).toBeDisabled();
+  });
+
+  it('keeps a retrying backfill active and shows its attempt count', async () => {
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: sensorPayload.sources.map((source) => (
+        source.source_name === 'chrome_history'
+          ? {
+              ...source,
+              status: 'retrying',
+              sync_activity: {
+                job_id: 'backfill-job-retry',
+                mode: 'backfill',
+                status: 'retrying',
+                attempt_count: 2,
+                next_attempt_at: 1783049533,
+                backfill_scope: 'last_30_days',
+                error: 'temporary source failure',
+              },
+            }
+          : source
+      )),
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={['/memory/sources/chrome_history']}>
+        <Routes>
+          <Route path="/memory/sources/:sourceName" element={<MemorySourceDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('补数据重试中（已尝试 2 次）')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '补旧数据' })).toBeDisabled();
   });
 

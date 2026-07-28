@@ -27,6 +27,7 @@ vi.mock('react-i18next', () => ({
         'memory.overview.sourceColumns.sync': 'Sync',
         'memory.overview.sourceStatus.ready': 'Normal',
         'memory.overview.sourceStatus.running': 'Syncing',
+        'memory.overview.sourceStatus.retrying': 'Retrying',
         'memory.overview.sourceStatus.stale': 'Delayed',
         'memory.overview.sourceStatus.error': 'Error',
         'memory.overview.sourceStatus.never_synced': 'Never synced',

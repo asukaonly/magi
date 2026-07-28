@@ -278,6 +278,8 @@ def test_get_sensor_source_status_includes_queued_backfill(monkeypatch):
         "backfill_end_date": "2026-06-30",
         "started_at": None,
         "finished_at": None,
+        "attempt_count": 0,
+        "next_attempt_at": activity["created_at"],
         "error": None,
     }
 
@@ -323,6 +325,20 @@ def test_derive_sensor_status_prioritizes_operator_states():
         sync_interval_minutes=5,
         now=1_000.0,
     ) == "error"
+
+
+def test_derive_sensor_status_keeps_retryable_failure_distinct_from_terminal_error():
+    assert _derive_sensor_status(
+        enabled=True,
+        activation_required=False,
+        running=False,
+        retrying=True,
+        last_error="temporary source failure",
+        last_success_at=990.0,
+        sync_mode="interval",
+        sync_interval_minutes=5,
+        now=1_000.0,
+    ) == "retrying"
 
 
 def test_derive_sensor_status_reports_never_synced_and_stale_interval_sources():

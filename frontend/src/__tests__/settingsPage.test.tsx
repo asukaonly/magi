@@ -40,7 +40,13 @@ const {
     if (params?.message) {
       return `${key}:${params.message}`;
     }
-    return translationMap[key] ?? key;
+    let result = translationMap[key] ?? key;
+    if (params) {
+      for (const [name, value] of Object.entries(params)) {
+        result = result.replace(`{{${name}}}`, String(value));
+      }
+    }
+    return result;
   },
 }));
 
@@ -50,6 +56,7 @@ const translationMap: Record<string, string> = {
   'settings.tabs.chrome_history': 'Chrome 历史',
   'settings.timeline.sourceDesc.photo_library': '引用照片库或导出目录，并决定保留多少原始媒体信息。',
   'settings.timeline.actions.backfill': '补旧数据',
+  'settings.timeline.statuses.retrying': '等待重试（已尝试 {{count}} 次）',
   'sourceBackfill.title': '补回历史',
   'sourceBackfill.description': '选择 {{source}} 要补回的范围。',
   'sourceBackfill.rangeLabel': '时间范围',
@@ -1841,6 +1848,56 @@ describe('settings page draft saving', () => {
         backfillScope: 'last_30_days',
       })
     );
+  });
+
+  it('shows durable retry progress without treating it as a terminal source error', async () => {
+    const user = userEvent.setup();
+    const nextAttemptAt = 1_773_228_600;
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: [
+        {
+          ...chromeTimelineSourceFixture,
+          enabled: true,
+          status: 'retrying',
+          last_error: 'temporary source failure',
+          sync_activity: {
+            job_id: 'retry-job-1',
+            mode: 'latest',
+            status: 'retrying',
+            attempt_count: 2,
+            next_attempt_at: nextAttemptAt,
+            error: 'temporary source failure',
+          },
+          current_settings: {
+            ...chromeTimelineSourceFixture.current_settings,
+            'sensors.chrome_history.enabled': true,
+            'sensors.chrome_history.initial_sync_configured': true,
+          },
+        },
+      ],
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
+
+    const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
+    const expectedRetryTime = new Intl.DateTimeFormat(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(nextAttemptAt * 1000));
+
+    expect(within(chromePanel).getAllByText('等待重试（已尝试 2 次）')).not.toHaveLength(0);
+    expect(within(chromePanel).getAllByText(expectedRetryTime)).not.toHaveLength(0);
+    expect(
+      within(chromePanel).getByRole('button', { name: 'settings.timeline.actions.syncNow' })
+    ).toBeDisabled();
+    expect(within(chromePanel).getByRole('button', { name: '补旧数据' })).toBeDisabled();
+    expect(within(chromePanel).queryByText('temporary source failure')).not.toBeInTheDocument();
   });
 
   it('uses translated timeline source labels in the nav and overview list', async () => {

@@ -2408,6 +2408,7 @@
         "idle": "Idle",
         "queued": "Queued",
         "syncing": "Syncing",
+        "retrying": "Retrying ({{count}} attempt(s))",
         "awaitingSetup": "Awaiting setup",
         "notInstalled": "Not installed",
         "loading": "Loading source status..."
@@ -2704,6 +2705,7 @@
       "sourceStatus": {
         "ready": "Normal",
         "running": "Syncing",
+        "retrying": "Retrying",
         "stale": "Delayed",
         "error": "Error",
         "never_synced": "Never synced",
@@ -2795,7 +2797,8 @@
       },
       "backfillStatus": {
         "queued": "Backfill queued",
-        "running": "Backfilling"
+        "running": "Backfilling",
+        "retrying": "Backfill retrying ({{count}} attempt(s))"
       },
       "feedback": {
         "pauseSuccess": "{{source}} paused",
