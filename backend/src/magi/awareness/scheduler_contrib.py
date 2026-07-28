@@ -347,7 +347,9 @@ class SensorSchedulerContrib:
         spec: Any,
     ) -> _SensorSyncSettings:
         package_state = self._plugin_manager.get_package(plugin_id)
-        package_settings = copy.deepcopy(package_state.current_settings) if package_state is not None else {}
+        package_settings = (
+            copy.deepcopy(package_state.current_settings) if package_state is not None else {}
+        )
         source_settings = dict(package_settings.get("sensors", {}).get(source_type, {}))
         default_settings = spec.metadata.get("default_settings", {})
         allowed_edge_whitelist = [
@@ -418,12 +420,14 @@ class SensorSchedulerContrib:
                 "sensor_sync_mode": "manual" if manual else "scheduled",
             }
         )
-        await self._ingestion_gateway.ingest(
+        ingestion_result = await self._ingestion_gateway.ingest(
             sensor,
             output,
             metadata,
             allowed_edge_whitelist=allowed_edge_whitelist,
         )
+        if not ingestion_result.ingested:
+            raise RuntimeError(f"Sensor ingestion was not confirmed: {sensor.sensor_id}")
 
     async def _checkpoint_sensor_sync_cursor(
         self,

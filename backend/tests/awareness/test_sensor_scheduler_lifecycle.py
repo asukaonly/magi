@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from magi.awareness.ingestion_gateway import SensorIngestionResult
 from magi.awareness.sensor_base import SensorBase
 from magi.awareness.sensor_output import (
     ActivityFacet,
@@ -178,6 +179,14 @@ class _OpaqueCursorSensor(_PullHistorySensor):
         )
 
 
+class _ModifiedCursorSensor(_OpaqueCursorSensor):
+    async def collect_items(self, context):
+        result = await super().collect_items(context)
+        result.next_cursor = "cursor-final"
+        result.stats = {"count": 55, "cursor_kind": "modified_at"}
+        return result
+
+
 class _ContextRecordingSensor(_PullHistorySensor):
     def __init__(self) -> None:
         self.contexts: list[object] = []
@@ -247,11 +256,31 @@ def _build_sensor_registry_with_sensor(sensor: SensorBase) -> SensorRegistry:
 
 
 class _FakeIngestionGateway:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        fail_on_attempt: int | None = None,
+        reject_on_attempt: int | None = None,
+    ) -> None:
         self.items: list[object] = []
+        self.attempt_count = 0
+        self.fail_on_attempt = fail_on_attempt
+        self.reject_on_attempt = reject_on_attempt
 
     async def ingest(self, sensor, output, metadata, *, allowed_edge_whitelist=None):  # type: ignore[no-untyped-def]
+        self.attempt_count += 1
+        if self.fail_on_attempt == self.attempt_count:
+            raise OSError("L1 unavailable")
+        if self.reject_on_attempt == self.attempt_count:
+            return SensorIngestionResult(
+                event_id=f"event-{self.attempt_count}",
+                ingested=False,
+            )
         self.items.append(output)
+        return SensorIngestionResult(
+            event_id=f"event-{self.attempt_count}",
+            ingested=True,
+        )
 
 
 @pytest.mark.asyncio
@@ -576,3 +605,82 @@ async def test_sensor_sync_opaque_cursor_skips_mid_batch_checkpoint(tmp_path) ->
     assert result.next_cursor == '{"version":1,"mode":"backfill","page":2}'
     assert len(ingestion_gateway.items) == 55
     assert scheduler_service.cursor_updates == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_mode", ["raise", "reject"])
+async def test_sensor_sync_does_not_checkpoint_unconfirmed_item(
+    tmp_path,
+    failure_mode: str,
+) -> None:
+    scheduler_service = _FakeSchedulerService()
+    ingestion_gateway = _FakeIngestionGateway(
+        fail_on_attempt=50 if failure_mode == "raise" else None,
+        reject_on_attempt=50 if failure_mode == "reject" else None,
+    )
+    contrib = SensorSchedulerContrib(
+        scheduler_service=scheduler_service,
+        sensor_registry=_build_sensor_registry_with_sensor(_ModifiedCursorSensor()),
+        plugin_manager=_FakePluginManager(),
+        runtime_paths=RuntimePaths(tmp_path / "runtime"),
+        get_config=lambda: None,
+        ingestion_gateway=ingestion_gateway,
+    )
+
+    with pytest.raises((OSError, RuntimeError)):
+        await contrib._run_sensor_sync(
+            schedule_id="sensor-sync:pull-plugin:pull_history",
+            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+            source_type="pull_history",
+            manual=False,
+            target_state=ScheduledTargetState(
+                target_type=ScheduledTargetType.SENSOR_SYNC,
+                target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+                last_cursor="cursor-before-run",
+                last_success_at=1710000000.0,
+            ),
+        )
+
+    assert ingestion_gateway.attempt_count == 50
+    assert len(ingestion_gateway.items) == 49
+    assert scheduler_service.cursor_updates == []
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_keeps_only_confirmed_mid_batch_checkpoint(tmp_path) -> None:
+    scheduler_service = _FakeSchedulerService()
+    ingestion_gateway = _FakeIngestionGateway(fail_on_attempt=51)
+    target_key = build_sensor_target_key("pull-plugin", "pull_history")
+    contrib = SensorSchedulerContrib(
+        scheduler_service=scheduler_service,
+        sensor_registry=_build_sensor_registry_with_sensor(_ModifiedCursorSensor()),
+        plugin_manager=_FakePluginManager(),
+        runtime_paths=RuntimePaths(tmp_path / "runtime"),
+        get_config=lambda: None,
+        ingestion_gateway=ingestion_gateway,
+    )
+
+    with pytest.raises(OSError, match="L1 unavailable"):
+        await contrib._run_sensor_sync(
+            schedule_id="sensor-sync:pull-plugin:pull_history",
+            target_key=target_key,
+            source_type="pull_history",
+            manual=False,
+            target_state=ScheduledTargetState(
+                target_type=ScheduledTargetType.SENSOR_SYNC,
+                target_key=target_key,
+                last_cursor="cursor-before-run",
+                last_success_at=1710000000.0,
+            ),
+        )
+
+    assert ingestion_gateway.attempt_count == 51
+    assert len(ingestion_gateway.items) == 50
+    assert scheduler_service.cursor_updates == [
+        {
+            "target_type": ScheduledTargetType.SENSOR_SYNC,
+            "target_key": target_key,
+            "cursor": "1710000049.0",
+            "watermark_ts": 1710000049.0,
+        }
+    ]
