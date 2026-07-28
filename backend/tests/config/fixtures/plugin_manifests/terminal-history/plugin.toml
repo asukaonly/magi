@@ -1,0 +1,15 @@
+[plugin]
+id = "terminal-history"
+name = "Terminal History"
+version = "0.1.1"
+
+[plugin.default_settings.sensors.terminal_history]
+enabled = false
+sync_interval_minutes = 15
+initial_sync_policy = "lookback_days"
+initial_sync_lookback_days = 7
+initial_sync_configured = false
+sensitive_mode = "redact"
+sensitive_keywords = []
+dedup_window_seconds = 60
+default_retention_mode = "analyze_only"

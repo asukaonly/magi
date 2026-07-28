@@ -1,0 +1,6 @@
+[plugin]
+id = "photo_library_core"
+name = "Photo Library Core"
+version = "0.1.0"
+kind = "library"
+contribution_types = []

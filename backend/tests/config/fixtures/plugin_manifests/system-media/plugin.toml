@@ -1,0 +1,10 @@
+[plugin]
+id = "system-media"
+name = "Local Now Playing"
+version = "0.1.2"
+
+[plugin.default_settings.sensors.system_media]
+enabled = false
+sync_interval_minutes = 1
+min_session_seconds = 30
+pause_timeout_seconds = 300

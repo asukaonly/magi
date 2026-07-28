@@ -10,7 +10,7 @@ import yaml
 
 from magi.config import loader as config_loader
 from magi.config.loader import ConfigLoader
-from magi.config.models import NetworkProxySettings, ProxyType
+from magi.config.models import NetworkProxySettings, PluginsSettings, ProxyType
 
 
 def _patch_config_paths(monkeypatch, root: Path) -> None:
@@ -37,51 +37,42 @@ def _patch_config_paths(monkeypatch, root: Path) -> None:
     (root / "lifecycle.example.yaml").write_text(packaged_lifecycle.read_text(encoding="utf-8"), encoding="utf-8")
 
 
-# Builtin plugins now declare their own defaults in plugin.toml. The loader's
-# seed step reads those manifests via the index's ``manifest_path`` entries.
-# For tests that exercise first-time seeding, we point each builtin's
-# manifest_path at the real plugin.toml shipped alongside the magi-plugins
-# repo. Directory names map to plugin ids (the ``calendar`` plugin lives in
-# ``calendar_plugin/``, etc.).
-_PLUGINS_REPO_ROOT = Path(__file__).resolve().parents[4] / "magi-plugins" / "plugins"
-_BUILTIN_PLUGIN_DIRS = {
-    "photo-library": "photo-library",
+# Manifest-driven loader tests use repository-owned fixtures so their inputs
+# cannot drift with a separately checked out plugin repository.
+_PLUGIN_MANIFEST_FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "plugin_manifests"
+_PLUGIN_MANIFEST_DIRS = {
+    "photo_library_core": "photo_library_core",
+    "apple-photos": "apple-photos",
+    "local-photos": "local-photos",
     "chrome-history": "chrome-history",
-    "calendar": "calendar_plugin",
-    "git-activity": "git_activity",
-    "screen-time": "screen_time",
-    "system-media": "system_media",
-    "terminal-history": "terminal_history",
+    "calendar": "calendar",
+    "git-activity": "git-activity",
+    "screen-time": "screen-time",
+    "system-media": "system-media",
+    "terminal-history": "terminal-history",
 }
 
-# The builtin plugin manifests live in the sibling magi-plugins repo, which is
-# not checked out in CI. Tests that assert manifest-driven seeding only run
-# where that repo is present (local dev / magi-plugins' own CI).
-_MANIFESTS_AVAILABLE = (_PLUGINS_REPO_ROOT / "chrome-history" / "plugin.toml").is_file()
-_requires_plugin_manifests = pytest.mark.skipif(
-    not _MANIFESTS_AVAILABLE,
-    reason="builtin plugin manifests live in the sibling magi-plugins repo",
-)
+
+def _fixture_manifest_path(plugin_id: str) -> Path:
+    manifest = (
+        _PLUGIN_MANIFEST_FIXTURE_ROOT
+        / _PLUGIN_MANIFEST_DIRS[plugin_id]
+        / "plugin.toml"
+    )
+    assert manifest.is_file(), f"Missing plugin manifest fixture for {plugin_id}"
+    return manifest
 
 
-def _seed_builtin_manifest_paths(plugins_dir: Path) -> None:
-    """Write a plugins/index.yaml pointing each builtin at its real plugin.toml.
-
-    Needed because manifest-driven defaults require ``manifest_path`` to be
-    populated before the loader's seed step runs. In production the plugin
-    manager fills this in during its scan; tests have to seed it explicitly.
-    """
+def _seed_fixture_manifest_paths(plugins_dir: Path) -> None:
+    """Write an index that points builtin packages at fixed manifest fixtures."""
     plugins_dir.mkdir(parents=True, exist_ok=True)
     packages: Dict[str, Dict[str, Any]] = {}
-    for plugin_id, dir_name in _BUILTIN_PLUGIN_DIRS.items():
-        manifest = _PLUGINS_REPO_ROOT / dir_name / "plugin.toml"
-        if manifest.is_file():
-            packages[plugin_id] = {"manifest_path": str(manifest)}
-    if packages:
-        (plugins_dir / "index.yaml").write_text(
-            yaml.safe_dump({"packages": packages}, sort_keys=False),
-            encoding="utf-8",
-        )
+    for plugin_id in _PLUGIN_MANIFEST_DIRS:
+        packages[plugin_id] = {"manifest_path": str(_fixture_manifest_path(plugin_id))}
+    (plugins_dir / "index.yaml").write_text(
+        yaml.safe_dump({"packages": packages}, sort_keys=False),
+        encoding="utf-8",
+    )
 
 
 def test_loader_migrates_inline_plugin_settings_to_split_files(tmp_path: Path, monkeypatch) -> None:
@@ -95,13 +86,13 @@ def test_loader_migrates_inline_plugin_settings_to_split_files(tmp_path: Path, m
                 "plugins": {
                     "scan_paths": ["plugins", "~/.magi/plugins"],
                     "packages": {
-                        "photo-library": {
+                        "local-photos": {
                             "enabled": True,
                             "trusted": True,
                             "source": "builtin",
                             "settings": {
                                 "sensors": {
-                                    "photo_library": {
+                                    "photo_library_directory": {
                                         "enabled": True,
                                         "sync_mode": "interval",
                                         "sync_interval_minutes": 90,
@@ -122,14 +113,18 @@ def test_loader_migrates_inline_plugin_settings_to_split_files(tmp_path: Path, m
 
     migrated_agent = yaml.safe_load(agent_file.read_text(encoding="utf-8")) or {}
     index_file = tmp_path / "config" / "plugins" / "index.yaml"
-    settings_file = tmp_path / "config" / "plugins" / "photo-library.yaml"
+    settings_file = tmp_path / "config" / "plugins" / "local-photos.yaml"
     index_data = yaml.safe_load(index_file.read_text(encoding="utf-8")) or {}
     settings_data = yaml.safe_load(settings_file.read_text(encoding="utf-8")) or {}
 
     assert "packages" not in migrated_agent.get("plugins", {})
-    assert index_data["packages"]["photo-library"]["enabled"] is True
-    assert settings_data["sensors"]["photo_library"]["sync_interval_minutes"] == 90
-    assert config.plugins.packages["photo-library"].settings["sensors"]["photo_library"]["sync_interval_minutes"] == 90
+    assert index_data["packages"]["local-photos"]["enabled"] is True
+    assert settings_data["sensors"]["photo_library_directory"]["sync_interval_minutes"] == 90
+    assert (
+        config.plugins.packages["local-photos"]
+        .settings["sensors"]["photo_library_directory"]["sync_interval_minutes"]
+        == 90
+    )
 
 
 def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkeypatch) -> None:
@@ -137,27 +132,40 @@ def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkey
 
     loader = ConfigLoader()
     config = loader.load()
-    assert config.plugins.packages["photo-library"].enabled is False
+    assert config.plugins.packages["local-photos"].enabled is True
 
     saved = loader.save(
         {
-            "plugins.packages.photo-library.enabled": False,
-            "plugins.packages.photo-library.settings.sensors.photo_library.sync_interval_minutes": 120,
+            "plugins.packages.local-photos.enabled": False,
+            (
+                "plugins.packages.local-photos.settings.sensors."
+                "photo_library_directory.sync_interval_minutes"
+            ): 120,
             "tools.weather.default_provider": "qweather",
         }
     )
 
     agent_data = yaml.safe_load((tmp_path / "config" / "agent.yaml").read_text(encoding="utf-8")) or {}
     index_data = yaml.safe_load((tmp_path / "config" / "plugins" / "index.yaml").read_text(encoding="utf-8")) or {}
-    settings_data = yaml.safe_load((tmp_path / "config" / "plugins" / "photo-library.yaml").read_text(encoding="utf-8")) or {}
+    settings_data = (
+        yaml.safe_load(
+            (tmp_path / "config" / "plugins" / "local-photos.yaml").read_text(encoding="utf-8")
+        )
+        or {}
+    )
 
     assert saved is True
     assert "packages" not in agent_data.get("plugins", {})
     assert agent_data["tools"]["weather"]["default_provider"] == "qweather"
-    assert index_data["packages"]["photo-library"]["enabled"] is False
-    assert settings_data["sensors"]["photo_library"]["sync_interval_minutes"] == 120
-    assert loader.load().plugins.packages["photo-library"].enabled is False
-    assert loader.load().plugins.packages["photo-library"].settings["sensors"]["photo_library"]["sync_interval_minutes"] == 120
+    assert index_data["packages"]["local-photos"]["enabled"] is False
+    assert settings_data["sensors"]["photo_library_directory"]["sync_interval_minutes"] == 120
+    assert loader.load().plugins.packages["local-photos"].enabled is False
+    assert (
+        loader.load()
+        .plugins.packages["local-photos"]
+        .settings["sensors"]["photo_library_directory"]["sync_interval_minutes"]
+        == 120
+    )
 
 
 def test_loader_save_rejects_invalid_config_without_writing(tmp_path: Path, monkeypatch) -> None:
@@ -206,27 +214,59 @@ def test_network_proxy_url_includes_encoded_credentials() -> None:
     assert settings.proxy_url() == "http://magi%20user:pa%3Ass%40word@proxy.example.test:8080"
 
 
-@_requires_plugin_manifests
-def test_loader_default_photo_library_settings_live_in_the_dedicated_plugin(tmp_path: Path, monkeypatch) -> None:
+def test_loader_default_photo_sources_follow_independent_plugin_contract(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
-    _seed_builtin_manifest_paths(tmp_path / "config" / "plugins")
+    _seed_fixture_manifest_paths(tmp_path / "config" / "plugins")
 
     loader = ConfigLoader()
     config = loader.load()
 
     assert "core-timeline" not in config.plugins.packages
-    sensors = config.plugins.packages["photo-library"].settings["sensors"]
+    assert "photo-library" not in config.plugins.packages
 
-    assert "browser_history" not in sensors
-    assert "chat" not in sensors
-    assert "manual_journal" not in sensors
-    assert set(sensors.keys()) == {"photo_library"}
+    core_package = config.plugins.packages["photo_library_core"]
+    apple_package = config.plugins.packages["apple-photos"]
+    local_package = config.plugins.packages["local-photos"]
+
+    for package in (core_package, apple_package, local_package):
+        assert package.enabled is True
+        assert package.trusted is True
+        assert package.source == "builtin"
+
+    assert core_package.settings == {}
+
+    apple_sensors = apple_package.settings["sensors"]
+    local_sensors = local_package.settings["sensors"]
+    assert set(apple_sensors) == {"photo_library_apple_photos"}
+    assert set(local_sensors) == {"photo_library_directory"}
+    assert apple_sensors["photo_library_apple_photos"]["enabled"] is False
+    assert apple_sensors["photo_library_apple_photos"]["source_mode"] == "apple_photos"
+    assert "source_paths" not in apple_sensors["photo_library_apple_photos"]
+    assert local_sensors["photo_library_directory"]["enabled"] is False
+    assert local_sensors["photo_library_directory"]["source_mode"] == "directory"
+    assert "photos_library_path" not in local_sensors["photo_library_directory"]
 
 
-@_requires_plugin_manifests
-def test_loader_enables_builtin_sensor_plugins_while_leaving_sources_disabled(tmp_path: Path, monkeypatch) -> None:
+def test_plugin_model_defaults_use_independent_photo_packages() -> None:
+    packages = PluginsSettings().packages
+
+    assert "photo-library" not in packages
+    for plugin_id in ("photo_library_core", "apple-photos", "local-photos"):
+        package = packages[plugin_id]
+        assert package.enabled is True
+        assert package.trusted is True
+        assert package.source == "builtin"
+
+
+def test_loader_enables_builtin_sensor_plugins_while_leaving_sources_disabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
-    _seed_builtin_manifest_paths(tmp_path / "config" / "plugins")
+    _seed_fixture_manifest_paths(tmp_path / "config" / "plugins")
 
     loader = ConfigLoader()
     config = loader.load()
@@ -250,13 +290,12 @@ def test_loader_enables_builtin_sensor_plugins_while_leaving_sources_disabled(tm
     assert "default_retention_mode" not in screen_time_settings
 
 
-@_requires_plugin_manifests
 def test_loader_migrates_legacy_disabled_chrome_history_plugin(tmp_path: Path, monkeypatch) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
     config_dir = tmp_path / "config" / "plugins"
     config_dir.mkdir(parents=True, exist_ok=True)
     (tmp_path / "config" / "agent.yaml").write_text("plugins:\n  scan_paths:\n    - plugins\n", encoding="utf-8")
-    chrome_manifest = _PLUGINS_REPO_ROOT / "chrome-history" / "plugin.toml"
+    chrome_manifest = _fixture_manifest_path("chrome-history")
     (config_dir / "index.yaml").write_text(
         yaml.safe_dump(
             {

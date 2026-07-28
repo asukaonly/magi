@@ -1,0 +1,12 @@
+[plugin]
+id = "calendar"
+name = "Calendar"
+version = "0.1.2"
+
+[plugin.default_settings.sensors.calendar]
+enabled = false
+sync_mode = "interval"
+sync_interval_minutes = 30
+lookback_days = 30
+recurring_expansion_days = 30
+default_retention_mode = "full"

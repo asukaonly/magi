@@ -41,7 +41,17 @@ class PluginsSettings(BaseModel):
                 trusted=True,
                 source="builtin",
             ),
-            "photo-library": PluginSettings(
+            "photo_library_core": PluginSettings(
+                enabled=True,
+                trusted=True,
+                source="builtin",
+            ),
+            "apple-photos": PluginSettings(
+                enabled=True,
+                trusted=True,
+                source="builtin",
+            ),
+            "local-photos": PluginSettings(
                 enabled=True,
                 trusted=True,
                 source="builtin",

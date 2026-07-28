@@ -46,7 +46,9 @@ class ConfigPluginLayoutMixin:
         return {
             "packages": {
                 "core-tools": {"enabled": True, "trusted": True, "source": "builtin"},
-                "photo-library": {"enabled": False, "trusted": True, "source": "builtin"},
+                "photo_library_core": {"enabled": True, "trusted": True, "source": "builtin"},
+                "apple-photos": {"enabled": True, "trusted": True, "source": "builtin"},
+                "local-photos": {"enabled": True, "trusted": True, "source": "builtin"},
                 "chrome-history": {"enabled": True, "trusted": True, "source": "builtin"},
                 "calendar": {"enabled": True, "trusted": True, "source": "builtin"},
                 "git-activity": {"enabled": True, "trusted": True, "source": "builtin"},

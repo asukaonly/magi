@@ -1,0 +1,16 @@
+[plugin]
+id = "local-photos"
+name = "Local Photos"
+version = "0.1.0"
+
+[plugin.default_settings.sensors.photo_library_directory]
+enabled = false
+source_mode = "directory"
+sync_mode = "interval"
+sync_interval_minutes = 60
+default_retention_mode = "analyze_only"
+storage_mode = "external_reference"
+source_paths = []
+exclude_patterns = []
+analysis_features = ["exif"]
+edge_whitelist = ["CAPTURED", "RELATED_TO", "INTERACTED_WITH", "CREATED"]
