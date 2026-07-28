@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SettingsCenterDialog from '@/components/layout/SettingsCenterDialog';
 import { SettingsPage } from '@/pages/Settings';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
+import { getControlSettings, updateControlSettings } from '@/api/modules/control';
+import memoryApi from '@/api/modules/memory';
 import { pluginsApi } from '@/api/modules/plugins';
 import { sensorsApi } from '@/api/modules/sensors';
 import { skillsApi } from '@/api/modules/skills';
@@ -177,6 +179,26 @@ vi.mock('@/api/modules/config', async () => {
       get: vi.fn(),
       update: vi.fn(),
       embeddingPreflight: vi.fn(),
+    },
+  };
+});
+
+vi.mock('@/api/modules/control', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/control')>('@/api/modules/control');
+  return {
+    ...actual,
+    getControlSettings: vi.fn(),
+    updateControlSettings: vi.fn(),
+  };
+});
+
+vi.mock('@/api/modules/memory', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/memory')>('@/api/modules/memory');
+  return {
+    ...actual,
+    default: {
+      ...actual.default,
+      getEmbeddingVectorStatus: vi.fn(),
     },
   };
 });
@@ -612,6 +634,7 @@ const skillsFixture = [
 describe('settings page draft saving', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(XMLHttpRequest.prototype, 'open');
     llmFormMock.mockReset();
     llmFormAutoChangeRef.current = null;
     changeLanguageMock.mockResolvedValue(undefined);
@@ -632,6 +655,32 @@ describe('settings page draft saving', () => {
       success: true,
       data: structuredClone(nextConfig),
     }) as any);
+    vi.mocked(getControlSettings).mockResolvedValue({
+      permission_mode: 'high_only',
+      plan_approval_required: false,
+    });
+    vi.mocked(updateControlSettings).mockImplementation(async (nextSettings) => ({
+      permission_mode: nextSettings.permission_mode ?? 'high_only',
+      plan_approval_required: nextSettings.plan_approval_required ?? false,
+    }));
+    vi.mocked(memoryApi.getEmbeddingVectorStatus).mockResolvedValue({
+      ready_counts: {
+        l1: 0,
+        l2_entities: 0,
+        l2_edges: 0,
+        l3: 0,
+        l4: 0,
+      },
+      ready_total: 0,
+      active_identities: {
+        l1: null,
+        l2_entities: null,
+        l2_edges: null,
+        l3: null,
+        l4: null,
+      },
+      latest_job: null,
+    });
     vi.mocked(configApi.embeddingPreflight).mockResolvedValue({
       severity: 'none',
       requires_rebuild: false,
@@ -699,6 +748,11 @@ describe('settings page draft saving', () => {
       success: true,
       message: 'ok',
     } as any);
+  });
+
+  afterEach(() => {
+    expect(XMLHttpRequest.prototype.open).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
   });
 
   it('aligns the settings header and footer with the section body', async () => {
@@ -1025,20 +1079,24 @@ describe('settings page draft saving', () => {
     });
   });
 
-  it('saves a picked default chat workspace path in conversation settings', async () => {
+  it('saves workspace and control preferences from conversation settings', async () => {
     const user = userEvent.setup();
     pickDirectoryMock.mockResolvedValue('/tmp/magi-workspace');
     render(<SettingsPage />);
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
     const workspaceInput = await screen.findByLabelText('settings.fields.defaultChatWorkspace');
+    const planApprovalSwitch = await screen.findByTestId('plan-approval-switch');
     expect(workspaceInput).toHaveValue('~/.magi/chat-workspace');
+    expect(planApprovalSwitch).toHaveAttribute('data-state', 'unchecked');
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.chooseDirectory' }));
+    await user.click(planApprovalSwitch);
 
     await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledTimes(1));
     expect(pickDirectoryMock).toHaveBeenCalledWith('~/.magi/chat-workspace');
     expect(workspaceInput).toHaveValue('/tmp/magi-workspace');
+    expect(planApprovalSwitch).toHaveAttribute('data-state', 'checked');
     expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
@@ -1052,6 +1110,10 @@ describe('settings page draft saving', () => {
         })
       )
     );
+    expect(updateControlSettings).toHaveBeenCalledWith({
+      permission_mode: 'high_only',
+      plan_approval_required: true,
+    });
   });
 
   it('restores the default chat workspace path before saving', async () => {
