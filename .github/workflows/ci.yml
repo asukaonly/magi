@@ -76,6 +76,10 @@ jobs:
       - name: Run backend type gate
         run: ./scripts/run-backend-type-gate.sh
 
+      - name: Lint backend
+        working-directory: backend
+        run: python -m ruff check src/magi
+
       - name: Run backend test suite
         working-directory: backend
         timeout-minutes: 15
