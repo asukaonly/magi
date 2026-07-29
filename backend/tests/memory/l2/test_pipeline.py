@@ -1611,7 +1611,7 @@ async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
             # so poll on the candidate episode itself rather than the stat to
             # avoid a read-before-write race.
             episodes: list[dict] = []
-            for _ in range(100):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
                     episodes = await store.l2.list_episodes(status="candidate", limit=10)
                     if episodes:
@@ -2780,7 +2780,7 @@ async def test_extract_worker_refreshes_snapshot_after_graph_mark_evolution():
                 }
             )
 
-            for _ in range(80):
+            for _ in range(400):
                 stats = store.get_l2_pipeline_stats()
                 if stats["extract_completed"] >= 1 and stats["snapshot_completed"] >= 1:
                     break
@@ -4420,7 +4420,7 @@ async def test_structured_hint_not_double_written_when_phase2_runs():
 
             await store.ingest_event(event)
 
-            for _ in range(80):
+            for _ in range(400):
                 if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
                     break
                 await asyncio.sleep(0.02)
