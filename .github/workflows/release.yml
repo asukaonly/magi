@@ -64,7 +64,9 @@ jobs:
         if: matrix.os_family == 'macos'
         shell: bash
         run: |
-          brew list python@3.13 >/dev/null 2>&1 || brew install python@3.13
+          if ! brew list python@3.13 >/dev/null 2>&1; then
+            brew install python@3.13 || brew list python@3.13 >/dev/null 2>&1
+          fi
           python_prefix="$(brew --prefix python@3.13)"
           venv_path="${GITHUB_WORKSPACE}/.venv-release"
           "${python_prefix}/libexec/bin/python" -m venv "${venv_path}"
