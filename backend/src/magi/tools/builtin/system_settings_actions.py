@@ -440,7 +440,7 @@ class SystemSettingsActionsMixin:
         """Convert string value to appropriate type."""
         target_type = type(current_value)
 
-        if target_type == bool:
+        if target_type is bool:
             if value.lower() in ("true", "1", "yes", "on"):
                 return True
             elif value.lower() in ("false", "0", "no", "off"):
@@ -448,16 +448,16 @@ class SystemSettingsActionsMixin:
             else:
                 raise ValueError(f"Cannot convert '{value}' to boolean")
 
-        if target_type == int:
+        if target_type is int:
             return int(value)
 
-        if target_type == float:
+        if target_type is float:
             return float(value)
 
         if isinstance(current_value, Enum):
             return target_type(value)
 
-        if target_type == list:
+        if target_type is list:
             import json
 
             try:
