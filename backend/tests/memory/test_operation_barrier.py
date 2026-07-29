@@ -62,6 +62,7 @@ async def test_operation_is_reentrant_while_exclusive_waits() -> None:
     outer_entered = asyncio.Event()
     allow_nested = asyncio.Event()
     nested_entered = asyncio.Event()
+    release_nested = asyncio.Event()
     clear_entered = asyncio.Event()
 
     async def operation() -> None:
@@ -70,6 +71,7 @@ async def test_operation_is_reentrant_while_exclusive_waits() -> None:
             await allow_nested.wait()
             async with barrier.operation():
                 nested_entered.set()
+                await release_nested.wait()
 
     async def clear() -> None:
         async with barrier.exclusive():
@@ -78,11 +80,16 @@ async def test_operation_is_reentrant_while_exclusive_waits() -> None:
     operation_task = asyncio.create_task(operation())
     await outer_entered.wait()
     clear_task = asyncio.create_task(clear())
-    await asyncio.sleep(0)
+    for _ in range(20):
+        if barrier._exclusive_waiters:
+            break
+        await asyncio.sleep(0)
+    assert barrier._exclusive_waiters == 1
     allow_nested.set()
 
     await asyncio.wait_for(nested_entered.wait(), timeout=1)
     assert not clear_entered.is_set()
+    release_nested.set()
     await asyncio.gather(operation_task, clear_task)
     assert clear_entered.is_set()
 
