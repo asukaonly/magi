@@ -183,7 +183,7 @@ fn resolve_managed_attachment_path(
     let metadata = std::fs::symlink_metadata(&expected_path).ok()?;
     if metadata.file_type().is_symlink()
         || !metadata.file_type().is_file()
-        || !has_single_link(&metadata)
+        || !path_has_single_link(&expected_path, &metadata)
     {
         return None;
     }
@@ -222,8 +222,8 @@ fn open_validated_attachment_file(base_dir: &FsPath, path: &FsPath) -> Option<st
     if path_metadata.file_type().is_symlink()
         || !path_metadata.file_type().is_file()
         || !opened_metadata.file_type().is_file()
-        || !has_single_link(&opened_metadata)
-        || !has_same_file_identity(&opened_metadata, &path_metadata)
+        || !opened_file_has_single_link(&file, &opened_metadata)
+        || !opened_file_matches_path(&file, path, &opened_metadata, &path_metadata)
     {
         return None;
     }
@@ -250,49 +250,125 @@ fn managed_parent_directories_are_real(base_dir: &FsPath, path: &FsPath) -> bool
 }
 
 #[cfg(unix)]
-fn has_single_link(metadata: &std::fs::Metadata) -> bool {
+fn path_has_single_link(_path: &FsPath, metadata: &std::fs::Metadata) -> bool {
     use std::os::unix::fs::MetadataExt;
     metadata.nlink() == 1
 }
 
 #[cfg(windows)]
-fn has_single_link(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    metadata.number_of_links() == Some(1)
+fn path_has_single_link(path: &FsPath, _metadata: &std::fs::Metadata) -> bool {
+    std::fs::File::open(path)
+        .ok()
+        .and_then(|file| windows_file_identity(&file))
+        .map(|identity| identity.number_of_links == 1)
+        .unwrap_or(false)
 }
 
 #[cfg(not(any(unix, windows)))]
-fn has_single_link(metadata: &std::fs::Metadata) -> bool {
+fn path_has_single_link(_path: &FsPath, metadata: &std::fs::Metadata) -> bool {
     metadata.is_file()
 }
 
 #[cfg(unix)]
-fn has_same_file_identity(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+fn opened_file_has_single_link(_file: &std::fs::File, metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    metadata.nlink() == 1
+}
+
+#[cfg(windows)]
+fn opened_file_has_single_link(file: &std::fs::File, _metadata: &std::fs::Metadata) -> bool {
+    windows_file_identity(file)
+        .map(|identity| identity.number_of_links == 1)
+        .unwrap_or(false)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn opened_file_has_single_link(_file: &std::fs::File, metadata: &std::fs::Metadata) -> bool {
+    metadata.is_file()
+}
+
+#[cfg(unix)]
+fn opened_file_matches_path(
+    _file: &std::fs::File,
+    _path: &FsPath,
+    left: &std::fs::Metadata,
+    right: &std::fs::Metadata,
+) -> bool {
     use std::os::unix::fs::MetadataExt;
     left.dev() == right.dev() && left.ino() == right.ino()
 }
 
 #[cfg(windows)]
-fn has_same_file_identity(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    match (
-        left.volume_serial_number(),
-        left.file_index(),
-        right.volume_serial_number(),
-        right.file_index(),
-    ) {
-        (Some(left_volume), Some(left_index), Some(right_volume), Some(right_index)) => {
-            left_volume == right_volume && left_index == right_index
-        }
-        _ => false,
-    }
+fn opened_file_matches_path(
+    file: &std::fs::File,
+    path: &FsPath,
+    _left: &std::fs::Metadata,
+    _right: &std::fs::Metadata,
+) -> bool {
+    let Some(opened_identity) = windows_file_identity(file) else {
+        return false;
+    };
+    let Some(path_identity) = std::fs::File::open(path)
+        .ok()
+        .and_then(|path_file| windows_file_identity(&path_file))
+    else {
+        return false;
+    };
+    opened_identity.same_file_as(path_identity)
 }
 
 #[cfg(not(any(unix, windows)))]
-fn has_same_file_identity(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+fn opened_file_matches_path(
+    _file: &std::fs::File,
+    _path: &FsPath,
+    left: &std::fs::Metadata,
+    right: &std::fs::Metadata,
+) -> bool {
     left.len() == right.len()
         && left.modified().ok() == right.modified().ok()
         && left.created().ok() == right.created().ok()
+}
+
+#[cfg(windows)]
+#[derive(Clone, Copy)]
+struct WindowsFileIdentity {
+    volume_serial_number: u32,
+    file_index: u64,
+    number_of_links: u32,
+}
+
+#[cfg(windows)]
+impl WindowsFileIdentity {
+    fn same_file_as(self, other: Self) -> bool {
+        self.volume_serial_number == other.volume_serial_number
+            && self.file_index == other.file_index
+    }
+}
+
+#[cfg(windows)]
+fn windows_file_identity(file: &std::fs::File) -> Option<WindowsFileIdentity> {
+    use std::mem::MaybeUninit;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let mut information = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+    // SAFETY: `File` owns a valid handle for this call and `information` points
+    // to writable storage for the complete Windows result structure.
+    let succeeded =
+        unsafe { GetFileInformationByHandle(file.as_raw_handle() as _, information.as_mut_ptr()) };
+    if succeeded == 0 {
+        return None;
+    }
+    // SAFETY: A nonzero return value guarantees that Windows initialized the
+    // complete result structure.
+    let information = unsafe { information.assume_init() };
+    Some(WindowsFileIdentity {
+        volume_serial_number: information.dwVolumeSerialNumber,
+        file_index: ((information.nFileIndexHigh as u64) << 32) | information.nFileIndexLow as u64,
+        number_of_links: information.nNumberOfLinks,
+    })
 }
 
 fn sanitize_header_filename(value: &str) -> String {
@@ -527,6 +603,39 @@ mod tests {
             )
             .is_none());
         }
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn opened_file_identity_matches_only_current_path() {
+        use super::opened_file_matches_path;
+
+        let temp_root =
+            std::env::temp_dir().join(format!("magi-file-identity-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&temp_root).unwrap();
+        let expected_path = temp_root.join("expected.txt");
+        let other_path = temp_root.join("other.txt");
+        fs::write(&expected_path, b"expected").unwrap();
+        fs::write(&other_path, b"other").unwrap();
+
+        let opened = fs::File::open(&expected_path).unwrap();
+        let opened_metadata = opened.metadata().unwrap();
+        let expected_metadata = fs::symlink_metadata(&expected_path).unwrap();
+        assert!(opened_file_matches_path(
+            &opened,
+            &expected_path,
+            &opened_metadata,
+            &expected_metadata,
+        ));
+
+        let other_metadata = fs::symlink_metadata(&other_path).unwrap();
+        assert!(!opened_file_matches_path(
+            &opened,
+            &other_path,
+            &opened_metadata,
+            &other_metadata,
+        ));
 
         let _ = fs::remove_dir_all(&temp_root);
     }

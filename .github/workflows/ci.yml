@@ -116,8 +116,16 @@ jobs:
         run: python scripts/export-python-openapi.py --output /tmp/magi-python-openapi.json
 
   gateway:
-    name: Gateway validation
-    runs-on: ubuntu-latest
+    name: Gateway validation (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+          - name: Windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
