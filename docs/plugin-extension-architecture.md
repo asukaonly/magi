@@ -200,6 +200,15 @@ Sideloading never replaces an existing or host-reserved package with the same
 id. If installation or persistence fails, the new package, temporary data,
 runtime state, and partial configuration are rolled back together.
 
+Sideloaded and local-directory packages must be self-contained at the Magi
+package layer. A non-registry package with a non-empty `depends_on` declaration
+is rejected during inspection or before staging, because a single uploaded
+archive has no reviewed registry snapshot that can bind the identities of
+separate library packages. Ordinary third-party Python packages remain
+supported through the hash-locked `dependencies` / `requirements.lock` flow.
+Supporting multi-package sideloads in the future requires a separate contract
+that reviews the complete package graph and commits it atomically.
+
 Dependency locks accept only ordinary package requirements pinned to one exact
 version with SHA-256 hashes. Direct URLs, local paths, installer directives,
 version ranges, and source builds are rejected in the normal install path;
@@ -211,9 +220,25 @@ not use pip's shared cache, subprocess output is retained only as a bounded
 64 KiB tail, and installation runs from a host-owned working directory with
 plugin-controlled Python startup paths removed from the environment.
 
-All package lifecycle mutations on one runtime manager are serialized. Scan,
-install, update, uninstall, enable, disable, reload, and settings changes
-cannot interleave their file, configuration, and runtime state transitions.
+One registry workflow shares an additional 512 MiB, 100,000-entry, and
+10-minute budget across all extracted source trees and dependency-install
+output for every package in its closure. Each extracted package is charged
+before the next package is prepared. The remaining workflow deadline is passed
+into repository downloads and dependency subprocesses; a timed-out dependency
+process is terminated rather than left running. At most eight install
+workflows may be active process-wide, and the same target package may have only
+one active workflow.
+
+Package copying, archive checks, and dependency preparation run outside the
+runtime lifecycle lock in bounded workers. The final identity check, directory
+publication, configuration change, scan, load, and rollback form one short
+serialized commit. If the target package or any dependency identity changes
+while preparation is running, the commit is rejected without publishing the
+prepared package. Archive operations remain single-file, while ordinary
+package preparation is limited to two concurrent workers.
+
+Scan, final install commit, uninstall, enable, disable, reload, and settings
+changes cannot interleave their lifecycle state transitions.
 The split plugin index is authoritative: an orphaned per-plugin settings file
 cannot recreate an uninstalled package, and package deletion restores both
 configuration files if either write fails.
@@ -239,6 +264,12 @@ The host keeps a five-minute memory cache and a durable offline fallback, so
 normal marketplace browsing does not issue one raw-file request per surface.
 Operators can still override the URL with `plugins.registry_url` for internal
 mirrors, staged registries, or future cache-invalidation-aware CDN endpoints.
+An index response is limited to 4 MiB and 4,096 entries. Remote index reading
+has a 60-second end-to-end network deadline in addition to per-operation HTTP
+timeouts, so a slow byte stream cannot hold the marketplace request forever.
+The durable cache is an envelope bound to its exact registry URL and schema
+version. Legacy raw-index caches and caches written by another registry URL are
+ignored.
 
 First-context and empty-source recommendations reuse this same registry client
 and cache rather than maintaining a separate catalog connection. When neither
@@ -987,6 +1018,9 @@ Marketplace trust is not self-declared by a plugin package.
   plugin id is in that allowlist
 - built-in packages may use their bundled manifest value; uploaded packages are
   always treated as non-official
+- the desktop honors unsigned `official` metadata only when both the registry
+  URL and normalized repository URL are the built-in canonical pair; custom
+  registries and mirrors are always presented as non-official
 - registry installs persist the registry-derived value, and installed-plugin
   responses read that persisted value rather than trusting a local manifest
 
@@ -995,8 +1029,11 @@ Plugins declare user-visible access under
 capability against the shared known set and copies the declaration into
 `registry.json`. The product shows these declarations before install. Updates
 prompt again only when a new capability, a new scope, or a broader scope exceeds
-the user's stored consent. Uploaded packages are inspected before installation
-so the same review applies to sideloads.
+the user's stored consent. Grouped updates compare each package against that
+package's own stored consent before combining newly requested access for the
+dialog; one group member's previous consent cannot authorize another member.
+Uploaded packages are inspected before installation so the same review applies
+to sideloads.
 
 Capability declarations are disclosure and review metadata. They do not provide
 an operating-system sandbox, so runtime enforcement still depends on the host's
@@ -1015,25 +1052,98 @@ The companion plugin repository regenerates lockfiles and `registry.json`
 together. Its CI checks both outputs for drift, so a manifest or dependency
 change is not complete until the generated artifacts are committed with it.
 
+### Host Package Dependencies
+
+`depends_on` describes Magi package dependencies and is intentionally narrower
+than Python package `dependencies`.
+
+- a user-selected marketplace target must be `kind = "plugin"`
+- every package below that target must be `kind = "library"`; a runnable plugin
+  can never enter through another plugin's dependency closure
+- libraries may depend on other libraries
+- cycles are rejected
+- one manifest or registry entry may name at most 8 direct package
+  dependencies, and the full closure may contain at most 16 packages
+
+The complete closure is resolved from one normalized registry snapshot before
+any package is installed. Registry and extracted-manifest fields must match for
+every package. The host persists the exact registry URL, repository URL, entry
+fingerprint, manifest fingerprint, and direct-dependency fingerprints for each
+installed package.
+
+These fingerprints bind the approved marketplace declarations and their source,
+then the installer checks the extracted `plugin.toml` against those
+declarations. They are not a digest or signature of every package code file.
+Content-addressed package archives, immutable repository revisions, and signed
+package metadata remain future supply-chain work.
+
+An installed library is reusable only when all of that provenance still
+matches and its full nested library closure remains valid. The same recursive
+check runs again under the final lifecycle lock and when a consumer loads after
+startup or reload. Concurrent installs that discover the same identical
+library reuse it without a second publication; a different identity is a
+conflict and never overwrites the library already in use.
+
+Uninstall treats libraries as shared, reference-counted packages. Removing a
+consumer recursively removes only now-orphaned libraries. Shared and diamond
+dependencies remain installed until their final consumer is gone, and cyclic
+metadata cannot cause recursive deletion.
+
+Package identity is bound to both ownership and source. Builtins win discovery
+conflicts, then the managed user root wins over development scan roots.
+Managed packages are discoverable only at the exact
+`~/.magi/plugins/<plugin_id>/plugin.toml` path; root manifests, nested
+manifests, mismatched directory names, and symlinked packages are ignored.
+A marketplace package is trusted only while its persisted source, repository,
+manifest path, and manifest fingerprint still match that managed package.
+A same-id package from another scan root cannot inherit its enable state,
+settings, consent, provenance, or official status.
+
+Fresh marketplace installs never replace an existing package. Marketplace
+updates are accepted only from the exact registry URL and repository that
+installed the package; switching registries requires uninstalling first.
+Uploaded archives and local-directory installs also never replace an existing
+or host-reserved id. Destructive uninstall is limited to exact, non-symlinked
+managed package directories. A package discovered through another scan root
+must be disabled or removed from that scan path instead of being deleted by
+Magi.
+
 ### Installation Flow
 
 1. The frontend starts an install, update, or upload job through the plugin API and polls the returned `job_id`
-2. The backend job reports `status`, `stage`, `progress_pct`, installer messages, and bounded install logs while work continues in the background
-3. `PluginInstallService` owns the install or update workflow and delegates registry reads/downloads to `RegistryClient`
-4. For registry installs, `RegistryClient.fetch_index()` fetches `registry.json` from the remote
+2. Marketplace install and update requests include the exact registry
+   declaration-and-source fingerprint shown when the user approved the action;
+   this is consent binding, not a whole-package code signature
+3. The backend job reports `status`, `stage`, `progress_pct`, installer
+   messages, and bounded install logs while work continues in the background.
+   One log entry is limited to 4 KiB, retained logs to 240 entries and 256 KiB,
+   and the terminal error to 16 KiB
+4. `PluginInstallService` owns the install or update workflow and delegates registry reads/downloads to `RegistryClient`
+5. For registry installs, `RegistryClient.fetch_index()` fetches `registry.json` from the remote
    repository, persists the last successful index under the local plugin cache, and falls back to
    that cached index if the remote registry is temporarily unavailable
-5. `RegistryClient.clone_plugin()` downloads the GitHub repository tarball, with short-lived in-memory caching for repeat install requests
-6. The requested plugin subdirectory is extracted from the tarball into a temporary directory
-7. `PluginManager.install_plugin_from_directory()` copies the plugin into `~/.magi/plugins/<plugin_id>/`
-8. Python dependencies declared by the plugin are installed from its hash-verified `requirements.lock` into the plugin-local `.deps/` directory; pip output is attached to the install job logs. Source/dev runs use the active backend Python. Packaged desktop runs pass `Contents/Resources/plugin-python/.../python` through `MAGI_PLUGIN_PYTHON`; the packaged `magi-backend` sidecar is never used as a pip executable.
-9. The plugin is discovered on next scan and can be enabled from the settings UI
+6. The host rejects the action if the current normalized index, registry URL,
+   or repository URL no longer matches the approved fingerprint. It checks
+   again after validating every extracted package so changed marketplace data
+   returns the user to review rather than silently continuing
+7. `RegistryClient.clone_plugin()` downloads at most 64 MiB from the repository
+   tarball, with short-lived in-memory caching keyed by both tarball URL and
+   approved snapshot fingerprint
+8. Each requested subdirectory is extracted through the same safe archive
+   planner used for uploads, including path, link, type, collision, entry-count,
+   and expanded-size checks
+9. `PluginManager.install_plugin_from_directory()` stages the package and
+   publishes it into `~/.magi/plugins/<plugin_id>/` only after the final
+   lifecycle validation succeeds
+10. Python dependencies declared by the plugin are installed from its hash-verified `requirements.lock` into the plugin-local `.deps/` directory; pip output is attached to the install job logs. Source/dev runs use the active backend Python. Packaged desktop runs pass `Contents/Resources/plugin-python/.../python` through `MAGI_PLUGIN_PYTHON`; the packaged `magi-backend` sidecar is never used as a pip executable.
+11. Registry packages are enabled after their atomic install commit; uploaded
+    packages remain disabled and require a separate enable action
 
 Packaged desktop builds stage two generated runtime resources under `frontend/src-tauri/`: `sidecar-dist/` for the backend sidecar and `plugin-python/` for plugin dependency installation. Release CI runs `scripts/prepare-plugin-python-runtime.py` to download a python-build-standalone runtime for the target platform, writes it to `MAGI_PLUGIN_PYTHON_SOURCE`, and requires that source during sidecar staging. Local development builds may omit the variable and use a local venv fallback. macOS signing scripts sign Mach-O files in both runtime resource roots before notarization.
 
 ### Frontend
 
-The marketplace UI lives in the Plugins settings section under "插件市场 / Marketplace". It shows available plugins with manifest or registry icons, install/uninstall actions, version info, platform compatibility badges, and install progress with job logs. The onboarding sensor-selection step uses the same install job API for selected sensor plugins.
+The marketplace UI lives in the Plugins settings section under "插件市场 / Marketplace". It shows available plugins with manifest or registry icons, install/uninstall actions, version info, platform compatibility badges, and install progress with job logs. Timeline & Sources reuses the same registry fingerprint and install job flow when it offers an uninstalled source.
 
 ## Known Boundaries
 
@@ -1046,7 +1156,13 @@ It does not yet support:
 - plugin-defined `action` contribution registration
 - arbitrary awareness-module sensor registration through the old awareness abstractions
 
-The current system is a local backend Python extension model.
+The current system is a local backend Python extension model. After a user
+explicitly enables a third-party plugin, that plugin runs inside the Magi
+backend process. Capability declarations and the trust switch provide review
+and activation boundaries, but they cannot contain malicious code or reliably
+recover the process from a plugin that blocks forever. Strong isolation
+requires a future supervised subprocess runtime with bounded IPC, timeouts,
+resource limits, and revocable capabilities.
 
 ## Related Files
 

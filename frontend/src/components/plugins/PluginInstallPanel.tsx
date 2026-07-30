@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 
 import { pluginsApi } from '@/api/modules/plugins';
 import type { ExtensionFieldSpec, PluginCapability } from '@/api/modules/plugins';
@@ -83,6 +84,10 @@ export function PluginInstallPanel(): JSX.Element | null {
   const isFirstContext = panelContext === 'first_context';
 
   const [consented, setConsented] = useState(false);
+  const [registryRefreshKey, setRegistryRefreshKey] = useState(0);
+  const [registryState, setRegistryState] = useState<
+    'loading' | 'ready' | 'not_found' | 'error'
+  >('loading');
   const [entryMeta, setEntryMeta] = useState<{
     name: string;
     name_i18n: Record<string, string>;
@@ -90,13 +95,31 @@ export function PluginInstallPanel(): JSX.Element | null {
     version: string;
     official: boolean;
     icon: string | null;
+    installFingerprint: string | null;
   } | null>(null);
+
+  const handleRegistryChanged = useCallback(() => {
+    setConsented(false);
+    setEntryMeta(null);
+    setRegistryState('loading');
+    setRegistryRefreshKey((value) => value + 1);
+    toast.error(t('app:settings.marketplace.feedback.registryChanged'));
+  }, [t]);
 
   // In install mode, hold the connect flow until the user accepts the plugin's
   // declared capabilities (mirrors the marketplace's consent dialog). The flow
   // stays idle while pluginId is null, so installs never run unseen.
-  const flowActive = open && (!installMode || consented);
-  const flow = usePluginInstallFlow(flowActive ? pluginId : null, installMode, panelContext);
+  const flowActive = open && (
+    !installMode
+    || (consented && Boolean(entryMeta?.installFingerprint))
+  );
+  const flow = usePluginInstallFlow(
+    flowActive ? pluginId : null,
+    installMode,
+    panelContext,
+    entryMeta?.installFingerprint ?? null,
+    handleRegistryChanged,
+  );
   const [values, setValues] = useState<Record<string, unknown>>({});
   const doneFiredRef = useRef(false);
 
@@ -105,6 +128,8 @@ export function PluginInstallPanel(): JSX.Element | null {
     if (!open) {
       setConsented(false);
       setEntryMeta(null);
+      setRegistryState('loading');
+      setRegistryRefreshKey(0);
     }
   }, [open]);
 
@@ -112,19 +137,37 @@ export function PluginInstallPanel(): JSX.Element | null {
   useEffect(() => {
     if (!open || !installMode || !pluginId) return;
     let cancelled = false;
+    setConsented(false);
+    setEntryMeta(null);
+    setRegistryState('loading');
     void pluginsApi
-      .getRegistry()
+      .getRegistry(registryRefreshKey > 0 ? { force: true } : undefined)
       .then((reg) => {
         if (cancelled) return;
         const e = reg.plugins.find((p) => p.plugin_id === pluginId);
+        if (!e) {
+          setEntryMeta({
+            name: humanizePluginId(pluginId),
+            name_i18n: {},
+            capabilities: [],
+            version: '',
+            official: false,
+            icon: null,
+            installFingerprint: null,
+          });
+          setRegistryState('not_found');
+          return;
+        }
         setEntryMeta({
-          name: e?.name ?? humanizePluginId(pluginId),
-          name_i18n: e?.name_i18n ?? {},
-          capabilities: e?.capabilities ?? [],
-          version: e?.version ?? '',
-          official: e?.official ?? false,
-          icon: e?.icon ?? null,
+          name: e.name,
+          name_i18n: e.name_i18n ?? {},
+          capabilities: e.capabilities ?? [],
+          version: e.version,
+          official: e.official ?? false,
+          icon: e.icon ?? null,
+          installFingerprint: reg.install_fingerprint,
         });
+        setRegistryState(reg.install_fingerprint ? 'ready' : 'error');
       })
       .catch(() => {
         if (!cancelled) {
@@ -135,13 +178,15 @@ export function PluginInstallPanel(): JSX.Element | null {
             version: '',
             official: false,
             icon: null,
+            installFingerprint: null,
           });
+          setRegistryState('error');
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [open, installMode, pluginId]);
+  }, [open, installMode, pluginId, registryRefreshKey]);
 
   // Fire the entry point's onDone exactly once when the flow succeeds (`done`).
   // Reset the guard when the panel closes so a later open can fire again.
@@ -334,6 +379,15 @@ export function PluginInstallPanel(): JSX.Element | null {
       ? t('pluginInstallPanel.closeBackground')
       : t('pluginInstallPanel.close');
   const closeDisabled = flow.phase === 'loading' || flow.phase === 'running';
+  const registryStatusMessage = (
+    registryState === 'loading'
+      ? t('app:settings.marketplace.loading')
+      : registryState === 'not_found'
+        ? t('app:settings.marketplace.empty')
+        : registryState === 'error'
+          ? t('app:settings.marketplace.error')
+          : undefined
+  );
 
   if (!open) {
     return null;
@@ -352,7 +406,13 @@ export function PluginInstallPanel(): JSX.Element | null {
         version={entryMeta?.version ?? ''}
         official={entryMeta?.official}
         capabilities={entryMeta?.capabilities ?? []}
-        onConfirm={() => setConsented(true)}
+        confirmDisabled={registryState !== 'ready' || !entryMeta?.installFingerprint}
+        statusMessage={registryStatusMessage}
+        onConfirm={() => {
+          if (registryState === 'ready' && entryMeta?.installFingerprint) {
+            setConsented(true);
+          }
+        }}
         onCancel={closePanel}
       />
     );

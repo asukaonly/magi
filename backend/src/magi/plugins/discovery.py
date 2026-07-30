@@ -22,6 +22,8 @@ from .contracts import (
     PluginPackageState,
 )
 from .icon_assets import encode_plugin_icon_asset
+from . import package_files
+from .package_integrity import package_identity_error
 
 logger = logging.getLogger(__name__)
 MAX_PLUGIN_MANIFEST_BYTES = 256 * 1024
@@ -47,7 +49,7 @@ def discover_plugin_manifests(search_paths: Iterable[Path]) -> dict[str, PluginM
         if not root.exists():
             continue
         source = "builtin" if is_builtin_root(root) else "external"
-        for manifest_path in sorted(root.rglob("plugin.toml"), key=lambda path: path.as_posix()):
+        for manifest_path in _manifest_paths_for_root(root):
             relative_manifest = manifest_path.relative_to(root)
             if any(part.startswith(".") for part in relative_manifest.parts[:-1]):
                 continue
@@ -77,10 +79,42 @@ def discover_plugin_manifests(search_paths: Iterable[Path]) -> dict[str, PluginM
 
 
 def _ordered_plugin_search_paths(search_paths: Iterable[Path]) -> list[Path]:
-    """Return unique roots with the built-in root first and caller order preserved."""
+    """Order builtins, the managed install root, then development scan roots."""
 
     unique_roots = list(dict.fromkeys(Path(root) for root in search_paths))
-    return sorted(unique_roots, key=lambda root: 0 if is_builtin_root(root) else 1)
+    return sorted(
+        unique_roots,
+        key=lambda root: (
+            0 if is_builtin_root(root) else 1 if package_files.is_user_plugins_root(root) else 2
+        ),
+    )
+
+
+def _manifest_paths_for_root(root: Path) -> list[Path]:
+    """Return safe manifest candidates for one discovery root."""
+
+    if not package_files.is_user_plugins_root(root):
+        return sorted(root.rglob("plugin.toml"), key=lambda path: path.as_posix())
+
+    manifests: list[Path] = []
+    for child in sorted(root.iterdir(), key=lambda path: path.as_posix()):
+        if child.is_symlink() or not child.is_dir():
+            continue
+        manifest_path = child / "plugin.toml"
+        if manifest_path.is_symlink() or not manifest_path.is_file():
+            continue
+        declared_id = _read_declared_plugin_id(manifest_path)
+        if declared_id is None or not package_files.is_managed_plugin_manifest_path(
+            declared_id,
+            manifest_path,
+        ):
+            logger.warning(
+                "Ignoring plugin manifest with an invalid managed path",
+                extra={"manifest_path": str(manifest_path), "plugin_id": declared_id},
+            )
+            continue
+        manifests.append(manifest_path)
+    return manifests
 
 
 def _read_declared_plugin_id(manifest_path: Path) -> str | None:
@@ -155,13 +189,30 @@ def build_package_states(
         trusted = bool(package_cfg.trusted) if package_cfg is not None else False
         current_settings = dict(package_cfg.settings) if package_cfg is not None else {}
         previous_state = previous_states.get(plugin_id)
+        identity_error = package_identity_error(manifest, package_cfg)
+        if identity_error is not None:
+            enabled = False
+            trusted = False
+            current_settings = {}
         next_states[plugin_id] = PluginPackageState(
             manifest=manifest,
             enabled=enabled,
             trusted=trusted,
-            loaded=bool(previous_state.loaded) if previous_state is not None else False,
-            healthy=bool(previous_state.healthy) if previous_state is not None else True,
-            last_error=previous_state.last_error if previous_state is not None else None,
+            loaded=(
+                bool(previous_state.loaded)
+                if previous_state is not None and identity_error is None
+                else False
+            ),
+            healthy=(
+                bool(previous_state.healthy)
+                if previous_state is not None and identity_error is None
+                else identity_error is None
+            ),
+            last_error=(
+                previous_state.last_error
+                if previous_state is not None and identity_error is None
+                else identity_error
+            ),
             contributions=(
                 list(previous_state.contributions)
                 if previous_state is not None

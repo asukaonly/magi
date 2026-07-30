@@ -14,12 +14,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from ..config import get_config, save_config
-from .archive_operations import serialize_plugin_archive_operation
+from ..config import PluginSettings, get_config, save_config
 from .base import Plugin
 from .contribution_registration import PluginContributionRegistrar
 from .contracts import (
-    PluginCapability,
     PluginManifest,
     PluginPackageState,
 )
@@ -31,7 +29,8 @@ from .discovery import (
     placeholder_contributions,
     resolve_plugin_search_paths as _resolve_search_paths,
 )
-from .installation import InstallProgressReporter, PluginInstallationMixin
+from .installation import PluginInstallationMixin
+from .package_integrity import package_identity_error
 from .projections import PluginProjectionService
 from .sensors import SensorRegistry
 from .settings_service import PluginSettingsActionRun, PluginSettingsService
@@ -144,36 +143,25 @@ class PluginManager(PluginInstallationMixin):
             sys.modules.pop(module_name, None)
         importlib.invalidate_caches()
 
-    @serialize_plugin_archive_operation
     @_serialized_lifecycle_mutation
-    def install_plugin_from_archive(
+    def _capture_plugin_install_target(
         self,
-        archive_path: Path,
-        *,
-        consented_capabilities: list[PluginCapability],
-        progress_reporter: InstallProgressReporter | None = None,
-    ) -> PluginPackageState:
-        """Install one uploaded archive without interleaving lifecycle writes."""
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Capture an install target without racing lifecycle mutations."""
 
-        return super().install_plugin_from_archive(
-            archive_path,
-            consented_capabilities=consented_capabilities,
-            progress_reporter=progress_reporter,
-        )
+        return super()._capture_plugin_install_target(*args, **kwargs)
 
     @_serialized_lifecycle_mutation
-    def install_plugin_from_directory(
+    def _commit_staged_plugin_package(
         self,
-        source_dir: Path,
-        *,
-        progress_reporter: InstallProgressReporter | None = None,
-    ) -> PluginPackageState:
-        """Install one directory without interleaving lifecycle writes."""
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[PluginPackageState, Path | None]:
+        """Commit one prepared package without interleaving lifecycle writes."""
 
-        return super().install_plugin_from_directory(
-            source_dir,
-            progress_reporter=progress_reporter,
-        )
+        return super()._commit_staged_plugin_package(*args, **kwargs)
 
     @_serialized_lifecycle_mutation
     def uninstall_plugin(self, plugin_id: str) -> list[str]:
@@ -215,14 +203,6 @@ class PluginManager(PluginInstallationMixin):
         for state in self.list_packages():
             if not state.enabled:
                 continue
-            if state.manifest.kind == "library":
-                # Libraries are "loaded" just by being present on disk; their
-                # code gets onto sys.path via _instantiate_plugin when a
-                # consumer plugin loads.
-                state.loaded = True
-                state.healthy = True
-                state.last_error = None
-                continue
             try:
                 self.load_plugin(state.manifest.plugin_id)
             except Exception as exc:
@@ -248,20 +228,28 @@ class PluginManager(PluginInstallationMixin):
         return self.list_packages()
 
     def list_packages(self) -> list[PluginPackageState]:
-        return sorted(self._package_states.values(), key=lambda item: item.manifest.plugin_id)
+        with self._lifecycle_write_lock:
+            return sorted(
+                list(self._package_states.values()),
+                key=lambda item: item.manifest.plugin_id,
+            )
 
     def get_package(self, plugin_id: str) -> Optional[PluginPackageState]:
-        return self._package_states.get(plugin_id)
+        with self._lifecycle_write_lock:
+            return self._package_states.get(plugin_id)
 
     def installed_plugin_ids(self) -> set[str]:
-        return set(self._package_states.keys())
+        with self._lifecycle_write_lock:
+            return set(self._package_states.keys())
 
     def get_loaded_plugin(self, plugin_id: str) -> Plugin | None:
-        return self._plugin_instances.get(plugin_id)
+        with self._lifecycle_write_lock:
+            return self._plugin_instances.get(plugin_id)
 
     def iter_loaded_plugins(self) -> list[Plugin]:
         """Return currently loaded plugin instances."""
-        return list(self._plugin_instances.values())
+        with self._lifecycle_write_lock:
+            return list(self._plugin_instances.values())
 
     @_serialized_lifecycle_mutation
     def load_plugin(self, plugin_id: str) -> PluginPackageState:
@@ -273,6 +261,17 @@ class PluginManager(PluginInstallationMixin):
         """
 
         state = self._require_package(plugin_id)
+        configured = get_config().plugins.packages.get(plugin_id)
+        identity_error = package_identity_error(state.manifest, configured)
+        if identity_error is not None:
+            if state.loaded:
+                self.unload_plugin(plugin_id)
+            state.enabled = False
+            state.trusted = False
+            state.loaded = False
+            state.healthy = False
+            state.last_error = identity_error
+            raise RuntimeError(identity_error)
         if state.loaded:
             return state
         if not state.trusted and state.manifest.source != "builtin":
@@ -393,11 +392,12 @@ class PluginManager(PluginInstallationMixin):
         still references it.
         """
 
-        return [
-            state.manifest.plugin_id
-            for state in self._package_states.values()
-            if library_id in state.manifest.depends_on
-        ]
+        with self._lifecycle_write_lock:
+            return [
+                state.manifest.plugin_id
+                for state in list(self._package_states.values())
+                if library_id in state.manifest.depends_on
+            ]
 
     def _reject_library(self, state: PluginPackageState, action: str) -> None:
         """Forbid user-facing toggle operations on library packages.
@@ -417,14 +417,19 @@ class PluginManager(PluginInstallationMixin):
 
         state = self._require_package(plugin_id)
         self._reject_library(state, "enable")
-        save_config(
+        configured = get_config().plugins.packages.get(plugin_id)
+        identity_error = package_identity_error(state.manifest, configured)
+        if identity_error is not None:
+            raise ValueError(identity_error)
+        if not save_config(
             {
                 f"plugins.packages.{plugin_id}.enabled": True,
                 f"plugins.packages.{plugin_id}.trusted": True,
                 f"plugins.packages.{plugin_id}.source": state.manifest.source,
                 f"plugins.packages.{plugin_id}.manifest_path": state.manifest.manifest_path,
             }
-        )
+        ):
+            raise RuntimeError(f"Failed to persist plugin enable state: {plugin_id}")
         self.scan(persist_discovery=False)
         state = self.load_plugin(plugin_id)
         self._request_sensor_schedule_refresh()
@@ -526,20 +531,28 @@ class PluginManager(PluginInstallationMixin):
         if deps_dir.is_dir() and str(deps_dir) not in sys.path:
             sys.path.append(str(deps_dir))
 
-        # For each declared plugin-level dep (typically a library package),
-        # add its install-root *parent* to sys.path so that
-        # ``import <library_module>`` works inside the plugin code. Libraries
-        # are installed as siblings under ~/.magi/plugins/, so the parent
-        # path is shared across consumers. We refuse to load when a declared
-        # dep is missing — better a clear error here than a deep
-        # ModuleNotFoundError later.
-        for dep_id in manifest.depends_on:
-            dep_state = self._package_states.get(dep_id)
-            if dep_state is None or not Path(dep_state.manifest.plugin_dir).is_dir():
-                raise RuntimeError(
-                    f"Plugin {manifest.plugin_id} depends on missing package: {dep_id}. "
-                    f"Reinstall {manifest.plugin_id} to fetch dependencies."
-                )
+        raw_package_config = get_config().plugins.packages.get(manifest.plugin_id)
+        package_config = (
+            PluginSettings.model_validate(raw_package_config)
+            if raw_package_config is not None
+            else None
+        )
+        dependency_targets = self._capture_plugin_dependencies(
+            manifest,
+            registry_source=(
+                package_config.registry_source if package_config is not None else None
+            ),
+            registry_repo_url=(
+                package_config.registry_repo_url if package_config is not None else None
+            ),
+            dependency_entry_fingerprints=(
+                dict(package_config.dependency_entry_fingerprints)
+                if package_config is not None
+                else {}
+            ),
+        )
+        for dependency_target in dependency_targets:
+            dep_state = dependency_target.package_state
             dep_parent = str(Path(dep_state.manifest.plugin_dir).parent)
             if dep_parent not in sys.path:
                 sys.path.append(dep_parent)

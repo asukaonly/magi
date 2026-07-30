@@ -4,6 +4,7 @@ Focus: the marketplace "refresh" button must be able to bypass the
 registry client's 5-minute TTL cache. The route exposes a ``refresh``
 query param that forwards to ``PluginRegistryClient.fetch_index(force=...)``.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -28,6 +29,14 @@ class _FakeRegistry:
     async def fetch_index(self, *, force: bool = False) -> _FakeIndex:
         self.force_calls.append(force)
         return _FakeIndex()
+
+    async def fetch_snapshot(self, *, force: bool = False):
+        index = await self.fetch_index(force=force)
+        return SimpleNamespace(
+            index=index,
+            install_fingerprint="a" * 64,
+            official_source=True,
+        )
 
 
 def _patch_registry_context(monkeypatch: pytest.MonkeyPatch, registry: _FakeRegistry) -> None:
@@ -101,7 +110,9 @@ async def test_registry_response_preserves_plugin_icon(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
-async def test_registry_response_preserves_plugin_display_group(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_registry_response_preserves_plugin_display_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     registry = _FakeRegistry()
     entry = SimpleNamespace(
         kind="plugin",

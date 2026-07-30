@@ -6,7 +6,11 @@ import threading
 
 import pytest
 
-from magi.plugins.archive_operations import run_plugin_archive_operation
+from magi.plugins.operation_execution import (
+    MAX_CONCURRENT_PLUGIN_PREPARATIONS,
+    run_plugin_archive_operation,
+    run_plugin_preparation_operation,
+)
 from magi.plugins.discovery import MAX_PLUGIN_MANIFEST_BYTES, load_plugin_manifest
 
 
@@ -46,6 +50,50 @@ async def test_archive_operations_use_one_dedicated_worker() -> None:
     assert max_active_operations == 1
     assert first_thread.startswith("magi-plugin-archive")
     assert second_thread.startswith("magi-plugin-archive")
+
+
+@pytest.mark.asyncio
+async def test_plugin_preparation_is_bounded_without_blocking_event_loop() -> None:
+    release = threading.Event()
+    state_lock = threading.Lock()
+    active = 0
+    max_active = 0
+    started = 0
+
+    def prepare() -> str:
+        nonlocal active, max_active, started
+        with state_lock:
+            active += 1
+            started += 1
+            max_active = max(max_active, active)
+        if not release.wait(timeout=3):
+            raise TimeoutError("Timed out waiting to release plugin preparation")
+        with state_lock:
+            active -= 1
+        return threading.current_thread().name
+
+    tasks = [
+        asyncio.create_task(run_plugin_preparation_operation(prepare))
+        for _ in range(MAX_CONCURRENT_PLUGIN_PREPARATIONS + 3)
+    ]
+    deadline = asyncio.get_running_loop().time() + 1
+    while started < MAX_CONCURRENT_PLUGIN_PREPARATIONS:
+        assert asyncio.get_running_loop().time() < deadline
+        await asyncio.sleep(0.01)
+
+    heartbeat_started = asyncio.get_running_loop().time()
+    await asyncio.sleep(0.02)
+    heartbeat_elapsed = asyncio.get_running_loop().time() - heartbeat_started
+
+    with state_lock:
+        assert started == MAX_CONCURRENT_PLUGIN_PREPARATIONS
+        assert max_active == MAX_CONCURRENT_PLUGIN_PREPARATIONS
+    assert heartbeat_elapsed < 0.2
+
+    release.set()
+    thread_names = await asyncio.gather(*tasks)
+    assert all(name.startswith("magi-plugin-prepare") for name in thread_names)
+    assert max_active == MAX_CONCURRENT_PLUGIN_PREPARATIONS
 
 
 def test_plugin_manifest_has_a_dedicated_size_limit(tmp_path: Path) -> None:

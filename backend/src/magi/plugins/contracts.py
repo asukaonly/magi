@@ -4,6 +4,7 @@ Internal backend code continues to import from this module.  External
 plugin authors should install ``magi-plugin-sdk`` and import directly
 from ``magi_plugin_sdk`` instead.
 """
+
 from magi_plugin_sdk.contracts import (  # noqa: F401
     ActivationFlowSpec,
     ActivationFirstContextSpec,
@@ -14,6 +15,7 @@ from magi_plugin_sdk.contracts import (  # noqa: F401
     PluginCapability,
     PluginContribution,
     PluginDisplayGroupSpec,
+    PluginIdentifier,
     PluginManifest,
     PluginPackageState,
     PluginPermissions,

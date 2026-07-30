@@ -34,6 +34,7 @@ describe('PluginMarketplace', () => {
   it('shows registry-provided plugin icons on standalone marketplace cards', async () => {
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       registry_version: '1',
+      install_fingerprint: 'fingerprint-1',
       plugins: [
         {
           plugin_id: 'photo-library',
@@ -66,10 +67,253 @@ describe('PluginMarketplace', () => {
     expect(screen.getByTestId('plugin-icon-asset')).toHaveAttribute('src', SVG_ICON);
   });
 
+  it('refreshes stale marketplace details and requires a new confirmation', async () => {
+    const user = userEvent.setup();
+    const registryEntry = (version: string) => ({
+      plugin_id: 'photo-library',
+      name: 'Photo Library',
+      name_i18n: { 'zh-CN': '照片库' },
+      version,
+      description: 'Read local photo libraries.',
+      description_i18n: { 'zh-CN': '读取本地照片库。' },
+      author: 'Magi Team',
+      icon: SVG_ICON,
+      official: true,
+      data_locality: 'local_only',
+      contribution_types: ['sensor'],
+      platforms: [],
+      min_sdk_version: '0.1.0',
+      homepage: '',
+      repository: '',
+      path: 'photo-library',
+      installed: false,
+      installed_version: null,
+      update_available: false,
+      capabilities: [],
+    });
+    const getRegistry = vi
+      .spyOn(pluginsApi, 'getRegistry')
+      .mockResolvedValueOnce({
+        registry_version: '1',
+        install_fingerprint: 'fingerprint-old',
+        plugins: [registryEntry('0.1.0')],
+      })
+      .mockResolvedValueOnce({
+        registry_version: '2',
+        install_fingerprint: 'fingerprint-new',
+        plugins: [registryEntry('0.2.0')],
+      });
+    const install = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockRejectedValue({
+        status: 409,
+        code: 'PLUGIN_REGISTRY_CHANGED',
+        message: 'Registry changed',
+      });
+    const onInstallComplete = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <PluginMarketplace
+        installedPlugins={[]}
+        onInstallComplete={onInstallComplete}
+      />,
+    );
+
+    const card = await screen.findByTestId('marketplace-plugin-photo-library');
+    await user.click(
+      within(card).getByRole('button', { name: 'settings.marketplace.actions.install' }),
+    );
+    await user.click(
+      await screen.findByText('settings.marketplace.consent.confirm.install'),
+    );
+
+    await waitFor(() => {
+      expect(install).toHaveBeenCalledWith(
+        'photo-library',
+        'fingerprint-old',
+        expect.any(Function),
+      );
+      expect(getRegistry).toHaveBeenLastCalledWith({ force: true });
+      expect(card).toHaveTextContent('v0.2.0');
+    });
+    expect(install).toHaveBeenCalledTimes(1);
+    expect(onInstallComplete).not.toHaveBeenCalled();
+  });
+
+  it('updates with the fingerprint from the details the user confirmed', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: '2',
+      install_fingerprint: 'update-fingerprint',
+      plugins: [
+        {
+          plugin_id: 'photo-library',
+          name: 'Photo Library',
+          name_i18n: { 'zh-CN': '照片库' },
+          version: '0.2.0',
+          description: 'Read local photo libraries.',
+          description_i18n: { 'zh-CN': '读取本地照片库。' },
+          author: 'Magi Team',
+          icon: SVG_ICON,
+          official: true,
+          data_locality: 'local_only',
+          contribution_types: ['sensor'],
+          platforms: [],
+          min_sdk_version: '0.1.0',
+          homepage: '',
+          repository: '',
+          path: 'photo-library',
+          installed: true,
+          installed_version: '0.1.0',
+          update_available: true,
+          capabilities: [
+            {
+              capability: 'photos',
+              scope: [],
+              optional: false,
+              reason: 'Read photos',
+              reason_i18n: {},
+            },
+          ],
+        },
+      ],
+    });
+    const update = vi
+      .spyOn(pluginsApi, 'updatePluginWithProgress')
+      .mockResolvedValue({} as any);
+
+    render(
+      <PluginMarketplace
+        installedPlugins={[
+          {
+            manifest: {
+              plugin_id: 'photo-library',
+              consented_capabilities: [],
+            },
+          } as any,
+        ]}
+        onInstallComplete={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const card = await screen.findByTestId('marketplace-plugin-photo-library');
+    await user.click(
+      within(card).getAllByRole('button', {
+        name: /settings\.marketplace\.actions\.update/,
+      })[0],
+    );
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'settings.marketplace.consent.confirm.update',
+      }),
+    );
+
+    await waitFor(() => {
+      expect(update).toHaveBeenCalledWith(
+        'photo-library',
+        'update-fingerprint',
+        expect.any(Function),
+      );
+    });
+  });
+
+  it('checks new permissions against each grouped entry own consent', async () => {
+    const user = userEvent.setup();
+    const networkCapability = {
+      capability: 'network',
+      scope: ['history.example.com'],
+      optional: false,
+      reason: 'Read browser history',
+      reason_i18n: {},
+    };
+    const groupedEntry = (
+      pluginId: string,
+      memberLabel: string,
+      updateAvailable: boolean,
+    ) => ({
+      plugin_id: pluginId,
+      name: memberLabel,
+      name_i18n: {},
+      version: updateAvailable ? '0.2.0' : '0.1.0',
+      description: `${memberLabel} history`,
+      description_i18n: {},
+      author: 'Magi Team',
+      icon: 'lucide:globe',
+      display_group: browserDisplayGroup(memberLabel, updateAvailable ? 20 : 10),
+      official: true,
+      data_locality: 'local_only',
+      contribution_types: ['sensor'],
+      platforms: [],
+      min_sdk_version: '0.1.0',
+      homepage: '',
+      repository: '',
+      path: pluginId,
+      installed: true,
+      installed_version: '0.1.0',
+      update_available: updateAvailable,
+      capabilities: [networkCapability],
+    });
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: '2',
+      install_fingerprint: 'group-update-fingerprint',
+      plugins: [
+        groupedEntry('chrome-history', 'Chrome', false),
+        groupedEntry('safari-history', 'Safari', true),
+      ],
+    });
+    const update = vi
+      .spyOn(pluginsApi, 'updatePluginWithProgress')
+      .mockResolvedValue({} as any);
+
+    render(
+      <PluginMarketplace
+        installedPlugins={[
+          {
+            manifest: {
+              plugin_id: 'chrome-history',
+              consented_capabilities: [networkCapability],
+            },
+          } as any,
+          {
+            manifest: {
+              plugin_id: 'safari-history',
+              consented_capabilities: [],
+            },
+          } as any,
+        ]}
+        onInstallComplete={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const card = await screen.findByTestId('marketplace-plugin-browser-history');
+    await user.click(
+      within(card).getAllByRole('button', {
+        name: /settings\.marketplace\.actions\.update/,
+      })[0],
+    );
+
+    expect(update).not.toHaveBeenCalled();
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'settings.marketplace.consent.confirm.update',
+      }),
+    );
+
+    await waitFor(() => {
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(update).toHaveBeenCalledWith(
+        'safari-history',
+        'group-update-fingerprint',
+        expect.any(Function),
+      );
+    });
+  });
+
   it('groups browser history implementations and lets users choose entries before installing', async () => {
     const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       registry_version: '1',
+      install_fingerprint: 'fingerprint-1',
       plugins: [
         {
           plugin_id: 'chrome-history',
@@ -192,9 +436,21 @@ describe('PluginMarketplace', () => {
     await user.click(await screen.findByText('settings.marketplace.consent.confirm.install'));
 
     await waitFor(() => {
-      expect(install).toHaveBeenCalledWith('chrome-history', expect.any(Function));
-      expect(install).toHaveBeenCalledWith('safari-history', expect.any(Function));
-      expect(install).not.toHaveBeenCalledWith('brave-history', expect.any(Function));
+      expect(install).toHaveBeenCalledWith(
+        'chrome-history',
+        'fingerprint-1',
+        expect.any(Function),
+      );
+      expect(install).toHaveBeenCalledWith(
+        'safari-history',
+        'fingerprint-1',
+        expect.any(Function),
+      );
+      expect(install).not.toHaveBeenCalledWith(
+        'brave-history',
+        'fingerprint-1',
+        expect.any(Function),
+      );
     });
   });
 
@@ -202,6 +458,7 @@ describe('PluginMarketplace', () => {
     const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       registry_version: '1',
+      install_fingerprint: 'fingerprint-1',
       plugins: [
         {
           plugin_id: 'chrome-history',
@@ -290,9 +547,21 @@ describe('PluginMarketplace', () => {
     await user.click(await screen.findByText('settings.marketplace.consent.confirm.install'));
 
     await waitFor(() => {
-      expect(install).toHaveBeenCalledWith('safari-history', expect.any(Function));
-      expect(install).toHaveBeenCalledWith('firefox-history', expect.any(Function));
-      expect(install).not.toHaveBeenCalledWith('chrome-history', expect.any(Function));
+      expect(install).toHaveBeenCalledWith(
+        'safari-history',
+        'fingerprint-1',
+        expect.any(Function),
+      );
+      expect(install).toHaveBeenCalledWith(
+        'firefox-history',
+        'fingerprint-1',
+        expect.any(Function),
+      );
+      expect(install).not.toHaveBeenCalledWith(
+        'chrome-history',
+        'fingerprint-1',
+        expect.any(Function),
+      );
     });
   });
 
@@ -300,6 +569,7 @@ describe('PluginMarketplace', () => {
     const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       registry_version: '1',
+      install_fingerprint: 'fingerprint-1',
       plugins: [
         {
           plugin_id: 'chrome-history',
@@ -350,7 +620,7 @@ describe('PluginMarketplace', () => {
       ],
     });
     vi.spyOn(pluginsApi, 'installFromRegistryWithProgress').mockImplementation(
-      async (pluginId, onProgress) => {
+      async (pluginId, _expectedFingerprint, onProgress) => {
         onProgress?.({
           job_id: `job-${pluginId}`,
           operation: 'install',
@@ -389,6 +659,7 @@ describe('PluginMarketplace', () => {
     const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       registry_version: '1',
+      install_fingerprint: 'fingerprint-1',
       plugins: [],
     });
     const candidate = {
@@ -443,6 +714,7 @@ describe('PluginMarketplace', () => {
     const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       registry_version: '1',
+      install_fingerprint: 'fingerprint-1',
       plugins: [],
     });
     vi.spyOn(pluginsApi, 'createInstallCandidate').mockResolvedValue({

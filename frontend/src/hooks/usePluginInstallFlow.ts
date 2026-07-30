@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   sensorsApi,
   type MemoryReadinessResponse,
   type SensorSourceStatusItem,
 } from '../api/modules/sensors';
 import {
+  isPluginInstallTimeoutError,
+  isPluginRegistryChangedError,
   pluginsApi,
   type ActivationFlowSpec,
   type PluginInstallJobSnapshot,
@@ -155,8 +158,8 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  *   loading → [awaiting_fields] → running(enable→sync→memory)
  *           → done | unsupported | error
  *
- * Reuses the existing sensors/plugins API surface (the same calls
- * usePluginActivation makes) plus Phase-B's getMemoryReadiness/installProgress.
+ * Reuses the existing sensors/plugins API surface plus Phase-B's
+ * getMemoryReadiness/installProgress.
  *
  * Honest signals:
  *   - ① install: real installFromRegistryWithProgress onProgress (install mode only).
@@ -176,7 +179,10 @@ export function usePluginInstallFlow(
   pluginId: string | null,
   installMode: boolean,
   panelContext: PluginInstallPanelContext = 'default',
+  expectedRegistryFingerprint: string | null = null,
+  onRegistryChanged?: () => void,
 ): UsePluginInstallFlowResult {
+  const { t } = useTranslation('app');
   const [phase, setPhase] = useState<FlowPhase>('loading');
   const [flow, setFlow] = useState<ActivationFlowSpec | null>(null);
   const [sourceName, setSourceName] = useState<string | null>(null);
@@ -194,7 +200,7 @@ export function usePluginInstallFlow(
   const [error, setError] = useState<string | null>(null);
   const [steps, setSteps] = useState<InstallStep[]>([]);
   const flowKey = pluginId
-    ? `${pluginId}:${installMode ? 'install' : 'connect'}:${panelContext}`
+    ? `${pluginId}:${installMode ? 'install' : 'connect'}:${panelContext}:${expectedRegistryFingerprint ?? ''}`
     : null;
   const [stateKey, setStateKey] = useState<string | null>(null);
   const startedRef = useRef(false);
@@ -260,7 +266,7 @@ export function usePluginInstallFlow(
   }, [flowKey, resetTransientState]);
 
   const run = useCallback(async (runToken: number) => {
-    if (!pluginId) return;
+    if (!pluginId || (installMode && !expectedRegistryFingerprint)) return;
     const isActive = () => runTokenRef.current === runToken;
     setError(null);
     setFlow(null);
@@ -288,10 +294,16 @@ export function usePluginInstallFlow(
     try {
       // ① install (registry only)
       if (installMode) {
+        const confirmedFingerprint = expectedRegistryFingerprint;
+        if (!confirmedFingerprint) return;
         setStep('install', 'running');
-        await pluginsApi.installFromRegistryWithProgress(pluginId, (snap) => {
-          if (isActive()) setInstallProgress(snap);
-        });
+        await pluginsApi.installFromRegistryWithProgress(
+          pluginId,
+          confirmedFingerprint,
+          (snap) => {
+            if (isActive()) setInstallProgress(snap);
+          },
+        );
         if (!isActive()) return;
         setStep('install', 'done');
       }
@@ -432,17 +444,50 @@ export function usePluginInstallFlow(
       }
     } catch (e: any) {
       if (!isActive()) return;
-      setError(e?.message || String(e));
+      if (isPluginRegistryChangedError(e)) {
+        resetTransientState();
+        onRegistryChanged?.();
+        return;
+      }
+      setError(
+        isPluginInstallTimeoutError(e)
+          ? t('settings.marketplace.feedback.installTimedOut')
+          : e?.message || String(e),
+      );
       setSteps((prev) => prev.map((s) => (s.status === 'running' ? { ...s, status: 'error' } : s)));
       setPhase('error');
     }
-  }, [pluginId, installMode, panelContext, setStep, findSource, applyMemoryReadiness]);
+  }, [
+    pluginId,
+    installMode,
+    panelContext,
+    expectedRegistryFingerprint,
+    onRegistryChanged,
+    t,
+    resetTransientState,
+    setStep,
+    findSource,
+    applyMemoryReadiness,
+  ]);
 
   useEffect(() => {
-    if (!pluginId || !flowKey || stateKey !== flowKey || startedRef.current) return;
+    if (
+      !pluginId
+      || (installMode && !expectedRegistryFingerprint)
+      || !flowKey
+      || stateKey !== flowKey
+      || startedRef.current
+    ) return;
     startedRef.current = true;
     void run(runTokenRef.current);
-  }, [pluginId, flowKey, stateKey, run]);
+  }, [
+    pluginId,
+    installMode,
+    expectedRegistryFingerprint,
+    flowKey,
+    stateKey,
+    run,
+  ]);
 
   const submitFields = useCallback((values: Record<string, unknown>) => {
     fieldsResolveRef.current?.(values);

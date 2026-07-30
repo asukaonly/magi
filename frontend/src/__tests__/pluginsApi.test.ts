@@ -196,14 +196,85 @@ describe('pluginsApi.getSettingsResource', () => {
       finished_at_ms: 2,
     } as any);
 
-    const result = await pluginsApi.installFromRegistryWithProgress('calendar', (snapshot) => {
-      progressSnapshots.push(snapshot.status);
-    });
+    const result = await pluginsApi.installFromRegistryWithProgress(
+      'calendar',
+      'fingerprint-1',
+      (snapshot) => {
+        progressSnapshots.push(snapshot.status);
+      },
+    );
 
-    expect(api.post).toHaveBeenCalledWith('/plugins/install/registry/jobs', { plugin_id: 'calendar' });
+    expect(api.post).toHaveBeenCalledWith('/plugins/install/registry/jobs', {
+      plugin_id: 'calendar',
+      expected_fingerprint: 'fingerprint-1',
+    });
     expect(api.get).toHaveBeenCalledWith('/plugins/install/jobs/job-1');
     expect(progressSnapshots).toEqual(['running', 'completed']);
     expect(result.manifest.plugin_id).toBe('calendar');
+  });
+
+  it('preserves a registry-change code reported by a failed install job', async () => {
+    vi.mocked(api.post).mockResolvedValue({
+      job_id: 'job-stale',
+      operation: 'install',
+      plugin_id: 'calendar',
+      filename: null,
+      status: 'failed',
+      stage: 'validate',
+      progress_pct: 40,
+      message: 'Registry changed',
+      error: 'Registry changed',
+      error_code: 'PLUGIN_REGISTRY_CHANGED',
+      logs: [],
+      result: null,
+      created_at_ms: 1,
+      updated_at_ms: 2,
+      finished_at_ms: 2,
+    } as any);
+
+    await expect(
+      pluginsApi.installFromRegistryWithProgress(
+        'calendar',
+        'fingerprint-old',
+      ),
+    ).rejects.toMatchObject({
+      code: 'PLUGIN_REGISTRY_CHANGED',
+      message: 'Registry changed',
+    });
+  });
+
+  it('reports the local polling deadline with a stable code', async () => {
+    const now = vi
+      .spyOn(Date, 'now')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(10 * 60 * 1000 + 1);
+    vi.mocked(api.post).mockResolvedValue({
+      job_id: 'job-timeout',
+      operation: 'install',
+      plugin_id: 'calendar',
+      filename: null,
+      status: 'running',
+      stage: 'download',
+      progress_pct: 20,
+      message: 'Downloading plugin source',
+      error: null,
+      logs: [],
+      result: null,
+      created_at_ms: 1,
+      updated_at_ms: 1,
+      finished_at_ms: null,
+    } as any);
+
+    await expect(
+      pluginsApi.installFromRegistryWithProgress(
+        'calendar',
+        'fingerprint-current',
+      ),
+    ).rejects.toMatchObject({
+      code: 'PLUGIN_INSTALL_TIMEOUT',
+    });
+
+    now.mockRestore();
   });
 
   it('uploads once and starts installation with the returned candidate digest', async () => {
@@ -269,6 +340,38 @@ describe('pluginsApi.getSettingsResource', () => {
     await pluginsApi.discardInstallCandidate('candidate-1');
 
     expect(api.delete).toHaveBeenCalledWith('/plugins/install/candidates/candidate-1');
+  });
+
+  it('sends the confirmed registry fingerprint on direct install and update requests', async () => {
+    vi.mocked(api.post).mockResolvedValue({} as any);
+
+    await pluginsApi.installFromRegistry('calendar', 'fingerprint-confirmed');
+    await pluginsApi.updatePlugin('calendar', 'fingerprint-confirmed');
+
+    expect(api.post).toHaveBeenNthCalledWith(
+      1,
+      '/plugins/install/registry',
+      {
+        plugin_id: 'calendar',
+        expected_fingerprint: 'fingerprint-confirmed',
+      },
+    );
+    expect(api.post).toHaveBeenNthCalledWith(
+      2,
+      '/plugins/calendar/update',
+      { expected_fingerprint: 'fingerprint-confirmed' },
+    );
+  });
+
+  it('sends the confirmed registry fingerprint when starting an update job', async () => {
+    vi.mocked(api.post).mockResolvedValue({} as any);
+
+    await pluginsApi.startUpdatePlugin('calendar', 'fingerprint-confirmed');
+
+    expect(api.post).toHaveBeenCalledWith(
+      '/plugins/calendar/update/jobs',
+      { expected_fingerprint: 'fingerprint-confirmed' },
+    );
   });
 
   it('fetches the registry without cache-bypass params by default', async () => {

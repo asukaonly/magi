@@ -15,6 +15,7 @@ interface UseSettingsPluginsTimelineReturn {
   plugins: PluginPackageState[];
   pluginsLoading: boolean;
   pluginRegistryEntries: PluginRegistryEntry[];
+  pluginRegistryFingerprint: string | null;
   pluginRegistryLoading: boolean;
   pluginProcessingIds: Record<string, string>;
   reloadingActionPlugins: Record<string, boolean>;
@@ -42,6 +43,7 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
   const [plugins, setPlugins] = useState<PluginPackageState[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
   const [pluginRegistryEntries, setPluginRegistryEntries] = useState<PluginRegistryEntry[]>([]);
+  const [pluginRegistryFingerprint, setPluginRegistryFingerprint] = useState<string | null>(null);
   const [pluginRegistryLoading, setPluginRegistryLoading] = useState(false);
   const [pluginProcessingIds, setPluginProcessingIds] = useState<Record<string, string>>({});
   const [savedPluginDrafts, setSavedPluginDrafts] = useState<PluginDraftMap>({});
@@ -97,8 +99,10 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     try {
       const response = await pluginsApi.getRegistry({ force });
       setPluginRegistryEntries(response.plugins || []);
+      setPluginRegistryFingerprint(response.install_fingerprint);
     } catch {
       setPluginRegistryEntries([]);
+      setPluginRegistryFingerprint(null);
     } finally {
       if (!silent) {
         setPluginRegistryLoading(false);
@@ -213,6 +217,7 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     plugins,
     pluginsLoading,
     pluginRegistryEntries,
+    pluginRegistryFingerprint,
     pluginRegistryLoading,
     pluginProcessingIds,
     reloadingActionPlugins,

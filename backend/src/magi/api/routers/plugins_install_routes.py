@@ -10,8 +10,14 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, status
 
 from ... import i18n as core_i18n
-from ...config import get_config
-from ...plugins.archive_operations import run_plugin_archive_operation
+from ...plugins.operation_execution import (
+    run_plugin_archive_operation,
+    run_plugin_lifecycle_operation,
+)
+from ...plugins.dependency_installation import (
+    DependencyInstallResourceLimitError,
+    PluginInstallWorkflowTimeoutError,
+)
 from ...plugins.install_candidates import (
     PluginInstallCandidateCapacityError,
     PluginInstallCandidateClaimedError,
@@ -19,16 +25,31 @@ from ...plugins.install_candidates import (
     PluginInstallCandidateNotFoundError,
     get_plugin_install_candidate_store,
 )
-from ...plugins.install_service import DirectLibraryInstallError, PluginRegistryEntryNotFound
+from ...plugins.install_admission import (
+    PluginInstallCapacityError,
+    PluginInstallConflictError,
+)
+from ...plugins.install_service import (
+    DirectLibraryInstallError,
+    PluginDependencyConflictError,
+    PluginPackageConflictError,
+    PluginRegistryEntryNotFound,
+    PluginRegistrySourceConflictError,
+    PluginRegistrySnapshotMismatchError,
+)
 from ...plugins.package_files import InvalidPluginArchiveError
 from .plugins_common import (
     _plugin_install_service,
     _require_plugin_manager,
     _serialize_package,
-    _serialize_package_lightweight,
     _try_plugin_manager,
 )
-from .plugins_install_jobs import plugin_install_jobs, require_plugin_install_job
+from .plugins_install_jobs import (
+    PluginInstallJobCapacityError,
+    PluginInstallJobConflictError,
+    plugin_install_jobs,
+    require_plugin_install_job,
+)
 from .plugins_schemas import (
     PluginInstallCandidateApprovalRequest,
     PluginInstallCandidateResponse,
@@ -143,10 +164,7 @@ async def create_plugin_install_candidate(file: UploadFile):
             raise DirectLibraryInstallError(
                 "Library components cannot be installed directly from an archive"
             )
-        configured = get_config().plugins.packages.get(manifest.plugin_id)
-        if manager.get_package(manifest.plugin_id) is not None or (
-            configured is not None and configured.source == "builtin"
-        ):
+        if manager.get_package(manifest.plugin_id) is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=core_i18n.t(
@@ -191,6 +209,22 @@ async def create_plugin_install_candidate(file: UploadFile):
             detail=core_i18n.t(
                 "plugins.errors.archive_invalid",
                 fallback="The uploaded file is not a valid plugin archive",
+            ),
+        ) from exc
+    except PluginDependencyConflictError as exc:
+        store.discard(candidate_id)
+        logger.warning(
+            "Plugin candidate rejected because package dependencies require registry provenance",
+            extra={"upload_filename": filename, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=core_i18n.t(
+                "plugins.errors.sideload_dependencies_unsupported",
+                fallback=(
+                    "Plugins with shared package dependencies must be installed "
+                    "from the marketplace"
+                ),
             ),
         ) from exc
     except (DirectLibraryInstallError, ValueError) as exc:
@@ -264,10 +298,26 @@ async def start_plugin_candidate_install_job(
     """Start one install job for the exact archive the user inspected."""
 
     try:
-        return plugin_install_jobs.start_candidate_install(
+        return await plugin_install_jobs.start_candidate_install(
             candidate_id,
             expected_sha256=request.expected_sha256,
         )
+    except PluginInstallJobCapacityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=core_i18n.t(
+                "plugins.errors.install_job_capacity",
+                fallback="Too many plugin installations are already active",
+            ),
+        ) from exc
+    except PluginInstallJobConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=core_i18n.t(
+                "plugins.errors.install_job_conflict",
+                fallback="This plugin already has an active installation",
+            ),
+        ) from exc
     except PluginInstallCandidateNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -305,7 +355,10 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
             "Plugin registry install requested",
             extra={"plugin_id": request.plugin_id},
         )
-        install_result = await install_service.install_from_registry(request.plugin_id)
+        install_result = await install_service.install_from_registry(
+            request.plugin_id,
+            expected_fingerprint=request.expected_fingerprint,
+        )
         logger.info(
             "Plugin registry install completed",
             extra={
@@ -313,9 +366,7 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
                 "auto_installed_deps": install_result.extra_installed,
             },
         )
-        if install_result.used_runtime_manager:
-            return _serialize_package(install_result.target_state)
-        return _serialize_package_lightweight(install_result.target_state)
+        return _serialize_package(install_result.target_state)
     except PluginRegistryEntryNotFound as exc:
         logger.warning("Plugin registry entry not found", extra={"plugin_id": request.plugin_id})
         raise HTTPException(
@@ -331,6 +382,71 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
                 "plugins.errors.library_not_directly_installable",
                 fallback=str(exc),
             ),
+        ) from exc
+    except PluginInstallCapacityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=core_i18n.t(
+                "plugins.errors.install_job_capacity",
+                fallback="Too many plugin installations are already active",
+            ),
+        ) from exc
+    except PluginInstallConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=core_i18n.t(
+                "plugins.errors.install_job_conflict",
+                fallback="This plugin already has an active installation",
+            ),
+        ) from exc
+    except PluginRegistrySnapshotMismatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": core_i18n.t(
+                    "plugins.errors.registry_changed",
+                    fallback="Marketplace information changed. Review it again before continuing.",
+                ),
+                "error_code": "PLUGIN_REGISTRY_CHANGED",
+            },
+        ) from exc
+    except PluginDependencyConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=core_i18n.t(
+                "plugins.errors.dependency_conflict",
+                fallback=str(exc),
+            ),
+        ) from exc
+    except (PluginPackageConflictError, PluginRegistrySourceConflictError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=core_i18n.t(
+                "plugins.errors.package_source_conflict",
+                fallback=str(exc),
+            ),
+        ) from exc
+    except PluginInstallWorkflowTimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={
+                "message": core_i18n.t(
+                    "plugins.errors.install_timeout",
+                    fallback="Plugin installation took too long and was stopped",
+                ),
+                "error_code": "PLUGIN_INSTALL_TIMEOUT",
+            },
+        ) from exc
+    except DependencyInstallResourceLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": core_i18n.t(
+                    "plugins.errors.install_resource_limit",
+                    fallback="Plugin installation exceeded the allowed resource limit",
+                ),
+                "error_code": "PLUGIN_INSTALL_RESOURCE_LIMIT",
+            },
         ) from exc
     except ValueError as exc:
         logger.warning(
@@ -359,7 +475,38 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
 @plugins_install_router.post("/install/registry/jobs", response_model=PluginInstallJobSnapshot)
 async def start_plugin_registry_install_job(request: PluginInstallRequest):
     """Start a background plugin install job from the remote registry."""
-    return plugin_install_jobs.start_registry_install(request.plugin_id)
+    try:
+        return await plugin_install_jobs.start_registry_install(
+            request.plugin_id,
+            expected_fingerprint=request.expected_fingerprint,
+        )
+    except PluginInstallJobCapacityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=core_i18n.t(
+                "plugins.errors.install_job_capacity",
+                fallback="Too many plugin installations are already active",
+            ),
+        ) from exc
+    except PluginInstallJobConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=core_i18n.t(
+                "plugins.errors.install_job_conflict",
+                fallback="This plugin already has an active installation",
+            ),
+        ) from exc
+    except PluginRegistrySnapshotMismatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": core_i18n.t(
+                    "plugins.errors.registry_changed",
+                    fallback="Marketplace information changed. Review it again before continuing.",
+                ),
+                "error_code": "PLUGIN_REGISTRY_CHANGED",
+            },
+        ) from exc
 
 
 @plugins_install_router.get("/install/jobs/{job_id}", response_model=PluginInstallJobSnapshot)
@@ -374,7 +521,7 @@ async def uninstall_plugin(plugin_id: str):
     manager = _require_plugin_manager()
     install_service = _plugin_install_service(manager)
     try:
-        install_service.uninstall(plugin_id)
+        await run_plugin_lifecycle_operation(lambda: install_service.uninstall(plugin_id))
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:

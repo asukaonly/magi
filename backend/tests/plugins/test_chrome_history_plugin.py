@@ -6,6 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from magi.config.models import AppConfig, PluginSettings
+from magi.plugins.manager import PluginManager
+from magi.plugins.sensors import SensorRegistry
+from magi.timeline import SensorSyncContext
+from magi.tools.registry import ToolRegistry
+from magi.utils.runtime import RuntimePaths
+
 _CHROME_EPOCH_OFFSET_S = 11644473600
 
 
@@ -16,13 +23,6 @@ def _chrome_us(seconds_ago: float) -> int:
     filters out old visits, so fixtures must seed RECENT timestamps.
     """
     return int((time.time() - seconds_ago + _CHROME_EPOCH_OFFSET_S) * 1_000_000)
-
-from magi.config.models import AppConfig, PluginSettings
-from magi.plugins.manager import PluginManager
-from magi.plugins.sensors import SensorRegistry
-from magi.timeline import SensorSyncContext
-from magi.tools.registry import ToolRegistry
-from magi.utils.runtime import RuntimePaths
 
 
 def _apply_updates(config: AppConfig, updates: dict[str, object]) -> None:
@@ -50,8 +50,7 @@ def _create_history_db(root: Path) -> Path:
     db_path = profile_dir / "History"
     connection = sqlite3.connect(db_path)
     try:
-        connection.executescript(
-            """
+        connection.executescript("""
             CREATE TABLE urls (
                 id INTEGER PRIMARY KEY,
                 url TEXT,
@@ -65,8 +64,7 @@ def _create_history_db(root: Path) -> Path:
                 from_visit INTEGER DEFAULT 0,
                 transition INTEGER DEFAULT 0
             );
-            """
-        )
+            """)
         connection.execute(
             "INSERT INTO urls (id, url, title, visit_count) VALUES (?, ?, ?, ?)",
             (1, "https://github.com/", "GitHub", 1),
@@ -103,8 +101,7 @@ def _create_bursty_history_db(root: Path) -> Path:
     db_path = profile_dir / "History"
     connection = sqlite3.connect(db_path)
     try:
-        connection.executescript(
-            """
+        connection.executescript("""
             CREATE TABLE urls (
                 id INTEGER PRIMARY KEY,
                 url TEXT,
@@ -118,8 +115,7 @@ def _create_bursty_history_db(root: Path) -> Path:
                 from_visit INTEGER DEFAULT 0,
                 transition INTEGER DEFAULT 0
             );
-            """
-        )
+            """)
         rows = [
             (
                 1,
@@ -183,8 +179,7 @@ def _create_search_bursty_history_db(root: Path) -> Path:
     db_path = profile_dir / "History"
     connection = sqlite3.connect(db_path)
     try:
-        connection.executescript(
-            """
+        connection.executescript("""
             CREATE TABLE urls (
                 id INTEGER PRIMARY KEY,
                 url TEXT,
@@ -198,8 +193,7 @@ def _create_search_bursty_history_db(root: Path) -> Path:
                 from_visit INTEGER DEFAULT 0,
                 transition INTEGER DEFAULT 0
             );
-            """
-        )
+            """)
         rows = [
             (
                 1,
@@ -259,7 +253,9 @@ def _plugin_root() -> Path:
     return Path(__file__).resolve().parents[3].parent / "magi-plugins" / "plugins"
 
 
-if not (_plugin_root() / "chrome-history").exists():  # pragma: no cover - plugin repo absent (e.g. CI)
+if not (
+    _plugin_root() / "chrome-history"
+).exists():  # pragma: no cover - plugin repo absent (e.g. CI)
     pytest.skip(
         "chrome-history plugin not available (magi-plugins is a separate repo); "
         "plugin-backed tests run only where the plugin is checked out",
@@ -267,10 +263,24 @@ if not (_plugin_root() / "chrome-history").exists():  # pragma: no cover - plugi
     )
 
 
-def _build_manager(monkeypatch: pytest.MonkeyPatch, config: AppConfig) -> tuple[PluginManager, SensorRegistry]:
+def _build_manager(
+    monkeypatch: pytest.MonkeyPatch, config: AppConfig
+) -> tuple[PluginManager, SensorRegistry]:
     sensor_registry = SensorRegistry()
+    manifest_path = _plugin_root() / "chrome-history" / "plugin.toml"
+    configured = config.plugins.packages.get("chrome-history", PluginSettings())
+    if isinstance(configured, dict):
+        configured = PluginSettings.model_validate(configured)
+    config.plugins.packages["chrome-history"] = configured.model_copy(
+        update={
+            "source": "external",
+            "manifest_path": str(manifest_path),
+        }
+    )
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    monkeypatch.setattr(
+        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    )
     manager = PluginManager(
         tool_registry=ToolRegistry(),
         sensor_registry=sensor_registry,
@@ -280,7 +290,9 @@ def _build_manager(monkeypatch: pytest.MonkeyPatch, config: AppConfig) -> tuple[
     return manager, sensor_registry
 
 
-def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config = AppConfig()
     manager, sensor_registry = _build_manager(monkeypatch, config)
 
@@ -305,9 +317,15 @@ def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_defa
     assert activation_flow["fields"][0]["key"] == "sensors.chrome_history.initial_sync_policy"
     assert all(field.key != "sensors.chrome_history.source_path" for field in spec.fields)
     assert all(field.key != "sensors.chrome_history.edge_whitelist" for field in spec.fields)
-    sync_mode_field = next(field for field in spec.fields if field.key == "sensors.chrome_history.sync_mode")
+    sync_mode_field = next(
+        field for field in spec.fields if field.key == "sensors.chrome_history.sync_mode"
+    )
     assert [option.value for option in sync_mode_field.options] == ["manual", "interval"]
-    sync_interval_field = next(field for field in spec.fields if field.key == "sensors.chrome_history.sync_interval_minutes")
+    sync_interval_field = next(
+        field
+        for field in spec.fields
+        if field.key == "sensors.chrome_history.sync_interval_minutes"
+    )
     assert sync_interval_field.depends_on_key == "sensors.chrome_history.sync_mode"
     assert sync_interval_field.depends_on_values == ["interval"]
 
@@ -414,9 +432,14 @@ async def test_chrome_history_sensor_collects_events_and_relations(
     noise_metadata = await sensor.extract_metadata(result.items[2])
 
     assert root_metadata.relation_candidates == []
-    assert [candidate["predicate"] for candidate in content_metadata.relation_candidates] == ["VIEWED"]
+    assert [candidate["predicate"] for candidate in content_metadata.relation_candidates] == [
+        "VIEWED"
+    ]
     assert noise_metadata.relation_candidates == []
-    assert all(candidate["object_id"] == "site:github.com" for candidate in content_metadata.relation_candidates)
+    assert all(
+        candidate["object_id"] == "site:github.com"
+        for candidate in content_metadata.relation_candidates
+    )
 
 
 @pytest.mark.asyncio
@@ -486,8 +509,13 @@ async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
     assert mermaid_output.provenance["canonical_url"] == "https://mermaid.live/edit"
 
     mermaid_metadata = await sensor.extract_metadata(mermaid_item)
-    assert [candidate["predicate"] for candidate in mermaid_metadata.relation_candidates] == ["VIEWED"]
-    assert all(candidate["object_id"] == "site:mermaid.live" for candidate in mermaid_metadata.relation_candidates)
+    assert [candidate["predicate"] for candidate in mermaid_metadata.relation_candidates] == [
+        "VIEWED"
+    ]
+    assert all(
+        candidate["object_id"] == "site:mermaid.live"
+        for candidate in mermaid_metadata.relation_candidates
+    )
 
     assert lastfm_item["source_item_id"] == "204-205"
     assert lastfm_item["merged_visit_count"] == 2
@@ -615,7 +643,9 @@ def test_chrome_history_plugin_builds_temporal_summary_features(
     manager, _sensor_registry = _build_manager(monkeypatch, config)
     manager.scan(persist_discovery=False)
     manager.activate_enabled_plugins()
-    plugin = next(plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == "chrome-history")
+    plugin = next(
+        plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == "chrome-history"
+    )
 
     features = plugin.build_temporal_summary_features(
         source_type="chrome_history",

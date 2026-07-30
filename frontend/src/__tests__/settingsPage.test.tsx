@@ -81,6 +81,7 @@ const translationMap: Record<string, string> = {
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: translateMock,
+    i18n: { language: 'zh-CN' },
   }),
 }));
 
@@ -2094,6 +2095,7 @@ describe('settings page draft saving', () => {
     } as any);
     vi.mocked(pluginsApi.getRegistry).mockResolvedValue({
       registry_version: '1',
+      install_fingerprint: 'fingerprint-1',
       plugins: [
         browserRegistryEntry('chrome-history', 'Chrome History', 'Chrome', 10, true),
         browserRegistryEntry('safari-history', 'Safari History', 'Safari', 20, false),
@@ -2114,6 +2116,25 @@ describe('settings page draft saving', () => {
     expect(within(browserWorkspace).getByTestId('timeline-marketplace-entry-safari-history')).toHaveTextContent('Safari');
     expect(within(browserWorkspace).getByTestId('timeline-marketplace-entry-firefox-history')).toHaveTextContent('Firefox');
     expect(within(browserWorkspace).queryByTestId('timeline-marketplace-entry-chrome-history')).not.toBeInTheDocument();
+
+    await user.click(
+      within(
+        browserWorkspace,
+      ).getByTestId('timeline-marketplace-entry-safari-history').querySelector('button')!,
+    );
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'settings.marketplace.consent.confirm.install',
+      }),
+    );
+
+    await waitFor(() => {
+      expect(pluginsApi.installFromRegistryWithProgress).toHaveBeenCalledWith(
+        'safari-history',
+        'fingerprint-1',
+        expect.any(Function),
+      );
+    });
   });
 
   it('shows the installed entry option even for single-entry sensor details', async () => {

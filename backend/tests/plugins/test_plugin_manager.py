@@ -17,9 +17,11 @@ from magi.plugins.dependency_installation import (
     _run_dependency_install_with_progress,
 )
 from magi.plugins.installation import _resolve_plugin_destination
+from magi.plugins.discovery import load_plugin_manifest
 from magi.plugins.package_files import replace_plugin_directory
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.projections import PluginProjectionService
+from magi.plugins.registry_provenance import plugin_manifest_fingerprint
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
 from magi_plugin_sdk import (
@@ -61,6 +63,57 @@ def _patch_plugin_config(
     monkeypatch.setattr("magi.plugins.manager.save_config", apply)
     monkeypatch.setattr("magi.plugins.installation.get_config", lambda: config)
     monkeypatch.setattr("magi.plugins.installation.save_config", apply)
+    monkeypatch.setattr(
+        "magi.plugins.installation.delete_plugin_package",
+        lambda plugin_id: config.plugins.packages.pop(plugin_id, None) is not None,
+    )
+
+
+def _configure_registry_update(
+    config: AppConfig,
+    *,
+    installed_manifest: PluginManifest,
+    incoming_dir: Path,
+) -> dict[str, object]:
+    plugin_id = installed_manifest.plugin_id
+    registry_url = "https://example.test/registry.json"
+    repo_url = "https://github.com/example/plugins.git"
+    configured = config.plugins.packages.get(
+        plugin_id,
+        PluginSettings(
+            enabled=True,
+            trusted=True,
+            source="external",
+            manifest_path=installed_manifest.manifest_path,
+        ),
+    )
+    if isinstance(configured, dict):
+        configured = PluginSettings.model_validate(configured)
+    config.plugins.packages[plugin_id] = configured.model_copy(
+        update={
+            "enabled": True,
+            "trusted": True,
+            "source": "external",
+            "manifest_path": installed_manifest.manifest_path,
+            "install_origin": "registry",
+            "registry_source": registry_url,
+            "registry_repo_url": repo_url,
+            "registry_entry_fingerprint": "a" * 64,
+            "registry_manifest_fingerprint": plugin_manifest_fingerprint(installed_manifest),
+        }
+    )
+    incoming_manifest = load_plugin_manifest(
+        incoming_dir / "plugin.toml",
+        source="external",
+    )
+    return {
+        "install_origin": "registry",
+        "registry_source": registry_url,
+        "registry_repo_url": repo_url,
+        "registry_entry_fingerprint": "b" * 64,
+        "registry_manifest_fingerprint": plugin_manifest_fingerprint(incoming_manifest),
+        "expected_registry_update_source": (registry_url, repo_url),
+    }
 
 
 def _write_external_tool_plugin(base: Path) -> None:
@@ -184,6 +237,72 @@ class InstallTestPlugin(Plugin):
     return plugin_dir
 
 
+def _write_install_test_library(
+    base: Path,
+    *,
+    plugin_id: str,
+    version: str,
+    marker: str,
+) -> Path:
+    plugin_dir = base / plugin_id
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    (plugin_dir / "plugin.toml").write_text(
+        f"""
+[plugin]
+id = "{plugin_id}"
+name = "Install Test Library"
+version = "{version}"
+description = "Install dependency race test library"
+author = "Test"
+official = false
+kind = "library"
+contribution_types = []
+""".strip(),
+        encoding="utf-8",
+    )
+    (plugin_dir / "__init__.py").write_text(
+        f'MARKER = "{marker}"\n',
+        encoding="utf-8",
+    )
+    return plugin_dir
+
+
+def _write_install_test_consumer(
+    base: Path,
+    *,
+    plugin_id: str,
+    library_id: str,
+) -> Path:
+    plugin_dir = base / plugin_id
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    (plugin_dir / "plugin.toml").write_text(
+        f"""
+[plugin]
+id = "{plugin_id}"
+name = "Install Test Consumer"
+version = "1.0.0"
+description = "Install dependency race test consumer"
+author = "Test"
+entry_module = "plugin"
+entry_class = "InstallTestConsumer"
+official = false
+contribution_types = []
+depends_on = ["{library_id}"]
+""".strip(),
+        encoding="utf-8",
+    )
+    (plugin_dir / "plugin.py").write_text(
+        """from magi_plugin_sdk import Plugin
+
+
+class InstallTestConsumer(Plugin):
+    pass
+""".strip(),
+        encoding="utf-8",
+    )
+    return plugin_dir
+
+
 @pytest.mark.asyncio
 async def test_plugin_manager_discovers_external_plugins_and_loads_enabled_tools(
     monkeypatch: pytest.MonkeyPatch,
@@ -195,6 +314,7 @@ async def test_plugin_manager_discovers_external_plugins_and_loads_enabled_tools
         enabled=True,
         trusted=True,
         source="external",
+        manifest_path=str(tmp_path / "external-tool" / "plugin.toml"),
         settings={},
     )
     tool_registry = ToolRegistry()
@@ -333,6 +453,7 @@ async def test_unload_plugin_invokes_shutdown_hook(
         enabled=True,
         trusted=True,
         source="external",
+        manifest_path=str(tmp_path / "shutdown-test" / "plugin.toml"),
         settings={},
     )
 
@@ -386,6 +507,7 @@ def test_plugin_manager_reload_clears_cached_plugin_submodules(
         enabled=True,
         trusted=True,
         source="external",
+        manifest_path=str(tmp_path / "reload-test" / "plugin.toml"),
         settings={},
     )
     tool_registry = ToolRegistry()
@@ -450,6 +572,13 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
         search_paths=[user_root],
     )
     manager.scan(persist_discovery=True)
+    existing_state = manager.get_package("swap-test")
+    assert existing_state is not None
+    update_kwargs = _configure_registry_update(
+        config,
+        installed_manifest=existing_state.manifest,
+        incoming_dir=incoming_dir,
+    )
 
     unload_calls: list[str] = []
     original_unload = manager.unload_plugin
@@ -460,7 +589,11 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
 
     monkeypatch.setattr(manager, "unload_plugin", tracking_unload)
 
-    def fail_install_dependencies(dependencies: list[str], plugin_dir: Path) -> None:
+    def fail_install_dependencies(
+        dependencies: list[str],
+        plugin_dir: Path,
+        **_kwargs: object,
+    ) -> None:
         _ = dependencies, plugin_dir
         raise RuntimeError("dependency install failed")
 
@@ -469,7 +602,10 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
     )
 
     with pytest.raises(RuntimeError, match="dependency install failed"):
-        manager.install_plugin_from_directory(incoming_dir)
+        manager.install_plugin_from_directory(
+            incoming_dir,
+            **update_kwargs,
+        )
 
     assert unload_calls == []
     assert existing_dir.exists()
@@ -525,7 +661,7 @@ def test_install_plugin_from_directory_reports_progress(
     assert progress_events[-1][2] == 100.0
 
 
-def test_plugin_lifecycle_serializes_concurrent_installs(
+def test_plugin_lifecycle_prepares_concurrently_but_rejects_stale_commit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -569,7 +705,8 @@ def test_plugin_lifecycle_serializes_concurrent_installs(
 
     first_staged = threading.Event()
     release_first = threading.Event()
-    second_progressed = threading.Event()
+    second_staged = threading.Event()
+    release_second = threading.Event()
     progress_events: list[tuple[str, str]] = []
     progress_lock = threading.Lock()
 
@@ -581,8 +718,10 @@ def test_plugin_lifecycle_serializes_concurrent_installs(
                 first_staged.set()
                 if not release_first.wait(timeout=5):
                     raise TimeoutError("Timed out waiting to release the first install")
-            if label == "second":
-                second_progressed.set()
+            if label == "second" and stage == "stage":
+                second_staged.set()
+                if not release_second.wait(timeout=5):
+                    raise TimeoutError("Timed out waiting to release the second install")
 
         return report
 
@@ -612,39 +751,219 @@ def test_plugin_lifecycle_serializes_concurrent_installs(
     assert first_staged.wait(timeout=5)
     second_thread.start()
 
-    interleaved = second_progressed.wait(timeout=0.5)
+    assert second_staged.wait(timeout=0.5)
     release_first.set()
     first_thread.join(timeout=5)
+    release_second.set()
     second_thread.join(timeout=5)
 
-    assert interleaved is False
     assert first_thread.is_alive() is False
     assert second_thread.is_alive() is False
-    assert errors == []
-    assert [label for label, _stage in progress_events] == [
-        "first",
-        "first",
-        "first",
-        "first",
-        "first",
-        "second",
-        "second",
-        "second",
-        "second",
-        "second",
-    ]
-    assert config_versions == ["1.0.0", "2.0.0"]
+    assert len(errors) == 1
+    assert isinstance(errors[0], ValueError)
+    assert "Cannot replace an installed plugin" in str(errors[0])
+    assert ("first", "stage") in progress_events
+    assert ("second", "stage") in progress_events
+    assert config_versions == ["1.0.0"]
     assert results["first"].manifest.version == "1.0.0"
-    assert results["second"].manifest.version == "2.0.0"
+    assert "second" not in results
     final_state = manager.get_package(plugin_id)
     assert final_state is not None
-    assert final_state.manifest.version == "2.0.0"
+    assert final_state.manifest.version == "1.0.0"
     assert final_state.enabled is True
     assert final_state.trusted is True
-    assert manager.get_loaded_plugin(plugin_id).marker == "second"
-    assert 'version = "2.0.0"' in (user_root / plugin_id / "plugin.toml").read_text(
+    assert manager.get_loaded_plugin(plugin_id).marker == "first"
+    assert 'version = "1.0.0"' in (user_root / plugin_id / "plugin.toml").read_text(
         encoding="utf-8"
     )
+
+
+def test_plugin_install_rejects_state_changed_during_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "user-plugins"
+    plugin_id = "state-generation-install"
+    initial_source = _write_install_test_plugin(
+        tmp_path / "incoming-initial",
+        plugin_id=plugin_id,
+        version="1.0.0",
+        marker="initial",
+    )
+    update_source = _write_install_test_plugin(
+        tmp_path / "incoming-update",
+        plugin_id=plugin_id,
+        version="2.0.0",
+        marker="update",
+    )
+    config = AppConfig()
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.installation.get_config", lambda: config)
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
+
+    def save(updates: dict[str, object]) -> bool:
+        _apply_updates(config, updates)
+        return True
+
+    monkeypatch.setattr("magi.plugins.manager.save_config", save)
+    monkeypatch.setattr("magi.plugins.installation.save_config", save)
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[user_root],
+    )
+    manager.install_plugin_from_directory(initial_source)
+    initial_state = manager.get_package(plugin_id)
+    assert initial_state is not None
+    update_kwargs = _configure_registry_update(
+        config,
+        installed_manifest=initial_state.manifest,
+        incoming_dir=update_source,
+    )
+    preparation_started = threading.Event()
+    release_preparation = threading.Event()
+    errors: list[BaseException] = []
+
+    def reporter(stage: str, _message: str, _progress: float | None) -> None:
+        if stage == "stage":
+            preparation_started.set()
+            if not release_preparation.wait(timeout=5):
+                raise TimeoutError("Timed out waiting to release plugin preparation")
+
+    def install_update() -> None:
+        try:
+            manager.install_plugin_from_directory(
+                update_source,
+                progress_reporter=reporter,
+                **update_kwargs,
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    install_thread = threading.Thread(target=install_update, daemon=True)
+    install_thread.start()
+    assert preparation_started.wait(timeout=5)
+    manager.update_plugin_settings(plugin_id, {"label": "new"})
+    release_preparation.set()
+    install_thread.join(timeout=5)
+
+    assert install_thread.is_alive() is False
+    assert len(errors) == 1
+    assert "target changed" in str(errors[0])
+    state = manager.get_package(plugin_id)
+    assert state is not None
+    assert state.manifest.version == "1.0.0"
+    assert state.current_settings == {"label": "new"}
+    assert 'version = "1.0.0"' in (user_root / plugin_id / "plugin.toml").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_plugin_install_rejects_dependency_replaced_during_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "user-plugins"
+    library_id = "shared-library"
+    consumer_id = "dependency-race-consumer"
+    initial_library = _write_install_test_library(
+        user_root,
+        plugin_id=library_id,
+        version="1.0.0",
+        marker="initial",
+    )
+    replacement_library = _write_install_test_library(
+        tmp_path / "replacement",
+        plugin_id=library_id,
+        version="2.0.0",
+        marker="replacement",
+    )
+    incoming_consumer = _write_install_test_consumer(
+        tmp_path / "incoming",
+        plugin_id=consumer_id,
+        library_id=library_id,
+    )
+    registry_url = "https://example.test/registry.json"
+    repo_url = "https://github.com/example/plugins.git"
+    dependency_fingerprint = "b" * 64
+    config = AppConfig()
+    _patch_plugin_config(monkeypatch, config)
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[user_root],
+    )
+    manager.scan(persist_discovery=True)
+    initial_state = manager.get_package(library_id)
+    assert initial_state is not None
+    config.plugins.packages[library_id] = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="external",
+        manifest_path=str(initial_library / "plugin.toml"),
+        install_origin="registry",
+        registry_source=registry_url,
+        registry_repo_url=repo_url,
+        registry_entry_fingerprint=dependency_fingerprint,
+        registry_manifest_fingerprint=plugin_manifest_fingerprint(initial_state.manifest),
+    )
+    manager.scan(persist_discovery=False)
+
+    preparation_started = threading.Event()
+    release_preparation = threading.Event()
+    errors: list[BaseException] = []
+
+    def reporter(stage: str, _message: str, _progress: float | None) -> None:
+        if stage == "stage":
+            preparation_started.set()
+            if not release_preparation.wait(timeout=5):
+                raise TimeoutError("Timed out waiting to release plugin preparation")
+
+    def install_consumer() -> None:
+        try:
+            manifest = load_plugin_manifest(
+                incoming_consumer / "plugin.toml",
+                source="external",
+            )
+            manager.install_plugin_from_directory(
+                incoming_consumer,
+                progress_reporter=reporter,
+                install_origin="registry",
+                registry_source=registry_url,
+                registry_repo_url=repo_url,
+                registry_entry_fingerprint="a" * 64,
+                registry_manifest_fingerprint=plugin_manifest_fingerprint(manifest),
+                dependency_entry_fingerprints={
+                    library_id: dependency_fingerprint,
+                },
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    install_thread = threading.Thread(target=install_consumer, daemon=True)
+    install_thread.start()
+    assert preparation_started.wait(timeout=5)
+
+    manager.uninstall_plugin(library_id)
+    manager.install_plugin_from_directory(replacement_library)
+    release_preparation.set()
+    install_thread.join(timeout=5)
+
+    assert install_thread.is_alive() is False
+    assert len(errors) == 1
+    assert "approved registry package" in str(errors[0])
+    assert manager.get_package(consumer_id) is None
+    assert consumer_id not in config.plugins.packages
+    assert not (user_root / consumer_id).exists()
+    replacement_state = manager.get_package(library_id)
+    assert replacement_state is not None
+    assert replacement_state.manifest.version == "2.0.0"
+    assert (user_root / library_id / "__init__.py").read_text(
+        encoding="utf-8"
+    ) == 'MARKER = "replacement"\n'
 
 
 def test_sync_unload_does_not_hold_lock_while_async_shutdown_runs(
@@ -686,6 +1005,74 @@ def test_sync_unload_does_not_hold_lock_while_async_shutdown_runs(
     manager.unload_plugin(plugin_id)
 
     assert shutdown_completed.wait(timeout=2)
+
+
+def test_package_read_snapshot_does_not_interleave_lifecycle_write(
+    tmp_path: Path,
+) -> None:
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[tmp_path],
+    )
+    manager._package_states["existing"] = PluginPackageState(
+        manifest=PluginManifest(
+            id="existing",
+            name="Existing",
+            version="1.0.0",
+            source="external",
+        )
+    )
+    reader_holds_lock = threading.Event()
+    release_reader = threading.Event()
+    writer_finished = threading.Event()
+    original_values = manager._package_states.values
+
+    class _BlockingValues:
+        def __iter__(self):
+            reader_holds_lock.set()
+            if not release_reader.wait(timeout=5):
+                raise TimeoutError("Timed out waiting to release package snapshot")
+            return iter(original_values())
+
+    class _BlockingStateDict(dict):
+        def values(self):
+            return _BlockingValues()
+
+    manager._package_states = _BlockingStateDict(manager._package_states)
+
+    read_result: list[list[PluginPackageState]] = []
+    reader = threading.Thread(
+        target=lambda: read_result.append(manager.list_packages()),
+        daemon=True,
+    )
+
+    def write_state() -> None:
+        with manager._lifecycle_write_lock:
+            manager._package_states["new"] = PluginPackageState(
+                manifest=PluginManifest(
+                    id="new",
+                    name="New",
+                    version="1.0.0",
+                    source="external",
+                )
+            )
+        writer_finished.set()
+
+    writer = threading.Thread(target=write_state, daemon=True)
+    reader.start()
+    assert reader_holds_lock.wait(timeout=5)
+    writer.start()
+    assert writer_finished.wait(timeout=0.05) is False
+    release_reader.set()
+    reader.join(timeout=5)
+    writer.join(timeout=5)
+
+    assert reader.is_alive() is False
+    assert writer.is_alive() is False
+    assert writer_finished.is_set()
+    assert [state.manifest.plugin_id for state in read_result[0]] == ["existing"]
 
 
 def test_new_plugin_load_failure_leaves_no_installed_state(
@@ -749,6 +1136,15 @@ def test_plugin_update_load_failure_restores_previous_install(
         official=False,
         settings={"preserved": "value"},
     )
+    existing_manifest = load_plugin_manifest(
+        existing_dir / "plugin.toml",
+        source="external",
+    )
+    update_kwargs = _configure_registry_update(
+        config,
+        installed_manifest=existing_manifest,
+        incoming_dir=incoming_dir,
+    )
     original_config = config.plugins.packages["update-rollback-test"].model_dump(mode="json")
     _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
@@ -764,7 +1160,10 @@ def test_plugin_update_load_failure_restores_previous_install(
     assert manager.get_loaded_plugin("update-rollback-test").marker == "old-version"
 
     with pytest.raises(RuntimeError, match="new plugin failed to load"):
-        manager.install_plugin_from_directory(incoming_dir)
+        manager.install_plugin_from_directory(
+            incoming_dir,
+            **update_kwargs,
+        )
 
     assert "old-version" in (existing_dir / "plugin.py").read_text(encoding="utf-8")
     assert "broken-version" not in (existing_dir / "plugin.py").read_text(encoding="utf-8")
@@ -833,6 +1232,305 @@ def test_install_plugin_from_directory_still_rejects_builtin_overwrite(
         manager.install_plugin_from_directory(incoming_dir)
 
     assert not (user_root / "core-tools").exists()
+
+
+def test_local_directory_install_does_not_replace_an_existing_package_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "user-plugins"
+    plugin_id = "local-update-test"
+    existing_dir = _write_install_test_plugin(
+        user_root,
+        plugin_id=plugin_id,
+        version="1.0.0",
+        marker="existing",
+    )
+    incoming_dir = _write_install_test_plugin(
+        tmp_path / "incoming",
+        plugin_id=plugin_id,
+        version="2.0.0",
+        marker="replacement",
+    )
+    config = AppConfig()
+    config.plugins.packages[plugin_id] = PluginSettings(
+        source="external",
+        manifest_path=str(existing_dir / "plugin.toml"),
+    )
+    _patch_plugin_config(monkeypatch, config)
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[user_root],
+    )
+    manager.scan(persist_discovery=False)
+
+    with pytest.raises(ValueError, match="Cannot replace an installed plugin"):
+        manager.install_plugin_from_directory(incoming_dir)
+
+    assert 'version = "1.0.0"' in (existing_dir / "plugin.toml").read_text(encoding="utf-8")
+    assert 'marker = "existing"' in (existing_dir / "plugin.py").read_text(encoding="utf-8")
+
+
+def test_uninstall_refuses_a_package_from_a_custom_scan_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    managed_root = tmp_path / "managed"
+    custom_root = tmp_path / "custom"
+    plugin_id = "custom-source"
+    plugin_dir = _write_install_test_plugin(
+        custom_root,
+        plugin_id=plugin_id,
+        version="1.0.0",
+        marker="keep",
+    )
+    config = AppConfig()
+    config.plugins.packages[plugin_id] = PluginSettings(
+        source="external",
+        manifest_path=str(plugin_dir / "plugin.toml"),
+    )
+    _patch_plugin_config(monkeypatch, config)
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: managed_root)
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[custom_root],
+    )
+    manager.scan(persist_discovery=False)
+
+    with pytest.raises(ValueError, match="managed plugin directory"):
+        manager.uninstall_plugin(plugin_id)
+
+    assert plugin_dir.exists()
+    assert manager.get_package(plugin_id) is not None
+    assert plugin_id in config.plugins.packages
+
+
+def test_uninstall_refuses_a_manifest_at_the_managed_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    managed_root = tmp_path / "managed"
+    managed_root.mkdir()
+    manifest_path = managed_root / "plugin.toml"
+    manifest_path.write_text(
+        '[plugin]\nid = "root-owned"\nname = "Root Owned"\nversion = "1.0.0"\n',
+        encoding="utf-8",
+    )
+    sentinel = managed_root / "keep.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    config = AppConfig()
+    config.plugins.packages["root-owned"] = PluginSettings(
+        source="external",
+        manifest_path=str(manifest_path),
+    )
+    _patch_plugin_config(monkeypatch, config)
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: managed_root)
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[managed_root],
+    )
+    manager._package_states["root-owned"] = PluginPackageState(
+        manifest=load_plugin_manifest(manifest_path, source="external")
+    )
+
+    with pytest.raises(ValueError, match="managed plugin directory"):
+        manager.uninstall_plugin("root-owned")
+
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+    assert manifest_path.exists()
+
+
+def test_uninstall_refuses_a_symlinked_managed_package(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    managed_root = tmp_path / "managed"
+    external_root = tmp_path / "external"
+    plugin_id = "linked-package"
+    real_dir = _write_install_test_plugin(
+        external_root,
+        plugin_id=plugin_id,
+        version="1.0.0",
+        marker="keep",
+    )
+    managed_root.mkdir()
+    linked_dir = managed_root / plugin_id
+    linked_dir.symlink_to(real_dir, target_is_directory=True)
+    config = AppConfig()
+    config.plugins.packages[plugin_id] = PluginSettings(
+        source="external",
+        manifest_path=str(linked_dir / "plugin.toml"),
+    )
+    _patch_plugin_config(monkeypatch, config)
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: managed_root)
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[managed_root],
+    )
+    manifest = load_plugin_manifest(linked_dir / "plugin.toml", source="external")
+    manager._package_states[plugin_id] = PluginPackageState(manifest=manifest)
+
+    with pytest.raises(ValueError, match="managed plugin directory"):
+        manager.uninstall_plugin(plugin_id)
+
+    assert linked_dir.is_symlink()
+    assert real_dir.exists()
+
+
+def test_uninstall_removes_an_exact_managed_package(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    managed_root = tmp_path / "managed"
+    plugin_id = "managed-package"
+    plugin_dir = _write_install_test_plugin(
+        managed_root,
+        plugin_id=plugin_id,
+        version="1.0.0",
+        marker="remove",
+    )
+    config = AppConfig()
+    config.plugins.packages[plugin_id] = PluginSettings(
+        source="external",
+        manifest_path=str(plugin_dir / "plugin.toml"),
+    )
+    _patch_plugin_config(monkeypatch, config)
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: managed_root)
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[managed_root],
+    )
+    manager.scan(persist_discovery=False)
+
+    manager.uninstall_plugin(plugin_id)
+
+    assert not plugin_dir.exists()
+    assert manager.get_package(plugin_id) is None
+    assert plugin_id not in config.plugins.packages
+
+
+def test_enable_rejects_a_package_that_does_not_match_persisted_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    managed_root = tmp_path / "managed"
+    custom_root = tmp_path / "custom"
+    plugin_id = "identity-mismatch"
+    plugin_dir = _write_install_test_plugin(
+        custom_root,
+        plugin_id=plugin_id,
+        version="1.0.0",
+        marker="external",
+    )
+    config = AppConfig()
+    config.plugins.packages[plugin_id] = PluginSettings(
+        enabled=False,
+        trusted=False,
+        source="builtin",
+        settings={"secret": "preserve-but-never-expose"},
+        official=True,
+        install_origin="registry",
+        registry_source="https://example.test/registry.json",
+        registry_repo_url="https://github.com/example/plugins.git",
+        registry_entry_fingerprint="a" * 64,
+        registry_manifest_fingerprint="b" * 64,
+    )
+    _patch_plugin_config(monkeypatch, config)
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: managed_root)
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[custom_root],
+    )
+    manager.scan(persist_discovery=False)
+
+    with pytest.raises(ValueError, match="source does not match"):
+        manager.enable_plugin(plugin_id)
+
+    configured = config.plugins.packages[plugin_id]
+    assert configured.source == "builtin"
+    assert configured.manifest_path is None
+    assert configured.settings == {"secret": "preserve-but-never-expose"}
+    assert manager.get_loaded_plugin(plugin_id) is None
+    assert plugin_dir.exists()
+
+
+def test_enable_does_not_load_when_persistence_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plugin_id = "enable-persistence-failure"
+    plugin_dir = _write_install_test_plugin(
+        tmp_path,
+        plugin_id=plugin_id,
+        version="1.0.0",
+        marker="must-not-load",
+    )
+    config = AppConfig()
+    config.plugins.packages[plugin_id] = PluginSettings(
+        enabled=False,
+        trusted=False,
+        source="external",
+        manifest_path=str(plugin_dir / "plugin.toml"),
+    )
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.manager.save_config", lambda _updates: False)
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[tmp_path],
+    )
+    manager.scan(persist_discovery=False)
+
+    with pytest.raises(RuntimeError, match="Failed to persist plugin enable state"):
+        manager.enable_plugin(plugin_id)
+
+    state = manager.get_package(plugin_id)
+    assert state is not None
+    assert state.enabled is False
+    assert state.trusted is False
+    assert manager.get_loaded_plugin(plugin_id) is None
+
+
+def test_local_install_rejects_unbound_package_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "user-plugins"
+    incoming = _write_install_test_consumer(
+        tmp_path / "incoming",
+        plugin_id="local-dependent-plugin",
+        library_id="shared-library",
+    )
+    config = AppConfig()
+    _patch_plugin_config(monkeypatch, config)
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[user_root],
+    )
+
+    with pytest.raises(ValueError, match="installed from the marketplace"):
+        manager.install_plugin_from_directory(incoming)
+
+    assert manager.get_package("local-dependent-plugin") is None
+    assert "local-dependent-plugin" not in config.plugins.packages
+    assert not (user_root / "local-dependent-plugin").exists()
 
 
 def test_dependency_install_runner_reports_subprocess_output() -> None:
@@ -929,6 +1627,72 @@ def test_replace_plugin_directory_rolls_back_when_promotion_fails(
     assert len(replace_calls) >= 2
 
 
+def test_replace_plugin_directory_keeps_original_when_before_swap_fails(
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "marker.txt").write_text("new", encoding="utf-8")
+    dest_dir = tmp_path / "installed"
+    dest_dir.mkdir()
+    (dest_dir / "marker.txt").write_text("old", encoding="utf-8")
+    rollback_called = False
+
+    def fail_before_swap() -> None:
+        raise RuntimeError("unload failed")
+
+    def record_rollback() -> None:
+        nonlocal rollback_called
+        rollback_called = True
+
+    with pytest.raises(RuntimeError, match="unload failed"):
+        replace_plugin_directory(
+            source_dir,
+            dest_dir,
+            before_swap=fail_before_swap,
+            after_rollback=record_rollback,
+        )
+
+    assert rollback_called is True
+    assert (dest_dir / "marker.txt").read_text(encoding="utf-8") == "old"
+
+
+def test_replace_plugin_directory_keeps_original_when_backup_rename_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "marker.txt").write_text("new", encoding="utf-8")
+    dest_dir = tmp_path / "installed"
+    dest_dir.mkdir()
+    (dest_dir / "marker.txt").write_text("old", encoding="utf-8")
+    original_replace = Path.replace
+    rollback_called = False
+
+    def fail_backup_rename(self: Path, target: Path) -> Path:
+        if self == dest_dir and "-backup-" in target.name:
+            raise OSError("backup rename failed")
+        return original_replace(self, target)
+
+    def record_rollback() -> None:
+        nonlocal rollback_called
+        rollback_called = True
+
+    monkeypatch.setattr(Path, "replace", fail_backup_rename)
+
+    with pytest.raises(OSError, match="backup rename failed"):
+        replace_plugin_directory(
+            source_dir,
+            dest_dir,
+            before_swap=lambda: None,
+            after_rollback=record_rollback,
+        )
+
+    assert rollback_called is True
+    assert (dest_dir / "marker.txt").read_text(encoding="utf-8") == "old"
+
+
 def test_filter_installable_dependencies_respects_environment_markers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -958,6 +1722,7 @@ def test_build_plugin_runtime_threads_injected_tool_registry(
         enabled=True,
         trusted=True,
         source="external",
+        manifest_path=str(tmp_path / "external-tool" / "plugin.toml"),
         settings={},
     )
 

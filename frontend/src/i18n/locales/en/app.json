@@ -2558,6 +2558,8 @@
       "feedback": {
         "installSuccess": "Plugin installed successfully",
         "installFailed": "Failed to install plugin: {{message}}",
+        "installTimedOut": "Plugin installation took too long and was stopped",
+        "registryChanged": "The marketplace information changed. Review the latest details and confirm again.",
         "uninstallSuccess": "Plugin uninstalled",
         "uninstallFailed": "Failed to uninstall plugin: {{message}}",
         "updateSuccess": "Plugin updated successfully",

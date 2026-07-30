@@ -16,6 +16,7 @@ Magi backend is installed):
 
 Both resolve to the same classes at runtime.
 """
+
 from .base import Plugin
 from .control import ControlRequest
 from .delivery import DeliveryContent, DeliveryReceipt
@@ -45,6 +46,7 @@ from .contracts import (
     ExtensionFieldSpec,
     PluginContribution,
     PluginDisplayGroupSpec,
+    PluginIdentifier,
     PluginManifest,
     PluginPackageState,
     PluginRegistryEntry,
@@ -167,6 +169,7 @@ __all__ = [
     "PluginContribution",
     "PluginDisplayGroupSpec",
     "PluginManifest",
+    "PluginIdentifier",
     "PluginPackageState",
     "PluginRegistryEntry",
     "PluginRegistryIndex",

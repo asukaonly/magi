@@ -283,6 +283,7 @@ export interface PluginInstallJobSnapshot {
   progress_pct: number;
   message: string;
   error?: string | null;
+  error_code?: string | null;
   logs: PluginInstallLogEntry[];
   result?: PluginPackageState | null;
   created_at_ms: number;
@@ -313,6 +314,7 @@ const unwrapPayload = <T>(payload: T | ApiResponse<T>): T => {
 
 const INSTALL_JOB_POLL_MS = 1000;
 const INSTALL_JOB_TIMEOUT_MS = 10 * 60 * 1000;
+export const PLUGIN_INSTALL_TIMEOUT_ERROR_CODE = 'PLUGIN_INSTALL_TIMEOUT';
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -326,7 +328,11 @@ const waitForInstallJob = async (
 
   while (snapshot.status === 'queued' || snapshot.status === 'running') {
     if (Date.now() - startedAt > INSTALL_JOB_TIMEOUT_MS) {
-      throw new Error('Plugin installation timed out');
+      const error = new Error(PLUGIN_INSTALL_TIMEOUT_ERROR_CODE) as Error & {
+        code?: string;
+      };
+      error.code = PLUGIN_INSTALL_TIMEOUT_ERROR_CODE;
+      throw error;
     }
     await wait(INSTALL_JOB_POLL_MS);
     snapshot = await pluginsApi.getInstallJob(snapshot.job_id);
@@ -337,7 +343,13 @@ const waitForInstallJob = async (
     return snapshot.result;
   }
 
-  throw new Error(snapshot.error || snapshot.message || 'Plugin installation failed');
+  const error = new Error(
+    snapshot.error || snapshot.message || 'Plugin installation failed',
+  ) as Error & { code?: string };
+  if (snapshot.error_code) {
+    error.code = snapshot.error_code;
+  }
+  throw error;
 };
 
 export const getNestedPluginSetting = (
@@ -392,7 +404,26 @@ export interface PluginRegistryEntry {
 export interface PluginRegistryResponse {
   plugins: PluginRegistryEntry[];
   registry_version: string;
+  install_fingerprint: string;
 }
+
+export const PLUGIN_REGISTRY_CHANGED_ERROR_CODE = 'PLUGIN_REGISTRY_CHANGED';
+
+export const isPluginRegistryChangedError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as { code?: unknown };
+  return candidate.code === PLUGIN_REGISTRY_CHANGED_ERROR_CODE;
+};
+
+export const isPluginInstallTimeoutError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as { code?: unknown };
+  return candidate.code === PLUGIN_INSTALL_TIMEOUT_ERROR_CODE;
+};
 
 export interface PluginUpdateCheck {
   plugin_id: string;
@@ -501,16 +532,24 @@ export const pluginsApi = {
   // Installation
   // -----------------------------------------------------------------------
 
-  installFromRegistry: async (pluginId: string): Promise<PluginPackageState> => {
+  installFromRegistry: async (
+    pluginId: string,
+    expectedFingerprint: string,
+  ): Promise<PluginPackageState> => {
     const response = await api.post<PluginPackageState>('/plugins/install/registry', {
       plugin_id: pluginId,
+      expected_fingerprint: expectedFingerprint,
     });
     return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
   },
 
-  startInstallFromRegistry: async (pluginId: string): Promise<PluginInstallJobSnapshot> => {
+  startInstallFromRegistry: async (
+    pluginId: string,
+    expectedFingerprint: string,
+  ): Promise<PluginInstallJobSnapshot> => {
     const response = await api.post<PluginInstallJobSnapshot>('/plugins/install/registry/jobs', {
       plugin_id: pluginId,
+      expected_fingerprint: expectedFingerprint,
     });
     return unwrapPayload(response as PluginInstallJobSnapshot | ApiResponse<PluginInstallJobSnapshot>);
   },
@@ -522,9 +561,10 @@ export const pluginsApi = {
 
   installFromRegistryWithProgress: async (
     pluginId: string,
+    expectedFingerprint: string,
     onProgress?: (snapshot: PluginInstallJobSnapshot) => void,
   ): Promise<PluginPackageState> => {
-    const snapshot = await pluginsApi.startInstallFromRegistry(pluginId);
+    const snapshot = await pluginsApi.startInstallFromRegistry(pluginId, expectedFingerprint);
     return waitForInstallJob(snapshot, onProgress);
   },
 
@@ -589,21 +629,32 @@ export const pluginsApi = {
     return unwrapPayload(response as PluginUpdateCheck[] | ApiResponse<PluginUpdateCheck[]>);
   },
 
-  updatePlugin: async (pluginId: string): Promise<PluginPackageState> => {
-    const response = await api.post<PluginPackageState>(`/plugins/${pluginId}/update`, {});
+  updatePlugin: async (
+    pluginId: string,
+    expectedFingerprint: string,
+  ): Promise<PluginPackageState> => {
+    const response = await api.post<PluginPackageState>(`/plugins/${pluginId}/update`, {
+      expected_fingerprint: expectedFingerprint,
+    });
     return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
   },
 
-  startUpdatePlugin: async (pluginId: string): Promise<PluginInstallJobSnapshot> => {
-    const response = await api.post<PluginInstallJobSnapshot>(`/plugins/${pluginId}/update/jobs`, {});
+  startUpdatePlugin: async (
+    pluginId: string,
+    expectedFingerprint: string,
+  ): Promise<PluginInstallJobSnapshot> => {
+    const response = await api.post<PluginInstallJobSnapshot>(`/plugins/${pluginId}/update/jobs`, {
+      expected_fingerprint: expectedFingerprint,
+    });
     return unwrapPayload(response as PluginInstallJobSnapshot | ApiResponse<PluginInstallJobSnapshot>);
   },
 
   updatePluginWithProgress: async (
     pluginId: string,
+    expectedFingerprint: string,
     onProgress?: (snapshot: PluginInstallJobSnapshot) => void,
   ): Promise<PluginPackageState> => {
-    const snapshot = await pluginsApi.startUpdatePlugin(pluginId);
+    const snapshot = await pluginsApi.startUpdatePlugin(pluginId, expectedFingerprint);
     return waitForInstallJob(snapshot, onProgress);
   },
 };

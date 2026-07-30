@@ -186,6 +186,14 @@ For local development, external plugins usually belong under:
 
 - `~/.magi/plugins/<your-plugin>/`
 
+The managed user root has a strict layout: one direct child directory named
+exactly after the plugin id, containing `plugin.toml` directly. Root-level
+manifests, extra nesting, mismatched directory names, and symlinked package
+directories are not treated as managed installs. Additional development scan
+roots may be configured, but packages found there are source packages rather
+than host-owned installs: Magi may load or disable them, but uninstall will not
+delete their files. Remove the scan path or delete those files yourself.
+
 ## 4. Rescan and enable it
 
 Use the plugin management API:
@@ -244,6 +252,21 @@ inherits settings from an older package record. File installation also refuses
 to replace an installed or host-reserved package with the same id; updates must
 use the managed update flow.
 
+The same no-overwrite rule applies to local-directory installation.
+Marketplace updates are source-bound: the current registry URL and repository
+must exactly match the source that originally installed the package. To move a
+plugin between registries, uninstall it first and then perform a fresh install.
+An external package with the same id cannot inherit settings, access consent,
+trust, or official status from another source.
+
+`depends_on` is available only to marketplace-managed package graphs. Uploaded
+archives and local-directory installs must keep it empty because those flows do
+not provide one reviewed registry snapshot for every referenced package.
+Sideloaded plugins must therefore be self-contained at the Magi package layer.
+Use `dependencies` plus the generated `requirements.lock` for ordinary Python
+libraries. A future multi-package sideload format would need to review and
+install the complete graph atomically rather than weakening this rule.
+
 ## Declaring Access And Safe Dependencies
 
 Every plugin should disclose the system and data access it needs. Declare one
@@ -281,7 +304,23 @@ unknown capability names.
 
 Official status is maintainer-owned. Setting `official = true` in an external
 plugin manifest does not grant an official badge; the companion registry derives
-that value from its reviewed `official-plugins.json` allowlist.
+that value from its reviewed `official-plugins.json` allowlist. The desktop
+honors that unsigned result only for the canonical Magi registry URL and
+canonical repository URL. Custom registries and mirrors are always
+non-official.
+
+For Magi package sharing, declare reusable code as a registry entry with
+`kind = "library"` and reference its `plugin_id` through `depends_on`. A
+user-selected entry must remain `kind = "plugin"`; every transitive dependency
+must be a library, and libraries may depend only on other libraries. Cycles are
+rejected. Keep each `depends_on` list at or below 8 entries and the complete
+target closure at or below 16 packages.
+
+The host binds every library to the approved registry snapshot and extracted
+manifest. Do not assume an unrelated package already present under the same id
+will be reused: its registry source, repository, entry, manifest, and nested
+dependency identities must all match. Shared libraries are removed
+automatically only after their final installed consumer is removed.
 
 When `dependencies` is non-empty, the distributed plugin must include a
 generated `requirements.lock` with exact versions and hashes. In the companion
@@ -303,7 +342,9 @@ and the generated lockfile at or below 1 MiB and 1,024 entries. Installation
 also enforces a combined 256 MiB and 50,000-entry limit across its temporary
 workspace and the plugin-local dependency directory. Installer output is
 truncated to a bounded diagnostic tail, so lock generation and validation
-must not depend on parsing unbounded install logs.
+must not depend on parsing unbounded install logs. A marketplace install also
+shares a 512 MiB and 100,000-entry budget across every extracted package source
+and dependency-install output in the complete package closure.
 
 ## Tool Plugins
 

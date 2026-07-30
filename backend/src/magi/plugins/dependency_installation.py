@@ -33,6 +33,9 @@ MAX_PLUGIN_DEPENDENCY_LOCK_BYTES = 1024 * 1024
 MAX_PLUGIN_DEPENDENCY_LOCK_ENTRIES = 1024
 MAX_PLUGIN_DEPENDENCY_INSTALL_BYTES = 256 * 1024 * 1024
 MAX_PLUGIN_DEPENDENCY_INSTALL_ENTRIES = 50_000
+MAX_PLUGIN_DEPENDENCY_WORKFLOW_BYTES = 512 * 1024 * 1024
+MAX_PLUGIN_DEPENDENCY_WORKFLOW_ENTRIES = 100_000
+MAX_PLUGIN_DEPENDENCY_WORKFLOW_SECONDS = 600
 MAX_PLUGIN_DEPENDENCY_OUTPUT_BYTES = 64 * 1024
 MAX_PLUGIN_DEPENDENCY_OUTPUT_LINE_CHARS = 2048
 DEPENDENCY_RESOURCE_CHECK_INTERVAL_SECONDS = 0.1
@@ -50,6 +53,56 @@ class UnsafeDependencyLockError(RuntimeError):
 
 class DependencyInstallResourceLimitError(RuntimeError):
     """Raised when dependency installation exceeds its local resource budget."""
+
+
+class PluginInstallWorkflowTimeoutError(RuntimeError):
+    """Raised when a plugin install exceeds its end-to-end deadline."""
+
+
+class PluginDependencyWorkflowBudget:
+    """Share one temporary-resource and time budget across a registry install."""
+
+    def __init__(
+        self,
+        *,
+        deadline_monotonic: float | None = None,
+    ) -> None:
+        self.deadline_monotonic = (
+            deadline_monotonic
+            if deadline_monotonic is not None
+            else time.monotonic() + MAX_PLUGIN_DEPENDENCY_WORKFLOW_SECONDS
+        )
+        self._bytes_used = 0
+        self._entries_used = 0
+        self._lock = threading.Lock()
+
+    def ensure_time_remaining(self) -> None:
+        if time.monotonic() >= self.deadline_monotonic:
+            raise PluginInstallWorkflowTimeoutError(
+                "Plugin installation exceeded the workflow time limit"
+            )
+
+    def remaining_seconds(self) -> float:
+        """Return positive workflow time remaining or raise at the deadline."""
+
+        self.ensure_time_remaining()
+        return self.deadline_monotonic - time.monotonic()
+
+    def consume(self, roots: tuple[Path, ...]) -> None:
+        usage = _measure_dependency_resource_usage(roots)
+        with self._lock:
+            next_bytes = self._bytes_used + usage.bytes_used
+            next_entries = self._entries_used + usage.entries
+            if next_bytes > MAX_PLUGIN_DEPENDENCY_WORKFLOW_BYTES:
+                raise DependencyInstallResourceLimitError(
+                    "Plugin install workflow exceeded the cumulative byte limit"
+                )
+            if next_entries > MAX_PLUGIN_DEPENDENCY_WORKFLOW_ENTRIES:
+                raise DependencyInstallResourceLimitError(
+                    "Plugin install workflow exceeded the cumulative entry limit"
+                )
+            self._bytes_used = next_bytes
+            self._entries_used = next_entries
 
 
 @dataclass(slots=True)
@@ -75,10 +128,7 @@ class _BoundedOutputTail:
 
     def append(self, line: str) -> None:
         encoded_size = len(line.encode("utf-8")) + 1
-        while (
-            self._lines
-            and self._bytes_used + encoded_size > MAX_PLUGIN_DEPENDENCY_OUTPUT_BYTES
-        ):
+        while self._lines and self._bytes_used + encoded_size > MAX_PLUGIN_DEPENDENCY_OUTPUT_BYTES:
             removed = self._lines.popleft()
             self._bytes_used -= len(removed.encode("utf-8")) + 1
 
@@ -130,8 +180,7 @@ class _BoundedLineParser:
         if self._truncated:
             remaining = max(
                 0,
-                MAX_PLUGIN_DEPENDENCY_OUTPUT_LINE_CHARS
-                - len(_OUTPUT_TRUNCATION_PREFIX),
+                MAX_PLUGIN_DEPENDENCY_OUTPUT_LINE_CHARS - len(_OUTPUT_TRUNCATION_PREFIX),
             )
             tail = line[-remaining:] if remaining else ""
             line = f"{_OUTPUT_TRUNCATION_PREFIX}{tail}"
@@ -173,9 +222,7 @@ def _filter_installable_dependencies(
             installable.append(dependency)
             continue
 
-        if requirement.marker is not None and not requirement.marker.evaluate(
-            environment
-        ):
+        if requirement.marker is not None and not requirement.marker.evaluate(environment):
             skipped.append(dependency)
             continue
 
@@ -270,9 +317,7 @@ def _resolve_dependency_python_executable() -> str:
         rejected.append(f"{candidate}: {reason}")
 
     expected_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-    details = (
-        "; ".join(rejected) if rejected else "no candidate Python executable found"
-    )
+    details = "; ".join(rejected) if rejected else "no candidate Python executable found"
     raise RuntimeError(
         "Cannot install plugin dependencies because no Python interpreter with pip is available. "
         f"Set {PLUGIN_DEPENDENCY_PYTHON_ENV} to a Python {expected_version} executable with pip. "
@@ -318,9 +363,7 @@ def _validate_dependency_lock(lock_path: Path) -> set[str]:
     try:
         size = lock_path.stat().st_size
     except OSError as exc:
-        raise UnsafeDependencyLockError(
-            f"Cannot read plugin dependency lock: {lock_path}"
-        ) from exc
+        raise UnsafeDependencyLockError(f"Cannot read plugin dependency lock: {lock_path}") from exc
     if size <= 0 or size > MAX_PLUGIN_DEPENDENCY_LOCK_BYTES:
         raise UnsafeDependencyLockError(
             f"Plugin dependency lock must be between 1 and "
@@ -336,9 +379,7 @@ def _validate_dependency_lock(lock_path: Path) -> set[str]:
 
     statements = _dependency_lock_statements(text)
     if not statements:
-        raise UnsafeDependencyLockError(
-            "Plugin dependency lock contains no requirements"
-        )
+        raise UnsafeDependencyLockError("Plugin dependency lock contains no requirements")
     if len(statements) > MAX_PLUGIN_DEPENDENCY_LOCK_ENTRIES:
         raise UnsafeDependencyLockError(
             "Plugin dependency lock contains too many requirements "
@@ -370,11 +411,7 @@ def _validate_dependency_lock(lock_path: Path) -> set[str]:
                 "Plugin dependency locks cannot use direct URLs or local paths"
             )
         specifiers = list(requirement.specifier)
-        if (
-            len(specifiers) != 1
-            or specifiers[0].operator != "=="
-            or "*" in specifiers[0].version
-        ):
+        if len(specifiers) != 1 or specifiers[0].operator != "==" or "*" in specifiers[0].version:
             raise UnsafeDependencyLockError(
                 f"Plugin dependency must pin one exact version: {requirement.name}"
             )
@@ -399,8 +436,7 @@ def _validate_dependency_lock_coverage(
     missing = sorted(declared_names - locked_names)
     if missing:
         raise UnsafeDependencyLockError(
-            "Plugin dependency lock does not cover declared dependencies: "
-            f"{', '.join(missing)}"
+            "Plugin dependency lock does not cover declared dependencies: " f"{', '.join(missing)}"
         )
 
 
@@ -418,9 +454,7 @@ def _dependency_lock_statements(text: str) -> list[str]:
             statements.append(pending)
             pending = ""
     if pending:
-        raise UnsafeDependencyLockError(
-            "Plugin dependency lock has an unfinished continuation"
-        )
+        raise UnsafeDependencyLockError("Plugin dependency lock has an unfinished continuation")
     return statements
 
 
@@ -475,12 +509,11 @@ def install_plugin_dependencies(
     plugin_dir: Path,
     *,
     progress_reporter: InstallProgressReporter | None = None,
+    workflow_budget: PluginDependencyWorkflowBudget | None = None,
 ) -> None:
     """Install plugin dependencies into a local .deps/ directory."""
     allow_unlocked = _developer_mode_allows_unlocked()
-    resolved = _resolve_lock_or_policy(
-        dependencies, plugin_dir, allow_unlocked=allow_unlocked
-    )
+    resolved = _resolve_lock_or_policy(dependencies, plugin_dir, allow_unlocked=allow_unlocked)
     if resolved is None:
         _report_no_plugin_dependencies(plugin_dir, progress_reporter)
         return
@@ -497,7 +530,11 @@ def install_plugin_dependencies(
     if plan is None:
         return
 
-    _run_dependency_install_plan(plan, progress_reporter)
+    _run_dependency_install_plan(
+        plan,
+        progress_reporter,
+        workflow_budget=workflow_budget,
+    )
 
 
 def _report_no_plugin_dependencies(
@@ -610,7 +647,11 @@ def _report_skipped_dependencies(
 def _run_dependency_install_plan(
     plan: _DependencyInstallPlan,
     progress_reporter: InstallProgressReporter | None,
+    *,
+    workflow_budget: PluginDependencyWorkflowBudget | None = None,
 ) -> None:
+    if workflow_budget is not None:
+        workflow_budget.ensure_time_remaining()
     logger.info(plan.label, extra={"target": str(plan.deps_dir), "python": plan.cmd[0]})
     _report_install_progress(progress_reporter, "dependencies", plan.label, 56.0)
     install_tmp_dir = Path(
@@ -638,19 +679,21 @@ def _run_dependency_install_plan(
         }
     )
     try:
-        result = _run_dependency_install_process(
-            plan.cmd,
-            progress_reporter=progress_reporter,
-            monitored_roots=(plan.deps_dir, install_tmp_dir),
-            env=install_env,
-            cwd=install_tmp_dir,
-        )
+        process_kwargs = {
+            "progress_reporter": progress_reporter,
+            "monitored_roots": (plan.deps_dir, install_tmp_dir),
+            "env": install_env,
+            "cwd": install_tmp_dir,
+        }
+        if workflow_budget is not None:
+            process_kwargs["deadline_monotonic"] = workflow_budget.deadline_monotonic
+        result = _run_dependency_install_process(plan.cmd, **process_kwargs)
     except subprocess.TimeoutExpired as exc:
         logger.exception(
             "Plugin dependency installation timed out",
             extra={"target": str(plan.deps_dir)},
         )
-        raise RuntimeError(
+        raise PluginInstallWorkflowTimeoutError(
             f"Timed out installing plugin dependencies after {exc.timeout} seconds"
         ) from exc
     except DependencyInstallResourceLimitError:
@@ -676,6 +719,8 @@ def _run_dependency_install_plan(
         )
         raise RuntimeError(f"Plugin dependency installation failed: {stderr}")
     _enforce_dependency_resource_limits((plan.deps_dir,))
+    if workflow_budget is not None:
+        workflow_budget.consume((plan.deps_dir,))
     _report_install_progress(
         progress_reporter, "dependencies", "Installed plugin dependencies", 82.0
     )
@@ -698,6 +743,7 @@ def _run_dependency_install_process(
     monitored_roots: tuple[Path, ...] = (),
     env: dict[str, str] | None = None,
     cwd: Path | None = None,
+    deadline_monotonic: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     output_tail = _BoundedOutputTail()
     output_queue: Queue[bytes | None] = Queue(maxsize=128)
@@ -735,7 +781,11 @@ def _run_dependency_install_process(
 
     reader = threading.Thread(target=read_output, daemon=True)
     reader.start()
-    deadline = time.monotonic() + 300
+    started_at = time.monotonic()
+    deadline = min(
+        started_at + 300,
+        deadline_monotonic if deadline_monotonic is not None else started_at + 300,
+    )
     next_resource_check = time.monotonic()
     decoder = getincrementaldecoder("utf-8")(errors="replace")
     line_parser = _BoundedLineParser()
@@ -754,7 +804,7 @@ def _run_dependency_install_process(
             now = time.monotonic()
             if now > deadline:
                 _terminate_dependency_process(process)
-                raise subprocess.TimeoutExpired(cmd, 300)
+                raise subprocess.TimeoutExpired(cmd, max(0.0, deadline - started_at))
             if monitored_roots and now >= next_resource_check:
                 _enforce_dependency_resource_limits(monitored_roots)
                 next_resource_check = now + DEPENDENCY_RESOURCE_CHECK_INTERVAL_SECONDS
@@ -848,8 +898,7 @@ def _measure_dependency_resource_usage(
                     continue
                 except OSError as exc:
                     raise DependencyInstallResourceLimitError(
-                        "Cannot inspect plugin dependency installation output: "
-                        f"{child.path}"
+                        "Cannot inspect plugin dependency installation output: " f"{child.path}"
                     ) from exc
                 entries += 1
                 if entries > MAX_PLUGIN_DEPENDENCY_INSTALL_ENTRIES:

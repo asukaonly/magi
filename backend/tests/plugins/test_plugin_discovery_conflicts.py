@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 
 from magi.plugins import discovery
+from magi.plugins import package_files
+from magi.config.models import PluginSettings
 
 
 def _write_manifest(
@@ -121,3 +123,97 @@ def test_discovery_ignores_hidden_transaction_directories(tmp_path: Path) -> Non
     manifests = discovery.discover_plugin_manifests([root])
 
     assert manifests == {}
+
+
+def test_managed_package_wins_over_a_custom_scan_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    builtin_root = tmp_path / "builtin"
+    managed_root = tmp_path / "managed"
+    custom_root = tmp_path / "custom"
+    managed_manifest = _write_manifest(
+        managed_root,
+        "shared-id",
+        plugin_id="shared-id",
+        name="Managed",
+    )
+    _write_manifest(
+        custom_root,
+        "shared-id",
+        plugin_id="shared-id",
+        name="Custom Shadow",
+    )
+    monkeypatch.setattr(discovery, "default_builtin_root", lambda: builtin_root)
+    monkeypatch.setattr(package_files, "user_plugins_root", lambda: managed_root)
+
+    manifests = discovery.discover_plugin_manifests([custom_root, managed_root])
+
+    assert manifests["shared-id"].name == "Managed"
+    assert manifests["shared-id"].manifest_path == str(managed_manifest)
+
+
+def test_managed_root_only_accepts_exact_direct_child_packages(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    managed_root = tmp_path / "managed"
+    managed_root.mkdir()
+    (managed_root / "plugin.toml").write_text(
+        '[plugin]\nid = "root-manifest"\nname = "Root Manifest"\nversion = "1.0.0"\n',
+        encoding="utf-8",
+    )
+    _write_manifest(
+        managed_root / "nested",
+        "child",
+        plugin_id="nested-child",
+        name="Nested Child",
+    )
+    _write_manifest(
+        managed_root,
+        "wrong-directory",
+        plugin_id="different-id",
+        name="Mismatched Directory",
+    )
+    valid_manifest = _write_manifest(
+        managed_root,
+        "valid-package",
+        plugin_id="valid-package",
+        name="Valid Package",
+    )
+    monkeypatch.setattr(package_files, "user_plugins_root", lambda: managed_root)
+
+    manifests = discovery.discover_plugin_manifests([managed_root])
+
+    assert set(manifests) == {"valid-package"}
+    assert manifests["valid-package"].manifest_path == str(valid_manifest)
+
+
+def test_identity_mismatch_cannot_inherit_settings_or_trust(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        "external-package",
+        plugin_id="external-package",
+        name="External Package",
+    )
+    manifest = discovery.load_plugin_manifest(manifest_path, source="external")
+
+    states = discovery.build_package_states(
+        manifests={manifest.plugin_id: manifest},
+        packages={
+            manifest.plugin_id: PluginSettings(
+                enabled=True,
+                trusted=True,
+                source="builtin",
+                settings={"secret": "must-not-cross-the-boundary"},
+            )
+        },
+        previous_states={},
+    )
+
+    state = states[manifest.plugin_id]
+    assert state.enabled is False
+    assert state.trusted is False
+    assert state.healthy is False
+    assert state.current_settings == {}
+    assert state.last_error == "Plugin source does not match its persisted installation record"

@@ -29,9 +29,7 @@ _RESERVED_PLUGIN_IDENTIFIERS = {
 
 def _reject_reserved_plugin_identifier(value: str) -> str:
     if value in _RESERVED_PLUGIN_IDENTIFIERS:
-        raise ValueError(
-            "Plugin identifier is reserved by the host or operating system"
-        )
+        raise ValueError("Plugin identifier is reserved by the host or operating system")
     return value
 
 
@@ -44,6 +42,7 @@ _PluginIdentifier = Annotated[
     ),
     AfterValidator(_reject_reserved_plugin_identifier),
 ]
+PluginIdentifier = _PluginIdentifier
 
 
 class ContributionType(str, Enum):
@@ -67,9 +66,7 @@ class ExtensionFieldSpec(BaseModel):
     """Declarative settings field exposed by a plugin contribution."""
 
     key: str
-    type: Literal["switch", "select", "input", "number", "secret", "path", "tags"] = (
-        "input"
-    )
+    type: Literal["switch", "select", "input", "number", "secret", "path", "tags"] = "input"
     path_kind: Literal["file", "directory"] | None = None
     label: str
     description: str = ""
@@ -245,9 +242,7 @@ class DerivedAssertionRuleSpec(BaseModel):
     durable_min_distinct_days: int = Field(default=3, ge=3)
     durable_min_span_days: float = Field(default=14.0, ge=14.0)
     source_domains: list[str] = Field(default_factory=lambda: ["external_activity"])
-    value_strategy: Literal["canonical_name", "object_id", "object_slug"] = (
-        "canonical_name"
-    )
+    value_strategy: Literal["canonical_name", "object_id", "object_slug"] = "canonical_name"
     object_types: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -278,9 +273,7 @@ class ExtractionProfileSpec(BaseModel):
     phase2_instructions: str | None = None
     assertion_mode: Literal["none", "derived", "phase2_candidate"] | None = None
     allowed_assertion_traits: list[str] | Literal["all"] | None = None
-    derived_assertion_specs: list[DerivedAssertionRuleSpec] = Field(
-        default_factory=list
-    )
+    derived_assertion_specs: list[DerivedAssertionRuleSpec] = Field(default_factory=list)
 
 
 class Triggers(BaseModel):
@@ -460,11 +453,12 @@ class PluginManifest(BaseModel):
     contribution_types: list[ContributionType] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list, max_length=128)
     """PIP package dependencies installed under the plugin's ``.deps/`` dir."""
-    depends_on: list[_PluginIdentifier] = Field(default_factory=list)
-    """Other plugins (typically libraries) this plugin imports from. Each
-    entry is a ``plugin_id``. The manager auto-installs missing entries
-    during install, refcount-protects them on uninstall, and injects their
-    install-root parent onto ``sys.path`` before loading this plugin."""
+    depends_on: list[_PluginIdentifier] = Field(default_factory=list, max_length=8)
+    """Library packages this plugin imports from. Each entry is a
+    ``plugin_id`` whose registry entry must declare ``kind = "library"``.
+    The manager auto-installs missing libraries during install,
+    refcount-protects them on uninstall, and injects their install-root parent
+    onto ``sys.path`` before loading this plugin."""
     min_sdk_version: str = ""
     platforms: list[str] = Field(default_factory=list)
     homepage: str = ""
@@ -501,9 +495,7 @@ class PluginManifest(BaseModel):
         """Reject entrypoint names that could escape the plugin module."""
 
         if not value.isidentifier() or keyword.iskeyword(value):
-            raise ValueError(
-                "Plugin entrypoint names must be single Python identifiers"
-            )
+            raise ValueError("Plugin entrypoint names must be single Python identifiers")
         return value
 
     @property
@@ -564,8 +556,8 @@ class PluginRegistryEntry(BaseModel):
     """Mirrors :attr:`PluginManifest.kind`; libraries are hidden from
     user-facing market listings and installed via dep closure only."""
     contribution_types: list[str] = Field(default_factory=list)
-    depends_on: list[_PluginIdentifier] = Field(default_factory=list)
-    """Other registry entries this plugin imports from (plugin_ids)."""
+    depends_on: list[_PluginIdentifier] = Field(default_factory=list, max_length=8)
+    """Library registry entries this package imports from (plugin_ids)."""
     platforms: list[str] = Field(default_factory=list)
     min_sdk_version: str = ""
     homepage: str = ""
@@ -590,7 +582,7 @@ class PluginRegistryEntry(BaseModel):
 class PluginRegistryIndex(BaseModel):
     """Response model for the remote plugin registry listing."""
 
-    plugins: list[PluginRegistryEntry] = Field(default_factory=list)
+    plugins: list[PluginRegistryEntry] = Field(default_factory=list, max_length=4096)
     registry_version: str = "1"
     repo_url: str = ""
 
@@ -610,9 +602,7 @@ class SummaryProfileSpec(BaseModel):
     profile_id: str
     summary_category: str
     source_types: list[str] = Field(default_factory=list)
-    windows: list[Literal["hour", "day", "week"]] = Field(
-        default_factory=lambda: ["day"]
-    )
+    windows: list[Literal["hour", "day", "week"]] = Field(default_factory=lambda: ["day"])
     settle_window_seconds: int = 300
     min_events: int = 4
     intent_verbs: list[str] = Field(default_factory=list)

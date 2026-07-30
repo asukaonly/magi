@@ -3,7 +3,13 @@ import { Download, History, Loader2, RefreshCw, ScrollText } from 'lucide-react'
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
-import { pluginsApi, type ActivationFlowSpec, type PluginInstallJobSnapshot } from '@/api/modules/plugins';
+import {
+  isPluginInstallTimeoutError,
+  isPluginRegistryChangedError,
+  pluginsApi,
+  type ActivationFlowSpec,
+  type PluginInstallJobSnapshot,
+} from '@/api/modules/plugins';
 import type { UserMode } from '@/api/modules/config';
 import { sensorsApi, type SensorSourceStatusItem } from '@/api/modules/sensors';
 import { PluginActivationDialog } from '@/components/plugins/PluginActivationDialog';
@@ -436,7 +442,11 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     setInstallingEntryLabel(entry.entryDisplayName);
     setInstallSnapshot(null);
     try {
-      await pluginsApi.installFromRegistryWithProgress(entry.pluginId, setInstallSnapshot);
+      await pluginsApi.installFromRegistryWithProgress(
+        entry.pluginId,
+        entry.installFingerprint,
+        setInstallSnapshot,
+      );
       toast.success(t('settings.marketplace.feedback.installSuccess'));
       if (onPluginInstalled) {
         await onPluginInstalled();
@@ -444,7 +454,14 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
         await onRefreshSources();
       }
     } catch (error: any) {
-      toast.error(t('settings.marketplace.feedback.installFailed', { message: error?.message || 'unknown' }));
+      if (isPluginRegistryChangedError(error)) {
+        toast.error(t('settings.marketplace.feedback.registryChanged'));
+        await onPluginInstalled?.();
+      } else if (isPluginInstallTimeoutError(error)) {
+        toast.error(t('settings.marketplace.feedback.installTimedOut'));
+      } else {
+        toast.error(t('settings.marketplace.feedback.installFailed', { message: error?.message || 'unknown' }));
+      }
     } finally {
       setInstallingEntryId(null);
     }

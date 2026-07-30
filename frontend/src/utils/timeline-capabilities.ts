@@ -28,6 +28,7 @@ export interface TimelineAvailableEntry {
   version: string;
   official: boolean;
   capabilities: PluginRegistryEntry['capabilities'];
+  installFingerprint: string;
 }
 
 export const getTimelineCapabilityId = (source: SensorSourceStatusItem): string =>
@@ -156,8 +157,12 @@ const registryEntrySupportedOnCurrentPlatform = (entry: PluginRegistryEntry): bo
 export const buildTimelineAvailableEntries = (
   registryEntries: PluginRegistryEntry[],
   installedPluginIds: Set<string>,
-  language: string
+  language: string,
+  installFingerprint: string | null = null,
 ): TimelineAvailableEntry[] => {
+  if (!installFingerprint) {
+    return [];
+  }
   const entries = registryEntries
     .filter((entry) => {
       const group = entry.display_group;
@@ -191,6 +196,7 @@ export const buildTimelineAvailableEntries = (
         version: entry.version,
         official: entry.official,
         capabilities: entry.capabilities,
+        installFingerprint,
       } satisfies TimelineAvailableEntry;
     });
 

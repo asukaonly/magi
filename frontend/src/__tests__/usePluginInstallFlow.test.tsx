@@ -599,7 +599,7 @@ describe('usePluginInstallFlow', () => {
   it('install-mode runs install first, then fetches the flow', async () => {
     const inst = vi
       .spyOn(pluginsApi, 'installFromRegistryWithProgress')
-      .mockImplementation(async (_id, onP) => {
+      .mockImplementation(async (_id, _expectedFingerprint, onP) => {
         onP?.({
           stage: 'downloading',
           progress_pct: 50,
@@ -626,9 +626,49 @@ describe('usePluginInstallFlow', () => {
       l2_remaining_count: 0,
     } as any);
 
-    const { result } = renderHook(() => usePluginInstallFlow('p', true));
+    const { result } = renderHook(() =>
+      usePluginInstallFlow('p', true, 'default', 'fingerprint-1'),
+    );
     await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
-    expect(inst).toHaveBeenCalledWith('p', expect.any(Function));
+    expect(inst).toHaveBeenCalledWith('p', 'fingerprint-1', expect.any(Function));
     expect(result.current.steps.find((s) => s.id === 'install')?.status).toBe('done');
+  });
+
+  it('waits for a confirmed registry fingerprint before starting install mode', async () => {
+    const install = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockResolvedValue({} as any);
+
+    const { result } = renderHook(() =>
+      usePluginInstallFlow('p', true, 'default', null),
+    );
+
+    await waitFor(() => expect(result.current.phase).toBe('loading'));
+    expect(install).not.toHaveBeenCalled();
+    expect(result.current.error).toBeNull();
+  });
+
+  it('clears running state before requesting new consent for a changed registry', async () => {
+    const onRegistryChanged = vi.fn();
+    vi.spyOn(pluginsApi, 'installFromRegistryWithProgress').mockRejectedValue({
+      code: 'PLUGIN_REGISTRY_CHANGED',
+      message: 'Registry changed',
+    });
+
+    const { result } = renderHook(() =>
+      usePluginInstallFlow(
+        'p',
+        true,
+        'default',
+        'fingerprint-old',
+        onRegistryChanged,
+      ),
+    );
+
+    await waitFor(() => expect(onRegistryChanged).toHaveBeenCalledOnce());
+    expect(result.current.phase).toBe('loading');
+    expect(result.current.steps).toEqual([]);
+    expect(result.current.installProgress).toBeNull();
+    expect(result.current.error).toBeNull();
   });
 });

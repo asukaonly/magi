@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 import gzip
+import io
 import logging
 import os
 from pathlib import Path
@@ -17,7 +18,7 @@ import unicodedata
 import uuid
 import zipfile
 
-from .archive_operations import serialize_plugin_archive_operation
+from .operation_execution import serialize_plugin_archive_operation
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +188,36 @@ def user_plugins_root() -> Path:
     return Path("~/.magi/plugins").expanduser()
 
 
+def managed_plugin_directory(plugin_id: str) -> Path:
+    """Return the resolved host-owned directory for one plugin id."""
+
+    return user_plugins_root().expanduser().resolve(strict=False) / plugin_id
+
+
+def is_user_plugins_root(path: Path) -> bool:
+    """Return whether a search root is the host-owned plugin directory."""
+
+    return path.expanduser().resolve(strict=False) == user_plugins_root().expanduser().resolve(
+        strict=False
+    )
+
+
+def is_managed_plugin_manifest_path(plugin_id: str, manifest_path: Path | str) -> bool:
+    """Require ``<managed-root>/<plugin-id>/plugin.toml`` without symlink indirection."""
+
+    expected_dir = managed_plugin_directory(plugin_id)
+    expected_manifest = expected_dir / "plugin.toml"
+    candidate = Path(manifest_path).expanduser()
+    candidate_dir = candidate.parent
+    if candidate.is_symlink() or candidate_dir.is_symlink():
+        return False
+    return (
+        candidate.resolve(strict=False) == expected_manifest
+        and candidate_dir.resolve(strict=False) == expected_dir
+        and expected_dir.parent == user_plugins_root().expanduser().resolve(strict=False)
+    )
+
+
 def replace_plugin_directory(
     source_dir: Path,
     dest_dir: Path,
@@ -204,6 +235,32 @@ def replace_plugin_directory(
     state. The backup is deleted only after ``after_swap`` succeeds.
     """
 
+    staging_dir = stage_plugin_directory(
+        source_dir,
+        dest_dir,
+        prepare_staging_dir=prepare_staging_dir,
+    )
+    try:
+        backup_dir = promote_staged_plugin_directory(
+            staging_dir,
+            dest_dir,
+            before_swap=before_swap,
+            after_swap=after_swap,
+            after_rollback=after_rollback,
+        )
+    finally:
+        discard_plugin_transaction_directory(staging_dir)
+    discard_plugin_transaction_directory(backup_dir)
+
+
+def stage_plugin_directory(
+    source_dir: Path,
+    dest_dir: Path,
+    *,
+    prepare_staging_dir: Callable[[Path], None] | None = None,
+) -> Path:
+    """Copy and prepare a package outside its discoverable install root."""
+
     parent_dir = dest_dir.parent
     parent_dir.mkdir(parents=True, exist_ok=True)
 
@@ -214,9 +271,6 @@ def replace_plugin_directory(
             dir=transaction_root,
         )
     )
-    backup_dir = parent_dir.parent / f".{parent_dir.name}-{dest_dir.name}-backup-{uuid.uuid4().hex}"
-    swap_started = False
-    committed = False
 
     try:
         logger.info(
@@ -232,9 +286,40 @@ def replace_plugin_directory(
 
         if prepare_staging_dir is not None:
             prepare_staging_dir(staging_dir)
+        return staging_dir
+    except BaseException:
+        discard_plugin_transaction_directory(staging_dir)
+        raise
 
+
+def promote_staged_plugin_directory(
+    staging_dir: Path,
+    dest_dir: Path,
+    *,
+    before_swap: Callable[[], None] | None = None,
+    after_swap: Callable[[], None] | None = None,
+    after_rollback: Callable[[], None] | None = None,
+) -> Path | None:
+    """Atomically publish a prepared package and return its private backup.
+
+    The caller owns cleanup of the returned backup. Keeping that potentially
+    slow deletion outside this function lets lifecycle callers release their
+    state lock immediately after the new package is fully committed.
+    """
+
+    parent_dir = dest_dir.parent
+    parent_dir.mkdir(parents=True, exist_ok=True)
+    if not staging_dir.is_dir():
+        raise RuntimeError("Prepared plugin directory is unavailable")
+
+    backup_dir = parent_dir.parent / f".{parent_dir.name}-{dest_dir.name}-backup-{uuid.uuid4().hex}"
+    lifecycle_started = False
+    backup_created = False
+    promoted = False
+
+    try:
         if before_swap is not None:
-            swap_started = True
+            lifecycle_started = True
             before_swap()
 
         if dest_dir.exists():
@@ -242,11 +327,11 @@ def replace_plugin_directory(
                 "Backing up existing plugin directory",
                 extra={"dest_dir": str(dest_dir), "backup_dir": str(backup_dir)},
             )
-            swap_started = True
             dest_dir.replace(backup_dir)
+            backup_created = True
 
-        swap_started = True
         staging_dir.replace(dest_dir)
+        promoted = True
         logger.info(
             "Promoted staged plugin directory",
             extra={"dest_dir": str(dest_dir), "staging_dir": str(staging_dir)},
@@ -254,13 +339,13 @@ def replace_plugin_directory(
 
         if after_swap is not None:
             after_swap()
-        committed = True
+        return backup_dir if backup_dir.exists() else None
     except BaseException as operation_error:
-        if swap_started:
+        if lifecycle_started or backup_created or promoted:
             try:
-                if dest_dir.exists():
+                if promoted and dest_dir.exists():
                     shutil.rmtree(dest_dir)
-                if backup_dir.exists():
+                if backup_created and backup_dir.exists():
                     backup_dir.replace(dest_dir)
                 if after_rollback is not None:
                     after_rollback()
@@ -280,11 +365,13 @@ def replace_plugin_directory(
                     f"{operation_error}"
                 ) from rollback_error
         raise
-    finally:
-        if staging_dir.exists():
-            shutil.rmtree(staging_dir, ignore_errors=True)
-        if committed and backup_dir.exists():
-            shutil.rmtree(backup_dir, ignore_errors=True)
+
+
+def discard_plugin_transaction_directory(directory: Path | None) -> None:
+    """Best-effort cleanup for one private plugin transaction directory."""
+
+    if directory is not None and directory.exists():
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 @serialize_plugin_archive_operation
@@ -328,6 +415,33 @@ def extract_plugin_archive(archive_path: Path, dest: Path) -> None:
     raise InvalidPluginArchiveError(f"Unsupported archive format: {archive_path.name}")
 
 
+def extract_plugin_subdirectory_tarball(
+    tarball_bytes: bytes,
+    subdir: str,
+    dest: Path,
+) -> None:
+    """Safely extract one registry package from a bounded repository tarball.
+
+    Callers must already hold a plugin preparation slot. This helper stays
+    undecorated so registry preparation never reverses the archive-lock then
+    preparation-slot order used by uploaded archives.
+    """
+
+    normalized_subdir = _normalize_registry_subdirectory(subdir)
+    try:
+        with tempfile.TemporaryFile() as tar_stream:
+            with gzip.GzipFile(fileobj=io.BytesIO(tarball_bytes), mode="rb") as source:
+                _copy_bounded_tar_stream(source, tar_stream)
+            bounded_tar_stream = _BoundedTarParserFile(tar_stream)
+            with tarfile.open(fileobj=bounded_tar_stream, mode="r:") as tf:
+                plan = _build_registry_tar_archive_plan(tf, normalized_subdir)
+                root = _prepare_archive_destination(dest)
+                bounded_tar_stream.allow_file_reads()
+                _extract_tar_archive_plan(tf, plan, root)
+    except (tarfile.TarError, gzip.BadGzipFile, EOFError) as exc:
+        raise InvalidPluginArchiveError(f"Not a valid registry tarball: {exc}") from exc
+
+
 def _validate_archive_container_size(archive_path: Path) -> None:
     if archive_path.stat().st_size > MAX_PLUGIN_ARCHIVE_CONTAINER_BYTES:
         raise InvalidPluginArchiveError(
@@ -336,15 +450,86 @@ def _validate_archive_container_size(archive_path: Path) -> None:
 
 
 def _stage_bounded_tar_stream(archive_path: Path, destination) -> None:
-    total_bytes = 0
     with gzip.open(archive_path, "rb") as source:
-        while chunk := source.read(PLUGIN_ARCHIVE_COPY_CHUNK_BYTES):
-            total_bytes += len(chunk)
-            if total_bytes > MAX_PLUGIN_ARCHIVE_TAR_STREAM_BYTES:
-                raise InvalidPluginArchiveError("Archive exceeds the expanded TAR stream limit")
-            destination.write(chunk)
+        _copy_bounded_tar_stream(source, destination)
+
+
+def _copy_bounded_tar_stream(source, destination) -> None:
+    total_bytes = 0
+    while chunk := source.read(PLUGIN_ARCHIVE_COPY_CHUNK_BYTES):
+        total_bytes += len(chunk)
+        if total_bytes > MAX_PLUGIN_ARCHIVE_TAR_STREAM_BYTES:
+            raise InvalidPluginArchiveError("Archive exceeds the expanded TAR stream limit")
+        destination.write(chunk)
     destination.flush()
     destination.seek(0)
+
+
+def _normalize_registry_subdirectory(subdir: str) -> str:
+    normalized = subdir.replace("\\", "/").strip("/")
+    if (
+        not normalized
+        or subdir.startswith(("/", "\\"))
+        or any(part in {"", ".", ".."} for part in normalized.split("/"))
+    ):
+        raise InvalidPluginArchiveError("Registry plugin path is invalid")
+    _normalize_archive_member_path(f"{normalized}/placeholder", is_dir=False)
+    return normalized
+
+
+def _build_registry_tar_archive_plan(
+    tf: tarfile.TarFile,
+    subdir: str,
+) -> _ArchivePlan:
+    plan = _ArchivePlan()
+    top_prefix: str | None = None
+    target_prefix: str | None = None
+    scanned_members = 0
+    matched_members = 0
+
+    for member in tf:
+        scanned_members += 1
+        if scanned_members > MAX_PLUGIN_ARCHIVE_MEMBERS:
+            raise InvalidPluginArchiveError(
+                f"Archive contains more than {MAX_PLUGIN_ARCHIVE_MEMBERS} members"
+            )
+        if top_prefix is None:
+            first_name = member.name.replace("\\", "/")
+            if first_name.startswith("/") or not first_name.strip("/"):
+                raise InvalidPluginArchiveError("Registry tarball has an invalid root path")
+            root_component = first_name.split("/", 1)[0]
+            _normalize_archive_member_path(
+                f"{root_component}/placeholder",
+                is_dir=False,
+            )
+            top_prefix = f"{root_component}/"
+            target_prefix = f"{top_prefix}{subdir.rstrip('/')}/"
+
+        assert target_prefix is not None
+        normalized_name = member.name.replace("\\", "/")
+        if not normalized_name.startswith(target_prefix):
+            continue
+        relative_name = normalized_name[len(target_prefix) :]
+        if not relative_name:
+            continue
+        if not (member.isfile() or member.isdir()):
+            raise InvalidPluginArchiveError(
+                f"Archive member is not a regular file or directory: {member.name}"
+            )
+        plan.add(
+            archive_member=member,
+            raw_name=relative_name,
+            is_dir=member.isdir(),
+            size=member.size,
+            executable=bool(member.mode & 0o111),
+        )
+        matched_members += 1
+
+    if matched_members == 0:
+        raise InvalidPluginArchiveError(
+            f"Plugin path '{subdir}' was not found in the registry tarball"
+        )
+    return plan
 
 
 def _validate_zip_directory(archive_path: Path) -> None:

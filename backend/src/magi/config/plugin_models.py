@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -26,6 +26,30 @@ class PluginSettings(BaseModel):
         default=None,
         description="Capabilities the user consented to at install/update. "
         "None means a legacy install predating consent (treated as empty).",
+    )
+    install_origin: Optional[Literal["builtin", "registry", "upload", "local"]] = Field(
+        default=None,
+        description="Host-owned package installation origin.",
+    )
+    registry_source: Optional[str] = Field(
+        default=None,
+        description="Registry index URL used for this package.",
+    )
+    registry_repo_url: Optional[str] = Field(
+        default=None,
+        description="Registry repository URL used to download this package.",
+    )
+    registry_entry_fingerprint: Optional[str] = Field(
+        default=None,
+        description="Host-computed fingerprint of the registry entry and source.",
+    )
+    registry_manifest_fingerprint: Optional[str] = Field(
+        default=None,
+        description="Host-computed fingerprint of the installed manifest.",
+    )
+    dependency_entry_fingerprints: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Approved registry entry fingerprints for direct library dependencies.",
     )
 
 

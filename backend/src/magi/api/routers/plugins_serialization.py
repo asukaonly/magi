@@ -15,7 +15,9 @@ from ...plugins.contracts import (
 )
 from ...plugins.i18n import PluginI18n
 from ...plugins.icon_assets import resolve_plugin_icon
+from ...plugins.package_integrity import is_verified_registry_package
 from ...plugins.provider import resolve_plugin_manager
+from ...plugins.registry_client import is_official_registry_source
 from .plugins_schemas import (
     PluginContributionResponse,
     PluginManifestResponse,
@@ -30,7 +32,15 @@ def _authoritative_official(manifest, *, packages) -> bool:
     if getattr(manifest, "source", None) == "builtin":
         return bool(getattr(manifest, "official", False))
     entry = packages.get(getattr(manifest, "plugin_id", None))
-    return bool(getattr(entry, "official", None)) if entry is not None else False
+    return bool(
+        entry is not None
+        and getattr(entry, "official", None)
+        and is_verified_registry_package(manifest, entry)
+        and is_official_registry_source(
+            getattr(entry, "registry_source", None),
+            getattr(entry, "registry_repo_url", None),
+        )
+    )
 
 
 def normalize_plugin_id(plugin_id: str) -> str:
@@ -38,9 +48,7 @@ def normalize_plugin_id(plugin_id: str) -> str:
     return plugin_id.replace("-", "_")
 
 
-def translate_with_fallback(
-    i18n: PluginI18n, key: str, fallback: str | None
-) -> str | None:
+def translate_with_fallback(i18n: PluginI18n, key: str, fallback: str | None) -> str | None:
     """Look up a plugin-i18n key, returning ``fallback`` if missing."""
     if i18n is None:
         return fallback
@@ -72,18 +80,14 @@ def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
     return PluginI18n(plugin_id, Path(plugin_dir))
 
 
-def _serialize_manifest(
-    manifest: PluginManifest, *, packages=None
-) -> PluginManifestResponse:
+def _serialize_manifest(manifest: PluginManifest, *, packages=None) -> PluginManifestResponse:
     i18n = _get_plugin_i18n(manifest.plugin_id, manifest.plugin_dir)
     plugin_id_normalized = normalize_plugin_id(manifest.plugin_id)
 
     if packages is None:
         packages = get_config().plugins.packages
 
-    translated_name = translate_with_fallback(
-        i18n, f"{plugin_id_normalized}.name", manifest.name
-    )
+    translated_name = translate_with_fallback(i18n, f"{plugin_id_normalized}.name", manifest.name)
     translated_description = translate_with_fallback(
         i18n, f"{plugin_id_normalized}.description", manifest.description
     )
@@ -315,12 +319,8 @@ def _serialize_sensor_capability(
     plugin_id_normalized = normalize_plugin_id(plugin_id)
     capability_id = str(metadata.get("capability_id") or fallback_source_name)
     entry_id = str(metadata.get("entry_id") or fallback_source_name)
-    capability_display_name = str(
-        metadata.get("capability_display_name") or fallback_display_name
-    )
-    capability_description = str(
-        metadata.get("capability_description") or fallback_description
-    )
+    capability_display_name = str(metadata.get("capability_display_name") or fallback_display_name)
+    capability_description = str(metadata.get("capability_description") or fallback_description)
     entry_display_name = str(metadata.get("entry_display_name") or fallback_display_name)
     entry_description = str(metadata.get("entry_description") or fallback_description)
     entry_display_name_translated = translate_with_fallback(
@@ -385,16 +385,18 @@ def _localize_activation_field(
     options = field.get("options")
     if isinstance(options, list):
         out["options"] = [
-            {
-                **opt,
-                "label_translated": translate_with_fallback(
-                    i18n,
-                    f"{plugin_id_normalized}.options.{field_key_short}.{opt.get('value')}",
-                    opt.get("label"),
-                ),
-            }
-            if isinstance(opt, dict)
-            else opt
+            (
+                {
+                    **opt,
+                    "label_translated": translate_with_fallback(
+                        i18n,
+                        f"{plugin_id_normalized}.options.{field_key_short}.{opt.get('value')}",
+                        opt.get("label"),
+                    ),
+                }
+                if isinstance(opt, dict)
+                else opt
+            )
             for opt in options
         ]
     return out
@@ -416,17 +418,17 @@ def _serialize_activation_flow(
         fields = flow.get("fields")
         if isinstance(fields, list):
             out["fields"] = [
-                _localize_activation_field(field, i18n, plugin_id_normalized)
-                if isinstance(field, dict)
-                else field
+                (
+                    _localize_activation_field(field, i18n, plugin_id_normalized)
+                    if isinstance(field, dict)
+                    else field
+                )
                 for field in fields
             ]
     return out
 
 
-def _serialize_package(
-    state: PluginPackageState, *, packages=None
-) -> PluginPackageResponse:
+def _serialize_package(state: PluginPackageState, *, packages=None) -> PluginPackageResponse:
     i18n = _get_plugin_i18n(state.manifest.plugin_id, state.manifest.plugin_dir)
 
     return PluginPackageResponse(

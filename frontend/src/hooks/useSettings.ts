@@ -66,6 +66,7 @@ export interface UseSettingsReturn {
   plugins: PluginPackageState[];
   pluginsLoading: boolean;
   pluginRegistryEntries: PluginRegistryEntry[];
+  pluginRegistryFingerprint: string | null;
   pluginRegistryLoading: boolean;
   pluginProcessingIds: Record<string, string>;
   reloadingActionPlugins: Record<string, boolean>;
@@ -169,6 +170,7 @@ export function useSettings(): UseSettingsReturn {
     plugins,
     pluginsLoading,
     pluginRegistryEntries,
+    pluginRegistryFingerprint,
     pluginRegistryLoading,
     pluginProcessingIds,
     reloadingActionPlugins,
@@ -361,6 +363,7 @@ export function useSettings(): UseSettingsReturn {
     plugins,
     pluginsLoading,
     pluginRegistryEntries,
+    pluginRegistryFingerprint,
     pluginRegistryLoading,
     pluginProcessingIds,
     reloadingActionPlugins,

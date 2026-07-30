@@ -11,6 +11,10 @@ from ...config import get_config
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshChannelsCommand
+from ...plugins.operation_execution import (
+    run_plugin_callback_operation,
+    run_plugin_lifecycle_operation,
+)
 from ...plugins.contracts import PluginSettingsResourcePayload
 from .plugins_common import (
     _get_plugin_i18n,
@@ -83,10 +87,7 @@ async def list_plugins(
     # so serializing M plugins does one config read (glob + stat) not M.
     config_packages = get_config().plugins.packages
     return PluginsListResponse(
-        plugins=[
-            _serialize_package(item, packages=config_packages)
-            for item in packages
-        ],
+        plugins=[_serialize_package(item, packages=config_packages) for item in packages],
         total=len(packages),
     )
 
@@ -94,13 +95,10 @@ async def list_plugins(
 @plugins_core_router.post("/rescan", response_model=PluginsListResponse)
 async def rescan_plugins():
     manager = _require_plugin_manager()
-    packages = manager.rescan_runtime()
+    packages = await run_plugin_lifecycle_operation(manager.rescan_runtime)
     config_packages = get_config().plugins.packages
     return PluginsListResponse(
-        plugins=[
-            _serialize_package(item, packages=config_packages)
-            for item in packages
-        ],
+        plugins=[_serialize_package(item, packages=config_packages) for item in packages],
         total=len(packages),
     )
 
@@ -108,7 +106,7 @@ async def rescan_plugins():
 @plugins_core_router.post("/{plugin_id}/enable", response_model=PluginPackageResponse)
 async def enable_plugin(plugin_id: str):
     manager, _ = _require_package(plugin_id)
-    state = manager.enable_plugin(plugin_id)
+    state = await run_plugin_lifecycle_operation(lambda: manager.enable_plugin(plugin_id))
     await _refresh_channels_after_plugin_change(plugin_id, "enabled")
     return _serialize_package(state)
 
@@ -116,7 +114,7 @@ async def enable_plugin(plugin_id: str):
 @plugins_core_router.post("/{plugin_id}/disable", response_model=PluginPackageResponse)
 async def disable_plugin(plugin_id: str):
     manager, _ = _require_package(plugin_id)
-    state = manager.disable_plugin(plugin_id)
+    state = await run_plugin_lifecycle_operation(lambda: manager.disable_plugin(plugin_id))
     await _refresh_channels_after_plugin_change(plugin_id, "disabled")
     return _serialize_package(state)
 
@@ -124,7 +122,7 @@ async def disable_plugin(plugin_id: str):
 @plugins_core_router.post("/{plugin_id}/reload", response_model=PluginPackageResponse)
 async def reload_plugin(plugin_id: str):
     manager, _ = _require_package(plugin_id)
-    state = manager.reload_plugin(plugin_id)
+    state = await run_plugin_lifecycle_operation(lambda: manager.reload_plugin(plugin_id))
     await _refresh_channels_after_plugin_change(plugin_id, "reloaded")
     return _serialize_package(state)
 
@@ -138,7 +136,9 @@ async def get_plugin_settings(plugin_id: str):
 @plugins_core_router.put("/{plugin_id}/settings", response_model=PluginPackageResponse)
 async def update_plugin_settings(plugin_id: str, request: PluginSettingsUpdateRequest):
     manager, _ = _require_package(plugin_id)
-    state = manager.update_plugin_settings(plugin_id, request.updates)
+    state = await run_plugin_lifecycle_operation(
+        lambda: manager.update_plugin_settings(plugin_id, request.updates)
+    )
     if request.updates:
         await _refresh_channels_after_plugin_change(plugin_id, "settings_updated")
     return _serialize_package(state)
@@ -205,7 +205,12 @@ async def read_plugin_settings_resource(plugin_id: str, resource_name: str):
     manager, _ = _require_package(plugin_id)
     settings_service = _plugin_settings_service(manager)
     try:
-        payload = settings_service.read_plugin_settings_resource(plugin_id, resource_name)
+        payload = await run_plugin_callback_operation(
+            lambda: settings_service.read_plugin_settings_resource(
+                plugin_id,
+                resource_name,
+            )
+        )
     except KeyError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

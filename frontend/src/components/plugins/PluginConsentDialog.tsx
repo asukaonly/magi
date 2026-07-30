@@ -20,6 +20,8 @@ interface Props {
   official?: boolean;
   capabilities: PluginCapability[];
   newCapabilities?: PluginCapability[];   // update mode highlight
+  confirmDisabled?: boolean;
+  statusMessage?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -37,6 +39,8 @@ export const PluginConsentDialog: React.FC<Props> = ({
   official,
   capabilities,
   newCapabilities,
+  confirmDisabled = false,
+  statusMessage,
   onConfirm,
   onCancel,
 }) => {
@@ -154,19 +158,30 @@ export const PluginConsentDialog: React.FC<Props> = ({
             </div>
           )}
 
-          <div className="text-sm">
-            {capabilities.length === 0
-              ? t('settings.marketplace.consent.ledeEmpty')
-              : t('settings.marketplace.consent.lede')}
-          </div>
-          {capabilities.length > 0 && renderGroups(capabilities)}
+          {statusMessage ? (
+            <div
+              role="status"
+              className="rounded-md border border-border/70 bg-muted/35 px-3 py-2.5 text-sm text-muted-foreground"
+            >
+              {statusMessage}
+            </div>
+          ) : (
+            <>
+              <div className="text-sm">
+                {capabilities.length === 0
+                  ? t('settings.marketplace.consent.ledeEmpty')
+                  : t('settings.marketplace.consent.lede')}
+              </div>
+              {capabilities.length > 0 && renderGroups(capabilities)}
+            </>
+          )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onCancel}>
             {t('settings.marketplace.consent.cancel')}
           </Button>
-          <Button size="sm" onClick={onConfirm}>
+          <Button size="sm" onClick={onConfirm} disabled={confirmDisabled}>
             {t(`settings.marketplace.consent.confirm.${confirmKey}`)}
           </Button>
         </DialogFooter>

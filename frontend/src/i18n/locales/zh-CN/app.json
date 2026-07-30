@@ -2557,6 +2557,8 @@
       "feedback": {
         "installSuccess": "插件安装成功",
         "installFailed": "插件安装失败：{{message}}",
+        "installTimedOut": "插件安装耗时过长，已停止安装",
+        "registryChanged": "插件市场信息已更新，请查看最新内容后重新确认。",
         "uninstallSuccess": "插件已卸载",
         "uninstallFailed": "插件卸载失败：{{message}}",
         "updateSuccess": "插件更新成功",

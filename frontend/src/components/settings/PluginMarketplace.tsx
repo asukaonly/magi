@@ -16,6 +16,8 @@ import { toast } from 'sonner';
 
 import {
   pluginsApi,
+  isPluginInstallTimeoutError,
+  isPluginRegistryChangedError,
   type PluginCapability,
   type PluginInstallCandidate,
   type PluginInstallJobSnapshot,
@@ -79,6 +81,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const { t, i18n } = useTranslation('app');
   const language = i18n?.language ?? 'zh-CN';
   const [registryEntries, setRegistryEntries] = useState<PluginRegistryEntry[]>([]);
+  const [registryFingerprint, setRegistryFingerprint] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,6 +108,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     try {
       const response = await pluginsApi.getRegistry(options);
       setRegistryEntries(response.plugins);
+      setRegistryFingerprint(response.install_fingerprint);
     } catch (err: any) {
       const message = err?.message || 'unknown';
       setError(message);
@@ -163,10 +167,10 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const getInstallableEntries = (item: MarketplacePluginDisplayItem): PluginRegistryEntry[] =>
     item.entries.filter((entry) => !isEntryInstalled(entry));
 
-  const getEntryCapabilities = (entries: PluginRegistryEntry[]): PluginCapability[] => {
+  const dedupeCapabilities = (values: PluginCapability[]): PluginCapability[] => {
     const seen = new Set<string>();
     const capabilities: PluginCapability[] = [];
-    for (const capability of entries.flatMap((entry) => entry.capabilities ?? [])) {
+    for (const capability of values) {
       const key = JSON.stringify({
         capability: capability.capability,
         scope: capability.scope ?? [],
@@ -181,8 +185,12 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     return capabilities;
   };
 
+  const getEntryCapabilities = (entries: PluginRegistryEntry[]): PluginCapability[] =>
+    dedupeCapabilities(entries.flatMap((entry) => entry.capabilities ?? []));
+
   const runInstall = async (
     item: MarketplacePluginDisplayItem,
+    expectedFingerprint: string,
     selectedEntries: PluginRegistryEntry[] = getInstallableEntries(item),
   ) => {
     if (selectedEntries.length === 0) {
@@ -191,15 +199,26 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     setProcessingIds((prev) => ({ ...prev, [item.id]: 'installing' }));
     try {
       for (const entry of selectedEntries) {
-        await pluginsApi.installFromRegistryWithProgress(entry.plugin_id, (snapshot) => {
-          setInstallSnapshots((prev) => ({ ...prev, [entry.plugin_id]: snapshot }));
-        });
+        await pluginsApi.installFromRegistryWithProgress(
+          entry.plugin_id,
+          expectedFingerprint,
+          (snapshot) => {
+            setInstallSnapshots((prev) => ({ ...prev, [entry.plugin_id]: snapshot }));
+          },
+        );
       }
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.installSuccess'));
       await fetchRegistry();
     } catch (err: any) {
-      toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
+      if (isPluginRegistryChangedError(err)) {
+        toast.error(t('settings.marketplace.feedback.registryChanged'));
+        await fetchRegistry({ force: true });
+      } else if (isPluginInstallTimeoutError(err)) {
+        toast.error(t('settings.marketplace.feedback.installTimedOut'));
+      } else {
+        toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
+      }
     } finally {
       setProcessingIds((prev) => { const n = { ...prev }; delete n[item.id]; return n; });
     }
@@ -217,6 +236,11 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     if (installableEntries.length === 0) {
       return;
     }
+    if (!registryFingerprint) {
+      void fetchRegistry({ force: true });
+      return;
+    }
+    const expectedFingerprint = registryFingerprint;
     setConsent({
       mode: 'install',
       name: getMarketplaceItemName(item, language),
@@ -225,7 +249,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       version: item.primary.version,
       official: installableEntries.every((entry) => entry.official),
       capabilities: getEntryCapabilities(installableEntries),
-      proceed: () => runInstall(item, installableEntries),
+      proceed: () => runInstall(item, expectedFingerprint, installableEntries),
     });
   };
 
@@ -256,7 +280,13 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     if (selectedEntries.length === 0) {
       return;
     }
+    if (!registryFingerprint) {
+      setEntryPicker(null);
+      void fetchRegistry({ force: true });
+      return;
+    }
     const item = entryPicker.item;
+    const expectedFingerprint = registryFingerprint;
     setEntryPicker(null);
     setConsent({
       mode: 'install',
@@ -266,7 +296,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       version: item.primary.version,
       official: selectedEntries.every((entry) => entry.official),
       capabilities: getEntryCapabilities(selectedEntries),
-      proceed: () => runInstall(item, selectedEntries),
+      proceed: () => runInstall(item, expectedFingerprint, selectedEntries),
     });
   };
 
@@ -292,34 +322,61 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     }
   };
 
-  const runUpdate = async (item: MarketplacePluginDisplayItem) => {
+  const runUpdate = async (
+    item: MarketplacePluginDisplayItem,
+    expectedFingerprint: string,
+  ) => {
     setProcessingIds((prev) => ({ ...prev, [item.id]: 'updating' }));
     try {
       for (const entry of item.entries) {
         if (!entry.update_available) continue;
-        await pluginsApi.updatePluginWithProgress(entry.plugin_id, (snapshot) => {
-          setInstallSnapshots((prev) => ({ ...prev, [entry.plugin_id]: snapshot }));
-        });
+        await pluginsApi.updatePluginWithProgress(
+          entry.plugin_id,
+          expectedFingerprint,
+          (snapshot) => {
+            setInstallSnapshots((prev) => ({ ...prev, [entry.plugin_id]: snapshot }));
+          },
+        );
       }
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.updateSuccess'));
       await fetchRegistry();
     } catch (err: any) {
-      toast.error(t('settings.marketplace.feedback.updateFailed', { message: err?.message || 'unknown' }));
+      if (isPluginRegistryChangedError(err)) {
+        toast.error(t('settings.marketplace.feedback.registryChanged'));
+        await fetchRegistry({ force: true });
+      } else if (isPluginInstallTimeoutError(err)) {
+        toast.error(t('settings.marketplace.feedback.installTimedOut'));
+      } else {
+        toast.error(t('settings.marketplace.feedback.updateFailed', { message: err?.message || 'unknown' }));
+      }
     } finally {
       setProcessingIds((prev) => { const n = { ...prev }; delete n[item.id]; return n; });
     }
   };
 
   const handleUpdate = (item: MarketplacePluginDisplayItem) => {
+    if (!registryFingerprint) {
+      void fetchRegistry({ force: true });
+      return;
+    }
+    const expectedFingerprint = registryFingerprint;
     const declared = getMarketplaceItemCapabilities(item);
-    const consented = item.entries.flatMap((entry) => {
-      const installed = installedPlugins.find((p) => p.manifest.plugin_id === entry.plugin_id);
-      return installed?.manifest.consented_capabilities ?? [];
-    });
-    const newCaps = capabilitiesExceedingConsent(declared, consented.length > 0 ? consented : null);
+    const newCaps = dedupeCapabilities(
+      item.entries
+        .filter((entry) => entry.update_available)
+        .flatMap((entry) => {
+          const installed = installedPlugins.find(
+            (plugin) => plugin.manifest.plugin_id === entry.plugin_id,
+          );
+          return capabilitiesExceedingConsent(
+            entry.capabilities ?? [],
+            installed?.manifest.consented_capabilities ?? null,
+          );
+        }),
+    );
     if (newCaps.length === 0) {
-      void runUpdate(item);
+      void runUpdate(item, expectedFingerprint);
       return;
     }
     setConsent({
@@ -331,7 +388,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       official: item.entries.every((entry) => entry.official),
       capabilities: declared,
       newCapabilities: newCaps,
-      proceed: () => runUpdate(item),
+      proceed: () => runUpdate(item, expectedFingerprint),
     });
   };
 
@@ -354,7 +411,11 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       } catch {
         // The backend owns cleanup once an install job has claimed the candidate.
       }
-      toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
+      if (isPluginInstallTimeoutError(err)) {
+        toast.error(t('settings.marketplace.feedback.installTimedOut'));
+      } else {
+        toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
+      }
     } finally {
       setProcessingIds((prev) => { const n = { ...prev }; delete n.__upload; return n; });
     }

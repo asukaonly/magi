@@ -441,6 +441,7 @@ describe('PluginInstallPanel', () => {
         },
       ],
       registry_version: '2',
+      install_fingerprint: 'fingerprint-2',
     } as any);
     const installSpy = vi
       .spyOn(pluginsApi, 'installFromRegistryWithProgress')
@@ -467,8 +468,60 @@ describe('PluginInstallPanel', () => {
       screen.getByRole('button', { name: 'settings.marketplace.consent.confirm.install' }),
     );
     await waitFor(() =>
-      expect(installSpy).toHaveBeenCalledWith('netease-music', expect.anything()),
+      expect(installSpy).toHaveBeenCalledWith(
+        'netease-music',
+        'fingerprint-2',
+        expect.anything(),
+      ),
     );
+  });
+
+  it('does not allow consent when the requested plugin is absent from the registry', async () => {
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      plugins: [],
+      registry_version: '2',
+      install_fingerprint: 'fingerprint-for-other-plugins',
+    } as any);
+    const installSpy = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockResolvedValue({} as any);
+
+    render(<PluginInstallPanel />);
+    act(() => {
+      usePluginInstallPanelStore.getState().openPanel('missing-plugin', { install: true });
+    });
+
+    expect(
+      await screen.findByText('app:settings.marketplace.empty'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'settings.marketplace.consent.confirm.install' }),
+    ).toBeDisabled();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'settings.marketplace.consent.confirm.install' }),
+    );
+    expect(installSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps consent disabled when the registry cannot be loaded', async () => {
+    vi.spyOn(pluginsApi, 'getRegistry').mockRejectedValue(new Error('offline'));
+    const installSpy = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockResolvedValue({} as any);
+
+    render(<PluginInstallPanel />);
+    act(() => {
+      usePluginInstallPanelStore.getState().openPanel('missing-plugin', { install: true });
+    });
+
+    expect(
+      await screen.findByText('app:settings.marketplace.error'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'settings.marketplace.consent.confirm.install' }),
+    ).toBeDisabled();
+    expect(installSpy).not.toHaveBeenCalled();
   });
 
   it('shows the unsupported message when the source has no activation flow', async () => {

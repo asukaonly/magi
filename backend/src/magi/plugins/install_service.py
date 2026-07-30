@@ -2,26 +2,39 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
 import tempfile
 from typing import Any
 
-from ..config import get_config, save_config
-from .archive_operations import run_plugin_archive_operation
+from ..config import PluginSettings, get_config
+from .operation_execution import run_plugin_archive_operation, run_plugin_preparation_operation
 from .contracts import (
-    ContributionType,
     PluginCapability,
     PluginManifest,
     PluginPackageState,
-    PluginPermissions,
     PluginRegistryEntry,
 )
 from .discovery import load_plugin_manifest
+from .dependency_installation import PluginDependencyWorkflowBudget
+from .install_admission import (
+    PluginInstallAdmissionLease,
+    plugin_install_admission,
+)
+from .installation import (
+    PluginDependencyValidationError,
+    PluginPackageConflictError,
+    PluginRegistrySourceConflictError,
+)
+from .package_integrity import is_verified_registry_package
 from . import package_files
 from .registry_client import PluginRegistryClient
+from .registry_client import PluginRegistrySnapshot
+from .registry_provenance import (
+    plugin_manifest_fingerprint,
+    registry_entry_fingerprint,
+)
 
 
 class PluginRegistryEntryNotFound(LookupError):
@@ -59,13 +72,37 @@ class PluginSideloadConflictError(ValueError):
     """Raised when a sideload archive would replace an installed plugin."""
 
 
+class PluginRegistrySnapshotMismatchError(ValueError):
+    """Raised when marketplace consent no longer matches the registry."""
+
+
+PluginDependencyConflictError = PluginDependencyValidationError
+MAX_PLUGIN_DEPENDENCY_CLOSURE = 16
+
+
+def registry_source_matches_installed_package(
+    manifest: PluginManifest,
+    snapshot: PluginRegistrySnapshot,
+) -> bool:
+    """Return whether an installed package belongs to this exact registry source."""
+
+    configured = get_config().plugins.packages.get(manifest.plugin_id)
+    if isinstance(configured, dict):
+        configured = PluginSettings.model_validate(configured)
+    return bool(
+        is_verified_registry_package(manifest, configured)
+        and configured is not None
+        and configured.registry_source == snapshot.registry_url
+        and configured.registry_repo_url == snapshot.repo_url
+    )
+
+
 @dataclass(frozen=True)
 class PluginRegistryInstallResult:
     """Result of installing a registry plugin and its dependency closure."""
 
     target_state: PluginPackageState
     extra_installed: list[str]
-    used_runtime_manager: bool
 
 
 class PluginInstallService:
@@ -84,27 +121,96 @@ class PluginInstallService:
         self,
         plugin_id: str,
         *,
+        expected_fingerprint: str,
         progress_reporter=None,
+        admission_lease: PluginInstallAdmissionLease | None = None,
     ) -> PluginRegistryInstallResult:
         """Install a plugin and any missing registry-declared dependencies."""
 
-        entry = await self._fetch_installable_entry(plugin_id)
-        order = await self._resolve_install_closure(
+        lease, owns_lease = self._resolve_admission(plugin_id, admission_lease)
+        try:
+            return await self._install_from_registry_admitted(
+                plugin_id,
+                expected_fingerprint=expected_fingerprint,
+                progress_reporter=progress_reporter,
+            )
+        finally:
+            if owns_lease:
+                lease.release()
+
+    async def _install_from_registry_admitted(
+        self,
+        plugin_id: str,
+        *,
+        expected_fingerprint: str,
+        progress_reporter=None,
+        expected_registry_update_source: tuple[str, str] | None = None,
+    ) -> PluginRegistryInstallResult:
+        self._require_manager()
+        if expected_registry_update_source is None:
+            self._assert_registry_install_target_available(plugin_id)
+        workflow_budget = PluginDependencyWorkflowBudget()
+        snapshot = await self._expected_registry_snapshot(
+            expected_fingerprint,
+            workflow_budget=workflow_budget,
+        )
+        if (
+            expected_registry_update_source is not None
+            and (
+                snapshot.registry_url,
+                snapshot.repo_url,
+            )
+            != expected_registry_update_source
+        ):
+            raise PluginRegistrySourceConflictError(
+                "The installed plugin comes from a different source. "
+                "Uninstall it before installing from this marketplace."
+            )
+        entries_by_id = self._snapshot_entries(snapshot)
+        entry = self._fetch_installable_entry(entries_by_id, plugin_id)
+        order = self._resolve_install_closure(
             entry.plugin_id,
+            snapshot=snapshot,
+            entries_by_id=entries_by_id,
             already_installed=self._installed_plugin_ids(),
         )
-        if not order:
-            order = [entry]
 
         temp_root = Path(tempfile.mkdtemp(prefix="magi-plugin-dl-"))
         try:
+            prepared: list[tuple[PluginRegistryEntry, Path, PluginManifest]] = []
+            for item in order:
+                workflow_budget.ensure_time_remaining()
+                plugin_dir = await self._registry_client.clone_plugin(
+                    item,
+                    snapshot=snapshot,
+                    dest_dir=temp_root,
+                    deadline_monotonic=workflow_budget.deadline_monotonic,
+                )
+                manifest = await run_plugin_preparation_operation(
+                    lambda item=item, plugin_dir=plugin_dir: (
+                        workflow_budget.consume((plugin_dir,)),
+                        _validate_registry_package_directory(plugin_dir, item),
+                    )[1]
+                )
+                workflow_budget.ensure_time_remaining()
+                await self._assert_registry_snapshot_current(
+                    expected_fingerprint,
+                    workflow_budget=workflow_budget,
+                )
+                prepared.append((item, plugin_dir, manifest))
+
             extra_installed: list[str] = []
             target_state: PluginPackageState | None = None
-            for item in order:
-                state = await self._install_registry_entry(
+            for item, plugin_dir, manifest in prepared:
+                state = await self._install_prepared_registry_entry(
                     item,
+                    plugin_dir=plugin_dir,
+                    manifest=manifest,
+                    snapshot=snapshot,
+                    entries_by_id=entries_by_id,
+                    workflow_budget=workflow_budget,
                     is_target=item.plugin_id == entry.plugin_id,
-                    temp_root=temp_root,
+                    expected_registry_update_source=expected_registry_update_source,
                     progress_reporter=progress_reporter,
                 )
                 if item.plugin_id == entry.plugin_id:
@@ -112,43 +218,70 @@ class PluginInstallService:
                 else:
                     extra_installed.append(item.plugin_id)
         finally:
-            await asyncio.to_thread(shutil.rmtree, temp_root, True)
+            await run_plugin_preparation_operation(lambda: shutil.rmtree(temp_root, True))
 
         assert target_state is not None
         return PluginRegistryInstallResult(
             target_state=target_state,
             extra_installed=extra_installed,
-            used_runtime_manager=self._plugin_manager is not None,
         )
 
     async def update_from_registry(
         self,
         plugin_id: str,
         *,
+        expected_fingerprint: str,
         progress_reporter=None,
+        admission_lease: PluginInstallAdmissionLease | None = None,
     ) -> PluginPackageState:
         """Update an already-installed external plugin from the registry."""
 
+        lease, owns_lease = self._resolve_admission(plugin_id, admission_lease)
+        try:
+            return await self._update_from_registry_admitted(
+                plugin_id,
+                expected_fingerprint=expected_fingerprint,
+                progress_reporter=progress_reporter,
+            )
+        finally:
+            if owns_lease:
+                lease.release()
+
+    async def _update_from_registry_admitted(
+        self,
+        plugin_id: str,
+        *,
+        expected_fingerprint: str,
+        progress_reporter=None,
+    ) -> PluginPackageState:
         manager = self._require_manager()
         state = manager.get_package(plugin_id)
         if state is None:
             raise PluginPackageNotInstalled(plugin_id)
         if state.manifest.source == "builtin":
             raise BuiltinPluginUpdateError()
-
-        entry = await self._fetch_registry_entry(plugin_id)
-        temp_root = Path(tempfile.mkdtemp(prefix="magi-plugin-dl-"))
-        try:
-            plugin_dir = await self._registry_client.clone_plugin(entry, dest_dir=temp_root)
-            new_state = await asyncio.to_thread(
-                manager.install_plugin_from_directory,
-                plugin_dir,
-                progress_reporter=progress_reporter,
+        configured = get_config().plugins.packages.get(plugin_id)
+        if isinstance(configured, dict):
+            configured = PluginSettings.model_validate(configured)
+        if not is_verified_registry_package(state.manifest, configured):
+            raise PluginRegistrySourceConflictError(
+                "The installed plugin does not have a verified marketplace source. "
+                "Uninstall it before installing from this marketplace."
             )
-            self._persist_registry_metadata(entry)
-            return new_state
-        finally:
-            await asyncio.to_thread(shutil.rmtree, temp_root, True)
+        assert configured is not None
+        assert configured.registry_source is not None
+        assert configured.registry_repo_url is not None
+
+        result = await self._install_from_registry_admitted(
+            plugin_id,
+            expected_fingerprint=expected_fingerprint,
+            progress_reporter=progress_reporter,
+            expected_registry_update_source=(
+                configured.registry_source,
+                configured.registry_repo_url,
+            ),
+        )
+        return result.target_state
 
     async def install_from_archive(
         self,
@@ -157,9 +290,31 @@ class PluginInstallService:
         approved_manifest: PluginManifest,
         consented_capabilities: list[PluginCapability],
         progress_reporter=None,
+        admission_lease: PluginInstallAdmissionLease | None = None,
     ) -> PluginPackageState:
         """Install a plugin from an uploaded archive."""
 
+        plugin_id = approved_manifest.plugin_id
+        lease, owns_lease = self._resolve_admission(plugin_id, admission_lease)
+        try:
+            return await self._install_from_archive_admitted(
+                archive_path,
+                approved_manifest=approved_manifest,
+                consented_capabilities=consented_capabilities,
+                progress_reporter=progress_reporter,
+            )
+        finally:
+            if owns_lease:
+                lease.release()
+
+    async def _install_from_archive_admitted(
+        self,
+        archive_path: Path,
+        *,
+        approved_manifest: PluginManifest,
+        consented_capabilities: list[PluginCapability],
+        progress_reporter=None,
+    ) -> PluginPackageState:
         manager = self._require_manager()
 
         def install_approved_archive() -> PluginPackageState:
@@ -187,57 +342,141 @@ class PluginInstallService:
 
         return self._require_manager().uninstall_plugin(plugin_id)
 
-    async def _install_registry_entry(
+    async def _install_prepared_registry_entry(
         self,
         entry: PluginRegistryEntry,
         *,
+        plugin_dir: Path,
+        manifest: PluginManifest,
+        snapshot: PluginRegistrySnapshot,
+        entries_by_id: dict[str, PluginRegistryEntry],
+        workflow_budget: PluginDependencyWorkflowBudget,
         is_target: bool,
-        temp_root: Path,
+        expected_registry_update_source: tuple[str, str] | None,
         progress_reporter=None,
     ) -> PluginPackageState:
         if progress_reporter is not None:
             label = "Installing" if is_target else "Installing dependency"
             progress_reporter("install", f"{label}: {entry.name}", None)
-        plugin_dir = await self._registry_client.clone_plugin(entry, dest_dir=temp_root)
-        if self._plugin_manager is None:
-            return await asyncio.to_thread(_lightweight_install, plugin_dir, entry)
-
-        state = await asyncio.to_thread(
-            self._plugin_manager.install_plugin_from_directory,
-            plugin_dir,
-            progress_reporter=progress_reporter,
+        if entry.kind == "library" and self._plugin_manager is not None:
+            existing = self._plugin_manager.get_package(entry.plugin_id)
+            if existing is not None:
+                self._assert_installed_library_reusable(
+                    entry,
+                    snapshot=snapshot,
+                    entries_by_id=entries_by_id,
+                )
+                return existing
+        entry_fingerprint = registry_entry_fingerprint(
+            entry,
+            registry_url=snapshot.registry_url,
+            repo_url=snapshot.repo_url,
         )
-        self._persist_registry_metadata(entry)
+        dependency_entry_fingerprints = {
+            dep_id: registry_entry_fingerprint(
+                entries_by_id[dep_id],
+                registry_url=snapshot.registry_url,
+                repo_url=snapshot.repo_url,
+            )
+            for dep_id in entry.depends_on
+        }
+        manifest_fingerprint = plugin_manifest_fingerprint(manifest)
+        effective_official = bool(snapshot.official_source and entry.official)
+        if self._plugin_manager is None:
+            raise RuntimeError("Plugin manager is not initialized")
+
+        state = await run_plugin_preparation_operation(
+            lambda: self._plugin_manager.install_plugin_from_directory(
+                plugin_dir,
+                progress_reporter=progress_reporter,
+                official=effective_official,
+                consented_capabilities=list(entry.capabilities),
+                install_origin="registry",
+                registry_source=snapshot.registry_url,
+                registry_repo_url=snapshot.repo_url,
+                registry_entry_fingerprint=entry_fingerprint,
+                registry_manifest_fingerprint=manifest_fingerprint,
+                dependency_entry_fingerprints=dependency_entry_fingerprints,
+                dependency_workflow_budget=workflow_budget,
+                reject_existing=is_target and expected_registry_update_source is None,
+                expected_registry_update_source=(
+                    expected_registry_update_source if is_target else None
+                ),
+            )
+        )
         return state
 
-    async def _resolve_install_closure(
+    def _assert_registry_install_target_available(self, plugin_id: str) -> None:
+        manager_state = None
+        if self._plugin_manager is not None:
+            get_package = getattr(self._plugin_manager, "get_package", None)
+            if callable(get_package):
+                manager_state = get_package(plugin_id)
+            elif plugin_id in self._installed_plugin_ids():
+                manager_state = True
+        if manager_state is not None or package_files.managed_plugin_directory(plugin_id).exists():
+            raise PluginPackageConflictError(
+                f"Plugin is already installed: {plugin_id}. "
+                "Update it from its original source or uninstall it first."
+            )
+
+    def _resolve_install_closure(
         self,
         target_id: str,
         *,
+        snapshot: PluginRegistrySnapshot,
+        entries_by_id: dict[str, PluginRegistryEntry],
         already_installed: set[str],
     ) -> list[PluginRegistryEntry]:
         install_order: list[PluginRegistryEntry] = []
         visiting: set[str] = set()
         resolved: set[str] = set()
 
-        async def visit(plugin_id: str) -> None:
-            if plugin_id in resolved or plugin_id in already_installed:
+        def visit(plugin_id: str, *, is_target: bool = False) -> None:
+            if plugin_id in resolved:
                 return
             if plugin_id in visiting:
                 raise ValueError(f"Cyclic plugin dependency detected involving {plugin_id}")
-            entry = await self._fetch_registry_entry(plugin_id)
-            visiting.add(plugin_id)
-            for dep_id in entry.depends_on:
-                await visit(dep_id)
-            visiting.discard(plugin_id)
-            resolved.add(plugin_id)
-            install_order.append(entry)
+            if len(resolved) + len(visiting) >= MAX_PLUGIN_DEPENDENCY_CLOSURE:
+                raise ValueError("Plugin dependency closure exceeds the supported package limit")
+            entry = self._fetch_registry_entry(entries_by_id, plugin_id)
+            if is_target:
+                if entry.kind != "plugin":
+                    raise DirectLibraryInstallError(
+                        "Library components cannot be installed directly."
+                    )
+            elif entry.kind != "library":
+                raise DirectLibraryInstallError(
+                    "Plugin dependencies must be library packages; "
+                    f"{plugin_id} is a runnable plugin."
+                )
+            is_reused_dependency = not is_target and plugin_id in already_installed
+            if is_reused_dependency:
+                self._assert_installed_library_reusable(
+                    entry,
+                    snapshot=snapshot,
+                    entries_by_id=entries_by_id,
+                )
 
-        await visit(target_id)
+            visiting.add(plugin_id)
+            try:
+                for dep_id in entry.depends_on:
+                    visit(dep_id)
+            finally:
+                visiting.discard(plugin_id)
+            resolved.add(plugin_id)
+            if not is_reused_dependency:
+                install_order.append(entry)
+
+        visit(target_id, is_target=True)
         return install_order
 
-    async def _fetch_installable_entry(self, plugin_id: str) -> PluginRegistryEntry:
-        entry = await self._fetch_registry_entry(plugin_id)
+    @staticmethod
+    def _fetch_installable_entry(
+        entries_by_id: dict[str, PluginRegistryEntry],
+        plugin_id: str,
+    ) -> PluginRegistryEntry:
+        entry = PluginInstallService._fetch_registry_entry(entries_by_id, plugin_id)
         if entry.kind == "library":
             raise DirectLibraryInstallError(
                 "Library components are installed automatically as plugin dependencies "
@@ -245,11 +484,116 @@ class PluginInstallService:
             )
         return entry
 
-    async def _fetch_registry_entry(self, plugin_id: str) -> PluginRegistryEntry:
-        entry = await self._registry_client.fetch_entry(plugin_id)
+    @staticmethod
+    def _fetch_registry_entry(
+        entries_by_id: dict[str, PluginRegistryEntry],
+        plugin_id: str,
+    ) -> PluginRegistryEntry:
+        entry = entries_by_id.get(plugin_id)
         if entry is None:
             raise PluginRegistryEntryNotFound(plugin_id)
         return entry
+
+    @staticmethod
+    def _snapshot_entries(
+        snapshot: PluginRegistrySnapshot,
+    ) -> dict[str, PluginRegistryEntry]:
+        entries: dict[str, PluginRegistryEntry] = {}
+        for entry in snapshot.index.plugins:
+            if entry.plugin_id in entries:
+                raise ValueError(f"Duplicate plugin id in registry: {entry.plugin_id}")
+            entries[entry.plugin_id] = entry
+        return entries
+
+    async def _expected_registry_snapshot(
+        self,
+        expected_fingerprint: str,
+        *,
+        workflow_budget: PluginDependencyWorkflowBudget,
+    ) -> PluginRegistrySnapshot:
+        snapshot = await self._registry_client.fetch_snapshot(
+            deadline_monotonic=workflow_budget.deadline_monotonic,
+        )
+        self.assert_expected_registry_fingerprint(snapshot, expected_fingerprint)
+        return snapshot
+
+    async def _assert_registry_snapshot_current(
+        self,
+        expected_fingerprint: str,
+        *,
+        workflow_budget: PluginDependencyWorkflowBudget,
+    ) -> None:
+        snapshot = await self._registry_client.fetch_snapshot(
+            deadline_monotonic=workflow_budget.deadline_monotonic,
+        )
+        self.assert_expected_registry_fingerprint(snapshot, expected_fingerprint)
+
+    @staticmethod
+    def assert_expected_registry_fingerprint(
+        snapshot: PluginRegistrySnapshot,
+        expected_fingerprint: str,
+    ) -> None:
+        if snapshot.install_fingerprint != expected_fingerprint:
+            raise PluginRegistrySnapshotMismatchError("Plugin registry changed after approval")
+
+    def _assert_installed_library_reusable(
+        self,
+        entry: PluginRegistryEntry,
+        *,
+        snapshot: PluginRegistrySnapshot,
+        entries_by_id: dict[str, PluginRegistryEntry],
+    ) -> None:
+        raw_configured = get_config().plugins.packages.get(entry.plugin_id)
+        configured = (
+            PluginSettings.model_validate(raw_configured) if raw_configured is not None else None
+        )
+        state = (
+            self._plugin_manager.get_package(entry.plugin_id)
+            if self._plugin_manager is not None
+            else None
+        )
+        if configured is None or state is None:
+            raise PluginDependencyConflictError(
+                f"Installed dependency {entry.plugin_id} must be removed and reinstalled"
+            )
+
+        expected_entry_fingerprint = registry_entry_fingerprint(
+            entry,
+            registry_url=snapshot.registry_url,
+            repo_url=snapshot.repo_url,
+        )
+        expected_dependency_fingerprints = {
+            dependency_id: registry_entry_fingerprint(
+                self._fetch_registry_entry(entries_by_id, dependency_id),
+                registry_url=snapshot.registry_url,
+                repo_url=snapshot.repo_url,
+            )
+            for dependency_id in entry.depends_on
+        }
+        manifest = state.manifest
+        valid = (
+            manifest.kind == "library"
+            and state.enabled
+            and state.trusted
+            and configured.enabled
+            and configured.trusted
+            and configured.install_origin == "registry"
+            and configured.registry_source == snapshot.registry_url
+            and configured.registry_repo_url == snapshot.repo_url
+            and configured.registry_entry_fingerprint == expected_entry_fingerprint
+            and configured.dependency_entry_fingerprints == expected_dependency_fingerprints
+            and configured.registry_manifest_fingerprint == plugin_manifest_fingerprint(manifest)
+        )
+        if valid:
+            try:
+                validate_registry_package(entry, manifest)
+            except ValueError:
+                valid = False
+        if not valid:
+            raise PluginDependencyConflictError(
+                f"Installed dependency {entry.plugin_id} does not match the approved registry "
+                "package; uninstall it before retrying"
+            )
 
     def _installed_plugin_ids(self) -> set[str]:
         manager = self._plugin_manager
@@ -266,69 +610,119 @@ class PluginInstallService:
         return self._plugin_manager
 
     @staticmethod
-    def _persist_registry_metadata(entry: PluginRegistryEntry) -> None:
-        updates = {
-            f"plugins.packages.{entry.plugin_id}.official": bool(entry.official),
-            f"plugins.packages.{entry.plugin_id}.consented_capabilities": [
-                capability.model_dump() for capability in entry.capabilities
-            ],
-        }
-        save_config(updates)
+    def _resolve_admission(
+        plugin_id: str,
+        supplied: PluginInstallAdmissionLease | None,
+    ) -> tuple[PluginInstallAdmissionLease, bool]:
+        if supplied is not None:
+            if supplied.plugin_id != plugin_id:
+                raise ValueError("Plugin install admission does not match the requested package")
+            return supplied, False
+        return plugin_install_admission.acquire(plugin_id), True
 
 
-def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> PluginPackageState:
-    """Install plugin files without a running PluginManager."""
-
+def _validate_registry_package_directory(
+    source_dir: Path,
+    entry: PluginRegistryEntry,
+) -> PluginManifest:
     manifest_file = package_files.find_plugin_manifest_in_tree(source_dir)
     if manifest_file is None:
-        raise ValueError("Directory does not contain a plugin.toml")
+        raise ValueError("Registry package does not contain a plugin.toml")
+    manifest = load_plugin_manifest(manifest_file, source="external")
+    validate_registry_package(entry, manifest)
+    return manifest
 
-    plugin_source = manifest_file.parent
-    source_manifest = load_plugin_manifest(manifest_file, source="external")
-    user_root = package_files.user_plugins_root()
-    user_root.mkdir(parents=True, exist_ok=True)
-    dest_dir = user_root / entry.plugin_id
-    package_files.replace_plugin_directory(plugin_source, dest_dir)
 
-    is_library = entry.kind == "library"
-    package_config: dict[str, Any] = {"enabled": True}
-    if is_library:
-        package_config["trusted"] = True
-    package_config["official"] = bool(entry.official)
-    package_config["consented_capabilities"] = [
-        capability.model_dump() for capability in entry.capabilities
-    ]
-    save_config({f"plugins.packages.{entry.plugin_id}": package_config})
+def validate_registry_package(
+    entry: PluginRegistryEntry,
+    manifest: PluginManifest,
+) -> None:
+    """Bind every shared registry declaration to the extracted manifest."""
 
-    contribution_types: list[ContributionType] = []
-    for raw_type in entry.contribution_types:
-        try:
-            contribution_types.append(ContributionType(raw_type))
-        except ValueError:
-            continue
-
-    return PluginPackageState(
-        manifest=PluginManifest(
-            id=entry.plugin_id,
-            name=entry.name,
-            version=entry.version,
-            description=entry.description,
-            author=entry.author,
-            icon=source_manifest.icon,
-            official=entry.official,
-            kind=entry.kind,
-            contribution_types=contribution_types,
-            depends_on=list(entry.depends_on),
-            platforms=entry.platforms,
-            plugin_dir=str(dest_dir),
-            source="external",
-            permissions=PluginPermissions(capabilities=list(entry.capabilities)),
+    expected: dict[str, Any] = {
+        "plugin_id": entry.plugin_id,
+        "name": entry.name,
+        "name_i18n": entry.name_i18n,
+        "version": entry.version,
+        "description": entry.description,
+        "description_i18n": entry.description_i18n,
+        "author": entry.author,
+        "icon": entry.icon,
+        "data_locality": entry.data_locality,
+        "kind": entry.kind,
+        "contribution_types": list(entry.contribution_types),
+        "depends_on": list(entry.depends_on),
+        "platforms": list(entry.platforms),
+        "min_sdk_version": entry.min_sdk_version,
+        "homepage": entry.homepage,
+        "repository": entry.repository,
+        "suggestion_descriptor": (
+            entry.suggestion_descriptor.model_dump(mode="json")
+            if entry.suggestion_descriptor is not None
+            else None
         ),
-        enabled=True,
-        trusted=is_library,
-        loaded=False,
-        healthy=True,
-    )
+        "capabilities": [capability.model_dump(mode="json") for capability in entry.capabilities],
+        "display_group": (
+            entry.display_group.model_dump(mode="json") if entry.display_group is not None else None
+        ),
+    }
+    actual: dict[str, Any] = {
+        "plugin_id": manifest.plugin_id,
+        "name": manifest.name,
+        "name_i18n": manifest.name_i18n,
+        "version": manifest.version,
+        "description": manifest.description,
+        "description_i18n": manifest.description_i18n,
+        "author": manifest.author,
+        "icon": manifest.icon,
+        "data_locality": manifest.data_locality
+        or (
+            manifest.suggestion_descriptor.data_locality
+            if manifest.suggestion_descriptor is not None
+            else ""
+        ),
+        "kind": manifest.kind,
+        "contribution_types": [
+            contribution_type.value for contribution_type in manifest.contribution_types
+        ],
+        "depends_on": list(manifest.depends_on),
+        "platforms": list(manifest.platforms),
+        "min_sdk_version": manifest.min_sdk_version,
+        "homepage": manifest.homepage,
+        "repository": manifest.repository,
+        "suggestion_descriptor": (
+            manifest.suggestion_descriptor.model_dump(mode="json")
+            if manifest.suggestion_descriptor is not None
+            else None
+        ),
+        "capabilities": [
+            capability.model_dump(mode="json") for capability in manifest.capabilities
+        ],
+        "display_group": (
+            manifest.display_group.model_dump(mode="json")
+            if manifest.display_group is not None
+            else None
+        ),
+    }
+    comparable_fields = set(expected)
+    for registry_optional_field in {
+        "min_sdk_version",
+        "homepage",
+        "repository",
+    }:
+        if registry_optional_field not in entry.model_fields_set:
+            comparable_fields.discard(registry_optional_field)
+
+    mismatched_fields = [
+        field_name
+        for field_name in expected
+        if field_name in comparable_fields and actual[field_name] != expected[field_name]
+    ]
+    if mismatched_fields:
+        raise ValueError(
+            "Registry package manifest does not match its index entry: "
+            + ", ".join(mismatched_fields)
+        )
 
 
 def _approval_manifest_payload(manifest: PluginManifest) -> dict[str, Any]:

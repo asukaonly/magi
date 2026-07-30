@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 import zipfile
 
 import pytest
@@ -21,9 +22,15 @@ def _write_archive(
     plugin_id: str = "archive-policy-test",
     version: str = "1.0.0",
     marker: str = "original",
+    depends_on: list[str] | None = None,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     archive_path = root / f"{plugin_id}-{version}.zip"
+    dependencies_line = (
+        "\ndepends_on = [" + ", ".join(f'"{dependency_id}"' for dependency_id in depends_on) + "]"
+        if depends_on
+        else ""
+    )
     manifest = f"""
 [plugin]
 id = "{plugin_id}"
@@ -32,6 +39,7 @@ version = "{version}"
 entry_module = "plugin"
 entry_class = "ArchivePolicyPlugin"
 contribution_types = ["tool"]
+{dependencies_line}
 
 [[plugin.permissions.capabilities]]
 capability = "network"
@@ -112,13 +120,19 @@ def test_archive_install_commits_reviewed_state_as_disabled(
     staged_paths: list[Path] = []
     install_staged_dependencies = manager._install_staged_dependencies
 
-    def record_staging_path(staged_dir: Path, *, progress_reporter) -> None:
+    def record_staging_path(
+        staged_dir: Path,
+        *,
+        progress_reporter,
+        workflow_budget=None,
+    ) -> None:
         staged_paths.append(staged_dir)
         assert staged_dir.parent == user_root.parent
         assert not staged_dir.is_relative_to(user_root)
         install_staged_dependencies(
             staged_dir,
             progress_reporter=progress_reporter,
+            workflow_budget=workflow_budget,
         )
 
     def persist_before_publish(updates: dict[str, object]) -> bool:
@@ -297,3 +311,88 @@ def test_archive_install_rejects_host_reserved_package_ids(
         )
 
     assert not (user_root / "calendar").exists()
+
+
+def test_archive_install_rejects_unbound_package_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "plugins"
+    archive_path = _write_archive(
+        tmp_path / "archives",
+        plugin_id="dependent-archive",
+        depends_on=["shared-library"],
+    )
+    config = AppConfig()
+    _patch_config(monkeypatch, config)
+    monkeypatch.setattr(package_files, "user_plugins_root", lambda: user_root)
+    manager = _manager(user_root)
+
+    with pytest.raises(ValueError, match="installed from the marketplace"):
+        manager.install_plugin_from_archive(
+            archive_path,
+            consented_capabilities=[],
+        )
+
+    assert manager.get_package("dependent-archive") is None
+    assert "dependent-archive" not in config.plugins.packages
+    assert not (user_root / "dependent-archive").exists()
+
+
+def test_archive_preparation_does_not_hold_the_lifecycle_lock(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "plugins"
+    archive_path = _write_archive(tmp_path / "archives")
+    config = AppConfig()
+    _patch_config(monkeypatch, config)
+    monkeypatch.setattr(package_files, "user_plugins_root", lambda: user_root)
+    manager = _manager(user_root)
+    preparation_started = threading.Event()
+    release_preparation = threading.Event()
+    rescan_finished = threading.Event()
+    install_errors: list[BaseException] = []
+
+    def block_preparation(
+        _staged_dir: Path,
+        *,
+        progress_reporter,
+        workflow_budget=None,
+    ) -> None:
+        _ = progress_reporter, workflow_budget
+        preparation_started.set()
+        if not release_preparation.wait(timeout=5):
+            raise TimeoutError("Timed out waiting to release plugin preparation")
+
+    def install() -> None:
+        try:
+            manager.install_plugin_from_archive(
+                archive_path,
+                consented_capabilities=[
+                    PluginCapability(capability="network", scope=["example.com"])
+                ],
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            install_errors.append(exc)
+
+    monkeypatch.setattr(manager, "_install_staged_dependencies", block_preparation)
+    install_thread = threading.Thread(target=install, daemon=True)
+    install_thread.start()
+    assert preparation_started.wait(timeout=5)
+
+    rescan_thread = threading.Thread(
+        target=lambda: (manager.rescan_runtime(), rescan_finished.set()),
+        daemon=True,
+    )
+    rescan_thread.start()
+
+    assert rescan_finished.wait(timeout=0.5)
+    release_preparation.set()
+    install_thread.join(timeout=5)
+    rescan_thread.join(timeout=5)
+
+    assert install_thread.is_alive() is False
+    assert rescan_thread.is_alive() is False
+    assert install_errors == []
+    assert manager.get_package("archive-policy-test") is not None

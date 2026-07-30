@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 from pathlib import Path
+import threading
 import zipfile
 
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile
 from fastapi.testclient import TestClient
+import pytest
 
 from magi.api.routers import plugins_install_routes
+from magi.api.routers.plugins_install_jobs import (
+    PluginInstallJobCapacityError,
+    PluginInstallJobConflictError,
+)
 from magi.api.routers.plugins import plugins_router
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
-from magi.config.models import AppConfig
 from magi.plugins.install_candidates import PluginInstallCandidateStore
 from magi.plugins.manager import PluginManager
 
@@ -21,8 +27,14 @@ def _archive_bytes(
     plugin_id: str = "demo-plugin",
     kind: str = "plugin",
     with_icon: bool = False,
+    depends_on: list[str] | None = None,
 ) -> bytes:
     icon_line = 'icon = "asset:assets/icon.png"\n' if with_icon else ""
+    dependencies_line = (
+        "depends_on = [" + ", ".join(f'"{dependency_id}"' for dependency_id in depends_on) + "]\n"
+        if depends_on
+        else ""
+    )
     manifest = (
         "[plugin]\n"
         f'id = "{plugin_id}"\n'
@@ -32,6 +44,7 @@ def _archive_bytes(
         'entry_class = "DemoPlugin"\n'
         f'kind = "{kind}"\n'
         f"{icon_line}"
+        f"{dependencies_line}"
         "\n"
         "[[plugin.permissions.capabilities]]\n"
         'capability = "network"\n'
@@ -54,6 +67,7 @@ def _client(
 ) -> tuple[TestClient, PluginInstallCandidateStore]:
     store = PluginInstallCandidateStore(tmp_path / "candidates")
     manager = PluginManager.__new__(PluginManager)
+    manager._lifecycle_write_lock = threading.RLock()
     manager._package_states = (
         {installed_plugin_id: object()} if installed_plugin_id is not None else {}
     )
@@ -62,7 +76,6 @@ def _client(
         "get_plugin_install_candidate_store",
         lambda: store,
     )
-    monkeypatch.setattr(plugins_install_routes, "get_config", lambda: AppConfig())
     monkeypatch.setattr(plugins_install_routes, "_require_plugin_manager", lambda: manager)
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
@@ -92,6 +105,69 @@ def test_candidate_upload_uses_server_owned_path_and_returns_digest(monkeypatch,
     assert outside.read_bytes() == b"keep"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pause_phase", ["before_register", "after_register"])
+async def test_cancelled_candidate_upload_cleans_slow_registration(
+    monkeypatch,
+    tmp_path,
+    pause_phase,
+) -> None:
+    store = PluginInstallCandidateStore(tmp_path / f"candidates-{pause_phase}")
+    manager = PluginManager.__new__(PluginManager)
+    manager._lifecycle_write_lock = threading.RLock()
+    manager._package_states = {}
+    original_register = store.register
+    register_paused = threading.Event()
+    release_register = threading.Event()
+    register_finished = threading.Event()
+
+    def slow_register(**kwargs):
+        try:
+            if pause_phase == "before_register":
+                register_paused.set()
+                assert release_register.wait(timeout=5)
+            candidate = original_register(**kwargs)
+            if pause_phase == "after_register":
+                register_paused.set()
+                assert release_register.wait(timeout=5)
+            return candidate
+        finally:
+            register_finished.set()
+
+    monkeypatch.setattr(
+        plugins_install_routes,
+        "get_plugin_install_candidate_store",
+        lambda: store,
+    )
+    monkeypatch.setattr(
+        plugins_install_routes,
+        "_require_plugin_manager",
+        lambda: manager,
+    )
+    monkeypatch.setattr(store, "register", slow_register)
+    upload = UploadFile(
+        filename="demo.zip",
+        file=io.BytesIO(_archive_bytes()),
+    )
+    request_task = asyncio.create_task(
+        plugins_install_routes.create_plugin_install_candidate(upload)
+    )
+
+    try:
+        assert await asyncio.to_thread(register_paused.wait, 2)
+        request_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request_task
+    finally:
+        release_register.set()
+
+    assert await asyncio.to_thread(register_finished.wait, 2)
+    assert store._records == {}
+    assert store._reserved_until == {}
+    assert list(store.root_dir.iterdir()) == []
+    assert upload.file.closed
+
+
 def test_candidate_upload_rejects_oversized_content_and_cleans_files(
     monkeypatch,
     tmp_path,
@@ -117,6 +193,33 @@ def test_candidate_upload_rejects_direct_library_package(monkeypatch, tmp_path):
     )
 
     assert response.status_code == 400
+    assert list(store.root_dir.iterdir()) == []
+
+
+def test_candidate_upload_rejects_unbound_package_dependencies(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    client, store = _client(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        plugins_install_routes.core_i18n,
+        "t",
+        lambda key, **_kwargs: key,
+    )
+
+    response = client.post(
+        "/api/plugins/install/candidates",
+        files={
+            "file": (
+                "dependent.zip",
+                _archive_bytes(depends_on=["shared-library"]),
+                "application/zip",
+            )
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "plugins.errors.sideload_dependencies_unsupported"
     assert list(store.root_dir.iterdir()) == []
 
 
@@ -148,7 +251,7 @@ def test_candidate_upload_cannot_replace_an_installed_plugin(monkeypatch, tmp_pa
     assert list(store.root_dir.iterdir()) == []
 
 
-def test_candidate_upload_cannot_claim_a_host_reserved_plugin_id(monkeypatch, tmp_path):
+def test_candidate_upload_ignores_orphaned_default_config(monkeypatch, tmp_path):
     client, store = _client(monkeypatch, tmp_path)
 
     response = client.post(
@@ -162,8 +265,8 @@ def test_candidate_upload_cannot_claim_a_host_reserved_plugin_id(monkeypatch, tm
         },
     )
 
-    assert response.status_code == 409
-    assert list(store.root_dir.iterdir()) == []
+    assert response.status_code == 200
+    assert response.json()["manifest"]["plugin_id"] == "calendar"
 
 
 def test_candidate_upload_returns_busy_when_candidate_limit_is_full(
@@ -201,7 +304,7 @@ def test_candidate_approval_binds_id_and_digest(monkeypatch, tmp_path):
     captured: dict[str, str] = {}
 
     class _FakeJobs:
-        def start_candidate_install(self, candidate_id: str, *, expected_sha256: str):
+        async def start_candidate_install(self, candidate_id: str, *, expected_sha256: str):
             captured.update(
                 candidate_id=candidate_id,
                 expected_sha256=expected_sha256,
@@ -233,6 +336,51 @@ def test_candidate_approval_binds_id_and_digest(monkeypatch, tmp_path):
         "candidate_id": "candidate-1",
         "expected_sha256": digest,
     }
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_status", "expected_key"),
+    [
+        (
+            PluginInstallJobCapacityError("internal capacity detail"),
+            429,
+            "plugins.errors.install_job_capacity",
+        ),
+        (
+            PluginInstallJobConflictError("internal conflict detail"),
+            409,
+            "plugins.errors.install_job_conflict",
+        ),
+    ],
+)
+def test_candidate_job_admission_uses_stable_localized_errors(
+    monkeypatch,
+    tmp_path,
+    error,
+    expected_status,
+    expected_key,
+):
+    client, _store = _client(monkeypatch, tmp_path)
+
+    class _FakeJobs:
+        async def start_candidate_install(self, _candidate_id: str, *, expected_sha256: str):
+            _ = expected_sha256
+            raise error
+
+    monkeypatch.setattr(plugins_install_routes, "plugin_install_jobs", _FakeJobs())
+    monkeypatch.setattr(
+        plugins_install_routes.core_i18n,
+        "t",
+        lambda key, **_kwargs: key,
+    )
+
+    response = client.post(
+        "/api/plugins/install/candidates/candidate-1/jobs",
+        json={"expected_sha256": "a" * 64},
+    )
+
+    assert response.status_code == expected_status
+    assert response.json()["detail"] == expected_key
 
 
 def test_public_router_only_exposes_candidate_upload_flow():

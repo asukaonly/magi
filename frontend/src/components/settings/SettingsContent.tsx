@@ -92,6 +92,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     plugins,
     pluginsLoading,
     pluginRegistryEntries,
+    pluginRegistryFingerprint,
     pluginProcessingIds,
     reloadingActionPlugins,
     draftPluginDrafts,
@@ -143,11 +144,12 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     return buildTimelineAvailableEntries(
       pluginRegistryEntries,
       installedPluginIds,
-      i18n?.language ?? 'zh-CN'
+      i18n?.language ?? 'zh-CN',
+      pluginRegistryFingerprint,
     ).filter((entry) =>
       timelineStatuses.some((source) => getTimelineCapabilityId(source) === entry.capabilityId)
     );
-  }, [i18n?.language, pluginRegistryEntries, plugins, timelineStatuses]);
+  }, [i18n?.language, pluginRegistryEntries, pluginRegistryFingerprint, plugins, timelineStatuses]);
 
   const channelContributions = useMemo(() =>
     plugins.flatMap((plugin) =>

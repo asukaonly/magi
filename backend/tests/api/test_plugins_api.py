@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import httpx
+import pytest
 
 from magi.api.routers.plugins_common import _serialize_contribution
 from magi.api.routers.plugins import plugins_router
@@ -107,7 +112,9 @@ class _FakeManager:
             },
         }
 
-    async def start_plugin_settings_action(self, plugin_id: str, action_id: str, *, field_values=None):
+    async def start_plugin_settings_action(
+        self, plugin_id: str, action_id: str, *, field_values=None
+    ):
         self.calls.append(f"start_action:{plugin_id}:{action_id}:{field_values or {}}")
         result = type(
             "PluginSettingsActionResult",
@@ -121,7 +128,9 @@ class _FakeManager:
         )()
         return type("PluginSettingsActionRun", (), {"session_id": "session-1", "result": result})()
 
-    async def poll_plugin_settings_action(self, plugin_id: str, action_id: str, *, session_id: str, field_values=None):
+    async def poll_plugin_settings_action(
+        self, plugin_id: str, action_id: str, *, session_id: str, field_values=None
+    ):
         self.calls.append(f"poll_action:{plugin_id}:{action_id}:{session_id}:{field_values or {}}")
         result = type(
             "PluginSettingsActionResult",
@@ -135,7 +144,9 @@ class _FakeManager:
         )()
         return type("PluginSettingsActionRun", (), {"session_id": session_id, "result": result})()
 
-    async def cancel_plugin_settings_action(self, plugin_id: str, action_id: str, *, session_id: str):
+    async def cancel_plugin_settings_action(
+        self, plugin_id: str, action_id: str, *, session_id: str
+    ):
         self.calls.append(f"cancel_action:{plugin_id}:{action_id}:{session_id}")
         result = type(
             "PluginSettingsActionResult",
@@ -159,13 +170,58 @@ class _FakeRuntimeQueue:
         return len(self.refresh_channel_reasons)
 
 
+@pytest.mark.parametrize(
+    "plugin_id",
+    [
+        "",
+        "a" * 65,
+        "Uppercase",
+        "../escape",
+    ],
+)
+def test_registry_install_rejects_invalid_plugin_id_before_work(
+    plugin_id: str,
+) -> None:
+    app = FastAPI()
+    app.include_router(plugins_router, prefix="/api/plugins")
+
+    response = TestClient(app).post(
+        "/api/plugins/install/registry",
+        json={
+            "plugin_id": plugin_id,
+            "expected_fingerprint": "a" * 64,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("suffix", ["update", "update/jobs"])
+@pytest.mark.parametrize("plugin_id", ["Uppercase", "a" * 65])
+def test_registry_update_rejects_invalid_plugin_id_before_work(
+    plugin_id: str,
+    suffix: str,
+) -> None:
+    app = FastAPI()
+    app.include_router(plugins_router, prefix="/api/plugins")
+
+    response = TestClient(app).post(
+        f"/api/plugins/{plugin_id}/{suffix}",
+        json={"expected_fingerprint": "a" * 64},
+    )
+
+    assert response.status_code == 422
+
+
 def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
     queue = _FakeRuntimeQueue()
     monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
-    monkeypatch.setattr("magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(
+        "magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue
+    )
     client = TestClient(app)
 
     response = client.get("/api/plugins")
@@ -173,7 +229,9 @@ def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     assert response.json()["plugins"][0]["manifest"]["plugin_id"] == "core-tools"
     assert response.json()["plugins"][0]["manifest"]["icon"] == "lucide:wrench"
 
-    update_response = client.put("/api/plugins/core-tools/settings", json={"updates": {"display.label": "Core"}})
+    update_response = client.put(
+        "/api/plugins/core-tools/settings", json={"updates": {"display.label": "Core"}}
+    )
     assert update_response.status_code == 200
     assert update_response.json()["current_settings"]["display.label"] == "Core"
     assert queue.refresh_channel_reasons == ["plugin_core-tools_settings_updated"]
@@ -207,7 +265,9 @@ def test_plugins_api_supports_enable_disable_reload_rescan_and_settings(monkeypa
     manager = _FakeManager()
     queue = _FakeRuntimeQueue()
     monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
-    monkeypatch.setattr("magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(
+        "magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue
+    )
     client = TestClient(app)
 
     disable_response = client.post("/api/plugins/core-tools/disable")
@@ -248,6 +308,56 @@ def test_plugins_api_supports_enable_disable_reload_rescan_and_settings(monkeypa
     ]
 
 
+@pytest.mark.asyncio
+async def test_plugin_lifecycle_route_does_not_block_the_event_loop(
+    monkeypatch,
+) -> None:
+    app = FastAPI()
+    app.include_router(plugins_router, prefix="/api/plugins")
+    operation_started = threading.Event()
+    release_operation = threading.Event()
+
+    class _BlockingManager(_FakeManager):
+        def enable_plugin(self, plugin_id: str):
+            operation_started.set()
+            if not release_operation.wait(timeout=2):
+                raise TimeoutError("Timed out waiting to release plugin lifecycle operation")
+            return super().enable_plugin(plugin_id)
+
+    manager = _BlockingManager()
+    queue = _FakeRuntimeQueue()
+    monkeypatch.setattr(
+        "magi.api.routers.plugins_common.resolve_plugin_manager",
+        lambda: manager,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.plugins_core_routes.require_runtime_command_queue",
+        lambda: queue,
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        request_task = asyncio.create_task(client.post("/api/plugins/core-tools/enable"))
+        deadline = asyncio.get_running_loop().time() + 1
+        while not operation_started.is_set():
+            assert asyncio.get_running_loop().time() < deadline
+            await asyncio.sleep(0.01)
+
+        heartbeat_started = asyncio.get_running_loop().time()
+        await asyncio.sleep(0.02)
+        heartbeat_elapsed = asyncio.get_running_loop().time() - heartbeat_started
+        assert heartbeat_elapsed < 0.2
+
+        release_operation.set()
+        response = await request_task
+
+    assert response.status_code == 200
+    assert queue.refresh_channel_reasons == ["plugin_core-tools_enabled"]
+
+
 def test_plugins_api_reads_plugin_settings_resources(monkeypatch):
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
@@ -279,7 +389,9 @@ def test_plugins_api_runs_plugin_settings_actions(monkeypatch):
     manager = _FakeManager()
     queue = _FakeRuntimeQueue()
     monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
-    monkeypatch.setattr("magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(
+        "magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue
+    )
     client = TestClient(app)
 
     start_response = client.post(

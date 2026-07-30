@@ -66,9 +66,7 @@ def test_manifest_rejects_invalid_dependency_identifier(dependency_id: str) -> N
         ("entry_class", "None"),
     ],
 )
-def test_manifest_rejects_non_identifier_entrypoints(
-    field_name: str, value: str
-) -> None:
+def test_manifest_rejects_non_identifier_entrypoints(field_name: str, value: str) -> None:
     payload = {
         "id": "example",
         "name": "Example",
@@ -95,3 +93,17 @@ def test_registry_entry_uses_the_same_identifier_contract() -> None:
             version="1.0.0",
             depends_on=["BadDependency"],
         )
+
+
+@pytest.mark.parametrize("model", [PluginManifest, PluginRegistryEntry])
+def test_package_rejects_more_than_eight_direct_dependencies(model) -> None:
+    payload = {
+        "name": "Example",
+        "version": "1.0.0",
+        "depends_on": [f"library-{index}" for index in range(9)],
+    }
+    identifier_field = "id" if model is PluginManifest else "plugin_id"
+    payload[identifier_field] = "example"
+
+    with pytest.raises(ValidationError):
+        model.model_validate(payload)

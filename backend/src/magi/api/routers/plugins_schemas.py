@@ -6,7 +6,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from ...plugins.contracts import PluginCapability, PluginDisplayGroupSpec
+from ...plugins.contracts import (
+    PluginCapability,
+    PluginDisplayGroupSpec,
+    PluginIdentifier,
+)
 
 
 class PluginSettingsUpdateRequest(BaseModel):
@@ -100,10 +104,16 @@ class PluginRegistryEntryResponse(BaseModel):
 class PluginRegistryResponse(BaseModel):
     plugins: list[PluginRegistryEntryResponse] = Field(default_factory=list)
     registry_version: str = "1"
+    install_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class PluginInstallRequest(BaseModel):
-    plugin_id: str
+    plugin_id: PluginIdentifier
+    expected_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class PluginRegistryApprovalRequest(BaseModel):
+    expected_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class PluginInstallCandidateApprovalRequest(BaseModel):
@@ -134,6 +144,7 @@ class PluginInstallJobSnapshot(BaseModel):
     progress_pct: float = 0.0
     message: str
     error: str | None = None
+    error_code: str | None = None
     logs: list[PluginInstallLogEntry] = Field(default_factory=list)
     result: PluginPackageResponse | None = None
     created_at_ms: int
@@ -163,6 +174,7 @@ __all__ = [
     "PluginManifestResponse",
     "PluginPackageResponse",
     "PluginRegistryEntryResponse",
+    "PluginRegistryApprovalRequest",
     "PluginRegistryResponse",
     "PluginSettingsActionRequest",
     "PluginSettingsActionRunResponse",
