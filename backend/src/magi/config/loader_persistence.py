@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import os
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
+from uuid import uuid4
 
 from .diff_utils import deep_merge_dict, extract_dict_overrides
 from .models import AppConfig
@@ -22,6 +24,12 @@ class _ConfigSaveWorkspace:
     lifecycle_payload: Dict[str, Any]
     plugins_index: Dict[str, Any]
     plugin_settings_updates: Dict[str, Dict[str, Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class _FileSnapshot:
+    exists: bool
+    content: bytes
 
 
 class ConfigLoaderPersistenceMixin:
@@ -66,14 +74,14 @@ class ConfigLoaderPersistenceMixin:
         raw_packages = plugins_index.get("packages", {}) if isinstance(plugins_index, dict) else {}
         packages = deepcopy(raw_packages) if isinstance(raw_packages, dict) else {}
 
-        seen_plugin_ids: set[str] = set(packages)
-        for plugin_file in sorted(self._plugins_config_dir().glob("*.yaml")):
-            if plugin_file.name == "index.yaml":
+        for plugin_id, raw_package_entry in list(packages.items()):
+            if not isinstance(raw_package_entry, dict):
                 continue
-            plugin_id = plugin_file.stem
-            seen_plugin_ids.add(plugin_id)
+            plugin_file = self._indexed_plugin_settings_file(plugin_id)
+            if plugin_file is None:
+                raise ValueError(f"Unsafe plugin settings path for {plugin_id}")
             package_entry = dict(packages.get(plugin_id, {}))
-            settings_data = self._load_yaml_file(plugin_file)
+            settings_data = self._load_yaml_file(plugin_file) if plugin_file.is_file() else {}
             updates = plugin_settings_updates.get(plugin_id)
             package_entry["settings"] = (
                 self._apply_plugin_settings_updates_to_data(plugin_id, settings_data, updates)
@@ -82,14 +90,10 @@ class ConfigLoaderPersistenceMixin:
             )
             packages[plugin_id] = package_entry
 
-        for plugin_id, updates in plugin_settings_updates.items():
-            if plugin_id in seen_plugin_ids:
-                continue
-            package_entry = dict(packages.get(plugin_id, {}))
-            package_entry["settings"] = self._apply_plugin_settings_updates_to_data(
-                plugin_id, {}, updates
-            )
-            packages[plugin_id] = package_entry
+        unknown_settings_updates = set(plugin_settings_updates).difference(packages)
+        if unknown_settings_updates:
+            unknown_list = ", ".join(sorted(unknown_settings_updates))
+            raise ValueError(f"Cannot save settings for unindexed plugins: {unknown_list}")
 
         if packages:
             plugins_node["packages"] = packages
@@ -193,7 +197,9 @@ class ConfigLoaderPersistenceMixin:
         plugin_settings_updates: Dict[str, Dict[str, Any]],
     ) -> None:
         for plugin_id, plugin_updates in plugin_settings_updates.items():
-            plugin_file = self._plugin_settings_file(plugin_id)
+            plugin_file = self._indexed_plugin_settings_file(plugin_id)
+            if plugin_file is None:
+                raise ValueError(f"Unsafe plugin settings path for {plugin_id}")
             plugin_yaml = self._load_yaml_file(plugin_file)
             plugin_yaml = self._apply_plugin_settings_updates_to_data(
                 plugin_id,
@@ -201,6 +207,136 @@ class ConfigLoaderPersistenceMixin:
                 plugin_updates,
             )
             self._write_yaml_file(plugin_file, plugin_yaml)
+
+    @staticmethod
+    def _snapshot_file(path: Path) -> _FileSnapshot:
+        if not path.exists():
+            return _FileSnapshot(exists=False, content=b"")
+        return _FileSnapshot(exists=True, content=path.read_bytes())
+
+    @staticmethod
+    def _restore_file(path: Path, snapshot: _FileSnapshot) -> None:
+        if not snapshot.exists:
+            path.unlink(missing_ok=True)
+            return
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rollback_path = path.with_name(f".{path.name}.{uuid4().hex}.rollback")
+        try:
+            with rollback_path.open("wb") as handle:
+                handle.write(snapshot.content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(rollback_path, path)
+        finally:
+            rollback_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _remove_plugin_settings_file(path: Path) -> None:
+        path.unlink(missing_ok=True)
+
+    def _rollback_plugin_package_delete(
+        self,
+        *,
+        index_snapshot: _FileSnapshot,
+        settings_file: Path,
+        settings_snapshot: _FileSnapshot,
+    ) -> None:
+        rollback_errors: list[str] = []
+        for path, snapshot in (
+            (self._plugins_index_file, index_snapshot),
+            (settings_file, settings_snapshot),
+        ):
+            try:
+                self._restore_file(path, snapshot)
+            except OSError as exc:
+                rollback_errors.append(f"{path}: {exc}")
+        if rollback_errors:
+            logger.critical(
+                "Plugin package config rollback incomplete | errors=%s",
+                rollback_errors,
+            )
+
+    def delete_plugin_package(self, plugin_id: str) -> bool:
+        """Delete a user-installed package entry and its settings atomically."""
+        with self._persistence_lock:
+            return self._delete_plugin_package(plugin_id)
+
+    def _delete_plugin_package(self, plugin_id: str) -> bool:
+        """Delete a user-installed package entry and its settings atomically.
+
+        Builtin package defaults cannot be removed through this operation.
+        The index is updated first, so an unexpected process exit cannot let
+        an orphaned settings file recreate the package.
+        """
+        index_snapshot: _FileSnapshot | None = None
+        settings_snapshot: _FileSnapshot | None = None
+        settings_file: Path | None = None
+
+        try:
+            index_data = self._load_yaml_file(self._plugins_index_file)
+            packages = index_data.get("packages")
+            if not isinstance(packages, dict) or plugin_id not in packages:
+                logger.warning(
+                    "Plugin package config not found | plugin_id=%s",
+                    plugin_id,
+                )
+                return False
+
+            package_entry = packages[plugin_id]
+            builtin_packages = self._default_plugin_index_data().get("packages", {})
+            if plugin_id in builtin_packages or (
+                isinstance(package_entry, dict) and package_entry.get("source") == "builtin"
+            ):
+                logger.warning(
+                    "Builtin plugin package config cannot be deleted | plugin_id=%s",
+                    plugin_id,
+                )
+                return False
+
+            settings_file = self._indexed_plugin_settings_file(plugin_id)
+            if settings_file is None:
+                return False
+
+            index_snapshot = self._snapshot_file(self._plugins_index_file)
+            settings_snapshot = self._snapshot_file(settings_file)
+
+            updated_index = deepcopy(index_data)
+            updated_packages = updated_index.get("packages")
+            if not isinstance(updated_packages, dict):
+                return False
+            del updated_packages[plugin_id]
+
+            self._write_yaml_file(self._plugins_index_file, updated_index)
+            self._remove_plugin_settings_file(settings_file)
+
+            self._config = None
+            self._config_signature = None
+            self.load()
+            logger.info(
+                "Plugin package config deleted | plugin_id=%s",
+                plugin_id,
+            )
+            return True
+        except Exception as exc:
+            if (
+                index_snapshot is not None
+                and settings_snapshot is not None
+                and settings_file is not None
+            ):
+                self._rollback_plugin_package_delete(
+                    index_snapshot=index_snapshot,
+                    settings_file=settings_file,
+                    settings_snapshot=settings_snapshot,
+                )
+            self._config = None
+            self._config_signature = None
+            logger.error(
+                "Failed to delete plugin package config | plugin_id=%s | error=%s",
+                plugin_id,
+                exc,
+            )
+            return False
 
     def save(self, updates: Dict[str, Any]) -> bool:
         """
@@ -212,6 +348,11 @@ class ConfigLoaderPersistenceMixin:
         Returns:
             True if saved successfully
         """
+        with self._persistence_lock:
+            return self._save(updates)
+
+    def _save(self, updates: Dict[str, Any]) -> bool:
+        """Persist configuration updates while holding the persistence lock."""
         try:
             update_keys = sorted(updates.keys())
             logger.info("Configuration save requested | update_paths=%s", update_keys)

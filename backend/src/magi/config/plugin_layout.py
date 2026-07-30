@@ -41,6 +41,23 @@ class ConfigPluginLayoutMixin:
     def _plugin_settings_file(self, plugin_id: str) -> Path:
         raise NotImplementedError
 
+    def _indexed_plugin_settings_file(self, plugin_id: str) -> Path | None:
+        """Return a safe settings path for an index entry."""
+        plugins_root = self._plugins_config_dir().resolve()
+        settings_file = self._plugin_settings_file(plugin_id)
+        if (
+            settings_file.name == self._plugins_index_file.name
+            or settings_file.parent.resolve() != plugins_root
+            or settings_file.is_symlink()
+        ):
+            logger.error(
+                "Unsafe indexed plugin settings path ignored | plugin_id=%s | path=%s",
+                plugin_id,
+                settings_file,
+            )
+            return None
+        return settings_file
+
     def _default_plugin_index_data(self) -> Dict[str, Any]:
         """Return default plugin package metadata."""
         return {
@@ -216,7 +233,12 @@ class ConfigPluginLayoutMixin:
                 self._write_yaml_file(plugin_file, defaults)
 
     def _merge_split_plugin_config(self, agent_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Merge split plugin config files into a single config tree."""
+        """Merge indexed plugin config files into a single config tree.
+
+        The package index is authoritative for package existence. A settings
+        file without a matching package entry is ignored so a stale file from
+        an interrupted uninstall cannot recreate a removed plugin.
+        """
         merged = dict(agent_data)
         plugins_node = merged.setdefault("plugins", {})
         if not isinstance(plugins_node, dict):
@@ -225,10 +247,12 @@ class ConfigPluginLayoutMixin:
 
         index_data = self._merge_plugin_index_defaults(self._load_yaml_file(self._plugins_index_file))
         packages = dict(index_data.get("packages", {})) if isinstance(index_data, dict) else {}
-        for plugin_file in sorted(self._plugins_config_dir().glob("*.yaml")):
-            if plugin_file.name == "index.yaml":
+        for plugin_id, raw_package_entry in list(packages.items()):
+            if not isinstance(raw_package_entry, dict):
                 continue
-            plugin_id = plugin_file.stem
+            plugin_file = self._indexed_plugin_settings_file(plugin_id)
+            if plugin_file is None or not plugin_file.is_file():
+                continue
             package_entry = dict(packages.get(plugin_id, {}))
             package_entry["settings"] = self._load_yaml_file(plugin_file)
             packages[plugin_id] = package_entry

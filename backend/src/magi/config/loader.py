@@ -35,6 +35,7 @@ First Run:
 """
 import logging
 from pathlib import Path
+from threading import RLock
 from typing import Optional, Dict, Any, Tuple
 
 from .models import AppConfig
@@ -49,7 +50,6 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Paths
 # =============================================================================
-
 def get_magi_home() -> Path:
     """Get Magi home directory (~/.magi)"""
     return Path.home() / ".magi"
@@ -113,7 +113,6 @@ def get_data_dir() -> Path:
 # =============================================================================
 # Config Loader
 # =============================================================================
-
 class ConfigLoader(ConfigLoaderPersistenceMixin, ConfigLoaderFileOpsMixin, ConfigPluginLayoutMixin):
     """
     Runtime configuration loader.
@@ -133,6 +132,7 @@ class ConfigLoader(ConfigLoaderPersistenceMixin, ConfigLoaderFileOpsMixin, Confi
         self._lifecycle_example_config_file: Path = get_lifecycle_example_config_file()
         self._llm_provider_registry_file: Path = get_llm_provider_registry_file()
         self._plugins_index_file: Path = get_plugins_index_file()
+        self._persistence_lock = RLock()
 
     def load(self) -> AppConfig:
         """
@@ -235,6 +235,17 @@ def save_config(updates: Dict[str, Any]) -> bool:
         _loader.load()
 
     return _loader.save(updates)
+
+
+def delete_plugin_package(plugin_id: str) -> bool:
+    """Delete a user-installed plugin package from split runtime config."""
+    global _loader
+
+    if _loader is None:
+        _loader = ConfigLoader()
+        _loader.load()
+
+    return _loader.delete_plugin_package(plugin_id)
 
 
 def get_loader() -> Optional[ConfigLoader]:
