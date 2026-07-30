@@ -1097,6 +1097,32 @@ startup or reload. Concurrent installs that discover the same identical
 library reuse it without a second publication; a different identity is a
 conflict and never overwrites the library already in use.
 
+Before an install decides which packages are already present, it claims the
+complete library closure from the approved registry snapshot in dependency-first
+order. These process-wide in-flight claims include libraries that another
+workflow has just published. Workflows may share a claim only when the plugin
+id, registry URL, repository URL, and registry entry fingerprint are identical;
+any cross-source or cross-version identity conflict fails before package
+preparation begins. A runtime should have one active `PluginManager`; runtime
+replacement must cancel or drain install workflows before retiring the previous
+manager.
+
+If an install fails or is cancelled, rollback considers only libraries newly
+published by that in-flight claim group. The final claimant checks them in
+reverse dependency order and removes a library only when its frozen package
+generation, manifest, persisted provenance, and dependency fingerprints still
+match and no runtime or managed on-disk consumer exists. Normal runtime cache
+files do not change the package generation. If ownership, identity, configuration,
+or consumer state is stale or ambiguous, rollback keeps the library rather than
+risk deleting a package that another workflow now uses.
+
+Two lower-priority lifecycle gaps remain explicit:
+
+- a hard process crash can leave a provisional library behind because startup
+  orphan reconciliation is not implemented yet
+- a successful update that stops depending on an old library does not yet
+  garbage-collect that newly unused dependency automatically
+
 Uninstall treats libraries as shared, reference-counted packages. Removing a
 consumer recursively removes only now-orphaned libraries. Shared and diamond
 dependencies remain installed until their final consumer is gone, and cyclic

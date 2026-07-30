@@ -139,17 +139,29 @@ class ConcurrentPlugin(Plugin):
 
 
 class _InstallInterleaving:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        target_goal: int = 2,
+        hold_first_target: bool = False,
+    ) -> None:
         self.targets_ready = asyncio.Event()
         self.first_library_installed = asyncio.Event()
+        self.first_target_waiting = asyncio.Event()
+        self.allow_first_target = asyncio.Event()
         self.target_count = 0
+        self.target_goal = target_goal
+        self.hold_first_target = hold_first_target
         self.root_labels: dict[Path, str] = {}
 
     async def wait_before_returning_target(self, label: str) -> None:
         self.target_count += 1
-        if self.target_count == 2:
+        if self.target_count == self.target_goal:
             self.targets_ready.set()
         await self.targets_ready.wait()
+        if label == "first" and self.hold_first_target:
+            self.first_target_waiting.set()
+            await self.allow_first_target.wait()
         if label == "second":
             await self.first_library_installed.wait()
 
@@ -277,7 +289,10 @@ async def test_concurrent_target_cannot_replace_incompatible_shared_library(
     second_target = _entry("second-target", depends_on=[LIBRARY_ID])
     first_snapshot = _snapshot(first_library, first_target)
     second_snapshot = _snapshot(second_library, second_target)
-    interleaving = _InstallInterleaving()
+    interleaving = _InstallInterleaving(
+        target_goal=1,
+        hold_first_target=True,
+    )
     manager, library_installs = _manager(monkeypatch, tmp_path, interleaving)
     first_service = PluginInstallService(
         registry_client=_Registry(first_snapshot, interleaving),
@@ -295,6 +310,7 @@ async def test_concurrent_target_cannot_replace_incompatible_shared_library(
         ),
         name="first",
     )
+    await asyncio.wait_for(interleaving.first_target_waiting.wait(), timeout=5)
     second = asyncio.create_task(
         second_service.install_from_registry(
             "second-target",
@@ -302,11 +318,13 @@ async def test_concurrent_target_cannot_replace_incompatible_shared_library(
         ),
         name="second",
     )
-    first_result, second_result = await asyncio.gather(
-        first,
-        second,
-        return_exceptions=True,
-    )
+    try:
+        second_result = await asyncio.wait_for(second, timeout=5)
+    except BaseException as exc:
+        second_result = exc
+    finally:
+        interleaving.allow_first_target.set()
+    first_result = await asyncio.wait_for(first, timeout=5)
 
     assert not isinstance(first_result, BaseException)
     assert isinstance(second_result, PluginDependencyConflictError)

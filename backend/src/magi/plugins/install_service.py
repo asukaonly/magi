@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
@@ -23,6 +24,7 @@ from .install_admission import (
     plugin_install_admission,
 )
 from .installation import (
+    PluginDirectoryInstallOutcome,
     PluginDependencyValidationError,
     PluginPackageConflictError,
     PluginRegistrySourceConflictError,
@@ -34,6 +36,15 @@ from .registry_client import PluginRegistrySnapshot
 from .registry_provenance import (
     plugin_manifest_fingerprint,
     registry_entry_fingerprint,
+)
+from .provisional_dependencies import (
+    ProvisionalDependencyConflictError,
+    ProvisionalDependencyCoordinator,
+    ProvisionalDependencyLease,
+    ProvisionalLibraryFinalizer,
+    ProvisionalLibraryReceipt,
+    ProvisionalLibraryRequirement,
+    provisional_dependency_coordinator,
 )
 
 
@@ -113,9 +124,13 @@ class PluginInstallService:
         *,
         registry_client: PluginRegistryClient,
         plugin_manager: Any | None,
+        provisional_coordinator: ProvisionalDependencyCoordinator | None = None,
     ) -> None:
         self._registry_client = registry_client
         self._plugin_manager = plugin_manager
+        self._provisional_coordinator = (
+            provisional_coordinator or provisional_dependency_coordinator
+        )
 
     async def install_from_registry(
         self,
@@ -168,57 +183,77 @@ class PluginInstallService:
             )
         entries_by_id = self._snapshot_entries(snapshot)
         entry = self._fetch_installable_entry(entries_by_id, plugin_id)
-        order = self._resolve_install_closure(
+        full_closure = self._resolve_install_closure(
             entry.plugin_id,
             snapshot=snapshot,
             entries_by_id=entries_by_id,
-            already_installed=self._installed_plugin_ids(),
+            already_installed=set(),
         )
-
-        temp_root = Path(tempfile.mkdtemp(prefix="magi-plugin-dl-"))
         try:
-            prepared: list[tuple[PluginRegistryEntry, Path, PluginManifest]] = []
-            for item in order:
-                workflow_budget.ensure_time_remaining()
-                plugin_dir = await self._registry_client.clone_plugin(
-                    item,
+            provisional_lease = await _acquire_provisional_dependencies(
+                self._provisional_coordinator,
+                self._provisional_library_requirements(
+                    full_closure,
                     snapshot=snapshot,
-                    dest_dir=temp_root,
-                    deadline_monotonic=workflow_budget.deadline_monotonic,
-                )
-                manifest = await run_plugin_preparation_operation(
-                    lambda item=item, plugin_dir=plugin_dir: (
-                        workflow_budget.consume((plugin_dir,)),
-                        _validate_registry_package_directory(plugin_dir, item),
-                    )[1]
-                )
-                workflow_budget.ensure_time_remaining()
-                await self._assert_registry_snapshot_current(
-                    expected_fingerprint,
-                    workflow_budget=workflow_budget,
-                )
-                prepared.append((item, plugin_dir, manifest))
+                ),
+            )
+        except ProvisionalDependencyConflictError as exc:
+            raise PluginDependencyConflictError(str(exc)) from exc
 
-            extra_installed: list[str] = []
-            target_state: PluginPackageState | None = None
-            for item, plugin_dir, manifest in prepared:
-                state = await self._install_prepared_registry_entry(
-                    item,
-                    plugin_dir=plugin_dir,
-                    manifest=manifest,
-                    snapshot=snapshot,
-                    entries_by_id=entries_by_id,
-                    workflow_budget=workflow_budget,
-                    is_target=item.plugin_id == entry.plugin_id,
-                    expected_registry_update_source=expected_registry_update_source,
-                    progress_reporter=progress_reporter,
-                )
-                if item.plugin_id == entry.plugin_id:
-                    target_state = state
-                else:
-                    extra_installed.append(item.plugin_id)
+        try:
+            order = self._resolve_install_closure(
+                entry.plugin_id,
+                snapshot=snapshot,
+                entries_by_id=entries_by_id,
+                already_installed=self._installed_plugin_ids(),
+            )
+            temp_root = Path(tempfile.mkdtemp(prefix="magi-plugin-dl-"))
+            try:
+                prepared: list[tuple[PluginRegistryEntry, Path, PluginManifest]] = []
+                for item in order:
+                    workflow_budget.ensure_time_remaining()
+                    plugin_dir = await self._registry_client.clone_plugin(
+                        item,
+                        snapshot=snapshot,
+                        dest_dir=temp_root,
+                        deadline_monotonic=workflow_budget.deadline_monotonic,
+                    )
+                    manifest = await run_plugin_preparation_operation(
+                        lambda item=item, plugin_dir=plugin_dir: (
+                            workflow_budget.consume((plugin_dir,)),
+                            _validate_registry_package_directory(plugin_dir, item),
+                        )[1]
+                    )
+                    workflow_budget.ensure_time_remaining()
+                    await self._assert_registry_snapshot_current(
+                        expected_fingerprint,
+                        workflow_budget=workflow_budget,
+                    )
+                    prepared.append((item, plugin_dir, manifest))
+
+                extra_installed: list[str] = []
+                target_state: PluginPackageState | None = None
+                for item, plugin_dir, manifest in prepared:
+                    state = await self._install_prepared_registry_entry(
+                        item,
+                        plugin_dir=plugin_dir,
+                        manifest=manifest,
+                        snapshot=snapshot,
+                        entries_by_id=entries_by_id,
+                        workflow_budget=workflow_budget,
+                        provisional_lease=provisional_lease,
+                        is_target=item.plugin_id == entry.plugin_id,
+                        expected_registry_update_source=expected_registry_update_source,
+                        progress_reporter=progress_reporter,
+                    )
+                    if item.plugin_id == entry.plugin_id:
+                        target_state = state
+                    else:
+                        extra_installed.append(item.plugin_id)
+            finally:
+                await run_plugin_preparation_operation(lambda: shutil.rmtree(temp_root, True))
         finally:
-            await run_plugin_preparation_operation(lambda: shutil.rmtree(temp_root, True))
+            await self._release_provisional_dependencies(provisional_lease)
 
         assert target_state is not None
         return PluginRegistryInstallResult(
@@ -351,6 +386,7 @@ class PluginInstallService:
         snapshot: PluginRegistrySnapshot,
         entries_by_id: dict[str, PluginRegistryEntry],
         workflow_budget: PluginDependencyWorkflowBudget,
+        provisional_lease: ProvisionalDependencyLease,
         is_target: bool,
         expected_registry_update_source: tuple[str, str] | None,
         progress_reporter=None,
@@ -385,7 +421,22 @@ class PluginInstallService:
         if self._plugin_manager is None:
             raise RuntimeError("Plugin manager is not initialized")
 
-        state = await run_plugin_preparation_operation(
+        def report_install_outcome(outcome: PluginDirectoryInstallOutcome) -> None:
+            if entry.kind != "library" or not outcome.created_by_this_commit:
+                return
+            provisional_lease.register_created(
+                self._provisional_library_receipt(
+                    entry,
+                    outcome=outcome,
+                    snapshot=snapshot,
+                    entry_fingerprint=entry_fingerprint,
+                    manifest_fingerprint=manifest_fingerprint,
+                    dependency_entry_fingerprints=dependency_entry_fingerprints,
+                ),
+                self._detach_provisional_library,
+            )
+
+        state = await _run_plugin_preparation_to_completion(
             lambda: self._plugin_manager.install_plugin_from_directory(
                 plugin_dir,
                 progress_reporter=progress_reporter,
@@ -402,9 +453,88 @@ class PluginInstallService:
                 expected_registry_update_source=(
                     expected_registry_update_source if is_target else None
                 ),
+                install_outcome_reporter=report_install_outcome,
             )
         )
         return state
+
+    @staticmethod
+    def _provisional_library_requirements(
+        order: list[PluginRegistryEntry],
+        *,
+        snapshot: PluginRegistrySnapshot,
+    ) -> tuple[ProvisionalLibraryRequirement, ...]:
+        """Return dependency-first exact claims for every library in a closure."""
+
+        return tuple(
+            ProvisionalLibraryRequirement(
+                plugin_id=entry.plugin_id,
+                registry_source=snapshot.registry_url,
+                registry_repo_url=snapshot.repo_url,
+                registry_entry_fingerprint=registry_entry_fingerprint(
+                    entry,
+                    registry_url=snapshot.registry_url,
+                    repo_url=snapshot.repo_url,
+                ),
+            )
+            for entry in order
+            if entry.kind == "library"
+        )
+
+    @staticmethod
+    def _provisional_library_receipt(
+        entry: PluginRegistryEntry,
+        *,
+        outcome: PluginDirectoryInstallOutcome,
+        snapshot: PluginRegistrySnapshot,
+        entry_fingerprint: str,
+        manifest_fingerprint: str,
+        dependency_entry_fingerprints: dict[str, str],
+    ) -> ProvisionalLibraryReceipt:
+        return ProvisionalLibraryReceipt(
+            requirement=ProvisionalLibraryRequirement(
+                plugin_id=entry.plugin_id,
+                registry_source=snapshot.registry_url,
+                registry_repo_url=snapshot.repo_url,
+                registry_entry_fingerprint=entry_fingerprint,
+            ),
+            registry_manifest_fingerprint=manifest_fingerprint,
+            dependency_entry_fingerprints=tuple(sorted(dependency_entry_fingerprints.items())),
+            plugin_dir=outcome.plugin_dir,
+            manifest_path=outcome.manifest_path,
+            destination_identity=outcome.destination_identity,
+            manifest_identity=outcome.manifest_identity,
+        )
+
+    async def _release_provisional_dependencies(
+        self,
+        lease: ProvisionalDependencyLease,
+    ) -> None:
+        """Release one closure and delete only exact newly orphaned libraries."""
+
+        await _run_plugin_preparation_to_completion(lease.release)
+
+    def _detach_provisional_library(
+        self,
+        receipt: ProvisionalLibraryReceipt,
+    ) -> ProvisionalLibraryFinalizer | None:
+        """Detach an orphan through its creator and return slow finalization."""
+
+        manager = self._require_manager()
+        detached_dir = manager.remove_provisional_registry_library(receipt)
+        if detached_dir is None:
+            return None
+
+        def finalize() -> bool:
+            package_files.discard_plugin_transaction_directory(detached_dir)
+            if detached_dir.exists():
+                raise RuntimeError(
+                    "Failed to delete detached provisional dependency: "
+                    f"{receipt.requirement.plugin_id}"
+                )
+            return True
+
+        return finalize
 
     def _assert_registry_install_target_available(self, plugin_id: str) -> None:
         manager_state = None
@@ -619,6 +749,42 @@ class PluginInstallService:
                 raise ValueError("Plugin install admission does not match the requested package")
             return supplied, False
         return plugin_install_admission.acquire(plugin_id), True
+
+
+async def _run_plugin_preparation_to_completion(operation):
+    """Let a lifecycle commit finish before cancellation releases its claims."""
+
+    task = asyncio.create_task(run_plugin_preparation_operation(operation))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        try:
+            await task
+        except BaseException:
+            pass
+        raise
+
+
+async def _acquire_provisional_dependencies(
+    coordinator: ProvisionalDependencyCoordinator,
+    requirements: tuple[ProvisionalLibraryRequirement, ...],
+) -> ProvisionalDependencyLease:
+    """Acquire off-loop and release any lease produced after caller cancellation."""
+
+    task = asyncio.create_task(
+        run_plugin_preparation_operation(lambda: coordinator.acquire(requirements))
+    )
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        lease: ProvisionalDependencyLease | None = None
+        try:
+            lease = await task
+        except BaseException:
+            pass
+        if lease is not None:
+            await _run_plugin_preparation_to_completion(lease.release)
+        raise
 
 
 def _validate_registry_package_directory(

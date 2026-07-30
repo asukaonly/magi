@@ -2,18 +2,27 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import logging
 from pathlib import Path
 import shutil
 import tempfile
+import uuid
 from dataclasses import dataclass
 
 from . import package_files
 from ..config import PluginSettings, delete_plugin_package, get_config, save_config
 from .operation_execution import plugin_preparation_slot, serialize_plugin_archive_operation
 from .contracts import PluginCapability, PluginManifest, PluginPackageState
+from .discovery import load_plugin_manifest
 from .icon_assets import resolve_plugin_icon
+from .package_integrity import package_identity_error
 from .registry_provenance import plugin_manifest_fingerprint
+from .provisional_dependencies import (
+    DirectoryIdentity,
+    PathIdentity,
+    ProvisionalLibraryReceipt,
+)
 from .dependency_installation import (
     ALLOW_UNLOCKED_DEPS_ENV,
     BACKEND_PYTHON_ENV,
@@ -38,6 +47,7 @@ __all__ = [
     "InstallProgressReporter",
     "PluginDependencyValidationError",
     "PluginInstallationMixin",
+    "PluginDirectoryInstallOutcome",
     "PluginPackageConflictError",
     "PluginRegistrySourceConflictError",
     "UnlockedDependencyError",
@@ -136,6 +146,18 @@ class _PluginDependencyTarget:
     registry_manifest_fingerprint: str
 
 
+@dataclass(frozen=True)
+class PluginDirectoryInstallOutcome:
+    """Result metadata captured by the lifecycle-locked package commit."""
+
+    state: PluginPackageState
+    created_by_this_commit: bool
+    plugin_dir: str
+    manifest_path: str
+    destination_identity: DirectoryIdentity
+    manifest_identity: PathIdentity
+
+
 class PluginInstallationMixin:
     """Install and uninstall user plugin packages."""
 
@@ -195,7 +217,7 @@ class PluginInstallationMixin:
             )
             self._reject_sideload_overwrite(plan)
             self._log_install_plan(plan, message="Installing external plugin package")
-            state = self._replace_plugin_package(
+            outcome = self._replace_plugin_package(
                 plan,
                 progress_reporter=progress_reporter,
                 stage_message="Validating staged plugin package",
@@ -207,7 +229,7 @@ class PluginInstallationMixin:
 
         logger.info("Installed plugin from archive", extra={"plugin_id": plan.plugin_id})
         _report_install_progress(progress_reporter, "completed", "Plugin package installed", 100.0)
-        return state
+        return outcome.state
 
     @serialize_plugin_archive_operation
     def inspect_plugin_archive(self, archive_path: Path) -> PluginManifest:
@@ -247,6 +269,7 @@ class PluginInstallationMixin:
         dependency_workflow_budget: PluginDependencyWorkflowBudget | None = None,
         reject_existing: bool = False,
         expected_registry_update_source: tuple[str, str] | None = None,
+        install_outcome_reporter: Callable[[PluginDirectoryInstallOutcome], None] | None = None,
     ) -> PluginPackageState:
         """Install a plugin from a local directory containing a plugin.toml."""
         if install_origin != "registry":
@@ -264,7 +287,7 @@ class PluginInstallationMixin:
             install_origin=install_origin,
         )
         self._log_install_plan(plan, message="Installing plugin from directory")
-        state = self._replace_plugin_package(
+        outcome = self._replace_plugin_package(
             plan,
             progress_reporter=progress_reporter,
             stage_message="Preparing staged plugin package",
@@ -281,13 +304,15 @@ class PluginInstallationMixin:
             reject_existing=reject_existing,
             expected_registry_update_source=expected_registry_update_source,
         )
+        if install_outcome_reporter is not None:
+            install_outcome_reporter(outcome)
 
         if plan.manifest.kind == "library":
             logger.info("Installed library package", extra={"plugin_id": plan.plugin_id})
         else:
             logger.info("Installed and enabled plugin", extra={"plugin_id": plan.plugin_id})
         _report_install_progress(progress_reporter, "completed", "Plugin package installed", 100.0)
-        return state
+        return outcome.state
 
     def _build_install_plan(
         self,
@@ -388,7 +413,7 @@ class PluginInstallationMixin:
         dependency_workflow_budget: PluginDependencyWorkflowBudget | None = None,
         reject_existing: bool,
         expected_registry_update_source: tuple[str, str] | None = None,
-    ) -> PluginPackageState:
+    ) -> PluginDirectoryInstallOutcome:
         """Prepare a package without the lifecycle lock, then commit it briefly."""
 
         self._reject_unmanaged_package_dependencies(
@@ -430,7 +455,7 @@ class PluginInstallationMixin:
         try:
             if dependency_workflow_budget is not None:
                 dependency_workflow_budget.ensure_time_remaining()
-            installed_state, backup_dir = self._commit_staged_plugin_package(
+            outcome, backup_dir = self._commit_staged_plugin_package(
                 plan,
                 staged_dir=staged_dir,
                 progress_reporter=progress_reporter,
@@ -447,7 +472,7 @@ class PluginInstallationMixin:
                 expected_registry_update_source=expected_registry_update_source,
                 expected_target=expected_target,
             )
-            return installed_state
+            return outcome
         finally:
             package_files.discard_plugin_transaction_directory(staged_dir)
             package_files.discard_plugin_transaction_directory(backup_dir)
@@ -470,7 +495,7 @@ class PluginInstallationMixin:
         reject_existing: bool,
         expected_registry_update_source: tuple[str, str] | None,
         expected_target: _PluginInstallTarget,
-    ) -> tuple[PluginPackageState, Path | None]:
+    ) -> tuple[PluginDirectoryInstallOutcome, Path | None]:
         """Commit an already-prepared package as one lifecycle mutation.
 
         ``PluginManager`` wraps this hook with its lifecycle write lock. Keep
@@ -488,7 +513,13 @@ class PluginInstallationMixin:
             dependency_entry_fingerprints=dependency_entry_fingerprints,
         )
         if reusable_library is not None:
-            return reusable_library, None
+            return (
+                self._build_directory_install_outcome(
+                    reusable_library,
+                    created_by_this_commit=False,
+                ),
+                None,
+            )
 
         if reject_existing:
             self._reject_sideload_overwrite(plan)
@@ -508,8 +539,15 @@ class PluginInstallationMixin:
 
         snapshot = self._snapshot_install_state(plan.plugin_id)
         installed_state: PluginPackageState | None = None
+        installed_outcome: PluginDirectoryInstallOutcome | None = None
         config_write_attempted = False
         state_restored = False
+        created_by_this_commit = bool(
+            snapshot.package_state is None
+            and snapshot.config is None
+            and expected_target.destination_identity is None
+            and expected_target.manifest_identity is None
+        )
         config_updates = self._build_install_config_updates(
             plan,
             snapshot=snapshot,
@@ -534,7 +572,7 @@ class PluginInstallationMixin:
                 raise RuntimeError("Failed to persist plugin installation state")
 
         def validate_promoted_dir() -> None:
-            nonlocal installed_state
+            nonlocal installed_outcome, installed_state
 
             if activate_after_swap:
                 # Persist the new package identity before discovery so stale or
@@ -578,6 +616,10 @@ class PluginInstallationMixin:
                 state = self.load_plugin(plan.plugin_id)
 
             installed_state = state
+            installed_outcome = self._build_directory_install_outcome(
+                state,
+                created_by_this_commit=created_by_this_commit,
+            )
 
         def restore_previous_install() -> None:
             nonlocal state_restored
@@ -616,9 +658,34 @@ class PluginInstallationMixin:
             if config_write_attempted and not state_restored:
                 restore_previous_install()
             raise
-        if installed_state is None:
+        if installed_state is None or installed_outcome is None:
             raise RuntimeError("Plugin installation completed without a package state")
-        return installed_state, backup_dir
+        return installed_outcome, backup_dir
+
+    def _build_directory_install_outcome(
+        self,
+        state: PluginPackageState,
+        *,
+        created_by_this_commit: bool,
+    ) -> PluginDirectoryInstallOutcome:
+        """Freeze the published generation while the lifecycle lock is held."""
+
+        plugin_dir = Path(state.manifest.plugin_dir).expanduser().resolve(strict=False)
+        manifest_path = Path(state.manifest.manifest_path).expanduser().resolve(strict=False)
+        destination_identity = self._directory_identity(plugin_dir)
+        manifest_identity = self._path_identity(manifest_path)
+        if destination_identity is None or manifest_identity is None:
+            raise RuntimeError(
+                f"Installed plugin generation disappeared during commit: {state.manifest.plugin_id}"
+            )
+        return PluginDirectoryInstallOutcome(
+            state=state,
+            created_by_this_commit=created_by_this_commit,
+            plugin_dir=str(plugin_dir),
+            manifest_path=str(manifest_path),
+            destination_identity=destination_identity,
+            manifest_identity=manifest_identity,
+        )
 
     def _reuse_matching_registry_library(
         self,
@@ -812,7 +879,7 @@ class PluginInstallationMixin:
                 or set(expected_fingerprints) != set(dependency_ids)
             ):
                 raise PluginDependencyValidationError(
-                    f"Plugin {consumer.plugin_id} has incomplete registry " "dependency provenance"
+                    f"Plugin {consumer.plugin_id} has incomplete registry dependency provenance"
                 )
 
             for dependency_id in dependency_ids:
@@ -823,8 +890,7 @@ class PluginInstallationMixin:
                 state = self._package_states.get(dependency_id)
                 if state is None:
                     raise PluginDependencyValidationError(
-                        f"Plugin {consumer.plugin_id} depends on missing package: "
-                        f"{dependency_id}"
+                        f"Plugin {consumer.plugin_id} depends on missing package: {dependency_id}"
                     )
                 dependency_dir = Path(state.manifest.plugin_dir)
                 if state.manifest.kind != "library" or not dependency_dir.is_dir():
@@ -840,8 +906,7 @@ class PluginInstallationMixin:
                 if consumer.source == "builtin":
                     if state.manifest.source != "builtin":
                         raise PluginDependencyValidationError(
-                            f"Builtin plugin {consumer.plugin_id} cannot use an "
-                            "external dependency"
+                            f"Builtin plugin {consumer.plugin_id} cannot use an external dependency"
                         )
                     configured: PluginSettings | None = None
                     expectation = ("builtin", "builtin", "builtin")
@@ -1060,6 +1125,152 @@ class PluginInstallationMixin:
                 "Disable this plugin or remove its scan path instead."
             )
         return package_files.managed_plugin_directory(plugin_id)
+
+    def remove_provisional_registry_library(
+        self,
+        receipt: ProvisionalLibraryReceipt,
+    ) -> Path | None:
+        """Detach one exact, newly published registry library if it is orphaned.
+
+        The manager wraps this method with its lifecycle lock. The returned
+        private directory is intentionally deleted by the caller after that
+        lock is released.
+        """
+
+        requirement = receipt.requirement
+        plugin_id = requirement.plugin_id
+        state = self._package_states.get(plugin_id)
+        raw_configured = get_config().plugins.packages.get(plugin_id)
+        configured = (
+            PluginSettings.model_validate(raw_configured) if raw_configured is not None else None
+        )
+        if state is None or configured is None:
+            return None
+
+        plugin_dir = Path(state.manifest.plugin_dir).expanduser().resolve(strict=False)
+        manifest_path = Path(state.manifest.manifest_path).expanduser().resolve(strict=False)
+        expected_plugin_dir = Path(receipt.plugin_dir).expanduser().resolve(strict=False)
+        expected_manifest_path = Path(receipt.manifest_path).expanduser().resolve(strict=False)
+        identity_matches = bool(
+            state.manifest.kind == "library"
+            and state.manifest.source == "external"
+            and state.enabled
+            and state.trusted
+            and configured.enabled
+            and configured.trusted
+            and configured.install_origin == "registry"
+            and configured.registry_source == requirement.registry_source
+            and configured.registry_repo_url == requirement.registry_repo_url
+            and configured.registry_entry_fingerprint == requirement.registry_entry_fingerprint
+            and configured.registry_manifest_fingerprint == receipt.registry_manifest_fingerprint
+            and tuple(sorted(configured.dependency_entry_fingerprints.items()))
+            == receipt.dependency_entry_fingerprints
+            and plugin_manifest_fingerprint(state.manifest) == receipt.registry_manifest_fingerprint
+            and plugin_dir == expected_plugin_dir
+            and manifest_path == expected_manifest_path
+            and package_files.is_managed_plugin_manifest_path(plugin_id, manifest_path)
+            and self._directory_identity(plugin_dir) == receipt.destination_identity
+            and self._path_identity(manifest_path) == receipt.manifest_identity
+        )
+        if not identity_matches:
+            logger.warning(
+                "plugin.provisional_dependency_identity_changed plugin_id=%s",
+                plugin_id,
+            )
+            return None
+        if self.iter_consumers(plugin_id) or self._has_managed_configured_consumer(plugin_id):
+            return None
+
+        was_loaded = state.loaded
+        self.unload_plugin(plugin_id)
+        backup_dir = (
+            plugin_dir.parent.parent
+            / f".{plugin_dir.parent.name}-{plugin_id}-provisional-{uuid.uuid4().hex}"
+        )
+        try:
+            plugin_dir.replace(backup_dir)
+            if not delete_plugin_package(plugin_id):
+                raise RuntimeError(
+                    f"Failed to remove provisional plugin configuration: {plugin_id}"
+                )
+        except BaseException:
+            if backup_dir.exists() and not plugin_dir.exists():
+                backup_dir.replace(plugin_dir)
+            state.loaded = was_loaded
+            self._restore_plugin_config(plugin_id, configured)
+            raise
+
+        self._package_states.pop(plugin_id, None)
+        self._request_sensor_schedule_refresh()
+        return backup_dir
+
+    @staticmethod
+    def _directory_identity(path: Path) -> tuple[int, int] | None:
+        try:
+            metadata = path.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            return None
+        return metadata.st_dev, metadata.st_ino
+
+    @staticmethod
+    def _has_managed_configured_consumer(library_id: str) -> bool:
+        """Conservatively detect consumers not present in this manager instance."""
+
+        package_configs = list(get_config().plugins.packages.items())
+        for consumer_id, raw_configured in package_configs:
+            if consumer_id == library_id:
+                continue
+            raw_dependency_fingerprints = (
+                raw_configured.get("dependency_entry_fingerprints", {})
+                if isinstance(raw_configured, dict)
+                else getattr(raw_configured, "dependency_entry_fingerprints", {})
+            )
+            claims_dependency = library_id in raw_dependency_fingerprints
+            try:
+                configured = PluginSettings.model_validate(raw_configured)
+            except (TypeError, ValueError):
+                if claims_dependency:
+                    logger.warning(
+                        "plugin.provisional_dependency_consumer_config_invalid "
+                        "plugin_id=%s consumer_id=%s",
+                        library_id,
+                        consumer_id,
+                    )
+                    return True
+                continue
+
+            if not configured.manifest_path:
+                if claims_dependency:
+                    return True
+                continue
+            manifest_path = Path(configured.manifest_path).expanduser().resolve(strict=False)
+            if not package_files.is_managed_plugin_manifest_path(
+                consumer_id,
+                manifest_path,
+            ):
+                if claims_dependency:
+                    return True
+                continue
+            try:
+                manifest = load_plugin_manifest(manifest_path, source="external")
+            except (OSError, ValueError):
+                if claims_dependency:
+                    logger.warning(
+                        "plugin.provisional_dependency_consumer_manifest_invalid "
+                        "plugin_id=%s consumer_id=%s",
+                        library_id,
+                        consumer_id,
+                    )
+                    return True
+                continue
+            if library_id not in manifest.depends_on:
+                if claims_dependency:
+                    return True
+                continue
+            if package_identity_error(manifest, configured) is not None:
+                return True
+            return True
+        return False
 
     def uninstall_plugin(self, plugin_id: str) -> list[str]:
         """Uninstall a user-installed plugin and remove its files.

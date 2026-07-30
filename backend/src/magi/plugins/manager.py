@@ -29,8 +29,9 @@ from .discovery import (
     placeholder_contributions,
     resolve_plugin_search_paths as _resolve_search_paths,
 )
-from .installation import PluginInstallationMixin
+from .installation import PluginDirectoryInstallOutcome, PluginInstallationMixin
 from .package_integrity import package_identity_error
+from .provisional_dependencies import ProvisionalLibraryReceipt
 from .projections import PluginProjectionService
 from .sensors import SensorRegistry
 from .settings_service import PluginSettingsActionRun, PluginSettingsService
@@ -158,10 +159,19 @@ class PluginManager(PluginInstallationMixin):
         self,
         *args: Any,
         **kwargs: Any,
-    ) -> tuple[PluginPackageState, Path | None]:
+    ) -> tuple[PluginDirectoryInstallOutcome, Path | None]:
         """Commit one prepared package without interleaving lifecycle writes."""
 
         return super()._commit_staged_plugin_package(*args, **kwargs)
+
+    @_serialized_lifecycle_mutation
+    def remove_provisional_registry_library(
+        self,
+        receipt: ProvisionalLibraryReceipt,
+    ) -> Path | None:
+        """Remove an exact orphan without interleaving lifecycle writes."""
+
+        return super().remove_provisional_registry_library(receipt)
 
     @_serialized_lifecycle_mutation
     def uninstall_plugin(self, plugin_id: str) -> list[str]:
