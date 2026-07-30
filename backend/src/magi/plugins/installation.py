@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from . import package_files
 from ..config import save_config
 from .contracts import PluginManifest, PluginPackageState
+from .icon_assets import resolve_plugin_icon
 from .dependency_installation import (
     ALLOW_UNLOCKED_DEPS_ENV,
     BACKEND_PYTHON_ENV,
@@ -160,7 +161,12 @@ class PluginInstallationMixin:
             manifest_file = package_files.find_plugin_manifest_in_tree(tmp_path)
             if manifest_file is None:
                 raise ValueError("Archive does not contain a plugin.toml")
-            return self._load_manifest(manifest_file, source="external")
+            manifest = self._load_manifest(manifest_file, source="external")
+            return manifest.model_copy(
+                update={
+                    "icon": resolve_plugin_icon(manifest.icon, manifest_file.parent),
+                }
+            )
 
     def install_plugin_from_directory(
         self,

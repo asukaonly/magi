@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from pathlib import Path
-import shutil
 import threading
 import time
 import uuid
@@ -13,6 +11,11 @@ import uuid
 from fastapi import HTTPException, status
 
 from ... import i18n as core_i18n
+from ...plugins.install_candidates import (
+    PluginInstallCandidate,
+    PluginInstallCandidateStore,
+    get_plugin_install_candidate_store,
+)
 from ...plugins.install_service import PluginInstallService
 from ...plugins.package_files import InvalidPluginArchiveError
 from .plugins_common import (
@@ -145,9 +148,31 @@ class PluginInstallJobManager:
         self._start_task(job, self._run_registry_update(job))
         return job.snapshot()
 
-    def start_upload_install(self, archive_path: Path, filename: str) -> PluginInstallJobSnapshot:
-        job = self._create_job(operation="upload", plugin_id=None, filename=filename)
-        self._start_task(job, self._run_upload_install(job, archive_path))
+    def start_candidate_install(
+        self,
+        candidate_id: str,
+        *,
+        expected_sha256: str,
+    ) -> PluginInstallJobSnapshot:
+        candidate_store = get_plugin_install_candidate_store()
+        candidate = candidate_store.claim(
+            candidate_id,
+            expected_sha256=expected_sha256,
+        )
+        job = self._create_job(
+            operation="upload",
+            plugin_id=candidate.manifest.plugin_id,
+            filename=candidate.original_filename,
+        )
+        install_coro = self._run_candidate_install(job, candidate, candidate_store)
+        try:
+            self._start_task(job, install_coro)
+        except Exception:
+            install_coro.close()
+            candidate_store.complete(candidate.candidate_id)
+            with self._lock:
+                self._jobs.pop(job.job_id, None)
+            raise
         return job.snapshot()
 
     def _create_job(
@@ -183,7 +208,9 @@ class PluginInstallJobManager:
         try:
             plugin_id = job.plugin_id or ""
             registry = _get_registry_client()
-            job.update(stage="registry", progress_pct=8.0, message="Resolving plugin registry entry")
+            job.update(
+                stage="registry", progress_pct=8.0, message="Resolving plugin registry entry"
+            )
             manager = _try_plugin_manager()
             install_service = PluginInstallService(
                 registry_client=registry,
@@ -215,7 +242,9 @@ class PluginInstallJobManager:
                 registry_client=registry,
                 plugin_manager=_require_plugin_manager(),
             )
-            job.update(stage="registry", progress_pct=8.0, message="Resolving plugin registry entry")
+            job.update(
+                stage="registry", progress_pct=8.0, message="Resolving plugin registry entry"
+            )
             job.update(stage="download", progress_pct=18.0, message="Downloading plugin source")
             job.update(stage="install", progress_pct=35.0, message="Updating plugin package")
             new_state = await install_service.update_from_registry(
@@ -226,16 +255,24 @@ class PluginInstallJobManager:
         except Exception as exc:
             job.fail(str(exc))
 
-    async def _run_upload_install(self, job: PluginInstallJob, archive_path: Path) -> None:
+    async def _run_candidate_install(
+        self,
+        job: PluginInstallJob,
+        candidate: PluginInstallCandidate,
+        candidate_store: PluginInstallCandidateStore,
+    ) -> None:
         try:
             manager = _require_plugin_manager()
             install_service = PluginInstallService(
                 registry_client=_get_registry_client(),
                 plugin_manager=manager,
             )
-            job.update(stage="upload", progress_pct=10.0, message="Preparing uploaded plugin archive")
+            job.update(
+                stage="upload", progress_pct=10.0, message="Preparing uploaded plugin archive"
+            )
             state = await install_service.install_from_archive(
-                archive_path,
+                candidate.archive_path,
+                consented_capabilities=candidate.manifest.capabilities,
                 progress_reporter=self._reporter(job),
             )
             with job.lock:
@@ -251,7 +288,7 @@ class PluginInstallJobManager:
         except Exception as exc:
             job.fail(str(exc))
         finally:
-            await asyncio.to_thread(shutil.rmtree, archive_path.parent, True)
+            await asyncio.to_thread(candidate_store.complete, candidate.candidate_id)
 
     @staticmethod
     def _reporter(job: PluginInstallJob):

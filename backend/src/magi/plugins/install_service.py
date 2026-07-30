@@ -12,6 +12,7 @@ from typing import Any
 from ..config import get_config, save_config
 from .contracts import (
     ContributionType,
+    PluginCapability,
     PluginManifest,
     PluginPackageState,
     PluginPermissions,
@@ -144,16 +145,26 @@ class PluginInstallService:
         self,
         archive_path: Path,
         *,
+        consented_capabilities: list[PluginCapability],
         progress_reporter=None,
     ) -> PluginPackageState:
         """Install a plugin from an uploaded archive."""
 
         manager = self._require_manager()
-        return await asyncio.to_thread(
+        state = await asyncio.to_thread(
             manager.install_plugin_from_archive,
             archive_path,
             progress_reporter=progress_reporter,
         )
+        save_config(
+            {
+                f"plugins.packages.{state.manifest.plugin_id}.official": False,
+                f"plugins.packages.{state.manifest.plugin_id}.consented_capabilities": [
+                    capability.model_dump() for capability in consented_capabilities
+                ],
+            }
+        )
+        return state
 
     def uninstall(self, plugin_id: str) -> list[str]:
         """Uninstall a plugin package."""

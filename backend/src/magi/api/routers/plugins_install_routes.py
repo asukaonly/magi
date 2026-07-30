@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
-import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile, status
 
 from ... import i18n as core_i18n
+from ...plugins.install_candidates import (
+    PluginInstallCandidateClaimedError,
+    PluginInstallCandidateDigestMismatchError,
+    PluginInstallCandidateNotFoundError,
+    get_plugin_install_candidate_store,
+)
 from ...plugins.install_service import DirectLibraryInstallError, PluginRegistryEntryNotFound
-from ...plugins.icon_assets import resolve_plugin_icon
 from ...plugins.package_files import InvalidPluginArchiveError
 from .plugins_common import (
     _plugin_install_service,
@@ -21,6 +27,8 @@ from .plugins_common import (
 )
 from .plugins_install_jobs import plugin_install_jobs, require_plugin_install_job
 from .plugins_schemas import (
+    PluginInstallCandidateApprovalRequest,
+    PluginInstallCandidateResponse,
     PluginInstallJobSnapshot,
     PluginInstallRequest,
     PluginManifestResponse,
@@ -30,114 +38,55 @@ from .plugins_schemas import (
 plugins_install_router = APIRouter()
 logger = logging.getLogger(__name__)
 
-
-@plugins_install_router.post("/install/upload", response_model=PluginPackageResponse)
-async def install_plugin_from_upload(file: UploadFile):
-    """Install a plugin from an uploaded .tar.gz or .zip archive."""
-    if not file.filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=core_i18n.t("plugins.errors.filename_required", fallback="Filename required"),
-        )
-    name = file.filename.lower()
-    if not (name.endswith(".tar.gz") or name.endswith(".tgz") or name.endswith(".zip")):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=core_i18n.t(
-                "plugins.errors.archive_extension_invalid",
-                fallback="Archive must be .tar.gz, .tgz, or .zip",
-            ),
-        )
-
-    manager = _require_plugin_manager()
-    install_service = _plugin_install_service(manager)
-    with tempfile.TemporaryDirectory(prefix="magi-upload-") as tmp:
-        archive_path = Path(tmp) / file.filename
-        content = await file.read()
-        archive_path.write_bytes(content)
-        logger.info(
-            "Plugin upload install requested",
-            extra={
-                "filename": file.filename,
-                "archive_path": str(archive_path),
-                "bytes": len(content),
-            },
-        )
-        try:
-            state = await install_service.install_from_archive(archive_path)
-        except InvalidPluginArchiveError as exc:
-            logger.warning(
-                "Plugin upload install rejected (invalid archive)",
-                extra={"filename": file.filename, "error": str(exc)},
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=core_i18n.t(
-                    "plugins.errors.archive_invalid",
-                    fallback="The uploaded file is not a valid plugin archive",
-                ),
-            ) from exc
-        except ValueError as exc:
-            logger.warning(
-                "Plugin upload install rejected",
-                extra={"filename": file.filename, "error": str(exc)},
-            )
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            logger.exception(
-                "Plugin upload install failed",
-                extra={"filename": file.filename, "error": str(exc)},
-            )
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
-            ) from exc
-    return _serialize_package(state)
+MAX_PLUGIN_ARCHIVE_UPLOAD_BYTES = 8 * 1024 * 1024
+PLUGIN_UPLOAD_CHUNK_BYTES = 64 * 1024
 
 
-@plugins_install_router.post("/install/upload/inspect", response_model=PluginManifestResponse)
-async def inspect_plugin_upload(file: UploadFile):
-    """Return declared capabilities + metadata of an uploaded archive WITHOUT
-    installing it — drives the pre-install consent step for sideload."""
-    if not file.filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=core_i18n.t("plugins.errors.filename_required", fallback="Filename required"),
-        )
-    name = file.filename.lower()
-    if not (name.endswith(".tar.gz") or name.endswith(".tgz") or name.endswith(".zip")):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=core_i18n.t(
-                "plugins.errors.archive_extension_invalid",
-                fallback="Archive must be .tar.gz, .tgz, or .zip",
-            ),
-        )
-    manager = _require_plugin_manager()
-    with tempfile.TemporaryDirectory(prefix="magi-upload-inspect-") as tmp:
-        archive_path = Path(tmp) / file.filename
-        archive_path.write_bytes(await file.read())
-        try:
-            manifest = manager.inspect_plugin_archive(archive_path)
-        except InvalidPluginArchiveError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=core_i18n.t(
-                    "plugins.errors.archive_invalid",
-                    fallback="The uploaded file is not a valid plugin archive",
-                ),
-            ) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+class _PluginArchiveUploadTooLargeError(ValueError):
+    """Raised when an uploaded archive exceeds the route's compressed-size limit."""
+
+
+def _archive_suffix(filename: str) -> str | None:
+    name = filename.lower()
+    if name.endswith(".tar.gz") or name.endswith(".tgz"):
+        return ".tar.gz"
+    if name.endswith(".zip"):
+        return ".zip"
+    return None
+
+
+def _display_filename(filename: str) -> str:
+    normalized = filename.replace("\\", "/")
+    return (normalized.rsplit("/", 1)[-1].strip() or "plugin-archive")[:255]
+
+
+async def _write_candidate_archive(file: UploadFile, archive_path: Path) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    total_bytes = 0
+    with archive_path.open("xb") as handle:
+        archive_path.chmod(0o600)
+        while chunk := await file.read(PLUGIN_UPLOAD_CHUNK_BYTES):
+            total_bytes += len(chunk)
+            if total_bytes > MAX_PLUGIN_ARCHIVE_UPLOAD_BYTES:
+                raise _PluginArchiveUploadTooLargeError
+            digest.update(chunk)
+            handle.write(chunk)
+    if total_bytes == 0:
+        raise InvalidPluginArchiveError("Plugin archive is empty")
+    return digest.hexdigest(), total_bytes
+
+
+def _candidate_manifest_response(manifest) -> PluginManifestResponse:
     return PluginManifestResponse(
         plugin_id=manifest.plugin_id,
         name=manifest.name,
         version=manifest.version,
         description=manifest.description,
         author=manifest.author,
-        icon=resolve_plugin_icon(manifest.icon, manifest.plugin_dir),
+        icon=manifest.icon,
         display_group=manifest.display_group,
-        official=False,  # sideload is never official
-        contribution_types=[c.value for c in manifest.contribution_types],
+        official=False,
+        contribution_types=[item.value for item in manifest.contribution_types],
         source="external",
         plugin_dir="",
         manifest_path="",
@@ -146,16 +95,20 @@ async def inspect_plugin_upload(file: UploadFile):
     )
 
 
-@plugins_install_router.post("/install/upload/jobs", response_model=PluginInstallJobSnapshot)
-async def start_plugin_upload_install_job(file: UploadFile):
-    """Start a background plugin install job from an uploaded archive."""
+@plugins_install_router.post(
+    "/install/candidates",
+    response_model=PluginInstallCandidateResponse,
+)
+async def create_plugin_install_candidate(file: UploadFile):
+    """Stage and inspect one archive for later single-use installation approval."""
+
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=core_i18n.t("plugins.errors.filename_required", fallback="Filename required"),
         )
-    name = file.filename.lower()
-    if not (name.endswith(".tar.gz") or name.endswith(".tgz") or name.endswith(".zip")):
+    suffix = _archive_suffix(file.filename)
+    if suffix is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=core_i18n.t(
@@ -164,15 +117,146 @@ async def start_plugin_upload_install_job(file: UploadFile):
             ),
         )
 
-    tmp_path = Path(tempfile.mkdtemp(prefix="magi-upload-install-"))
-    archive_path = tmp_path / file.filename
-    content = await file.read()
-    archive_path.write_bytes(content)
+    store = get_plugin_install_candidate_store()
+    candidate_id, archive_path = store.reserve_archive(suffix)
+    filename = _display_filename(file.filename)
+    try:
+        archive_sha256, total_bytes = await _write_candidate_archive(file, archive_path)
+        manager = _require_plugin_manager()
+        manifest = await asyncio.to_thread(manager.inspect_plugin_archive, archive_path)
+        if manifest.kind == "library":
+            raise DirectLibraryInstallError(
+                "Library components cannot be installed directly from an archive"
+            )
+        candidate = await asyncio.to_thread(
+            store.register,
+            candidate_id=candidate_id,
+            archive_path=archive_path,
+            original_filename=filename,
+            archive_sha256=archive_sha256,
+            manifest=manifest,
+        )
+    except _PluginArchiveUploadTooLargeError as exc:
+        store.discard(candidate_id)
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=core_i18n.t(
+                "plugins.errors.archive_too_large",
+                fallback="The plugin archive is too large",
+            ),
+        ) from exc
+    except InvalidPluginArchiveError as exc:
+        store.discard(candidate_id)
+        logger.warning(
+            "Plugin candidate rejected because the archive is invalid",
+            extra={"upload_filename": filename, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=core_i18n.t(
+                "plugins.errors.archive_invalid",
+                fallback="The uploaded file is not a valid plugin archive",
+            ),
+        ) from exc
+    except (DirectLibraryInstallError, ValueError) as exc:
+        store.discard(candidate_id)
+        logger.warning(
+            "Plugin candidate rejected during manifest validation",
+            extra={"upload_filename": filename, "error": str(exc)},
+        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except asyncio.CancelledError:
+        store.discard(candidate_id)
+        raise
+    except Exception:
+        store.discard(candidate_id)
+        raise
+    finally:
+        await file.close()
+
     logger.info(
-        "Plugin upload install job requested",
-        extra={"filename": file.filename, "archive_path": str(archive_path), "bytes": len(content)},
+        "Plugin install candidate created",
+        extra={
+            "candidate_id": candidate.candidate_id,
+            "upload_filename": filename,
+            "archive_sha256": candidate.archive_sha256,
+            "bytes": total_bytes,
+        },
     )
-    return plugin_install_jobs.start_upload_install(archive_path, file.filename)
+    return PluginInstallCandidateResponse(
+        candidate_id=candidate.candidate_id,
+        archive_sha256=candidate.archive_sha256,
+        expires_at_ms=int(candidate.expires_at * 1000),
+        manifest=_candidate_manifest_response(candidate.manifest),
+    )
+
+
+@plugins_install_router.delete("/install/candidates/{candidate_id}")
+async def discard_plugin_install_candidate(candidate_id: str):
+    """Discard one unclaimed plugin install candidate."""
+
+    store = get_plugin_install_candidate_store()
+    try:
+        store.get(candidate_id)
+        store.discard(candidate_id)
+    except PluginInstallCandidateNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t(
+                "plugins.errors.install_candidate_not_found",
+                fallback="Plugin install candidate not found or expired",
+            ),
+        ) from exc
+    except PluginInstallCandidateClaimedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=core_i18n.t(
+                "plugins.errors.install_candidate_claimed",
+                fallback="Plugin installation has already started",
+            ),
+        ) from exc
+    return {"status": "ok", "candidate_id": candidate_id}
+
+
+@plugins_install_router.post(
+    "/install/candidates/{candidate_id}/jobs",
+    response_model=PluginInstallJobSnapshot,
+)
+async def start_plugin_candidate_install_job(
+    candidate_id: str,
+    request: PluginInstallCandidateApprovalRequest,
+):
+    """Start one install job for the exact archive the user inspected."""
+
+    try:
+        return plugin_install_jobs.start_candidate_install(
+            candidate_id,
+            expected_sha256=request.expected_sha256,
+        )
+    except PluginInstallCandidateNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t(
+                "plugins.errors.install_candidate_not_found",
+                fallback="Plugin install candidate not found or expired",
+            ),
+        ) from exc
+    except PluginInstallCandidateClaimedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=core_i18n.t(
+                "plugins.errors.install_candidate_claimed",
+                fallback="Plugin installation has already started",
+            ),
+        ) from exc
+    except PluginInstallCandidateDigestMismatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=core_i18n.t(
+                "plugins.errors.install_candidate_mismatch",
+                fallback="The approved plugin package no longer matches the inspected package",
+            ),
+        ) from exc
 
 
 @plugins_install_router.post("/install/registry", response_model=PluginPackageResponse)
@@ -264,12 +348,12 @@ async def uninstall_plugin(plugin_id: str):
 
 
 __all__ = [
-    "inspect_plugin_upload",
+    "create_plugin_install_candidate",
+    "discard_plugin_install_candidate",
     "install_plugin_from_registry",
-    "install_plugin_from_upload",
     "get_plugin_install_job",
     "plugins_install_router",
+    "start_plugin_candidate_install_job",
     "start_plugin_registry_install_job",
-    "start_plugin_upload_install_job",
     "uninstall_plugin",
 ]

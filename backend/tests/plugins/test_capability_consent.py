@@ -1,3 +1,7 @@
+import io
+from pathlib import Path
+import tarfile
+
 from magi.config.plugin_models import PluginSettings
 from magi.plugins.contracts import (
     PluginCapability,
@@ -63,23 +67,22 @@ def test_appconfig_round_trips_consented_capabilities():
     from magi.config.models import AppConfig
 
     cfg = AppConfig.model_validate(
-        {"plugins": {"packages": {"demo": {"consented_capabilities": [{"capability": "calendar"}]}}}}
+        {
+            "plugins": {
+                "packages": {"demo": {"consented_capabilities": [{"capability": "calendar"}]}}
+            }
+        }
     )
     pkg = cfg.plugins.packages["demo"]
     assert pkg.consented_capabilities[0].capability == "calendar"
 
 
-import io
-import tarfile
-from pathlib import Path
-
-
 def _make_archive(tmp_path: Path) -> Path:
     toml = (
-        b'[plugin]\n'
+        b"[plugin]\n"
         b'id = "demo"\nname = "Demo"\nversion = "1.0.0"\n'
         b'entry_module = "plugin"\nentry_class = "Demo"\n'
-        b'\n[[plugin.permissions.capabilities]]\n'
+        b"\n[[plugin.permissions.capabilities]]\n"
         b'capability = "network"\nscope = ["x.com"]\n'
     )
     archive = tmp_path / "demo.tar.gz"
@@ -131,7 +134,7 @@ def test_corrupt_zip_raises_invalid_archive(tmp_path):
         mgr.inspect_plugin_archive(bad)
 
 
-def test_inspect_route_exposed_on_public_router():
+def test_candidate_routes_exposed_on_public_router():
     # The route must also be in the _PUBLIC_ROUTE_METHODS allowlist, NOT just on
     # the router — register_api_routes filters the public app through that
     # allowlist, so a route missing from it is silently dropped (HTTP 404 in the
@@ -141,4 +144,6 @@ def test_inspect_route_exposed_on_public_router():
 
     public = _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"])
     paths = {r.path for r in public.routes}
-    assert "/install/upload/inspect" in paths
+    assert "/install/candidates" in paths
+    assert "/install/candidates/{candidate_id}" in paths
+    assert "/install/candidates/{candidate_id}/jobs" in paths

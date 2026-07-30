@@ -106,6 +106,17 @@ class PluginInstallRequest(BaseModel):
     plugin_id: str
 
 
+class PluginInstallCandidateApprovalRequest(BaseModel):
+    expected_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class PluginInstallCandidateResponse(BaseModel):
+    candidate_id: str
+    archive_sha256: str
+    expires_at_ms: int
+    manifest: PluginManifestResponse
+
+
 class PluginInstallLogEntry(BaseModel):
     ts_ms: int
     level: Literal["info", "warning", "error"] = "info"
@@ -144,6 +155,8 @@ class PluginsListResponse(BaseModel):
 
 __all__ = [
     "PluginContributionResponse",
+    "PluginInstallCandidateApprovalRequest",
+    "PluginInstallCandidateResponse",
     "PluginInstallJobSnapshot",
     "PluginInstallLogEntry",
     "PluginInstallRequest",
