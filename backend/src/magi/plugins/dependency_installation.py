@@ -8,6 +8,7 @@ import logging
 import os
 from pathlib import Path
 from queue import Empty, Queue
+import re
 import shutil
 import subprocess
 import sys
@@ -22,10 +23,16 @@ InstallProgressReporter = Callable[[str, str, float | None], None]
 PLUGIN_DEPENDENCY_PYTHON_ENV = "MAGI_PLUGIN_PYTHON"
 BACKEND_PYTHON_ENV = "MAGI_BACKEND_PYTHON"
 ALLOW_UNLOCKED_DEPS_ENV = "MAGI_ALLOW_UNLOCKED_PLUGIN_DEPS"
+MAX_PLUGIN_DEPENDENCY_LOCK_BYTES = 1024 * 1024
+_LOCK_HASH_PATTERN = re.compile(r"--hash=sha256:[0-9a-fA-F]{64}")
 
 
 class UnlockedDependencyError(RuntimeError):
     """Raised when a plugin declares dependencies but ships no requirements.lock."""
+
+
+class UnsafeDependencyLockError(RuntimeError):
+    """Raised when a dependency lock could execute a source build or pip directive."""
 
 
 @dataclass(slots=True)
@@ -167,6 +174,7 @@ def _build_dependency_install_command(
     *,
     quiet: bool,
 ) -> list[str]:
+    _validate_dependency_lock(lock_path)
     cmd = [
         _resolve_dependency_python_executable(),
         "-m",
@@ -176,6 +184,7 @@ def _build_dependency_install_command(
         str(deps_dir),
         "--no-user",
         "--disable-pip-version-check",
+        "--only-binary=:all:",
         "--require-hashes",
         "-r",
         str(lock_path),
@@ -183,6 +192,78 @@ def _build_dependency_install_command(
     if quiet:
         cmd.insert(cmd.index("--require-hashes"), "--quiet")
     return cmd
+
+
+def _validate_dependency_lock(lock_path: Path) -> None:
+    """Accept only exact, hash-pinned package requirements from an ordinary index."""
+
+    try:
+        size = lock_path.stat().st_size
+    except OSError as exc:
+        raise UnsafeDependencyLockError(f"Cannot read plugin dependency lock: {lock_path}") from exc
+    if size <= 0 or size > MAX_PLUGIN_DEPENDENCY_LOCK_BYTES:
+        raise UnsafeDependencyLockError(
+            f"Plugin dependency lock must be between 1 and "
+            f"{MAX_PLUGIN_DEPENDENCY_LOCK_BYTES} bytes"
+        )
+
+    try:
+        text = lock_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise UnsafeDependencyLockError(
+            "Plugin dependency lock must be readable UTF-8 text"
+        ) from exc
+
+    statements = _dependency_lock_statements(text)
+    if not statements:
+        raise UnsafeDependencyLockError("Plugin dependency lock contains no requirements")
+    for statement in statements:
+        hash_start = statement.find(" --hash=")
+        if hash_start < 0:
+            raise UnsafeDependencyLockError(
+                "Every locked plugin dependency must include a SHA-256 hash"
+            )
+        requirement_text = statement[:hash_start].strip()
+        hash_tokens = statement[hash_start:].split()
+        if not hash_tokens or any(
+            _LOCK_HASH_PATTERN.fullmatch(token) is None for token in hash_tokens
+        ):
+            raise UnsafeDependencyLockError(
+                "Plugin dependency locks may contain only SHA-256 hash options"
+            )
+        try:
+            requirement = Requirement(requirement_text)
+        except InvalidRequirement as exc:
+            raise UnsafeDependencyLockError(
+                f"Invalid locked plugin dependency: {requirement_text}"
+            ) from exc
+        if requirement.url is not None:
+            raise UnsafeDependencyLockError(
+                "Plugin dependency locks cannot use direct URLs or local paths"
+            )
+        specifiers = list(requirement.specifier)
+        if len(specifiers) != 1 or specifiers[0].operator != "==" or "*" in specifiers[0].version:
+            raise UnsafeDependencyLockError(
+                f"Plugin dependency must pin one exact version: {requirement.name}"
+            )
+
+
+def _dependency_lock_statements(text: str) -> list[str]:
+    statements: list[str] = []
+    pending = ""
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        continued = stripped.endswith("\\")
+        part = stripped[:-1].rstrip() if continued else stripped
+        pending = f"{pending} {part}".strip()
+        if not continued:
+            statements.append(pending)
+            pending = ""
+    if pending:
+        raise UnsafeDependencyLockError("Plugin dependency lock has an unfinished continuation")
+    return statements
 
 
 def _build_loose_dependency_install_command(
