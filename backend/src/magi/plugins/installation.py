@@ -9,7 +9,7 @@ import tempfile
 from dataclasses import dataclass
 
 from . import package_files
-from ..config import save_config
+from ..config import PluginSettings, get_config, save_config
 from .contracts import PluginManifest, PluginPackageState
 from .icon_assets import resolve_plugin_icon
 from .dependency_installation import (
@@ -92,6 +92,12 @@ class _PluginInstallPlan:
     dest_dir: Path
 
 
+@dataclass(frozen=True)
+class _PluginInstallSnapshot:
+    package_state: PluginPackageState | None
+    config: PluginSettings | None
+
+
 class PluginInstallationMixin:
     """Install and uninstall user plugin packages."""
 
@@ -107,6 +113,9 @@ class PluginInstallationMixin:
         raise NotImplementedError
 
     def enable_plugin(self, plugin_id: str) -> PluginPackageState:
+        raise NotImplementedError
+
+    def load_plugin(self, plugin_id: str) -> PluginPackageState:
         raise NotImplementedError
 
     def unload_plugin(self, plugin_id: str) -> None:
@@ -138,15 +147,13 @@ class PluginInstallationMixin:
             manifest_file = _extract_archive_manifest(archive_path, tmp_path)
             plan = self._build_install_plan(manifest_file, user_root)
             self._log_install_plan(plan, message="Installing external plugin package")
-            self._replace_plugin_package(
+            state = self._replace_plugin_package(
                 plan,
                 progress_reporter=progress_reporter,
                 stage_message="Validating staged plugin package",
+                activate_after_swap=False,
             )
 
-        _report_install_progress(progress_reporter, "scan", "Refreshing plugin registry", 88.0)
-        self.scan(persist_discovery=True)
-        state = self._require_package(plan.plugin_id)
         logger.info("Installed plugin from archive", extra={"plugin_id": plan.plugin_id})
         _report_install_progress(progress_reporter, "completed", "Plugin package installed", 100.0)
         return state
@@ -184,23 +191,16 @@ class PluginInstallationMixin:
         manifest_file = _find_directory_manifest(source_dir)
         plan = self._build_install_plan(manifest_file, _prepare_user_plugins_root())
         self._log_install_plan(plan, message="Installing plugin from directory")
-        self._replace_plugin_package(
+        state = self._replace_plugin_package(
             plan,
             progress_reporter=progress_reporter,
             stage_message="Preparing staged plugin package",
+            activate_after_swap=True,
         )
 
-        _report_install_progress(progress_reporter, "scan", "Refreshing plugin registry", 88.0)
-        self.scan(persist_discovery=True)
-        # Library packages get enabled+trusted by _persist_new_packages and
-        # are never loaded as Plugin instances, so skip the enable step
-        # (which rejects libraries by design).
         if plan.manifest.kind == "library":
-            state = self._require_package(plan.plugin_id)
             logger.info("Installed library package", extra={"plugin_id": plan.plugin_id})
         else:
-            _report_install_progress(progress_reporter, "activate", "Enabling plugin package", 94.0)
-            state = self.enable_plugin(plan.plugin_id)
             logger.info("Installed and enabled plugin", extra={"plugin_id": plan.plugin_id})
         _report_install_progress(progress_reporter, "completed", "Plugin package installed", 100.0)
         return state
@@ -242,10 +242,72 @@ class PluginInstallationMixin:
         *,
         progress_reporter: InstallProgressReporter | None,
         stage_message: str,
-    ) -> None:
+        activate_after_swap: bool,
+    ) -> PluginPackageState:
+        snapshot = self._snapshot_install_state(plan.plugin_id)
+        installed_state: PluginPackageState | None = None
+        config_write_attempted = False
+
         def prepare_staging_dir(staged_dir: Path) -> None:
             _report_install_progress(progress_reporter, "stage", stage_message, 48.0)
             self._install_staged_dependencies(staged_dir, progress_reporter=progress_reporter)
+
+        def validate_promoted_dir() -> None:
+            nonlocal config_write_attempted, installed_state
+
+            _report_install_progress(
+                progress_reporter,
+                "scan",
+                "Refreshing plugin registry",
+                88.0,
+            )
+            self.scan(persist_discovery=False)
+            state = self._require_package(plan.plugin_id)
+
+            should_load = activate_after_swap or bool(
+                snapshot.package_state is not None and snapshot.package_state.loaded
+            )
+            if should_load:
+                if activate_after_swap:
+                    _report_install_progress(
+                        progress_reporter,
+                        "activate",
+                        "Enabling plugin package",
+                        94.0,
+                    )
+                    state.enabled = True
+                    state.trusted = True
+                state = self.load_plugin(plan.plugin_id)
+
+            config_updates = self._build_install_config_updates(
+                plan,
+                snapshot=snapshot,
+                activate_after_swap=activate_after_swap,
+            )
+            if config_updates:
+                config_write_attempted = True
+                if not save_config(config_updates):
+                    raise RuntimeError("Failed to persist plugin installation state")
+            installed_state = state
+
+        def restore_previous_install() -> None:
+            self.unload_plugin(plan.plugin_id)
+            if config_write_attempted:
+                self._restore_plugin_config(plan.plugin_id, snapshot.config)
+
+            self.scan(persist_discovery=False)
+            previous_state = snapshot.package_state
+            if previous_state is None:
+                return
+
+            restored_state = self._require_package(plan.plugin_id)
+            restored_state.enabled = previous_state.enabled
+            restored_state.trusted = previous_state.trusted
+            restored_state.healthy = previous_state.healthy
+            restored_state.last_error = previous_state.last_error
+            restored_state.current_settings = dict(previous_state.current_settings)
+            if previous_state.loaded:
+                self.load_plugin(plan.plugin_id)
 
         package_files.replace_plugin_directory(
             plan.source_dir,
@@ -254,7 +316,66 @@ class PluginInstallationMixin:
             before_swap=(
                 (lambda: self.unload_plugin(plan.plugin_id)) if plan.dest_dir.exists() else None
             ),
+            after_swap=validate_promoted_dir,
+            after_rollback=restore_previous_install,
         )
+        if installed_state is None:
+            raise RuntimeError("Plugin installation completed without a package state")
+        return installed_state
+
+    def _snapshot_install_state(self, plugin_id: str) -> _PluginInstallSnapshot:
+        state = self._package_states.get(plugin_id)
+        package_state = state.model_copy(deep=True) if state is not None else None
+        configured = get_config().plugins.packages.get(plugin_id)
+        config = (
+            PluginSettings.model_validate(configured).model_copy(deep=True)
+            if configured is not None
+            else None
+        )
+        return _PluginInstallSnapshot(package_state=package_state, config=config)
+
+    @staticmethod
+    def _build_install_config_updates(
+        plan: _PluginInstallPlan,
+        *,
+        snapshot: _PluginInstallSnapshot,
+        activate_after_swap: bool,
+    ) -> dict[str, object]:
+        prefix = f"plugins.packages.{plan.plugin_id}"
+        if activate_after_swap:
+            updates: dict[str, object] = {
+                f"{prefix}.enabled": True,
+                f"{prefix}.trusted": True,
+                f"{prefix}.source": plan.manifest.source,
+                f"{prefix}.manifest_path": str(plan.dest_dir / "plugin.toml"),
+            }
+        elif snapshot.config is None:
+            updates = {
+                f"{prefix}.enabled": False,
+                f"{prefix}.trusted": False,
+                f"{prefix}.source": plan.manifest.source,
+                f"{prefix}.manifest_path": str(plan.dest_dir / "plugin.toml"),
+            }
+        else:
+            return {}
+
+        if snapshot.config is None:
+            updates[f"{prefix}.official"] = False
+            updates[f"{prefix}.settings"] = {}
+        return updates
+
+    @staticmethod
+    def _restore_plugin_config(plugin_id: str, config: PluginSettings | None) -> None:
+        prefix = f"plugins.packages.{plugin_id}"
+        if config is None:
+            updates: dict[str, object] = {prefix: None}
+        else:
+            updates = {
+                f"{prefix}.{field_name}": value
+                for field_name, value in config.model_dump(mode="json").items()
+            }
+        if not save_config(updates):
+            raise RuntimeError(f"Failed to restore plugin configuration: {plugin_id}")
 
     def _install_staged_dependencies(
         self,

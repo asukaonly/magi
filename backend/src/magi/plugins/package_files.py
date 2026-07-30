@@ -191,14 +191,24 @@ def replace_plugin_directory(
     *,
     prepare_staging_dir: Callable[[Path], None] | None = None,
     before_swap: Callable[[], None] | None = None,
+    after_swap: Callable[[], None] | None = None,
+    after_rollback: Callable[[], None] | None = None,
 ) -> None:
-    """Stage plugin files on disk before swapping them into place."""
+    """Replace a plugin directory while retaining the old tree until commit.
+
+    ``after_swap`` runs while the previous directory is still available as a
+    private backup. If promotion or post-swap validation fails, the filesystem
+    is restored first and ``after_rollback`` can rebuild matching runtime
+    state. The backup is deleted only after ``after_swap`` succeeds.
+    """
 
     parent_dir = dest_dir.parent
     parent_dir.mkdir(parents=True, exist_ok=True)
 
     staging_dir = Path(tempfile.mkdtemp(prefix=f".{dest_dir.name}-staging-", dir=parent_dir))
-    backup_dir = parent_dir / f".{dest_dir.name}-backup-{uuid.uuid4().hex}"
+    backup_dir = parent_dir.parent / f".{parent_dir.name}-{dest_dir.name}-backup-{uuid.uuid4().hex}"
+    swap_started = False
+    committed = False
 
     try:
         logger.info(
@@ -216,6 +226,7 @@ def replace_plugin_directory(
             prepare_staging_dir(staging_dir)
 
         if before_swap is not None:
+            swap_started = True
             before_swap()
 
         if dest_dir.exists():
@@ -223,22 +234,48 @@ def replace_plugin_directory(
                 "Backing up existing plugin directory",
                 extra={"dest_dir": str(dest_dir), "backup_dir": str(backup_dir)},
             )
+            swap_started = True
             dest_dir.replace(backup_dir)
 
-        try:
-            staging_dir.replace(dest_dir)
-            logger.info(
-                "Promoted staged plugin directory",
-                extra={"dest_dir": str(dest_dir), "staging_dir": str(staging_dir)},
-            )
-        except Exception:
-            if backup_dir.exists() and not dest_dir.exists():
-                backup_dir.replace(dest_dir)
-            raise
+        swap_started = True
+        staging_dir.replace(dest_dir)
+        logger.info(
+            "Promoted staged plugin directory",
+            extra={"dest_dir": str(dest_dir), "staging_dir": str(staging_dir)},
+        )
+
+        if after_swap is not None:
+            after_swap()
+        committed = True
+    except BaseException as operation_error:
+        if swap_started:
+            try:
+                if dest_dir.exists():
+                    shutil.rmtree(dest_dir)
+                if backup_dir.exists():
+                    backup_dir.replace(dest_dir)
+                if after_rollback is not None:
+                    after_rollback()
+            except BaseException as rollback_error:
+                logger.critical(
+                    "Plugin directory rollback failed",
+                    extra={
+                        "dest_dir": str(dest_dir),
+                        "backup_dir": str(backup_dir),
+                        "operation_error": str(operation_error),
+                        "rollback_error": str(rollback_error),
+                    },
+                    exc_info=True,
+                )
+                raise RuntimeError(
+                    f"Plugin installation failed and rollback could not be completed: "
+                    f"{operation_error}"
+                ) from rollback_error
+        raise
     finally:
         if staging_dir.exists():
             shutil.rmtree(staging_dir, ignore_errors=True)
-        if backup_dir.exists():
+        if committed and backup_dir.exists():
             shutil.rmtree(backup_dir, ignore_errors=True)
 
 

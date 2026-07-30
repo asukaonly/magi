@@ -48,6 +48,20 @@ def _apply_updates(config: AppConfig, updates: dict[str, object]) -> None:
             setattr(current, last, value)
 
 
+def _patch_plugin_config(
+    monkeypatch: pytest.MonkeyPatch,
+    config: AppConfig,
+) -> None:
+    def apply(updates: dict[str, object]) -> bool:
+        _apply_updates(config, updates)
+        return True
+
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.manager.save_config", apply)
+    monkeypatch.setattr("magi.plugins.installation.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.installation.save_config", apply)
+
+
 def _write_external_tool_plugin(base: Path) -> None:
     plugin_dir = base / "external-tool"
     plugin_dir.mkdir(parents=True)
@@ -130,6 +144,7 @@ def _write_install_test_plugin(
     version: str,
     marker: str,
     dependencies: list[str] | None = None,
+    fail_on_import: bool = False,
 ) -> Path:
     plugin_dir = base / plugin_id
     plugin_dir.mkdir(parents=True, exist_ok=True)
@@ -152,17 +167,19 @@ contribution_types = ["tool"]{dependencies_line}
 """.strip(),
         encoding="utf-8",
     )
-    (plugin_dir / "plugin.py").write_text(
-        f"""from magi_plugin_sdk import Plugin
+    plugin_source = (
+        'raise RuntimeError("new plugin failed to load")'
+        if fail_on_import
+        else f"""from magi_plugin_sdk import Plugin
 
 class InstallTestPlugin(Plugin):
     marker = \"{marker}\"
 
     def get_tools(self):
         return []
-""".strip(),
-        encoding="utf-8",
+""".strip()
     )
+    (plugin_dir / "plugin.py").write_text(plugin_source, encoding="utf-8")
     return plugin_dir
 
 
@@ -347,6 +364,7 @@ async def test_unload_plugin_invokes_shutdown_hook(
     # the running loop and returns immediately; we yield so the task can
     # run before we assert.
     import asyncio
+
     # Give the loop one cycle. With asyncio mode=auto, pytest-asyncio is
     # already in an event loop here.
     for _ in range(50):
@@ -354,9 +372,7 @@ async def test_unload_plugin_invokes_shutdown_hook(
             break
         await asyncio.sleep(0.01)
 
-    assert plugin_cls.shutdown_calls == [1], (
-        "Host did not invoke plugin.shutdown() on unload"
-    )
+    assert plugin_cls.shutdown_calls == [1], "Host did not invoke plugin.shutdown() on unload"
 
 
 def test_plugin_manager_reload_clears_cached_plugin_submodules(
@@ -423,10 +439,7 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
     config = AppConfig()
     tool_registry = ToolRegistry()
 
-    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr(
-        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
-    )
+    _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
 
     manager = PluginManager(
@@ -461,6 +474,8 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
     assert existing_dir.exists()
     assert "old-version" in (existing_dir / "plugin.py").read_text(encoding="utf-8")
     assert "new-version" not in (existing_dir / "plugin.py").read_text(encoding="utf-8")
+    assert not list(user_root.glob(".swap-test-*"))
+    assert not list(tmp_path.glob(".user-plugins-swap-test-*"))
 
 
 def test_install_plugin_from_directory_reports_progress(
@@ -479,10 +494,7 @@ def test_install_plugin_from_directory_reports_progress(
     config = AppConfig()
     tool_registry = ToolRegistry()
 
-    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr(
-        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
-    )
+    _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
 
     manager = PluginManager(
@@ -510,6 +522,101 @@ def test_install_plugin_from_directory_reports_progress(
         "completed",
     ]
     assert progress_events[-1][2] == 100.0
+
+
+def test_new_plugin_load_failure_leaves_no_installed_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "user-plugins"
+    incoming_dir = _write_install_test_plugin(
+        tmp_path / "incoming",
+        plugin_id="new-rollback-test",
+        version="1.0.0",
+        marker="broken",
+        fail_on_import=True,
+    )
+    config = AppConfig()
+    _patch_plugin_config(monkeypatch, config)
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
+
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[user_root],
+    )
+
+    with pytest.raises(RuntimeError, match="new plugin failed to load"):
+        manager.install_plugin_from_directory(incoming_dir)
+
+    assert not (user_root / "new-rollback-test").exists()
+    assert "new-rollback-test" not in config.plugins.packages
+    assert manager.get_package("new-rollback-test") is None
+    assert manager.get_loaded_plugin("new-rollback-test") is None
+    assert not list(user_root.glob(".new-rollback-test-*"))
+    assert not list(tmp_path.glob(".user-plugins-new-rollback-test-*"))
+
+
+def test_plugin_update_load_failure_restores_previous_install(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "user-plugins"
+    existing_dir = _write_install_test_plugin(
+        user_root,
+        plugin_id="update-rollback-test",
+        version="1.0.0",
+        marker="old-version",
+    )
+    incoming_dir = _write_install_test_plugin(
+        tmp_path / "incoming",
+        plugin_id="update-rollback-test",
+        version="2.0.0",
+        marker="broken-version",
+        fail_on_import=True,
+    )
+    config = AppConfig()
+    config.plugins.packages["update-rollback-test"] = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="external",
+        manifest_path=str(existing_dir / "plugin.toml"),
+        official=False,
+        settings={"preserved": "value"},
+    )
+    original_config = config.plugins.packages["update-rollback-test"].model_dump(mode="json")
+    _patch_plugin_config(monkeypatch, config)
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
+
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[user_root],
+    )
+    manager.scan(persist_discovery=False)
+    manager.activate_enabled_plugins()
+    assert manager.get_loaded_plugin("update-rollback-test").marker == "old-version"
+
+    with pytest.raises(RuntimeError, match="new plugin failed to load"):
+        manager.install_plugin_from_directory(incoming_dir)
+
+    assert "old-version" in (existing_dir / "plugin.py").read_text(encoding="utf-8")
+    assert "broken-version" not in (existing_dir / "plugin.py").read_text(encoding="utf-8")
+    assert (
+        config.plugins.packages["update-rollback-test"].model_dump(mode="json") == original_config
+    )
+    restored_state = manager.get_package("update-rollback-test")
+    assert restored_state is not None
+    assert restored_state.enabled is True
+    assert restored_state.trusted is True
+    assert restored_state.loaded is True
+    assert restored_state.healthy is True
+    assert restored_state.last_error is None
+    assert manager.get_loaded_plugin("update-rollback-test").marker == "old-version"
+    assert not list(user_root.glob(".update-rollback-test-*"))
+    assert not list(tmp_path.glob(".user-plugins-update-rollback-test-*"))
 
 
 def test_plugin_install_destination_must_remain_inside_user_root(
@@ -602,7 +709,7 @@ def test_dependency_install_command_uses_configured_python_when_frozen(
     )
 
     lock = tmp_path / "requirements.lock"
-    lock.write_text("example-package==1.0.0 --hash=sha256:abc\n", encoding="utf-8")
+    lock.write_text(f"example-package==1.0.0 --hash=sha256:{'a' * 64}\n", encoding="utf-8")
     cmd = _build_dependency_install_command(lock, tmp_path / ".deps", quiet=False)
 
     assert cmd[:4] == [current_python, "-m", "pip", "install"]
@@ -623,7 +730,7 @@ def test_dependency_install_command_rejects_frozen_sidecar_without_python(
     monkeypatch.setattr(dependency_installation_module.shutil, "which", lambda _name: None)
 
     lock = tmp_path / "requirements.lock"
-    lock.write_text("example-package==1.0.0 --hash=sha256:abc\n", encoding="utf-8")
+    lock.write_text(f"example-package==1.0.0 --hash=sha256:{'a' * 64}\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match=PLUGIN_DEPENDENCY_PYTHON_ENV):
         _build_dependency_install_command(lock, tmp_path / ".deps", quiet=False)
 
