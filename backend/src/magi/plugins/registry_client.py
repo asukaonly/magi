@@ -67,6 +67,7 @@ class PluginRegistryClient:
         self._cached_index: PluginRegistryIndex | None = None
         self._cache_timestamp: float = 0.0
         self._index_lock = asyncio.Lock()
+        self._index_task: asyncio.Task[PluginRegistryIndex] | None = None
         self._cached_tarball: bytes | None = None
         self._cached_tarball_key: tuple[str, str] | None = None
         self._tarball_timestamp: float = 0.0
@@ -101,16 +102,15 @@ class PluginRegistryClient:
         deadline_monotonic: float | None = None,
     ) -> PluginRegistryIndex:
         """Fetch the full plugin registry index, with memory and disk caching."""
-        now = time.monotonic()
-        if (
-            not force
-            and self._cached_index is not None
-            and (now - self._cache_timestamp) < INDEX_CACHE_TTL
-        ):
-            return self._cached_index
+        if deadline_monotonic is not None and deadline_monotonic <= time.monotonic():
+            raise PluginInstallWorkflowTimeoutError(
+                "Plugin installation exceeded the workflow time limit"
+            )
 
-        async def fetch_locked() -> PluginRegistryIndex:
-            async with self._index_lock:
+        async with self._index_lock:
+            index_task = self._index_task
+            if index_task is None or index_task.done():
+                self._index_task = None
                 now = time.monotonic()
                 if (
                     not force
@@ -119,38 +119,69 @@ class PluginRegistryClient:
                 ):
                     return self._cached_index
 
-                try:
-                    index = await self._fetch_remote_index(
-                        deadline_monotonic=deadline_monotonic,
-                    )
-                except Exception:
-                    cached_index = await run_plugin_preparation_operation(self._read_disk_cache)
-                    if cached_index is None:
-                        raise
-                    logger.warning(
-                        "Using cached plugin registry after remote fetch failed",
-                        extra={"cache_path": str(self._resolved_disk_cache_path)},
-                        exc_info=True,
-                    )
-                    self._cached_index = cached_index
-                    self._cache_timestamp = time.monotonic()
-                    return cached_index
+                index_task = asyncio.create_task(self._fetch_and_cache_index())
+                self._index_task = index_task
+                index_task.add_done_callback(self._clear_index_task)
 
-                self._cached_index = index
-                self._cache_timestamp = time.monotonic()
-                await run_plugin_preparation_operation(lambda: self._write_disk_cache(index))
-                return index
+        return await self._await_index_task(
+            index_task,
+            deadline_monotonic=deadline_monotonic,
+        )
 
+    async def _fetch_and_cache_index(self) -> PluginRegistryIndex:
+        """Fetch one shared registry result and update the local caches."""
+
+        try:
+            index = await self._fetch_remote_index()
+        except Exception:
+            cached_index = await run_plugin_preparation_operation(self._read_disk_cache)
+            if cached_index is None:
+                raise
+            logger.warning(
+                "Using cached plugin registry after remote fetch failed",
+                extra={"cache_path": str(self._resolved_disk_cache_path)},
+                exc_info=True,
+            )
+            self._cached_index = cached_index
+            self._cache_timestamp = time.monotonic()
+            return cached_index
+
+        self._cached_index = index
+        self._cache_timestamp = time.monotonic()
+        await run_plugin_preparation_operation(lambda: self._write_disk_cache(index))
+        return index
+
+    def _clear_index_task(self, index_task: asyncio.Task[PluginRegistryIndex]) -> None:
+        """Release a completed shared request and observe any unclaimed failure."""
+
+        if self._index_task is index_task:
+            self._index_task = None
+        if index_task.cancelled():
+            return
+        index_task.exception()
+
+    async def _await_index_task(
+        self,
+        index_task: asyncio.Task[PluginRegistryIndex],
+        *,
+        deadline_monotonic: float | None,
+    ) -> PluginRegistryIndex:
+        """Await a shared request without letting one caller cancel it."""
+
+        shared_result = asyncio.shield(index_task)
         if deadline_monotonic is None:
-            return await fetch_locked()
+            return await shared_result
+
         remaining = deadline_monotonic - time.monotonic()
         if remaining <= 0:
             raise PluginInstallWorkflowTimeoutError(
                 "Plugin installation exceeded the workflow time limit"
             )
         try:
-            return await asyncio.wait_for(fetch_locked(), timeout=remaining)
+            return await asyncio.wait_for(shared_result, timeout=remaining)
         except asyncio.TimeoutError as exc:
+            if index_task.done():
+                return index_task.result()
             raise PluginInstallWorkflowTimeoutError(
                 "Plugin installation exceeded the workflow time limit"
             ) from exc

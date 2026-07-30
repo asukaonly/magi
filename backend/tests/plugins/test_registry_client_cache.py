@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from magi.plugins import registry_client as registry_client_module
 from magi.plugins.contracts import PluginRegistryIndex
+from magi.plugins.dependency_installation import PluginInstallWorkflowTimeoutError
 from magi.plugins.registry_client import (
     DEFAULT_REGISTRY_URL,
     DEFAULT_REPO_URL,
@@ -252,6 +253,211 @@ async def test_concurrent_fetch_index_calls_share_one_remote_request(
     assert first.registry_version == "coalesced"
     assert second.registry_version == "coalesced"
     assert calls == ["https://example.test/registry.json"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_forced_index_refreshes_share_one_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = PluginRegistryClient(
+        registry_url="https://example.test/registry.json",
+        cache_path=tmp_path / "registry.json",
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def controlled_download() -> bytes:
+        nonlocal calls
+        calls += 1
+        started.set()
+        await release.wait()
+        return json.dumps(_registry_payload("shared")).encode("utf-8")
+
+    monkeypatch.setattr(client, "_download_remote_index", controlled_download)
+
+    first = asyncio.create_task(client.fetch_index(force=True))
+    await started.wait()
+    second = asyncio.create_task(client.fetch_index(force=True))
+    cached = asyncio.create_task(client.fetch_index())
+    await asyncio.sleep(0)
+    release.set()
+
+    first_result, second_result, cached_result = await asyncio.gather(
+        first,
+        second,
+        cached,
+    )
+
+    assert first_result is second_result
+    assert second_result is cached_result
+    assert first_result.registry_version == "shared"
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_forced_index_refreshes_share_one_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = PluginRegistryClient(
+        registry_url="https://example.test/registry.json",
+        cache_path=tmp_path / "registry.json",
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def controlled_download() -> bytes:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            await release.wait()
+            raise RuntimeError("registry unavailable")
+        return json.dumps(_registry_payload("recovered")).encode("utf-8")
+
+    monkeypatch.setattr(client, "_download_remote_index", controlled_download)
+
+    first = asyncio.create_task(client.fetch_index(force=True))
+    await started.wait()
+    second = asyncio.create_task(client.fetch_index(force=True))
+    await asyncio.sleep(0)
+    release.set()
+
+    failures = await asyncio.gather(first, second, return_exceptions=True)
+
+    assert isinstance(failures[0], RuntimeError)
+    assert failures[0] is failures[1]
+    assert calls == 1
+
+    recovered = await client.fetch_index(force=True)
+
+    assert recovered.registry_version == "recovered"
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_cancelled_index_waiter_does_not_cancel_shared_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = PluginRegistryClient(
+        registry_url="https://example.test/registry.json",
+        cache_path=tmp_path / "registry.json",
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+    remote_cancelled = asyncio.Event()
+    calls = 0
+
+    async def controlled_download() -> bytes:
+        nonlocal calls
+        calls += 1
+        started.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            remote_cancelled.set()
+            raise
+        return json.dumps(_registry_payload("completed")).encode("utf-8")
+
+    monkeypatch.setattr(client, "_download_remote_index", controlled_download)
+
+    cancelled_waiter = asyncio.create_task(client.fetch_index(force=True))
+    await started.wait()
+    successful_waiter = asyncio.create_task(client.fetch_index(force=True))
+    await asyncio.sleep(0)
+
+    cancelled_waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled_waiter
+
+    assert not remote_cancelled.is_set()
+    release.set()
+
+    result = await successful_waiter
+
+    assert result.registry_version == "completed"
+    assert calls == 1
+    assert not remote_cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_timed_out_index_waiter_does_not_cancel_shared_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = PluginRegistryClient(
+        registry_url="https://example.test/registry.json",
+        cache_path=tmp_path / "registry.json",
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+    remote_cancelled = asyncio.Event()
+    calls = 0
+
+    async def controlled_download() -> bytes:
+        nonlocal calls
+        calls += 1
+        started.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            remote_cancelled.set()
+            raise
+        return json.dumps(_registry_payload("completed")).encode("utf-8")
+
+    monkeypatch.setattr(client, "_download_remote_index", controlled_download)
+
+    timed_out_waiter = asyncio.create_task(
+        client.fetch_index(
+            force=True,
+            deadline_monotonic=asyncio.get_running_loop().time() + 0.05,
+        )
+    )
+    await started.wait()
+    successful_waiter = asyncio.create_task(client.fetch_index(force=True))
+    await asyncio.sleep(0)
+
+    with pytest.raises(PluginInstallWorkflowTimeoutError, match="workflow time limit"):
+        await timed_out_waiter
+
+    assert not remote_cancelled.is_set()
+    release.set()
+
+    result = await successful_waiter
+
+    assert result.registry_version == "completed"
+    assert calls == 1
+    assert not remote_cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_sequential_forced_index_refreshes_each_fetch_remote(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = PluginRegistryClient(
+        registry_url="https://example.test/registry.json",
+        cache_path=tmp_path / "registry.json",
+    )
+    calls = 0
+
+    async def versioned_download() -> bytes:
+        nonlocal calls
+        calls += 1
+        return json.dumps(_registry_payload(str(calls))).encode("utf-8")
+
+    monkeypatch.setattr(client, "_download_remote_index", versioned_download)
+
+    first = await client.fetch_index(force=True)
+    second = await client.fetch_index(force=True)
+
+    assert first.registry_version == "1"
+    assert second.registry_version == "2"
+    assert calls == 2
 
 
 @pytest.mark.asyncio
