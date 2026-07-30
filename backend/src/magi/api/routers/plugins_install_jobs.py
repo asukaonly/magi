@@ -222,7 +222,6 @@ class PluginInstallJobManager:
         expected_fingerprint: str,
     ) -> PluginInstallJobSnapshot:
         plugin_id = plugin_install_admission.validate_plugin_id(plugin_id)
-        await self._assert_registry_approval_current(expected_fingerprint)
         job = self._create_job(operation="install", plugin_id=plugin_id)
         install_coro = self._run_registry_install(job, expected_fingerprint)
         try:
@@ -240,7 +239,6 @@ class PluginInstallJobManager:
         expected_fingerprint: str,
     ) -> PluginInstallJobSnapshot:
         plugin_id = plugin_install_admission.validate_plugin_id(plugin_id)
-        await self._assert_registry_approval_current(expected_fingerprint)
         job = self._create_job(operation="update", plugin_id=plugin_id)
         install_coro = self._run_registry_update(job, expected_fingerprint)
         try:
@@ -584,14 +582,6 @@ class PluginInstallJobManager:
             job.update(stage=stage, message=message, progress_pct=progress_pct)
 
         return report
-
-    @staticmethod
-    async def _assert_registry_approval_current(expected_fingerprint: str) -> None:
-        snapshot = await _get_registry_client().fetch_snapshot()
-        PluginInstallService.assert_expected_registry_fingerprint(
-            snapshot,
-            expected_fingerprint,
-        )
 
     def _prune_finished_jobs(self, *, reserve_slots: int = 0) -> None:
         cutoff_ms = int((time.time() - JOB_RETENTION_SECONDS) * 1000)

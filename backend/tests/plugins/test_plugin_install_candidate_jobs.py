@@ -188,6 +188,40 @@ def test_job_admission_bounds_active_jobs_and_enforces_single_flight() -> None:
             job.admission_lease.release()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["install", "update"])
+async def test_registry_jobs_reject_overflow_before_registry_read(
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    manager = PluginInstallJobManager()
+    jobs = [
+        manager._create_job(operation="install", plugin_id=f"plugin-{index}")
+        for index in range(MAX_ACTIVE_PLUGIN_INSTALL_JOBS)
+    ]
+    monkeypatch.setattr(
+        plugins_install_jobs,
+        "_get_registry_client",
+        lambda: pytest.fail("Registry must not be read before install admission"),
+    )
+
+    try:
+        with pytest.raises(PluginInstallJobCapacityError):
+            if operation == "install":
+                await manager.start_registry_install(
+                    "overflow-plugin",
+                    expected_fingerprint="a" * 64,
+                )
+            else:
+                await manager.start_registry_update(
+                    "overflow-plugin",
+                    expected_fingerprint="a" * 64,
+                )
+    finally:
+        for job in jobs:
+            manager._discard_job(job.job_id)
+
+
 @pytest.mark.parametrize(
     "plugin_id",
     [
