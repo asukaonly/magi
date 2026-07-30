@@ -458,7 +458,7 @@ class PluginManifest(BaseModel):
     :class:`Plugin` instance, never appears in user-facing market/installed
     lists, and is auto-installed and refcounted by the plugin manager."""
     contribution_types: list[ContributionType] = Field(default_factory=list)
-    dependencies: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list, max_length=128)
     """PIP package dependencies installed under the plugin's ``.deps/`` dir."""
     depends_on: list[_PluginIdentifier] = Field(default_factory=list)
     """Other plugins (typically libraries) this plugin imports from. Each

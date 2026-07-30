@@ -3,6 +3,7 @@ import subprocess as _subprocess
 
 import pytest
 
+from magi.plugins import dependency_installation as dependency_installation_module
 from magi.plugins.installation import (
     ALLOW_UNLOCKED_DEPS_ENV,
     UnlockedDependencyError,
@@ -23,6 +24,7 @@ def test_build_command_uses_require_hashes_and_lockfile(tmp_path: Path) -> None:
 
     assert "--require-hashes" in cmd
     assert "--only-binary=:all:" in cmd
+    assert "--no-cache-dir" in cmd
     assert "-r" in cmd
     assert str(lock) in cmd
     assert "--target" in cmd
@@ -43,7 +45,9 @@ def test_no_deps_returns_none(tmp_path: Path) -> None:
     assert _resolve_lock_or_policy([], tmp_path, allow_unlocked=False) is None
 
 
-def test_locked_command_accepts_multiline_exact_pins_with_markers(tmp_path: Path) -> None:
+def test_locked_command_accepts_multiline_exact_pins_with_markers(
+    tmp_path: Path,
+) -> None:
     lock = tmp_path / "requirements.lock"
     lock.write_text(
         "demo-package==1.2.3 ; sys_platform == 'darwin' \\\n"
@@ -55,6 +59,62 @@ def test_locked_command_accepts_multiline_exact_pins_with_markers(tmp_path: Path
     cmd = _build_dependency_install_command(lock, tmp_path / ".deps", quiet=False)
 
     assert "--only-binary=:all:" in cmd
+
+
+def test_locked_command_requires_manifest_dependencies_to_be_covered(
+    tmp_path: Path,
+) -> None:
+    lock = tmp_path / "requirements.lock"
+    lock.write_text(
+        f"urllib3==2.5.0 --hash=sha256:{'a' * 64}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(UnsafeDependencyLockError, match="requests"):
+        _build_dependency_install_command(
+            lock,
+            tmp_path / ".deps",
+            quiet=False,
+            declared_dependencies=["Requests>=2"],
+        )
+
+
+def test_locked_command_allows_extra_transitive_dependencies(tmp_path: Path) -> None:
+    lock = tmp_path / "requirements.lock"
+    lock.write_text(
+        f"requests==2.32.5 --hash=sha256:{'a' * 64}\n"
+        f"urllib3==2.5.0 --hash=sha256:{'b' * 64}\n",
+        encoding="utf-8",
+    )
+
+    cmd = _build_dependency_install_command(
+        lock,
+        tmp_path / ".deps",
+        quiet=False,
+        declared_dependencies=["Requests>=2"],
+    )
+
+    assert "--require-hashes" in cmd
+
+
+def test_locked_command_rejects_too_many_entries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        dependency_installation_module,
+        "MAX_PLUGIN_DEPENDENCY_LOCK_ENTRIES",
+        1,
+    )
+    lock = tmp_path / "requirements.lock"
+    lock.write_text(
+        f"requests==2.32.5 --hash=sha256:{'a' * 64}\n"
+        f"urllib3==2.5.0 --hash=sha256:{'b' * 64}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(UnsafeDependencyLockError, match="too many"):
+        _build_dependency_install_command(lock, tmp_path / ".deps", quiet=False)
 
 
 @pytest.mark.parametrize(
@@ -112,8 +172,11 @@ def test_require_hashes_rejects_tampered_lock(tmp_path: Path) -> None:
 
 def test_loose_command_has_no_require_hashes(tmp_path: Path) -> None:
     deps_dir = tmp_path / ".deps"
-    cmd = _build_loose_dependency_install_command(["segno>=1.6.1"], deps_dir, quiet=True)
+    cmd = _build_loose_dependency_install_command(
+        ["segno>=1.6.1"], deps_dir, quiet=True
+    )
     assert "--require-hashes" not in cmd
+    assert "--no-cache-dir" in cmd
     assert "segno>=1.6.1" in cmd
     assert "--target" in cmd
     assert str(deps_dir) in cmd
