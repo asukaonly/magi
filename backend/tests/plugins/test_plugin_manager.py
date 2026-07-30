@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import threading
 
 import pytest
 
@@ -522,6 +523,169 @@ def test_install_plugin_from_directory_reports_progress(
         "completed",
     ]
     assert progress_events[-1][2] == 100.0
+
+
+def test_plugin_lifecycle_serializes_concurrent_installs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "user-plugins"
+    plugin_id = "serialized-install"
+    first_source = _write_install_test_plugin(
+        tmp_path / "incoming-first",
+        plugin_id=plugin_id,
+        version="1.0.0",
+        marker="first",
+    )
+    second_source = _write_install_test_plugin(
+        tmp_path / "incoming-second",
+        plugin_id=plugin_id,
+        version="2.0.0",
+        marker="second",
+    )
+    config = AppConfig()
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.installation.get_config", lambda: config)
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
+
+    config_versions: list[str] = []
+
+    def record_config(updates: dict[str, object]) -> bool:
+        manifest_text = (user_root / plugin_id / "plugin.toml").read_text(encoding="utf-8")
+        version = "2.0.0" if 'version = "2.0.0"' in manifest_text else "1.0.0"
+        config_versions.append(version)
+        _apply_updates(config, updates)
+        return True
+
+    monkeypatch.setattr("magi.plugins.manager.save_config", record_config)
+    monkeypatch.setattr("magi.plugins.installation.save_config", record_config)
+
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[user_root],
+    )
+
+    first_staged = threading.Event()
+    release_first = threading.Event()
+    second_progressed = threading.Event()
+    progress_events: list[tuple[str, str]] = []
+    progress_lock = threading.Lock()
+
+    def reporter(label: str):
+        def report(stage: str, _message: str, _progress: float | None) -> None:
+            with progress_lock:
+                progress_events.append((label, stage))
+            if label == "first" and stage == "stage":
+                first_staged.set()
+                if not release_first.wait(timeout=5):
+                    raise TimeoutError("Timed out waiting to release the first install")
+            if label == "second":
+                second_progressed.set()
+
+        return report
+
+    results: dict[str, PluginPackageState] = {}
+    errors: list[BaseException] = []
+
+    def install(label: str, source: Path) -> None:
+        try:
+            results[label] = manager.install_plugin_from_directory(
+                source,
+                progress_reporter=reporter(label),
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    first_thread = threading.Thread(
+        target=install,
+        args=("first", first_source),
+        daemon=True,
+    )
+    second_thread = threading.Thread(
+        target=install,
+        args=("second", second_source),
+        daemon=True,
+    )
+    first_thread.start()
+    assert first_staged.wait(timeout=5)
+    second_thread.start()
+
+    interleaved = second_progressed.wait(timeout=0.5)
+    release_first.set()
+    first_thread.join(timeout=5)
+    second_thread.join(timeout=5)
+
+    assert interleaved is False
+    assert first_thread.is_alive() is False
+    assert second_thread.is_alive() is False
+    assert errors == []
+    assert [label for label, _stage in progress_events] == [
+        "first",
+        "first",
+        "first",
+        "first",
+        "first",
+        "second",
+        "second",
+        "second",
+        "second",
+        "second",
+    ]
+    assert config_versions == ["1.0.0", "2.0.0"]
+    assert results["first"].manifest.version == "1.0.0"
+    assert results["second"].manifest.version == "2.0.0"
+    final_state = manager.get_package(plugin_id)
+    assert final_state is not None
+    assert final_state.manifest.version == "2.0.0"
+    assert final_state.enabled is True
+    assert final_state.trusted is True
+    assert manager.get_loaded_plugin(plugin_id).marker == "second"
+    assert 'version = "2.0.0"' in (user_root / plugin_id / "plugin.toml").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_sync_unload_does_not_hold_lock_while_async_shutdown_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = AppConfig()
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[tmp_path],
+    )
+    plugin_id = "shutdown-lock-test"
+    manifest = PluginManifest(
+        id=plugin_id,
+        name="Shutdown Lock Test",
+        version="1.0.0",
+        source="external",
+    )
+    manager._package_states[plugin_id] = PluginPackageState(
+        manifest=manifest,
+        enabled=True,
+        trusted=True,
+        loaded=True,
+    )
+    shutdown_completed = threading.Event()
+
+    class ReentrantShutdownPlugin(Plugin):
+        async def shutdown(self) -> None:
+            import asyncio
+
+            await asyncio.to_thread(manager.scan, persist_discovery=False)
+            shutdown_completed.set()
+
+    manager._plugin_instances[plugin_id] = ReentrantShutdownPlugin()
+
+    manager.unload_plugin(plugin_id)
+
+    assert shutdown_completed.wait(timeout=2)
 
 
 def test_new_plugin_load_failure_leaves_no_installed_state(

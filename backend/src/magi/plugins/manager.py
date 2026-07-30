@@ -1,11 +1,14 @@
 """Unified plugin manager for tool and sensor extensions."""
+
 from __future__ import annotations
 
 import asyncio
+from functools import wraps
 import importlib
 import importlib.util
 import logging
 import sys
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +18,7 @@ from ..config import get_config, save_config
 from .base import Plugin
 from .contribution_registration import PluginContributionRegistrar
 from .contracts import (
+    PluginCapability,
     PluginManifest,
     PluginPackageState,
 )
@@ -26,12 +30,23 @@ from .discovery import (
     placeholder_contributions,
     resolve_plugin_search_paths as _resolve_search_paths,
 )
-from .installation import PluginInstallationMixin
+from .installation import InstallProgressReporter, PluginInstallationMixin
 from .projections import PluginProjectionService
 from .sensors import SensorRegistry
 from .settings_service import PluginSettingsActionRun, PluginSettingsService
 
 logger = logging.getLogger(__name__)
+
+
+def _serialized_lifecycle_mutation(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Serialize one state-changing operation for a PluginManager instance."""
+
+    @wraps(method)
+    def wrapped(self: "PluginManager", *args: Any, **kwargs: Any) -> Any:
+        with self._lifecycle_write_lock:
+            return method(self, *args, **kwargs)
+
+    return wrapped
 
 
 @dataclass(frozen=True)
@@ -89,6 +104,7 @@ class PluginManager(PluginInstallationMixin):
         self._request_sensor_schedule_refresh = request_sensor_schedule_refresh
         self._package_states: dict[str, PluginPackageState] = {}
         self._plugin_instances: dict[str, Plugin] = {}
+        self._lifecycle_write_lock = threading.RLock()
         self._contribution_registrar = PluginContributionRegistrar(
             tool_registry=tool_registry,
             sensor_registry=sensor_registry,
@@ -127,6 +143,43 @@ class PluginManager(PluginInstallationMixin):
             sys.modules.pop(module_name, None)
         importlib.invalidate_caches()
 
+    @_serialized_lifecycle_mutation
+    def install_plugin_from_archive(
+        self,
+        archive_path: Path,
+        *,
+        consented_capabilities: list[PluginCapability],
+        progress_reporter: InstallProgressReporter | None = None,
+    ) -> PluginPackageState:
+        """Install one uploaded archive without interleaving lifecycle writes."""
+
+        return super().install_plugin_from_archive(
+            archive_path,
+            consented_capabilities=consented_capabilities,
+            progress_reporter=progress_reporter,
+        )
+
+    @_serialized_lifecycle_mutation
+    def install_plugin_from_directory(
+        self,
+        source_dir: Path,
+        *,
+        progress_reporter: InstallProgressReporter | None = None,
+    ) -> PluginPackageState:
+        """Install one directory without interleaving lifecycle writes."""
+
+        return super().install_plugin_from_directory(
+            source_dir,
+            progress_reporter=progress_reporter,
+        )
+
+    @_serialized_lifecycle_mutation
+    def uninstall_plugin(self, plugin_id: str) -> list[str]:
+        """Uninstall one package without interleaving lifecycle writes."""
+
+        return super().uninstall_plugin(plugin_id)
+
+    @_serialized_lifecycle_mutation
     def scan(self, *, persist_discovery: bool = True) -> list[PluginPackageState]:
         """Discover plugin manifests in configured scan paths."""
 
@@ -144,6 +197,7 @@ class PluginManager(PluginInstallationMixin):
         )
         return self.list_packages()
 
+    @_serialized_lifecycle_mutation
     def activate_enabled_plugins(self) -> None:
         """Load every enabled plugin package.
 
@@ -180,6 +234,7 @@ class PluginManager(PluginInstallationMixin):
                     exc,
                 )
 
+    @_serialized_lifecycle_mutation
     def rescan_runtime(self, *, persist_discovery: bool = True) -> list[PluginPackageState]:
         """Rescan plugin manifests and reload enabled plugins in the current runtime."""
 
@@ -206,6 +261,7 @@ class PluginManager(PluginInstallationMixin):
         """Return currently loaded plugin instances."""
         return list(self._plugin_instances.values())
 
+    @_serialized_lifecycle_mutation
     def load_plugin(self, plugin_id: str) -> PluginPackageState:
         """Load a plugin and register all of its contributions.
 
@@ -253,6 +309,7 @@ class PluginManager(PluginInstallationMixin):
             self.unload_plugin(plugin_id)
             raise
 
+    @_serialized_lifecycle_mutation
     def unload_plugin(self, plugin_id: str) -> None:
         """Unload a plugin and unregister its contributions.
 
@@ -285,8 +342,9 @@ class PluginManager(PluginInstallationMixin):
           unregistered from SensorRegistry above so the host won't pull
           from it, and (b) the SDK's ManagedSubprocess registry catches
           any subprocess we didn't get to in time.
-        - In sync context (rare): runs the shutdown to completion via
-          asyncio.run().
+        - Without a running loop: starts a daemon thread with its own event
+          loop. Lifecycle callers must never wait for plugin-controlled async
+          shutdown code while holding the manager write lock.
         """
         shutdown = getattr(instance, "shutdown", None)
         if shutdown is None:
@@ -303,12 +361,21 @@ class PluginManager(PluginInstallationMixin):
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            try:
-                asyncio.run(_run())
-            except Exception:
-                logger.exception(
-                    "plugin.shutdown_sync_runner_failed plugin_id=%s", plugin_id
-                )
+
+            def run_in_background() -> None:
+                try:
+                    asyncio.run(_run())
+                except Exception:
+                    logger.exception(
+                        "plugin.shutdown_sync_runner_failed plugin_id=%s",
+                        plugin_id,
+                    )
+
+            threading.Thread(
+                target=run_in_background,
+                name=f"plugin-shutdown-{plugin_id}",
+                daemon=True,
+            ).start()
             return
 
         task = loop.create_task(_run())
@@ -342,6 +409,7 @@ class PluginManager(PluginInstallationMixin):
                 f"libraries are managed automatically as dependencies."
             )
 
+    @_serialized_lifecycle_mutation
     def enable_plugin(self, plugin_id: str) -> PluginPackageState:
         """Persist enable/trust state and load the plugin."""
 
@@ -360,6 +428,7 @@ class PluginManager(PluginInstallationMixin):
         self._request_sensor_schedule_refresh()
         return state
 
+    @_serialized_lifecycle_mutation
     def disable_plugin(self, plugin_id: str) -> PluginPackageState:
         """Persist disabled state and unregister plugin contributions."""
 
@@ -372,6 +441,7 @@ class PluginManager(PluginInstallationMixin):
         self._request_sensor_schedule_refresh()
         return state
 
+    @_serialized_lifecycle_mutation
     def reload_plugin(self, plugin_id: str) -> PluginPackageState:
         """Reload a single plugin package."""
 
@@ -382,6 +452,7 @@ class PluginManager(PluginInstallationMixin):
         self._request_sensor_schedule_refresh()
         return state
 
+    @_serialized_lifecycle_mutation
     def update_plugin_settings(self, plugin_id: str, updates: dict[str, Any]) -> PluginPackageState:
         """Persist plugin settings using dot-notated keys relative to plugin settings root."""
 
