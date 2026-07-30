@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import logging
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -22,6 +23,8 @@ from .contracts import (
 )
 from .icon_assets import encode_plugin_icon_asset
 
+logger = logging.getLogger(__name__)
+
 
 def resolve_plugin_search_paths() -> list[Path]:
     config = get_config()
@@ -39,14 +42,72 @@ def resolve_plugin_search_paths() -> list[Path]:
 
 def discover_plugin_manifests(search_paths: Iterable[Path]) -> dict[str, PluginManifest]:
     discovered: dict[str, PluginManifest] = {}
-    for root in search_paths:
+    for root in _ordered_plugin_search_paths(search_paths):
         if not root.exists():
             continue
         source = "builtin" if is_builtin_root(root) else "external"
-        for manifest_path in root.rglob("plugin.toml"):
+        for manifest_path in sorted(root.rglob("plugin.toml"), key=lambda path: path.as_posix()):
+            declared_id = _read_declared_plugin_id(manifest_path)
+            existing = discovered.get(declared_id) if declared_id is not None else None
+            if existing is not None:
+                _log_duplicate_manifest(
+                    plugin_id=declared_id,
+                    kept=existing,
+                    ignored_path=manifest_path,
+                    ignored_source=source,
+                )
+                continue
+
             manifest = load_plugin_manifest(manifest_path, source=source)
+            existing = discovered.get(manifest.plugin_id)
+            if existing is not None:
+                _log_duplicate_manifest(
+                    plugin_id=manifest.plugin_id,
+                    kept=existing,
+                    ignored_path=manifest_path,
+                    ignored_source=source,
+                )
+                continue
             discovered[manifest.plugin_id] = manifest
     return discovered
+
+
+def _ordered_plugin_search_paths(search_paths: Iterable[Path]) -> list[Path]:
+    """Return unique roots with the built-in root first and caller order preserved."""
+
+    unique_roots = list(dict.fromkeys(Path(root) for root in search_paths))
+    return sorted(unique_roots, key=lambda root: 0 if is_builtin_root(root) else 1)
+
+
+def _read_declared_plugin_id(manifest_path: Path) -> str | None:
+    """Read only the declared id so known duplicates need no further processing."""
+
+    with manifest_path.open("rb") as fp:
+        raw = tomllib.load(fp)
+    plugin_block = raw.get("plugin", raw)
+    if not isinstance(plugin_block, Mapping):
+        return None
+    plugin_id = plugin_block.get("id")
+    return plugin_id if isinstance(plugin_id, str) else None
+
+
+def _log_duplicate_manifest(
+    *,
+    plugin_id: str,
+    kept: PluginManifest,
+    ignored_path: Path,
+    ignored_source: str,
+) -> None:
+    logger.warning(
+        "Plugin manifest id conflict; keeping the first discovered package",
+        extra={
+            "plugin_id": plugin_id,
+            "kept_manifest_path": kept.manifest_path,
+            "kept_source": kept.source,
+            "ignored_manifest_path": str(ignored_path),
+            "ignored_source": ignored_source,
+        },
+    )
 
 
 def persist_new_plugin_packages(
