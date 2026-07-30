@@ -17,6 +17,8 @@ import unicodedata
 import uuid
 import zipfile
 
+from .archive_operations import serialize_plugin_archive_operation
+
 logger = logging.getLogger(__name__)
 
 MAX_PLUGIN_ARCHIVE_MEMBERS = 4096
@@ -205,7 +207,13 @@ def replace_plugin_directory(
     parent_dir = dest_dir.parent
     parent_dir.mkdir(parents=True, exist_ok=True)
 
-    staging_dir = Path(tempfile.mkdtemp(prefix=f".{dest_dir.name}-staging-", dir=parent_dir))
+    transaction_root = parent_dir.parent
+    staging_dir = Path(
+        tempfile.mkdtemp(
+            prefix=f".{parent_dir.name}-{dest_dir.name}-staging-",
+            dir=transaction_root,
+        )
+    )
     backup_dir = parent_dir.parent / f".{parent_dir.name}-{dest_dir.name}-backup-{uuid.uuid4().hex}"
     swap_started = False
     committed = False
@@ -279,6 +287,7 @@ def replace_plugin_directory(
             shutil.rmtree(backup_dir, ignore_errors=True)
 
 
+@serialize_plugin_archive_operation
 def extract_plugin_archive(archive_path: Path, dest: Path) -> None:
     """Safely extract one plugin archive into an empty destination."""
 

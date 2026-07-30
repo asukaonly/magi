@@ -415,6 +415,8 @@
       "install_candidate_not_found": "待安装的插件包不存在或已过期",
       "install_candidate_claimed": "插件安装已经开始",
       "install_candidate_mismatch": "确认安装的插件包与刚才检查的内容不一致",
+      "install_candidate_capacity": "等待确认的插件包过多，请稍后再试",
+      "sideload_already_installed": "同名插件已经安装，不能通过文件直接覆盖",
       "library_not_directly_installable": "组件库会随插件自动安装，不能单独安装",
       "not_found_in_registry": "注册表中未找到插件",
       "registry_unreachable": "无法连接插件注册表",

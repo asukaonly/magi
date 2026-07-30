@@ -19,7 +19,11 @@ from magi.plugins.install_candidates import (
     PluginInstallCandidateNotFoundError,
     PluginInstallCandidateStore,
 )
-from magi.plugins.install_service import PluginInstallService
+from magi.plugins.install_service import (
+    PluginInstallApprovalMismatchError,
+    PluginInstallService,
+    PluginSideloadConflictError,
+)
 
 
 def _manifest() -> PluginManifest:
@@ -117,10 +121,12 @@ async def test_job_installs_exact_candidate_and_always_removes_it(monkeypatch, t
             self,
             archive_path: Path,
             *,
+            approved_manifest,
             consented_capabilities,
             progress_reporter,
         ):
-            captured["archive_path"] = archive_path
+            captured["archive_bytes"] = archive_path.read_bytes()
+            captured["approved_manifest"] = approved_manifest
             captured["capabilities"] = consented_capabilities
             progress_reporter("install", "Installing", 50)
             return state
@@ -138,7 +144,8 @@ async def test_job_installs_exact_candidate_and_always_removes_it(monkeypatch, t
 
     await PluginInstallJobManager()._run_candidate_install(job, candidate, store)
 
-    assert captured["archive_path"] == candidate.archive_path
+    assert captured["archive_bytes"] == b"archive"
+    assert captured["approved_manifest"] == candidate.manifest
     assert captured["capabilities"] == candidate.manifest.capabilities
     assert job.status == "completed"
     with pytest.raises(PluginInstallCandidateNotFoundError):
@@ -148,18 +155,28 @@ async def test_job_installs_exact_candidate_and_always_removes_it(monkeypatch, t
 @pytest.mark.asyncio
 async def test_archive_install_persists_the_approved_capabilities(monkeypatch, tmp_path):
     state = PluginPackageState(manifest=_manifest())
-    saved: list[dict[str, object]] = []
+    captured: dict[str, object] = {}
 
     class _Manager:
-        def install_plugin_from_archive(self, archive_path, *, progress_reporter=None):
+        def get_package(self, _plugin_id):
+            return None
+
+        def inspect_plugin_archive(self, archive_path):
+            assert archive_path == tmp_path / "demo.zip"
+            return _manifest()
+
+        def install_plugin_from_archive(
+            self,
+            archive_path,
+            *,
+            consented_capabilities,
+            progress_reporter=None,
+        ):
             assert archive_path == tmp_path / "demo.zip"
             assert progress_reporter is None
+            captured["consented_capabilities"] = consented_capabilities
             return state
 
-    monkeypatch.setattr(
-        "magi.plugins.install_service.save_config",
-        lambda updates: saved.append(updates),
-    )
     service = PluginInstallService(
         registry_client=object(),
         plugin_manager=_Manager(),
@@ -167,21 +184,53 @@ async def test_archive_install_persists_the_approved_capabilities(monkeypatch, t
 
     result = await service.install_from_archive(
         tmp_path / "demo.zip",
+        approved_manifest=state.manifest,
         consented_capabilities=state.manifest.capabilities,
     )
 
     assert result is state
-    assert saved == [
-        {
-            "plugins.packages.demo-plugin.official": False,
-            "plugins.packages.demo-plugin.consented_capabilities": [
-                {
-                    "capability": "network",
-                    "scope": ["example.com"],
-                    "optional": False,
-                    "reason": "",
-                    "reason_i18n": {},
-                }
-            ],
-        }
-    ]
+    assert captured["consented_capabilities"] == state.manifest.capabilities
+
+
+@pytest.mark.asyncio
+async def test_archive_install_rejects_an_id_installed_after_inspection(tmp_path):
+    class _Manager:
+        def get_package(self, plugin_id):
+            assert plugin_id == "demo-plugin"
+            return object()
+
+    service = PluginInstallService(
+        registry_client=object(),
+        plugin_manager=_Manager(),
+    )
+
+    with pytest.raises(PluginSideloadConflictError):
+        await service.install_from_archive(
+            tmp_path / "demo.zip",
+            approved_manifest=_manifest(),
+            consented_capabilities=[],
+        )
+
+
+@pytest.mark.asyncio
+async def test_archive_install_rejects_manifest_changed_after_approval(tmp_path):
+    changed = _manifest().model_copy(update={"version": "2.0.0"})
+
+    class _Manager:
+        def get_package(self, _plugin_id):
+            return None
+
+        def inspect_plugin_archive(self, _archive_path):
+            return changed
+
+    service = PluginInstallService(
+        registry_client=object(),
+        plugin_manager=_Manager(),
+    )
+
+    with pytest.raises(PluginInstallApprovalMismatchError):
+        await service.install_from_archive(
+            tmp_path / "demo.zip",
+            approved_manifest=_manifest(),
+            consented_capabilities=[],
+        )

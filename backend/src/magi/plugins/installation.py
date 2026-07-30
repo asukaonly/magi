@@ -9,8 +9,9 @@ import tempfile
 from dataclasses import dataclass
 
 from . import package_files
-from ..config import PluginSettings, get_config, save_config
-from .contracts import PluginManifest, PluginPackageState
+from ..config import PluginSettings, delete_plugin_package, get_config, save_config
+from .archive_operations import serialize_plugin_archive_operation
+from .contracts import PluginCapability, PluginManifest, PluginPackageState
 from .icon_assets import resolve_plugin_icon
 from .dependency_installation import (
     ALLOW_UNLOCKED_DEPS_ENV,
@@ -121,10 +122,12 @@ class PluginInstallationMixin:
     def unload_plugin(self, plugin_id: str) -> None:
         raise NotImplementedError
 
+    @serialize_plugin_archive_operation
     def install_plugin_from_archive(
         self,
         archive_path: Path,
         *,
+        consented_capabilities: list[PluginCapability],
         progress_reporter: InstallProgressReporter | None = None,
     ) -> PluginPackageState:
         """Install a plugin from a .tar.gz or .zip archive.
@@ -146,18 +149,21 @@ class PluginInstallationMixin:
             tmp_path = Path(tmp)
             manifest_file = _extract_archive_manifest(archive_path, tmp_path)
             plan = self._build_install_plan(manifest_file, user_root)
+            self._reject_sideload_overwrite(plan)
             self._log_install_plan(plan, message="Installing external plugin package")
             state = self._replace_plugin_package(
                 plan,
                 progress_reporter=progress_reporter,
                 stage_message="Validating staged plugin package",
                 activate_after_swap=False,
+                consented_capabilities=consented_capabilities,
             )
 
         logger.info("Installed plugin from archive", extra={"plugin_id": plan.plugin_id})
         _report_install_progress(progress_reporter, "completed", "Plugin package installed", 100.0)
         return state
 
+    @serialize_plugin_archive_operation
     def inspect_plugin_archive(self, archive_path: Path) -> PluginManifest:
         """Extract + read plugin.toml from an archive WITHOUT installing or
         persisting anything. Used to surface declared capabilities for the
@@ -196,6 +202,7 @@ class PluginInstallationMixin:
             progress_reporter=progress_reporter,
             stage_message="Preparing staged plugin package",
             activate_after_swap=True,
+            consented_capabilities=None,
         )
 
         if plan.manifest.kind == "library":
@@ -225,6 +232,17 @@ class PluginInstallationMixin:
         if existing is not None and existing.manifest.source == "builtin":
             raise ValueError(f"Cannot overwrite builtin plugin: {plugin_id}")
 
+    def _reject_sideload_overwrite(self, plan: _PluginInstallPlan) -> None:
+        configured = get_config().plugins.packages.get(plan.plugin_id)
+        if (
+            plan.plugin_id in self._package_states
+            or plan.dest_dir.exists()
+            or (configured is not None and configured.source == "builtin")
+        ):
+            raise ValueError(
+                f"Cannot replace an installed plugin from an archive: {plan.plugin_id}"
+            )
+
     def _log_install_plan(self, plan: _PluginInstallPlan, *, message: str) -> None:
         logger.info(
             message,
@@ -243,17 +261,34 @@ class PluginInstallationMixin:
         progress_reporter: InstallProgressReporter | None,
         stage_message: str,
         activate_after_swap: bool,
+        consented_capabilities: list[PluginCapability] | None,
     ) -> PluginPackageState:
         snapshot = self._snapshot_install_state(plan.plugin_id)
         installed_state: PluginPackageState | None = None
         config_write_attempted = False
+        config_updates = self._build_install_config_updates(
+            plan,
+            snapshot=snapshot,
+            activate_after_swap=activate_after_swap,
+            consented_capabilities=consented_capabilities,
+        )
+
+        def persist_install_config() -> None:
+            nonlocal config_write_attempted
+            if not config_updates:
+                return
+            config_write_attempted = True
+            if not save_config(config_updates):
+                raise RuntimeError("Failed to persist plugin installation state")
 
         def prepare_staging_dir(staged_dir: Path) -> None:
             _report_install_progress(progress_reporter, "stage", stage_message, 48.0)
             self._install_staged_dependencies(staged_dir, progress_reporter=progress_reporter)
+            if not activate_after_swap:
+                persist_install_config()
 
         def validate_promoted_dir() -> None:
-            nonlocal config_write_attempted, installed_state
+            nonlocal installed_state
 
             _report_install_progress(
                 progress_reporter,
@@ -267,6 +302,10 @@ class PluginInstallationMixin:
             should_load = activate_after_swap or bool(
                 snapshot.package_state is not None and snapshot.package_state.loaded
             )
+            if not activate_after_swap:
+                state.enabled = False
+                state.trusted = False
+                state.current_settings = {}
             if should_load:
                 if activate_after_swap:
                     _report_install_progress(
@@ -279,15 +318,8 @@ class PluginInstallationMixin:
                     state.trusted = True
                 state = self.load_plugin(plan.plugin_id)
 
-            config_updates = self._build_install_config_updates(
-                plan,
-                snapshot=snapshot,
-                activate_after_swap=activate_after_swap,
-            )
-            if config_updates:
-                config_write_attempted = True
-                if not save_config(config_updates):
-                    raise RuntimeError("Failed to persist plugin installation state")
+            if activate_after_swap:
+                persist_install_config()
             installed_state = state
 
         def restore_previous_install() -> None:
@@ -340,6 +372,7 @@ class PluginInstallationMixin:
         *,
         snapshot: _PluginInstallSnapshot,
         activate_after_swap: bool,
+        consented_capabilities: list[PluginCapability] | None,
     ) -> dict[str, object]:
         prefix = f"plugins.packages.{plan.plugin_id}"
         if activate_after_swap:
@@ -349,15 +382,19 @@ class PluginInstallationMixin:
                 f"{prefix}.source": plan.manifest.source,
                 f"{prefix}.manifest_path": str(plan.dest_dir / "plugin.toml"),
             }
-        elif snapshot.config is None:
+        else:
             updates = {
                 f"{prefix}.enabled": False,
                 f"{prefix}.trusted": False,
                 f"{prefix}.source": plan.manifest.source,
                 f"{prefix}.manifest_path": str(plan.dest_dir / "plugin.toml"),
+                f"{prefix}.official": False,
+                f"{prefix}.consented_capabilities": [
+                    capability.model_dump(mode="json")
+                    for capability in (consented_capabilities or [])
+                ],
+                f"{prefix}.settings": {},
             }
-        else:
-            return {}
 
         if snapshot.config is None:
             updates[f"{prefix}.official"] = False
@@ -368,7 +405,11 @@ class PluginInstallationMixin:
     def _restore_plugin_config(plugin_id: str, config: PluginSettings | None) -> None:
         prefix = f"plugins.packages.{plugin_id}"
         if config is None:
-            updates: dict[str, object] = {prefix: None}
+            if plugin_id not in get_config().plugins.packages:
+                return
+            if not delete_plugin_package(plugin_id):
+                raise RuntimeError(f"Failed to restore plugin configuration: {plugin_id}")
+            return
         else:
             updates = {
                 f"{prefix}.{field_name}": value
@@ -428,7 +469,8 @@ class PluginInstallationMixin:
         if plugin_dir.exists():
             shutil.rmtree(plugin_dir)
 
-        save_config({f"plugins.packages.{plugin_id}": None})
+        if not delete_plugin_package(plugin_id):
+            raise RuntimeError(f"Failed to remove plugin configuration: {plugin_id}")
         self._package_states.pop(plugin_id, None)
 
         # Dep-closure GC: walk the just-removed plugin's depends_on and

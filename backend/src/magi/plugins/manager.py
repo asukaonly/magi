@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..config import get_config, save_config
+from .archive_operations import serialize_plugin_archive_operation
 from .base import Plugin
 from .contribution_registration import PluginContributionRegistrar
 from .contracts import (
@@ -143,6 +144,7 @@ class PluginManager(PluginInstallationMixin):
             sys.modules.pop(module_name, None)
         importlib.invalidate_caches()
 
+    @serialize_plugin_archive_operation
     @_serialized_lifecycle_mutation
     def install_plugin_from_archive(
         self,

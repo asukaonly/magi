@@ -205,6 +205,45 @@ Plugin state is persisted in split config files:
 - enable / trust / source metadata lives in `~/.magi/config/plugins/index.yaml`
 - plugin-owned settings live in `~/.magi/config/plugins/<plugin_id>.yaml`
 
+### Package an archive for file installation
+
+Use `.zip`, `.tar.gz`, or `.tgz`. The archive must have exactly one of these
+shapes:
+
+```text
+plugin.toml
+plugin.py
+assets/...
+```
+
+or:
+
+```text
+my-plugin/
+├── plugin.toml
+├── plugin.py
+└── assets/...
+```
+
+Do not add a second manifest, sibling files beside the single top-level plugin
+directory, nested wrapper directories, links, device files, or other special
+entries. File installation rejects ambiguous layouts and unsafe archive paths
+before writing the package into the user plugin directory. Keep `plugin.toml`
+at or below 256 KiB.
+
+Keep `plugin.id` and every `depends_on` value between 1 and 64 characters and
+use only lowercase ASCII letters, digits, `-`, and `_`. `entry_module` and
+`entry_class` must each be one Python identifier, not a path or dotted import.
+Do not use `index`, Windows device names such as `con`, `aux`, `nul`, or `prn`,
+or numbered `com1`–`com9` and `lpt1`–`lpt9` names as a plugin id.
+
+The desktop uploads a file-install package once, shows its declared access, and
+then confirms that exact checked copy. Installation does not enable it. The
+user must perform a separate enable action before its code runs, and it never
+inherits settings from an older package record. File installation also refuses
+to replace an installed or host-reserved package with the same id; updates must
+use the managed update flow.
+
 ## Declaring Access And Safe Dependencies
 
 Every plugin should disclose the system and data access it needs. Declare one
@@ -255,7 +294,11 @@ bash scripts/refresh.sh <plugin-directory>
 
 Commit the refreshed lockfile and `registry.json` with the manifest change. Do
 not hand-edit either generated file. A plugin with dependencies but no lockfile
-is rejected during normal installation.
+is rejected during normal installation. Each lock entry must be an ordinary
+package name pinned to one exact version with SHA-256 hashes. Direct URLs,
+local paths, editable installs, package-manager directives, version ranges,
+and source-only distributions are rejected. Runtime installation accepts
+prebuilt wheels only.
 
 ## Tool Plugins
 

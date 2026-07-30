@@ -150,6 +150,73 @@ Instead, lifecycle work is split across runtime services:
 - `PluginProjectionService` owns plugin-provided memory summary, extraction profile, and recall artifact projection
 - dedicated runtime modules own execution after registration, such as tool execution, sensor sync, channel delivery, memory projection, and plugin ingress processing
 
+### Sideload Package Boundary
+
+Installing a plugin from a local archive is a two-step, single-upload flow:
+
+1. the desktop uploads the archive once to `POST /api/plugins/install/candidates`
+2. the backend writes it to a server-owned path, checks the archive and manifest,
+   and returns a short-lived candidate id plus a SHA-256 digest
+3. the consent surface shows the declared access from that candidate
+4. confirmation starts a job with the candidate id and the same digest; the
+   candidate can be claimed only once
+5. cancellation, expiry, install completion, and install failure remove the
+   backend-owned candidate files
+
+The original upload filename is display metadata only and never selects a
+filesystem destination. Candidate records live for at most 15 minutes. The
+desktop upload boundary accepts at most 8 MiB of compressed data. One process
+keeps at most 16 upload reservations or candidates in total, and registered or
+claimed candidates hold at most 64 MiB of archive data. Reservations and
+candidates expire without requiring another request.
+
+Archive inspection and installation use the same extraction policy. Only
+regular files and directories are accepted. Links, special files, absolute or
+traversing paths, duplicate or cross-platform-conflicting paths, ambiguous
+package roots, and multiple manifests are rejected. A package must contain
+exactly one `plugin.toml`, either at the archive root or inside one sole
+top-level directory. The extractor accepts at most 4,096 entries, 64 MiB per
+file, and 256 MiB in total expanded file data, with separate bounded handling
+for compressed TAR streams and extended metadata. `plugin.toml` has a separate
+256 KiB limit. Archive inspection and installation share one dedicated,
+process-wide worker so expanded archives cannot multiply disk usage or occupy
+the application's general background worker pool.
+
+Plugin ids and dependency ids are limited to 1–64 lowercase ASCII letters,
+digits, hyphens, or underscores. Python entry module and class names must each
+be one plain Python identifier. Install destinations are resolved and verified
+to remain inside the user plugin root, including when symbolic links already
+exist on disk. Names that collide with the split plugin index or portable
+device-file names are reserved.
+
+Inspection validates package structure, manifest fields, icons, and declared
+access. It does not prove what arbitrary plugin code will do. A sideloaded
+package remains disabled and untrusted after installation; code is loaded only
+after a separate enable action. The disabled, untrusted state, cleared settings,
+and reviewed access are persisted before the package directory becomes visible
+to startup scanning. Installation staging lives outside plugin scan roots, and
+discovery ignores hidden transaction directories as a second startup guard.
+Sideloading never replaces an existing or host-reserved package with the same
+id. If installation or persistence fails, the new package, temporary data,
+runtime state, and partial configuration are rolled back together.
+
+Dependency locks accept only ordinary package requirements pinned to one exact
+version with SHA-256 hashes. Direct URLs, local paths, installer directives,
+version ranges, and source builds are rejected in the normal install path;
+dependency installation uses prebuilt wheels only.
+
+All package lifecycle mutations on one runtime manager are serialized. Scan,
+install, update, uninstall, enable, disable, reload, and settings changes
+cannot interleave their file, configuration, and runtime state transitions.
+The split plugin index is authoritative: an orphaned per-plugin settings file
+cannot recreate an uninstalled package, and package deletion restores both
+configuration files if either write fails.
+
+This file-install boundary is not an external data-ingestion API. A future
+browser extension or collector must still use its own paired, revocable
+capability and source-specific ingestion contract rather than reusing plugin
+installation or the desktop WebView credential.
+
 ## Marketplace Registry Distribution
 
 The public marketplace registry is authored in the external `magi-plugins`
@@ -821,6 +888,12 @@ Current endpoints:
 
 - `GET /api/plugins`
 - `POST /api/plugins/rescan`
+- `POST /api/plugins/install/candidates`
+- `DELETE /api/plugins/install/candidates/{candidate_id}`
+- `POST /api/plugins/install/candidates/{candidate_id}/jobs`
+- `POST /api/plugins/install/registry`
+- `POST /api/plugins/install/registry/jobs`
+- `GET /api/plugins/install/jobs/{job_id}`
 - `POST /api/plugins/{plugin_id}/enable`
 - `POST /api/plugins/{plugin_id}/disable`
 - `POST /api/plugins/{plugin_id}/reload`

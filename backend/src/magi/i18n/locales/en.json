@@ -415,6 +415,8 @@
       "install_candidate_not_found": "Plugin install candidate not found or expired",
       "install_candidate_claimed": "Plugin installation has already started",
       "install_candidate_mismatch": "The approved plugin package no longer matches the inspected package",
+      "install_candidate_capacity": "Too many plugin packages are already waiting for confirmation",
+      "sideload_already_installed": "A plugin with this id is already installed",
       "library_not_directly_installable": "Library components are installed automatically and cannot be installed directly",
       "not_found_in_registry": "Plugin not found in registry",
       "registry_unreachable": "Unable to reach plugin registry",

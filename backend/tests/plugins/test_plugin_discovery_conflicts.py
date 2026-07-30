@@ -107,3 +107,17 @@ def test_later_external_manifest_cannot_replace_existing_external_manifest(
     conflict = next(record for record in caplog.records if record.plugin_id == "duplicate")
     assert conflict.kept_manifest_path == str(first_manifest)
     assert conflict.ignored_manifest_path == str(second_manifest)
+
+
+def test_discovery_ignores_hidden_transaction_directories(tmp_path: Path) -> None:
+    root = tmp_path / "plugins"
+    _write_manifest(
+        root,
+        ".plugins-demo-staging-deadbeef",
+        plugin_id="demo",
+        name="Hidden transaction",
+    )
+
+    manifests = discovery.discover_plugin_manifests([root])
+
+    assert manifests == {}

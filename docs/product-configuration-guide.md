@@ -520,9 +520,26 @@ Expected product behavior:
 - users can enable, disable, reload, and rescan plugin packages
 - users must see a plugin's declared system and data access before installing it
 - an update must ask again only when it adds a new access type or broadens an existing scope
-- uploaded plugin archives must be inspected before installation so they receive the same review as marketplace packages
+- uploaded plugin archives must be uploaded once, inspected from a backend-owned
+  temporary copy, and installed only by confirming the same short-lived
+  candidate and content digest; cancellation, expiry, success, and failure must
+  clean up that temporary copy
+- archive filenames must never select local write or cleanup paths, and archive
+  extraction must reject traversal, links, special files, ambiguous manifests,
+  path collisions, oversized manifests, and bounded-size violations before
+  installation; archive inspection and installation must use a bounded,
+  dedicated work queue
+- archive inspection reviews structure and declared access, not the code's
+  actual behavior; file-installed plugins must remain disabled and untrusted
+  until the user separately enables them
+- file installation must reject an id that is already installed instead of
+  silently replacing or inheriting the existing package's enabled state or
+  settings; the disabled state must be durable before the package becomes
+  visible to startup scanning
 - official badges must come from the maintainer-controlled registry rather than a plugin's own claim
-- plugins with third-party Python dependencies must pass locked, hash-verified installation before they are enabled
+- plugins with third-party Python dependencies must pass exact-version,
+  hash-verified, prebuilt-package installation before they are enabled; source
+  builds, direct URLs, local paths, and installer directives are not accepted
 - plugin-provided settings are rendered from backend field metadata rather than custom plugin frontend code
 - tool surfaces should continue to reflect runtime-registered tools rather than hardcoded frontend lists
 

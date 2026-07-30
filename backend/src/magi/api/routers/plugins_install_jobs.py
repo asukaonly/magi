@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+import hashlib
+from pathlib import Path
+import tempfile
 import threading
 import time
 import uuid
@@ -262,6 +265,14 @@ class PluginInstallJobManager:
         candidate_store: PluginInstallCandidateStore,
     ) -> None:
         try:
+            archive_bytes = candidate.archive_bytes
+            if (
+                archive_bytes is None
+                or hashlib.sha256(archive_bytes).hexdigest() != candidate.archive_sha256
+            ):
+                raise InvalidPluginArchiveError(
+                    "Approved plugin archive snapshot is unavailable or has changed"
+                )
             manager = _require_plugin_manager()
             install_service = PluginInstallService(
                 registry_client=_get_registry_client(),
@@ -270,11 +281,16 @@ class PluginInstallJobManager:
             job.update(
                 stage="upload", progress_pct=10.0, message="Preparing uploaded plugin archive"
             )
-            state = await install_service.install_from_archive(
-                candidate.archive_path,
-                consented_capabilities=candidate.manifest.capabilities,
-                progress_reporter=self._reporter(job),
-            )
+            with tempfile.TemporaryDirectory(prefix="magi-plugin-approved-") as tmp:
+                archive_path = Path(tmp) / f"archive{candidate.archive_suffix}"
+                archive_path.write_bytes(archive_bytes)
+                archive_path.chmod(0o400)
+                state = await install_service.install_from_archive(
+                    archive_path,
+                    approved_manifest=candidate.manifest,
+                    consented_capabilities=candidate.manifest.capabilities,
+                    progress_reporter=self._reporter(job),
+                )
             with job.lock:
                 job.plugin_id = state.manifest.plugin_id
             job.complete(_serialize_package(state))

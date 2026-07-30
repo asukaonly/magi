@@ -10,6 +10,7 @@ import tempfile
 from typing import Any
 
 from ..config import get_config, save_config
+from .archive_operations import run_plugin_archive_operation
 from .contracts import (
     ContributionType,
     PluginCapability,
@@ -48,6 +49,14 @@ class BuiltinPluginUpdateError(ValueError):
 
 class DirectLibraryInstallError(ValueError):
     """Raised when a user directly installs a library package."""
+
+
+class PluginInstallApprovalMismatchError(ValueError):
+    """Raised when a staged archive no longer matches the inspected manifest."""
+
+
+class PluginSideloadConflictError(ValueError):
+    """Raised when a sideload archive would replace an installed plugin."""
 
 
 @dataclass(frozen=True)
@@ -145,26 +154,33 @@ class PluginInstallService:
         self,
         archive_path: Path,
         *,
+        approved_manifest: PluginManifest,
         consented_capabilities: list[PluginCapability],
         progress_reporter=None,
     ) -> PluginPackageState:
         """Install a plugin from an uploaded archive."""
 
         manager = self._require_manager()
-        state = await asyncio.to_thread(
-            manager.install_plugin_from_archive,
-            archive_path,
-            progress_reporter=progress_reporter,
-        )
-        save_config(
-            {
-                f"plugins.packages.{state.manifest.plugin_id}.official": False,
-                f"plugins.packages.{state.manifest.plugin_id}.consented_capabilities": [
-                    capability.model_dump() for capability in consented_capabilities
-                ],
-            }
-        )
-        return state
+
+        def install_approved_archive() -> PluginPackageState:
+            if manager.get_package(approved_manifest.plugin_id) is not None:
+                raise PluginSideloadConflictError(
+                    f"Plugin is already installed: {approved_manifest.plugin_id}"
+                )
+            inspected_manifest = manager.inspect_plugin_archive(archive_path)
+            if _approval_manifest_payload(inspected_manifest) != _approval_manifest_payload(
+                approved_manifest
+            ):
+                raise PluginInstallApprovalMismatchError(
+                    "Plugin package no longer matches the inspected manifest"
+                )
+            return manager.install_plugin_from_archive(
+                archive_path,
+                consented_capabilities=consented_capabilities,
+                progress_reporter=progress_reporter,
+            )
+
+        return await run_plugin_archive_operation(install_approved_archive)
 
     def uninstall(self, plugin_id: str) -> list[str]:
         """Uninstall a plugin package."""
@@ -312,4 +328,12 @@ def _lightweight_install(source_dir: Path, entry: PluginRegistryEntry) -> Plugin
         trusted=is_library,
         loaded=False,
         healthy=True,
+    )
+
+
+def _approval_manifest_payload(manifest: PluginManifest) -> dict[str, Any]:
+    return manifest.model_dump(
+        mode="json",
+        by_alias=True,
+        exclude={"plugin_dir", "manifest_path", "source"},
     )

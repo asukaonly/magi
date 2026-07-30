@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from magi.api.routers import plugins_install_routes
 from magi.api.routers.plugins import plugins_router
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+from magi.config.models import AppConfig
 from magi.plugins.install_candidates import PluginInstallCandidateStore
 from magi.plugins.manager import PluginManager
 
@@ -45,14 +46,23 @@ def _archive_bytes(
     return archive.getvalue()
 
 
-def _client(monkeypatch, tmp_path: Path) -> tuple[TestClient, PluginInstallCandidateStore]:
+def _client(
+    monkeypatch,
+    tmp_path: Path,
+    *,
+    installed_plugin_id: str | None = None,
+) -> tuple[TestClient, PluginInstallCandidateStore]:
     store = PluginInstallCandidateStore(tmp_path / "candidates")
     manager = PluginManager.__new__(PluginManager)
+    manager._package_states = (
+        {installed_plugin_id: object()} if installed_plugin_id is not None else {}
+    )
     monkeypatch.setattr(
         plugins_install_routes,
         "get_plugin_install_candidate_store",
         lambda: store,
     )
+    monkeypatch.setattr(plugins_install_routes, "get_config", lambda: AppConfig())
     monkeypatch.setattr(plugins_install_routes, "_require_plugin_manager", lambda: manager)
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
@@ -120,6 +130,56 @@ def test_candidate_upload_embeds_a_validated_package_icon(monkeypatch, tmp_path)
 
     assert response.status_code == 200
     assert response.json()["manifest"]["icon"].startswith("data:image/png;base64,")
+
+
+def test_candidate_upload_cannot_replace_an_installed_plugin(monkeypatch, tmp_path):
+    client, store = _client(
+        monkeypatch,
+        tmp_path,
+        installed_plugin_id="demo-plugin",
+    )
+
+    response = client.post(
+        "/api/plugins/install/candidates",
+        files={"file": ("demo.zip", _archive_bytes(), "application/zip")},
+    )
+
+    assert response.status_code == 409
+    assert list(store.root_dir.iterdir()) == []
+
+
+def test_candidate_upload_cannot_claim_a_host_reserved_plugin_id(monkeypatch, tmp_path):
+    client, store = _client(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/api/plugins/install/candidates",
+        files={
+            "file": (
+                "calendar.zip",
+                _archive_bytes(plugin_id="calendar"),
+                "application/zip",
+            )
+        },
+    )
+
+    assert response.status_code == 409
+    assert list(store.root_dir.iterdir()) == []
+
+
+def test_candidate_upload_returns_busy_when_candidate_limit_is_full(
+    monkeypatch,
+    tmp_path,
+):
+    client, store = _client(monkeypatch, tmp_path)
+    monkeypatch.setattr(store, "_max_candidates", 1)
+    store.reserve_archive(".zip")
+
+    response = client.post(
+        "/api/plugins/install/candidates",
+        files={"file": ("demo.zip", _archive_bytes(), "application/zip")},
+    )
+
+    assert response.status_code == 429
 
 
 def test_candidate_can_be_discarded_once(monkeypatch, tmp_path):

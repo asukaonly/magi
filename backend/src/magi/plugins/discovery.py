@@ -24,6 +24,7 @@ from .contracts import (
 from .icon_assets import encode_plugin_icon_asset
 
 logger = logging.getLogger(__name__)
+MAX_PLUGIN_MANIFEST_BYTES = 256 * 1024
 
 
 def resolve_plugin_search_paths() -> list[Path]:
@@ -47,6 +48,9 @@ def discover_plugin_manifests(search_paths: Iterable[Path]) -> dict[str, PluginM
             continue
         source = "builtin" if is_builtin_root(root) else "external"
         for manifest_path in sorted(root.rglob("plugin.toml"), key=lambda path: path.as_posix()):
+            relative_manifest = manifest_path.relative_to(root)
+            if any(part.startswith(".") for part in relative_manifest.parts[:-1]):
+                continue
             declared_id = _read_declared_plugin_id(manifest_path)
             existing = discovered.get(declared_id) if declared_id is not None else None
             if existing is not None:
@@ -82,8 +86,7 @@ def _ordered_plugin_search_paths(search_paths: Iterable[Path]) -> list[Path]:
 def _read_declared_plugin_id(manifest_path: Path) -> str | None:
     """Read only the declared id so known duplicates need no further processing."""
 
-    with manifest_path.open("rb") as fp:
-        raw = tomllib.load(fp)
+    raw = _load_manifest_document(manifest_path)
     plugin_block = raw.get("plugin", raw)
     if not isinstance(plugin_block, Mapping):
         return None
@@ -159,17 +162,18 @@ def build_package_states(
             loaded=bool(previous_state.loaded) if previous_state is not None else False,
             healthy=bool(previous_state.healthy) if previous_state is not None else True,
             last_error=previous_state.last_error if previous_state is not None else None,
-            contributions=list(previous_state.contributions)
-            if previous_state is not None
-            else placeholder_contributions(manifest),
+            contributions=(
+                list(previous_state.contributions)
+                if previous_state is not None
+                else placeholder_contributions(manifest)
+            ),
             current_settings=current_settings,
         )
     return next_states
 
 
 def load_plugin_manifest(manifest_path: Path, *, source: str) -> PluginManifest:
-    with manifest_path.open("rb") as fp:
-        raw = tomllib.load(fp)
+    raw = _load_manifest_document(manifest_path)
     plugin_block = raw.get("plugin", raw)
     manifest = PluginManifest.model_validate(
         {
@@ -181,6 +185,20 @@ def load_plugin_manifest(manifest_path: Path, *, source: str) -> PluginManifest:
     )
     encode_plugin_icon_asset(manifest.icon, manifest_path.parent)
     return manifest
+
+
+def _load_manifest_document(manifest_path: Path) -> dict[str, Any]:
+    try:
+        with manifest_path.open("rb") as handle:
+            payload = handle.read(MAX_PLUGIN_MANIFEST_BYTES + 1)
+    except OSError as exc:
+        raise ValueError(f"Cannot read plugin manifest: {manifest_path}") from exc
+    if len(payload) > MAX_PLUGIN_MANIFEST_BYTES:
+        raise ValueError(f"Plugin manifest exceeds the {MAX_PLUGIN_MANIFEST_BYTES}-byte limit")
+    try:
+        return tomllib.loads(payload.decode("utf-8"))
+    except UnicodeError as exc:
+        raise ValueError("Plugin manifest must be UTF-8 text") from exc
 
 
 def placeholder_contributions(manifest: PluginManifest) -> list[PluginContribution]:

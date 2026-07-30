@@ -10,7 +10,10 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, status
 
 from ... import i18n as core_i18n
+from ...config import get_config
+from ...plugins.archive_operations import run_plugin_archive_operation
 from ...plugins.install_candidates import (
+    PluginInstallCandidateCapacityError,
     PluginInstallCandidateClaimedError,
     PluginInstallCandidateDigestMismatchError,
     PluginInstallCandidateNotFoundError,
@@ -118,15 +121,38 @@ async def create_plugin_install_candidate(file: UploadFile):
         )
 
     store = get_plugin_install_candidate_store()
-    candidate_id, archive_path = store.reserve_archive(suffix)
+    try:
+        candidate_id, archive_path = store.reserve_archive(suffix)
+    except PluginInstallCandidateCapacityError as exc:
+        await file.close()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=core_i18n.t(
+                "plugins.errors.install_candidate_capacity",
+                fallback="Too many plugin packages are already waiting for confirmation",
+            ),
+        ) from exc
     filename = _display_filename(file.filename)
     try:
         archive_sha256, total_bytes = await _write_candidate_archive(file, archive_path)
         manager = _require_plugin_manager()
-        manifest = await asyncio.to_thread(manager.inspect_plugin_archive, archive_path)
+        manifest = await run_plugin_archive_operation(
+            lambda: manager.inspect_plugin_archive(archive_path)
+        )
         if manifest.kind == "library":
             raise DirectLibraryInstallError(
                 "Library components cannot be installed directly from an archive"
+            )
+        configured = get_config().plugins.packages.get(manifest.plugin_id)
+        if manager.get_package(manifest.plugin_id) is not None or (
+            configured is not None and configured.source == "builtin"
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=core_i18n.t(
+                    "plugins.errors.sideload_already_installed",
+                    fallback="A plugin with this id is already installed",
+                ),
             )
         candidate = await asyncio.to_thread(
             store.register,
@@ -143,6 +169,15 @@ async def create_plugin_install_candidate(file: UploadFile):
             detail=core_i18n.t(
                 "plugins.errors.archive_too_large",
                 fallback="The plugin archive is too large",
+            ),
+        ) from exc
+    except PluginInstallCandidateCapacityError as exc:
+        store.discard(candidate_id)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=core_i18n.t(
+                "plugins.errors.install_candidate_capacity",
+                fallback="Too many plugin packages are already waiting for confirmation",
             ),
         ) from exc
     except InvalidPluginArchiveError as exc:
