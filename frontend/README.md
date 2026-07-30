@@ -57,10 +57,13 @@ npm install
 ### 启动开发服务器
 
 ```bash
-npm run dev
+cd ..
+./scripts/dev-tauri-hot.sh
 ```
 
-前端将运行在 http://localhost:5173
+这是完整的桌面开发入口，会同时启动桌面页面、本机网关和 Python
+进程。只运行 `npm run dev` 适合做纯页面开发，但不会获得桌面进程生成的
+临时访问凭证，因此不能作为完整产品运行方式。
 
 ### 构建生产版本
 
@@ -74,13 +77,11 @@ npm run build
 npm run preview
 ```
 
-## API配置
+## API 配置
 
-在 `.env.development` 文件中配置API地址：
-
-```env
-VITE_API_BASE_URL=http://localhost:8000/api
-```
+桌面应用会在每次启动时选择本机端口并把地址和临时访问凭证交给页面，
+不需要在 `.env.development` 中固定后端地址。无界面评测使用独立网关
+启动流程和同一次运行生成的临时凭证。
 
 ## 可用脚本
 

@@ -1668,6 +1668,35 @@ owns memory, trace, file, delivery, and runtime cleanup. Requests that require
 the Python runtime (message send, LLM calls, agent execution) are dispatched
 over the IPC channel.
 
+The gateway is also the desktop access-control boundary. It creates one
+high-entropy session credential per process and requires it on every business
+request, including unknown fallback paths. Only liveness and bundled avatars
+are public. The credential is returned to the WebView in memory, removed before
+IPC forwarding, and never exposed to Python, plugin processes, persistent
+configuration, URLs, or logs. Browser requests with an `Origin` header must
+match an exact Magi WebView origin.
+
+Private resources requested by DOM elements use a separate ticket flow. The
+WebView authenticates a typed ticket request for a chat attachment, timeline
+asset, or user-uploaded avatar. The gateway stores the grant only in memory,
+binds it to the exact resource identity and request target, and expires it
+quickly. Content handlers still enforce their own active-owner, deletion, and
+file-identity rules. Resource-ticket parameters and the desktop credential are
+removed before a request crosses IPC.
+
+The headless gateway uses the same policy and requires
+`MAGI_DESKTOP_SESSION_TOKEN` from its launcher. External desktop development
+mode targets one explicit `localhost` or IPv4-loopback gateway URL and uses the
+matching credential. External collectors are not given this credential; a
+future collector integration must introduce its own paired and narrowly scoped
+ingestion authority.
+
+On macOS and Linux the Python IPC channel is a Unix Domain Socket. On Windows it
+is loopback TCP; HTTP gateway authentication does not itself authenticate that
+inner connection, so the Python worker must remain process-private and a future
+multi-client IPC design requires a separate first-frame authentication
+contract.
+
 Transport-related Python code lives in `backend/src/magi/ipc/` and `backend/src/magi/transport/`:
 
 - `ipc/server.py` — IPC server accepting connections from the Rust gateway

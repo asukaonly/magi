@@ -16,9 +16,14 @@ python benchmark/longmemeval/run_all.py \
 
 This fixed-flow runner uses:
 
-- backend URL: auto-discovered from `~/.magi/runtime/gateway.port` when the desktop app or gateway CLI is running, or set explicitly with `--backend-url`
+- backend URL: auto-discovered from `~/.magi/runtime/gateway.port` when the headless gateway CLI is running, or set explicitly with `--backend-url`
+- gateway credential: the non-empty `MAGI_DESKTOP_SESSION_TOKEN` value shared with the headless gateway CLI
 - run id: local time formatted as `YYYY-MM-DD HH:MM:SS`
 - LongMemEval root: set `LONGMEMEVAL_ROOT` to your local LongMemEval checkout for portable runs
+
+The desktop app keeps its session credential private, so its port file alone is
+not enough for an external benchmark process. Follow
+[RUNBOOK.md](./RUNBOOK.md) to start the authenticated headless runtime.
 
 Responsibilities:
 
@@ -95,18 +100,21 @@ python benchmark/longmemeval/replay_dataset.py \
   --dataset data/longmemeval_oracle.json \
   --output-root benchmark/outputs \
   --run-id oracle-backend \
-  --backend-url http://127.0.0.1:8000
+  --backend-url http://127.0.0.1:19080
 
 python benchmark/longmemeval/query_dataset.py \
   --dataset data/longmemeval_oracle.json \
   --output-root benchmark/outputs \
   --run-id oracle-backend \
-  --backend-url http://127.0.0.1:8000
+  --backend-url http://127.0.0.1:19080
 ```
 
 This mode reuses the memory runtime already initialized by the backend service, including its provider and LLM configuration.
 The `--backend-url` value should point at the Magi gateway HTTP address. In the current architecture `backend/run_server.py`
 starts an IPC worker only; it is not the benchmark HTTP entrypoint.
+Set `MAGI_DESKTOP_SESSION_TOKEN` to the same temporary value used when starting
+`gateway-cli`; all benchmark GET and POST requests send it in the gateway
+authentication header.
 
 Official QA scoring wrapper:
 

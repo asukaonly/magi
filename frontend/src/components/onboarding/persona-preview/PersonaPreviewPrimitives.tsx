@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CheckCircle2, Circle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ProtectedImage } from "@/components/media/ProtectedImage";
 import { personasApi } from "../../../api/modules/personas";
 
 export function GenerationStageStatusIcon({
@@ -67,10 +68,12 @@ export function PreviewAvatar({
     );
   }
   return (
-    <img
+    <ProtectedImage
       src={url}
       alt=""
+      eager
       onError={() => setFailed(true)}
+      onProtectedAccessError={() => setFailed(true)}
       className={cn(
         "shrink-0 rounded-full object-cover",
         boxClass,

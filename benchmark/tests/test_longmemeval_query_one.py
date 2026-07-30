@@ -8,6 +8,7 @@ from contextlib import redirect_stdout
 
 from magi.memory.eval_support.contracts import EvalMemoryHit, EvalMemoryQueryResult
 
+from benchmark.longmemeval.backend_client import SESSION_TOKEN_ENV
 from benchmark.longmemeval.query_one import build_single_query_payload, main, select_question_row
 
 
@@ -135,6 +136,7 @@ def test_build_single_query_payload_propagates_explicit_mode() -> None:
 def test_query_one_main_prints_progress_before_result(monkeypatch, tmp_path) -> None:
     dataset_path = tmp_path / "dataset.json"
     dataset_path.write_text("[]", encoding="utf-8")
+    monkeypatch.setenv(SESSION_TOKEN_ENV, "benchmark-session-token")
 
     monkeypatch.setattr(
         "benchmark.longmemeval.query_one.load_longmemeval_rows",
@@ -174,6 +176,7 @@ def test_query_one_main_prints_progress_before_result(monkeypatch, tmp_path) -> 
 def test_query_one_main_prints_selected_mode(monkeypatch, tmp_path) -> None:
     dataset_path = tmp_path / "dataset.json"
     dataset_path.write_text("[]", encoding="utf-8")
+    monkeypatch.setenv(SESSION_TOKEN_ENV, "benchmark-session-token")
 
     monkeypatch.setattr(
         "benchmark.longmemeval.query_one.load_longmemeval_rows",

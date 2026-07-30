@@ -81,6 +81,8 @@ cargo test -p magi-gateway
 - Keep each change atomic and independently verifiable.
 - Add or update tests when behavior changes. If automated coverage is not practical, document the validation you performed.
 - When adding a backend API route, also register its path + methods in `_PUBLIC_ROUTE_METHODS` (`backend/src/magi/api/routes.py`) — otherwise it returns 404 at runtime despite existing on the router. See `agents.md` → Coding Standards → Adding an API route.
+- Keep gateway routes authenticated by default and update the ownership/access manifest for every native route or static mount. Only liveness and bundled avatars may be public; DOM-loaded private resources use scoped short-lived tickets, never the desktop session credential in a URL.
+- Treat `_PUBLIC_ROUTE_METHODS` as the Python product-visibility allowlist, not as an unauthenticated gateway allowlist.
 - Prefer direct fixes over compatibility shims.
 - Use English for commit messages, code comments, docstrings, logs, and error messages.
 - Use Conventional Commits for commit subjects.

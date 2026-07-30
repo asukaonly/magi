@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { ProtectedImage } from '@/components/media/ProtectedImage';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
@@ -190,9 +191,10 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                       )}
                     >
                       {selectorAvatarUrl ? (
-                        <img
+                        <ProtectedImage
                           src={selectorAvatarUrl}
                           alt={item.displayName}
+                          eager
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -236,11 +238,13 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   aria-label={t('personality.actions.uploadAvatar')}
                 >
                   {avatarUrl ? (
-                    <img
+                    <ProtectedImage
                       src={avatarUrl}
                       alt={detailTitle}
+                      eager
                       className="h-full w-full object-cover"
                       onError={() => setAvatarBroken(true)}
+                      onProtectedAccessError={() => setAvatarBroken(true)}
                     />
                   ) : (
                     <span className={cn('transition', avatarHover && 'text-primary')}>

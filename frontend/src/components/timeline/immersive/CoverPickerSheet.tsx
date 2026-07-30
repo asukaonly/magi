@@ -7,6 +7,7 @@ import type {
   TimelineCoverMode,
   TimelineCoverState,
 } from "@/api/modules/timeline";
+import { ProtectedImage } from "@/components/media/ProtectedImage";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -149,7 +150,7 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
                     )}
                   >
                     {url ? (
-                      <img src={url} alt="" className="h-full w-full object-cover" />
+                      <ProtectedImage src={url} alt="" className="h-full w-full object-cover" />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-muted-foreground">
                         <Image className="h-5 w-5" />

@@ -22,7 +22,7 @@ Current release expectations are:
 
 - maintainers publish desktop builds by pushing a version tag in the form `vX.Y.Z`
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
-- release automation builds the Python sidecar first, then runs frontend type-check, a focused frontend smoke suite, frontend lint, a focused backend smoke suite, and finally the Tauri bundle build
+- release automation builds the Python sidecar first, then validates the frontend, backend smoke path, authenticated Rust gateway, headless gateway client, benchmark HTTP client, API contracts, and finally the Tauri bundle
 - release jobs publish a GitHub Release and attach the generated desktop installers (`releaseDraft: false` in the workflow)
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
 - the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration, startup runs a delayed background check, and packaged builds reuse the app-level network proxy for updater requests when configured
@@ -52,6 +52,29 @@ Magi is a desktop-only application:
 
 The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, identity-validated streaming chat attachment downloads, config file I/O, task CRUD, and lightweight chat-session creation/title/workspace updates natively in Rust. Governed message, session, and history deletion is forwarded to Python because it also owns memory, trace, file, delivery, and runtime cleanup. Chat attachment uploads are size-bounded and streamed into temporary staging by the gateway; IPC passes the staging reference, and Python streams the body into its in-memory API so it can own the final managed-file mutation, parsing, and message ownership without repeated whole-body copies. Other requests that require the Python runtime (message send, LLM calls, agent execution) use the same IPC channel, with Unix Domain Sockets on Unix-like systems and loopback TCP on Windows. The Python process runs no public HTTP server; FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
 
+Every desktop gateway process creates a strong random session credential and
+returns it only to the Magi WebView. The credential stays in process memory: it
+is not passed to Python or plugins, written to disk, logged, or placed in a URL.
+The liveness endpoint and bundled persona avatars are the only public reads.
+Every other native or proxied request requires the session credential, and
+browser-originated requests are accepted only from the known Magi development
+or packaged WebView origins.
+
+DOM-managed image requests cannot attach the session header. Chat attachments,
+timeline assets, and user-uploaded avatars therefore use short-lived,
+memory-only resource tickets issued from typed resource identities. A ticket
+is bound to one exact resource and may be reused briefly for image loading,
+HEAD, or range reads; it never replaces the existing ownership, deletion, and
+file-identity checks at the content endpoint. The frontend requests tickets
+only when an image approaches the viewport and transparently renews an expired
+ticket. Bundled avatars remain public because they contain no user data.
+
+Future browser extensions or external collectors must use a separately paired,
+revocable ingestion capability with a narrow route scope. They must never
+receive or reuse the desktop WebView session credential. This keeps external
+ingestion extensible without turning the complete desktop API into a local
+public service.
+
 On confirmed desktop quit, the Tauri shell hides the main window first and then stops the Python sidecar in the background before exiting. Windows helper processes used for sidecar startup and shutdown must be launched without visible console windows so quit feels like a native desktop close rather than a terminal-driven teardown.
 
 ### Gateway-visible API contract
@@ -64,7 +87,7 @@ rules, and chat-owned context snapshot must be composed by one runtime owner.
 The gateway must not serve L0 sessions, workbenches, or aggregate memory
 statistics from a separate checkpoint-only view.
 
-The machine-readable route ownership manifest lives at `contracts/api/gateway_routes.json`. It records Rust-native route method/path ownership, static mounts, Python proxy prefixes, and native routes that still have Python parity implementations. `scripts/check-api-contract.py` validates the manifest against the Rust Axum router and the Python FastAPI route table, and is part of CI/release validation.
+The machine-readable route ownership manifest lives at `contracts/api/gateway_routes.json`. It records Rust-native route method/path ownership, static mounts, Python proxy prefixes, native routes that still have Python parity implementations, and the public/private resource exceptions to the default authenticated access policy. `scripts/check-api-contract.py` validates the manifest against the Rust Axum router and the Python FastAPI route table, and is part of CI/release validation.
 
 Python-proxied routes also have a dedicated schema export path: `scripts/export-python-openapi.py`. That script builds the in-memory FastAPI app and exports its OpenAPI document for IPC-dispatched Python routes only. Rust-native routes still belong in the gateway manifest and Rust contract tests.
 

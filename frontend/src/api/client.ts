@@ -309,6 +309,26 @@ export function resolveApiBaseUrl(): string {
   return getRuntimeConfig().apiBaseUrl.replace(/\/+$/, '');
 }
 
+export function getDesktopSessionToken(): string | undefined {
+  return desktopSessionToken || getRuntimeConfig().sessionToken;
+}
+
+export function authenticatedFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const sessionToken = getDesktopSessionToken();
+  if (sessionToken) {
+    headers.set('X-Magi-Session-Token', sessionToken);
+  }
+  headers.set('Accept-Language', resolveInitialLanguage());
+  return fetch(input, {
+    ...init,
+    headers,
+  });
+}
+
 export const configureApiClient = (options: {
   baseUrl?: string;
   sessionToken?: string;

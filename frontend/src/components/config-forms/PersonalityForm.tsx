@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronRight, PencilLine, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { ProtectedImage } from '@/components/media/ProtectedImage';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { FormContext, SimpleForm as Form } from '../onboarding/simple-form';
@@ -330,11 +331,13 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                     <div className="flex items-center gap-3">
                       <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/50 bg-neutral-200 text-xl dark:bg-neutral-700">
                         {item.avatar && !brokenAvatarKeys[`list:${item.seed_slug}:${item.avatar}`] ? (
-                          <img
+                          <ProtectedImage
                             src={resolveAvatarUrl(item.avatar)}
                             alt={item.name}
+                            eager
                             className="h-full w-full object-cover"
                             onError={() => markAvatarBroken(`list:${item.seed_slug}:${item.avatar}`)}
+                            onProtectedAccessError={() => markAvatarBroken(`list:${item.seed_slug}:${item.avatar}`)}
                           />
                         ) : (
                           avatarFor(item)
@@ -466,11 +469,13 @@ export const PersonalityForm: React.FC<PersonalityFormProps> = ({ quickMode = fa
                                   {isCustomSelected ? (
                                     <Sparkles className="h-7 w-7 text-primary" />
                                   ) : focusAvatar && !brokenAvatarKeys[`focus:${focusAvatar}`] ? (
-                                    <img
+                                    <ProtectedImage
                                       src={resolveAvatarUrl(focusAvatar)}
                                       alt={focusTitle}
+                                      eager
                                       className="h-full w-full rounded-full object-cover"
                                       onError={() => markAvatarBroken(`focus:${focusAvatar}`)}
+                                      onProtectedAccessError={() => markAvatarBroken(`focus:${focusAvatar}`)}
                                     />
                                   ) : focusedPreset ? (
                                     avatarFor(focusedPreset)

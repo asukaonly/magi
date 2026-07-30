@@ -17,6 +17,7 @@ This document defines mandatory implementation and delivery rules for coding age
 - Use English for AI-generated comments/docstrings, logs, and error messages.
 - Add tests or explicit validation evidence for behavior changes.
 - When adding a backend HTTP route, also register its path + methods in `_PUBLIC_ROUTE_METHODS` (`backend/src/magi/api/routes.py`); the public app is built by filtering routers through this allowlist, so an unlisted route returns 404 at runtime even though it exists on the router (see Coding Standards → Adding an API route).
+- Keep gateway routes authenticated by default. Only liveness and bundled avatars may be public; update `contracts/api/gateway_routes.json` when adding a native route, static mount, or private-resource exception.
 
 **Don't**
 - Don't batch unrelated tasks in one commit.
@@ -225,8 +226,12 @@ Declaring a route on its `APIRouter` is NOT enough to make it reachable. Require
 1. **Declare** it: `@some_router.<method>("/path", ...)`.
 2. **Allowlist** it: add `"/path": {"<METHOD>"}` under the router's group in `_PUBLIC_ROUTE_METHODS` (`backend/src/magi/api/routes.py`). `register_api_routes()` filters every router through `_build_public_router`, so a route missing from the allowlist is silently dropped → **HTTP 404 in the running app** (router-import unit tests still pass — they bypass the filter). Use the router-relative path (no `/api/<group>` prefix; the prefix is added when the filtered router is mounted).
 3. **Gateway**: the Rust gateway (`crates/magi-gateway`) proxies all non-native paths to Python via `.fallback(proxy_handler)` — no gateway change needed for proxied routes. Only add `.route(...)` in `crates/magi-gateway/src/api/mod.rs` if the endpoint is implemented natively in Rust.
-4. **Types**: if the request/response schema changed, update the hand-written client types under `frontend/src/api/` and cover the contract with focused backend/frontend tests.
-5. **Reload**: the backend runs as a `--no-reload` IPC sidecar — fully relaunch the app (not webview reload) to pick up route/code changes.
+4. **Access**: every route is protected by the desktop session credential unless it is the liveness endpoint or a bundled-avatar read. Record native/static ownership and access exceptions in `contracts/api/gateway_routes.json`. DOM-loaded private resources must use the typed short-lived ticket flow; never put the desktop session credential in a URL.
+5. **Types**: if the request/response schema changed, update the hand-written client types under `frontend/src/api/` and cover the contract with focused backend/frontend tests.
+6. **Reload**: the backend runs as a `--no-reload` IPC sidecar — fully relaunch the app (not webview reload) to pick up route/code changes.
+
+`_PUBLIC_ROUTE_METHODS` means “visible through the product's in-memory Python
+app”; it does not mean unauthenticated at the desktop gateway.
 
 Prove reachability through the public router, not just the raw router:
 

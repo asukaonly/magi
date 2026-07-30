@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import socket
 from dataclasses import asdict
 from typing import Any
@@ -12,12 +13,23 @@ from urllib import error, request
 from magi.memory.eval_support.contracts import EvalMemoryHit, EvalMemoryQuery, EvalMemoryQueryResult
 
 
+SESSION_TOKEN_ENV = "MAGI_DESKTOP_SESSION_TOKEN"
+SESSION_TOKEN_HEADER = "X-Magi-Session-Token"
+
+
 class BackendEvalService:
     """Thin async wrapper over benchmark-facing memory eval API endpoints."""
 
     def __init__(self, backend_url: str, *, timeout_seconds: float = 600.0) -> None:
+        session_token = os.environ.get(SESSION_TOKEN_ENV)
+        if session_token is None or not session_token.strip():
+            raise RuntimeError(
+                f"{SESSION_TOKEN_ENV} must be set to a non-empty temporary credential "
+                "for benchmark gateway requests"
+            )
         self._backend_url = str(backend_url).rstrip("/")
         self._timeout_seconds = float(timeout_seconds)
+        self._session_token = session_token
 
     async def write_records(self, *, namespace: str, records: list[Any]) -> dict[str, Any]:
         payload = {
@@ -120,7 +132,10 @@ class BackendEvalService:
         req = request.Request(
             url,
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                SESSION_TOKEN_HEADER: self._session_token,
+            },
             method="POST",
         )
         try:
@@ -136,7 +151,14 @@ class BackendEvalService:
 
     def _get_json_sync(self, path: str) -> dict[str, Any]:
         url = f"{self._backend_url}{path}"
-        req = request.Request(url, headers={"Accept": "application/json"}, method="GET")
+        req = request.Request(
+            url,
+            headers={
+                "Accept": "application/json",
+                SESSION_TOKEN_HEADER: self._session_token,
+            },
+            method="GET",
+        )
         try:
             with request.urlopen(req, timeout=self._timeout_seconds) as response:
                 return json.loads(response.read().decode("utf-8"))

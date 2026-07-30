@@ -208,7 +208,6 @@ export async function initializeRuntime(
     };
     initialized = true;
     startupError = null;
-    window.__MAGI_RUNTIME__ = runtimeConfig;
     return runtimeConfig;
   } catch (error) {
     startupError = error instanceof Error ? error.message : "Desktop backend startup failed";
@@ -223,5 +222,5 @@ export function resetRuntimeInitialization(): void {
 }
 
 export function getRuntimeConfig(): RuntimeConfig {
-  return window.__MAGI_RUNTIME__ || runtimeConfig;
+  return runtimeConfig;
 }

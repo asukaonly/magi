@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
+import type { ImgHTMLAttributes } from 'react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router';
 
@@ -194,6 +195,22 @@ vi.mock('@/api/modules/memory', () => ({
     reconsolidateEpisodes: vi.fn(),
   },
 }));
+
+vi.mock('@/components/media/ProtectedImage', () => {
+  const ProtectedImage = ({
+    eager,
+    onProtectedAccessError,
+    ...imageProps
+  }: ImgHTMLAttributes<HTMLImageElement> & {
+    eager?: boolean;
+    onProtectedAccessError?: () => void;
+  }) => {
+    void eager;
+    void onProtectedAccessError;
+    return <img {...imageProps} />;
+  };
+  return { ProtectedImage, default: ProtectedImage };
+});
 
 const activeExperiences: L2ExperienceWithReview[] = [
   {
@@ -453,6 +470,16 @@ const renderDraftPage = (draftId = 'draft-japan') =>
     </MemoryRouter>
   );
 
+const getExperienceCoverImage = (): HTMLImageElement => {
+  const image = screen
+    .getByTestId('experience-cover-hero')
+    .querySelector<HTMLImageElement>('img');
+  if (!image) {
+    throw new Error('Expected the experience cover image to exist');
+  }
+  return image;
+};
+
 const DraftSwitchControl = () => {
   const navigate = useNavigate();
   return (
@@ -669,7 +696,7 @@ describe('MemoryEpisodesPage', () => {
 
     await openLaunchExperience(user);
     expect(await screen.findByRole('button', { name: 'Back to experiences' })).toBeInTheDocument();
-    expect(screen.getByTestId('experience-cover-hero').getAttribute('style')).toContain(
+    expect(getExperienceCoverImage().getAttribute('src')).toContain(
       'manual-entry-asset%3A%2F%2Fcover.jpg'
     );
     expect(screen.getByRole('button', { name: 'Change cover' })).toBeInTheDocument();
@@ -715,14 +742,14 @@ describe('MemoryEpisodesPage', () => {
     await waitFor(() => {
       expect(memoryApi.uploadExperienceCover).toHaveBeenCalledWith('exp-1', coverFile);
     });
-    expect(screen.getByTestId('experience-cover-hero').getAttribute('style')).toContain(
+    expect(getExperienceCoverImage().getAttribute('src')).toContain(
       encodeURIComponent('manual-entry-asset://uploaded-cover.jpg')
     );
     expect(screen.queryByText('Selected new-cover.png')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Back to experiences' }));
     await openLaunchExperience(user);
-    expect(screen.getByTestId('experience-cover-hero').getAttribute('style')).toContain(
+    expect(getExperienceCoverImage().getAttribute('src')).toContain(
       encodeURIComponent('manual-entry-asset://uploaded-cover.jpg')
     );
   });
@@ -878,7 +905,7 @@ describe('MemoryEpisodesPage', () => {
     const hero = screen.getByTestId('experience-cover-hero');
     expect(hero).toContainElement(backButtons[0]);
     expect(hero).toContainElement(screen.getByRole('heading', { name: '2026年5月 日本旅行' }));
-    expect(hero.getAttribute('style')).toContain(
+    expect(getExperienceCoverImage().getAttribute('src')).toContain(
       encodeURIComponent('manual-entry-asset://draft-cover.jpg'),
     );
     expect(within(hero).getByRole('button', { name: 'Change cover' })).toBeInTheDocument();
@@ -903,7 +930,7 @@ describe('MemoryEpisodesPage', () => {
     await waitFor(() => {
       expect(draftApi.uploadExperienceDraftCover).toHaveBeenCalledWith('draft-japan', coverFile);
     });
-    expect(screen.getByTestId('experience-cover-hero').getAttribute('style')).toContain(
+    expect(getExperienceCoverImage().getAttribute('src')).toContain(
       encodeURIComponent('manual-entry-asset://persisted-draft-cover.jpg'),
     );
   });

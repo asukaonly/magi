@@ -1,10 +1,12 @@
 use axum::body::Body;
 use axum::extract::{Path, Query};
-use axum::http::StatusCode;
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use rusqlite::Connection;
 use serde::Deserialize;
+use std::io::{Seek, SeekFrom};
 use std::path::{Path as FsPath, PathBuf};
+use tokio::io::AsyncReadExt;
 use tokio_util::io::ReaderStream;
 
 use crate::db;
@@ -22,13 +24,21 @@ pub struct AttachmentContentQuery {
 pub async fn attachment_content(
     Path((session_id, attachment_id)): Path<(String, String)>,
     Query(params): Query<AttachmentContentQuery>,
+    headers: HeaderMap,
 ) -> Response {
     let user_id = params
         .user_id
         .unwrap_or_else(|| DEFAULT_USER_ID.to_string());
+    let range = headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     let sid = session_id.clone();
     let aid = attachment_id.clone();
-    match tokio::task::spawn_blocking(move || load_attachment_response(&user_id, &sid, &aid)).await
+    match tokio::task::spawn_blocking(move || {
+        load_attachment_response(&user_id, &sid, &aid, range.as_deref())
+    })
+    .await
     {
         Ok(Some(response)) => response,
         _ => (StatusCode::NOT_FOUND, "Attachment not found").into_response(),
@@ -39,22 +49,55 @@ fn load_attachment_response(
     user_id: &str,
     session_id: &str,
     attachment_id: &str,
+    range: Option<&str>,
 ) -> Option<Response> {
     let conn = db::open_readonly(&db::chat_db_path())?;
     let base_dir = db::magi_base_dir();
     let metadata = query_attachment_metadata(&conn, &base_dir, user_id, session_id, attachment_id)?;
     let file = open_validated_attachment_file(&base_dir, &metadata.absolute_path)?;
-    build_attachment_response(metadata, file)
+    build_attachment_response(metadata, file, range)
 }
 
 fn build_attachment_response(
     metadata: AttachmentMetadata,
-    file: std::fs::File,
+    mut file: std::fs::File,
+    range: Option<&str>,
 ) -> Option<Response> {
     let content_length = file.metadata().ok()?.len();
-    let mut builder = Response::builder().status(StatusCode::OK);
+    let parsed_range = match range {
+        Some(value) => match parse_byte_range(value, content_length) {
+            Ok(value) => value,
+            Err(()) => {
+                return Response::builder()
+                    .status(StatusCode::RANGE_NOT_SATISFIABLE)
+                    .header(header::ACCEPT_RANGES, "bytes")
+                    .header(header::CONTENT_RANGE, format!("bytes */{content_length}"))
+                    .body(Body::empty())
+                    .ok();
+            }
+        },
+        None => None,
+    };
+
+    let (status, response_length, content_range) = match parsed_range {
+        Some((start, end)) => {
+            file.seek(SeekFrom::Start(start)).ok()?;
+            (
+                StatusCode::PARTIAL_CONTENT,
+                end - start + 1,
+                Some(format!("bytes {start}-{end}/{content_length}")),
+            )
+        }
+        None => (StatusCode::OK, content_length, None),
+    };
+
+    let mut builder = Response::builder().status(status);
     builder = builder.header("content-type", metadata.mime_type.as_str());
-    builder = builder.header("content-length", content_length);
+    builder = builder.header(header::CONTENT_LENGTH, response_length);
+    builder = builder.header(header::ACCEPT_RANGES, "bytes");
+    if let Some(value) = content_range {
+        builder = builder.header(header::CONTENT_RANGE, value);
+    }
     builder = builder.header(
         "content-disposition",
         format!(
@@ -62,8 +105,48 @@ fn build_attachment_response(
             sanitize_header_filename(&metadata.original_name)
         ),
     );
-    let stream = ReaderStream::with_capacity(tokio::fs::File::from_std(file), 1024 * 1024);
+    let stream = ReaderStream::with_capacity(
+        tokio::fs::File::from_std(file).take(response_length),
+        1024 * 1024,
+    );
     builder.body(Body::from_stream(stream)).ok()
+}
+
+fn parse_byte_range(value: &str, content_length: u64) -> Result<Option<(u64, u64)>, ()> {
+    let Some(specifier) = value.strip_prefix("bytes=") else {
+        return Ok(None);
+    };
+    if specifier.contains(',') {
+        return Err(());
+    }
+    let (start, end) = specifier.split_once('-').ok_or(())?;
+
+    if start.is_empty() {
+        let suffix_length = end
+            .parse::<u64>()
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or(())?;
+        if content_length == 0 {
+            return Err(());
+        }
+        let suffix_length = suffix_length.min(content_length);
+        return Ok(Some((content_length - suffix_length, content_length - 1)));
+    }
+
+    let start = start.parse::<u64>().map_err(|_| ())?;
+    if start >= content_length {
+        return Err(());
+    }
+    let end = if end.is_empty() {
+        content_length - 1
+    } else {
+        end.parse::<u64>().map_err(|_| ())?.min(content_length - 1)
+    };
+    if start > end {
+        return Err(());
+    }
+    Ok(Some((start, end)))
 }
 
 struct AttachmentMetadata {
@@ -377,7 +460,10 @@ fn sanitize_header_filename(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_attachment_response, query_attachment_metadata, AttachmentMetadata, FsPath};
+    use super::{
+        build_attachment_response, parse_byte_range, query_attachment_metadata, AttachmentMetadata,
+        FsPath,
+    };
     use http_body_util::BodyExt;
     use rusqlite::Connection;
     use std::fs;
@@ -655,6 +741,7 @@ mod tests {
                 absolute_path: file_path.clone(),
             },
             fs::File::open(&file_path).unwrap(),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -681,6 +768,16 @@ mod tests {
             payload
         );
         let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn byte_ranges_are_bounded_and_unsatisfiable_ranges_are_rejected() {
+        assert_eq!(parse_byte_range("bytes=0-6", 14), Ok(Some((0, 6))));
+        assert_eq!(parse_byte_range("bytes=7-", 14), Ok(Some((7, 13))));
+        assert_eq!(parse_byte_range("bytes=-4", 14), Ok(Some((10, 13))));
+        assert_eq!(parse_byte_range("items=0-1", 14), Ok(None));
+        assert_eq!(parse_byte_range("bytes=14-", 14), Err(()));
+        assert_eq!(parse_byte_range("bytes=0-1,4-5", 14), Err(()));
     }
 
     #[cfg(unix)]

@@ -7,6 +7,7 @@ import {
   resolveHistoryImagePreviewUrl,
 } from '@/domain/chat/attachments';
 import type { ChatTimelineReplyPreview } from '@/domain/chat/state';
+import { ProtectedImage } from '@/components/media/ProtectedImage';
 
 type TranscriptBubbleTopProps = {
   align: 'user' | 'assistant';
@@ -77,7 +78,7 @@ export const TranscriptBubbleTop = ({
                   : 'group block w-[340px] max-w-full overflow-hidden rounded-xl border border-border/45 bg-background text-left shadow-sm transition hover:border-border/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:w-[380px]'}
               >
                 {previewUrl ? (
-                  <img
+                  <ProtectedImage
                     src={previewUrl}
                     alt={attachment.original_name}
                     className="block max-h-[420px] min-h-24 w-full object-contain transition duration-200 group-hover:scale-[1.006]"
@@ -114,7 +115,7 @@ export const TranscriptBubbleTop = ({
                     aria-label={t('chat.attachments.openPreview')}
                     className="shrink-0 rounded-xl transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                   >
-                    <img
+                    <ProtectedImage
                       src={previewUrl}
                       alt={attachment.original_name}
                       className="h-12 w-12 rounded-xl object-cover"

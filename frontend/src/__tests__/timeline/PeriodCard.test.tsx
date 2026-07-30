@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import type { ImgHTMLAttributes } from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 
@@ -8,6 +9,22 @@ import type {
   TimelineThemeCard,
   TimelineViewportResponse,
 } from "@/api/modules/timeline";
+
+vi.mock("@/components/media/ProtectedImage", () => {
+  const ProtectedImage = ({
+    eager,
+    onProtectedAccessError,
+    ...imageProps
+  }: ImgHTMLAttributes<HTMLImageElement> & {
+    eager?: boolean;
+    onProtectedAccessError?: () => void;
+  }) => {
+    void eager;
+    void onProtectedAccessError;
+    return <img {...imageProps} />;
+  };
+  return { ProtectedImage, default: ProtectedImage };
+});
 
 function makeViewport(overrides: Partial<TimelineViewportResponse> = {}): TimelineViewportResponse {
   return {

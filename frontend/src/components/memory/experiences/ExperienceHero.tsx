@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Quote } from 'lucide-react';
+import { ProtectedImage } from '@/components/media/ProtectedImage';
 import { cn } from '@/lib/utils';
 
 export function ExperienceHero({
@@ -33,13 +34,21 @@ export function ExperienceHero({
   return (
     <header
       data-testid="experience-cover-hero"
-      style={coverUrl ? { backgroundImage: `url("${coverUrl}")` } : undefined}
       className={cn(
         'relative isolate min-h-[360px] overflow-hidden rounded-xl bg-[hsl(var(--memory-panel-elevated))] bg-cover bg-center ring-1 ring-inset ring-[hsl(var(--memory-border)/0.22)]',
         !isInline && 'shadow-[0_14px_42px_hsl(var(--memory-title)/0.055)]',
         className,
       )}
     >
+      {coverUrl ? (
+        <ProtectedImage
+          src={coverUrl}
+          alt=""
+          eager
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : null}
       {!coverUrl ? (
         <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--memory-panel-elevated)),hsl(var(--memory-accent-soft)/0.42))]" />
       ) : null}

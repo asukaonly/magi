@@ -18,6 +18,20 @@ use tower::ServiceExt;
 
 static TEST_COUNTER: AtomicU32 = AtomicU32::new(0);
 static HOME_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+const TEST_SESSION_TOKEN: &str = "test-desktop-session-token";
+
+fn test_security() -> Arc<api::security::GatewaySecurity> {
+    Arc::new(api::security::GatewaySecurity::with_policy(
+        TEST_SESSION_TOKEN,
+        [
+            "http://127.0.0.1:5173",
+            "tauri://localhost",
+            "http://tauri.localhost",
+        ],
+        std::time::Duration::from_secs(60),
+        128,
+    ))
+}
 
 struct HomeGuard {
     previous_base_dir: Option<PathBuf>,
@@ -82,6 +96,7 @@ async fn request_json(
     body: Option<&str>,
 ) -> (u16, Value) {
     let mut builder = Request::builder().method(method).uri(uri);
+    builder = builder.header(api::security::SESSION_TOKEN_HEADER, TEST_SESSION_TOKEN);
     if body.is_some() {
         builder = builder.header("content-type", "application/json");
     }
@@ -128,11 +143,7 @@ async fn test_state() -> api::state::ApiState {
         .await
         .expect("Connect to test IPC socket");
 
-    api::state::ApiState {
-        ipc_client: Arc::new(ipc_client),
-        builtin_avatar_dir: None,
-        user_avatar_dir: None,
-    }
+    api::state::ApiState::new(Arc::new(ipc_client), test_security())
 }
 
 #[cfg(unix)]
@@ -174,11 +185,7 @@ async fn test_state_with_runtime_ready_response(result: Value) -> api::state::Ap
         .await
         .expect("Connect to test IPC socket");
 
-    api::state::ApiState {
-        ipc_client: Arc::new(ipc_client),
-        builtin_avatar_dir: None,
-        user_avatar_dir: None,
-    }
+    api::state::ApiState::new(Arc::new(ipc_client), test_security())
 }
 
 #[cfg(unix)]
@@ -223,11 +230,7 @@ async fn test_state_with_api_forward_response(
         .await
         .expect("Connect to test IPC socket");
     (
-        api::state::ApiState {
-            ipc_client: Arc::new(ipc_client),
-            builtin_avatar_dir: None,
-            user_avatar_dir: None,
-        },
+        api::state::ApiState::new(Arc::new(ipc_client), test_security()),
         requests,
     )
 }
@@ -255,11 +258,7 @@ async fn test_state() -> api::state::ApiState {
         .await
         .expect("Connect to test IPC socket");
 
-    api::state::ApiState {
-        ipc_client: Arc::new(ipc_client),
-        builtin_avatar_dir: None,
-        user_avatar_dir: None,
-    }
+    api::state::ApiState::new(Arc::new(ipc_client), test_security())
 }
 
 #[cfg(not(unix))]
@@ -298,11 +297,7 @@ async fn test_state_with_runtime_ready_response(result: Value) -> api::state::Ap
         .await
         .expect("Connect to test IPC socket");
 
-    api::state::ApiState {
-        ipc_client: Arc::new(ipc_client),
-        builtin_avatar_dir: None,
-        user_avatar_dir: None,
-    }
+    api::state::ApiState::new(Arc::new(ipc_client), test_security())
 }
 
 #[cfg(not(unix))]
@@ -344,11 +339,7 @@ async fn test_state_with_api_forward_response(
         .await
         .expect("Connect to test IPC socket");
     (
-        api::state::ApiState {
-            ipc_client: Arc::new(ipc_client),
-            builtin_avatar_dir: None,
-            user_avatar_dir: None,
-        },
+        api::state::ApiState::new(Arc::new(ipc_client), test_security()),
         requests,
     )
 }
@@ -375,6 +366,113 @@ async fn health_returns_ok() {
 }
 
 #[tokio::test]
+async fn business_routes_require_the_desktop_session_token() {
+    let guard = router_test_guard();
+    let (state, forwarded_requests) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 200,
+        "headers": {"content-type": "application/json"},
+        "body": {"unexpected": true}
+    }))
+    .await;
+    let router = api::build_router(state);
+
+    for request in [
+        Request::builder()
+            .uri("/api/ready")
+            .body(Body::empty())
+            .unwrap(),
+        Request::builder()
+            .uri("/api/plugins")
+            .header(api::security::SESSION_TOKEN_HEADER, "wrong-token")
+            .body(Body::empty())
+            .unwrap(),
+    ] {
+        let response = router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), 401);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error_code"], "desktop_auth_required");
+    }
+
+    assert!(forwarded_requests.lock().unwrap().is_empty());
+    drop(guard);
+}
+
+#[tokio::test]
+async fn unknown_proxy_paths_are_authenticated_before_ipc_forwarding() {
+    let guard = router_test_guard();
+    let (state, forwarded_requests) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 200,
+        "headers": {"content-type": "application/json"},
+        "body": {"forwarded": true}
+    }))
+    .await;
+    let router = api::build_router(state);
+
+    for request in [
+        Request::builder()
+            .uri("/api/unknown-private-route")
+            .body(Body::empty())
+            .unwrap(),
+        Request::builder()
+            .uri("/api/unknown-private-route")
+            .header(api::security::SESSION_TOKEN_HEADER, "wrong-token")
+            .body(Body::empty())
+            .unwrap(),
+    ] {
+        let response = router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), 401);
+    }
+    assert!(forwarded_requests.lock().unwrap().is_empty());
+
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri("/api/unknown-private-route")
+                .header(api::security::SESSION_TOKEN_HEADER, TEST_SESSION_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let requests = forwarded_requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["params"]["path"], "/api/unknown-private-route");
+    assert!(requests[0]["params"]["headers"]
+        .get(api::security::SESSION_TOKEN_HEADER)
+        .is_none());
+    drop(guard);
+}
+
+#[tokio::test]
+async fn unexpected_browser_origin_is_rejected_before_routing() {
+    let guard = router_test_guard();
+    let (state, forwarded_requests) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 200,
+        "headers": {"content-type": "application/json"},
+        "body": {"unexpected": true}
+    }))
+    .await;
+    let router = api::build_router(state);
+    let request = Request::builder()
+        .uri("/api/plugins")
+        .header(api::security::SESSION_TOKEN_HEADER, TEST_SESSION_TOKEN)
+        .header("origin", "https://attacker.example")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = router.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), 403);
+    assert!(response
+        .headers()
+        .get("access-control-allow-origin")
+        .is_none());
+    assert!(forwarded_requests.lock().unwrap().is_empty());
+    drop(guard);
+}
+
+#[tokio::test]
 async fn ready_returns_json() {
     let guard = router_test_guard();
     let state = test_state().await;
@@ -382,6 +480,7 @@ async fn ready_returns_json() {
 
     let req = Request::builder()
         .uri("/api/ready")
+        .header(api::security::SESSION_TOKEN_HEADER, TEST_SESSION_TOKEN)
         .body(Body::empty())
         .unwrap();
 
@@ -420,6 +519,7 @@ async fn ready_uses_runtime_ready_ipc_response() {
 
     let req = Request::builder()
         .uri("/api/ready")
+        .header(api::security::SESSION_TOKEN_HEADER, TEST_SESSION_TOKEN)
         .body(Body::empty())
         .unwrap();
 
@@ -444,6 +544,7 @@ async fn ready_reports_unresponsive_when_ipc_does_not_reply() {
 
     let req = Request::builder()
         .uri("/api/ready")
+        .header(api::security::SESSION_TOKEN_HEADER, TEST_SESSION_TOKEN)
         .body(Body::empty())
         .unwrap();
 
@@ -501,6 +602,7 @@ async fn unknown_api_path_hits_fallback_proxy() {
 
     let req = Request::builder()
         .uri("/api/nonexistent")
+        .header(api::security::SESSION_TOKEN_HEADER, TEST_SESSION_TOKEN)
         .body(Body::empty())
         .unwrap();
 
@@ -756,7 +858,7 @@ async fn memory_object_routes_apply_search_query_in_native_gateway() {
 }
 
 #[tokio::test]
-async fn cors_headers_present() {
+async fn cors_allows_desktop_origin_and_session_header() {
     let guard = router_test_guard();
     let state = test_state().await;
     let router = api::build_router(state);
@@ -764,8 +866,12 @@ async fn cors_headers_present() {
     let req = Request::builder()
         .method("OPTIONS")
         .uri("/api/health")
-        .header("Origin", "http://localhost:1420")
+        .header("Origin", "http://127.0.0.1:5173")
         .header("Access-Control-Request-Method", "GET")
+        .header(
+            "Access-Control-Request-Headers",
+            format!("{}, range", api::security::SESSION_TOKEN_HEADER),
+        )
         .body(Body::empty())
         .unwrap();
 
@@ -777,7 +883,487 @@ async fn cors_headers_present() {
             .contains_key("access-control-allow-origin"),
         "CORS allow-origin header should be present"
     );
+    let allowed_headers = response
+        .headers()
+        .get("access-control-allow-headers")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    assert!(allowed_headers.contains(api::security::SESSION_TOKEN_HEADER));
+    assert!(allowed_headers.contains("range"));
     drop(guard);
+}
+
+#[tokio::test]
+async fn cors_does_not_allow_untrusted_origins() {
+    let guard = router_test_guard();
+    let state = test_state().await;
+    let router = api::build_router(state);
+    let request = Request::builder()
+        .method("OPTIONS")
+        .uri("/api/tasks")
+        .header("origin", "https://attacker.example")
+        .header("access-control-request-method", "GET")
+        .header(
+            "access-control-request-headers",
+            api::security::SESSION_TOKEN_HEADER,
+        )
+        .body(Body::empty())
+        .unwrap();
+
+    let response = router.oneshot(request).await.unwrap();
+    assert!(response
+        .headers()
+        .get("access-control-allow-origin")
+        .is_none());
+    drop(guard);
+}
+
+#[tokio::test]
+async fn builtin_avatars_are_public_and_user_avatars_require_authentication() {
+    let guard = router_test_guard();
+    let base = std::env::temp_dir().join(format!(
+        "magi-avatar-access-test-{}-{}",
+        std::process::id(),
+        TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
+    ));
+    let builtin_dir = base.join("builtin");
+    let user_dir = base.join("user");
+    std::fs::create_dir_all(&builtin_dir).unwrap();
+    std::fs::create_dir_all(&user_dir).unwrap();
+    std::fs::write(builtin_dir.join("builtin.png"), b"builtin").unwrap();
+    std::fs::write(user_dir.join("private.png"), b"private").unwrap();
+
+    let state = test_state()
+        .await
+        .with_avatar_dirs(Some(builtin_dir), Some(user_dir));
+    let router = api::build_router(state);
+
+    let public = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/static/avatars/builtin.png")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(public.status(), 200);
+    let public_body = public.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(public_body.as_ref(), b"builtin");
+
+    let unauthenticated = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/static/user-avatars/private.png")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), 401);
+
+    let authenticated = router
+        .oneshot(
+            Request::builder()
+                .uri("/static/user-avatars/private.png")
+                .header(api::security::SESSION_TOKEN_HEADER, TEST_SESSION_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(authenticated.status(), 200);
+    let authenticated_body = authenticated
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    assert_eq!(authenticated_body.as_ref(), b"private");
+
+    let _ = std::fs::remove_dir_all(base);
+    drop(guard);
+}
+
+#[tokio::test]
+async fn private_resource_ticket_is_scoped_and_reusable() {
+    let home = isolated_home("private-resource-ticket");
+    let avatar_dir = home.path().join("avatars");
+    std::fs::create_dir_all(&avatar_dir).unwrap();
+    std::fs::write(avatar_dir.join("private.png"), b"private-avatar").unwrap();
+    std::fs::write(avatar_dir.join("other.png"), b"other-avatar").unwrap();
+
+    let mut state = test_state().await;
+    state.user_avatar_dir = Some(avatar_dir);
+    let router = api::build_router(state);
+    let (status, grant) = request_json(
+        router.clone(),
+        "POST",
+        "/api/private-resource-tickets",
+        Some(r#"{"kind":"user_avatar","filename":"private.png"}"#),
+    )
+    .await;
+    assert_eq!(status, 201);
+    let access_url = grant["data"]["access_url"].as_str().unwrap();
+
+    let direct = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/static/user-avatars/private.png")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(direct.status(), 401);
+
+    let wrong_method = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(access_url)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wrong_method.status(), 401);
+
+    for _ in 0..2 {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(access_url)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(
+            response.headers().get("cache-control").unwrap(),
+            "private, no-store"
+        );
+        assert_eq!(
+            response.headers().get("referrer-policy").unwrap(),
+            "no-referrer"
+        );
+        assert_eq!(
+            response.headers().get("x-content-type-options").unwrap(),
+            "nosniff"
+        );
+        assert_eq!(
+            response.headers().get("content-security-policy").unwrap(),
+            "sandbox; default-src 'none'"
+        );
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(body.as_ref(), b"private-avatar");
+    }
+
+    let head = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("HEAD")
+                .uri(access_url)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(head.status(), 200);
+    assert!(head
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes()
+        .is_empty());
+
+    let range = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(access_url)
+                .header("range", "bytes=0-6")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(range.status(), 206);
+    assert_eq!(
+        range.headers().get("content-range").unwrap(),
+        "bytes 0-6/14"
+    );
+    let range_body = range.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(range_body.as_ref(), b"private");
+
+    let ticket_query = access_url.split_once('?').unwrap().1;
+    let unexpected_query = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("{access_url}&unexpected=1"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unexpected_query.status(), 401);
+
+    let wrong_resource = router
+        .oneshot(
+            Request::builder()
+                .uri(format!("/static/user-avatars/other.png?{ticket_query}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wrong_resource.status(), 401);
+    drop(home);
+}
+
+#[tokio::test]
+async fn expired_private_resource_ticket_is_rejected() {
+    let home = isolated_home("expired-private-resource-ticket");
+    let avatar_dir = home.path().join("avatars");
+    std::fs::create_dir_all(&avatar_dir).unwrap();
+    std::fs::write(avatar_dir.join("private.png"), b"private-avatar").unwrap();
+
+    let mut state = test_state().await;
+    state.user_avatar_dir = Some(avatar_dir);
+    state.security = Arc::new(api::security::GatewaySecurity::with_policy(
+        TEST_SESSION_TOKEN,
+        ["http://127.0.0.1:5173"],
+        std::time::Duration::from_millis(10),
+        8,
+    ));
+    let router = api::build_router(state);
+    let (status, grant) = request_json(
+        router.clone(),
+        "POST",
+        "/api/private-resource-tickets",
+        Some(r#"{"kind":"user_avatar","filename":"private.png"}"#),
+    )
+    .await;
+    assert_eq!(status, 201);
+    let access_url = grant["data"]["access_url"].as_str().unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri(access_url)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
+    drop(home);
+}
+
+#[tokio::test]
+async fn timeline_resource_ticket_is_removed_before_python_forwarding() {
+    let guard = router_test_guard();
+    let (state, forwarded_requests) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 200,
+        "headers": {"content-type": "image/png"},
+        "body_encoding": "base64",
+        "body_base64": "cG5n"
+    }))
+    .await;
+    let router = api::build_router(state);
+    let (status, grant) = request_json(
+        router.clone(),
+        "POST",
+        "/api/private-resource-tickets",
+        Some(r#"{"kind":"timeline_asset","asset_ref":"photo-library://day/image.png"}"#),
+    )
+    .await;
+    assert_eq!(status, 201);
+    let access_url = grant["data"]["access_url"].as_str().unwrap();
+
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri(access_url)
+                .header("range", "bytes=0-2")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(body.as_ref(), b"png");
+
+    let requests = forwarded_requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["params"]["query"], "");
+    assert_eq!(requests[0]["params"]["headers"]["range"], "bytes=0-2");
+    assert!(requests[0]["params"]["headers"]
+        .get(api::security::SESSION_TOKEN_HEADER)
+        .is_none());
+    drop(guard);
+}
+
+#[tokio::test]
+async fn chat_attachment_ticket_binds_user_and_supports_head() {
+    let home = isolated_home("chat-attachment-ticket");
+    let magi_root = home.path().join(".magi");
+    let chat_dir = magi_root.join("data").join("chat");
+    let attachment_dir = magi_root
+        .join("data")
+        .join("resources")
+        .join("chat")
+        .join("images")
+        .join("session-1")
+        .join("turn-1");
+    std::fs::create_dir_all(&chat_dir).unwrap();
+    std::fs::create_dir_all(&attachment_dir).unwrap();
+    let attachment_path = attachment_dir.join("att-1__photo.png");
+    std::fs::write(&attachment_path, b"private-attachment").unwrap();
+
+    let conn = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE chat_sessions (
+            session_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            deleted_at_ms INTEGER
+        );
+        CREATE TABLE chat_messages (
+            message_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            is_visible INTEGER NOT NULL
+        );
+        CREATE TABLE chat_attachments (
+            attachment_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            original_name TEXT NOT NULL,
+            storage_rel_path TEXT NOT NULL
+        );
+        INSERT INTO chat_sessions (session_id, user_id, deleted_at_ms)
+        VALUES ('session-1', 'local_user', NULL);
+        INSERT INTO chat_messages (
+            message_id, session_id, turn_id, user_id, is_visible
+        ) VALUES ('msg-1', 'session-1', 'turn-1', 'local_user', 1);
+        INSERT INTO chat_attachments (
+            attachment_id, session_id, turn_id, message_id, user_id,
+            kind, mime_type, original_name, storage_rel_path
+        ) VALUES (
+            'att-1', 'session-1', 'turn-1', 'msg-1', 'local_user',
+            'image', 'image/png', 'photo.png',
+            'data/resources/chat/images/session-1/turn-1/att-1__photo.png'
+        );",
+    )
+    .unwrap();
+    drop(conn);
+
+    let state = test_state().await;
+    let router = api::build_router(state);
+    let (status, grant) = request_json(
+        router.clone(),
+        "POST",
+        "/api/private-resource-tickets",
+        Some(
+            r#"{
+                "kind":"chat_attachment",
+                "user_id":"local_user",
+                "session_id":"session-1",
+                "attachment_id":"att-1"
+            }"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, 201);
+    let access_url = grant["data"]["access_url"].as_str().unwrap();
+    assert!(access_url.contains("user_id=local_user"));
+
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(access_url)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers().get("cache-control").unwrap(),
+        "private, no-store"
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(body.as_ref(), b"private-attachment");
+
+    let head = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("HEAD")
+                .uri(access_url)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(head.status(), 200);
+    assert!(head
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes()
+        .is_empty());
+
+    let range = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(access_url)
+                .header("range", "bytes=0-6")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(range.status(), 206);
+    assert_eq!(
+        range.headers().get("content-range").unwrap(),
+        "bytes 0-6/18"
+    );
+    let body = range.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(body.as_ref(), b"private");
+
+    let wrong_user_url = access_url.replace("user_id=local_user", "user_id=other_user");
+    let wrong_user = router
+        .oneshot(
+            Request::builder()
+                .uri(wrong_user_url)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wrong_user.status(), 401);
+    drop(home);
 }
 
 #[tokio::test]
@@ -845,6 +1431,8 @@ async fn attachment_upload_route_forwards_multipart_to_python() {
     let req = Request::builder()
         .method("POST")
         .uri("/api/messages/session/session-1/attachments")
+        .header(api::security::SESSION_TOKEN_HEADER, TEST_SESSION_TOKEN)
+        .header("origin", "http://127.0.0.1:5173")
         .header(
             "content-type",
             format!("multipart/form-data; boundary={boundary}"),
@@ -880,6 +1468,9 @@ async fn attachment_upload_route_forwards_multipart_to_python() {
         .as_str()
         .unwrap()
         .contains("multipart/form-data"));
+    assert!(request["params"]["headers"]
+        .get(api::security::SESSION_TOKEN_HEADER)
+        .is_none());
     let staged_path = request["params"]["body_file_path"]
         .as_str()
         .expect("staged multipart path");
@@ -918,6 +1509,7 @@ async fn attachment_upload_proxy_accepts_large_body_and_cleans_on_failure() {
     let req = Request::builder()
         .method("POST")
         .uri("/api/messages/session/session-1/attachments")
+        .header(api::security::SESSION_TOKEN_HEADER, TEST_SESSION_TOKEN)
         .header(
             "content-type",
             format!("multipart/form-data; boundary={boundary}"),
@@ -958,6 +1550,7 @@ async fn attachment_upload_proxy_rejects_stream_over_limit_without_ipc_or_temp_l
     let req = Request::builder()
         .method("POST")
         .uri("/api/messages/session/session-1/attachments")
+        .header(api::security::SESSION_TOKEN_HEADER, TEST_SESSION_TOKEN)
         .header("content-type", "multipart/form-data; boundary=over-limit")
         .body(Body::from_stream(futures_util::stream::iter(chunks)))
         .unwrap();

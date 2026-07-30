@@ -22,6 +22,7 @@ import {
   type MoodValence,
   weatherEmoji,
 } from "@/api/modules/manualEntries";
+import { ProtectedImage } from "@/components/media/ProtectedImage";
 import { renderRichTextHtml } from "@/components/timeline/manual-entries/renderRichText";
 import { cn } from "@/lib/utils";
 import { resolveTimelineAssetUrl } from "@/utils/timelineAssetUrl";
@@ -428,10 +429,11 @@ export const DaySceneReader: React.FC<DaySceneReaderProps> = ({
                 title={t("timeline.cover.open", { defaultValue: "更换封面" })}
               >
                 {coverUrl ? (
-                  <img
+                  <ProtectedImage
                     data-testid="timeline-day-cover"
                     src={coverUrl}
                     alt=""
+                    eager
                     className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
                   />
                 ) : (
@@ -627,7 +629,7 @@ const SceneRow: React.FC<{
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <span className="inline-flex min-h-11 items-center gap-3 rounded-mem-sm bg-card/90 px-4 py-2.5 text-[13px] text-foreground shadow-[0_1px_0_hsl(var(--border)/0.35)]">
             {imageUrl ? (
-              <img src={imageUrl} alt="" className="h-8 w-8 rounded-mem-sm object-cover" />
+              <ProtectedImage src={imageUrl} alt="" className="h-8 w-8 rounded-mem-sm object-cover" />
             ) : (
               <span className="flex h-8 w-8 items-center justify-center rounded-mem-sm bg-foreground text-background">
                 <SourceIcon sourceType={source} className="h-3.5 w-3.5 text-background" />
@@ -1005,7 +1007,7 @@ const ManualNoteRow: React.FC<{
                 className="h-16 w-20 overflow-hidden rounded-mem-sm outline-none transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t("timeline.manualEntry.openImage", { defaultValue: "查看图片" })}
               >
-                <img
+                <ProtectedImage
                   src={assetUrl}
                   alt=""
                   className="h-full w-full object-cover"
@@ -1029,9 +1031,10 @@ const ManualNoteRow: React.FC<{
           aria-label={t("timeline.manualEntry.attachmentAlt", { defaultValue: "附件图片" })}
           onClick={() => setPreviewIndex(null)}
         >
-          <img
+          <ProtectedImage
             src={resolveTimelineAssetUrl(entry.attachments[previewIndex]) ?? ""}
             alt={t("timeline.manualEntry.attachmentAlt", { defaultValue: "附件图片" })}
+            eager
             className="max-h-[90vh] max-w-[90vw] rounded-mem-sm object-contain"
             onClick={(event) => event.stopPropagation()}
           />

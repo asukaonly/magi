@@ -492,22 +492,6 @@ class AgentSettings(BaseModel):
 
 
 # =============================================================================
-# Server Configuration
-# =============================================================================
-
-
-class ServerSettings(BaseModel):
-    """Server configuration."""
-
-    host: str = Field(default="0.0.0.0")
-    port: int = Field(default=8000, ge=1, le=65535)
-    reload: bool = Field(default=True)
-    debug: bool = Field(default=False)
-    desktop_session_token: str = Field(default="")
-    cors_origins: List[str] = Field(default=["*"])
-
-
-# =============================================================================
 # Feature Flags
 # =============================================================================
 
@@ -764,7 +748,6 @@ class AppConfig(BaseModel):
 
     llm: LLMSettings = Field(default_factory=LLMSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
-    server: ServerSettings = Field(default_factory=ServerSettings)
     features: FeatureFlags = Field(default_factory=FeatureFlags)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
     timeline: TimelineSettings = Field(default_factory=TimelineSettings)

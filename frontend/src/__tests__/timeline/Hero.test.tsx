@@ -1,7 +1,24 @@
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import type { ImgHTMLAttributes } from "react";
+import { describe, it, expect, vi } from "vitest";
 
 import { Hero } from "@/components/timeline/immersive/Hero";
+
+vi.mock("@/components/media/ProtectedImage", () => {
+  const ProtectedImage = ({
+    eager,
+    onProtectedAccessError,
+    ...imageProps
+  }: ImgHTMLAttributes<HTMLImageElement> & {
+    eager?: boolean;
+    onProtectedAccessError?: () => void;
+  }) => {
+    void eager;
+    void onProtectedAccessError;
+    return <img {...imageProps} />;
+  };
+  return { ProtectedImage, default: ProtectedImage };
+});
 
 describe("Hero", () => {
   it("renders date label, essence prose, and place line", () => {

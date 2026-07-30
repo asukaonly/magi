@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { ProtectedImage } from '@/components/media/ProtectedImage';
 
 type HistoryImagePreview = {
   name: string;
@@ -27,9 +28,10 @@ export const HistoryImagePreviewDialog = ({
       >
         <DialogTitle className="sr-only">{preview?.name || t('chat.attachments.previewTitle')}</DialogTitle>
         {preview ? (
-          <img
+          <ProtectedImage
             src={preview.url}
             alt={preview.name}
+            eager
             className="block max-h-[min(88vh,980px)] max-w-[min(94vw,1280px)] rounded-[18px] object-contain shadow-[0_28px_90px_hsl(var(--foreground)/0.42)]"
           />
         ) : null}

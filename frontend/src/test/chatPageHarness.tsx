@@ -1,4 +1,5 @@
 import { cleanup } from '@testing-library/react';
+import type { ImgHTMLAttributes } from 'react';
 import {
   afterAll,
   afterEach,
@@ -100,6 +101,26 @@ vi.mock('@/runtime/config', () => ({
     apiBaseUrl: 'http://127.0.0.1:8000/api',
   }),
 }));
+
+vi.mock('@/components/media/ProtectedImage', () => {
+  type TestImageProps = ImgHTMLAttributes<HTMLImageElement> & {
+    eager?: boolean;
+    onProtectedAccessError?: () => void;
+  };
+  const ProtectedImage = ({
+    eager,
+    onProtectedAccessError,
+    ...imageProps
+  }: TestImageProps) => {
+    void eager;
+    void onProtectedAccessError;
+    return <img {...imageProps} />;
+  };
+  return {
+    ProtectedImage,
+    default: ProtectedImage,
+  };
+});
 
 vi.mock('@/api/modules/control', () => ({
   getControlSettings: vi.fn().mockResolvedValue({

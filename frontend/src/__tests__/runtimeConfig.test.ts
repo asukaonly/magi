@@ -26,7 +26,6 @@ describe('runtime config URL normalization', () => {
     vi.unstubAllGlobals();
     invokeMock.mockReset();
     resetRuntimeInitialization();
-    delete window.__MAGI_RUNTIME__;
     delete (window as Window & { __TAURI__?: object }).__TAURI__;
     delete (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__;
   });
@@ -114,5 +113,6 @@ describe('runtime config URL normalization', () => {
     expect(runtime.isDesktop).toBe(true);
     expect(runtime.apiPid).toBe(4321);
     expect(runtime.runtimeWorkerPid).toBe(5678);
+    expect('__MAGI_RUNTIME__' in window).toBe(false);
   });
 });

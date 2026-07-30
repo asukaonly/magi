@@ -96,7 +96,7 @@ async fn attachment_upload_ipc_proxy(
 ) -> Response {
     let method = req.method().to_string();
     let path = req.uri().path().to_string();
-    let query = req.uri().query().unwrap_or("").to_string();
+    let query = sanitize_forward_query(req.uri().query());
     let headers = collect_forward_headers(req.headers());
     let staged_path = new_staged_body_path();
     let staged_file = match create_secure_staged_file(&staged_path) {
@@ -143,7 +143,7 @@ async fn attachment_upload_ipc_proxy(
 async fn ipc_proxy(ipc: &crate::ipc::IpcClient, req: Request, max_body_bytes: usize) -> Response {
     let method = req.method().to_string();
     let path = req.uri().path().to_string();
-    let query = req.uri().query().unwrap_or("").to_string();
+    let query = sanitize_forward_query(req.uri().query());
 
     let headers = collect_forward_headers(req.headers());
 
@@ -186,6 +186,7 @@ fn collect_forward_headers(
         if name_lower == "connection"
             || name_lower == "content-length"
             || name_lower == "transfer-encoding"
+            || name_lower == super::security::SESSION_TOKEN_HEADER
         {
             continue;
         }
@@ -194,6 +195,18 @@ fn collect_forward_headers(
         }
     }
     headers
+}
+
+fn sanitize_forward_query(query: Option<&str>) -> String {
+    let Some(query) = query else {
+        return String::new();
+    };
+    form_urlencoded::Serializer::new(String::new())
+        .extend_pairs(
+            form_urlencoded::parse(query.as_bytes())
+                .filter(|(key, _)| key != super::security::RESOURCE_TICKET_QUERY),
+        )
+        .finish()
 }
 
 #[derive(Debug, PartialEq, Eq)]

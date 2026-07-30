@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { UserRound } from 'lucide-react';
 import { getRuntimeConfig } from '@/runtime/config';
 import { cn } from '@/lib/utils';
+import { ProtectedImage } from '@/components/media/ProtectedImage';
 
 export type ChatAvatarState = 'idle' | 'streaming' | 'failed' | 'static';
 
@@ -64,11 +65,13 @@ export const ChatRoleAvatar = ({
 
   const content = avatarSrc && canRenderImage(avatarSrc) && !avatarFailed ? (
     <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
-      <img
+      <ProtectedImage
         src={avatarSrc}
         alt={assistantName}
+        eager
         className="h-full w-full object-cover"
         onError={() => setAvatarFailed(true)}
+        onProtectedAccessError={() => setAvatarFailed(true)}
       />
     </div>
   ) : (

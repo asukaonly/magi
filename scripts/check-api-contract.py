@@ -7,6 +7,7 @@ import argparse
 import json
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,7 @@ def repository_root() -> Path:
 
 def load_manifest(root: Path, manifest_path: Path) -> dict[str, Any]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    required_keys = {"native_routes", "static_mounts", "proxied_prefixes"}
+    required_keys = {"access_policy", "native_routes", "static_mounts", "proxied_prefixes"}
     missing = sorted(required_keys - set(manifest))
     if missing:
         raise ValueError(f"Manifest missing required keys: {', '.join(missing)}")
@@ -111,7 +112,7 @@ def parse_python_routes(root: Path) -> dict[str, set[str]]:
     sys.path.insert(0, str(backend_src))
 
     from fastapi.routing import APIRoute  # type: ignore[import-not-found]
-    from magi.transport.http_app import create_transport_app
+    from magi.utils.runtime import set_runtime_dir
 
     def iter_leaf_routes(router, prefix=""):
         """Yield (full_path, methods) for every leaf APIRoute, descending into
@@ -141,11 +142,15 @@ def parse_python_routes(root: Path) -> dict[str, set[str]]:
                 child_prefix = prefix + ((getattr(ctx, "prefix", "") or "") if ctx is not None else "")
                 yield from iter_leaf_routes(child, child_prefix)
 
-    app = create_transport_app()
-    routes: dict[str, set[str]] = {}
-    for path, methods in iter_leaf_routes(app):
-        routes.setdefault(path, set()).update(methods)
-    return routes
+    with tempfile.TemporaryDirectory(prefix="magi-api-contract-") as runtime_dir:
+        set_runtime_dir(Path(runtime_dir))
+        from magi.transport.http_app import create_transport_app
+
+        app = create_transport_app()
+        routes: dict[str, set[str]] = {}
+        for path, methods in iter_leaf_routes(app):
+            routes.setdefault(path, set()).update(methods)
+        return routes
 
 
 def normalize_methods(methods: Any, *, context: str) -> set[str]:
@@ -197,6 +202,90 @@ def validate_manifest_shape(root: Path, manifest: dict[str, Any]) -> list[str]:
         owner_file = prefix.get("owner_file")
         if not isinstance(owner_file, str) or not (root / owner_file).exists():
             errors.append(f"Proxied prefix {value} owner_file does not exist: {owner_file!r}")
+
+    errors.extend(validate_access_policy(manifest))
+    return errors
+
+
+def string_set(value: Any, *, context: str) -> tuple[set[str], list[str]]:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        return set(), [f"{context} must be a list of strings"]
+    if len(value) != len(set(value)):
+        return set(value), [f"{context} must not contain duplicates"]
+    return set(value), []
+
+
+def validate_access_policy(manifest: dict[str, Any]) -> list[str]:
+    policy = manifest.get("access_policy")
+    if not isinstance(policy, dict):
+        return ["Manifest access_policy must be an object"]
+
+    errors: list[str] = []
+    if policy.get("default") != "desktop-session":
+        errors.append("Access policy default must be desktop-session")
+
+    expected_keys = {
+        "default",
+        "public_native_routes",
+        "public_static_mounts",
+        "ticket_native_routes",
+        "ticket_proxied_prefixes",
+        "ticket_static_mounts",
+    }
+    unknown_keys = sorted(set(policy) - expected_keys)
+    missing_keys = sorted(expected_keys - set(policy))
+    if unknown_keys:
+        errors.append(f"Access policy has unknown keys: {', '.join(unknown_keys)}")
+    if missing_keys:
+        errors.append(f"Access policy is missing keys: {', '.join(missing_keys)}")
+
+    parsed: dict[str, set[str]] = {}
+    for key in expected_keys - {"default"}:
+        values, value_errors = string_set(policy.get(key), context=f"Access policy {key}")
+        parsed[key] = values
+        errors.extend(value_errors)
+
+    native_paths = {
+        route.get("path")
+        for route in manifest["native_routes"]
+        if isinstance(route.get("path"), str)
+    }
+    static_mounts = {
+        mount.get("path")
+        for mount in manifest["static_mounts"]
+        if isinstance(mount.get("path"), str)
+    }
+    proxied_prefixes = {
+        prefix.get("prefix")
+        for prefix in manifest["proxied_prefixes"]
+        if isinstance(prefix.get("prefix"), str)
+    }
+
+    for key in ("public_native_routes", "ticket_native_routes"):
+        for path in sorted(parsed.get(key, set()) - native_paths):
+            errors.append(f"Access policy {key} references unknown native route: {path}")
+
+    public_mounts = parsed.get("public_static_mounts", set())
+    ticket_mounts = parsed.get("ticket_static_mounts", set())
+    for path in sorted((public_mounts | ticket_mounts) - static_mounts):
+        errors.append(f"Access policy references unknown static mount: {path}")
+    for path in sorted(static_mounts - public_mounts - ticket_mounts):
+        errors.append(f"Static mount is missing an access classification: {path}")
+    for path in sorted(public_mounts & ticket_mounts):
+        errors.append(f"Static mount has conflicting access classifications: {path}")
+
+    for prefix in sorted(parsed.get("ticket_proxied_prefixes", set())):
+        if not any(path_matches_prefix(prefix, candidate) for candidate in proxied_prefixes):
+            errors.append(
+                f"Ticket resource prefix is not covered by a proxied prefix: {prefix}"
+            )
+
+    public_routes = parsed.get("public_native_routes", set())
+    ticket_routes = parsed.get("ticket_native_routes", set())
+    for path in sorted(public_routes & ticket_routes):
+        errors.append(f"Native route has conflicting access classifications: {path}")
+    if public_routes != {"/api/health"}:
+        errors.append("Only /api/health may be a public native route")
 
     return errors
 

@@ -3,6 +3,24 @@
   "description": "Gateway-visible API route ownership manifest for the desktop Rust gateway and Python IPC app.",
   "router_source": "crates/magi-gateway/src/api/mod.rs",
   "python_app_source": "backend/src/magi/transport/http_app.py",
+  "access_policy": {
+    "default": "desktop-session",
+    "public_native_routes": [
+      "/api/health"
+    ],
+    "public_static_mounts": [
+      "/static/avatars"
+    ],
+    "ticket_native_routes": [
+      "/api/messages/session/{session_id}/attachments/{attachment_id}/content"
+    ],
+    "ticket_proxied_prefixes": [
+      "/api/timeline/asset"
+    ],
+    "ticket_static_mounts": [
+      "/static/user-avatars"
+    ]
+  },
   "native_routes": [
     {
       "path": "/api/health",
@@ -23,6 +41,13 @@
       "python_parity": {
         "owner_file": "backend/src/magi/transport/http_app.py"
       }
+    },
+    {
+      "path": "/api/private-resource-tickets",
+      "methods": ["POST"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/private_resources.rs",
+      "response_envelope": "native-json"
     },
     {
       "path": "/api/messages/sessions",

@@ -1,9 +1,26 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { ImgHTMLAttributes } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import PersonalityModern from '@/components/personality/PersonalityModern';
 import { usePersonality } from '@/hooks';
 import { personasApi } from '@/api/modules/personas';
+
+vi.mock('@/components/media/ProtectedImage', () => {
+  const ProtectedImage = ({
+    eager,
+    onProtectedAccessError,
+    ...imageProps
+  }: ImgHTMLAttributes<HTMLImageElement> & {
+    eager?: boolean;
+    onProtectedAccessError?: () => void;
+  }) => {
+    void eager;
+    void onProtectedAccessError;
+    return <img {...imageProps} />;
+  };
+  return { ProtectedImage, default: ProtectedImage };
+});
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

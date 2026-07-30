@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ProtectedImage } from '@/components/media/ProtectedImage';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Button } from '@/components/ui/button';
@@ -1067,7 +1068,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                   )}
                 >
                   {a.previewUrl ? (
-                    <img
+                    <ProtectedImage
                       src={a.previewUrl}
                       alt={t('timeline.manualEntry.attachmentAlt', { defaultValue: '附件图片' })}
                       className="h-full w-full object-cover"

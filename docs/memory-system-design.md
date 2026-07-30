@@ -424,6 +424,11 @@ previously known asset reference unreadable without requiring immediate file
 garbage collection. Product copy must therefore describe deletion as removing
 access to the attachment, not as immediate physical file erasure, unless
 owner-aware garbage collection has confirmed that the stored bytes were removed.
+An `asset_ref` is a durable resource identity, not an access credential. Desktop
+rendering additionally requires a short-lived gateway ticket, but ticket
+issuance never bypasses the active-owner and deletion checks described above.
+Tickets are not stored in memory records, timeline projections, experience
+drafts, chat payloads, or plugin state.
 
 #### Evidence Interpretation and Retrieval Authority
 

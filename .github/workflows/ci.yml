@@ -102,6 +102,9 @@ jobs:
             python -m pytest -n auto -q
           fi
 
+      - name: Run headless evaluation client tests
+        run: python -m pytest -q benchmark/tests
+
       - name: Check import layer contracts
         working-directory: backend
         run: lint-imports
@@ -142,3 +145,54 @@ jobs:
 
       - name: Run gateway tests
         run: cargo test -p magi-gateway
+
+      - name: Check headless gateway
+        run: cargo check -p magi-gateway-cli
+
+  desktop-shell:
+    name: Desktop shell validation (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+          - name: Windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Use canonical npm
+        run: npm install -g npm@11.16.0
+
+      - name: Install and build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+
+      - name: Prepare empty packaged-resource directory
+        shell: bash
+        run: mkdir -p frontend/src-tauri/sidecar-dist
+
+      - name: Check desktop shell
+        run: cargo check -p magi-desktop

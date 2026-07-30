@@ -5,9 +5,28 @@ from __future__ import annotations
 import asyncio
 import socket
 
+import pytest
+
 from magi.memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
 
-from benchmark.longmemeval.backend_client import BackendEvalService
+from benchmark.longmemeval.backend_client import BackendEvalService, SESSION_TOKEN_ENV
+
+
+@pytest.fixture(autouse=True)
+def _benchmark_session_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(SESSION_TOKEN_ENV, "benchmark-session-token")
+
+
+def test_backend_client_requires_non_empty_session_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(SESSION_TOKEN_ENV, raising=False)
+    with pytest.raises(RuntimeError, match=SESSION_TOKEN_ENV):
+        BackendEvalService("http://localhost:8000")
+
+    monkeypatch.setenv(SESSION_TOKEN_ENV, "   ")
+    with pytest.raises(RuntimeError, match="non-empty temporary credential"):
+        BackendEvalService("http://localhost:8000")
 
 
 def test_backend_client_posts_replay_records_to_eval_endpoint() -> None:
@@ -303,10 +322,11 @@ def test_backend_client_overlays_eval_l2_stats_on_background_pending() -> None:
     assert result["all_idle"] is False
 
 
-def test_backend_client_uses_configured_timeout_for_post_requests() -> None:
+def test_backend_client_uses_session_token_and_configured_timeout_for_post_requests() -> None:
     service = BackendEvalService("http://localhost:8000", timeout_seconds=12.5)
 
     captured: list[float] = []
+    captured_headers: list[dict[str, str]] = []
 
     class _FakeResponse:
         def __enter__(self):
@@ -319,8 +339,8 @@ def test_backend_client_uses_configured_timeout_for_post_requests() -> None:
             return b'{"hits":[],"trace":{}}'
 
     def fake_urlopen(req, timeout=None):
-        _ = req
         captured.append(timeout)
+        captured_headers.append({key.lower(): value for key, value in req.header_items()})
         return _FakeResponse()
 
     import urllib.request as urllib_request
@@ -340,6 +360,46 @@ def test_backend_client_uses_configured_timeout_for_post_requests() -> None:
         urllib_request.urlopen = original  # type: ignore[assignment]
 
     assert captured == [12.5]
+    assert captured_headers == [
+        {
+            "content-type": "application/json",
+            "x-magi-session-token": "benchmark-session-token",
+        }
+    ]
+
+
+def test_backend_client_uses_session_token_for_get_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = BackendEvalService("http://localhost:8000")
+    captured_headers: list[dict[str, str]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'{"all_idle":true}'
+
+    def fake_urlopen(req, timeout=None):
+        _ = timeout
+        captured_headers.append({key.lower(): value for key, value in req.header_items()})
+        return _FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    result = service._get_json_sync("/api/memory/background/pending")
+
+    assert result == {"all_idle": True}
+    assert captured_headers == [
+        {
+            "accept": "application/json",
+            "x-magi-session-token": "benchmark-session-token",
+        }
+    ]
 
 
 def test_backend_client_wraps_post_timeouts_with_actionable_error() -> None:

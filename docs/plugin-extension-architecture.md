@@ -216,6 +216,13 @@ These references are intended for reply-turn reuse, not direct frontend file acc
 
 For historical recall, plugins may also optionally implement `build_recall_artifacts(source_type, events, query, query_mode)` so source-owned metadata can be projected into generic answer-facing `entity_refs` / `asset_refs` during `memory_query`. This hook enriches answer contracts only; persistence ownership remains with memory and chat.
 
+Plugins return resource identities, never desktop session credentials, private
+resource tickets, or directly renderable local file URLs. The host performs the
+final import or private-resource ticket exchange and keeps those temporary
+grants out of plugin state. Browser extensions and external collectors likewise
+require a separately paired, revocable ingestion capability; they do not share
+the Magi WebView credential.
+
 This boundary keeps source-specific metadata layouts out of the chat domain and avoids treating raw local file paths as the long-lived chat protocol surface.
 
 ### Sensor Registry

@@ -5,6 +5,7 @@ import { Feather, Pencil, Trash2 } from "lucide-react";
 import type { TimelineClusterBlock } from "@/api/modules/timeline";
 import type { ManualEntry, MoodValence } from "@/api/modules/manualEntries";
 import { weatherEmoji } from "@/api/modules/manualEntries";
+import { ProtectedImage } from "@/components/media/ProtectedImage";
 import { cn } from "@/lib/utils";
 import {
   bucketIdForTimestamp,
@@ -276,7 +277,7 @@ const ManualEntryRow: React.FC<{
                   className="h-14 w-14 overflow-hidden rounded border border-border/60 hover:border-foreground/40"
                   aria-label={t("timeline.manualEntry.openImage", { defaultValue: "查看图片" })}
                 >
-                  <img src={url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  <ProtectedImage src={url} alt="" className="h-full w-full object-cover" loading="lazy" />
                 </button>
               );
             })}
@@ -324,9 +325,10 @@ const ManualEntryRow: React.FC<{
           onClick={() => setPreviewIdx(null)}
           role="dialog"
         >
-          <img
+          <ProtectedImage
             src={resolveTimelineAssetUrl(entry.attachments[previewIdx]) ?? ""}
             alt=""
+            eager
             className="max-h-[90vh] max-w-[90vw] object-contain"
             onClick={(e) => e.stopPropagation()}
           />

@@ -4,20 +4,23 @@ mod local_embedding;
 mod memory;
 mod messages;
 mod metrics;
+mod private_resources;
 mod proxy;
 mod ready;
 mod schedules;
+pub mod security;
 mod sessions;
 pub mod state;
 mod tasks;
 mod trace;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
+use axum::middleware;
 use axum::Router;
 use state::ApiState;
-use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 pub fn build_router(state: ApiState) -> Router {
@@ -25,15 +28,17 @@ pub fn build_router(state: ApiState) -> Router {
     // first /api/metrics/runtime/overview request is fast.
     metrics::warm_sysinfo_cache();
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = state.security.cors_layer();
+    let security = Arc::clone(&state.security);
 
     Router::new()
         // Health / readiness
         .route("/api/health", axum::routing::get(health::health))
         .route("/api/ready", axum::routing::get(ready::ready))
+        .route(
+            "/api/private-resource-tickets",
+            axum::routing::post(private_resources::issue_private_resource_ticket),
+        )
         // Chat messages
         .route(
             "/api/messages/sessions",
@@ -223,6 +228,10 @@ pub fn build_router(state: ApiState) -> Router {
         )
         // Fallback: proxy to Python
         .fallback(proxy::proxy_handler)
+        .layer(middleware::from_fn(move |request, next| {
+            let security = Arc::clone(&security);
+            async move { security::enforce_gateway_access(security, request, next).await }
+        }))
         .layer(cors)
         .with_state(state)
 }

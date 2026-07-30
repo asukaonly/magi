@@ -1,5 +1,6 @@
 import React from "react";
 
+import { ProtectedImage } from "@/components/media/ProtectedImage";
 import { cn } from "@/lib/utils";
 
 export type HeroFallbackTone =
@@ -52,9 +53,10 @@ export const Hero: React.FC<HeroProps> = ({
       )}
     >
       {hasPhoto && photoUrl && (
-        <img
+        <ProtectedImage
           src={photoUrl}
           alt="hero photo"
+          eager
           className="absolute inset-0 h-full w-full object-cover"
         />
       )}

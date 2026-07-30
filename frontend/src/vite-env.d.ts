@@ -15,7 +15,3 @@ interface RuntimeConfig {
   apiPid?: number;
   runtimeWorkerPid?: number;
 }
-
-interface Window {
-  __MAGI_RUNTIME__?: RuntimeConfig;
-}

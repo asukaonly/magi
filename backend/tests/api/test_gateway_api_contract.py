@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from types import ModuleType
 
@@ -32,3 +33,18 @@ def test_gateway_api_contract_manifest_matches_router_inventory() -> None:
         "/api/memory/l0/workbench/{session_id}"
     ] == ["GET"]
     assert inventory["python_routes"]["/api/config/"] == ["GET", "PUT"]
+
+
+def test_gateway_api_contract_rejects_new_public_business_route() -> None:
+    root = Path(__file__).resolve().parents[3]
+    checker = _load_contract_checker(root)
+    manifest = json.loads(
+        (root / "contracts" / "api" / "gateway_routes.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest["access_policy"]["public_native_routes"].append("/api/ready")
+
+    errors = checker.validate_access_policy(manifest)
+
+    assert "Only /api/health may be a public native route" in errors

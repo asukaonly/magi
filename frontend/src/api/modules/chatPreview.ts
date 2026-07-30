@@ -6,7 +6,7 @@
  * applies those delays locally and yields bubbles one at a time.
  */
 
-import { resolveApiBaseUrl } from '../client';
+import { authenticatedFetch, resolveApiBaseUrl } from '../client';
 import type { LLMConfig } from './config';
 import type { PersonalityConfig } from './personas';
 
@@ -63,7 +63,7 @@ export async function* streamChatPreview(
   init?: { signal?: AbortSignal },
 ): AsyncGenerator<string, void, unknown> {
   const baseUrl = resolveApiBaseUrl();
-  const response = await fetch(`${baseUrl}/chat/preview`, {
+  const response = await authenticatedFetch(`${baseUrl}/chat/preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),

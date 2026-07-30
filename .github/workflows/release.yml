@@ -192,7 +192,13 @@ jobs:
 
       - name: Run gateway validation
         shell: bash
-        run: cargo test -p magi-gateway
+        run: |
+          cargo test -p magi-gateway
+          cargo check -p magi-gateway-cli
+
+      - name: Run headless evaluation client tests
+        shell: bash
+        run: python -m pytest -q benchmark/tests
 
       - name: Export optional macOS signing secrets
         if: matrix.os_family == 'macos'

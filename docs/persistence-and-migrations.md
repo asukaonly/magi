@@ -13,6 +13,11 @@ different `RuntimePaths` instance, but the shipped Settings UI does not
 currently support moving an existing runtime directory. The runtime keeps
 state across multiple SQLite files, grouped by lifecycle ownership:
 
+Desktop gateway session credentials and private-resource tickets are deliberately
+absent from this layout. They exist only in process memory, expire with the
+gateway process, and must not enter SQLite, YAML configuration, logs, backups,
+chat payloads, memory records, or plugin state.
+
 | File | Owner | Holds |
 |------|-------|-------|
 | `data/chat/chat.db` | chat | sessions, session-creation idempotency mappings, turns, messages, attachments, per-turn context-usage snapshots, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, context summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |

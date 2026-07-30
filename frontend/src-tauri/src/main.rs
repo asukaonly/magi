@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 const BACKEND_HOST: &str = "127.0.0.1";
@@ -26,6 +26,7 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(25);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const BACKEND_LOG_TAIL_BYTES: u64 = 64 * 1024;
+const DESKTOP_SESSION_TOKEN_ENV: &str = "MAGI_DESKTOP_SESSION_TOKEN";
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -52,7 +53,8 @@ struct BackendRuntime {
 }
 
 struct ExternalBackendConfig {
-    host: String,
+    connect_host: String,
+    host_header: String,
     port: u16,
     base_url: String,
     session_token: String,
@@ -160,13 +162,13 @@ fn pick_open_port() -> Result<u16, String> {
     Ok(port)
 }
 
-fn wait_for_health(host: &str, port: u16, timeout: Duration) -> bool {
+fn wait_for_health(config: &ExternalBackendConfig, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
-        if let Ok(mut stream) = TcpStream::connect((host, port)) {
+        if let Ok(mut stream) = TcpStream::connect((config.connect_host.as_str(), config.port)) {
             let request = format!(
-                "GET /api/health HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\n\r\n",
-                host, port
+                "GET /api/health HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+                config.host_header
             );
             if stream.write_all(request.as_bytes()).is_ok() {
                 let mut response = String::new();
@@ -215,6 +217,10 @@ fn suppress_child_console_window(command: &mut Command) {
 
 #[cfg(not(windows))]
 fn suppress_child_console_window(_command: &mut Command) {}
+
+fn isolate_python_worker_environment(command: &mut Command) {
+    command.env_remove(DESKTOP_SESSION_TOKEN_ENV);
+}
 
 #[cfg(unix)]
 fn send_termination_signal(pid: u32) -> bool {
@@ -407,46 +413,104 @@ fn cleanup_stale_sidecar_processes(_app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn generate_session_token() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    format!("magi-desktop-{}-{}", std::process::id(), nanos)
-}
-
-fn env_bool(name: &str) -> bool {
-    env::var(name)
-        .map(|value| {
-            matches!(
-                value.trim().to_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
-}
-
 fn parse_external_backend_config() -> Result<Option<ExternalBackendConfig>, String> {
-    if !env_bool("MAGI_TAURI_EXTERNAL_BACKEND") {
-        return Ok(None);
+    let gateway_url = match env::var("MAGI_TAURI_EXTERNAL_GATEWAY_URL") {
+        Ok(value) => value,
+        Err(env::VarError::NotPresent) => return Ok(None),
+        Err(env::VarError::NotUnicode(_)) => {
+            return Err("MAGI_TAURI_EXTERNAL_GATEWAY_URL must be valid text".to_string())
+        }
+    };
+    let session_token = env::var(DESKTOP_SESSION_TOKEN_ENV).ok();
+    build_external_backend_config(&gateway_url, session_token).map(Some)
+}
+
+fn build_external_backend_config(
+    gateway_url: &str,
+    session_token: Option<String>,
+) -> Result<ExternalBackendConfig, String> {
+    let session_token = session_token
+        .ok_or_else(|| "External gateway requires MAGI_DESKTOP_SESSION_TOKEN".to_string())?;
+    let session_token = session_token.trim();
+    if session_token.is_empty() {
+        return Err("External gateway session token must not be empty".to_string());
     }
 
-    let host =
-        env::var("MAGI_TAURI_EXTERNAL_BACKEND_HOST").unwrap_or_else(|_| BACKEND_HOST.to_string());
-    let port = env::var("MAGI_TAURI_EXTERNAL_BACKEND_PORT")
-        .ok()
-        .and_then(|text| text.parse::<u16>().ok())
-        .unwrap_or(8000);
-    let base_url = env::var("MAGI_TAURI_EXTERNAL_BACKEND_API_BASE")
-        .unwrap_or_else(|_| format!("http://{}:{}/api", host, port));
-    let session_token = env::var("MAGI_DESKTOP_SESSION_TOKEN").unwrap_or_default();
+    let raw = gateway_url.trim();
+    let authority_and_path = raw
+        .strip_prefix("http://")
+        .ok_or_else(|| "External gateway URL must use http".to_string())?;
+    if authority_and_path.is_empty()
+        || authority_and_path.contains('?')
+        || authority_and_path.contains('#')
+        || authority_and_path.contains('@')
+    {
+        return Err("External gateway URL is invalid".to_string());
+    }
 
-    Ok(Some(ExternalBackendConfig {
-        host,
+    let (authority, path) = authority_and_path
+        .split_once('/')
+        .map(|(authority, path)| (authority, format!("/{path}")))
+        .unwrap_or((authority_and_path, String::new()));
+    let normalized_path = path.trim_end_matches('/');
+    if !normalized_path.is_empty() && normalized_path != "/api" {
+        return Err("External gateway URL path must be empty or /api".to_string());
+    }
+
+    let (connect_host, display_host, port) = parse_loopback_authority(authority)?;
+    let host_header = if port == 80 {
+        display_host.clone()
+    } else {
+        format!("{display_host}:{port}")
+    };
+    let origin = if port == 80 {
+        format!("http://{display_host}")
+    } else {
+        format!("http://{display_host}:{port}")
+    };
+
+    Ok(ExternalBackendConfig {
+        connect_host,
+        host_header,
         port,
-        base_url,
-        session_token,
-    }))
+        base_url: format!("{origin}/api"),
+        session_token: session_token.to_string(),
+    })
+}
+
+fn parse_loopback_authority(authority: &str) -> Result<(String, String, u16), String> {
+    if authority.is_empty() {
+        return Err("External gateway URL is missing a host".to_string());
+    }
+
+    if authority.starts_with('[') || authority.matches(':').count() > 1 {
+        return Err("External gateway URL must use localhost or IPv4 loopback".to_string());
+    }
+    let (host, port_text) = authority
+        .rsplit_once(':')
+        .map(|(host, port)| (host, Some(port)))
+        .unwrap_or((authority, None));
+    let host = host.to_string();
+    let display_host = host.clone();
+
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .map(|address| address.is_loopback())
+            .unwrap_or(false);
+    if !loopback {
+        return Err("External gateway URL must use a loopback host".to_string());
+    }
+    let port = match port_text {
+        Some("") => return Err("External gateway URL port is invalid".to_string()),
+        Some(value) => value
+            .parse::<u16>()
+            .ok()
+            .filter(|port| *port > 0)
+            .ok_or_else(|| "External gateway URL port is invalid".to_string())?,
+        None => 80,
+    };
+    Ok((host, display_host, port))
 }
 
 fn first_existing_dir(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
@@ -618,7 +682,6 @@ fn spawn_sidecar_role(
     app: &AppHandle,
     role: &str,
     port: Option<u16>,
-    session_token: &str,
     ipc_socket_path: &str,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let sidecar_path = resolve_sidecar_path(app)?;
@@ -647,12 +710,12 @@ fn spawn_sidecar_role(
 
     let mut command = Command::new(&sidecar_path);
     suppress_child_console_window(&mut command);
+    isolate_python_worker_environment(&mut command);
     command
         .arg("--role")
         .arg(role)
         .arg("--no-reload")
         .env("MAGI_DESKTOP_MODE", "1")
-        .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
         .env("MAGI_IPC_SOCKET", ipc_socket_path)
         .env("MAGI_PLUGIN_PYTHON", plugin_python_path)
         .stdout(stdout)
@@ -801,7 +864,6 @@ fn open_dev_backend_log_stdio() -> Result<(Stdio, Stdio), String> {
 fn spawn_dev_backend_role(
     role: &str,
     port: Option<u16>,
-    session_token: &str,
     ipc_socket_path: &str,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let project_root = find_project_root()?;
@@ -814,13 +876,13 @@ fn spawn_dev_backend_role(
 
     let mut command = Command::new(&python_command);
     suppress_child_console_window(&mut command);
+    isolate_python_worker_environment(&mut command);
     command
         .arg("run_server.py")
         .arg("--role")
         .arg(role)
         .arg("--no-reload")
         .env("MAGI_DESKTOP_MODE", "1")
-        .env("MAGI_DESKTOP_SESSION_TOKEN", session_token)
         .env("MAGI_IPC_SOCKET", ipc_socket_path)
         .env("MAGI_PLUGIN_PYTHON", plugin_python)
         .env("PYTHONPATH", python_path)
@@ -851,20 +913,14 @@ fn spawn_dev_backend_role(
 
 fn spawn_sidecar_backend(
     app: &AppHandle,
-    session_token: &str,
     ipc_socket_path: &str,
 ) -> Result<ManagedBackendStart, String> {
-    let (process, pid) =
-        spawn_sidecar_role(app, "ipc_worker", None, session_token, ipc_socket_path)?;
+    let (process, pid) = spawn_sidecar_role(app, "ipc_worker", None, ipc_socket_path)?;
     Ok(ManagedBackendStart { process, pid })
 }
 
-fn spawn_dev_backend_pair(
-    session_token: &str,
-    ipc_socket_path: &str,
-) -> Result<ManagedBackendStart, String> {
-    let (process, pid) =
-        spawn_dev_backend_role("ipc_worker", None, session_token, ipc_socket_path)?;
+fn spawn_dev_backend_pair(ipc_socket_path: &str) -> Result<ManagedBackendStart, String> {
+    let (process, pid) = spawn_dev_backend_role("ipc_worker", None, ipc_socket_path)?;
     Ok(ManagedBackendStart { process, pid })
 }
 
@@ -941,7 +997,7 @@ fn start_backend(
     }
 
     if let Some(external) = parse_external_backend_config()? {
-        if !wait_for_health(&external.host, external.port, STARTUP_TIMEOUT) {
+        if !wait_for_health(&external, STARTUP_TIMEOUT) {
             return Err("External backend is not ready: /api/health check failed".to_string());
         }
 
@@ -966,7 +1022,7 @@ fn start_backend(
     }
 
     let main_port = pick_open_port()?;
-    let session_token = generate_session_token();
+    let session_token = api::security::generate_session_token();
     let base_url = format!("http://{}:{}/api", BACKEND_HOST, main_port);
 
     // Compute IPC socket address.
@@ -999,10 +1055,10 @@ fn start_backend(
     remove_ready_file();
 
     let start = if cfg!(debug_assertions) {
-        spawn_dev_backend_pair(&session_token, &ipc_socket_path)?
+        spawn_dev_backend_pair(&ipc_socket_path)?
     } else {
         cleanup_stale_sidecar_processes(&app)?;
-        spawn_sidecar_backend(&app, &session_token, &ipc_socket_path)?
+        spawn_sidecar_backend(&app, &ipc_socket_path)?
     };
 
     // Store process and metadata — actual readiness is handled by poll_backend_startup.
@@ -1118,11 +1174,14 @@ fn poll_backend_startup(
         }
     };
 
-    let api_state = api::state::ApiState {
-        ipc_client,
-        builtin_avatar_dir: resolve_builtin_avatar_dir(&app),
-        user_avatar_dir: resolve_user_avatar_dir(),
-    };
+    let security = Arc::new(api::security::GatewaySecurity::new(
+        runtime
+            .session_token
+            .clone()
+            .ok_or_else(|| "Backend runtime is missing session token".to_string())?,
+    ));
+    let api_state = api::state::ApiState::new(ipc_client, security)
+        .with_avatar_dirs(resolve_builtin_avatar_dir(&app), resolve_user_avatar_dir());
     let router = api::build_router(api_state);
 
     // Ensure performance-critical indexes exist on SQLite databases
@@ -1571,11 +1630,73 @@ mod tests {
     #[cfg(windows)]
     use super::plugin_python_candidates_from_resource_dir;
     use super::{
-        first_existing_dir, ordered_builtin_avatar_dirs, plugin_python_path_from_resource_dir,
+        build_external_backend_config, first_existing_dir, isolate_python_worker_environment,
+        ordered_builtin_avatar_dirs, plugin_python_path_from_resource_dir,
         suppress_child_console_window, wait_for_process_stop, BackendProcess,
+        DESKTOP_SESSION_TOKEN_ENV,
     };
     use std::process::{Command, Stdio};
     use std::time::Duration;
+
+    #[test]
+    fn external_gateway_config_normalizes_loopback_urls() {
+        for (raw, expected_base_url, expected_host, expected_port) in [
+            (
+                "http://127.0.0.1:19080",
+                "http://127.0.0.1:19080/api",
+                "127.0.0.1:19080",
+                19080,
+            ),
+            (
+                "http://localhost:19080/api/",
+                "http://localhost:19080/api",
+                "localhost:19080",
+                19080,
+            ),
+        ] {
+            let config =
+                build_external_backend_config(raw, Some("external-session".to_string())).unwrap();
+            assert_eq!(config.base_url, expected_base_url);
+            assert_eq!(config.host_header, expected_host);
+            assert_eq!(config.port, expected_port);
+            assert_eq!(config.session_token, "external-session");
+        }
+    }
+
+    #[test]
+    fn external_gateway_config_rejects_empty_token_and_unsafe_urls() {
+        assert!(build_external_backend_config("http://127.0.0.1:19080", None).is_err());
+        assert!(
+            build_external_backend_config("http://127.0.0.1:19080", Some("   ".to_string()))
+                .is_err()
+        );
+
+        for raw in [
+            "https://127.0.0.1:19080",
+            "http://0.0.0.0:19080",
+            "http://192.168.1.5:19080",
+            "http://[::1]:19080/api",
+            "http://127.0.0.1:19080/admin",
+            "http://user@127.0.0.1:19080",
+            "http://127.0.0.1:0",
+        ] {
+            assert!(
+                build_external_backend_config(raw, Some("external-session".to_string())).is_err(),
+                "{raw} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn python_worker_command_explicitly_removes_desktop_session_token() {
+        let mut command = Command::new("python");
+        command.env(DESKTOP_SESSION_TOKEN_ENV, "must-not-leak");
+        isolate_python_worker_environment(&mut command);
+
+        assert!(command
+            .get_envs()
+            .any(|(name, value)| { name == DESKTOP_SESSION_TOKEN_ENV && value.is_none() }));
+    }
 
     #[test]
     fn first_existing_dir_returns_first_existing_candidate() {

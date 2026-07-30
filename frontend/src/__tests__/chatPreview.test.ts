@@ -1,10 +1,19 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { configureApiClient } from '../api/client';
 import { streamChatPreview, type PreviewTurn } from '../api/modules/chatPreview';
 
 describe('chatPreview client', () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    configureApiClient({
+      baseUrl: 'http://127.0.0.1:43123/api',
+      sessionToken: 'preview-session-token',
+    });
+  });
+
+  afterEach(() => {
+    configureApiClient({ sessionToken: undefined });
   });
 
   it('paces bubbles even when the desktop transport returns one buffered body', async () => {
@@ -77,7 +86,9 @@ describe('chatPreview client', () => {
     }
     expect(fetchSpy).toHaveBeenCalledOnce();
     const body = JSON.parse(fetchSpy.mock.calls[0][1]!.body as string);
+    const headers = new Headers(fetchSpy.mock.calls[0][1]!.headers);
     expect(body.history).toEqual(history);
     expect(body.message.content).toBe('msg2');
+    expect(headers.get('X-Magi-Session-Token')).toBe('preview-session-token');
   });
 });

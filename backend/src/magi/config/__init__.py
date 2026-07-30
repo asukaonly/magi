@@ -46,7 +46,6 @@ from .models import (
     # Main configuration
     AppConfig,
     AgentSettings,
-    ServerSettings,
     FeatureFlags,
     ToolsSettings,
 
@@ -124,7 +123,6 @@ __all__ = [
     # Configuration models
     "AppConfig",
     "AgentSettings",
-    "ServerSettings",
     "FeatureFlags",
     "ToolsSettings",
     "LLMSettings",

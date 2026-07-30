@@ -415,6 +415,10 @@ Primary packages:
 Notes:
 
 - the Python process runs no public HTTP server; external traffic arrives through the Rust gateway and crosses into Python over IPC (Unix Domain Socket on Unix-like systems, loopback TCP on Windows)
+- the Rust gateway owns desktop request authentication, exact WebView-origin checks, and short-lived access tickets for DOM-loaded private resources
+- the desktop session credential is host-owned, memory-only connection state; Python, plugins, and business layers must not receive, persist, log, or place it in resource URLs
+- resource tickets are transport grants only; chat, timeline, and personality owners still decide whether the referenced resource exists, is active, and may be read
+- future browser or collector ingress must use a separate paired capability with explicit route scope rather than sharing the WebView credential
 - `ipc/` owns the server, NDJSON protocol parsing, and method-to-handler routing
 - `transport/` owns the in-memory FastAPI/ASGI app used for IPC request dispatch
 

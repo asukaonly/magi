@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 
@@ -9,7 +10,48 @@ def test_tauri_debug_prefers_python_backend_pair() -> None:
     source = source_path.read_text(encoding="utf-8")
 
     assert "let start = if cfg!(debug_assertions)" in source
-    assert "spawn_dev_backend_pair(&session_token, &ipc_socket_path)" in source
+    assert "spawn_dev_backend_pair(&ipc_socket_path)" in source
+
+
+def test_tauri_does_not_expose_session_token_to_python_backend() -> None:
+    """Verify Python worker commands never receive the gateway session credential."""
+    source_path = Path(__file__).resolve().parents[3] / "frontend" / "src-tauri" / "src" / "main.rs"
+    source = source_path.read_text(encoding="utf-8")
+
+    sidecar_section = source.split("fn spawn_sidecar_role", 1)[1].split(
+        "fn find_project_root", 1
+    )[0]
+    dev_section = source.split("fn spawn_dev_backend_role", 1)[1].split(
+        "fn spawn_sidecar_backend", 1
+    )[0]
+    isolation_section = source.split("fn isolate_python_worker_environment", 1)[1].split(
+        "#[cfg(unix)]", 1
+    )[0]
+
+    for python_spawn_section in (sidecar_section, dev_section):
+        assert "isolate_python_worker_environment(&mut command)" in python_spawn_section
+        assert "MAGI_DESKTOP_SESSION_TOKEN" not in python_spawn_section
+        assert "session_token: &str" not in python_spawn_section
+    assert "command.env_remove(DESKTOP_SESSION_TOKEN_ENV)" in isolation_section
+
+
+def test_tauri_webview_has_a_restrictive_content_policy() -> None:
+    """Verify packaged pages cannot execute or connect to arbitrary origins."""
+    config_path = (
+        Path(__file__).resolve().parents[3]
+        / "frontend"
+        / "src-tauri"
+        / "tauri.conf.json"
+    )
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    policy = config["app"]["security"]["csp"]
+
+    assert isinstance(policy, dict)
+    assert policy["object-src"] == ["'none'"]
+    assert policy["frame-src"] == ["'none'"]
+    assert "https:" not in policy["connect-src"]
+    assert "http:" not in policy["connect-src"]
+    assert "http://127.0.0.1:*" in policy["connect-src"]
 
 
 def test_tauri_dev_backend_does_not_discard_logs() -> None:
