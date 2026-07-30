@@ -539,7 +539,9 @@ Expected product behavior:
 - official badges must come from the maintainer-controlled registry rather than a plugin's own claim
 - plugins with third-party Python dependencies must pass exact-version,
   hash-verified, prebuilt-package installation before they are enabled; source
-  builds, direct URLs, local paths, and installer directives are not accepted
+  builds, direct URLs, local paths, and installer directives are not accepted;
+  dependency count, lockfile size, installation disk usage, filesystem entry
+  count, and retained installer output must all have explicit host-owned limits
 - plugin-provided settings are rendered from backend field metadata rather than custom plugin frontend code
 - tool surfaces should continue to reflect runtime-registered tools rather than hardcoded frontend lists
 

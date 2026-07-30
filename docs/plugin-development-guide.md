@@ -298,7 +298,12 @@ is rejected during normal installation. Each lock entry must be an ordinary
 package name pinned to one exact version with SHA-256 hashes. Direct URLs,
 local paths, editable installs, package-manager directives, version ranges,
 and source-only distributions are rejected. Runtime installation accepts
-prebuilt wheels only.
+prebuilt wheels only. Keep the manifest at or below 128 dependency declarations
+and the generated lockfile at or below 1 MiB and 1,024 entries. Installation
+also enforces a combined 256 MiB and 50,000-entry limit across its temporary
+workspace and the plugin-local dependency directory. Installer output is
+truncated to a bounded diagnostic tail, so lock generation and validation
+must not depend on parsing unbounded install logs.
 
 ## Tool Plugins
 

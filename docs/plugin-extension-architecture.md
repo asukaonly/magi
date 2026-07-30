@@ -203,7 +203,13 @@ runtime state, and partial configuration are rolled back together.
 Dependency locks accept only ordinary package requirements pinned to one exact
 version with SHA-256 hashes. Direct URLs, local paths, installer directives,
 version ranges, and source builds are rejected in the normal install path;
-dependency installation uses prebuilt wheels only.
+dependency installation uses prebuilt wheels only. A manifest may declare at
+most 128 dependencies. A lockfile is limited to 1 MiB and 1,024 entries, while
+the temporary installer workspace plus the published plugin-local dependency
+directory are limited to 256 MiB and 50,000 filesystem entries. Downloads do
+not use pip's shared cache, subprocess output is retained only as a bounded
+64 KiB tail, and installation runs from a host-owned working directory with
+plugin-controlled Python startup paths removed from the environment.
 
 All package lifecycle mutations on one runtime manager are serialized. Scan,
 install, update, uninstall, enable, disable, reload, and settings changes
