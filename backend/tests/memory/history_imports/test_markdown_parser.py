@@ -55,10 +55,7 @@ It makes me slow down.
         "User",
     ]
     assert parsed.warnings == ["timestamps_from_file_order"]
-    assert all(
-        item["timestamp_confidence"] == "file_order"
-        for item in parsed.records
-    )
+    assert all(item["timestamp_confidence"] == "file_order" for item in parsed.records)
 
 
 def test_falls_back_to_personal_document_sections() -> None:
@@ -103,3 +100,57 @@ def test_distinct_document_headings_are_not_misread_as_speakers() -> None:
     )
 
     assert parsed.detected_kind == "document"
+
+
+def test_uses_frontmatter_date_for_personal_writing() -> None:
+    parsed = parse_markdown(
+        source_name="journal.md",
+        file_mtime=1_900_000_000,
+        text="""
+---
+date: 2024-03-16
+tags: [daily]
+---
+# 周六
+
+今天重新开始跑步，傍晚去了河边。
+""",
+    )
+
+    assert parsed.detected_kind == "document"
+    assert parsed.records[0]["timestamp_confidence"] == "frontmatter"
+    assert "timestamps_from_file_mtime" not in parsed.warnings
+
+
+def test_uses_date_from_daily_note_filename() -> None:
+    parsed = parse_markdown(
+        source_name="日记/2025-11-02.md",
+        file_mtime=1_900_000_000,
+        text="# 今天\n\n和朋友去看了电影。",
+    )
+
+    assert parsed.detected_kind == "document"
+    assert parsed.records[0]["timestamp_confidence"] == "source_name"
+    assert "timestamps_from_file_mtime" not in parsed.warnings
+
+
+def test_preserves_multiple_dated_document_sections() -> None:
+    parsed = parse_markdown(
+        source_name="weekly.md",
+        file_mtime=1_900_000_000,
+        text="""
+## 2025-11-01
+
+第一次去攀岩。
+
+## 2025-11-03
+
+手臂还在酸，但已经想再去了。
+""",
+    )
+
+    assert [item["timestamp_confidence"] for item in parsed.records] == [
+        "explicit",
+        "explicit",
+    ]
+    assert parsed.records[0]["event_at"] < parsed.records[1]["event_at"]

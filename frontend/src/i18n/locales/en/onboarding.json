@@ -355,8 +355,8 @@
         "meta": "About 30 seconds"
       },
       "history": {
-        "title": "Import past records",
-        "body": "Bring in things you previously said or wrote from chats, journals, or notes.",
+        "title": "Bring in things you wrote before",
+        "body": "Start with journals, notes, or chats so Magi can understand something real about you.",
         "meta": "Preview before importing"
       },
       "activity": {
@@ -417,25 +417,47 @@
     },
     "history": {
       "kicker": "Past records",
-      "title": "Start with things you have said and written",
-      "body": "Choose Markdown files or a folder first. Magi shows what it found and imports only after you confirm.",
+      "title": "Bring in things you wrote before",
+      "body": "Choose journals, notes, or chat records. Magi previews them locally and imports only after you confirm.",
       "badge": "Local preview · Entirely optional",
       "loading": "Restoring your previous import…",
       "picker": {
-        "title": "Choose Markdown content",
-        "body": "Select chat records, journals, notes, or a folder containing them.",
+        "title": "Choose past writing",
+        "body": "Select one or more files, or choose the folder where you keep them.",
         "files": "Choose Markdown files",
         "folder": "Choose a folder",
-        "note": "Supports .md and .markdown. Content stays on this device, and you confirm which messages are yours before importing."
+        "note": "Supports .md and .markdown. Your originals are never changed. Before importing, you can exclude content and confirm which writing is yours.",
+        "scenarios": {
+          "journal": {
+            "title": "Journals and daily notes",
+            "body": "Small moments, feelings, and everyday life"
+          },
+          "notes": {
+            "title": "Notes and personal thoughts",
+            "body": "Interests, reflections, plans, and ideas"
+          },
+          "conversation": {
+            "title": "Chats and AI conversations",
+            "body": "What you said before, together with its conversation context"
+          }
+        }
       },
       "preview": {
         "files": "{{count}} files",
-        "records": "{{count}} items found",
+        "selectedFiles": "{{selected}} of {{total}} files selected",
+        "records": "{{count}} items",
+        "meaningfulRecords": "{{count}} have enough detail",
         "kind": {
           "chat": "Chat records",
           "document": "Personal writing",
           "mixed": "Chats and personal writing"
         },
+        "chooseContent": "Confirm what to bring in",
+        "chooseContentBody": "Exclude files that are not yours, mostly contain excerpts, or that you do not want Magi to read yet.",
+        "localPreview": "Previewed only on this device",
+        "includeFile": "Import file: {{file}}",
+        "approximateOrder": "Source order",
+        "dateRange": "{{first}} to {{last}}",
         "sample": "Content preview",
         "sourceOrder": "Source order",
         "chooseAgain": "Choose again",
@@ -448,8 +470,8 @@
         "messageCount": "{{count}} messages"
       },
       "writing": {
-        "title": "I wrote most of this personal content",
-        "body": "After confirmation, this content is treated as your own account. Do not confirm quoted or ghostwritten material."
+        "title": "I wrote most of the selected personal content",
+        "body": "After confirmation, this is treated as your own account. First exclude files that mostly contain saved articles, excerpts, or someone else's writing."
       },
       "warnings": {
         "timestamps_from_file_order": "Some messages have no timestamp. Magi preserves their file order without treating estimated times as exact.",
@@ -458,7 +480,7 @@
       },
       "ready": {
         "title": "{{count}} items are ready",
-        "background": "You can start the first chat now. Remaining content will be organized from the beginning in the background.",
+        "background": "You can start the first chat now. When it fits naturally, Magi can use something you confirmed as a starting point while the rest continues organizing.",
         "completed": "All selected content has been saved and entered organizing in its original order.",
         "failed": "The first items are safe, but later organizing paused. You can continue it.",
         "progress": "Saved {{imported}} / {{total}} items",
@@ -480,6 +502,9 @@
         "unknown_self_participant": "The participant list changed. Please confirm again.",
         "personal_writing_confirmation_required": "Confirm that you wrote most of the personal content.",
         "self_participant_locked_after_import": "Your identity cannot change after import starts. Choose the files again.",
+        "history_import_selection_empty": "Keep at least one file selected for import.",
+        "history_import_selection_changed": "The file list changed. Please confirm what to import again.",
+        "history_import_selection_locked": "The file selection cannot change after import starts.",
         "memory_cleared_during_import": "Memory was cleared during import, so this import was stopped as well.",
         "history_import_not_confirmed": "Confirm your identity and content scope first.",
         "history_import_not_found": "This import no longer exists. Choose the files again.",

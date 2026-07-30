@@ -146,7 +146,8 @@ Status: planned
 Current state:
 
 - the host supports one-shot Markdown files and folders with preview, speaker
-  confirmation, resumable progress, deletion, and ordered memory handoff
+  confirmation, per-file inclusion, resumable progress, post-onboarding
+  management, deletion, first-contact context, and ordered memory handoff
 - there is no plugin importer contribution type yet
 
 Open items:

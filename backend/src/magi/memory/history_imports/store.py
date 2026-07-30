@@ -12,6 +12,7 @@ from .models import (
     HistoryImportJob,
     HistoryImportParticipant,
     HistoryImportRecord,
+    HistoryImportSourceSummary,
 )
 
 
@@ -52,19 +53,21 @@ class HistoryImportStore:
                     """
                     INSERT INTO history_import_jobs(
                         job_id, source_type, source_fingerprint,
-                        source_files_json, detected_kind, status,
+                        source_files_json, included_files_json,
+                        detected_kind, status,
                         total_records, meaningful_records,
                         quick_target_records, quick_max_records,
                         quick_imported_count, imported_count, projected_count,
                         self_participants_json, warnings_json, quick_ready,
                         error_text, created_at, updated_at, deleted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job.job_id,
                         job.source_type,
                         job.source_fingerprint,
                         json.dumps(job.source_files, ensure_ascii=False),
+                        json.dumps(job.included_files, ensure_ascii=False),
                         job.detected_kind,
                         job.status,
                         job.total_records,
@@ -132,9 +135,48 @@ class HistoryImportStore:
                 row = await cursor.fetchone()
             if row is None:
                 return None
-            participants = await self._participants(db, job_id)
-            previews = await self._preview_records(db, job_id)
-        return _job_from_row(row, participants=participants, preview_records=previews)
+            included_files = list(json.loads(row["included_files_json"] or "[]"))
+            participants = await self._participants(
+                db,
+                job_id,
+                included_files=included_files,
+            )
+            sources = await self._source_summaries(
+                db,
+                job_id,
+                included_files=included_files,
+            )
+            previews = await self._preview_records(
+                db,
+                job_id,
+                included_files=included_files,
+            )
+        return _job_from_row(
+            row,
+            participants=participants,
+            sources=sources,
+            preview_records=previews,
+        )
+
+    async def list_active_jobs(self, *, limit: int = 20) -> list[HistoryImportJob]:
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT job_id
+                FROM history_import_jobs
+                WHERE deleted_at IS NULL
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (max(1, min(int(limit), 100)),),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        jobs: list[HistoryImportJob] = []
+        for row in rows:
+            job = await self.get_job(str(row["job_id"]))
+            if job is not None:
+                jobs.append(job)
+        return jobs
 
     async def list_resumable_job_ids(self) -> list[str]:
         async with sqlite_connection_async(self.db_path) as db:
@@ -151,18 +193,49 @@ class HistoryImportStore:
                 rows = await cursor.fetchall()
         return [str(row[0]) for row in rows]
 
-    async def set_identity(
+    async def update_selection(
+        self,
+        *,
+        job_id: str,
+        included_files: list[str],
+    ) -> HistoryImportJob:
+        now = time.time()
+        normalized = list(dict.fromkeys(item.strip() for item in included_files if item.strip()))
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE history_import_jobs
+                SET included_files_json = ?, updated_at = ?
+                WHERE job_id = ?
+                  AND deleted_at IS NULL
+                  AND quick_ready = 0
+                  AND imported_count = 0
+                """,
+                (json.dumps(normalized, ensure_ascii=False), now, job_id),
+            )
+            await db.commit()
+        job = await self.get_job(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        return job
+
+    async def set_scope(
         self,
         *,
         job_id: str,
         self_participants: list[str],
+        included_files: list[str],
     ) -> HistoryImportJob:
         now = time.time()
         normalized = list(dict.fromkeys(item.strip() for item in self_participants if item.strip()))
+        normalized_files = list(
+            dict.fromkeys(item.strip() for item in included_files if item.strip())
+        )
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
-                placeholders = ",".join("?" for _ in normalized)
+                participant_placeholders = ",".join("?" for _ in normalized)
+                file_placeholders = ",".join("?" for _ in normalized_files)
                 await db.execute(
                     """
                     UPDATE history_import_records
@@ -176,28 +249,69 @@ class HistoryImportStore:
                         f"""
                         UPDATE history_import_records
                         SET speaker_role = 'user', updated_at = ?
-                        WHERE job_id = ? AND speaker_name IN ({placeholders})
+                        WHERE job_id = ?
+                          AND source_name IN ({file_placeholders})
+                          AND speaker_name IN ({participant_placeholders})
                         """,
-                        (now, job_id, *normalized),
+                        (
+                            now,
+                            job_id,
+                            *normalized_files,
+                            *normalized,
+                        ),
                     )
                 await db.execute(
-                    """
+                    f"""
                     UPDATE history_import_records
-                    SET projection_state = 'skipped', updated_at = ?
-                    WHERE job_id = ? AND speaker_role != 'user'
+                    SET raw_state = CASE
+                            WHEN source_name IN ({file_placeholders})
+                            THEN raw_state
+                            ELSE 'skipped'
+                        END,
+                        projection_state = CASE
+                            WHEN source_name IN ({file_placeholders})
+                                 AND speaker_role = 'user'
+                            THEN projection_state
+                            ELSE 'skipped'
+                        END,
+                        updated_at = ?
+                    WHERE job_id = ?
                     """,
-                    (now, job_id),
+                    (*normalized_files, *normalized_files, now, job_id),
                 )
                 await db.execute(
-                    """
+                    f"""
                     UPDATE history_import_jobs
-                    SET self_participants_json = ?,
+                    SET included_files_json = ?,
+                        self_participants_json = ?,
                         status = 'running',
+                        total_records = (
+                            SELECT COUNT(*)
+                            FROM history_import_records
+                            WHERE job_id = ?
+                              AND source_name IN ({file_placeholders})
+                        ),
+                        meaningful_records = (
+                            SELECT COUNT(*)
+                            FROM history_import_records
+                            WHERE job_id = ?
+                              AND source_name IN ({file_placeholders})
+                              AND meaningful = 1
+                        ),
                         error_text = NULL,
                         updated_at = ?
                     WHERE job_id = ? AND deleted_at IS NULL
                     """,
-                    (json.dumps(normalized, ensure_ascii=False), now, job_id),
+                    (
+                        json.dumps(normalized_files, ensure_ascii=False),
+                        json.dumps(normalized, ensure_ascii=False),
+                        job_id,
+                        *normalized_files,
+                        job_id,
+                        *normalized_files,
+                        now,
+                        job_id,
+                    ),
                 )
                 await db.commit()
             except BaseException:
@@ -222,7 +336,7 @@ class HistoryImportStore:
                 """
                 SELECT *
                 FROM history_import_records
-                WHERE job_id = ?
+                WHERE job_id = ? AND raw_state = 'pending'
                 ORDER BY event_at DESC, session_id DESC, session_seq DESC
                 LIMIT ?
                 """,
@@ -230,7 +344,9 @@ class HistoryImportStore:
             ) as cursor:
                 rows = list(await cursor.fetchall())
         selected = rows[: job.quick_target_records]
-        while len(selected) < len(rows) and _meaningful_user_count(selected) < meaningful_user_target:
+        while (
+            len(selected) < len(rows) and _meaningful_user_count(selected) < meaningful_user_target
+        ):
             next_size = min(len(rows), len(selected) + 100)
             selected = rows[:next_size]
         return sorted(
@@ -275,6 +391,41 @@ class HistoryImportStore:
             ) as cursor:
                 rows = await cursor.fetchall()
         return [str(row[0]) for row in rows]
+
+    async def list_first_contact_records(
+        self,
+        *,
+        limit: int = 12,
+    ) -> list[HistoryImportRecord]:
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT job_id
+                FROM history_import_jobs
+                WHERE deleted_at IS NULL
+                  AND quick_ready = 1
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """
+            ) as cursor:
+                job_row = await cursor.fetchone()
+            if job_row is None:
+                return []
+            async with db.execute(
+                """
+                SELECT *
+                FROM history_import_records
+                WHERE job_id = ?
+                  AND speaker_role = 'user'
+                  AND meaningful = 1
+                  AND raw_state = 'stored'
+                ORDER BY event_at DESC, session_id DESC, session_seq DESC
+                LIMIT ?
+                """,
+                (str(job_row["job_id"]), max(1, min(int(limit), 50))),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [_record_from_row(row) for row in rows]
 
     async def mark_raw_stored(
         self,
@@ -443,18 +594,23 @@ class HistoryImportStore:
     async def _participants(
         db: Any,
         job_id: str,
+        *,
+        included_files: list[str],
     ) -> list[HistoryImportParticipant]:
+        if not included_files:
+            return []
+        placeholders = ",".join("?" for _ in included_files)
         async with db.execute(
-            """
+            f"""
             SELECT speaker_name,
                    COUNT(*) AS message_count,
                    SUM(meaningful) AS meaningful_count
             FROM history_import_records
-            WHERE job_id = ?
+            WHERE job_id = ? AND source_name IN ({placeholders})
             GROUP BY speaker_name
             ORDER BY message_count DESC, speaker_name ASC
             """,
-            (job_id,),
+            (job_id, *included_files),
         ) as cursor:
             rows = await cursor.fetchall()
         participants: list[HistoryImportParticipant] = []
@@ -463,11 +619,13 @@ class HistoryImportStore:
                 """
                 SELECT content
                 FROM history_import_records
-                WHERE job_id = ? AND speaker_name = ?
+                WHERE job_id = ?
+                  AND speaker_name = ?
+                  AND source_name IN ({placeholders})
                 ORDER BY meaningful DESC, LENGTH(content) DESC
                 LIMIT 1
-                """,
-                (job_id, row["speaker_name"]),
+                """.format(placeholders=placeholders),
+                (job_id, row["speaker_name"], *included_files),
             ) as cursor:
                 sample_row = await cursor.fetchone()
             participants.append(
@@ -481,19 +639,93 @@ class HistoryImportStore:
         return participants
 
     @staticmethod
+    async def _source_summaries(
+        db: Any,
+        job_id: str,
+        *,
+        included_files: list[str],
+    ) -> list[HistoryImportSourceSummary]:
+        async with db.execute(
+            """
+            SELECT source_name,
+                   COUNT(*) AS record_count,
+                   SUM(meaningful) AS meaningful_count,
+                   MIN(event_at) AS first_event_at,
+                   MAX(event_at) AS last_event_at,
+                   GROUP_CONCAT(DISTINCT timestamp_confidence) AS timestamp_confidences,
+                   SUM(CASE WHEN speaker_name = ? THEN 1 ELSE 0 END) AS document_records
+            FROM history_import_records
+            WHERE job_id = ?
+            GROUP BY source_name
+            ORDER BY source_name COLLATE NOCASE ASC
+            """,
+            ("__document_author__", job_id),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        included = set(included_files)
+        summaries: list[HistoryImportSourceSummary] = []
+        for row in rows:
+            source_name = str(row["source_name"])
+            record_count = int(row["record_count"])
+            document_records = int(row["document_records"] or 0)
+            if document_records == record_count:
+                detected_kind = "document"
+            elif document_records == 0:
+                detected_kind = "chat"
+            else:
+                detected_kind = "mixed"
+            async with db.execute(
+                """
+                SELECT content
+                FROM history_import_records
+                WHERE job_id = ? AND source_name = ?
+                ORDER BY meaningful DESC, LENGTH(content) DESC
+                LIMIT 1
+                """,
+                (job_id, source_name),
+            ) as cursor:
+                sample_row = await cursor.fetchone()
+            confidence_values = {
+                item.strip()
+                for item in str(row["timestamp_confidences"] or "").split(",")
+                if item.strip()
+            }
+            summaries.append(
+                HistoryImportSourceSummary(
+                    source_name=source_name,
+                    detected_kind=detected_kind,
+                    record_count=record_count,
+                    meaningful_count=int(row["meaningful_count"] or 0),
+                    first_event_at=float(row["first_event_at"]),
+                    last_event_at=float(row["last_event_at"]),
+                    timestamp_confidence=(
+                        next(iter(confidence_values)) if len(confidence_values) == 1 else "mixed"
+                    ),
+                    sample=str(sample_row["content"] if sample_row else "")[:240],
+                    included=source_name in included,
+                )
+            )
+        return summaries
+
+    @staticmethod
     async def _preview_records(
         db: Any,
         job_id: str,
+        *,
+        included_files: list[str],
     ) -> list[HistoryImportRecord]:
+        if not included_files:
+            return []
+        placeholders = ",".join("?" for _ in included_files)
         async with db.execute(
-            """
+            f"""
             SELECT *
             FROM history_import_records
-            WHERE job_id = ?
+            WHERE job_id = ? AND source_name IN ({placeholders})
             ORDER BY event_at DESC, session_id DESC, session_seq DESC
             LIMIT 6
             """,
-            (job_id,),
+            (job_id, *included_files),
         ) as cursor:
             rows = await cursor.fetchall()
         return sorted(
@@ -504,10 +736,7 @@ class HistoryImportStore:
 
 def _meaningful_user_count(rows: list[Any]) -> int:
     return sum(
-        1
-        for row in rows
-        if str(row["speaker_role"] or "") == "user"
-        and bool(row["meaningful"])
+        1 for row in rows if str(row["speaker_role"] or "") == "user" and bool(row["meaningful"])
     )
 
 
@@ -536,6 +765,7 @@ def _job_from_row(
     row: Any,
     *,
     participants: list[HistoryImportParticipant],
+    sources: list[HistoryImportSourceSummary],
     preview_records: list[HistoryImportRecord],
 ) -> HistoryImportJob:
     return HistoryImportJob(
@@ -543,6 +773,7 @@ def _job_from_row(
         source_type=str(row["source_type"]),
         source_fingerprint=str(row["source_fingerprint"]),
         source_files=list(json.loads(row["source_files_json"] or "[]")),
+        included_files=list(json.loads(row["included_files_json"] or "[]")),
         detected_kind=str(row["detected_kind"]),
         status=str(row["status"]),
         total_records=int(row["total_records"]),
@@ -560,6 +791,7 @@ def _job_from_row(
         updated_at=float(row["updated_at"]),
         deleted_at=float(row["deleted_at"]) if row["deleted_at"] is not None else None,
         participants=participants,
+        sources=sources,
         preview_records=preview_records,
     )
 

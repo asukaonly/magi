@@ -64,6 +64,7 @@ export type {
   HistoryImportJob,
   HistoryImportParticipant,
   HistoryImportRecordPreview,
+  HistoryImportSourceSummary,
   HistoryImportStatus,
 } from './modules/historyImports';
 export type {

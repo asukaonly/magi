@@ -23,6 +23,11 @@ class MarkdownHistoryPreviewBody(BaseModel):
 class HistoryImportConfirmBody(BaseModel):
     self_participants: list[str] = Field(default_factory=list, max_length=20)
     confirm_personal_writing: bool = False
+    included_files: list[str] = Field(default_factory=list, max_length=50)
+
+
+class HistoryImportSelectionBody(BaseModel):
+    included_files: list[str] = Field(min_length=1, max_length=50)
 
 
 class HistoryImportParticipantResponse(BaseModel):
@@ -44,10 +49,23 @@ class HistoryImportRecordPreviewResponse(BaseModel):
     timestamp_confidence: str
 
 
+class HistoryImportSourceSummaryResponse(BaseModel):
+    source_name: str
+    detected_kind: str
+    record_count: int
+    meaningful_count: int
+    first_event_at: float
+    last_event_at: float
+    timestamp_confidence: str
+    sample: str
+    included: bool
+
+
 class HistoryImportJobResponse(BaseModel):
     job_id: str
     source_type: str
     source_files: list[str]
+    included_files: list[str]
     detected_kind: str
     status: str
     total_records: int
@@ -61,7 +79,10 @@ class HistoryImportJobResponse(BaseModel):
     warnings: list[str]
     quick_ready: bool
     error_code: str | None
+    created_at: float
+    updated_at: float
     participants: list[HistoryImportParticipantResponse]
+    sources: list[HistoryImportSourceSummaryResponse]
     preview_records: list[HistoryImportRecordPreviewResponse]
 
 
@@ -77,6 +98,7 @@ def _response(job: Any) -> HistoryImportJobResponse:
         job_id=job.job_id,
         source_type=job.source_type,
         source_files=list(job.source_files),
+        included_files=list(job.included_files),
         detected_kind=job.detected_kind,
         status=job.status,
         total_records=job.total_records,
@@ -90,6 +112,8 @@ def _response(job: Any) -> HistoryImportJobResponse:
         warnings=list(job.warnings),
         quick_ready=job.quick_ready,
         error_code=job.error_text,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
         participants=[
             HistoryImportParticipantResponse(
                 name=participant.name,
@@ -99,6 +123,20 @@ def _response(job: Any) -> HistoryImportJobResponse:
                 sample=participant.sample,
             )
             for participant in job.participants
+        ],
+        sources=[
+            HistoryImportSourceSummaryResponse(
+                source_name=source.source_name,
+                detected_kind=source.detected_kind,
+                record_count=source.record_count,
+                meaningful_count=source.meaningful_count,
+                first_event_at=source.first_event_at,
+                last_event_at=source.last_event_at,
+                timestamp_confidence=source.timestamp_confidence,
+                sample=source.sample,
+                included=source.included,
+            )
+            for source in job.sources
         ],
         preview_records=[
             HistoryImportRecordPreviewResponse(
@@ -135,6 +173,7 @@ def _raise_service_error(exc: Exception) -> None:
     if isinstance(exc, HistoryImportValidationError):
         conflict_reasons = {
             "self_participant_locked_after_import",
+            "history_import_selection_locked",
             "memory_cleared_during_import",
         }
         raise HTTPException(
@@ -164,12 +203,40 @@ async def preview_markdown_history(
 
 
 @memory_router.get(
+    "/history-imports",
+    response_model=list[HistoryImportJobResponse],
+)
+async def list_history_imports() -> list[HistoryImportJobResponse]:
+    jobs = await _require_service().list_jobs()
+    return [_response(job) for job in jobs]
+
+
+@memory_router.get(
     "/history-imports/{job_id}",
     response_model=HistoryImportJobResponse,
 )
 async def get_history_import(job_id: str) -> HistoryImportJobResponse:
     try:
         job = await _require_service().get_job(job_id)
+    except Exception as exc:
+        _raise_service_error(exc)
+        raise
+    return _response(job)
+
+
+@memory_router.patch(
+    "/history-imports/{job_id}/selection",
+    response_model=HistoryImportJobResponse,
+)
+async def update_history_import_selection(
+    job_id: str,
+    body: HistoryImportSelectionBody,
+) -> HistoryImportJobResponse:
+    try:
+        job = await _require_service().update_selection(
+            job_id=job_id,
+            included_files=body.included_files,
+        )
     except Exception as exc:
         _raise_service_error(exc)
         raise
@@ -189,6 +256,7 @@ async def confirm_history_import(
             job_id=job_id,
             self_participants=body.self_participants,
             confirm_personal_writing=body.confirm_personal_writing,
+            included_files=body.included_files,
         )
     except Exception as exc:
         _raise_service_error(exc)
@@ -227,10 +295,14 @@ __all__ = [
     "HistoryImportJobResponse",
     "HistoryImportParticipantResponse",
     "HistoryImportRecordPreviewResponse",
+    "HistoryImportSelectionBody",
+    "HistoryImportSourceSummaryResponse",
     "MarkdownHistoryPreviewBody",
     "confirm_history_import",
     "delete_history_import",
     "get_history_import",
+    "list_history_imports",
     "preview_markdown_history",
     "resume_history_import",
+    "update_history_import_selection",
 ]

@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  BookOpenText,
+  CalendarDays,
   CheckCircle2,
   FileText,
   FolderOpen,
   Loader2,
+  MessageSquareText,
+  NotebookPen,
   RotateCcw,
   Users,
 } from "lucide-react";
@@ -17,7 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { pickDirectory, pickMarkdownFiles } from "@/runtime/desktop";
 
-interface FirstContextHistoryImportProps {
+interface HistoryImportFlowProps {
   initialJobId?: string | null;
   onJobUpdate: (job: HistoryImportJob | null) => void;
 }
@@ -48,16 +52,17 @@ function errorReason(error: unknown): string {
   return "unknown";
 }
 
-export function FirstContextHistoryImport({
+export function HistoryImportFlow({
   initialJobId = null,
   onJobUpdate,
-}: FirstContextHistoryImportProps): JSX.Element {
+}: HistoryImportFlowProps): JSX.Element {
   const { t, i18n } = useTranslation("onboarding");
   const [job, setJob] = useState<HistoryImportJob | null>(null);
   const [loading, setLoading] = useState(Boolean(initialJobId));
   const [action, setAction] = useState<
     "preview" | "confirm" | "resume" | "delete" | null
   >(null);
+  const [selectionBusy, setSelectionBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedParticipants, setSelectedParticipants] = useState<string[]>([]);
   const [personalWritingConfirmed, setPersonalWritingConfirmed] = useState(false);
@@ -68,8 +73,14 @@ export function FirstContextHistoryImport({
     (nextJob: HistoryImportJob): void => {
       setJob(nextJob);
       setSelectedParticipants((current) => {
-        if (current.length > 0) {
-          return current;
+        const available = new Set(
+          nextJob.participants
+            .filter((participant) => !participant.is_document_author)
+            .map((participant) => participant.name),
+        );
+        const retained = current.filter((name) => available.has(name));
+        if (retained.length > 0) {
+          return retained;
         }
         const saved = nextJob.self_participants.filter(
           (name) =>
@@ -89,16 +100,15 @@ export function FirstContextHistoryImport({
           )
           .map((participant) => participant.name);
       });
-      if (
+      setPersonalWritingConfirmed((current) =>
+        current ||
         nextJob.self_participants.some((name) =>
           nextJob.participants.some(
             (participant) =>
               participant.name === name && participant.is_document_author,
           ),
-        )
-      ) {
-        setPersonalWritingConfirmed(true);
-      }
+        ),
+      );
       onJobUpdateRef.current(nextJob);
     },
     [],
@@ -183,14 +193,74 @@ export function FirstContextHistoryImport({
     );
   };
 
+  const toggleSource = async (sourceName: string): Promise<void> => {
+    if (!job || selectionBusy || action !== null) {
+      return;
+    }
+    const currentlyIncluded = job.included_files.includes(sourceName);
+    const nextIncluded = currentlyIncluded
+      ? job.included_files.filter((name) => name !== sourceName)
+      : job.source_files.filter(
+          (name) => name === sourceName || job.included_files.includes(name),
+        );
+    if (nextIncluded.length === 0) {
+      setError("history_import_selection_empty");
+      return;
+    }
+    const changedSource = job.sources.find(
+      (source) => source.source_name === sourceName,
+    );
+    if (
+      changedSource?.detected_kind === "document" ||
+      changedSource?.detected_kind === "mixed"
+    ) {
+      setPersonalWritingConfirmed(false);
+    }
+    const previous = job;
+    setError(null);
+    setSelectionBusy(sourceName);
+    setJob({
+      ...job,
+      included_files: nextIncluded,
+      sources: job.sources.map((source) =>
+        source.source_name === sourceName
+          ? { ...source, included: !currentlyIncluded }
+          : source,
+      ),
+    });
+    try {
+      applyJob(
+        await historyImportsApi.updateSelection(job.job_id, nextIncluded),
+      );
+    } catch (selectionError) {
+      applyJob(previous);
+      setError(errorReason(selectionError));
+    } finally {
+      setSelectionBusy(null);
+    }
+  };
+
+  const includedSources = useMemo(
+    () => job?.sources.filter((source) => source.included) ?? [],
+    [job],
+  );
   const requiresChatIdentity =
-    job?.detected_kind === "chat" || job?.detected_kind === "mixed";
+    includedSources.some(
+      (source) =>
+        source.detected_kind === "chat" || source.detected_kind === "mixed",
+    );
   const requiresWritingConfirmation =
-    job?.detected_kind === "document" || job?.detected_kind === "mixed";
+    includedSources.some(
+      (source) =>
+        source.detected_kind === "document" ||
+        source.detected_kind === "mixed",
+    );
   const canConfirm = Boolean(
     job &&
+      includedSources.length > 0 &&
       (!requiresChatIdentity || selectedParticipants.length > 0) &&
-      (!requiresWritingConfirmation || personalWritingConfirmed),
+      (!requiresWritingConfirmation || personalWritingConfirmed) &&
+      !selectionBusy,
   );
 
   const confirmImport = async (): Promise<void> => {
@@ -204,6 +274,7 @@ export function FirstContextHistoryImport({
         await historyImportsApi.confirm(job.job_id, {
           selfParticipants: selectedParticipants,
           confirmPersonalWriting: personalWritingConfirmed,
+          includedFiles: job.included_files,
         }),
       );
     } catch (confirmError) {
@@ -251,6 +322,14 @@ export function FirstContextHistoryImport({
     () => job?.participants.filter((participant) => !participant.is_document_author) ?? [],
     [job],
   );
+  const selectedRecordCount = includedSources.reduce(
+    (total, source) => total + source.record_count,
+    0,
+  );
+  const selectedMeaningfulCount = includedSources.reduce(
+    (total, source) => total + source.meaningful_count,
+    0,
+  );
   const progress = job
     ? Math.min(100, Math.round((job.imported_count / Math.max(job.total_records, 1)) * 100))
     : 0;
@@ -264,6 +343,29 @@ export function FirstContextHistoryImport({
       }),
     [i18n.language, i18n.resolvedLanguage],
   );
+  const dayFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(i18n.resolvedLanguage ?? i18n.language, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      }),
+    [i18n.language, i18n.resolvedLanguage],
+  );
+  const sourceDateRange = (
+    firstEventAt: number,
+    lastEventAt: number,
+    confidence: string,
+  ): string => {
+    if (["file_order", "file_mtime", "mixed", "source_order"].includes(confidence)) {
+      return t("firstContext.history.preview.approximateOrder");
+    }
+    const first = dayFormatter.format(new Date(firstEventAt * 1000));
+    const last = dayFormatter.format(new Date(lastEventAt * 1000));
+    return first === last
+      ? first
+      : t("firstContext.history.preview.dateRange", { first, last });
+  };
   const translatedError = error
     ? t(`firstContext.history.errors.${error}`, {
         defaultValue: t("firstContext.history.errors.unknown"),
@@ -283,47 +385,76 @@ export function FirstContextHistoryImport({
   }
 
   if (!job) {
+    const scenarios = [
+      {
+        key: "journal",
+        icon: <CalendarDays className="h-4 w-4" aria-hidden="true" />,
+      },
+      {
+        key: "notes",
+        icon: <NotebookPen className="h-4 w-4" aria-hidden="true" />,
+      },
+      {
+        key: "conversation",
+        icon: <MessageSquareText className="h-4 w-4" aria-hidden="true" />,
+      },
+    ];
     return (
-      <div className="space-y-4" data-testid="history-import-empty">
-        <div className="rounded-2xl bg-muted/35 p-5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)] sm:p-6">
-          <div className="flex items-start gap-4">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <FileText className="h-5 w-5" aria-hidden="true" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <h4 className="text-[15px] font-semibold leading-6 text-foreground">
+      <div className="space-y-5" data-testid="history-import-empty">
+        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+          <div className="grid divide-y divide-border/50 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            {scenarios.map((scenario) => (
+              <div key={scenario.key} className="flex gap-3 px-4 py-4 sm:block sm:px-5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/9 text-primary">
+                  {scenario.icon}
+                </span>
+                <div className="min-w-0 sm:mt-3">
+                  <p className="text-sm font-semibold text-foreground">
+                    {t(`firstContext.history.picker.scenarios.${scenario.key}.title`)}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {t(`firstContext.history.picker.scenarios.${scenario.key}.body`)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-col gap-4 border-t border-border/60 bg-muted/25 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div className="min-w-0">
+              <h4 className="text-sm font-semibold leading-6 text-foreground">
                 {t("firstContext.history.picker.title")}
               </h4>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              <p className="text-xs leading-5 text-muted-foreground">
                 {t("firstContext.history.picker.body")}
               </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  onClick={() => void chooseFiles()}
-                  disabled={action !== null}
-                >
-                  {action === "preview" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  ) : (
-                    <FileText className="h-4 w-4" aria-hidden="true" />
-                  )}
-                  {t("firstContext.history.picker.files")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void chooseFolder()}
-                  disabled={action !== null}
-                >
-                  <FolderOpen className="h-4 w-4" aria-hidden="true" />
-                  {t("firstContext.history.picker.folder")}
-                </Button>
-              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={() => void chooseFiles()}
+                disabled={action !== null}
+              >
+                {action === "preview" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <FileText className="h-4 w-4" aria-hidden="true" />
+                )}
+                {t("firstContext.history.picker.files")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void chooseFolder()}
+                disabled={action !== null}
+              >
+                <FolderOpen className="h-4 w-4" aria-hidden="true" />
+                {t("firstContext.history.picker.folder")}
+              </Button>
             </div>
           </div>
         </div>
-        <p className="text-xs leading-5 text-muted-foreground/80">
+        <p className="flex items-start gap-2 text-xs leading-5 text-muted-foreground/80">
+          <BookOpenText className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           {t("firstContext.history.picker.note")}
         </p>
         {translatedError ? (
@@ -402,15 +533,101 @@ export function FirstContextHistoryImport({
   return (
     <div className="space-y-5" data-testid="history-import-preview">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
-        <span>{t("firstContext.history.preview.files", { count: job.source_files.length })}</span>
+        <span>
+          {t("firstContext.history.preview.selectedFiles", {
+            selected: includedSources.length,
+            total: job.source_files.length,
+          })}
+        </span>
         <span aria-hidden="true">·</span>
-        <span>{t("firstContext.history.preview.records", { count: job.total_records })}</span>
+        <span>
+          {t("firstContext.history.preview.records", {
+            count: selectedRecordCount,
+          })}
+        </span>
         <span aria-hidden="true">·</span>
-        <span>{t(`firstContext.history.preview.kind.${job.detected_kind}`)}</span>
+        <span>
+          {t("firstContext.history.preview.meaningfulRecords", {
+            count: selectedMeaningfulCount,
+          })}
+        </span>
       </div>
 
+      <section className="overflow-hidden rounded-xl border border-border/70 bg-card">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 px-4 py-3.5">
+          <div>
+            <h4 className="text-sm font-semibold text-foreground">
+              {t("firstContext.history.preview.chooseContent")}
+            </h4>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {t("firstContext.history.preview.chooseContentBody")}
+            </p>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {t("firstContext.history.preview.localPreview")}
+          </span>
+        </div>
+        <div className="max-h-80 divide-y divide-border/50 overflow-y-auto">
+          {job.sources.map((source) => {
+            const busy = selectionBusy === source.source_name;
+            return (
+              <label
+                key={source.source_name}
+                className={`group grid cursor-pointer gap-2 px-4 py-3.5 transition-colors duration-150 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center ${
+                  source.included ? "bg-primary/[0.025]" : "bg-muted/20 opacity-70"
+                } hover:bg-accent/35`}
+              >
+                <span className="flex min-w-0 items-start gap-3">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
+                    {busy ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
+                    ) : (
+                      <input
+                        type="checkbox"
+                        checked={source.included}
+                        onChange={() => void toggleSource(source.source_name)}
+                        disabled={selectionBusy !== null || action !== null}
+                        className="h-4 w-4 rounded border-border accent-primary"
+                        aria-label={t("firstContext.history.preview.includeFile", {
+                          file: source.source_name,
+                        })}
+                      />
+                    )}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-foreground">
+                      {source.source_name}
+                    </span>
+                    <span className="mt-0.5 block line-clamp-1 text-xs text-muted-foreground">
+                      {source.sample}
+                    </span>
+                  </span>
+                </span>
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-8 text-[11px] text-muted-foreground sm:justify-end sm:pl-0">
+                  <span>{t(`firstContext.history.preview.kind.${source.detected_kind}`)}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    {t("firstContext.history.preview.records", {
+                      count: source.record_count,
+                    })}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    {sourceDateRange(
+                      source.first_event_at,
+                      source.last_event_at,
+                      source.timestamp_confidence,
+                    )}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </section>
+
       {requiresChatIdentity ? (
-        <section className="rounded-xl border border-border/70 bg-card p-4">
+        <section className="border-y border-border/60 py-4">
           <div className="flex items-start gap-3">
             <Users className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
             <div className="min-w-0 flex-1">
@@ -424,7 +641,7 @@ export function FirstContextHistoryImport({
                 {chatParticipants.map((participant) => (
                   <label
                     key={participant.name}
-                    className="flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 px-3 py-2.5 transition-colors hover:bg-accent/45"
+                    className="flex cursor-pointer items-start gap-3 rounded-lg bg-muted/35 px-3 py-2.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.55)] transition-colors hover:bg-accent/45"
                   >
                     <input
                       type="checkbox"
@@ -451,7 +668,7 @@ export function FirstContextHistoryImport({
       ) : null}
 
       {requiresWritingConfirmation ? (
-        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border/70 bg-card p-4">
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-muted/35 p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.55)]">
           <input
             type="checkbox"
             className="mt-1 h-4 w-4 rounded border-border accent-primary"
@@ -486,7 +703,12 @@ export function FirstContextHistoryImport({
                     : record.speaker_name}
                 </span>
                 <span>
-                  {record.timestamp_confidence === "explicit"
+                  {[
+                    "explicit",
+                    "frontmatter",
+                    "source_name",
+                    "document_heading",
+                  ].includes(record.timestamp_confidence)
                     ? dateFormatter.format(new Date(record.event_at * 1000))
                     : t("firstContext.history.preview.sourceOrder")}
                 </span>
@@ -550,4 +772,4 @@ export function FirstContextHistoryImport({
   );
 }
 
-export default FirstContextHistoryImport;
+export default HistoryImportFlow;

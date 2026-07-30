@@ -28,10 +28,23 @@ export interface HistoryImportRecordPreview {
   timestamp_confidence: string;
 }
 
+export interface HistoryImportSourceSummary {
+  source_name: string;
+  detected_kind: HistoryImportDetectedKind;
+  record_count: number;
+  meaningful_count: number;
+  first_event_at: number;
+  last_event_at: number;
+  timestamp_confidence: string;
+  sample: string;
+  included: boolean;
+}
+
 export interface HistoryImportJob {
   job_id: string;
   source_type: string;
   source_files: string[];
+  included_files: string[];
   detected_kind: HistoryImportDetectedKind;
   status: HistoryImportStatus;
   total_records: number;
@@ -45,7 +58,10 @@ export interface HistoryImportJob {
   warnings: string[];
   quick_ready: boolean;
   error_code: string | null;
+  created_at: number;
+  updated_at: number;
   participants: HistoryImportParticipant[];
+  sources: HistoryImportSourceSummary[];
   preview_records: HistoryImportRecordPreview[];
 }
 
@@ -65,11 +81,30 @@ export const historyImportsApi = {
     return unwrapGatewayPayload(response);
   },
 
+  async list(): Promise<HistoryImportJob[]> {
+    const response = await api.get<HistoryImportJob[]>(
+      '/memory/history-imports',
+    );
+    return unwrapGatewayPayload(response);
+  },
+
+  async updateSelection(
+    jobId: string,
+    includedFiles: string[],
+  ): Promise<HistoryImportJob> {
+    const response = await api.patch<HistoryImportJob>(
+      `/memory/history-imports/${encodeURIComponent(jobId)}/selection`,
+      { included_files: includedFiles },
+    );
+    return unwrapGatewayPayload(response);
+  },
+
   async confirm(
     jobId: string,
     input: {
       selfParticipants: string[];
       confirmPersonalWriting: boolean;
+      includedFiles: string[];
     },
   ): Promise<HistoryImportJob> {
     const response = await api.post<HistoryImportJob>(
@@ -77,6 +112,7 @@ export const historyImportsApi = {
       {
         self_participants: input.selfParticipants,
         confirm_personal_writing: input.confirmPersonalWriting,
+        included_files: input.includedFiles,
       },
     );
     return unwrapGatewayPayload(response);

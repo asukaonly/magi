@@ -136,6 +136,18 @@ vi.mock('@/api/modules/plugins', () => ({
   },
 }));
 
+vi.mock('@/api/modules/historyImports', () => ({
+  historyImportsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    get: vi.fn(),
+    previewMarkdown: vi.fn(),
+    updateSelection: vi.fn(),
+    confirm: vi.fn(),
+    resume: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
+
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 const dashboardPayload = {

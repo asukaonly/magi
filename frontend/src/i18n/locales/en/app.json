@@ -2763,6 +2763,36 @@
         "pulse": "Today's pulse",
         "ledger": "Connected sources"
       },
+      "historyImports": {
+        "title": "Things you wrote before",
+        "body": "Import journals, notes, or chats. You can check progress or delete the whole import at any time.",
+        "add": "Import Markdown",
+        "close": "Close import",
+        "loading": "Loading past imports.",
+        "error": "Past imports could not be loaded.",
+        "retry": "Load again",
+        "empty": "No journals, notes, or chat records have been imported yet.",
+        "untitled": "Markdown content",
+        "fileCount": "{{count}} files",
+        "recordCount": "{{count}} items",
+        "progress": "Saved {{imported}} / {{total}} items",
+        "continue": "Continue organizing",
+        "continueFailed": "Organizing could not continue. Please try again.",
+        "deleteFailed": "This import could not be deleted. Please try again.",
+        "deleteAction": "Delete import: {{name}}",
+        "deleteTitle": "Delete this import?",
+        "deleteBody": "“{{name}}” and the understanding created from it will be deleted. Your original files will not be changed.",
+        "keep": "Keep it",
+        "deleteConfirm": "Delete this import",
+        "status": {
+          "preview_ready": "Waiting for confirmation",
+          "running": "Organizing",
+          "ready": "Ready to use",
+          "completed": "Organized",
+          "failed": "Organizing paused",
+          "deleted": "Deleted"
+        }
+      },
       "pulseSubtitle": "See today's memory intake by source, including what is active and what is still waiting.",
       "pulseStats": {
         "today": "Today",

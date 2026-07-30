@@ -10,6 +10,7 @@ const {
   pickMarkdownFilesMock,
   previewMock,
   resumeMock,
+  updateSelectionMock,
 } = vi.hoisted(() => ({
   confirmMock: vi.fn(),
   deleteMock: vi.fn(),
@@ -18,6 +19,7 @@ const {
   pickMarkdownFilesMock: vi.fn(),
   previewMock: vi.fn(),
   resumeMock: vi.fn(),
+  updateSelectionMock: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -42,10 +44,11 @@ vi.mock("@/api/modules/historyImports", () => ({
     confirm: (...args: unknown[]) => confirmMock(...args),
     resume: (...args: unknown[]) => resumeMock(...args),
     delete: (...args: unknown[]) => deleteMock(...args),
+    updateSelection: (...args: unknown[]) => updateSelectionMock(...args),
   },
 }));
 
-import FirstContextHistoryImport from "@/components/onboarding/FirstContextHistoryImport";
+import HistoryImportFlow from "@/components/history-imports/HistoryImportFlow";
 import type { HistoryImportJob } from "@/api/modules/historyImports";
 
 function chatPreview(): HistoryImportJob {
@@ -53,6 +56,7 @@ function chatPreview(): HistoryImportJob {
     job_id: "him-1",
     source_type: "markdown",
     source_files: ["chat.md"],
+    included_files: ["chat.md"],
     detected_kind: "chat",
     status: "preview_ready",
     total_records: 4,
@@ -66,6 +70,8 @@ function chatPreview(): HistoryImportJob {
     warnings: [],
     quick_ready: false,
     error_code: null,
+    created_at: 1_800_000_000,
+    updated_at: 1_800_000_000,
     participants: [
       {
         name: "Me",
@@ -80,6 +86,19 @@ function chatPreview(): HistoryImportJob {
         message_count: 2,
         meaningful_count: 2,
         sample: "What do you like about it?",
+      },
+    ],
+    sources: [
+      {
+        source_name: "chat.md",
+        detected_kind: "chat",
+        record_count: 4,
+        meaningful_count: 4,
+        first_event_at: 1_800_000_000,
+        last_event_at: 1_800_000_003,
+        timestamp_confidence: "file_order",
+        sample: "I started learning pottery.",
+        included: true,
       },
     ],
     preview_records: [
@@ -117,13 +136,23 @@ describe("FirstContextHistoryImport", () => {
     confirmMock.mockResolvedValue(readyJob());
     getMock.mockResolvedValue(readyJob());
     deleteMock.mockResolvedValue(undefined);
+    updateSelectionMock.mockImplementation(
+      async (_jobId: string, includedFiles: string[]) => ({
+        ...chatPreview(),
+        included_files: includedFiles,
+        sources: chatPreview().sources.map((source) => ({
+          ...source,
+          included: includedFiles.includes(source.source_name),
+        })),
+      }),
+    );
   });
 
   it("previews Markdown, confirms the user's speaker, and reaches quick-ready", async () => {
     const user = userEvent.setup();
     const onJobUpdate = vi.fn();
     render(
-      <FirstContextHistoryImport onJobUpdate={onJobUpdate} />,
+      <HistoryImportFlow onJobUpdate={onJobUpdate} />,
     );
 
     await user.click(
@@ -137,10 +166,12 @@ describe("FirstContextHistoryImport", () => {
       screen.getByText("firstContext.history.preview.sourceOrder"),
     ).toBeInTheDocument();
 
-    const checkboxes = screen.getAllByRole("checkbox");
-    expect(checkboxes).toHaveLength(2);
-    expect(checkboxes[0]).toBeChecked();
-    expect(checkboxes[1]).not.toBeChecked();
+    const sourceCheckbox = screen.getByRole("checkbox", {
+      name: "firstContext.history.preview.includeFile",
+    });
+    expect(sourceCheckbox).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Me/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Alice/ })).not.toBeChecked();
 
     await user.click(
       screen.getByRole("button", {
@@ -150,6 +181,7 @@ describe("FirstContextHistoryImport", () => {
     expect(confirmMock).toHaveBeenCalledWith("him-1", {
       selfParticipants: ["Me"],
       confirmPersonalWriting: false,
+      includedFiles: ["chat.md"],
     });
     expect(await screen.findByTestId("history-import-ready")).toBeInTheDocument();
     expect(onJobUpdate).toHaveBeenLastCalledWith(
@@ -166,6 +198,12 @@ describe("FirstContextHistoryImport", () => {
     previewMock.mockResolvedValue({
       ...chatPreview(),
       detected_kind: "document",
+      sources: [
+        {
+          ...chatPreview().sources[0],
+          detected_kind: "document",
+        },
+      ],
       participants: [
         {
           name: "__document_author__",
@@ -184,7 +222,7 @@ describe("FirstContextHistoryImport", () => {
       ],
     } satisfies HistoryImportJob);
 
-    render(<FirstContextHistoryImport onJobUpdate={vi.fn()} />);
+    render(<HistoryImportFlow onJobUpdate={vi.fn()} />);
     await user.click(
       screen.getByRole("button", {
         name: "firstContext.history.picker.files",
@@ -195,14 +233,14 @@ describe("FirstContextHistoryImport", () => {
     });
     expect(confirm).toBeDisabled();
 
-    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getAllByRole("checkbox")[1]);
     await waitFor(() => expect(confirm).toBeEnabled());
   });
 
   it("deletes the preview before choosing different files", async () => {
     const user = userEvent.setup();
     const onJobUpdate = vi.fn();
-    render(<FirstContextHistoryImport onJobUpdate={onJobUpdate} />);
+    render(<HistoryImportFlow onJobUpdate={onJobUpdate} />);
 
     await user.click(
       screen.getByRole("button", {

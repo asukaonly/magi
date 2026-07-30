@@ -263,11 +263,13 @@ as first-contact context solely because it was just backfilled.
 
 #### One-Shot History Imports
 
-Plain Markdown history import is host-owned because file selection, preview,
-speaker identity, progress, deletion, and memory governance must behave the same
-regardless of source format. It is not modeled as a sensor: an import has a
-bounded input, an explicit user confirmation, and a completed lifecycle rather
-than an ongoing polling schedule.
+Plain Markdown history import is host-owned because file selection, durable
+per-file inclusion, preview, speaker identity, authorship confirmation,
+progress, retry, deletion, first-contact use, and memory governance must behave
+the same regardless of source format. The same host flow is available during
+onboarding and later under Memory → Sources. It is not modeled as a sensor: an
+import has a bounded input, an explicit user confirmation, and a completed
+lifecycle rather than an ongoing polling schedule.
 
 Future platform-specific import plugins should only adapt an export into the
 host's normalized history records. They must not write memory directly, decide

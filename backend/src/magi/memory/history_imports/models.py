@@ -45,6 +45,24 @@ class HistoryImportParticipant:
 
 
 @dataclass(slots=True)
+class HistoryImportSourceSummary:
+    """One selected Markdown file and its reader-facing preview metadata."""
+
+    source_name: str
+    detected_kind: str
+    record_count: int
+    meaningful_count: int
+    first_event_at: float
+    last_event_at: float
+    timestamp_confidence: str
+    sample: str
+    included: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class HistoryImportJob:
     """Durable import lifecycle and reader-facing progress."""
 
@@ -52,6 +70,7 @@ class HistoryImportJob:
     source_type: str
     source_fingerprint: str
     source_files: list[str]
+    included_files: list[str]
     detected_kind: str
     status: str
     total_records: int
@@ -69,11 +88,13 @@ class HistoryImportJob:
     error_text: str | None = None
     deleted_at: float | None = None
     participants: list[HistoryImportParticipant] = field(default_factory=list)
+    sources: list[HistoryImportSourceSummary] = field(default_factory=list)
     preview_records: list[HistoryImportRecord] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["participants"] = [item.to_dict() for item in self.participants]
+        payload["sources"] = [item.to_dict() for item in self.sources]
         payload["preview_records"] = [item.to_dict() for item in self.preview_records]
         return payload
 
@@ -93,5 +114,6 @@ __all__ = [
     "HistoryImportJob",
     "HistoryImportParticipant",
     "HistoryImportRecord",
+    "HistoryImportSourceSummary",
     "ParsedHistoryFile",
 ]

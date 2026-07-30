@@ -26,7 +26,7 @@ import {
   type FirstContextQuestionId,
 } from "@/domain/chat/first-context";
 import { getMemoryModelStatus } from "./memoryModelStatus";
-import FirstContextHistoryImport from "./FirstContextHistoryImport";
+import HistoryImportFlow from "@/components/history-imports/HistoryImportFlow";
 import type { HistoryImportJob } from "@/api/modules/historyImports";
 import {
   ONBOARDING_FIELD_CLASS,
@@ -268,7 +268,7 @@ export function FirstContextStep({
         </h3>
         <p className={BODY_CLASS}>{t("firstContext.history.body")}</p>
       </div>
-      <FirstContextHistoryImport
+      <HistoryImportFlow
         initialJobId={historyImportJobId}
         onJobUpdate={onHistoryImportUpdate}
       />

@@ -11,6 +11,9 @@ import pytest
 from magi.db.migrations.memory_shared.versions.v36_history_imports import (
     CREATE_STATEMENTS,
 )
+from magi.db.migrations.memory_shared.versions.v37_history_import_selection import (
+    SCHEMA_SQL as SELECTION_SCHEMA_SQL,
+)
 from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
 from magi.memory.history_imports.service import HistoryImportService
 from magi.memory.history_imports.store import HistoryImportStore
@@ -60,6 +63,7 @@ async def history_store(tmp_path: Path) -> HistoryImportStore:
     async with aiosqlite.connect(db_path) as db:
         for statement in CREATE_STATEMENTS:
             await db.execute(statement)
+        await db.executescript(SELECTION_SCHEMA_SQL)
         await db.commit()
     return HistoryImportStore(db_path=str(db_path))
 
@@ -91,6 +95,7 @@ async def test_confirm_prepares_recent_context_then_projects_user_turns_in_order
         job_id=preview.job_id,
         self_participants=["Me"],
         confirm_personal_writing=False,
+        included_files=preview.included_files,
     )
     assert ready.quick_ready is True
     assert ready.quick_imported_count == 4
@@ -124,6 +129,26 @@ async def test_confirm_prepares_recent_context_then_projects_user_turns_in_order
 
 
 @pytest.mark.asyncio
+async def test_preview_disambiguates_same_named_files_without_full_paths(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    first = tmp_path / "journal" / "notes.md"
+    second = tmp_path / "archive" / "notes.md"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_text("# 2026-07-01\nA day at the lake.", encoding="utf-8")
+    second.write_text("# 2026-07-02\nAn evening concert.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+
+    preview = await service.preview_markdown_paths([str(first), str(second)])
+
+    assert len(preview.source_files) == 2
+    assert len(set(preview.source_files)) == 2
+    assert all(str(tmp_path) not in source_name for source_name in preview.source_files)
+
+
+@pytest.mark.asyncio
 async def test_delete_forgets_every_imported_raw_event(
     tmp_path: Path,
     history_store: HistoryImportStore,
@@ -137,6 +162,7 @@ async def test_delete_forgets_every_imported_raw_event(
         job_id=preview.job_id,
         self_participants=[],
         confirm_personal_writing=True,
+        included_files=preview.included_files,
     )
     await service.delete(preview.job_id)
 
@@ -164,18 +190,17 @@ async def test_quick_context_expands_but_stops_at_the_bounded_maximum(
     service = HistoryImportService(store=history_store, memory=_MemoryStub())
 
     preview = await service.preview_markdown_paths([str(markdown)])
-    await history_store.set_identity(
+    await history_store.set_scope(
         job_id=preview.job_id,
         self_participants=["Me"],
+        included_files=preview.included_files,
     )
     selected = await history_store.select_quick_records(job_id=preview.job_id)
 
     assert len(selected) == 500
     assert selected[0].session_seq == 100
     assert selected[-1].session_seq == 599
-    assert [item.session_seq for item in selected] == sorted(
-        item.session_seq for item in selected
-    )
+    assert [item.session_seq for item in selected] == sorted(item.session_seq for item in selected)
 
 
 @pytest.mark.asyncio
@@ -220,13 +245,11 @@ async def test_confirm_writes_previewed_markdown_into_the_real_l1_store(
             job_id=preview.job_id,
             self_participants=["Me"],
             confirm_personal_writing=False,
+            included_files=preview.included_files,
         )
 
         assert ready.quick_ready is True
-        stored = [
-            await memory.l1.get_event(record.event_id)
-            for record in preview.preview_records
-        ]
+        stored = [await memory.l1.get_event(record.event_id) for record in preview.preview_records]
         assert all(item is not None for item in stored)
         assert [item["content"] for item in stored if item is not None] == [
             record.content for record in preview.preview_records
@@ -239,3 +262,71 @@ async def test_confirm_writes_previewed_markdown_into_the_real_l1_store(
     finally:
         await service.stop()
         await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_selection_excludes_unwanted_files_before_any_memory_write(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    journal = tmp_path / "journal.md"
+    clipping = tmp_path / "clipping.md"
+    journal.write_text("# Journal\n\nI started learning pottery.", encoding="utf-8")
+    clipping.write_text("# Saved article\n\nSomeone else's long essay.", encoding="utf-8")
+    memory = _MemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+
+    preview = await service.preview_markdown_paths([str(journal), str(clipping)])
+    selected = await service.update_selection(
+        job_id=preview.job_id,
+        included_files=["journal.md"],
+    )
+
+    assert selected.included_files == ["journal.md"]
+    assert {source.source_name: source.included for source in selected.sources} == {
+        "clipping.md": False,
+        "journal.md": True,
+    }
+
+    ready = await service.confirm(
+        job_id=preview.job_id,
+        self_participants=[],
+        confirm_personal_writing=True,
+        included_files=["journal.md"],
+    )
+    assert ready.total_records == 1
+    assert [event.content for event in memory.raw_events] == [
+        "# Journal\n\nI started learning pottery."
+    ]
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_first_contact_snippet_uses_only_confirmed_user_writing(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    markdown = tmp_path / "chat.md"
+    markdown.write_text(
+        "- Me: I keep returning to this pottery class.\n"
+        "- Alice: You should make another bowl.\n"
+        "- Me: Working with clay helps me slow down.\n",
+        encoding="utf-8",
+    )
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+
+    preview = await service.preview_markdown_paths([str(markdown)])
+    await service.confirm(
+        job_id=preview.job_id,
+        self_participants=["Me"],
+        confirm_personal_writing=False,
+        included_files=preview.included_files,
+    )
+
+    snippet = await service.get_first_contact_snippet()
+
+    assert snippet is not None
+    assert "pottery class" in snippet
+    assert "Working with clay" in snippet
+    assert "make another bowl" not in snippet
+    await service.stop()

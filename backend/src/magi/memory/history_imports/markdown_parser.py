@@ -12,8 +12,16 @@ from .models import ParsedHistoryFile
 DOCUMENT_AUTHOR = "__document_author__"
 MAX_DOCUMENT_CHUNK_CHARS = 4_000
 
-_DATE_HEADING_RE = re.compile(
-    r"^#{1,6}\s+(?P<value>\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}(?:日)?)\s*$"
+_DATE_HEADING_RE = re.compile(r"^#{1,6}\s+(?P<value>\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}(?:日)?)\s*$")
+_SOURCE_DATE_RE = re.compile(
+    r"(?<!\d)(?P<year>20\d{2})[-_.年](?P<month>\d{1,2})[-_.月]" r"(?P<day>\d{1,2})(?:日)?(?!\d)"
+)
+_COMPACT_SOURCE_DATE_RE = re.compile(
+    r"(?<!\d)(?P<year>20\d{2})(?P<month>\d{2})(?P<day>\d{2})(?!\d)"
+)
+_FRONTMATTER_FIELD_RE = re.compile(
+    r"^\s*(?P<key>date|created|created_at|createdat|timestamp)\s*:\s*(?P<value>.+?)\s*$",
+    re.IGNORECASE,
 )
 _HEADING_RE = re.compile(r"^#{2,4}\s+(?P<value>[^#].{0,80}?)\s*$")
 _INLINE_MESSAGE_RE = re.compile(
@@ -96,19 +104,24 @@ def parse_markdown(
 ) -> ParsedHistoryFile:
     """Parse chat-shaped Markdown, falling back to authored document sections."""
 
-    clean_text = _strip_frontmatter(str(text or "")).strip()
+    frontmatter, body = _extract_frontmatter(str(text or ""))
+    clean_text = body.strip()
     if not clean_text:
         raise ValueError("markdown_empty")
+    source_timestamp, source_timestamp_confidence = _source_timestamp(
+        source_name=source_name,
+        text=clean_text,
+        frontmatter=frontmatter,
+        file_mtime=file_mtime,
+    )
 
     inline_records = _parse_inline_chat(clean_text)
     heading_records = _parse_heading_chat(clean_text)
-    chat_records = (
-        heading_records if len(heading_records) > len(inline_records) else inline_records
-    )
+    chat_records = heading_records if len(heading_records) > len(inline_records) else inline_records
     if _is_confident_chat(chat_records):
         records, used_fallback_time = _finalize_chat_timestamps(
             chat_records,
-            file_mtime=file_mtime,
+            fallback_timestamp=source_timestamp,
         )
         warnings = ["timestamps_from_file_order"] if used_fallback_time else []
         return ParsedHistoryFile(
@@ -119,24 +132,79 @@ def parse_markdown(
             warnings=warnings,
         )
 
-    document_records = _parse_document_sections(clean_text, file_mtime=file_mtime)
+    document_records = _parse_document_sections(
+        clean_text,
+        fallback_timestamp=source_timestamp,
+        fallback_confidence=source_timestamp_confidence,
+    )
+    warnings = ["document_author_confirmation_required"]
+    if source_timestamp_confidence == "file_mtime":
+        warnings.append("timestamps_from_file_mtime")
     return ParsedHistoryFile(
         source_name=source_name,
         session_key=_session_key(source_name),
         detected_kind="document",
         records=document_records,
-        warnings=["document_author_confirmation_required", "timestamps_from_file_mtime"],
+        warnings=warnings,
     )
 
 
-def _strip_frontmatter(text: str) -> str:
+def _extract_frontmatter(text: str) -> tuple[dict[str, str], str]:
     lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return text
-    for index in range(1, min(len(lines), 200)):
+    first_content_index = next(
+        (index for index, line in enumerate(lines) if line.strip()),
+        None,
+    )
+    if first_content_index is None or lines[first_content_index].strip() != "---":
+        return {}, text
+    for index in range(first_content_index + 1, min(len(lines), 200)):
         if lines[index].strip() == "---":
-            return "\n".join(lines[index + 1 :])
-    return text
+            metadata: dict[str, str] = {}
+            for line in lines[first_content_index + 1 : index]:
+                match = _FRONTMATTER_FIELD_RE.match(line)
+                if match:
+                    metadata[match.group("key").casefold()] = (
+                        match.group("value").strip().strip("\"'")
+                    )
+            return metadata, "\n".join(lines[index + 1 :])
+    return {}, text
+
+
+def _source_timestamp(
+    *,
+    source_name: str,
+    text: str,
+    frontmatter: dict[str, str],
+    file_mtime: float,
+) -> tuple[float, str]:
+    for key in ("date", "created", "created_at", "createdat", "timestamp"):
+        parsed = _parse_timestamp(frontmatter.get(key))
+        if parsed is not None:
+            return parsed, "frontmatter"
+
+    filename_timestamp = _parse_source_date(Path(source_name).stem)
+    if filename_timestamp is not None:
+        return filename_timestamp, "source_name"
+
+    for line in text.splitlines()[:20]:
+        match = _DATE_HEADING_RE.match(line.strip())
+        if not match:
+            continue
+        parsed = _parse_timestamp(match.group("value"))
+        if parsed is not None:
+            return parsed, "document_heading"
+    return float(file_mtime), "file_mtime"
+
+
+def _parse_source_date(value: str) -> float | None:
+    for pattern in (_SOURCE_DATE_RE, _COMPACT_SOURCE_DATE_RE):
+        match = pattern.search(value)
+        if not match:
+            continue
+        return _parse_timestamp(
+            f"{match.group('year')}-{match.group('month')}-{match.group('day')}"
+        )
+    return None
 
 
 def _parse_inline_chat(text: str) -> list[dict[str, Any]]:
@@ -190,9 +258,7 @@ def _parse_heading_chat(text: str) -> list[dict[str, Any]]:
         if not in_code_fence:
             heading = _HEADING_RE.match(line.strip())
             if heading and not _DATE_HEADING_RE.match(line.strip()):
-                speaker, timestamp_text = _split_heading_identity(
-                    heading.group("value").strip()
-                )
+                speaker, timestamp_text = _split_heading_identity(heading.group("value").strip())
                 if _speaker_candidate_allowed(speaker):
                     if current is not None:
                         _append_heading_record(records, current)
@@ -261,25 +327,21 @@ def _is_confident_chat(records: list[dict[str, Any]]) -> bool:
     }
     known_role_present = any(speaker in _KNOWN_ROLE_NAMES for speaker in speakers)
     repeated_speaker = len(speakers) < len(records)
-    return (
-        len(records) >= 3
-        and len(speakers) >= 2
-        and repeated_speaker
-    ) or (len(records) >= 2 and known_role_present)
+    return (len(records) >= 3 and len(speakers) >= 2 and repeated_speaker) or (
+        len(records) >= 2 and known_role_present
+    )
 
 
 def _finalize_chat_timestamps(
     records: list[dict[str, Any]],
     *,
-    file_mtime: float,
+    fallback_timestamp: float,
 ) -> tuple[list[dict[str, Any]], bool]:
     parsed: list[dict[str, Any]] = []
-    parsed_timestamps = [
-        _parse_timestamp(record.get("timestamp_text")) for record in records
-    ]
+    parsed_timestamps = [_parse_timestamp(record.get("timestamp_text")) for record in records]
     used_fallback = any(value is None for value in parsed_timestamps)
     first_known = next((value for value in parsed_timestamps if value is not None), None)
-    fallback_anchor = float(first_known if first_known is not None else file_mtime)
+    fallback_anchor = float(first_known if first_known is not None else fallback_timestamp)
     last_timestamp: float | None = None
     for index, record in enumerate(records):
         timestamp = parsed_timestamps[index]
@@ -288,6 +350,8 @@ def _finalize_chat_timestamps(
             confidence = "file_order"
             if last_timestamp is not None:
                 timestamp = last_timestamp + 1.0
+            elif first_known is None:
+                timestamp = fallback_anchor + float(index)
             else:
                 timestamp = fallback_anchor - float(len(records) - index)
         if last_timestamp is not None and timestamp < last_timestamp:
@@ -309,7 +373,8 @@ def _finalize_chat_timestamps(
 def _parse_document_sections(
     text: str,
     *,
-    file_mtime: float,
+    fallback_timestamp: float,
+    fallback_confidence: str,
 ) -> list[dict[str, Any]]:
     sections: list[str] = []
     current: list[str] = []
@@ -324,17 +389,39 @@ def _parse_document_sections(
         _append_document_chunks(sections, "\n".join(current).strip())
     if not sections:
         raise ValueError("markdown_empty")
-    start = float(file_mtime) - float(len(sections) - 1)
-    return [
-        {
-            "speaker_name": DOCUMENT_AUTHOR,
-            "content": content,
-            "event_at": start + float(index),
-            "timestamp_confidence": "file_mtime",
-            "meaningful": is_meaningful_content(content),
-        }
-        for index, content in enumerate(sections)
-    ]
+    records: list[dict[str, Any]] = []
+    last_timestamp: float | None = None
+    for index, content in enumerate(sections):
+        timestamp = _timestamp_from_section_heading(content)
+        confidence = "explicit" if timestamp is not None else fallback_confidence
+        if timestamp is None:
+            timestamp = float(fallback_timestamp) + float(index)
+        if last_timestamp is not None and timestamp <= last_timestamp:
+            timestamp = last_timestamp + 0.001
+            if confidence == "explicit":
+                confidence = "source_order"
+        last_timestamp = float(timestamp)
+        records.append(
+            {
+                "speaker_name": DOCUMENT_AUTHOR,
+                "content": content,
+                "event_at": float(timestamp),
+                "timestamp_confidence": confidence,
+                "meaningful": is_meaningful_content(content),
+            }
+        )
+    return records
+
+
+def _timestamp_from_section_heading(content: str) -> float | None:
+    first_line = next(
+        (line.strip() for line in content.splitlines() if line.strip()),
+        "",
+    )
+    match = _DATE_HEADING_RE.match(first_line)
+    if match is None:
+        return None
+    return _parse_timestamp(match.group("value"))
 
 
 def _append_document_chunks(sections: list[str], content: str) -> None:
@@ -387,8 +474,8 @@ def _looks_time_only(value: str) -> bool:
 
 
 def _session_key(source_name: str) -> str:
-    stem = Path(source_name).stem.strip()
-    return stem or "markdown"
+    normalized = str(source_name or "").replace("\\", "/").strip()
+    return normalized or "markdown"
 
 
 def is_meaningful_content(content: str) -> bool:

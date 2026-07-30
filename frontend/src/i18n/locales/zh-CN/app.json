@@ -2762,6 +2762,36 @@
         "pulse": "今日脉搏",
         "ledger": "已连接来源"
       },
+      "historyImports": {
+        "title": "过去写过的内容",
+        "body": "导入日记、笔记或聊天记录。你可以随时查看进度，也可以整批删除。",
+        "add": "导入 Markdown",
+        "close": "收起导入",
+        "loading": "正在读取历史导入。",
+        "error": "历史导入暂时加载失败。",
+        "retry": "重新加载",
+        "empty": "还没有导入过日记、笔记或聊天记录。",
+        "untitled": "Markdown 内容",
+        "fileCount": "{{count}} 个文件",
+        "recordCount": "{{count}} 条内容",
+        "progress": "已保存 {{imported}} / {{total}} 条",
+        "continue": "继续整理",
+        "continueFailed": "暂时没能继续整理，请稍后重试。",
+        "deleteFailed": "暂时没能删除这次导入，请稍后重试。",
+        "deleteAction": "删除导入：{{name}}",
+        "deleteTitle": "删除这次导入？",
+        "deleteBody": "“{{name}}”以及由这些内容形成的认识都会被删除。这不会修改你的原文件。",
+        "keep": "保留",
+        "deleteConfirm": "删除这次导入",
+        "status": {
+          "preview_ready": "等待确认",
+          "running": "正在整理",
+          "ready": "已可使用",
+          "completed": "整理完成",
+          "failed": "整理中断",
+          "deleted": "已删除"
+        }
+      },
       "pulseSubtitle": "按来源看今天进入记忆的节奏，快速发现哪些来源活跃、哪些还在等待处理。",
       "pulseStats": {
         "today": "今日事件",

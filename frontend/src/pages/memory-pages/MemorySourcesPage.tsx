@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
+import HistoryImportsSection from '@/components/history-imports/HistoryImportsSection';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import {
   SourceBackfillDialog,
@@ -924,36 +925,39 @@ export const MemorySourcesPage = () => {
 
   return (
     <MemoryPageFrame title={t('memory.sourcesPage.title')} description={t('memory.sourcesPage.subtitle')} hideHeader>
-      {loading ? (
-        <MemorySourcesLoading />
-      ) : error ? (
-        <MemorySourcesError />
-      ) : rows.length === 0 ? (
-        <div className="space-y-6">
-          <SourceEmptyState onSourceConnected={() => setSourceRefreshVersion((version) => version + 1)} />
-          <SourcePulseSection
-            rows={rows}
-            dashboard={dashboard}
-            todaySummary={todaySummary}
-            todayEvents={todayEvents}
-          />
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <h1 className="sr-only">{t('memory.sourcesPage.title')}</h1>
-          <SourcePulseSection
-            rows={rows}
-            dashboard={dashboard}
-            todaySummary={todaySummary}
-            todayEvents={todayEvents}
-          />
-          <SourceLedgerSection
-            rows={rows}
-            todaySummary={todaySummary}
-            onBrowseSources={openSourceMarketplace}
-          />
-        </div>
-      )}
+      <div className="space-y-6">
+        <h1 className="sr-only">{t('memory.sourcesPage.title')}</h1>
+        <HistoryImportsSection />
+        {loading ? (
+          <MemorySourcesLoading />
+        ) : error ? (
+          <MemorySourcesError />
+        ) : rows.length === 0 ? (
+          <>
+            <SourceEmptyState onSourceConnected={() => setSourceRefreshVersion((version) => version + 1)} />
+            <SourcePulseSection
+              rows={rows}
+              dashboard={dashboard}
+              todaySummary={todaySummary}
+              todayEvents={todayEvents}
+            />
+          </>
+        ) : (
+          <>
+            <SourcePulseSection
+              rows={rows}
+              dashboard={dashboard}
+              todaySummary={todaySummary}
+              todayEvents={todayEvents}
+            />
+            <SourceLedgerSection
+              rows={rows}
+              todaySummary={todaySummary}
+              onBrowseSources={openSourceMarketplace}
+            />
+          </>
+        )}
+      </div>
     </MemoryPageFrame>
   );
 };

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from functools import partial
 import hashlib
+import re
 import time
 import uuid
 from pathlib import Path
@@ -119,11 +121,7 @@ class HistoryImportService:
         detected_kinds = {item.detected_kind for item in parsed_files}
         detected_kind = next(iter(detected_kinds)) if len(detected_kinds) == 1 else "mixed"
         warnings = list(
-            dict.fromkeys(
-                warning
-                for parsed in parsed_files
-                for warning in parsed.warnings
-            )
+            dict.fromkeys(warning for parsed in parsed_files for warning in parsed.warnings)
         )
         records = _build_records(
             job_id=job_id,
@@ -136,6 +134,7 @@ class HistoryImportService:
             source_type="markdown",
             source_fingerprint=fingerprint,
             source_files=[source_name for _, source_name in files],
+            included_files=[source_name for _, source_name in files],
             detected_kind=detected_kind,
             status="preview_ready",
             total_records=len(records),
@@ -159,12 +158,37 @@ class HistoryImportService:
             raise HistoryImportNotFoundError()
         return job
 
+    async def list_jobs(self, *, limit: int = 20) -> list[HistoryImportJob]:
+        """Return active imports for reader-facing progress and deletion."""
+
+        return await self._store.list_active_jobs(limit=limit)
+
+    async def update_selection(
+        self,
+        *,
+        job_id: str,
+        included_files: list[str],
+    ) -> HistoryImportJob:
+        """Persist the file subset selected in the preview."""
+
+        lock = self._lock_for(job_id)
+        async with lock:
+            job = await self.get_job(job_id)
+            if job.quick_ready or job.imported_count > 0:
+                raise HistoryImportValidationError("history_import_selection_locked")
+            normalized = _validate_included_files(job, included_files)
+            return await self._store.update_selection(
+                job_id=job_id,
+                included_files=normalized,
+            )
+
     async def confirm(
         self,
         *,
         job_id: str,
         self_participants: list[str],
         confirm_personal_writing: bool,
+        included_files: list[str] | None = None,
     ) -> HistoryImportJob:
         """Confirm identity, prepare recent raw context, and continue in order."""
 
@@ -173,23 +197,31 @@ class HistoryImportService:
             job = await self.get_job(job_id)
             if job.deleted_at is not None or job.status == "deleted":
                 raise HistoryImportNotFoundError()
-            selected = list(
-                dict.fromkeys(
-                    str(item).strip()
-                    for item in self_participants
-                    if str(item).strip()
+            selected_files = _validate_included_files(
+                job,
+                included_files if included_files is not None else job.included_files,
+            )
+            if job.quick_ready and set(job.included_files) != set(selected_files):
+                raise HistoryImportValidationError("history_import_selection_locked")
+            if not job.quick_ready:
+                job = await self._store.update_selection(
+                    job_id=job_id,
+                    included_files=selected_files,
                 )
+            selected = list(
+                dict.fromkeys(str(item).strip() for item in self_participants if str(item).strip())
             )
             participant_names = {item.name for item in job.participants}
             if any(item not in participant_names for item in selected):
                 raise HistoryImportValidationError("unknown_self_participant")
-            if job.detected_kind in {"chat", "mixed"} and not selected:
+            selected_kinds = {source.detected_kind for source in job.sources if source.included}
+            includes_chat = bool(selected_kinds & {"chat", "mixed"})
+            includes_documents = bool(selected_kinds & {"document", "mixed"})
+            if includes_chat and not selected:
                 raise HistoryImportValidationError("self_participant_required")
-            if job.detected_kind in {"document", "mixed"}:
+            if includes_documents:
                 if not confirm_personal_writing:
-                    raise HistoryImportValidationError(
-                        "personal_writing_confirmation_required"
-                    )
+                    raise HistoryImportValidationError("personal_writing_confirmation_required")
                 if DOCUMENT_AUTHOR in participant_names:
                     selected.append(DOCUMENT_AUTHOR)
             selected = list(dict.fromkeys(selected))
@@ -200,13 +232,12 @@ class HistoryImportService:
                 and job.self_participants
                 and set(job.self_participants) != set(selected)
             ):
-                raise HistoryImportValidationError(
-                    "self_participant_locked_after_import"
-                )
+                raise HistoryImportValidationError("self_participant_locked_after_import")
             if not job.quick_ready:
-                await self._store.set_identity(
+                await self._store.set_scope(
                     job_id=job_id,
                     self_participants=selected,
+                    included_files=selected_files,
                 )
                 quick_records = await self._store.select_quick_records(job_id=job_id)
                 expected_epoch = self._memory.memory_operation_epoch()
@@ -219,12 +250,41 @@ class HistoryImportService:
                         )
                 except _HistoryImportEpochChanged as exc:
                     await self._store.mark_deleted(job_id=job_id)
-                    raise HistoryImportValidationError(
-                        "memory_cleared_during_import"
-                    ) from exc
+                    raise HistoryImportValidationError("memory_cleared_during_import") from exc
                 await self._store.mark_quick_ready(job_id=job_id)
             self._start_background(job_id)
         return await self.get_job(job_id)
+
+    async def get_first_contact_snippet(self) -> str | None:
+        """Return bounded user-authored excerpts from the latest confirmed import."""
+
+        records = await self._store.list_first_contact_records(limit=16)
+        if not records:
+            return None
+        selected: list[HistoryImportRecord] = []
+        seen_sources: set[str] = set()
+        for record in records:
+            if record.source_name in seen_sources:
+                continue
+            selected.append(record)
+            seen_sources.add(record.source_name)
+            if len(selected) >= 4:
+                break
+        if len(selected) < 4:
+            selected_ids = {record.record_id for record in selected}
+            for record in records:
+                if record.record_id in selected_ids:
+                    continue
+                selected.append(record)
+                if len(selected) >= 4:
+                    break
+        lines: list[str] = []
+        for record in selected:
+            compact = re.sub(r"\s+", " ", record.content).strip()
+            if compact:
+                compact = compact.replace("<", "‹").replace(">", "›")
+                lines.append(f"- {compact[:320]}")
+        return "\n".join(lines) or None
 
     async def resume(self, job_id: str) -> HistoryImportJob:
         job = await self.get_job(job_id)
@@ -328,9 +388,7 @@ class HistoryImportService:
         async with self._memory.governed_l1_write_guard():
             if self._memory.memory_operation_epoch() != expected_epoch:
                 raise _HistoryImportEpochChanged
-            stored_event_id = (
-                await self._memory.store_governed_l1_event_under_write_lock(event)
-            )
+            stored_event_id = await self._memory.store_governed_l1_event_under_write_lock(event)
         if stored_event_id is None:
             await self._store.mark_raw_skipped(
                 job_id=record.job_id,
@@ -371,7 +429,9 @@ class HistoryImportService:
 
 
 def _expand_markdown_paths(paths: list[str]) -> list[tuple[Path, str]]:
-    normalized = list(dict.fromkeys(str(value or "").strip() for value in paths if str(value or "").strip()))
+    normalized = list(
+        dict.fromkeys(str(value or "").strip() for value in paths if str(value or "").strip())
+    )
     if not normalized:
         raise HistoryImportValidationError("markdown_selection_empty")
     selected: list[tuple[Path, str]] = []
@@ -396,12 +456,55 @@ def _expand_markdown_paths(paths: list[str]) -> list[tuple[Path, str]]:
     deduped: dict[str, tuple[Path, str]] = {}
     for path, source_name in selected:
         deduped[str(path)] = (path, source_name)
-    files = sorted(deduped.values(), key=lambda item: item[1].casefold())
+    files = _unique_source_names(sorted(deduped.values(), key=lambda item: item[1].casefold()))
     if not files:
         raise HistoryImportValidationError("markdown_files_not_found")
     if len(files) > MAX_MARKDOWN_FILES:
         raise HistoryImportValidationError("markdown_too_many_files")
     return files
+
+
+def _unique_source_names(
+    files: list[tuple[Path, str]],
+) -> list[tuple[Path, str]]:
+    """Keep selection labels distinct without exposing full local paths."""
+
+    label_counts = Counter(source_name.casefold() for _, source_name in files)
+    used: set[str] = set()
+    resolved: list[tuple[Path, str]] = []
+    for path, source_name in files:
+        candidate = source_name
+        if label_counts[source_name.casefold()] > 1:
+            safe_parts = [part for part in path.parts if part and part != path.anchor]
+            for depth in range(2, min(len(safe_parts), 3) + 1):
+                candidate = "/".join(safe_parts[-depth:])
+                if candidate.casefold() not in used:
+                    break
+            else:
+                candidate = source_name
+        base_candidate = candidate
+        suffix = 2
+        while candidate.casefold() in used:
+            candidate = f"{base_candidate} ({suffix})"
+            suffix += 1
+        used.add(candidate.casefold())
+        resolved.append((path, candidate))
+    return resolved
+
+
+def _validate_included_files(
+    job: HistoryImportJob,
+    included_files: list[str],
+) -> list[str]:
+    normalized = list(
+        dict.fromkeys(str(item or "").strip() for item in included_files if str(item or "").strip())
+    )
+    if not normalized:
+        raise HistoryImportValidationError("history_import_selection_empty")
+    known = set(job.source_files)
+    if any(item not in known for item in normalized):
+        raise HistoryImportValidationError("history_import_selection_changed")
+    return [item for item in job.source_files if item in set(normalized)]
 
 
 def _build_records(
@@ -462,9 +565,7 @@ def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
         event_type=f"history_import.{source_kind}",
         source="history_import_markdown",
         source_item_id=record.record_id,
-        memory_domain=(
-            MemoryDomain.USER_AUTHORED if is_user else MemoryDomain.INTERACTION
-        ),
+        memory_domain=(MemoryDomain.USER_AUTHORED if is_user else MemoryDomain.INTERACTION),
         ingest_target=IngestTarget.L1_ONLY,
         cognition_eligible=is_user,
         tom_depth=TomDepth.NONE,
@@ -475,9 +576,7 @@ def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
         user_id=str(CANONICAL_LOCAL_USER),
         task_id=None,
         content=record.content,
-        author_type=(
-            AuthorType.USER.label if is_user else AuthorType.EXTERNAL.label
-        ),
+        author_type=(AuthorType.USER.label if is_user else AuthorType.EXTERNAL.label),
         content_type=ContentType.TEXT.label,
         importance_score=0.72 if is_user else 0.3,
         level=0,
