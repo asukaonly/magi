@@ -256,6 +256,13 @@ export interface PluginPackageState {
   current_settings: Record<string, any>;
 }
 
+export interface PluginInstallCandidate {
+  candidate_id: string;
+  archive_sha256: string;
+  expires_at_ms: number;
+  manifest: PluginManifest;
+}
+
 export type PluginInstallJobStatus = 'queued' | 'running' | 'completed' | 'failed';
 export type PluginInstallOperation = 'install' | 'update' | 'upload';
 
@@ -521,41 +528,42 @@ export const pluginsApi = {
     return waitForInstallJob(snapshot, onProgress);
   },
 
-  installFromUpload: async (file: File): Promise<PluginPackageState> => {
+  createInstallCandidate: async (file: File): Promise<PluginInstallCandidate> => {
     const formData = new FormData();
     formData.append('file', file);
-    const response = await api.post<PluginPackageState>('/plugins/install/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
-  },
-
-  startInstallFromUpload: async (file: File): Promise<PluginInstallJobSnapshot> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await api.post<PluginInstallJobSnapshot>('/plugins/install/upload/jobs', formData, {
+    const response = await api.post<PluginInstallCandidate>('/plugins/install/candidates', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120000,
     });
-    return unwrapPayload(response as PluginInstallJobSnapshot | ApiResponse<PluginInstallJobSnapshot>);
+    return unwrapPayload(
+      response as PluginInstallCandidate | ApiResponse<PluginInstallCandidate>
+    );
   },
 
-  installFromUploadWithProgress: async (
-    file: File,
+  startInstallCandidate: async (
+    candidateId: string,
+    expectedSha256: string,
+  ): Promise<PluginInstallJobSnapshot> => {
+    const response = await api.post<PluginInstallJobSnapshot>(
+      `/plugins/install/candidates/${candidateId}/jobs`,
+      { expected_sha256: expectedSha256 },
+    );
+    return unwrapPayload(
+      response as PluginInstallJobSnapshot | ApiResponse<PluginInstallJobSnapshot>
+    );
+  },
+
+  installCandidateWithProgress: async (
+    candidateId: string,
+    expectedSha256: string,
     onProgress?: (snapshot: PluginInstallJobSnapshot) => void,
   ): Promise<PluginPackageState> => {
-    const snapshot = await pluginsApi.startInstallFromUpload(file);
+    const snapshot = await pluginsApi.startInstallCandidate(candidateId, expectedSha256);
     return waitForInstallJob(snapshot, onProgress);
   },
 
-  inspectUpload: async (file: File): Promise<PluginManifest> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await api.post<PluginManifest>('/plugins/install/upload/inspect', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000,
-    });
-    return unwrapPayload(response as PluginManifest | ApiResponse<PluginManifest>);
+  discardInstallCandidate: async (candidateId: string): Promise<void> => {
+    await api.delete(`/plugins/install/candidates/${candidateId}`);
   },
 
   uninstall: async (pluginId: string): Promise<void> => {

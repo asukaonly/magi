@@ -384,4 +384,101 @@ describe('PluginMarketplace', () => {
     expect(within(browserCard).queryByText(/Chrome 浏览器历史/)).not.toBeInTheDocument();
     expect(within(browserCard).queryByText(/Safari 浏览器历史/)).not.toBeInTheDocument();
   });
+
+  it('uploads a sideload package once and installs the inspected candidate', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: '1',
+      plugins: [],
+    });
+    const candidate = {
+      candidate_id: 'candidate-1',
+      archive_sha256: 'a'.repeat(64),
+      expires_at_ms: Date.now() + 60_000,
+      manifest: {
+        plugin_id: 'demo-plugin',
+        name: 'Demo Plugin',
+        version: '1.0.0',
+        description: '',
+        author: 'Demo',
+        official: false,
+        contribution_types: [],
+        source: 'external',
+        plugin_dir: '',
+        manifest_path: '',
+        capabilities: [],
+      },
+    };
+    const createCandidate = vi
+      .spyOn(pluginsApi, 'createInstallCandidate')
+      .mockResolvedValue(candidate);
+    const installCandidate = vi
+      .spyOn(pluginsApi, 'installCandidateWithProgress')
+      .mockResolvedValue({} as any);
+    const onInstallComplete = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(
+      <PluginMarketplace installedPlugins={[]} onInstallComplete={onInstallComplete} />,
+    );
+    const file = new File(['archive'], 'demo.zip', { type: 'application/zip' });
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    await user.upload(input, file);
+    await user.click(
+      await screen.findByText('settings.marketplace.consent.confirm.install'),
+    );
+
+    await waitFor(() => {
+      expect(createCandidate).toHaveBeenCalledOnce();
+      expect(createCandidate).toHaveBeenCalledWith(file);
+      expect(installCandidate).toHaveBeenCalledWith(
+        'candidate-1',
+        'a'.repeat(64),
+        expect.any(Function),
+      );
+      expect(onInstallComplete).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('discards an inspected sideload candidate when the user cancels', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: '1',
+      plugins: [],
+    });
+    vi.spyOn(pluginsApi, 'createInstallCandidate').mockResolvedValue({
+      candidate_id: 'candidate-2',
+      archive_sha256: 'b'.repeat(64),
+      expires_at_ms: Date.now() + 60_000,
+      manifest: {
+        plugin_id: 'demo-plugin',
+        name: 'Demo Plugin',
+        version: '1.0.0',
+        description: '',
+        author: 'Demo',
+        official: false,
+        contribution_types: [],
+        source: 'external',
+        plugin_dir: '',
+        manifest_path: '',
+        capabilities: [],
+      },
+    });
+    const discard = vi
+      .spyOn(pluginsApi, 'discardInstallCandidate')
+      .mockResolvedValue(undefined);
+    const { container } = render(
+      <PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />,
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    await user.upload(
+      input,
+      new File(['archive'], 'demo.zip', { type: 'application/zip' }),
+    );
+    await user.click(await screen.findByText('settings.marketplace.consent.cancel'));
+
+    await waitFor(() => {
+      expect(discard).toHaveBeenCalledWith('candidate-2');
+    });
+  });
 });

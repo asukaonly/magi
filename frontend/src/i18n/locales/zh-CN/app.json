@@ -2584,6 +2584,7 @@
         "title": { "install": "安装「{{name}}」?", "update": "更新「{{name}}」?", "sideload": "从文件安装「{{name}}」?" },
         "lede": "此插件声明将访问:",
         "ledeEmpty": "此插件未声明需要特殊系统权限或数据访问。",
+        "sideloadWarning": "安装后默认不会运行，需要你另行启用。Magi 只检查安装包结构和权限声明，不会验证代码实际行为；启用后，它会以你当前的本机权限运行。",
         "updateNewLede": "本次更新新增了以下访问:",
         "groupSystem": "系统权限",
         "groupData": "数据与网络访问",

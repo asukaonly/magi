@@ -135,6 +135,16 @@ export const PluginConsentDialog: React.FC<Props> = ({
         </DialogHeader>
 
         <div className="max-h-[60vh] space-y-3 overflow-y-auto px-6 pb-4">
+          {mode === 'sideload' && (
+            <div
+              role="note"
+              className="flex gap-2.5 rounded-md border border-amber-200/70 bg-amber-50/70 px-3 py-2.5 text-xs leading-5 text-amber-950"
+            >
+              <LucideIcons.ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{t('settings.marketplace.consent.sideloadWarning')}</span>
+            </div>
+          )}
+
           {isUpdate && (
             <div className="mb-1">
               <div className="text-sm font-medium text-orange-700">

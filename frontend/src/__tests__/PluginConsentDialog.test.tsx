@@ -61,4 +61,22 @@ describe('PluginConsentDialog', () => {
     expect(screen.getByText('~/Library/Application Support/Google/Chrome')).toHaveClass('block');
     expect(screen.getByText('%LOCALAPPDATA%\\Google\\Chrome')).toHaveClass('block');
   });
+
+  it('shows the sideload behavior warning', () => {
+    render(
+      <PluginConsentDialog
+        open
+        mode="sideload"
+        pluginName="Demo"
+        version="1.0.0"
+        capabilities={[]}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'settings.marketplace.consent.sideloadWarning',
+    );
+  });
 });

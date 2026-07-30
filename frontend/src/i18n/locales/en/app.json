@@ -2585,6 +2585,7 @@
         "title": { "install": "Install \"{{name}}\"?", "update": "Update \"{{name}}\"?", "sideload": "Install \"{{name}}\" from file?" },
         "lede": "This plugin declares it will access:",
         "ledeEmpty": "This plugin declares no special system permissions or data access.",
+        "sideloadWarning": "The plugin stays off after installation until you enable it. Magi checks the package structure and declared access, not what its code will actually do. Once enabled, it runs with your local user permissions.",
         "updateNewLede": "This update adds the following access:",
         "groupSystem": "System permissions",
         "groupData": "Data & network access",

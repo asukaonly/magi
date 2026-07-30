@@ -17,8 +17,8 @@ import { toast } from 'sonner';
 import {
   pluginsApi,
   type PluginCapability,
+  type PluginInstallCandidate,
   type PluginInstallJobSnapshot,
-  type PluginManifest,
   type PluginPackageState,
   type PluginRegistryEntry,
 } from '@/api/modules/plugins';
@@ -96,6 +96,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     capabilities: PluginCapability[];
     newCapabilities?: PluginCapability[];
     proceed: () => Promise<void>;
+    cancel?: () => Promise<void>;
   } | null>(null);
 
   const fetchRegistry = useCallback(async (options?: { force?: boolean }) => {
@@ -334,16 +335,25 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     });
   };
 
-  const runUpload = async (file: File) => {
+  const runCandidateInstall = async (candidate: PluginInstallCandidate) => {
     setProcessingIds((prev) => ({ ...prev, __upload: 'uploading' }));
     try {
-      await pluginsApi.installFromUploadWithProgress(file, (snapshot) => {
+      await pluginsApi.installCandidateWithProgress(
+        candidate.candidate_id,
+        candidate.archive_sha256,
+        (snapshot) => {
         setInstallSnapshots((prev) => ({ ...prev, __upload: snapshot }));
-      });
+        },
+      );
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.installSuccess'));
       await fetchRegistry();
     } catch (err: any) {
+      try {
+        await pluginsApi.discardInstallCandidate(candidate.candidate_id);
+      } catch {
+        // The backend owns cleanup once an install job has claimed the candidate.
+      }
       toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
     } finally {
       setProcessingIds((prev) => { const n = { ...prev }; delete n.__upload; return n; });
@@ -355,14 +365,15 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     event.target.value = '';
     if (!file) return;
     setProcessingIds((prev) => ({ ...prev, __upload: 'uploading' }));
-    let manifest: PluginManifest;
+    let candidate: PluginInstallCandidate;
     try {
-      manifest = await pluginsApi.inspectUpload(file);
+      candidate = await pluginsApi.createInstallCandidate(file);
     } catch (err: any) {
       toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
       setProcessingIds((prev) => { const n = { ...prev }; delete n.__upload; return n; });
       return;
     }
+    const manifest = candidate.manifest;
     setProcessingIds((prev) => { const n = { ...prev }; delete n.__upload; return n; });
     setConsent({
       mode: 'sideload',
@@ -371,7 +382,8 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       icon: manifest.icon,
       version: manifest.version,
       capabilities: manifest.capabilities ?? [],
-      proceed: () => runUpload(file),
+      proceed: () => runCandidateInstall(candidate),
+      cancel: () => pluginsApi.discardInstallCandidate(candidate.candidate_id),
     });
   };
 
@@ -860,7 +872,13 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
           official={consent.official}
           capabilities={consent.capabilities}
           newCapabilities={consent.newCapabilities}
-          onCancel={() => setConsent(null)}
+          onCancel={() => {
+            const cancel = consent.cancel;
+            setConsent(null);
+            if (cancel) {
+              void cancel().catch(() => undefined);
+            }
+          }}
           onConfirm={() => { const p = consent.proceed; setConsent(null); void p(); }}
         />
       )}

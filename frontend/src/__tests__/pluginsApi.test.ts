@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/api/client', () => ({
   api: {
+    delete: vi.fn(),
     get: vi.fn(),
     post: vi.fn(),
   },
@@ -14,6 +15,7 @@ describe('pluginsApi.getSettingsResource', () => {
   beforeEach(() => {
     vi.mocked(api.get).mockReset();
     vi.mocked(api.post).mockReset();
+    vi.mocked(api.delete).mockReset();
   });
 
   it('keeps plain settings resource payloads intact when they contain business data fields', async () => {
@@ -202,6 +204,71 @@ describe('pluginsApi.getSettingsResource', () => {
     expect(api.get).toHaveBeenCalledWith('/plugins/install/jobs/job-1');
     expect(progressSnapshots).toEqual(['running', 'completed']);
     expect(result.manifest.plugin_id).toBe('calendar');
+  });
+
+  it('uploads once and starts installation with the returned candidate digest', async () => {
+    const candidate = {
+      candidate_id: 'candidate-1',
+      archive_sha256: 'a'.repeat(64),
+      expires_at_ms: 123,
+      manifest: {
+        plugin_id: 'demo-plugin',
+        name: 'Demo Plugin',
+        version: '1.0.0',
+        description: '',
+        author: 'Demo',
+        official: false,
+        contribution_types: [],
+        source: 'external',
+        plugin_dir: '',
+        manifest_path: '',
+        capabilities: [],
+      },
+    };
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(candidate as any)
+      .mockResolvedValueOnce({
+        job_id: 'job-1',
+        operation: 'upload',
+        plugin_id: 'demo-plugin',
+        filename: 'demo.zip',
+        status: 'queued',
+        stage: 'queued',
+        progress_pct: 0,
+        message: 'Queued plugin installation',
+        logs: [],
+        created_at_ms: 1,
+        updated_at_ms: 1,
+      } as any);
+    const file = new File(['archive'], 'demo.zip', { type: 'application/zip' });
+
+    const created = await pluginsApi.createInstallCandidate(file);
+    await pluginsApi.startInstallCandidate(created.candidate_id, created.archive_sha256);
+
+    expect(api.post).toHaveBeenNthCalledWith(
+      1,
+      '/plugins/install/candidates',
+      expect.any(FormData),
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000,
+      },
+    );
+    const formData = vi.mocked(api.post).mock.calls[0][1] as FormData;
+    expect(formData.get('file')).toBe(file);
+    expect(api.post).toHaveBeenNthCalledWith(
+      2,
+      '/plugins/install/candidates/candidate-1/jobs',
+      { expected_sha256: 'a'.repeat(64) },
+    );
+  });
+
+  it('discards an unused install candidate', async () => {
+    vi.mocked(api.delete).mockResolvedValue({} as any);
+
+    await pluginsApi.discardInstallCandidate('candidate-1');
+
+    expect(api.delete).toHaveBeenCalledWith('/plugins/install/candidates/candidate-1');
   });
 
   it('fetches the registry without cache-bypass params by default', async () => {
