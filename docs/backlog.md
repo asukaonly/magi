@@ -139,6 +139,25 @@ Open items:
   the proactive-outreach outbox without defining their different lifecycle
   semantics
 
+### 8. Add platform-specific history import adapters
+
+Status: planned
+
+Current state:
+
+- the host supports one-shot Markdown files and folders with preview, speaker
+  confirmation, resumable progress, deletion, and ordered memory handoff
+- there is no plugin importer contribution type yet
+
+Open items:
+
+- define a narrow importer contribution that converts one platform export into
+  normalized sessions, speakers, source order, timestamps, and content
+- keep file selection, identity confirmation, progress, deletion, and memory
+  writes host-owned
+- add supported export adapters only after representative samples lock their
+  parsing and privacy behavior
+
 ## Maintenance Fixes
 
 ### 1. Retire or split oversized legacy modules

@@ -55,3 +55,9 @@ def get_manual_entry_asset_store() -> "ManualEntryAssetStore":
 def get_manual_entry_weather_fetcher() -> "WeatherFetcher":
     """Return the active manual-entry weather-fetcher binding."""
     return cast("WeatherFetcher", _require_memory_binding("manual_entry_weather_fetcher"))
+
+
+def get_history_import_service() -> Any:
+    """Return the active one-shot history import service."""
+
+    return _require_memory_binding("history_import_service")

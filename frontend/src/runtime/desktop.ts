@@ -116,6 +116,29 @@ export async function pickFile(defaultPath?: string | null): Promise<string | un
   return selection;
 }
 
+export async function pickMarkdownFiles(): Promise<string[]> {
+  if (!isTauriRuntime()) {
+    return [];
+  }
+
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const selection = await open({
+    directory: false,
+    multiple: true,
+    filters: [
+      {
+        name: 'Markdown',
+        extensions: ['md', 'markdown'],
+      },
+    ],
+  });
+
+  if (!selection) {
+    return [];
+  }
+  return Array.isArray(selection) ? selection : [selection];
+}
+
 export async function openExternalUrl(url: string): Promise<void> {
   const normalizedUrl = String(url || '').trim();
   if (!normalizedUrl) {

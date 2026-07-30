@@ -84,6 +84,10 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/manual-entries/{entry_id}": {"PATCH", "DELETE"},
         "/manual-entries/{entry_id}/weather": {"DELETE"},
         "/manual-entries/assets": {"POST"},
+        "/history-imports/markdown/preview": {"POST"},
+        "/history-imports/{job_id}": {"GET", "DELETE"},
+        "/history-imports/{job_id}/confirm": {"POST"},
+        "/history-imports/{job_id}/resume": {"POST"},
     },
     "messages": {
         "/send": {"POST"},

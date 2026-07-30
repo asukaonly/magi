@@ -20,6 +20,8 @@ _SHARED_AUXILIARY_USER_TABLES = (
     "memory_forget_operations",
     "embedding_rebuild_job_layers",
     "embedding_rebuild_jobs",
+    "history_import_records",
+    "history_import_jobs",
     "manual_entries",
     "timeline_cover_preferences",
     "place_labels",

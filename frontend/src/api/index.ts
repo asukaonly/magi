@@ -58,6 +58,14 @@ export { hooksApi } from './modules/hooks';
 export type { HookEntry, HooksListResponse } from './modules/hooks';
 
 export { memoryApi } from './modules/memory';
+export { historyImportsApi } from './modules/historyImports';
+export type {
+  HistoryImportDetectedKind,
+  HistoryImportJob,
+  HistoryImportParticipant,
+  HistoryImportRecordPreview,
+  HistoryImportStatus,
+} from './modules/historyImports';
 export type {
   MemoryCorrectionCommandResponse,
   MemoryCorrectionHistoryResponse,

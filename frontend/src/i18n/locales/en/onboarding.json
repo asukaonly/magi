@@ -354,12 +354,17 @@
         "body": "Pick whichever is easiest: what to call you, an interest, or a recent moment.",
         "meta": "About 30 seconds"
       },
+      "history": {
+        "title": "Import past records",
+        "body": "Bring in things you previously said or wrote from chats, journals, or notes.",
+        "meta": "Preview before importing"
+      },
       "activity": {
         "title": "Connect everyday activity",
         "body": "Start with traces you naturally leave in browsing, music, photos, and more.",
         "meta": "Only connect sources you choose"
       },
-      "note": "Neither option comes first, and you can also skip this step."
+      "note": "No option comes first, and you can also skip this step."
     },
     "story": {
       "kicker": "A small introduction",
@@ -409,6 +414,78 @@
       "title": "Start with everyday activity",
       "body": "Only connect sources you choose. Magi will first read a small amount of recent history.",
       "badge": "Entirely optional"
+    },
+    "history": {
+      "kicker": "Past records",
+      "title": "Start with things you have said and written",
+      "body": "Choose Markdown files or a folder first. Magi shows what it found and imports only after you confirm.",
+      "badge": "Local preview · Entirely optional",
+      "loading": "Restoring your previous import…",
+      "picker": {
+        "title": "Choose Markdown content",
+        "body": "Select chat records, journals, notes, or a folder containing them.",
+        "files": "Choose Markdown files",
+        "folder": "Choose a folder",
+        "note": "Supports .md and .markdown. Content stays on this device, and you confirm which messages are yours before importing."
+      },
+      "preview": {
+        "files": "{{count}} files",
+        "records": "{{count}} items found",
+        "kind": {
+          "chat": "Chat records",
+          "document": "Personal writing",
+          "mixed": "Chats and personal writing"
+        },
+        "sample": "Content preview",
+        "sourceOrder": "Source order",
+        "chooseAgain": "Choose again",
+        "confirm": "Confirm and import",
+        "importing": "Preparing the first items…"
+      },
+      "identity": {
+        "title": "Which name in the chat is you?",
+        "body": "Only your own words can shape Magi's understanding of you. Other messages are used only as context.",
+        "messageCount": "{{count}} messages"
+      },
+      "writing": {
+        "title": "I wrote most of this personal content",
+        "body": "After confirmation, this content is treated as your own account. Do not confirm quoted or ghostwritten material."
+      },
+      "warnings": {
+        "timestamps_from_file_order": "Some messages have no timestamp. Magi preserves their file order without treating estimated times as exact.",
+        "timestamps_from_file_mtime": "The writing has no individual timestamps, so file modification time is used and marked as approximate.",
+        "document_author_confirmation_required": "These files look like personal writing, so author confirmation is required before import."
+      },
+      "ready": {
+        "title": "{{count}} items are ready",
+        "background": "You can start the first chat now. Remaining content will be organized from the beginning in the background.",
+        "completed": "All selected content has been saved and entered organizing in its original order.",
+        "failed": "The first items are safe, but later organizing paused. You can continue it.",
+        "progress": "Saved {{imported}} / {{total}} items",
+        "retry": "Continue organizing",
+        "note": "Quick context is only an initial view. Long-term understanding still comes from processing the complete history in order."
+      },
+      "errors": {
+        "markdown_selection_empty": "Choose at least one Markdown file or folder.",
+        "markdown_path_missing": "A selected file no longer exists. Please choose it again.",
+        "markdown_path_invalid": "The selected location cannot be read. Please choose another.",
+        "markdown_extension_required": "Choose a .md or .markdown file.",
+        "markdown_files_not_found": "No Markdown files were found in this folder.",
+        "markdown_too_many_files": "The first import supports up to 50 Markdown files.",
+        "markdown_file_too_large": "One file is larger than 5 MB. Reduce it and try again.",
+        "markdown_selection_too_large": "The selected content is larger than 25 MB. Import it in smaller groups.",
+        "markdown_not_utf8": "One file is not standard UTF-8 text. Convert its encoding and try again.",
+        "markdown_empty": "The selected file contains no text to import.",
+        "self_participant_required": "Choose the name that represents you in the chat.",
+        "unknown_self_participant": "The participant list changed. Please confirm again.",
+        "personal_writing_confirmation_required": "Confirm that you wrote most of the personal content.",
+        "self_participant_locked_after_import": "Your identity cannot change after import starts. Choose the files again.",
+        "memory_cleared_during_import": "Memory was cleared during import, so this import was stopped as well.",
+        "history_import_not_confirmed": "Confirm your identity and content scope first.",
+        "history_import_not_found": "This import no longer exists. Choose the files again.",
+        "history_import_unavailable": "Import is still getting ready. Please try again shortly.",
+        "unknown": "These files could not be read right now. Your originals were not changed; please try again."
+      }
     },
     "scopeHint": "This only prepares a small amount of context for the first chat; full history can be backfilled after setup.",
     "note": "Magi only reads sources you enable. You can turn each plugin off or adjust it from Settings.",

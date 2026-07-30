@@ -791,6 +791,17 @@ the L2 derive task, and successful derived-profile writes explicitly enqueue the
 same debounced portrait refresh used by ordinary assertion changes. This keeps
 cold-start personalization timely without creating a second profile pipeline.
 
+Historical chat and writing imports use the same memory pipeline with an
+additional ordering boundary. After explicit authorship confirmation, a bounded
+recent slice may enter L1 immediately so onboarding can finish without claiming
+that durable understanding already exists. The full import persists normalized
+records with source session, sequence, speaker role, event time, and timestamp
+confidence. User-authored records are then submitted for L2 work oldest-first
+within each source session, while other participants remain non-cognitive L1
+context. Approximate timestamps preserve source order but must not be presented
+as exact history. Import progress belongs to a durable host-owned job, and a
+global memory clear removes both its normalized records and job state.
+
 `L2` embedding uses a shared embedding pipeline across all layers; each layer defines its own text builder, chunk strategy, parent-table status writeback, and retrieval collapse logic. The entity catalog uses single-entity-single-vector without chunking. All L2 parent tables record unified embedding observation fields (`embedding_status`, `embedding_profile_id`, `last_embedded_at`); `knowledge_graph` also records these fields for relation-edge vectors. Runtime settings expose a persistent vector rebuild job for `L1`, `L2` entities, `L2` edges, `L3`, and `L4`.
 
 Vector rebuilds are online refreshes, not destructive clear-and-refill jobs. Each

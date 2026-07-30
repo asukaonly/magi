@@ -65,6 +65,7 @@ from ..memory.lifecycle import (
     MemoryStoreModule,
 )
 from ..memory.manual_entries.lifecycle import ManualEntriesModule
+from ..memory.history_imports.lifecycle import HistoryImportsModule
 from ..media.lifecycle import MediaRegistryModule
 from ..personality.lifecycle import PersonalityModule
 from ..plugins.lifecycle import PluginSystemModule
@@ -225,6 +226,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         MediaRegistryModule(context),  # after memory store so unified_memory.l1 exists
         LocationModule(context),  # owns location pipeline; reads memory.db path directly
         ManualEntriesModule(context),  # owns manual-entry store/asset/weather construction
+        HistoryImportsModule(context),  # owns one-shot preview/import continuation
         MemoryIngestionSubscriberModule(context),
         LLMUsageSubscriberModule(context),
         ChatProjectorModule(context),

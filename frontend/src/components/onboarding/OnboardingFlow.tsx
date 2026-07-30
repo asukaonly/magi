@@ -43,6 +43,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { PluginInstallDoneInfo } from "../../stores/pluginInstallPanel";
+import type { HistoryImportJob } from "@/api/modules/historyImports";
 import {
   ONBOARDING_PRIMARY_ACTION_CLASS,
   ONBOARDING_SECONDARY_ACTION_CLASS,
@@ -703,7 +704,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           ? t("firstContext.story.retryEntering")
           : t("firstContext.story.submit")
       : current === FIRST_CONTEXT_STEP
-      ? firstContextPluginIds.length > 0
+      ? firstContextPluginIds.length > 0 ||
+        firstContextProgress.historyPreparedCount > 0
         ? t("actions.finishContext")
         : t("actions.skipContext")
       : t("actions.next");
@@ -805,6 +807,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           }
           storySubmitted={firstContextSubmission.submitted}
           storyError={firstContextStoryError}
+          historyImportJobId={firstContextProgress.historyImportJobId}
+          onHistoryImportUpdate={(job: HistoryImportJob | null) => {
+            updateFirstContextProgress({
+              historyImportJobId: job?.job_id ?? null,
+              historyPreparedCount: job?.quick_ready
+                ? job.quick_imported_count
+                : 0,
+            });
+          }}
           onRouteChange={firstContextSubmission.changeRoute}
           onQuestionChange={firstContextSubmission.changeQuestion}
           onStoryDraftChange={firstContextSubmission.changeDraft}

@@ -261,6 +261,20 @@ time is not a substitute for source time when the event already has a real
 timestamp, so a newly imported historical photo or history item should not appear
 as first-contact context solely because it was just backfilled.
 
+#### One-Shot History Imports
+
+Plain Markdown history import is host-owned because file selection, preview,
+speaker identity, progress, deletion, and memory governance must behave the same
+regardless of source format. It is not modeled as a sensor: an import has a
+bounded input, an explicit user confirmation, and a completed lifecycle rather
+than an ongoing polling schedule.
+
+Future platform-specific import plugins should only adapt an export into the
+host's normalized history records. They must not write memory directly, decide
+which participant is the user, or own the preview and deletion experience. A
+dedicated importer contribution contract is still future work; the current
+runtime supports the host Markdown importer only.
+
 ### Channel Registry
 
 Channels are bidirectional messaging adapters that connect Magi to external platforms (e.g. Telegram).

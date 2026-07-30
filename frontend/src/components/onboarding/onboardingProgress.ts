@@ -25,6 +25,8 @@ export interface FirstContextProgress {
   sessionId: string | null;
   turnId: string | null;
   messageId: string | null;
+  historyImportJobId: string | null;
+  historyPreparedCount: number;
   submitted: boolean;
   sendUncertain: boolean;
 }
@@ -38,6 +40,8 @@ export const DEFAULT_FIRST_CONTEXT_PROGRESS: FirstContextProgress = {
   sessionId: null,
   turnId: null,
   messageId: null,
+  historyImportJobId: null,
+  historyPreparedCount: 0,
   submitted: false,
   sendUncertain: false,
 };
@@ -97,6 +101,11 @@ function normalizeFirstContextProgress(
       ? candidate.messageId.trim()
       : null;
   const submitted = Boolean(candidate.submitted && sessionId && turnId);
+  const historyImportJobId =
+    typeof candidate.historyImportJobId === "string" &&
+    candidate.historyImportJobId.trim()
+      ? candidate.historyImportJobId.trim()
+      : null;
   const questionId = isFirstContextQuestionId(candidate.questionId)
     ? candidate.questionId
     : DEFAULT_FIRST_CONTEXT_PROGRESS.questionId;
@@ -117,6 +126,13 @@ function normalizeFirstContextProgress(
     sessionId,
     turnId,
     messageId,
+    historyImportJobId,
+    historyPreparedCount:
+      historyImportJobId &&
+      typeof candidate.historyPreparedCount === "number" &&
+      Number.isFinite(candidate.historyPreparedCount)
+        ? Math.max(0, Math.floor(candidate.historyPreparedCount))
+        : 0,
     submitted,
     sendUncertain: Boolean(
       candidate.sendUncertain && sessionId && turnId && !submitted,

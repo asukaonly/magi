@@ -54,6 +54,18 @@ def _context_row_order_key(row: dict[str, Any]) -> tuple[float, float, int, str]
     )
 
 
+def _is_allowed_conversation_context_row(row: dict[str, Any]) -> bool:
+    """Keep imported counterpart speech as context without promoting it."""
+
+    author_role = str(row.get("author_type") or "").strip().casefold()
+    if author_role in {"assistant", "user"}:
+        return bool(row.get("cognition_eligible", True))
+    return (
+        author_role == "external"
+        and str(row.get("source") or "").strip() == "history_import_markdown"
+    )
+
+
 class _L2PipelineContextHostProtocol(Protocol):
     _l1_store: L1EventStore | None
     _entity_catalog: L2EntityCatalog | None
@@ -173,10 +185,8 @@ class L2PipelineContextMixin:
             row
             for row in rows
             if str(row.get("event_id") or "") not in excluded
-            and bool(row.get("cognition_eligible", True))
             and _context_row_precedes_event(row, event)
-            and str(row.get("author_type") or "").strip().casefold()
-            in {"assistant", "user"}
+            and _is_allowed_conversation_context_row(row)
             and str(row.get("content") or "").strip()
         ]
         context_rows.sort(key=_context_row_order_key)

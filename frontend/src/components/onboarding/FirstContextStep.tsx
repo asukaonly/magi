@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertCircle,
+  BookOpenText,
   CheckCircle2,
   ChevronRight,
   Footprints,
@@ -25,6 +26,8 @@ import {
   type FirstContextQuestionId,
 } from "@/domain/chat/first-context";
 import { getMemoryModelStatus } from "./memoryModelStatus";
+import FirstContextHistoryImport from "./FirstContextHistoryImport";
+import type { HistoryImportJob } from "@/api/modules/historyImports";
 import {
   ONBOARDING_FIELD_CLASS,
   ONBOARDING_SECONDARY_ACTION_CLASS,
@@ -36,10 +39,15 @@ export {
   type FirstContextQuestionId,
 };
 
-export type FirstContextRoute = "choose" | "question" | "activity";
+export type FirstContextRoute = "choose" | "question" | "history" | "activity";
 
 export function isFirstContextRoute(value: unknown): value is FirstContextRoute {
-  return value === "choose" || value === "question" || value === "activity";
+  return (
+    value === "choose" ||
+    value === "question" ||
+    value === "history" ||
+    value === "activity"
+  );
 }
 
 const KICKER_CLASS = "text-xs font-semibold tracking-[0.08em] text-primary";
@@ -118,6 +126,8 @@ interface FirstContextStepProps {
   onQuestionChange: () => void;
   onStoryDraftChange: (value: string) => void;
   onStoryContinueWithoutConfirmation: () => void;
+  historyImportJobId?: string | null;
+  onHistoryImportUpdate: (job: HistoryImportJob | null) => void;
   installableItems?: InstallableItem[];
   installableCatalogMode?: InstallableCatalogMode | null;
   installableLoading?: boolean;
@@ -141,6 +151,8 @@ export function FirstContextStep({
   onQuestionChange,
   onStoryDraftChange,
   onStoryContinueWithoutConfirmation,
+  historyImportJobId = null,
+  onHistoryImportUpdate,
   installableItems,
   installableCatalogMode,
   installableLoading,
@@ -211,6 +223,17 @@ export function FirstContextStep({
           onSelect={() => onRouteChange("question")}
         />
         <RouteOptionCard
+          testId="first-context-route-history"
+          icon={<BookOpenText className="h-5 w-5" aria-hidden="true" />}
+          title={t("firstContext.routes.history.title")}
+          body={t("firstContext.routes.history.body")}
+          meta={[
+            t("firstContext.routes.optional"),
+            t("firstContext.routes.history.meta"),
+          ]}
+          onSelect={() => onRouteChange("history")}
+        />
+        <RouteOptionCard
           testId="first-context-route-activity"
           icon={<Footprints className="h-5 w-5" aria-hidden="true" />}
           title={t("firstContext.routes.activity.title")}
@@ -226,6 +249,29 @@ export function FirstContextStep({
       <p className="text-center text-xs leading-5 text-muted-foreground/75">
         {t("firstContext.routes.note")}
       </p>
+    </div>
+  );
+
+  const renderHistoryRoute = () => (
+    <div className="space-y-5" data-testid="first-context-history-route">
+      <div>
+        <div className="flex items-center gap-3">
+          <p className={KICKER_CLASS}>{t("firstContext.history.kicker")}</p>
+          <span className={BADGE_CLASS}>{t("firstContext.history.badge")}</span>
+        </div>
+        <h3
+          ref={routeHeadingRef}
+          tabIndex={-1}
+          className={`${HEADING_CLASS} mt-2.5`}
+        >
+          {t("firstContext.history.title")}
+        </h3>
+        <p className={BODY_CLASS}>{t("firstContext.history.body")}</p>
+      </div>
+      <FirstContextHistoryImport
+        initialJobId={historyImportJobId}
+        onJobUpdate={onHistoryImportUpdate}
+      />
     </div>
   );
 
@@ -442,7 +488,7 @@ export function FirstContextStep({
             ease: [0.22, 1, 0.36, 1],
           }}
           className={`mx-auto my-auto flex w-full flex-col px-4 py-6 sm:px-5 lg:px-6 ${
-            route === "activity"
+            route === "activity" || route === "history"
               ? "max-w-[860px]"
               : route === "question"
                 ? "max-w-[800px]"
@@ -453,7 +499,9 @@ export function FirstContextStep({
             ? renderRouteChooser()
             : route === "question"
               ? renderQuestionRoute()
-              : renderActivityRoute()}
+              : route === "history"
+                ? renderHistoryRoute()
+                : renderActivityRoute()}
         </motion.div>
       </AnimatePresence>
     </div>

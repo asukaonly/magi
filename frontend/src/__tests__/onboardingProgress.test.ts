@@ -60,6 +60,8 @@ describe("onboarding progress restoration", () => {
           sessionId: "orphan-session",
           turnId: "turn-1",
           messageId: 9,
+          historyImportJobId: " ",
+          historyPreparedCount: "200",
           submitted: true,
           sendUncertain: true,
         },
@@ -94,7 +96,7 @@ describe("onboarding progress restoration", () => {
       description: "unfinished",
     };
     const firstContextProgress = {
-      route: "question",
+      route: "history",
       questionId: "easy_topic",
       seenQuestionIds: ["preferred_name", "easy_topic"],
       draft: "retained answer",
@@ -102,6 +104,8 @@ describe("onboarding progress restoration", () => {
       sessionId: "session-1",
       turnId: "turn-1",
       messageId: null,
+      historyImportJobId: "him-retained",
+      historyPreparedCount: 200,
       submitted: false,
       sendUncertain: false,
     };

@@ -491,6 +491,32 @@ async def test_shared_clear_removes_manual_location_and_rebuild_rows(tmp_path) -
             """,
             (now,),
         )
+        await db.execute(
+            """
+            INSERT INTO history_import_jobs(
+                job_id, source_type, source_fingerprint, detected_kind, status,
+                total_records, meaningful_records, created_at, updated_at
+            ) VALUES (
+                'private-import', 'markdown', 'private-fingerprint', 'document',
+                'completed', 1, 1, ?, ?
+            )
+            """,
+            (now, now),
+        )
+        await db.execute(
+            """
+            INSERT INTO history_import_records(
+                record_id, job_id, source_name, session_id, session_seq,
+                speaker_name, content, event_at, timestamp_confidence,
+                meaningful, event_id, created_at, updated_at
+            ) VALUES (
+                'private-record', 'private-import', 'private.md',
+                'private-session', 0, '__document_author__', 'Private history',
+                ?, 'explicit', 1, 'private-event', ?, ?
+            )
+            """,
+            (now, now, now),
+        )
         await db.execute("""
             CREATE TABLE timeline_cover_preferences (
                 scope_key TEXT PRIMARY KEY,
@@ -512,6 +538,8 @@ async def test_shared_clear_removes_manual_location_and_rebuild_rows(tmp_path) -
         "place_geocode_cache",
         "embedding_rebuild_job_layers",
         "embedding_rebuild_jobs",
+        "history_import_records",
+        "history_import_jobs",
         "timeline_cover_preferences",
     )
     async with aiosqlite.connect(db_path) as db:

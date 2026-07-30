@@ -154,6 +154,14 @@ class ManualEntriesBootstrapState:
 
 
 @dataclass
+class HistoryImportsBootstrapState:
+    """One-shot history import state owned by HistoryImportsModule."""
+
+    store: Any = None
+    service: Any = None
+
+
+@dataclass
 class SkillsBootstrapState:
     """L7 shared skills runtime state slice."""
 
@@ -290,6 +298,9 @@ class RuntimeBootstrapContext:
     memory: MemoryBootstrapState = field(default_factory=MemoryBootstrapState)
     location: LocationBootstrapState = field(default_factory=LocationBootstrapState)
     manual_entries: ManualEntriesBootstrapState = field(default_factory=ManualEntriesBootstrapState)
+    history_imports: HistoryImportsBootstrapState = field(
+        default_factory=HistoryImportsBootstrapState
+    )
     skills: SkillsBootstrapState = field(default_factory=SkillsBootstrapState)
     hooks: HooksBootstrapState = field(default_factory=HooksBootstrapState)
     personality: PersonalityBootstrapState = field(default_factory=PersonalityBootstrapState)

@@ -40,6 +40,7 @@ from .l2 import status_routes as _l2_status_routes  # noqa: F401
 from .l3 import routes as _l3_routes  # noqa: F401
 from .l4 import routes as _l4_routes  # noqa: F401
 from . import manual_entries_routes as _manual_entries_routes  # noqa: F401
+from . import history_import_routes as _history_import_routes  # noqa: F401
 from .portrait_routes import build_router as _build_portrait_router
 from .stories_routes import build_router as _build_stories_router
 from .portrait_self_routes import build_router as _build_portrait_self_router

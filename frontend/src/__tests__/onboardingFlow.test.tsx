@@ -588,6 +588,9 @@ describe("OnboardingFlow (linear 5-step)", () => {
       screen.getByTestId("first-context-route-question"),
     ).toBeInTheDocument();
     expect(
+      screen.getByTestId("first-context-route-history"),
+    ).toBeInTheDocument();
+    expect(
       screen.getByTestId("first-context-route-activity"),
     ).toBeInTheDocument();
     expect(
@@ -642,7 +645,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     ).toBeNull();
   });
 
-  it("offers equal question and activity routes without showing sources first", async () => {
+  it("offers equal question, history, and activity routes without showing sources first", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
@@ -650,9 +653,11 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await enterFirstContextStep(user);
 
     const questionRoute = screen.getByTestId("first-context-route-question");
+    const historyRoute = screen.getByTestId("first-context-route-history");
     const activityRoute = screen.getByTestId("first-context-route-activity");
     // 选项改为纵向行布局(单列),为后续更多选项做准备。
     expect(questionRoute.parentElement).toHaveClass("grid-cols-1");
+    expect(historyRoute.parentElement).toHaveClass("grid-cols-1");
     expect(activityRoute.parentElement).toHaveClass("grid-cols-1");
     expect(screen.getByText("firstContext.kicker")).toBeInTheDocument();
     expect(

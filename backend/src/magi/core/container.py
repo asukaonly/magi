@@ -100,6 +100,7 @@ class Container(containers.DeclarativeContainer):
     manual_entry_store: providers.Singleton[ManualEntryStore] = providers.Singleton(object)
     manual_entry_asset_store: providers.Singleton[ManualEntryAssetStore] = providers.Singleton(object)
     manual_entry_weather_fetcher: providers.Singleton[WeatherFetcher] = providers.Singleton(object)
+    history_import_service: providers.Singleton[Any] = providers.Singleton(object)
     scheduler_service: providers.Singleton[SchedulerService] = providers.Singleton(object)
     sensor_scheduler_contrib: providers.Singleton[SensorSchedulerContrib] = providers.Singleton(object)
     scenario_llm_pool: providers.Singleton[ScenarioLLMPool] = providers.Singleton(object)

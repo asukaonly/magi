@@ -354,12 +354,17 @@
         "body": "从称呼、兴趣或最近的小事里，挑一个容易回答的。",
         "meta": "约 30 秒"
       },
+      "history": {
+        "title": "导入过去的记录",
+        "body": "从聊天记录、日记或笔记里，带入你过去说过和写过的内容。",
+        "meta": "先预览，再决定是否导入"
+      },
       "activity": {
         "title": "连接日常活动",
         "body": "从浏览、音乐、照片等自然留下的痕迹开始。",
         "meta": "只连接你愿意分享的来源"
       },
-      "note": "两种方式没有先后之分，也可以直接跳过。"
+      "note": "三种方式没有先后之分，也可以直接跳过。"
     },
     "story": {
       "kicker": "先认识一点你",
@@ -409,6 +414,78 @@
       "title": "从日常活动开始",
       "body": "只连接你愿意分享的来源。Magi 会先读取一小部分近期记录。",
       "badge": "完全可选"
+    },
+    "history": {
+      "kicker": "过去的记录",
+      "title": "从你过去说过和写过的内容开始",
+      "body": "先选择 Markdown 文件或文件夹。Magi 会先展示识别结果，只有你确认后才会导入。",
+      "badge": "本地预览 · 完全可选",
+      "loading": "正在恢复上次的导入进度…",
+      "picker": {
+        "title": "选择 Markdown 内容",
+        "body": "可以选择聊天记录、日记、笔记或它们所在的文件夹。",
+        "files": "选择 Markdown 文件",
+        "folder": "选择文件夹",
+        "note": "支持 .md 和 .markdown。内容保留在本机；导入前会先确认哪些发言属于你。"
+      },
+      "preview": {
+        "files": "{{count}} 个文件",
+        "records": "识别到 {{count}} 条内容",
+        "kind": {
+          "chat": "聊天记录",
+          "document": "个人文字",
+          "mixed": "聊天与个人文字"
+        },
+        "sample": "内容预览",
+        "sourceOrder": "按原文顺序",
+        "chooseAgain": "重新选择",
+        "confirm": "确认并开始导入",
+        "importing": "正在准备第一批内容…"
+      },
+      "identity": {
+        "title": "聊天里哪个名字是你？",
+        "body": "只有你本人说过的话会影响 Magi 对你的认识；其他人的发言只作为上下文。",
+        "messageCount": "{{count}} 条发言"
+      },
+      "writing": {
+        "title": "这些个人文字主要是我写的",
+        "body": "确认后，这些内容会作为你的自述被理解；引用或他人代写的内容不应勾选。"
+      },
+      "warnings": {
+        "timestamps_from_file_order": "部分消息没有时间，Magi 会保留文件中的先后顺序，但不会把推测的时间当作精确信息。",
+        "timestamps_from_file_mtime": "文字没有单独标注时间，暂时使用文件修改时间，并标记为非精确时间。",
+        "document_author_confirmation_required": "这些文件更像个人文字，需要你确认作者身份后才能导入。"
+      },
+      "ready": {
+        "title": "已经准备好 {{count}} 条内容",
+        "background": "现在可以进入第一次聊天；剩余内容会在后台从最早处开始依次整理。",
+        "completed": "所选内容已经全部保存，并按原来的顺序进入整理。",
+        "failed": "第一批内容已经保留，后续整理暂时中断，可以重新继续。",
+        "progress": "已保存 {{imported}} / {{total}} 条",
+        "retry": "继续整理",
+        "note": "快速准备的内容只用于尽快建立初步上下文；长期认识仍以完整顺序整理后的结果为准。"
+      },
+      "errors": {
+        "markdown_selection_empty": "请选择至少一个 Markdown 文件或文件夹。",
+        "markdown_path_missing": "所选文件已经不存在，请重新选择。",
+        "markdown_path_invalid": "无法读取所选位置，请重新选择。",
+        "markdown_extension_required": "请选择 .md 或 .markdown 文件。",
+        "markdown_files_not_found": "这个文件夹里没有找到 Markdown 文件。",
+        "markdown_too_many_files": "首次导入最多选择 50 个 Markdown 文件。",
+        "markdown_file_too_large": "其中一个文件超过 5 MB，请缩小后再试。",
+        "markdown_selection_too_large": "所选内容总计超过 25 MB，请分批导入。",
+        "markdown_not_utf8": "其中一个文件不是标准 UTF-8 文本，请转换编码后再试。",
+        "markdown_empty": "所选文件没有可导入的文字。",
+        "self_participant_required": "请选择聊天中代表你的名字。",
+        "unknown_self_participant": "参与者列表已经变化，请重新确认。",
+        "personal_writing_confirmation_required": "请先确认这些个人文字主要由你写成。",
+        "self_participant_locked_after_import": "导入开始后不能再更改本人身份，请重新选择文件。",
+        "memory_cleared_during_import": "导入期间记忆已被清空，这次导入也已停止。",
+        "history_import_not_confirmed": "请先确认本人身份和内容范围。",
+        "history_import_not_found": "这次导入已经不存在，请重新选择文件。",
+        "history_import_unavailable": "导入功能还在准备中，请稍后重试。",
+        "unknown": "暂时无法读取这些文件。你的原文件没有被修改，请稍后重试。"
+      }
     },
     "scopeHint": "这里只准备第一次聊天要用的一小部分内容；完整历史可以进入后再补。",
     "note": "Magi 只会读取你主动启用的来源；每个插件都可以在设置里关闭或调整。",
