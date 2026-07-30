@@ -283,14 +283,24 @@ class ConfigLoaderPersistenceMixin:
                 )
                 return False
 
-            package_entry = packages[plugin_id]
             builtin_packages = self._default_plugin_index_data().get("packages", {})
-            if plugin_id in builtin_packages or (
-                isinstance(package_entry, dict) and package_entry.get("source") == "builtin"
-            ):
+            builtin_default = builtin_packages.get(plugin_id)
+            package_entry = packages[plugin_id]
+            package_source = (
+                package_entry.get("source") if isinstance(package_entry, dict) else None
+            )
+            if package_source == "builtin":
                 logger.warning(
                     "Builtin plugin package config cannot be deleted | plugin_id=%s",
                     plugin_id,
+                )
+                return False
+            if builtin_default is not None and package_source != "external":
+                logger.warning(
+                    "Reserved builtin plugin package has an invalid source | "
+                    "plugin_id=%s | source=%s",
+                    plugin_id,
+                    package_source,
                 )
                 return False
 
@@ -305,7 +315,10 @@ class ConfigLoaderPersistenceMixin:
             updated_packages = updated_index.get("packages")
             if not isinstance(updated_packages, dict):
                 return False
-            del updated_packages[plugin_id]
+            if isinstance(builtin_default, dict):
+                updated_packages[plugin_id] = deepcopy(builtin_default)
+            else:
+                del updated_packages[plugin_id]
 
             self._write_yaml_file(self._plugins_index_file, updated_index)
             self._remove_plugin_settings_file(settings_file)
@@ -314,8 +327,9 @@ class ConfigLoaderPersistenceMixin:
             self._config_signature = None
             self.load()
             logger.info(
-                "Plugin package config deleted | plugin_id=%s",
+                "Plugin package config deleted | plugin_id=%s | builtin_restored=%s",
                 plugin_id,
+                builtin_default is not None,
             )
             return True
         except Exception as exc:

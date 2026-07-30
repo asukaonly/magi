@@ -138,6 +138,75 @@ def test_delete_plugin_package_does_not_remove_builtin_defaults(
     assert loader.load().plugins.packages["core-tools"].source == "builtin"
 
 
+def test_delete_external_package_with_builtin_id_restores_builtin_default(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    loader = _build_loader(tmp_path, monkeypatch)
+    assert loader.save(
+        {
+            "plugins.packages.calendar.enabled": False,
+            "plugins.packages.calendar.trusted": False,
+            "plugins.packages.calendar.source": "external",
+            "plugins.packages.calendar.manifest_path": "/user/plugins/calendar/plugin.toml",
+            "plugins.packages.calendar.official": True,
+            "plugins.packages.calendar.settings.endpoint": "https://example.test",
+        }
+    )
+    plugins_dir = tmp_path / "config" / "plugins"
+
+    deleted = loader.delete_plugin_package("calendar")
+
+    index_data = yaml.safe_load((plugins_dir / "index.yaml").read_text(encoding="utf-8"))
+    assert deleted is True
+    assert index_data["packages"]["calendar"] == {
+        "enabled": True,
+        "trusted": True,
+        "source": "builtin",
+    }
+    assert not (plugins_dir / "calendar.yaml").exists()
+    restored = loader.load().plugins.packages["calendar"]
+    assert restored.enabled is True
+    assert restored.trusted is True
+    assert restored.source == "builtin"
+    assert restored.manifest_path is None
+    assert restored.official is None
+
+
+def test_builtin_id_restore_rolls_back_when_settings_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    loader = _build_loader(tmp_path, monkeypatch)
+    assert loader.save(
+        {
+            "plugins.packages.calendar.enabled": False,
+            "plugins.packages.calendar.trusted": False,
+            "plugins.packages.calendar.source": "external",
+            "plugins.packages.calendar.settings.endpoint": "https://example.test",
+        }
+    )
+    plugins_dir = tmp_path / "config" / "plugins"
+    index_file = plugins_dir / "index.yaml"
+    settings_file = plugins_dir / "calendar.yaml"
+    index_before = index_file.read_bytes()
+    settings_before = settings_file.read_bytes()
+
+    def _fail_remove(_path: Path) -> None:
+        raise PermissionError("settings file is busy")
+
+    monkeypatch.setattr(loader, "_remove_plugin_settings_file", _fail_remove)
+
+    deleted = loader.delete_plugin_package("calendar")
+
+    assert deleted is False
+    assert index_file.read_bytes() == index_before
+    assert settings_file.read_bytes() == settings_before
+    current = loader.load().plugins.packages["calendar"]
+    assert current.source == "external"
+    assert current.enabled is False
+
+
 def test_delete_plugin_package_restores_files_when_settings_cleanup_fails(
     tmp_path: Path,
     monkeypatch,
