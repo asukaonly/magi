@@ -15,12 +15,18 @@ from magi.plugins.dependency_installation import (
     _filter_installable_dependencies,
     _run_dependency_install_with_progress,
 )
+from magi.plugins.installation import _resolve_plugin_destination
 from magi.plugins.package_files import replace_plugin_directory
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.projections import PluginProjectionService
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
-from magi_plugin_sdk import ExtractionProfileSpec, TemporalSummarySourceFeatures
+from magi_plugin_sdk import (
+    ExtractionProfileSpec,
+    PluginManifest,
+    PluginPackageState,
+    TemporalSummarySourceFeatures,
+)
 
 
 def _apply_updates(config: AppConfig, updates: dict[str, object]) -> None:
@@ -504,6 +510,58 @@ def test_install_plugin_from_directory_reports_progress(
         "completed",
     ]
     assert progress_events[-1][2] == 100.0
+
+
+def test_plugin_install_destination_must_remain_inside_user_root(
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "user-plugins"
+    outside_root = tmp_path / "outside"
+    user_root.mkdir()
+    outside_root.mkdir()
+    (user_root / "linked-plugin").symlink_to(outside_root, target_is_directory=True)
+
+    assert (
+        _resolve_plugin_destination(user_root, "safe-plugin")
+        == (user_root / "safe-plugin").resolve()
+    )
+    with pytest.raises(ValueError, match="must remain inside"):
+        _resolve_plugin_destination(user_root, "../outside")
+    with pytest.raises(ValueError, match="must remain inside"):
+        _resolve_plugin_destination(user_root, "linked-plugin")
+
+
+def test_install_plugin_from_directory_still_rejects_builtin_overwrite(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    user_root = tmp_path / "user-plugins"
+    incoming_dir = _write_install_test_plugin(
+        tmp_path / "incoming",
+        plugin_id="core-tools",
+        version="2.0.0",
+        marker="replacement",
+    )
+    manager = PluginManager(
+        tool_registry=ToolRegistry(),
+        sensor_registry=SensorRegistry(),
+        request_sensor_schedule_refresh=lambda: None,
+        search_paths=[user_root],
+    )
+    manager._package_states["core-tools"] = PluginPackageState(
+        manifest=PluginManifest(
+            id="core-tools",
+            name="Core Tools",
+            version="1.0.0",
+            source="builtin",
+        )
+    )
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
+
+    with pytest.raises(ValueError, match="Cannot overwrite builtin plugin"):
+        manager.install_plugin_from_directory(incoming_dir)
+
+    assert not (user_root / "core-tools").exists()
 
 
 def test_dependency_install_runner_reports_subprocess_output() -> None:

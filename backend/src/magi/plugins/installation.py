@@ -73,6 +73,16 @@ def _find_directory_manifest(source_dir: Path) -> Path:
     return manifest_file
 
 
+def _resolve_plugin_destination(user_root: Path, plugin_id: str) -> Path:
+    """Resolve one install target and keep it inside the user plugin root."""
+
+    resolved_root = user_root.expanduser().resolve(strict=False)
+    destination = (resolved_root / plugin_id).resolve(strict=False)
+    if destination == resolved_root or not destination.is_relative_to(resolved_root):
+        raise ValueError("Plugin install destination must remain inside the user plugin root")
+    return destination
+
+
 @dataclass(frozen=True)
 class _PluginInstallPlan:
     manifest: PluginManifest
@@ -201,7 +211,7 @@ class PluginInstallationMixin:
             manifest=manifest,
             plugin_id=plugin_id,
             source_dir=manifest_file.parent,
-            dest_dir=user_root / plugin_id,
+            dest_dir=_resolve_plugin_destination(user_root, plugin_id),
         )
 
     def _reject_builtin_overwrite(self, plugin_id: str) -> None:

@@ -1,11 +1,21 @@
 """Typed contracts for unified plugin extensions."""
 from __future__ import annotations
 
+import keyword
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
+
+_PluginIdentifier = Annotated[
+    str,
+    StringConstraints(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9_-]+$",
+    ),
+]
 
 
 class ContributionType(str, Enum):
@@ -137,7 +147,7 @@ class PluginSettingsResourceSpec(BaseModel):
 class PluginSettingsResourcePayload(BaseModel):
     """Resolved payload returned by a plugin settings resource."""
 
-    plugin_id: str
+    plugin_id: _PluginIdentifier
     resource_name: str
     resource_type: str = "collection"
     data: Any = None
@@ -393,7 +403,7 @@ class PluginManifest(BaseModel):
     plugin requires zero magi backend changes.
     """
 
-    plugin_id: str = Field(alias="id")
+    plugin_id: _PluginIdentifier = Field(alias="id")
     name: str
     name_i18n: dict[str, str] = Field(default_factory=dict)
     version: str
@@ -418,7 +428,7 @@ class PluginManifest(BaseModel):
     contribution_types: list[ContributionType] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list)
     """PIP package dependencies installed under the plugin's ``.deps/`` dir."""
-    depends_on: list[str] = Field(default_factory=list)
+    depends_on: list[_PluginIdentifier] = Field(default_factory=list)
     """Other plugins (typically libraries) this plugin imports from. Each
     entry is a ``plugin_id``. The manager auto-installs missing entries
     during install, refcount-protects them on uninstall, and injects their
@@ -453,6 +463,15 @@ class PluginManifest(BaseModel):
 
     model_config = {"populate_by_name": True}
 
+    @field_validator("entry_module", "entry_class")
+    @classmethod
+    def validate_entry_identifier(cls, value: str) -> str:
+        """Reject entrypoint names that could escape the plugin module."""
+
+        if not value.isidentifier() or keyword.iskeyword(value):
+            raise ValueError("Plugin entrypoint names must be single Python identifiers")
+        return value
+
     @property
     def plugin_path(self) -> Path:
         return Path(self.plugin_dir)
@@ -465,7 +484,7 @@ class PluginManifest(BaseModel):
 class PluginContribution(BaseModel):
     """Contribution descriptor returned to APIs and UIs."""
 
-    plugin_id: str
+    plugin_id: _PluginIdentifier
     contribution_id: str
     contribution_type: ContributionType
     display_name: str
@@ -491,7 +510,7 @@ class PluginPackageState(BaseModel):
 class PluginRegistryEntry(BaseModel):
     """Remote plugin registry entry describing an available plugin."""
 
-    plugin_id: str
+    plugin_id: _PluginIdentifier
     name: str
     name_i18n: dict[str, str] = Field(default_factory=dict)
     version: str
@@ -511,7 +530,7 @@ class PluginRegistryEntry(BaseModel):
     """Mirrors :attr:`PluginManifest.kind`; libraries are hidden from
     user-facing market listings and installed via dep closure only."""
     contribution_types: list[str] = Field(default_factory=list)
-    depends_on: list[str] = Field(default_factory=list)
+    depends_on: list[_PluginIdentifier] = Field(default_factory=list)
     """Other registry entries this plugin imports from (plugin_ids)."""
     platforms: list[str] = Field(default_factory=list)
     min_sdk_version: str = ""
