@@ -79,53 +79,54 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 13. `runtime_media_registry`
 14. `runtime_location`
 15. `runtime_manual_entries`
-16. `runtime_memory_ingestion_subscriber`
-17. `runtime_llm_usage_subscriber`
-18. `runtime_chat_projector`
-19. `runtime_chat_assistant_memory_projection`
-20. `runtime_control_transcript_subscriber`
-21. `runtime_trace`
-22. `runtime_trace_subscriber`
-23. `runtime_hooks`
-24. `runtime_first_party_tools`
-25. `runtime_tools`
-26. `runtime_skills`
-27. `runtime_mcp`
-28. `runtime_personality`
-29. `runtime_sensor_hub`
-30. `runtime_context`
-31. `runtime_agent_core`
+16. `runtime_history_imports`
+17. `runtime_memory_ingestion_subscriber`
+18. `runtime_llm_usage_subscriber`
+19. `runtime_chat_projector`
+20. `runtime_chat_assistant_memory_projection`
+21. `runtime_control_transcript_subscriber`
+22. `runtime_trace`
+23. `runtime_trace_subscriber`
+24. `runtime_hooks`
+25. `runtime_first_party_tools`
+26. `runtime_tools`
+27. `runtime_skills`
+28. `runtime_mcp`
+29. `runtime_personality`
+30. `runtime_sensor_hub`
+31. `runtime_context`
+32. `runtime_agent_core`
 
 ### Phase 3: long-running processors and business services
 
-32. `runtime_chat_delivery_recovery`
-33. `runtime_command_processor`
-34. `runtime_plugin_ingress_processor`
-35. `runtime_timeline`
-36. `runtime_timeline_subscriber`
-37. `runtime_kg_subscriber`
-38. `runtime_sensor_state_subscriber`
-39. `runtime_scheduler`
-40. `runtime_agent_schedule_registration`
-41. `runtime_sensor_scheduler`
-42. `runtime_sensor_sync_executor`
+33. `runtime_chat_delivery_recovery`
+34. `runtime_command_processor`
+35. `runtime_plugin_ingress_processor`
+36. `runtime_timeline`
+37. `runtime_timeline_subscriber`
+38. `runtime_kg_subscriber`
+39. `runtime_sensor_state_subscriber`
+40. `runtime_scheduler`
+41. `runtime_agent_schedule_registration`
+42. `runtime_sensor_scheduler`
+43. `runtime_sensor_sync_executor`
 
 ### Phase 4: exports and maintenance registration
 
-43. `runtime_exports`
-44. `runtime_control_plane`
-45. `runtime_l1_maintenance_scheduler`
-46. `runtime_l2_maintenance_scheduler`
-47. `runtime_l2_consolidation_scheduler`
-48. `runtime_l2_derive_scheduler`
-49. `runtime_l3_summary_scheduler`
-50. `runtime_l3_maintenance_scheduler`
-51. `runtime_l4_maintenance_scheduler`
-52. `runtime_timeline_schedulers`
-53. `runtime_operational_gc_scheduler`
-54. `runtime_other_dependencies`
-55. `runtime_channels`
-56. `runtime_outreach`
+44. `runtime_exports`
+45. `runtime_control_plane`
+46. `runtime_l1_maintenance_scheduler`
+47. `runtime_l2_maintenance_scheduler`
+48. `runtime_l2_consolidation_scheduler`
+49. `runtime_l2_derive_scheduler`
+50. `runtime_l3_summary_scheduler`
+51. `runtime_l3_maintenance_scheduler`
+52. `runtime_l4_maintenance_scheduler`
+53. `runtime_timeline_schedulers`
+54. `runtime_operational_gc_scheduler`
+55. `runtime_other_dependencies`
+56. `runtime_channels`
+57. `runtime_outreach`
 
 Important rule: bootstrap order is dependency order, not ownership order. For example, the scheduler engine is infrastructure even though it is started after timeline services that will register schedules into it.
 

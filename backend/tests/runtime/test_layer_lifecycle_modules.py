@@ -57,6 +57,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_media_registry",
         "runtime_location",
         "runtime_manual_entries",
+        "runtime_history_imports",
         "runtime_memory_ingestion_subscriber",
         "runtime_llm_usage_subscriber",
         "runtime_chat_projector",
