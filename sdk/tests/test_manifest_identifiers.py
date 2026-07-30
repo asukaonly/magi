@@ -35,6 +35,15 @@ def test_manifest_accepts_bounded_plugin_identifiers() -> None:
     assert manifest.depends_on == ["shared_library-1", "a" * 64]
 
 
+@pytest.mark.parametrize(
+    "plugin_id",
+    ["index", "con", "prn", "aux", "nul", "com1", "com9", "lpt1", "lpt9"],
+)
+def test_manifest_rejects_reserved_plugin_identifiers(plugin_id: str) -> None:
+    with pytest.raises(ValidationError, match="reserved"):
+        PluginManifest(id=plugin_id, name="Example", version="1.0.0")
+
+
 @pytest.mark.parametrize("dependency_id", ["../escape", "BadDependency", "a" * 65])
 def test_manifest_rejects_invalid_dependency_identifier(dependency_id: str) -> None:
     with pytest.raises(ValidationError):
@@ -57,7 +66,9 @@ def test_manifest_rejects_invalid_dependency_identifier(dependency_id: str) -> N
         ("entry_class", "None"),
     ],
 )
-def test_manifest_rejects_non_identifier_entrypoints(field_name: str, value: str) -> None:
+def test_manifest_rejects_non_identifier_entrypoints(
+    field_name: str, value: str
+) -> None:
     payload = {
         "id": "example",
         "name": "Example",

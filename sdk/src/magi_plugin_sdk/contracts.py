@@ -1,4 +1,5 @@
 """Typed contracts for unified plugin extensions."""
+
 from __future__ import annotations
 
 import keyword
@@ -6,7 +7,33 @@ from enum import Enum
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+
+_RESERVED_PLUGIN_IDENTIFIERS = {
+    "aux",
+    "con",
+    "index",
+    "nul",
+    "prn",
+    *(f"com{index}" for index in range(1, 10)),
+    *(f"lpt{index}" for index in range(1, 10)),
+}
+
+
+def _reject_reserved_plugin_identifier(value: str) -> str:
+    if value in _RESERVED_PLUGIN_IDENTIFIERS:
+        raise ValueError(
+            "Plugin identifier is reserved by the host or operating system"
+        )
+    return value
+
 
 _PluginIdentifier = Annotated[
     str,
@@ -15,6 +42,7 @@ _PluginIdentifier = Annotated[
         max_length=64,
         pattern=r"^[a-z0-9_-]+$",
     ),
+    AfterValidator(_reject_reserved_plugin_identifier),
 ]
 
 
@@ -39,7 +67,9 @@ class ExtensionFieldSpec(BaseModel):
     """Declarative settings field exposed by a plugin contribution."""
 
     key: str
-    type: Literal["switch", "select", "input", "number", "secret", "path", "tags"] = "input"
+    type: Literal["switch", "select", "input", "number", "secret", "path", "tags"] = (
+        "input"
+    )
     path_kind: Literal["file", "directory"] | None = None
     label: str
     description: str = ""
@@ -248,7 +278,9 @@ class ExtractionProfileSpec(BaseModel):
     phase2_instructions: str | None = None
     assertion_mode: Literal["none", "derived", "phase2_candidate"] | None = None
     allowed_assertion_traits: list[str] | Literal["all"] | None = None
-    derived_assertion_specs: list[DerivedAssertionRuleSpec] = Field(default_factory=list)
+    derived_assertion_specs: list[DerivedAssertionRuleSpec] = Field(
+        default_factory=list
+    )
 
 
 class Triggers(BaseModel):
@@ -469,7 +501,9 @@ class PluginManifest(BaseModel):
         """Reject entrypoint names that could escape the plugin module."""
 
         if not value.isidentifier() or keyword.iskeyword(value):
-            raise ValueError("Plugin entrypoint names must be single Python identifiers")
+            raise ValueError(
+                "Plugin entrypoint names must be single Python identifiers"
+            )
         return value
 
     @property
@@ -576,7 +610,9 @@ class SummaryProfileSpec(BaseModel):
     profile_id: str
     summary_category: str
     source_types: list[str] = Field(default_factory=list)
-    windows: list[Literal["hour", "day", "week"]] = Field(default_factory=lambda: ["day"])
+    windows: list[Literal["hour", "day", "week"]] = Field(
+        default_factory=lambda: ["day"]
+    )
     settle_window_seconds: int = 300
     min_events: int = 4
     intent_verbs: list[str] = Field(default_factory=list)
