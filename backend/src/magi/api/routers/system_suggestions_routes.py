@@ -17,8 +17,9 @@ Production wiring (see :func:`_build_production_system_suggestions_router`):
   (``installed=False``) into :class:`SuggestionCandidate` objects. Installed
   manifests come from the live plugin manager via
   :func:`magi.api.routers.plugins_common._try_plugin_manager`; registry entries
-  come from the shared :class:`PluginRegistryClient` (its async ``fetch_index``
-  is awaited). On ANY registry failure the builder degrades to installed-only
+  come from the shared :class:`PluginRegistryClient` (its async
+  ``fetch_snapshot`` is awaited so source authority stays attached). On ANY
+  registry failure the builder degrades to installed-only
   (registry = ``[]``) and logs a warning. The inner callable may be sync (tests)
   or async (production); the ``/check`` handler awaits it if it is a coroutine.
 - ``availability_dep`` is a factory that, given the candidate list, returns a
@@ -271,9 +272,9 @@ def _default_candidates() -> Callable[[], CandidatesResult]:
 
     Installed manifests come from the live plugin manager; registry entries
     (with a ``suggestion_descriptor``) come from the shared registry client's
-    async ``fetch_index``. On ANY registry failure we degrade to installed-only
-    and log a warning, so the route never fails just because the registry is
-    unreachable.
+    async ``fetch_snapshot``. On ANY registry failure we degrade to
+    installed-only and log a warning, so the route never fails just because the
+    registry is unreachable.
 
     Plugins whose sensor source is already in use (enabled+configured, per
     :func:`_active_sensor_plugin_ids`) are dropped via
@@ -287,10 +288,12 @@ def _default_candidates() -> Callable[[], CandidatesResult]:
         packages = list(manager.list_packages()) if manager else []
 
         registry_entries: list = []
+        registry_official_source = False
         catalog_mode = "full"
         try:
-            index = await _get_registry_client().fetch_index()
-            registry_entries = list(index.plugins)
+            snapshot = await _get_registry_client().fetch_snapshot()
+            registry_entries = list(snapshot.index.plugins)
+            registry_official_source = bool(snapshot.official_source)
         except Exception as exc:  # degrade to installed-only
             catalog_mode = "installed_only"
             logger.warning(
@@ -307,6 +310,7 @@ def _default_candidates() -> Callable[[], CandidatesResult]:
             candidates=build_suggestion_candidates(
                 installed_manifests,
                 not_installed_registry,
+                registry_official_source=registry_official_source,
             ),
             catalog_mode=catalog_mode,
         )
@@ -327,29 +331,46 @@ def _default_availability() -> Callable[[list[SuggestionCandidate]], Callable[[s
 
     * installed candidates -> ``resolver.is_available(plugin_id)`` (manifest
       lookup + TTL cache).
-    * not-installed (registry-only) candidates ->
+    * not-installed candidates from the canonical official snapshot ->
       ``resolver.evaluate_descriptor(descriptor)`` so the registry descriptor's
       platform + local requirements are probed directly without a local
       manifest.
+    * not-installed candidates from custom registries are unavailable to the
+      proactive suggestion surface and never execute local checks.
     """
     from magi.api.routers.availability_routes import _get_or_create_resolver
-
-    with _AVAILABILITY_ADAPTER_LOCK:
-        resolver = _get_or_create_resolver()
 
     def _factory(
         candidates: list[SuggestionCandidate],
     ) -> Callable[[str], bool]:
         by_id = {c.plugin_id: c for c in candidates}
+        resolver = None
+
+        def _resolver():
+            nonlocal resolver
+            if resolver is None:
+                with _AVAILABILITY_ADAPTER_LOCK:
+                    if resolver is None:
+                        resolver = _get_or_create_resolver()
+            return resolver
 
         def _is_available(plugin_id: str) -> bool:
             cand = by_id.get(plugin_id)
             if cand is None:
                 # Unknown to the candidate set: fall back to the installed path.
-                return resolver.is_available(plugin_id).available
+                return _resolver().is_available(plugin_id).available
             if cand.installed:
-                return resolver.is_available(plugin_id).available
-            return resolver.evaluate_descriptor(cand.descriptor, plugin_id=plugin_id).available
+                return _resolver().is_available(plugin_id).available
+            if not cand.official_source:
+                return False
+            return (
+                _resolver()
+                .evaluate_descriptor(
+                    cand.descriptor,
+                    plugin_id=plugin_id,
+                )
+                .available
+            )
 
         return _is_available
 

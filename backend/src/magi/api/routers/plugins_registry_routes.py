@@ -26,6 +26,7 @@ from ...plugins.install_service import (
     PluginRegistrySnapshotMismatchError,
     registry_source_matches_installed_package,
 )
+from ...plugins.icon_assets import sanitize_lucide_icon, sanitize_registry_icon
 from .plugins_common import (
     _get_registry_client,
     _plugin_install_service,
@@ -50,6 +51,19 @@ from .plugins_schemas import (
 
 plugins_registry_router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _safe_registry_display_group(display_group):
+    if display_group is None:
+        return None
+    if isinstance(display_group, dict):
+        return {
+            **display_group,
+            "icon": sanitize_lucide_icon(str(display_group.get("icon", "") or "")),
+        }
+    return display_group.model_copy(
+        update={"icon": sanitize_lucide_icon(str(getattr(display_group, "icon", "") or ""))}
+    )
 
 
 @plugins_registry_router.get("/registry", response_model=PluginRegistryResponse)
@@ -117,8 +131,11 @@ async def list_registry_plugins(
                 description=entry.description,
                 description_i18n=entry.description_i18n,
                 author=entry.author,
-                icon=getattr(entry, "icon_data", "") or entry.icon,
-                display_group=getattr(entry, "display_group", None),
+                icon=sanitize_registry_icon(
+                    str(getattr(entry, "icon_data", "") or ""),
+                    str(entry.icon or ""),
+                ),
+                display_group=_safe_registry_display_group(getattr(entry, "display_group", None)),
                 official=bool(snapshot.official_source and entry.official),
                 data_locality=entry.data_locality,
                 contribution_types=entry.contribution_types,

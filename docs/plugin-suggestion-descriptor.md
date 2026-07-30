@@ -7,6 +7,13 @@ this block are still fully usable, but they will not be proactively
 recommended; users must discover and enable them through the Plugins
 settings page.
 
+Before installation, only entries from Magi's canonical official registry may
+participate in proactive suggestions or local availability checks. Entries from
+a custom registry remain available for explicit review and installation in the
+Marketplace, but Magi does not inspect the device on their behalf. After the
+user installs a plugin, its local manifest may use the normal installed-plugin
+availability path.
+
 ## Minimum viable descriptor
 
 ```toml
@@ -98,7 +105,10 @@ linux = "~/.config/foo/data.db"
 Path supports `~` (expanded to `$HOME`) and `$VAR` / `%VAR%`
 environment-variable expansion. The platform key is one of
 `darwin`/`win32`/`linux` — if your platform isn't listed for the current
-device, the check fails.
+device, the check fails. Windows paths must expand to an absolute path on a
+local drive. UNC shares, mapped remote drives, device namespaces, reserved
+device components, URI-like paths, and relative paths are rejected before any
+filesystem lookup.
 
 ### `executable_in_path`
 
@@ -107,6 +117,10 @@ device, the check fails.
 check_kind = "executable_in_path"
 names = ["git", "git.exe"]  # any one match passes
 ```
+
+Each name must be a short executable basename of at most 64 characters. Paths,
+drive prefixes, separators, shell syntax, and other command fragments are
+rejected before the PATH lookup.
 
 ### `app_installed`
 
@@ -124,6 +138,11 @@ Note: on macOS, this uses `mdfind`. On Linux, scans well-known
 applications directories. On Windows, the check is stubbed in the
 initial release and returns `(false, "not yet implemented")` until the
 registry-scan implementation lands.
+
+macOS bundle identifiers must use a bounded dot-separated identifier grammar.
+Linux identifiers must be bounded `.desktop` basenames containing only letters,
+digits, dots, underscores, and hyphens. Invalid identifiers are rejected before
+starting `mdfind` or touching application directories.
 
 ## Localization
 

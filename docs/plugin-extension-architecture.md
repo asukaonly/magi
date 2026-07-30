@@ -367,6 +367,14 @@ and scope shown there. Empty-source recommendations use the corresponding
 siblings by suggestion category and does not own plugin-specific names, icons,
 copy, or recommendation lists.
 
+Uninstalled suggestion candidates retain the registry snapshot's source
+authority. Only candidates from the canonical official registry may run
+descriptor-provided local availability checks or appear proactively. Custom
+registry entries remain visible for manual review in Marketplace, but suggestion
+surfaces never execute their file, executable, or application probes. Installed
+plugins use their persisted local manifest and the normal installed-package
+availability path.
+
 The first conversation prompt uses recent L1 evidence by event timestamp. Import
 time is not a substitute for source time when the event already has a real
 timestamp, so a newly imported historical photo or history item should not appear
@@ -868,6 +876,11 @@ it does not contain plugin-specific brand mappings.
 SVG assets must be self-contained. The registry and runtime reject scripts,
 embedded content, event handlers, external references, entities, and URL-based
 styles. Asset paths must stay inside the plugin package and cannot be symlinks.
+The backend revalidates every registry-provided inline icon before returning it
+to Marketplace or suggestion clients: data must be strict base64, decode to at
+most 64 KiB, match PNG or WebP magic bytes, or pass the SVG sanitizer. Text icon
+fallbacks accept only a short lowercase `lucide:<name>` grammar. Invalid icon
+data is discarded, with a valid Lucide declaration used as the only fallback.
 
 ## Settings Surfaces
 

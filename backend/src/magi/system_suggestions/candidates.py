@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal
 
-from ..plugins.icon_assets import resolve_plugin_icon
+from ..plugins.icon_assets import (
+    ASSET_ICON_PREFIX,
+    resolve_plugin_icon,
+    sanitize_registry_icon,
+)
 
 
 @dataclass
@@ -18,6 +22,7 @@ class SuggestionCandidate:
     icon: str
     descriptor: Any  # SuggestionDescriptor
     installed: bool
+    official_source: bool = False
 
 
 CatalogMode = Literal["full", "installed_only"]
@@ -31,19 +36,36 @@ class CandidateResolution:
 
 def _candidate_icon(item: Any, descriptor: Any, *, installed: bool) -> str:
     descriptor_icon = str(getattr(descriptor, "icon", "") or "")
-    if descriptor_icon:
-        return descriptor_icon
     if installed:
-        return resolve_plugin_icon(
+        plugin_dir = str(getattr(item, "plugin_dir", "") or "")
+        for icon in (
+            descriptor_icon,
             str(getattr(item, "icon", "") or ""),
-            str(getattr(item, "plugin_dir", "") or ""),
-        )
-    return str(getattr(item, "icon_data", "") or getattr(item, "icon", "") or "")
+        ):
+            if icon.startswith(ASSET_ICON_PREFIX):
+                try:
+                    return resolve_plugin_icon(icon, plugin_dir)
+                except ValueError:
+                    continue
+            if safe_icon := sanitize_registry_icon(icon, icon):
+                return safe_icon
+        return ""
+    if safe_descriptor_icon := sanitize_registry_icon(
+        descriptor_icon,
+        descriptor_icon,
+    ):
+        return safe_descriptor_icon
+    return sanitize_registry_icon(
+        str(getattr(item, "icon_data", "") or ""),
+        str(getattr(item, "icon", "") or ""),
+    )
 
 
 def build_suggestion_candidates(
     installed_manifests: Iterable[Any],
     registry_entries: Iterable[Any],
+    *,
+    registry_official_source: bool = False,
 ) -> list[SuggestionCandidate]:
     """Installed manifests (with a descriptor) tagged installed=True, then
     registry entries (with a descriptor) not already installed, installed=False.
@@ -82,6 +104,7 @@ def build_suggestion_candidates(
                 icon=_candidate_icon(e, desc, installed=False),
                 descriptor=desc,
                 installed=False,
+                official_source=registry_official_source,
             )
         )
         seen.add(e.plugin_id)

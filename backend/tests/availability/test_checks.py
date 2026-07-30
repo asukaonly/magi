@@ -93,6 +93,83 @@ def test_file_exists_expands_env_vars(tmp_path: Path, monkeypatch: pytest.Monkey
     assert ok is True
 
 
+@pytest.mark.parametrize(
+    "raw_path",
+    [
+        r"\\server\share\history.db",
+        r"\\?\C:\Users\example\history.db",
+        r"\\.\PhysicalDrive0",
+        "https://example.test/history.db",
+        r"relative\history.db",
+        r"C:\Users\example\NUL.txt",
+        r"C:\Users\example\history.db:stream",
+    ],
+)
+def test_file_exists_rejects_unsafe_windows_paths_before_touching_disk(
+    raw_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "win32")
+    monkeypatch.setattr(
+        Path,
+        "exists",
+        lambda _path: pytest.fail("unsafe Windows path reached Path.exists"),
+    )
+    req = LocalRequirementFileExists(
+        check_kind="file_exists",
+        paths_per_platform={"win32": raw_path},
+    )
+
+    ok, detail = check_file_exists(req)
+
+    assert ok is False
+    assert detail
+
+
+def test_file_exists_rejects_a_remote_windows_drive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "win32")
+    monkeypatch.setattr(
+        "magi.availability.checks._windows_drive_is_local",
+        lambda _drive: False,
+    )
+    monkeypatch.setattr(
+        Path,
+        "exists",
+        lambda _path: pytest.fail("remote Windows drive reached Path.exists"),
+    )
+    req = LocalRequirementFileExists(
+        check_kind="file_exists",
+        paths_per_platform={"win32": r"Z:\History\history.db"},
+    )
+
+    ok, detail = check_file_exists(req)
+
+    assert ok is False
+    assert "local drive" in (detail or "")
+
+
+def test_file_exists_accepts_a_local_absolute_windows_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "win32")
+    monkeypatch.setattr(
+        "magi.availability.checks._windows_drive_is_local",
+        lambda _drive: True,
+    )
+    monkeypatch.setattr(Path, "exists", lambda _path: True)
+    req = LocalRequirementFileExists(
+        check_kind="file_exists",
+        paths_per_platform={"win32": r"C:\Users\example\history.db"},
+    )
+
+    ok, detail = check_file_exists(req)
+
+    assert ok is True
+    assert detail is None
+
+
 def test_executable_in_path_finds_known_binary() -> None:
     """`python` should be on PATH in any developer environment."""
     req = LocalRequirementExecutableInPath(
@@ -122,6 +199,35 @@ def test_executable_in_path_short_circuits_on_first_hit() -> None:
     )
     ok, _ = check_executable_in_path(req)
     assert ok is True
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../git",
+        r"C:\Tools\git.exe",
+        "/usr/bin/git",
+        "git;open",
+        "x" * 65,
+    ],
+)
+def test_executable_in_path_rejects_non_basename_values(
+    name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "magi.availability.checks.shutil.which",
+        lambda _name: pytest.fail("invalid executable reached shutil.which"),
+    )
+    req = LocalRequirementExecutableInPath(
+        check_kind="executable_in_path",
+        names=[name],
+    )
+
+    ok, detail = check_executable_in_path(req)
+
+    assert ok is False
+    assert detail == "no valid executable basename declared"
 
 
 def test_app_installed_uses_macos_mdfind(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -154,6 +260,35 @@ def test_app_installed_macos_negative(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "com.does.not.exist" in detail
 
 
+@pytest.mark.parametrize(
+    "bundle_id",
+    [
+        "Chrome",
+        "com.google.Chrome' || true",
+        "com.google/Chrome",
+        f"com.{'x' * 253}",
+    ],
+)
+def test_app_installed_rejects_invalid_macos_bundle_ids(
+    bundle_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "darwin")
+    monkeypatch.setattr(
+        "magi.availability.checks._check_macos_app",
+        lambda _identifier: pytest.fail("invalid bundle id reached mdfind"),
+    )
+    req = LocalRequirementAppInstalled(
+        check_kind="app_installed",
+        identifier_per_platform={"darwin": bundle_id},
+    )
+
+    ok, detail = check_app_installed(req)
+
+    assert ok is False
+    assert detail == "invalid macOS bundle identifier"
+
+
 def test_app_installed_linux_finds_desktop_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -174,6 +309,35 @@ def test_app_installed_linux_finds_desktop_file(
     assert ok is True
 
 
+@pytest.mark.parametrize(
+    "desktop_id",
+    [
+        "../google-chrome",
+        "google/chrome",
+        ".hidden",
+        "x" * 129,
+    ],
+)
+def test_app_installed_rejects_invalid_linux_desktop_ids(
+    desktop_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "linux")
+    monkeypatch.setattr(
+        "magi.availability.checks._check_linux_app",
+        lambda _identifier: pytest.fail("invalid desktop id reached filesystem lookup"),
+    )
+    req = LocalRequirementAppInstalled(
+        check_kind="app_installed",
+        identifier_per_platform={"linux": desktop_id},
+    )
+
+    ok, detail = check_app_installed(req)
+
+    assert ok is False
+    assert detail == "invalid Linux desktop identifier"
+
+
 def test_app_installed_windows_best_effort(monkeypatch: pytest.MonkeyPatch) -> None:
     """Windows path returns honest (False, 'not yet implemented') when winreg isn't usable."""
     monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "win32")
@@ -182,7 +346,9 @@ def test_app_installed_windows_best_effort(monkeypatch: pytest.MonkeyPatch) -> N
         identifier_per_platform={"win32": "Google Chrome"},
     )
     # Force the winreg-availability flag off so the stub path runs deterministically
-    monkeypatch.setattr("magi.availability.checks._WINDOWS_REGISTRY_AVAILABLE", False, raising=False)
+    monkeypatch.setattr(
+        "magi.availability.checks._WINDOWS_REGISTRY_AVAILABLE", False, raising=False
+    )
     ok, detail = check_app_installed(req)
     assert ok is False
     assert "not yet implemented" in (detail or "")

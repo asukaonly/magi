@@ -6,8 +6,14 @@ from pathlib import Path
 import pytest
 
 from magi.plugins.discovery import load_plugin_manifest
-from magi.plugins.icon_assets import MAX_ICON_BYTES, encode_plugin_icon_asset, resolve_plugin_icon
-
+from magi.plugins.icon_assets import (
+    MAX_ICON_BYTES,
+    encode_plugin_icon_asset,
+    resolve_plugin_icon,
+    sanitize_inline_icon,
+    sanitize_lucide_icon,
+    sanitize_registry_icon,
+)
 
 SAFE_SVG = (
     b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M1 1h2v2H1z"/></svg>'
@@ -46,6 +52,96 @@ def test_encodes_safe_svg_asset(tmp_path: Path) -> None:
 
 def test_preserves_lucide_icon_reference(tmp_path: Path) -> None:
     assert resolve_plugin_icon("lucide:calendar-days", tmp_path) == "lucide:calendar-days"
+
+
+@pytest.mark.parametrize(
+    ("mime_type", "data"),
+    [
+        ("image/svg+xml", SAFE_SVG),
+        ("image/png", b"\x89PNG\r\n\x1a\npayload"),
+        ("image/webp", b"RIFF\x04\x00\x00\x00WEBPpayload"),
+    ],
+)
+def test_accepts_safe_registry_inline_icons(mime_type: str, data: bytes) -> None:
+    icon = f"data:{mime_type};base64,{base64.b64encode(data).decode('ascii')}"
+
+    assert sanitize_inline_icon(icon) == icon
+
+
+@pytest.mark.parametrize(
+    "icon",
+    [
+        "data:image/png;base64,not valid base64",
+        "data:text/html;base64,PGgxPmhpPC9oMT4=",
+        "data:image/png;base64,PHN2Zy8+",
+        "data:image/webp;base64,PHN2Zy8+",
+        "data:image/svg+xml;base64,"
+        + base64.b64encode(b"<svg><script>alert(1)</script></svg>").decode("ascii"),
+        "data:image/png;base64,"
+        + base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"x" * MAX_ICON_BYTES).decode("ascii"),
+    ],
+)
+def test_rejects_untrusted_registry_inline_icons(icon: str) -> None:
+    assert sanitize_inline_icon(icon) == ""
+
+
+@pytest.mark.parametrize(
+    "icon",
+    [
+        "lucide:calendar-days",
+        "lucide:gamepad-2",
+    ],
+)
+def test_accepts_bounded_lucide_registry_icons(icon: str) -> None:
+    assert sanitize_lucide_icon(icon) == icon
+
+
+@pytest.mark.parametrize(
+    "icon",
+    [
+        "brand:calendar",
+        "lucide:Calendar",
+        "lucide:calendar_days",
+        "lucide:../calendar",
+        f"lucide:{'x' * 65}",
+    ],
+)
+def test_rejects_invalid_registry_icon_references(icon: str) -> None:
+    assert sanitize_lucide_icon(icon) == ""
+
+
+def test_registry_icon_falls_back_to_safe_lucide_reference() -> None:
+    assert (
+        sanitize_registry_icon(
+            "data:image/png;base64,PHN2Zy8+",
+            "lucide:calendar-days",
+        )
+        == "lucide:calendar-days"
+    )
+
+
+@pytest.mark.parametrize(
+    "unsafe_inline",
+    [
+        "data:image/png;base64,not-valid-base64",
+        "data:image/png;base64,PHN2Zy8+",
+        "data:image/webp;base64,PHN2Zy8+",
+        "data:image/svg+xml;base64,"
+        + base64.b64encode(b"<svg><script>alert(1)</script></svg>").decode("ascii"),
+        "data:image/png;base64,"
+        + base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"x" * MAX_ICON_BYTES).decode("ascii"),
+    ],
+)
+def test_every_unsafe_inline_registry_icon_uses_lucide_fallback(
+    unsafe_inline: str,
+) -> None:
+    assert sanitize_registry_icon(unsafe_inline, "lucide:shield") == "lucide:shield"
+
+
+def test_registry_icon_accepts_safe_inline_fallback_field() -> None:
+    fallback = "data:image/svg+xml;base64," + base64.b64encode(SAFE_SVG).decode("ascii")
+
+    assert sanitize_registry_icon("", fallback) == fallback
 
 
 @pytest.mark.parametrize(

@@ -135,7 +135,11 @@ image without adding brand-specific code to the host.
 Packaged icons may be SVG, PNG, or WebP and must be no larger than 64 KiB. SVG
 icons must be self-contained: scripts, embedded remote content, event handlers,
 external links, and styles that load URLs are rejected during registry
-generation and again when the host discovers the installed plugin.
+generation and again when the host discovers the installed plugin. The desktop
+also revalidates registry-embedded icon data before exposing it to the UI:
+base64, size, image signatures, and SVG safety must all pass. Non-asset
+fallbacks must use a short lowercase `lucide:<name>` identifier; invalid values
+are dropped.
 
 ## 2. Implement the plugin class
 

@@ -24,11 +24,12 @@ def _entry(pid, desc):
 
 
 def test_union_tags_installed_and_dedups():
-    installed = [_manifest("chrome-history", _desc("browser_history")),
-                 _manifest("no-desc", None)]
-    registry = [_entry("chrome-history", _desc("browser_history")),  # dup -> installed wins
-                _entry("git-activity", _desc("code_activity")),      # registry-only
-                _entry("lib-only", None)]                            # no descriptor -> skip
+    installed = [_manifest("chrome-history", _desc("browser_history")), _manifest("no-desc", None)]
+    registry = [
+        _entry("chrome-history", _desc("browser_history")),  # dup -> installed wins
+        _entry("git-activity", _desc("code_activity")),  # registry-only
+        _entry("lib-only", None),
+    ]  # no descriptor -> skip
     cands = build_suggestion_candidates(installed, registry)
     by_id = {c.plugin_id: c for c in cands}
     assert set(by_id) == {"chrome-history", "git-activity"}
@@ -47,9 +48,27 @@ def test_registry_candidate_uses_embedded_icon_data():
     entry.icon = "asset:assets/icon.svg"
     entry.icon_data = "data:image/svg+xml;base64,PHN2Zy8+"
 
-    [candidate] = build_suggestion_candidates([], [entry])
+    [candidate] = build_suggestion_candidates(
+        [],
+        [entry],
+        registry_official_source=True,
+    )
 
     assert candidate.icon == entry.icon_data
+    assert candidate.official_source is True
+
+
+def test_registry_candidate_drops_unsafe_descriptor_icon_and_uses_safe_fallback():
+    descriptor = _desc("code_activity")
+    descriptor.icon = "https://attacker.example/icon.svg"
+    entry = _entry("git-activity", descriptor)
+    entry.icon = "lucide:activity"
+    entry.icon_data = "data:image/png;base64,PHN2Zy8+"
+
+    [candidate] = build_suggestion_candidates([], [entry])
+
+    assert candidate.icon == "lucide:activity"
+    assert candidate.official_source is False
 
 
 def test_installed_candidate_reads_its_packaged_icon(tmp_path: Path):
@@ -68,6 +87,17 @@ def test_installed_candidate_reads_its_packaged_icon(tmp_path: Path):
     assert candidate.icon.startswith("data:image/svg+xml;base64,")
 
 
+def test_installed_candidate_drops_unsafe_descriptor_icon_and_uses_manifest_icon():
+    descriptor = _desc("code_activity")
+    descriptor.icon = "https://attacker.example/icon.svg"
+    manifest = _manifest("git-activity", descriptor)
+    manifest.icon = "lucide:activity"
+
+    [candidate] = build_suggestion_candidates([manifest], [])
+
+    assert candidate.icon == "lucide:activity"
+
+
 def _pkg(pid, desc):
     return SimpleNamespace(manifest=_manifest(pid, desc))
 
@@ -77,22 +107,20 @@ def test_partition_excludes_active_source_categories():
 
     packages = [
         _pkg("chrome-history", _desc("browser_history")),  # source in-use -> drop
-        _pkg("git-activity", _desc("code_activity")),      # installed, source off -> connect
+        _pkg("git-activity", _desc("code_activity")),  # installed, source off -> connect
     ]
     registry = [
         _entry("chrome-history", _desc("browser_history")),  # active -> NOT re-suggested
-        _entry("edge-history", _desc("browser_history")),    # active sibling category -> drop
+        _entry("edge-history", _desc("browser_history")),  # active sibling category -> drop
     ]
     # chrome-history has an enabled+configured sensor source (in use).
     active = {"chrome-history"}
-    installed_manifests, registry_entries = partition_for_candidates(
-        packages, registry, active
-    )
+    installed_manifests, registry_entries = partition_for_candidates(packages, registry, active)
     cands = build_suggestion_candidates(installed_manifests, registry_entries)
     by_id = {c.plugin_id: c for c in cands}
     # The active browser category is excluded entirely, including sibling browsers.
     assert "chrome-history" not in by_id
-    assert by_id["git-activity"].installed is True       # installed but source off -> connect
+    assert by_id["git-activity"].installed is True  # installed but source off -> connect
     assert "edge-history" not in by_id
 
 

@@ -49,6 +49,36 @@ def _patch_registry_context(monkeypatch: pytest.MonkeyPatch, registry: _FakeRegi
     )
 
 
+def _registry_icon_entry(
+    *,
+    icon: str,
+    icon_data: str,
+    display_group=None,
+):
+    return SimpleNamespace(
+        kind="plugin",
+        plugin_id="icon-test",
+        name="Icon Test",
+        name_i18n={},
+        version="0.1.0",
+        description="Icon validation test.",
+        description_i18n={},
+        author="Magi Team",
+        icon=icon,
+        icon_data=icon_data,
+        official=False,
+        data_locality="local_only",
+        contribution_types=[],
+        platforms=["macos"],
+        min_sdk_version="",
+        homepage="",
+        repository="",
+        path="plugins/icon-test",
+        capabilities=[],
+        display_group=display_group,
+    )
+
+
 @pytest.mark.asyncio
 async def test_refresh_true_forces_index_refetch(monkeypatch: pytest.MonkeyPatch) -> None:
     registry = _FakeRegistry()
@@ -107,6 +137,101 @@ async def test_registry_response_preserves_plugin_icon(monkeypatch: pytest.Monke
     response = await plugins_registry_routes.list_registry_plugins(include=None, refresh=False)
 
     assert response.plugins[0].icon == icon_data
+
+
+@pytest.mark.asyncio
+async def test_registry_response_rejects_invalid_inline_icon_and_uses_lucide_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = _FakeRegistry()
+    entry = _registry_icon_entry(
+        icon="lucide:globe",
+        icon_data="data:image/png;base64,PHN2Zy8+",
+    )
+
+    async def fetch_index(*, force: bool = False) -> _FakeIndex:
+        registry.force_calls.append(force)
+        index = _FakeIndex()
+        index.plugins = [entry]
+        return index
+
+    registry.fetch_index = fetch_index  # type: ignore[method-assign]
+    _patch_registry_context(monkeypatch, registry)
+
+    response = await plugins_registry_routes.list_registry_plugins(
+        include=None,
+        refresh=False,
+    )
+
+    assert response.plugins[0].icon == "lucide:globe"
+
+
+@pytest.mark.asyncio
+async def test_registry_response_drops_invalid_icon_and_display_group_icon(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = _FakeRegistry()
+    entry = _registry_icon_entry(
+        icon="https://attacker.example/icon.svg",
+        icon_data="data:image/svg+xml;base64," "PHN2Zz48c2NyaXB0PmFsZXJ0KDEpPC9zY3JpcHQ+PC9zdmc+",
+        display_group={
+            "id": "unsafe-group",
+            "name": "Unsafe Group",
+            "icon": "lucide:../../escape",
+        },
+    )
+
+    async def fetch_index(*, force: bool = False) -> _FakeIndex:
+        registry.force_calls.append(force)
+        index = _FakeIndex()
+        index.plugins = [entry]
+        return index
+
+    registry.fetch_index = fetch_index  # type: ignore[method-assign]
+    _patch_registry_context(monkeypatch, registry)
+
+    response = await plugins_registry_routes.list_registry_plugins(
+        include=None,
+        refresh=False,
+    )
+
+    assert response.plugins[0].icon == ""
+    assert response.plugins[0].display_group is not None
+    assert response.plugins[0].display_group.icon == ""
+
+
+@pytest.mark.asyncio
+async def test_custom_registry_entry_remains_available_for_manual_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = _FakeRegistry()
+    entry = _registry_icon_entry(
+        icon="lucide:globe",
+        icon_data="",
+    )
+    entry.official = True
+
+    async def fetch_snapshot(*, force: bool = False):
+        registry.force_calls.append(force)
+        index = _FakeIndex()
+        index.plugins = [entry]
+        return SimpleNamespace(
+            index=index,
+            install_fingerprint="b" * 64,
+            official_source=False,
+        )
+
+    registry.fetch_snapshot = fetch_snapshot  # type: ignore[method-assign]
+    _patch_registry_context(monkeypatch, registry)
+
+    response = await plugins_registry_routes.list_registry_plugins(
+        include=None,
+        refresh=False,
+    )
+
+    assert [item.plugin_id for item in response.plugins] == ["icon-test"]
+    assert response.plugins[0].official is False
+    assert response.plugins[0].icon == "lucide:globe"
 
 
 @pytest.mark.asyncio

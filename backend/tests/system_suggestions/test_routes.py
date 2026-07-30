@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from magi.api.routers.system_suggestions_routes import (
+    _default_availability,
     _default_candidates,
     build_default_system_suggestions_router,
 )
@@ -222,9 +223,7 @@ def app_with_installable():
         version="0.1.0",
         suggestion_descriptor=SuggestionDescriptor(
             category="music_history",
-            triggers=Triggers(
-                intents=[], entities=[], keywords={"zh": ["音乐"], "en": ["music"]}
-            ),
+            triggers=Triggers(intents=[], entities=[], keywords={"zh": ["音乐"], "en": ["music"]}),
             platform_support=["darwin", "win32", "linux"],
             local_requirements=[],
             rationale=LocalizedText(zh="连接 Spotify", en="connect Spotify"),
@@ -399,7 +398,7 @@ async def test_default_candidates_degrades_when_registry_is_unreachable(
     from magi.api.routers import plugins_common, system_suggestions_routes
 
     class UnreachableRegistry:
-        async def fetch_index(self):
+        async def fetch_snapshot(self):
             raise OSError("offline")
 
     async def no_active_sources() -> set[str]:
@@ -421,6 +420,139 @@ async def test_default_candidates_degrades_when_registry_is_unreachable(
 
     assert resolution.catalog_mode == "installed_only"
     assert resolution.candidates == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("official_source", [True, False])
+async def test_default_candidates_carries_registry_source_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    official_source: bool,
+) -> None:
+    from types import SimpleNamespace
+
+    from magi.api.routers import plugins_common, system_suggestions_routes
+    from magi_plugin_sdk.contracts import (
+        LocalizedText,
+        PluginRegistryEntry,
+        SuggestionDescriptor,
+        Triggers,
+    )
+
+    entry = PluginRegistryEntry(
+        plugin_id="registry-candidate",
+        name="Registry Candidate",
+        version="1.0.0",
+        suggestion_descriptor=SuggestionDescriptor(
+            category="test",
+            triggers=Triggers(),
+            platform_support=["darwin", "win32", "linux"],
+            rationale=LocalizedText(zh="测试", en="Test"),
+        ),
+    )
+
+    class Registry:
+        async def fetch_snapshot(self):
+            return SimpleNamespace(
+                index=SimpleNamespace(plugins=[entry]),
+                official_source=official_source,
+            )
+
+    async def no_active_sources() -> set[str]:
+        return set()
+
+    monkeypatch.setattr(plugins_common, "_try_plugin_manager", lambda: None)
+    monkeypatch.setattr(plugins_common, "_get_registry_client", lambda: Registry())
+    monkeypatch.setattr(
+        system_suggestions_routes,
+        "_active_sensor_plugin_ids",
+        no_active_sources,
+    )
+
+    resolution = await _default_candidates()()
+
+    assert len(resolution.candidates) == 1
+    assert resolution.candidates[0].official_source is official_source
+
+
+def test_custom_registry_candidate_never_executes_local_requirements(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.api.routers import availability_routes
+    from magi_plugin_sdk.contracts import (
+        LocalRequirementFileExists,
+        LocalizedText,
+        PluginRegistryEntry,
+        SuggestionDescriptor,
+        Triggers,
+    )
+
+    entry = PluginRegistryEntry(
+        plugin_id="custom-registry-candidate",
+        name="Custom Candidate",
+        version="1.0.0",
+        suggestion_descriptor=SuggestionDescriptor(
+            category="test",
+            triggers=Triggers(),
+            platform_support=["darwin", "win32", "linux"],
+            local_requirements=[
+                LocalRequirementFileExists(
+                    paths_per_platform={
+                        "darwin": "/private/secret",
+                        "win32": r"\\attacker.example\share",
+                        "linux": "/private/secret",
+                    }
+                )
+            ],
+            rationale=LocalizedText(zh="测试", en="Test"),
+        ),
+    )
+    [candidate] = build_suggestion_candidates(
+        [],
+        [entry],
+        registry_official_source=False,
+    )
+
+    monkeypatch.setattr(
+        availability_routes,
+        "_get_or_create_resolver",
+        lambda: pytest.fail("custom registry candidate initialized availability resolver"),
+    )
+
+    is_available = _default_availability()([candidate])
+
+    assert is_available(candidate.plugin_id) is False
+
+
+def test_official_registry_candidate_may_execute_local_requirements(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from magi.api.routers import availability_routes
+
+    candidate = SimpleNamespace(
+        plugin_id="official-candidate",
+        installed=False,
+        official_source=True,
+        descriptor=object(),
+    )
+    evaluated: list[str] = []
+
+    class Resolver:
+        def evaluate_descriptor(self, _descriptor, *, plugin_id):
+            evaluated.append(plugin_id)
+            return SimpleNamespace(available=True)
+
+    monkeypatch.setattr(
+        availability_routes,
+        "_get_or_create_resolver",
+        lambda: Resolver(),
+    )
+
+    is_available = _default_availability()([candidate])
+
+    assert is_available(candidate.plugin_id) is True
+    assert evaluated == ["official-candidate"]
 
 
 def test_list_dismissals_returns_active(app_with_dismissals) -> None:
@@ -463,14 +595,11 @@ async def test_active_sensor_plugin_ids_parses_status(monkeypatch) -> None:
         return {
             "sources": [
                 # enabled + configured (no/cleared activation) -> in use
-                {"plugin_id": "chrome-history", "enabled": True,
-                 "activation_required": False},
+                {"plugin_id": "chrome-history", "enabled": True, "activation_required": False},
                 # enabled but activation still required -> not yet configured
-                {"plugin_id": "screen-time", "enabled": True,
-                 "activation_required": True},
+                {"plugin_id": "screen-time", "enabled": True, "activation_required": True},
                 # disabled -> not in use
-                {"plugin_id": "git-activity", "enabled": False,
-                 "activation_required": False},
+                {"plugin_id": "git-activity", "enabled": False, "activation_required": False},
                 # malformed / missing plugin_id -> skipped
                 {"enabled": True, "activation_required": False},
             ]
