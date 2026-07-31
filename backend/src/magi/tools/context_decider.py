@@ -20,6 +20,7 @@ from ..config.models import LLMScenario
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
 from ..utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
+from ..utils.diagnostic_logging import full_content_logging_enabled
 from .context_decider_context import ContextDeciderContext
 from .context_decider_fallback import ContextDeciderFallbackMixin
 from .context_decider_guidance import ContextDeciderGuidanceMixin
@@ -260,19 +261,32 @@ class ContextDecider(
             disable_thinking=True,
             duration_ms=duration_ms,
         )
-        trace_metadata.setdefault("request_preview", user_message[:240])
-        trace_metadata.setdefault("response_preview", response[:240])
+        if full_content_logging_enabled():
+            trace_metadata.setdefault("request_preview", user_message[:240])
+            trace_metadata.setdefault("response_preview", response[:240])
         return dataclasses.replace(
             decision,
             llm_trace={**decision.llm_trace, **trace_metadata},
         )
 
     def _log_decision(self, decision: RouteDecision, response: str) -> None:
+        if full_content_logging_enabled():
+            logger.info(
+                f"[ContextDecider] Decision made | Profile: {decision.profile} | "
+                f"Graph: {decision.graph_shape} | Tools: {decision.tools} | "
+                f"Thinking: {decision.thinking_depth.value} | Reasoning: {decision.reasoning}"
+            )
+            logger.debug(f"[ContextDecider] Raw LLM response: {response[:500]}")
+            return
         logger.info(
-            f"[ContextDecider] Decision made | Profile: {decision.profile} | "
-            f"Graph: {decision.graph_shape} | Tools: {decision.tools} | Thinking: {decision.thinking_depth.value} | Reasoning: {decision.reasoning}"
+            "[ContextDecider] Decision made | Profile: %s | Graph: %s | "
+            "Tools: %s | Thinking: %s | Response chars: %d",
+            decision.profile,
+            decision.graph_shape,
+            decision.tools,
+            decision.thinking_depth.value,
+            len(response),
         )
-        logger.debug(f"[ContextDecider] Raw LLM response: {response[:500]}")
 
     def _get_available_tools(self) -> list[dict[str, Any]]:
         """Get list of available CAPABILITY tools with metadata.

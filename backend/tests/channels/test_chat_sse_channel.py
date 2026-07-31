@@ -2,11 +2,11 @@
 first-class DeliveryRouter target."""
 from __future__ import annotations
 
-import asyncio
 import json
 
 import pytest
 
+from magi.channels import chat_sse_channel as chat_sse_module
 from magi.channels.chat_sse_channel import ChatSseChannel
 from magi.runtime_trace import RuntimeNotificationRecord
 from magi_plugin_sdk.channels import Channel, ChannelTarget
@@ -257,6 +257,33 @@ async def test_deliver_chunk_raises_when_neither_trace_store_nor_emit() -> None:
     )
     # Should not raise; _default_emit logs and returns a synthetic id.
     await ch.deliver_chunk(target, DeliveryChunk(text="x", is_final=False, seq=0))
+
+
+@pytest.mark.asyncio
+async def test_default_emit_omits_payload_when_full_content_logging_is_disabled(
+    monkeypatch,
+) -> None:
+    logged: list[tuple[object, ...]] = []
+
+    class _Logger:
+        def info(self, *args: object) -> None:
+            logged.append(args)
+
+    monkeypatch.setattr("magi.core.logger.get_logger", lambda _name: _Logger())
+    monkeypatch.setattr(
+        "magi.utils.diagnostic_logging.full_content_logging_enabled",
+        lambda: False,
+    )
+
+    await chat_sse_module._default_emit(
+        "session-1",
+        {"text": "SSE-CONTENT-CANARY", "is_final": False},
+    )
+
+    assert "SSE-CONTENT-CANARY" not in str(logged)
+    assert "payload_fields" in str(logged)
+    assert "is_final" in str(logged)
+    assert "text" in str(logged)
 
 
 @pytest.mark.asyncio

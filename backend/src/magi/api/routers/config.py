@@ -54,6 +54,7 @@ from .config_schemas import (
     AgentConfigModel,
     BackgroundTasksConfigModel,
     ConfigResponse,
+    DiagnosticsConfigModel,
     FullPersonalityConfigModel,
     LanguagePreferenceUpdateRequest,
     NetworkProxyConfigModel,
@@ -135,6 +136,7 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
 
     preferences_data = raw.get("preferences", {})
     network_data = raw.get("network", {})
+    diagnostics_data = raw.get("diagnostics", {})
 
     return SystemConfigModel(
         agent=AgentConfigModel(
@@ -153,6 +155,7 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
         memory=_build_memory_config(raw, runtime_config),
         preferences=UserPreferencesModel(**preferences_data),
         network=NetworkProxyConfigModel(**network_data),
+        diagnostics=DiagnosticsConfigModel(**diagnostics_data),
         personality=_load_full_personality(),
         personalitySettings=PersonalitySettingsModel(
             state_memory_enabled=bool(

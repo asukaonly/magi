@@ -21,7 +21,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ... import i18n as core_i18n
 from ...core.logger import get_logger
@@ -29,6 +29,7 @@ from ...mcp import _toml_writer
 from ...mcp.config import MCPServerConfig
 from ...mcp.connection import ConnectionState, StdioConnection
 from ...mcp.lifecycle import get_active_manager
+from ...mcp.log_security import redact_mcp_log_text, register_mcp_transport_secrets
 from ...mcp.manager import MCPManager
 from ...utils.runtime import get_runtime_paths
 
@@ -93,7 +94,7 @@ def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
         resource_count = len(rt.resources)
         resource_template_count = len(rt.resource_templates)
         prompt_count = len(rt.prompts)
-        last_error = rt.last_error
+        last_error = redact_mcp_log_text(rt.last_error)
     return {
         "id": cfg.server.id,
         "name": cfg.server.name,
@@ -140,6 +141,12 @@ class CreateOrUpdatePayload(BaseModel):
     runtime: dict | None = None
     tool_overrides: dict | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _register_secrets_before_validation(cls, value: Any) -> Any:
+        register_mcp_transport_secrets(value)
+        return value
+
 
 @mcp_router.get("/servers")
 async def list_servers() -> dict[str, Any]:
@@ -151,10 +158,11 @@ async def list_servers() -> dict[str, Any]:
 async def create_server(payload: CreateOrUpdatePayload) -> dict[str, Any]:
     mgr = _manager()
     raw = payload.model_dump(exclude_none=True)
+    register_mcp_transport_secrets(raw)
     try:
         cfg = MCPServerConfig.model_validate(raw)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=redact_mcp_log_text(exc))
     if cfg.server.id in {c.server.id for c in mgr.list_configs()}:
         raise HTTPException(
             status_code=409,
@@ -167,7 +175,9 @@ async def create_server(payload: CreateOrUpdatePayload) -> dict[str, Any]:
             await mgr.start_server(cfg.server.id)
         except Exception as exc:
             logger.warning(
-                "MCP autostart on create failed", server_id=cfg.server.id, error=str(exc)
+                "MCP autostart on create failed",
+                server_id=cfg.server.id,
+                error=redact_mcp_log_text(exc),
             )
     return _serialize_status(mgr, cfg)
 
@@ -184,10 +194,11 @@ async def update_server(server_id: str, payload: CreateOrUpdatePayload) -> dict[
 
     raw = payload.model_dump(exclude_none=True)
     raw.setdefault("server", {})["id"] = server_id  # id is path-locked
+    register_mcp_transport_secrets(raw)
     try:
         cfg = MCPServerConfig.model_validate(raw)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=redact_mcp_log_text(exc))
 
     was_running = mgr.is_running(server_id)
     if was_running:
@@ -198,7 +209,11 @@ async def update_server(server_id: str, payload: CreateOrUpdatePayload) -> dict[
         try:
             await mgr.start_server(server_id)
         except Exception as exc:
-            logger.warning("MCP restart after update failed", server_id=server_id, error=str(exc))
+            logger.warning(
+                "MCP restart after update failed",
+                server_id=server_id,
+                error=redact_mcp_log_text(exc),
+            )
     return _serialize_status(mgr, cfg)
 
 
@@ -231,7 +246,7 @@ async def start_server(server_id: str) -> dict[str, Any]:
     try:
         await mgr.start_server(server_id)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=redact_mcp_log_text(exc))
     return _serialize_status(mgr, cfg)
 
 
@@ -256,11 +271,15 @@ async def server_logs(server_id: str) -> dict[str, Any]:
         return {"server_id": server_id, "stderr": [], "last_error": None}
     stderr: list[str] = []
     if isinstance(rt.conn, StdioConnection):
-        stderr = rt.conn.stderr_tail
+        stderr = [
+            redacted
+            for line in rt.conn.stderr_tail
+            if (redacted := redact_mcp_log_text(line)) is not None
+        ]
     return {
         "server_id": server_id,
         "stderr": stderr,
-        "last_error": rt.last_error,
+        "last_error": redact_mcp_log_text(rt.last_error),
     }
 
 
@@ -290,7 +309,7 @@ async def read_resource(payload: ResourceReadPayload) -> dict[str, Any]:
     try:
         return await mgr.read_resource(payload.server_id, payload.uri)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail=redact_mcp_log_text(exc))
 
 
 @mcp_router.get("/resource-templates")
@@ -326,4 +345,4 @@ async def get_prompt(payload: PromptGetPayload) -> dict[str, Any]:
     try:
         return await mgr.get_prompt(payload.server_id, payload.name, payload.arguments)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        raise HTTPException(status_code=502, detail=redact_mcp_log_text(exc))

@@ -13,6 +13,7 @@ import os
 import time
 from typing import Any, Callable, Dict, List, Optional, Set
 
+from ..utils.diagnostic_logging import full_content_logging_enabled
 from ..utils.runtime import get_default_chat_workspace_path
 from .schema import SkillContent, SkillResult
 from .loader import SkillLoader
@@ -90,7 +91,14 @@ class SkillRunner:
         arguments = arguments or []
         context = context or {}
 
-        logger.info(f"Executing skill: {skill_name} with arguments: {arguments}")
+        if full_content_logging_enabled():
+            logger.info("Executing skill: %s with arguments: %s", skill_name, arguments)
+        else:
+            logger.info(
+                "Executing skill: %s with argument_count=%d",
+                skill_name,
+                len(arguments),
+            )
 
         skill = self.loader.load_skill(skill_name)
         if not skill:
@@ -128,7 +136,13 @@ class SkillRunner:
 
         except Exception as e:
             execution_time = time.time() - start_time
-            logger.error(f"Skill execution failed: {e}", exc_info=True)
+            if full_content_logging_enabled():
+                logger.error("Skill execution failed: %s", e, exc_info=True)
+            else:
+                logger.error(
+                    "Skill execution failed | error_type=%s",
+                    type(e).__name__,
+                )
             return SkillResult(
                 success=False,
                 error=str(e),
@@ -300,7 +314,13 @@ class SkillRunner:
             return result
 
         except Exception as e:
-            logger.error(f"Subagent execution failed: {e}")
+            if full_content_logging_enabled():
+                logger.error("Subagent execution failed: %s", e)
+            else:
+                logger.error(
+                    "Subagent execution failed | error_type=%s",
+                    type(e).__name__,
+                )
             return SkillResult(
                 success=False,
                 error=f"Subagent execution failed: {e}",

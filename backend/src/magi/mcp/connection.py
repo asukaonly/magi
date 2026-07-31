@@ -9,6 +9,12 @@ import os
 from typing import Any, Callable
 
 from .config import StdioTransport
+from .log_security import (
+    redact_mcp_log_text,
+    redact_mcp_traceback,
+    register_mcp_runtime_secrets,
+    register_mcp_transport_secrets,
+)
 from .protocol import (
     FrameDecoder,
     JsonRpcNotification,
@@ -93,9 +99,11 @@ class MCPConnection:
             for h in self._handlers.get(msg.method, []):
                 try:
                     h(msg.params)
-                except Exception:
-                    logger.exception(
-                        "notification handler error: method=%s", msg.method
+                except Exception as exc:
+                    logger.error(
+                        "notification handler error: method=%s | traceback=%s",
+                        msg.method,
+                        redact_mcp_traceback(exc),
                     )
         else:
             logger.warning(
@@ -106,6 +114,7 @@ class MCPConnection:
 class StdioConnection(MCPConnection):
     def __init__(self, transport: StdioTransport, *, label: str = "mcp.stdio"):
         super().__init__()
+        register_mcp_transport_secrets(transport)
         self._t = transport
         # `label` is recorded in the ManagedSubprocess PID registry so
         # backend startup can match orphaned MCP servers back to their
@@ -119,7 +128,11 @@ class StdioConnection(MCPConnection):
 
     @property
     def stderr_tail(self) -> list[str]:
-        return list(self._stderr_buf[-500:])
+        return [
+            redacted
+            for item in self._stderr_buf[-500:]
+            if (redacted := redact_mcp_log_text(item)) is not None
+        ]
 
     async def _start_transport(self) -> None:
         env = {**os.environ, **self._t.env}
@@ -198,8 +211,11 @@ class StdioConnection(MCPConnection):
                         break
                     try:
                         msg = parse_message(raw)
-                    except Exception:
-                        logger.exception("invalid MCP message frame")
+                    except Exception as exc:
+                        logger.error(
+                            "invalid MCP message frame | traceback=%s",
+                            redact_mcp_traceback(exc),
+                        )
                         continue
                     await self._dispatch(msg)
         except asyncio.CancelledError:
@@ -214,9 +230,8 @@ class StdioConnection(MCPConnection):
                 line = await self._proc.stderr.readline()
                 if not line:
                     break
-                self._stderr_buf.append(
-                    line.decode("utf-8", errors="replace").rstrip()
-                )
+                decoded = line.decode("utf-8", errors="replace").rstrip()
+                self._stderr_buf.append(redact_mcp_log_text(decoded) or "")
                 if len(self._stderr_buf) > 1000:
                     self._stderr_buf = self._stderr_buf[-500:]
         except asyncio.CancelledError:
@@ -241,6 +256,7 @@ class HttpConnection(MCPConnection):
 
         if not isinstance(transport, HttpTransport):
             raise TypeError("HttpConnection requires HttpTransport")
+        register_mcp_transport_secrets(transport)
         self._t = transport
         self._client = None  # type: ignore[assignment]
         self._session_id: str | None = None
@@ -294,6 +310,7 @@ class HttpConnection(MCPConnection):
 
         sid = resp.headers.get("mcp-session-id")
         if sid:
+            register_mcp_runtime_secrets([sid])
             self._session_id = sid
 
         if resp.status_code == 202:
@@ -311,14 +328,20 @@ class HttpConnection(MCPConnection):
             raw = await resp.aread()
             try:
                 await self._dispatch(parse_message(raw))
-            except Exception:
-                logger.exception("invalid inline JSON response")
+            except Exception as exc:
+                logger.error(
+                    "invalid inline JSON response | traceback=%s",
+                    redact_mcp_traceback(exc),
+                )
         elif ctype.startswith("text/event-stream"):
             async for raw in _iter_sse_data(resp):
                 try:
                     await self._dispatch(parse_message(raw))
-                except Exception:
-                    logger.exception("invalid SSE event")
+                except Exception as exc:
+                    logger.error(
+                        "invalid SSE event | traceback=%s",
+                        redact_mcp_traceback(exc),
+                    )
         else:
             await self._fail_request(
                 msg, RuntimeError(f"unexpected content-type: {ctype!r}")
@@ -352,8 +375,11 @@ class HttpConnection(MCPConnection):
                 async for raw in _iter_sse_data(r):
                     try:
                         await self._dispatch(parse_message(raw))
-                    except Exception:
-                        logger.exception("invalid SSE listen event")
+                    except Exception as exc:
+                        logger.error(
+                            "invalid SSE listen event | traceback=%s",
+                            redact_mcp_traceback(exc),
+                        )
         except (asyncio.CancelledError, httpx.HTTPError):
             return
 

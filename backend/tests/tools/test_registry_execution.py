@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 import pytest
 
+from magi.tools import registry_execution as registry_execution_module
 from magi.tools.registry import ToolRegistry
 from magi.tools.schema import (
     ToolErrorCode,
@@ -164,3 +165,44 @@ async def test_execution_exception_returns_execution_error_code():
     assert result.success is False
     assert result.error_code == ToolErrorCode.EXECUTION_ERROR.value
     assert result.error == "boom"
+
+
+@pytest.mark.asyncio
+async def test_execution_exception_log_omits_error_content_when_disabled(
+    monkeypatch,
+    caplog,
+):
+    secret_error = "private tool exception content"
+    monkeypatch.setattr(
+        registry_execution_module,
+        "full_content_logging_enabled",
+        lambda: False,
+    )
+
+    class PrivateRaisesTool(_BaseTool):
+        SCHEMA = ToolSchema(
+            name="private_raises_probe",
+            description="Raises private content",
+            category="test",
+        )
+
+        async def execute(
+            self,
+            params: Dict[str, Any],
+            context: Any,
+        ) -> ToolResult:
+            raise RuntimeError(secret_error)
+
+    with caplog.at_level(
+        "WARNING",
+        logger=registry_execution_module.logger.name,
+    ):
+        result = await _registry(PrivateRaisesTool).execute(
+            "private_raises_probe",
+            {},
+            _context(),
+        )
+
+    assert result.error == secret_error
+    assert secret_error not in caplog.text
+    assert "error_type=RuntimeError" in caplog.text

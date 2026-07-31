@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import gc
 from dataclasses import dataclass
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -31,6 +31,32 @@ async def _runtime_ready(_app):  # type: ignore[no-untyped-def]
         "startup_state": "ready",
         "deferred_reason": None,
     }
+
+
+def test_queued_message_log_omits_content_when_full_logging_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent_log = MagicMock()
+    monkeypatch.setattr(messages_dispatch, "agent_logger", agent_log)
+    monkeypatch.setattr(
+        messages_dispatch,
+        "full_content_logging_enabled",
+        lambda: False,
+    )
+
+    messages_dispatch._log_queued_message(
+        messages_router.UserMessageRequest(message="MESSAGE-CONTENT-CANARY"),
+        MessageDispatchOutcome(
+            success=True,
+            user_id="local_user",
+            session_id="session-1",
+            turn_id="turn-1",
+            queue_size=2,
+        ),
+    )
+
+    assert "MESSAGE-CONTENT-CANARY" not in str(agent_log.info.call_args_list)
+    assert "Length: %s" in str(agent_log.info.call_args_list)
 
 
 @pytest.mark.asyncio

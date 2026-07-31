@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from .handler_base import rrf_fuse
 from .debug_detail import DETAIL_LIMIT, event_record, event_records, log_detail
 from .models import L1Conditions, TimeRange
@@ -281,7 +282,14 @@ class L1ExecutionMixin:
     def _log_l1_path_errors(results_or_errors: List[Any]) -> None:
         for i, res in enumerate(results_or_errors):
             if isinstance(res, BaseException):
-                logger.warning("L1 search path %d failed: %s", i, res)
+                if full_content_logging_enabled():
+                    logger.warning("L1 search path %d failed: %s", i, res)
+                else:
+                    logger.warning(
+                        "L1 search path %d failed: error_type=%s",
+                        i,
+                        type(res).__name__,
+                    )
 
     async def _log_base_l1_path_results(
         self,
@@ -293,10 +301,16 @@ class L1ExecutionMixin:
         user_id: Optional[str],
         l1_retrieval_scopes: Optional[List[str]],
     ) -> None:
+        query_log = (
+            conditions.content_query
+            if full_content_logging_enabled()
+            else f"[content omitted; {len(conditions.content_query)} chars]"
+        )
         logger.info(
             "L1 retrieval paths completed | content_query=%r user_id=%s "
-            "bm25_count=%d vec_count=%d kw_count=%d temporal_bm25_count=%d fetch_k=%d",
-            conditions.content_query,
+            "bm25_count=%d vec_count=%d kw_count=%d "
+            "temporal_bm25_count=%d fetch_k=%d",
+            query_log,
             user_id,
             len(base_paths.bm25_ids),
             len(base_paths.vector_ids),
@@ -308,7 +322,7 @@ class L1ExecutionMixin:
             "L1 retrieval path samples | content_query=%r user_id=%s "
             "bm25_ids_sample=%s vec_ids_sample=%s kw_ids_sample=%s "
             "temporal_bm25_ids_sample=%s l1_retrieval_scopes=%s time_range=%s",
-            conditions.content_query,
+            query_log,
             user_id,
             base_paths.bm25_ids[:10],
             base_paths.vector_ids[:10],

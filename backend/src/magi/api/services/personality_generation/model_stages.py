@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Optional, Sequence, cast
 
+from ....utils.diagnostic_logging import full_content_logging_enabled
 from ....config.models import LLMScenario, LLMSettings
 from ....llm import LLMProviderBridge
 from .constants import (
@@ -151,6 +152,12 @@ def _json_output_preview(response_text: str) -> str:
     )
 
 
+def _diagnostic_preview(value: str, max_chars: int = 300) -> str:
+    if not full_content_logging_enabled():
+        return "[content omitted by diagnostics setting]"
+    return _truncate_for_diagnostics(value, max_chars)
+
+
 def _log_invalid_generation_json(
     *,
     event: str,
@@ -162,14 +169,21 @@ def _log_invalid_generation_json(
 ) -> None:
     fields: dict[str, Any] = {
         "stage_id": stage_id,
-        "expected_output_contract": _expected_output_contract(system_prompt),
         "parse_error": _parse_error_summary(parse_error),
-        "output_error_context": _json_output_error_context(
-            response_text,
-            parse_error,
-        ),
-        "output_preview": _json_output_preview(response_text),
+        "system_prompt_chars": len(system_prompt),
+        "response_chars": len(response_text),
     }
+    if full_content_logging_enabled():
+        fields.update(
+            {
+                "expected_output_contract": _expected_output_contract(system_prompt),
+                "output_error_context": _json_output_error_context(
+                    response_text,
+                    parse_error,
+                ),
+                "output_preview": _json_output_preview(response_text),
+            }
+        )
     if extra_fields:
         fields.update(extra_fields)
     logger.warning(event, **fields)
@@ -262,7 +276,7 @@ async def _run_generation_stage(
     logger.info(
         "[AI Generate Personality] Stage %s raw response preview: %s",
         stage_id,
-        response_text[:300],
+        _diagnostic_preview(response_text),
     )
     try:
         return _extract_json_object(response_text)
@@ -296,25 +310,29 @@ async def _run_generation_stage(
         logger.info(
             "[AI Generate Personality] Stage %s repaired response preview: %s",
             stage_id,
-            repaired_text[:300],
+            _diagnostic_preview(repaired_text),
         )
         try:
             return _extract_json_object(repaired_text)
         except (json.JSONDecodeError, ValueError) as repair_exc:
+            repair_fields: dict[str, Any] = {
+                "original_parse_error": _parse_error_summary(exc),
+                "repair_parse_error": _parse_error_summary(repair_exc),
+            }
+            if full_content_logging_enabled():
+                repair_fields["repair_output_error_context"] = (
+                    _json_output_error_context(
+                        repaired_text,
+                        repair_exc,
+                    )
+                )
             _log_invalid_generation_json(
                 event="personality_generation_json_repair_invalid",
                 stage_id=stage_id,
                 system_prompt=system_prompt,
                 response_text=repaired_text,
                 parse_error=repair_exc,
-                extra_fields={
-                    "original_parse_error": _parse_error_summary(exc),
-                    "repair_parse_error": _parse_error_summary(repair_exc),
-                    "repair_output_error_context": _json_output_error_context(
-                        repaired_text,
-                        repair_exc,
-                    ),
-                },
+                extra_fields=repair_fields,
             )
             raise
 

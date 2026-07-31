@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ... import i18n as core_i18n
 from ...config.llm_registry import (
@@ -21,6 +21,7 @@ from ...config.llm_registry import (
 from ...config.models import LLMProviderSettings
 from ...config import get_config
 from ...core.logger import get_logger
+from ...utils.log_redaction import redact_log_value, refresh_known_log_secrets
 from ...llm import LLMProviderBridge, create_llm_adapter
 from ...llm.draft import build_adapter_from_provider
 from ...utils.packaged_paths import get_backend_root
@@ -28,39 +29,8 @@ from ...utils.packaged_paths import get_backend_root
 logger = get_logger(__name__)
 
 
-_SENSITIVE_LOG_FIELD_PATTERNS = (
-    "api_key",
-    "apikey",
-    "secret",
-    "password",
-    "token",
-    "credential",
-    "private",
-)
-
-
-def _is_sensitive_log_field(field_name: str) -> bool:
-    field_lower = field_name.lower()
-    return any(pattern in field_lower for pattern in _SENSITIVE_LOG_FIELD_PATTERNS)
-
-
 def _sanitize_log_value(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, list):
-        return [_sanitize_log_value(item) for item in value]
-    if isinstance(value, dict):
-        return {
-            key: (
-                "***MASKED***" if _is_sensitive_log_field(str(key)) else _sanitize_log_value(item)
-            )
-            for key, item in value.items()
-        }
-    if hasattr(value, "model_dump"):
-        return _sanitize_log_value(value.model_dump())
-    if hasattr(value, "__dict__"):
-        return _sanitize_log_value(vars(value))
-    return str(value)
+    return redact_log_value(value)
 
 
 # ── Shared request/response models ──────────────────────────────────────
@@ -71,6 +41,12 @@ class DiscoverLLMModelsRequestModel(BaseModel):
     base_url: str
     api_key: Optional[str] = Field(default=None)
     api_format: Optional[str] = Field(default="openai")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _register_secrets_before_validation(cls, value: Any) -> Any:
+        refresh_known_log_secrets(value)
+        return value
 
 
 class DiscoverLLMModelsResponseModel(BaseModel):
@@ -88,6 +64,12 @@ class TestLLMProviderRequestModel(BaseModel):
     provider_id: str = Field(default="openai")
     provider: Any  # LLMProviderConfigModel (defined in config router)
     model: str = Field(default="")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _register_secrets_before_validation(cls, value: Any) -> Any:
+        refresh_known_log_secrets(value)
+        return value
 
 
 class TestLLMProviderResponseModel(BaseModel):

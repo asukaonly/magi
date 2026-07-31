@@ -82,14 +82,11 @@ fn parse_payload(json_str: &str) -> serde_json::Value {
     match serde_json::from_str(json_str) {
         Ok(value) => value,
         Err(err) => {
-            // Truncate the offending payload to keep stderr readable while
-            // preserving enough context to diagnose schema drift. Using
-            // `eprintln!` to match the existing pattern in `db.rs`; if/when
-            // the gateway adopts a proper logging facade these (and the
-            // db.rs ones) should migrate together.
-            let preview: String = json_str.chars().take(200).collect();
+            // Notification bodies may contain conversation text or credentials.
+            // Keep only structural diagnostics in the native host log.
             eprintln!(
-                "notification_bridge: failed to parse payload_json ({err}); preview={preview:?}"
+                "notification_bridge: failed to parse payload_json ({err}); chars={}",
+                json_str.chars().count()
             );
             serde_json::Value::Object(serde_json::Map::new())
         }

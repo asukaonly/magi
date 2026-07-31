@@ -10,6 +10,7 @@ else:
     import tomli as tomllib
 
 from .config import MCPServerConfig
+from .log_security import register_mcp_transport_secrets
 
 _ENV_RE = re.compile(r"\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -43,6 +44,7 @@ class MCPConfigLoader:
                 with path.open("rb") as f:
                     data = tomllib.load(f)
                 data = _expand_strings(data)
+                register_mcp_transport_secrets(data)
                 cfg = MCPServerConfig.model_validate(data)
             except Exception as e:
                 raise ValueError(f"{path}: failed to load MCP config: {e}") from e

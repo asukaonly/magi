@@ -7,7 +7,7 @@ from magi.mcp.config import StdioTransport
 from magi.mcp.connection import StdioConnection
 
 FAKE_SERVER = r"""
-import sys, json
+import os, sys, json
 def write(obj):
     sys.stdout.write(json.dumps(obj) + "\n")
     sys.stdout.flush()
@@ -22,6 +22,10 @@ for line in sys.stdin:
         write({"jsonrpc":"2.0","id":msg["id"],"error":{"code":-1,"message":"boom"}})
     elif msg.get("method") == "log_then_echo":
         sys.stderr.write("logging from server\n")
+        sys.stderr.flush()
+        write({"jsonrpc":"2.0","id":msg["id"],"result":msg.get("params")})
+    elif msg.get("method") == "log_secret":
+        sys.stderr.write("external tool value=" + os.environ["UNUSUAL_SETTING"] + "\n")
         sys.stderr.flush()
         write({"jsonrpc":"2.0","id":msg["id"],"result":msg.get("params")})
 """
@@ -76,5 +80,29 @@ async def test_stdio_captures_stderr(fake_server_script: Path):
         await asyncio.sleep(0.05)
         tail = conn.stderr_tail
         assert any("logging from server" in line for line in tail)
+    finally:
+        await conn.stop()
+
+
+@pytest.mark.asyncio
+async def test_stdio_redacts_arbitrary_configured_env_values_from_stderr(
+    fake_server_script: Path,
+):
+    secret = "mcp-unusual-env-secret"
+    transport = StdioTransport(
+        command=sys.executable,
+        args=[str(fake_server_script)],
+        env={"UNUSUAL_SETTING": secret},
+    )
+    conn = StdioConnection(transport)
+    await conn.start()
+    try:
+        await conn.request("log_secret", None, timeout=3.0)
+        import asyncio
+
+        await asyncio.sleep(0.05)
+        rendered = "\n".join(conn.stderr_tail)
+        assert secret not in rendered
+        assert "[REDACTED]" in rendered
     finally:
         await conn.stop()

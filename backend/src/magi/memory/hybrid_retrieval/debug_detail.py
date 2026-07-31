@@ -12,6 +12,7 @@ import json
 import logging
 from typing import Any, Iterable
 
+from magi.utils.diagnostic_logging import full_content_logging_enabled
 from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
 
 
@@ -20,6 +21,13 @@ DETAIL_LIMIT = 120
 
 def log_detail(logger: logging.Logger, message: str, payload: dict[str, Any]) -> None:
     """Emit a JSON payload at INFO level for grep-friendly retrieval tracing."""
+    if not full_content_logging_enabled():
+        logger.info(
+            "%s | detail omitted by diagnostics setting | fields=%s",
+            message,
+            sorted(str(key) for key in payload),
+        )
+        return
     logger.info("%s | detail=%s", message, to_json(payload))
 
 

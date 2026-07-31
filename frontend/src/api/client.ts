@@ -4,6 +4,7 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { AxiosRequestConfig, AxiosResponse } from 'axios';
 import { getRuntimeConfig } from '@/runtime/config';
+import { registerKnownLogSecrets } from '@/runtime/log-redaction';
 import { useBackendHealthStore } from '@/stores/backend-health';
 import { resolveInitialLanguage } from '@/utils/language';
 
@@ -273,9 +274,16 @@ const createApiClient = (): AxiosInstance => {
       if (config.headers) {
         config.headers['Accept-Language'] = language;
       }
+      registerKnownLogSecrets({
+        auth: config.auth,
+        data: config.data,
+        headers: config.headers,
+        params: config.params,
+      });
       return config;
     },
     (error) => {
+      registerKnownLogSecrets(error);
       return Promise.reject(error);
     }
   );
@@ -283,9 +291,14 @@ const createApiClient = (): AxiosInstance => {
   // Response interceptor
   client.interceptors.response.use(
     (response) => {
+      registerKnownLogSecrets(response.data);
       return response;
     },
     (error: AxiosError<ApiError>) => {
+      registerKnownLogSecrets({
+        config: error.config,
+        response: error.response?.data,
+      });
       const clientError = toApiClientError(error);
       syncBackendHealthFromApiError(clientError);
       return Promise.reject(clientError);
@@ -323,6 +336,7 @@ export function authenticatedFetch(
     headers.set('X-Magi-Session-Token', sessionToken);
   }
   headers.set('Accept-Language', resolveInitialLanguage());
+  registerKnownLogSecrets({ body: init.body, headers: Object.fromEntries(headers.entries()) });
   return fetch(input, {
     ...init,
     headers,
@@ -333,6 +347,7 @@ export const configureApiClient = (options: {
   baseUrl?: string;
   sessionToken?: string;
 } = {}): void => {
+  registerKnownLogSecrets(options);
   if (options.baseUrl) {
     apiClient.defaults.baseURL = options.baseUrl.replace(/\/+$/, '');
   }

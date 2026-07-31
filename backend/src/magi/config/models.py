@@ -624,6 +624,17 @@ class NetworkProxySettings(BaseModel):
 
 
 # =============================================================================
+# Diagnostics
+# =============================================================================
+
+
+class DiagnosticsSettings(BaseModel):
+    """Local diagnostic logging policy."""
+
+    full_content_logging_enabled: bool = Field(default=True)
+
+
+# =============================================================================
 # Data Lifecycle Configuration
 # =============================================================================
 
@@ -753,6 +764,7 @@ class AppConfig(BaseModel):
     timeline: TimelineSettings = Field(default_factory=TimelineSettings)
     plugins: PluginsSettings = Field(default_factory=PluginsSettings)
     network: NetworkProxySettings = Field(default_factory=NetworkProxySettings)
+    diagnostics: DiagnosticsSettings = Field(default_factory=DiagnosticsSettings)
     lifecycle: LifecycleSettings = Field(default_factory=LifecycleSettings)
     debug: bool = Field(default=False)
     log_level: str = Field(default="INFO")

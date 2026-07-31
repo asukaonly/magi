@@ -15,6 +15,7 @@ import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
 from ...events.events import EventTypes
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from ..embedding.sqlite_vec_index import SqliteVecIndex
 from ..evidence import (
     EVIDENCE_RULE_VERSION,
@@ -196,15 +197,27 @@ class L1EventWriteMixin:
     @staticmethod
     def _log_store_attempt(event: MemoryEvent) -> None:
         if event.source == "calendar":
-            logger.info(
-                "L1EventStore storing calendar event | "
-                "event_id=%s event_type=%s source_item_id=%s content=%s metadata_json=%s",
-                event.event_id,
-                event.event_type,
-                event.source_item_id,
-                event.content,
-                event.metadata_json,
-            )
+            if full_content_logging_enabled():
+                logger.info(
+                    "L1EventStore storing calendar event | "
+                    "event_id=%s event_type=%s source_item_id=%s "
+                    "content=%s metadata_json=%s",
+                    event.event_id,
+                    event.event_type,
+                    event.source_item_id,
+                    event.content,
+                    event.metadata_json,
+                )
+            else:
+                logger.info(
+                    "L1EventStore storing calendar event | "
+                    "event_id=%s event_type=%s content_chars=%d "
+                    "metadata_chars=%d",
+                    event.event_id,
+                    event.event_type,
+                    len(event.content),
+                    len(event.metadata_json),
+                )
         if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
             logger.info(
                 "L1EventStore persisting event | event_id=%s type=%s session_id=%s user_id=%s correlation_id=%s",

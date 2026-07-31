@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from .answerability import extract_query_tokens, extract_quoted_spans
 from .debug_detail import DETAIL_LIMIT, event_record, log_detail
 from .models import L1Conditions, TimeRange
@@ -469,11 +470,16 @@ def _log_l1_fetch_filter_trace(
     dropped_by_id: Dict[str, Dict[str, Any]],
     filters: Dict[str, Any],
 ) -> None:
+    query_log = (
+        conditions.content_query
+        if full_content_logging_enabled()
+        else f"[content omitted; {len(conditions.content_query)} chars]"
+    )
     logger.info(
         "L1 fetch filters applied | content_query=%r input_count=%d "
         "output_count=%d dropped_count=%d dropped_ids_sample=%s "
         "result_ids_sample=%s filters=%s",
-        conditions.content_query,
+        query_log,
         len(event_ids),
         len(results),
         len(dropped_ids),

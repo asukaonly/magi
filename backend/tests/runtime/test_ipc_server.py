@@ -12,6 +12,7 @@ import pytest
 from fastapi import FastAPI
 
 from magi.ipc import handlers
+from magi.ipc import server as server_module
 from magi.ipc.server import IpcServer
 
 
@@ -57,6 +58,29 @@ async def test_ipc_ping_round_trip() -> None:
             await server.stop()
         finally:
             os.environ.pop("MAGI_IPC_SOCKET", None)
+
+
+@pytest.mark.asyncio
+async def test_ipc_parse_error_omits_input_when_full_content_logging_is_disabled(
+    monkeypatch,
+) -> None:
+    warnings: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(
+        server_module,
+        "full_content_logging_enabled",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        server_module.logger,
+        "warning",
+        lambda event, **fields: warnings.append((event, fields)),
+    )
+    line = "IPC-CONTENT-CANARY-not-json"
+
+    await IpcServer()._process_line(line, object(), asyncio.Lock())  # type: ignore[arg-type]
+
+    assert warnings == [("ipc_parse_error", {"line_chars": len(line)})]
+    assert "IPC-CONTENT-CANARY" not in str(warnings)
 
 
 @pytest.mark.asyncio

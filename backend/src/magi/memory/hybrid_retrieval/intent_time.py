@@ -8,6 +8,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from magi.utils.diagnostic_logging import full_content_logging_enabled
+
 from .models import TimeRange
 
 logger = logging.getLogger(__name__)
@@ -226,7 +228,10 @@ def parse_time_from_query(query: str) -> TimeRange | None:
     try:
         results = search_dates(query, settings=settings, languages=["en", "zh"])
     except Exception:
-        logger.debug("dateparser.search_dates failed for query=%r", query)
+        logger.debug(
+            "dateparser.search_dates failed for query=%r",
+            query if full_content_logging_enabled() else "[content omitted]",
+        )
         return None
 
     if not results:

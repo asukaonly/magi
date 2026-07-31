@@ -256,6 +256,20 @@ export function SettingsPreferencesSection({
         </div>
       </SettingsGroup>
 
+      <SettingsGroup
+        title={t('settings.diagnostics.title')}
+        description={t('settings.diagnostics.description')}
+      >
+        <PreferenceToggleRow
+          label={t('settings.diagnostics.fullContentLoggingLabel')}
+          description={t('settings.diagnostics.fullContentLoggingDesc')}
+          checked={draftConfig.diagnostics.full_content_logging_enabled}
+          onCheckedChange={(checked) => patchDraftConfig((draft) => {
+            draft.diagnostics.full_content_logging_enabled = checked;
+          })}
+        />
+      </SettingsGroup>
+
       <DesktopUpdateSection networkConfig={draftConfig.network} />
     </SettingsSectionShell>
   );

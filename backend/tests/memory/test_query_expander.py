@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from magi.memory.hybrid_retrieval import query_expander as query_expander_module
 from magi.memory.hybrid_retrieval.query_expander import (
     QueryExpander,
     _drop_cross_script_expansions,
@@ -81,6 +82,24 @@ async def test_expand_handles_invalid_json():
     expander = QueryExpander(bridge)
     result = await expander.expand("test")
     assert result == []
+
+
+def test_invalid_response_log_omits_content_when_full_logging_is_disabled(
+    monkeypatch,
+    caplog,
+):
+    monkeypatch.setattr(
+        query_expander_module,
+        "full_content_logging_enabled",
+        lambda: False,
+    )
+
+    with caplog.at_level("WARNING", logger=query_expander_module.logger.name):
+        result = QueryExpander._parse("QUERY-EXPANSION-CONTENT-CANARY")
+
+    assert result == []
+    assert "QUERY-EXPANSION-CONTENT-CANARY" not in caplog.text
+    assert "content omitted" in caplog.text
 
 
 @pytest.mark.asyncio

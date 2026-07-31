@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from ..utils.diagnostic_logging import full_content_logging_enabled
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
 from ..llm.provider import get_scenario_llm_pool
@@ -321,6 +322,12 @@ def _preview(text: str, limit: int = 240) -> str:
     return " ".join(str(text or "").split())[:limit]
 
 
+def _diagnostic_preview(text: str, limit: int = 240) -> str:
+    if not full_content_logging_enabled():
+        return "[content omitted by diagnostics setting]"
+    return _preview(text, limit)
+
+
 def _stp_rule_types(stp_rules: List[Dict[str, str]] | None) -> list[str]:
     return [
         str(rule.get("trigger_type") or "").strip()
@@ -534,7 +541,7 @@ async def _try_tool_observer(
 def _log_tool_observer_fallback(response: ProviderResponse) -> None:
     logger.debug(
         "[analyze_interaction] tool observer returned no analysis; falling back content=%s tool_calls=%s",
-        _preview(response.content),
+        _diagnostic_preview(response.content),
         [getattr(call, "name", "") for call in list(response.tool_calls or [])],
     )
 
@@ -559,8 +566,8 @@ def _log_tool_analysis_success(
         analysis.milestone_keys,
         len(analysis.memory_observations),
         _stp_rule_types(stp_rules),
-        _preview(user_message),
-        _preview(assistant_response),
+        _diagnostic_preview(user_message),
+        _diagnostic_preview(assistant_response),
     )
 
 
@@ -618,9 +625,9 @@ def _log_json_analysis_success(
         analysis.satisfaction.value,
         analysis.milestone_keys,
         _stp_rule_types(stp_rules),
-        _preview(raw),
-        _preview(user_message),
-        _preview(assistant_response),
+        _diagnostic_preview(raw),
+        _diagnostic_preview(user_message),
+        _diagnostic_preview(assistant_response),
     )
 
 

@@ -7,6 +7,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from .contracts import EvalMemoryHit, EvalMemoryQuery, EvalMemoryQueryResult
 from .trace import build_eval_query_result
 from ..hybrid_retrieval import build_query
@@ -53,7 +54,10 @@ def _search_temporal_dates(query: str, settings: dict) -> list[tuple[str, Any]] 
     try:
         return search_dates(query, settings=settings, languages=["en"])
     except Exception:
-        logger.debug("dateparser.search_dates failed for query=%r", query)
+        logger.debug(
+            "dateparser.search_dates failed for query=%r",
+            query if full_content_logging_enabled() else "[content omitted]",
+        )
         return None
 
 
@@ -244,7 +248,11 @@ class EvalMemoryReader:
 
         logger.debug(
             "Temporal range narrowed query=%r earliest=%s start=%s" " month_level=%s",
-            query,
+            (
+                query
+                if full_content_logging_enabled()
+                else f"[content omitted; {len(query)} chars]"
+            ),
             earliest,
             start,
             is_month_level,

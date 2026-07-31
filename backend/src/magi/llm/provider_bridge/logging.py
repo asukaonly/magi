@@ -4,20 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...utils.log_redaction import redact_log_value
 from ..base import LLMAdapter
 from .models import ProviderResponse
-
-
-_SENSITIVE_LOG_FIELD_PATTERNS = (
-    "api_key",
-    "apikey",
-    "secret",
-    "password",
-    "token",
-    "credential",
-    "private",
-    "authorization",
-)
 
 
 def is_provider_test_event(event_context: dict[str, Any] | None) -> bool:
@@ -87,20 +76,8 @@ def summarize_raw_provider_response(response: Any) -> dict[str, Any]:
 
 
 def sanitize_log_value(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, list):
-        return [sanitize_log_value(item) for item in value]
-    if isinstance(value, dict):
-        return {
-            key: ("***MASKED***" if _is_sensitive_log_field(str(key)) else sanitize_log_value(item))
-            for key, item in value.items()
-        }
-    if hasattr(value, "model_dump"):
-        return sanitize_log_value(value.model_dump())
-    if hasattr(value, "__dict__"):
-        return sanitize_log_value(vars(value))
-    return str(value)
+    """Sanitize provider diagnostics through the shared logging boundary."""
+    return redact_log_value(value)
 
 
 def truncate_log_value(value: Any, *, max_string_length: int = 500, max_items: int = 20) -> Any:
@@ -135,8 +112,3 @@ def truncate_log_value(value: Any, *, max_string_length: int = 500, max_items: i
         except Exception:
             return repr(value)[:max_string_length]
     return repr(value)[:max_string_length]
-
-
-def _is_sensitive_log_field(field_name: str) -> bool:
-    field_lower = field_name.lower()
-    return any(pattern in field_lower for pattern in _SENSITIVE_LOG_FIELD_PATTERNS)

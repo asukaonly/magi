@@ -10,6 +10,7 @@ from typing import Any, List, Protocol, Tuple, cast
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ....utils.diagnostic_logging import full_content_logging_enabled
 from ...embedding.embedding_text_builders import build_l1_retrieval_terms_text
 from ...event_contracts import MemoryEvent, author_type_label, content_type_label
 from ...evidence import L1RetrievalScope
@@ -209,11 +210,21 @@ class L1EventFtsMixin:
         escaped: str,
         user_id: str | None,
     ) -> None:
+        escaped_log = (
+            escaped
+            if full_content_logging_enabled()
+            else f"[content omitted; {len(escaped)} chars]"
+        )
+        stemmed_log = (
+            result.stemmed
+            if full_content_logging_enabled()
+            else f"[content omitted; {len(result.stemmed)} chars]"
+        )
         logger.info(
             "BM25 search completed | phase=%s escaped=%r stemmed=%r " "result_count=%d user_id=%s",
             result.phase,
-            escaped,
-            result.stemmed,
+            escaped_log,
+            stemmed_log,
             len(result.rows),
             user_id,
         )

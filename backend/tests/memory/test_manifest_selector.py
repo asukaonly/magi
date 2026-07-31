@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from magi.memory.hybrid_retrieval import manifest_selector as manifest_selector_module
 from magi.memory.hybrid_retrieval.manifest_candidates import (
     apply_manifest_selection,
     build_manifest_candidates,
@@ -127,6 +127,27 @@ def test_parse_response_filters_out_of_range():
 def test_parse_response_invalid_json_returns_all():
     selected = ManifestSelector._parse_response("not json", 3)
     assert selected == [0, 1, 2]
+
+
+def test_invalid_response_log_omits_content_when_full_logging_is_disabled(
+    monkeypatch,
+    caplog,
+):
+    monkeypatch.setattr(
+        manifest_selector_module,
+        "full_content_logging_enabled",
+        lambda: False,
+    )
+
+    with caplog.at_level("WARNING", logger=manifest_selector_module.logger.name):
+        selected = ManifestSelector._parse_response(
+            "MANIFEST-CONTENT-CANARY",
+            3,
+        )
+
+    assert selected == [0, 1, 2]
+    assert "MANIFEST-CONTENT-CANARY" not in caplog.text
+    assert "content omitted" in caplog.text
 
 
 def test_parse_response_missing_selected_key_returns_all():

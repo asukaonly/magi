@@ -13,6 +13,7 @@ import logging
 from typing import Any
 
 from .lifecycle import get_active_manager
+from .log_security import redact_mcp_log_text
 from .prompt import format_resource_block
 from .resource_cache import get_default_cache
 
@@ -68,8 +69,8 @@ async def resolve_attachment_resources(
                 "Failed to read MCP resource server_id=%s uri=%s: %s",
                 server_id,
                 uri,
-                exc,
+                redact_mcp_log_text(exc),
             )
-            item["resolved_error"] = str(exc)
+            item["resolved_error"] = redact_mcp_log_text(exc)
         out.append(item)
     return out

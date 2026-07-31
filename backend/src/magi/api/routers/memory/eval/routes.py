@@ -13,6 +13,7 @@ from magi.llm import LLMProviderBridge
 from magi.memory.eval_support.contracts import EvalMemoryQuery, EvalMemoryWriteRecord
 from magi.memory.eval_support.reader import EvalMemoryReader
 from magi.memory.eval_support.writer import EvalMemoryWriter
+from magi.utils.diagnostic_logging import full_content_logging_enabled
 
 from ..dependencies import (
     _resolve_hybrid_retrieval_service,
@@ -81,13 +82,18 @@ async def query_eval_memory(body: EvalQueryRequest):
         retrieval_service,
         l1_store=getattr(unified_memory, "l1", None) if unified_memory is not None else None,
     )
+    query_fields = (
+        {"query": body.query}
+        if full_content_logging_enabled()
+        else {"query_chars": len(body.query)}
+    )
     logger.info(
         "Eval memory query started",
         namespace=body.namespace,
         mode=body.mode,
         top_k=body.top_k,
         answer_with_llm=body.answer_with_llm,
-        query=body.query,
+        **query_fields,
     )
     started_at = time.perf_counter()
     result = await reader.query_memory(

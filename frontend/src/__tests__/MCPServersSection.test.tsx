@@ -26,7 +26,9 @@ vi.mock('react-i18next', async () => {
 });
 
 import { api } from '@/api/client';
+import { mcpApi } from '@/api/modules/mcp';
 import { MCPServersSection } from '@/components/settings/MCPServersSection';
+import { redactLogText } from '@/runtime/log-redaction';
 
 afterEach(() => {
   vi.mocked(api.get).mockReset();
@@ -36,6 +38,64 @@ afterEach(() => {
 });
 
 describe('MCPServersSection', () => {
+  it('registers arbitrary MCP header and environment values for log redaction', async () => {
+    vi.mocked(api.post).mockResolvedValue({} as any);
+    vi.mocked(api.patch).mockResolvedValue({} as any);
+
+    await mcpApi.createServer({
+      server: { id: 'http-demo', name: 'HTTP Demo' },
+      transport: {
+        kind: 'http',
+        url: 'https://user:url-password-secret@example.test/mcp?signature=query-secret-value',
+        headers: { 'X-Company-Header': 'custom-header-secret' },
+      },
+    });
+    await mcpApi.updateServer('stdio-demo', {
+      server: { id: 'stdio-demo', name: 'Stdio Demo' },
+      transport: {
+        kind: 'stdio',
+        command: 'demo',
+        args: [],
+        cwd: '',
+        env: { UNUSUAL_SETTING: 'custom-env-secret' },
+      },
+    });
+
+    expect(redactLogText(
+      'custom-header-secret custom-env-secret url-password-secret query-secret-value',
+    )).toBe(
+      '[REDACTED] [REDACTED] [REDACTED] [REDACTED]',
+    );
+  });
+
+  it('ignores masked placeholders returned by the server list', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({
+      data: [{
+        id: 'http-demo',
+        name: 'HTTP Demo',
+        description: '',
+        enabled: true,
+        autostart: false,
+        transport: {
+          kind: 'http',
+          url: 'https://example.test/mcp',
+          headers: { Authorization: '***' },
+        },
+        runtime: { call_timeout_ms: 60000, init_timeout_ms: 15000, max_restart_attempts: 5 },
+        state: 'disconnected',
+        tool_count: 0,
+        resource_count: 0,
+        last_error: null,
+      }],
+    } as any);
+
+    await mcpApi.listServers();
+
+    expect(redactLogText('placeholder *** remains readable')).toBe(
+      'placeholder *** remains readable',
+    );
+  });
+
   it('renders an empty state when the list is empty', async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ data: [] } as any);
     render(<MCPServersSection />);

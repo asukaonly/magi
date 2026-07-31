@@ -177,6 +177,17 @@ Current product expectations:
 - users can switch interface language at any time
 - desktop users can choose whether closing the main window hides to tray or exits
 - desktop system notifications for new messages should default to enabled, with notification previews also enabled by default
+- local diagnostic logs expose a `full_content_logging_enabled` preference under
+  the `diagnostics` configuration section; it defaults to enabled during the
+  current development phase and takes effect immediately after a successful
+  Settings save
+- full-content logging may retain textual prompts, replies, tool content,
+  retrieval context, and sensor text needed for debugging, but inline
+  image/file bytes are always omitted
+- log redaction is independent of the full-content switch and always active:
+  credentials saved in Magi, structured authorization fields, sensitive URL
+  parameters, private keys, and high-confidence provider token formats are
+  masked before file or console output
 - packaged desktop builds should expose a manual update surface that checks the latest published stable GitHub Release, downloads signed updater artifacts, and prompts for restart after installation
 - packaged desktop builds should also run a delayed background update check shortly after startup and reuse the global network proxy settings when that proxy is enabled
 - global network proxy settings should support optional username and password credentials for authenticated HTTP and SOCKS5 proxies

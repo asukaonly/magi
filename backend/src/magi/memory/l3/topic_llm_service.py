@@ -10,6 +10,7 @@ from typing import Any
 
 from ...i18n import llm_language_label
 from ...llm import LLMProviderBridge, LLMRequestPriority, LLMScenario, ScenarioLLMPool
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from .models import L3Candidate, ThematicEvidencePack, ThematicGenerationResult
 from .topic_evidence import TopicEvidencePackMixin
 from .topic_output import TopicOutputParsingMixin
@@ -83,12 +84,19 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
                     self.parse_structure_output(payload, pack=pack, content=prose_content)
                 )
             except Exception as exc:
+                topic_field = (
+                    {"topic": pack.topic, "error": str(exc)}
+                    if full_content_logging_enabled()
+                    else {
+                        "topic_chars": len(pack.topic),
+                        "error_type": type(exc).__name__,
+                    }
+                )
                 logger.warning(
                     "L3 thematic topic structure output rejected",
                     extra={
-                        "topic": pack.topic,
                         "event_count": pack.source_event_count,
-                        "error": str(exc),
+                        **topic_field,
                     },
                 )
         return ThematicGenerationResult(

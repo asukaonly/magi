@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
+from ....utils.diagnostic_logging import full_content_logging_enabled
 from ....core.logger import get_logger
 from ....tools.registry import tool_registry
 from ....tools.tool_hint_resolver import ToolHintResolver
@@ -153,7 +154,16 @@ class ExplorePlanningService:
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
-            logger.warning("ExploreTaskAgent planning returned invalid JSON | response_preview=%s", raw[:300])
+            if full_content_logging_enabled():
+                logger.warning(
+                    "ExploreTaskAgent planning returned invalid JSON | response_preview=%s",
+                    raw[:300],
+                )
+            else:
+                logger.warning(
+                    "ExploreTaskAgent planning returned invalid JSON | response_chars=%d",
+                    len(raw),
+                )
             return None
         if not isinstance(payload, dict):
             return None

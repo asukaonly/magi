@@ -49,6 +49,7 @@ from .models import (
     AgentSettings,
     FeatureFlags,
     ToolsSettings,
+    DiagnosticsSettings,
 
     # LLM configuration
     LLMSettings,
@@ -127,6 +128,7 @@ __all__ = [
     "AgentSettings",
     "FeatureFlags",
     "ToolsSettings",
+    "DiagnosticsSettings",
     "LLMSettings",
     "LLMProvider",
     "LLMCapabilitiesSettings",

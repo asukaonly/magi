@@ -79,6 +79,10 @@ export interface NetworkProxyConfig {
   password: string;
 }
 
+export interface DiagnosticsConfig {
+  full_content_logging_enabled: boolean;
+}
+
 export interface LLMProviderConfig {
   enabled: boolean;
   provider_type: LLMProvider;
@@ -561,6 +565,7 @@ export interface SystemConfig {
   memory: MemoryConfig;
   preferences: UserPreferences;
   network: NetworkProxyConfig;
+  diagnostics: DiagnosticsConfig;
   personality: PersonalityConfig;
   personalitySettings: PersonalitySettingsConfig;
   tools: ToolsConfig;
@@ -830,6 +835,9 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     port: 7890,
     username: '',
     password: '',
+  },
+  diagnostics: {
+    full_content_logging_enabled: true,
   },
   personality: DEFAULT_PERSONALITY_CONFIG,
   personalitySettings: DEFAULT_PERSONALITY_SETTINGS_CONFIG,

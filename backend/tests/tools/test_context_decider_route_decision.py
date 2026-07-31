@@ -1,7 +1,10 @@
 """Tests for ContextDecider returning RouteDecision."""
 from __future__ import annotations
 
+from magi.tools import context_decider as context_decider_module
+from magi.tools.context_decider import ContextDecider
 from magi.tools.context_routing import RouteDecision
+from magi.tools.registry import ToolRegistry
 
 
 def _build_response_mixin_subject():
@@ -101,6 +104,40 @@ def test_parse_response_returns_fallback_for_invalid_enum_value() -> None:
     result = host._parse_response(raw_json)
     assert isinstance(result, RouteDecision)
     assert result.profile == "chat"  # fallback
+
+
+def test_context_decider_omits_content_logs_and_trace_previews_when_disabled(
+    monkeypatch,
+    caplog,
+) -> None:
+    monkeypatch.setattr(
+        context_decider_module,
+        "full_content_logging_enabled",
+        lambda: False,
+    )
+    decider = ContextDecider(ToolRegistry())
+    decision = RouteDecision(
+        profile="chat",
+        graph_shape="reply",
+        complexity="simple",
+        reasoning="ROUTING-REASONING-CANARY",
+    )
+
+    traced = decider._attach_trace(
+        decision=decision,
+        metadata={"model": "test-model"},
+        duration_ms=12,
+        user_message="ROUTING-REQUEST-CANARY",
+        response="ROUTING-RESPONSE-CANARY",
+    )
+    with caplog.at_level("DEBUG", logger=context_decider_module.logger.name):
+        decider._log_decision(traced, "ROUTING-RESPONSE-CANARY")
+
+    assert "request_preview" not in traced.llm_trace
+    assert "response_preview" not in traced.llm_trace
+    assert "ROUTING-REASONING-CANARY" not in caplog.text
+    assert "ROUTING-RESPONSE-CANARY" not in caplog.text
+    assert "Response chars:" in caplog.text
 
 
 def test_parse_response_preserves_persona_fields() -> None:

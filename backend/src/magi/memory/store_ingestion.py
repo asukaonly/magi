@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 from ..core.sqlite import sqlite_connection_async
 from ..events.events import Event, EventLevel, EventTypes
+from ..utils.diagnostic_logging import full_content_logging_enabled
 from .event_contracts import MemoryEvent, normalize_runtime_event
 from .l2.models import ManualL2EventRequest
 from .layer_protocol import FanOutContext, MemoryLayer, WILDCARD_EVENT_TYPES
@@ -266,14 +267,25 @@ class MemoryIngestionMixin:
     def _normalize_event(self, event: Dict[str, Any] | Event | MemoryEvent) -> MemoryEvent:
         if isinstance(event, MemoryEvent):
             if str(getattr(event, "source", "")) == "calendar":
-                logger.info(
-                    "Calendar memory normalization used canonical MemoryEvent path | "
-                    "event_id=%s event_type=%s source_item_id=%s content=%s",
-                    event.event_id,
-                    event.event_type,
-                    event.source_item_id,
-                    event.content,
-                )
+                if full_content_logging_enabled():
+                    logger.info(
+                        "Calendar memory normalization used canonical "
+                        "MemoryEvent path | event_id=%s event_type=%s "
+                        "source_item_id=%s content=%s",
+                        event.event_id,
+                        event.event_type,
+                        event.source_item_id,
+                        event.content,
+                    )
+                else:
+                    logger.info(
+                        "Calendar memory normalization used canonical "
+                        "MemoryEvent path | event_id=%s event_type=%s "
+                        "content_chars=%d",
+                        event.event_id,
+                        event.event_type,
+                        len(event.content),
+                    )
             return event
         if isinstance(event, Event):
             if str(getattr(event, "source", "")) == "calendar":

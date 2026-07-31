@@ -9,6 +9,7 @@ from typing import Any
 
 import structlog
 
+from magi.utils.diagnostic_logging import full_content_logging_enabled
 from magi.ipc.dispatcher import Dispatcher, MethodNotFound
 from magi.ipc.handlers import handle_ping
 from magi.ipc.protocol import IpcError, IpcNotify, IpcRequest, IpcResponse, parse_inbound
@@ -106,7 +107,10 @@ class IpcServer:
         try:
             msg = parse_inbound(line)
         except Exception:
-            logger.warning("ipc_parse_error", line=line[:200])
+            if full_content_logging_enabled():
+                logger.warning("ipc_parse_error", line=line[:200])
+            else:
+                logger.warning("ipc_parse_error", line_chars=len(line))
             return
 
         if isinstance(msg, IpcNotify):

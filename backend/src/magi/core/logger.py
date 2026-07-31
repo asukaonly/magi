@@ -10,11 +10,19 @@ from typing import Any
 import structlog
 from pathlib import Path
 
+from ..utils.log_redaction import redact_log_text, redact_structlog_event
 from ..utils.safe_logging import SafeStreamHandler
 
 _LOGGING_CONFIGURED = False
 DEFAULT_LOG_FILE_MAX_BYTES = 100 * 1024 * 1024
 DEFAULT_LOG_FILE_BACKUP_COUNT = 10
+
+
+class _RedactingProcessorFormatter(structlog.stdlib.ProcessorFormatter):
+    """Processor formatter with a final fail-closed text redaction pass."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_log_text(super().format(record))
 
 
 def _format_log_event(logger, method_name, event_dict):
@@ -59,15 +67,17 @@ def _build_processor_formatter(
     if json_logs:
         processors = [
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            redact_structlog_event,
             structlog.processors.JSONRenderer(),
         ]
     else:
         processors = [
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            redact_structlog_event,
             _format_log_event,
         ]
 
-    return structlog.stdlib.ProcessorFormatter(
+    return _RedactingProcessorFormatter(
         foreign_pre_chain=shared_processors,
         processors=processors,
     )

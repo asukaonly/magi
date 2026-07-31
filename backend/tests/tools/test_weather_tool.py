@@ -6,6 +6,7 @@ import pytest
 
 import magi.config as config_module
 import magi.tools.builtin.weather_tool as weather_tool_module
+import magi.tools.providers.weather.qweather as qweather_module
 from magi.config.models import AppConfig
 from magi.i18n import language_context
 from magi.tools.builtin.weather_tool import WeatherTool
@@ -252,3 +253,54 @@ async def test_qweather_forecast_maps_daily_items(monkeypatch):
             {"X-QW-Api-Key": "key"},
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_qweather_logs_omit_location_when_content_logging_is_disabled(
+    monkeypatch,
+    caplog,
+):
+    private_location = "private location from conversation"
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def json(self):
+            return {"code": "200", "location": [{"id": "101010100"}]}
+
+    class FakeSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def get(self, url, *, headers=None, params=None, proxy=None):
+            return FakeResponse()
+
+    monkeypatch.setattr(qweather_module.aiohttp, "ClientSession", FakeSession)
+    monkeypatch.setattr(
+        qweather_module,
+        "full_content_logging_enabled",
+        lambda: False,
+    )
+
+    with caplog.at_level("INFO", logger=qweather_module.logger.name):
+        result = await QWeatherProvider()._resolve_location(
+            location=private_location,
+            api_key="key",
+            api_host="devapi.qweather.com",
+        )
+
+    assert result == "101010100"
+    assert private_location not in caplog.text
+    assert f"location_chars={len(private_location)}" in caplog.text

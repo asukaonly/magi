@@ -13,6 +13,7 @@ from ...personality.active_persona import get_current_personality
 from ...personality.bootstrap_service import build_bootstrap_l2_priority_metadata
 from ...core.runtime_namespace import DEFAULT_RUNTIME_NAMESPACE
 from ...utils.agent_logger import get_agent_logger
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from ..services import dispatch_user_message, get_runtime_system_status
 from .messages_models import MessageResponse, UserMessageRequest
 
@@ -194,13 +195,20 @@ def _log_queued_message(request: UserMessageRequest, outcome) -> None:
         request.user_id,
         outcome.queue_size if outcome.queue_size is not None else "unknown",
     )
-    agent_logger.info(
-        "Message received | User: %s | Content: '%s%s' | Length: %s",
-        request.user_id,
-        request.message[:50],
-        "..." if len(request.message) > 50 else "",
-        len(request.message),
-    )
+    if full_content_logging_enabled():
+        agent_logger.info(
+            "Message received | User: %s | Content: '%s%s' | Length: %s",
+            request.user_id,
+            request.message[:50],
+            "..." if len(request.message) > 50 else "",
+            len(request.message),
+        )
+    else:
+        agent_logger.info(
+            "Message received | User: %s | Length: %s",
+            request.user_id,
+            len(request.message),
+        )
 
 
 def _queued_message_response(request: UserMessageRequest, outcome) -> MessageResponse:

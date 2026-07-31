@@ -1161,6 +1161,40 @@ async def test_generation_stage_logs_invalid_json_diagnostics_before_repair(monk
     assert "^" in str(diagnostic["output_error_context"])
 
 
+def test_generation_json_diagnostics_omit_content_when_disabled(monkeypatch) -> None:
+    warning_calls: list[dict[str, object]] = []
+
+    def _capture_warning(event: str, *args, **kwargs):  # type: ignore[no-untyped-def]
+        warning_calls.append({"event": event, "args": args, **kwargs})
+
+    monkeypatch.setattr(generation_model_stages.logger, "warning", _capture_warning)
+    monkeypatch.setattr(
+        generation_model_stages,
+        "full_content_logging_enabled",
+        lambda: False,
+    )
+    response_text = '{"name": "PERSONALITY-CONTENT-CANARY" "description": "invalid"}'
+    try:
+        json.loads(response_text)
+    except json.JSONDecodeError as parse_error:
+        generation_model_stages._log_invalid_generation_json(
+            event="personality_generation_invalid_json",
+            stage_id="integrate",
+            system_prompt="SYSTEM-PROMPT-CANARY",
+            response_text=response_text,
+            parse_error=parse_error,
+        )
+
+    diagnostic = warning_calls[0]
+    assert "expected_output_contract" not in diagnostic
+    assert "output_error_context" not in diagnostic
+    assert "output_preview" not in diagnostic
+    assert diagnostic["system_prompt_chars"] == len("SYSTEM-PROMPT-CANARY")
+    assert diagnostic["response_chars"] == len(response_text)
+    assert "PERSONALITY-CONTENT-CANARY" not in str(diagnostic)
+    assert "SYSTEM-PROMPT-CANARY" not in str(diagnostic)
+
+
 @pytest.mark.asyncio
 async def test_generation_stage_logs_repair_output_when_repair_is_still_invalid(monkeypatch) -> None:
     warning_calls: list[dict[str, object]] = []

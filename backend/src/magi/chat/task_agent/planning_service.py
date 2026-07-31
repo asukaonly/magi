@@ -14,6 +14,7 @@ from magi.i18n import llm_language_label
 from magi.llm.streaming_events import get_stream_sink, stream_source
 from magi.tools.registry import ToolRegistry
 from magi.tools.tool_hint_resolver import ToolHintResolver
+from magi.utils.diagnostic_logging import full_content_logging_enabled
 from magi.agent.execution.tool_invocation_service import (
     InvocationContext,
     ToolCall as _ServiceToolCall,
@@ -499,19 +500,37 @@ class ChatPlanningService(ChatPlanningPromptMixin):
         user_message: str,
     ) -> Optional[SubtaskPlan]:
         if not str(response or "").strip():
-            logger.warning(
-                "Task-agent planning returned empty response | user_id=%s request_preview=%s",
-                self._agent_id,
-                user_message[:120],
-            )
+            if full_content_logging_enabled():
+                logger.warning(
+                    "Task-agent planning returned empty response | "
+                    "user_id=%s request_preview=%s",
+                    self._agent_id,
+                    user_message[:120],
+                )
+            else:
+                logger.warning(
+                    "Task-agent planning returned empty response | "
+                    "user_id=%s request_chars=%d",
+                    self._agent_id,
+                    len(user_message),
+                )
             return None
         parsed_plan = self._parse_subtask_plan(response)
         if parsed_plan is None:
-            logger.warning(
-                "Task-agent planning returned non-executable plan | request_preview=%s response_preview=%s",
-                user_message[:120],
-                str(response).strip()[:300],
-            )
+            if full_content_logging_enabled():
+                logger.warning(
+                    "Task-agent planning returned non-executable plan | "
+                    "request_preview=%s response_preview=%s",
+                    user_message[:120],
+                    str(response).strip()[:300],
+                )
+            else:
+                logger.warning(
+                    "Task-agent planning returned non-executable plan | "
+                    "request_chars=%d response_chars=%d",
+                    len(user_message),
+                    len(str(response)),
+                )
         return parsed_plan
 
     async def _plan_with_plan_worker(
@@ -664,10 +683,15 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             description = item.description
             subtask_prompt = item.prompt
             if self._is_synthesis_only_subtask(description, subtask_prompt):
+                fields = (
+                    {"description": description}
+                    if full_content_logging_enabled()
+                    else {"description_chars": len(description)}
+                )
                 logger.info(
                     "chat_planning.drop_synthesis_subtask",
-                    description=description,
                     request_profile=request_profile,
+                    **fields,
                 )
                 continue
             subagent_type = self._normalize_leaf_subagent_type(

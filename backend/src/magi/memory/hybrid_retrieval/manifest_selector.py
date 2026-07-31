@@ -12,6 +12,8 @@ import logging
 import time
 from typing import Any, List
 
+from magi.utils.diagnostic_logging import full_content_logging_enabled
+
 from .manifest_candidates import (
     ManifestCandidate,
     ManifestCandidates,
@@ -175,7 +177,14 @@ class ManifestSelector:
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
-            logger.warning("ManifestSelector: invalid JSON response: %s", content[:200])
+            logger.warning(
+                "ManifestSelector: invalid JSON response: %s",
+                (
+                    content[:200]
+                    if full_content_logging_enabled()
+                    else f"[content omitted; chars={len(content)}]"
+                ),
+            )
             return fallback
 
         selected = data.get("selected")

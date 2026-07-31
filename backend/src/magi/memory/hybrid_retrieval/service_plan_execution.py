@@ -7,6 +7,7 @@ import logging
 from dataclasses import asdict, is_dataclass
 from typing import Any, Optional, cast
 
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from .handlers import L1Handler, execute_plan
 from .debug_detail import log_detail
 from .models import LayerQueryPlan, RetrievalPayload, RetrievalQuery
@@ -53,13 +54,19 @@ class HybridRetrievalPlanExecutionMixin:
         label: str,
     ) -> None:
         for plan in plans:
+            conditions = _conditions_dict(getattr(plan, "conditions", None))
+            conditions_log = (
+                _compact_value(conditions)
+                if full_content_logging_enabled()
+                else {"fields": sorted(conditions)}
+            )
             logger.info(
                 "%s executing | layer=%s fallback=%s conditions=%s time_range=%s "
                 "session_id=%s user_id=%s",
                 label,
                 plan.layer,
                 plan.is_fallback,
-                _compact_value(_conditions_dict(getattr(plan, "conditions", None))),
+                conditions_log,
                 _time_range_dict(getattr(plan, "time_range", None)),
                 request.session_id,
                 request.user_id,
@@ -119,7 +126,15 @@ class HybridRetrievalPlanExecutionMixin:
             "fallback": plan.is_fallback,
         }
         if isinstance(result, Exception):
-            logger.warning("%s %s failed: %s", label, plan.layer, result)
+            if full_content_logging_enabled():
+                logger.warning("%s %s failed: %s", label, plan.layer, result)
+            else:
+                logger.warning(
+                    "%s %s failed: error_type=%s",
+                    label,
+                    plan.layer,
+                    type(result).__name__,
+                )
             trace_record["status"] = "error"
             trace_record["error"] = str(result)
             host._append_plan_trace(payload, trace_record)

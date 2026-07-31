@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from magi.tools.capabilities import build_tool_capabilities
+from magi.utils.diagnostic_logging import full_content_logging_enabled
 
 from ._tool_execution_contracts import (
     _FunctionCallingToolExecutionHostProtocol,
@@ -59,14 +60,24 @@ class _RegisteredToolExecutor:
             tool_name=request.tool_name,
             error_text=guardrail_error,
         )
-        logger.warning(
-            "[FunctionCalling] Blocked by guardrail: %s | intent=%s | workspace=%s | args=%s | reason=%s",
-            request.tool_name,
-            request.intent,
-            request.workspace_root,
-            arguments,
-            guardrail_error,
-        )
+        if full_content_logging_enabled():
+            logger.warning(
+                "[FunctionCalling] Blocked by guardrail: %s | intent=%s | "
+                "workspace=%s | args=%s | reason=%s",
+                request.tool_name,
+                request.intent,
+                request.workspace_root,
+                arguments,
+                guardrail_error,
+            )
+        else:
+            logger.warning(
+                "[FunctionCalling] Blocked by guardrail: %s | "
+                "argument_names=%s | reason_chars=%d",
+                request.tool_name,
+                sorted(arguments),
+                len(str(guardrail_error or "")),
+            )
         return ToolCallResult(
             tool_call_id=request.tool_call.id,
             tool_name=request.tool_name,
@@ -159,6 +170,13 @@ class _RegisteredToolExecutor:
         request: _RegisteredToolExecutionRequest,
         arguments: dict[str, Any],
     ) -> None:
+        if not full_content_logging_enabled():
+            logger.info(
+                "[FunctionCalling] Executing: %s | argument_names=%s",
+                request.tool_name,
+                sorted(arguments),
+            )
+            return
         if request.tool_name in self._host._FILE_SCAN_TOOLS:
             logger.info(
                 "[FunctionCalling] Executing scan tool: %s | workspace=%s | path=%s | args=%s",
@@ -216,12 +234,20 @@ class _RegisteredToolExecutor:
     ) -> ToolCallResult:
         execution_time = time.time() - request.start_time
         if not result.success:
-            logger.warning(
-                "[FunctionCalling] Tool failed: %s | error=%s | code=%s",
-                request.tool_name,
-                result.error,
-                result.error_code,
-            )
+            if full_content_logging_enabled():
+                logger.warning(
+                    "[FunctionCalling] Tool failed: %s | error=%s | code=%s",
+                    request.tool_name,
+                    result.error,
+                    result.error_code,
+                )
+            else:
+                logger.warning(
+                    "[FunctionCalling] Tool failed: %s | error_chars=%d | code=%s",
+                    request.tool_name,
+                    len(str(result.error or "")),
+                    result.error_code,
+                )
         self._log_slow_scan(request, arguments, execution_time)
         return ToolCallResult(
             tool_call_id=request.tool_call.id,
@@ -243,6 +269,15 @@ class _RegisteredToolExecutor:
             request.tool_name not in self._host._FILE_SCAN_TOOLS
             or execution_time < self._host._SLOW_SCAN_WARNING_SECONDS
         ):
+            return
+        if not full_content_logging_enabled():
+            logger.warning(
+                "[FunctionCalling] Slow scan tool: %s | elapsed_ms=%.1f | "
+                "argument_names=%s",
+                request.tool_name,
+                execution_time * 1000,
+                sorted(arguments),
+            )
             return
         logger.warning(
             "[FunctionCalling] Slow scan tool: %s | workspace=%s | path=%s | elapsed_ms=%.1f | args=%s",

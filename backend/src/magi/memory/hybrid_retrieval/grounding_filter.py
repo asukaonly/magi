@@ -55,6 +55,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from magi.utils.diagnostic_logging import full_content_logging_enabled
+
 from .debug_detail import event_records, log_detail, relationship_records
 from .grounding_filter_owner import (
     apply_named_person_owner_prefilter as _apply_named_person_owner_prefilter,
@@ -74,6 +76,12 @@ from .grounding_filter_trace import (
 from .models import RetrievalPayload, RetrievalQuery
 
 logger = logging.getLogger(__name__)
+
+
+def _diagnostic_text(value: Any) -> Any:
+    if full_content_logging_enabled():
+        return value
+    return "[content omitted by diagnostics setting]"
 
 # Minimum COMBINED candidate count worth an LLM round-trip. A single
 # candidate has nothing to filter against; 2+ can carry noise. NOTE:
@@ -295,7 +303,7 @@ class GroundingFilter:
         payload.trace["grounding_filter_l2"] = dict(skip_trace)
         logger.debug(
             "Grounding filter skipped | query=%r reason=%s input_count=%d",
-            query,
+            _diagnostic_text(query),
             reason,
             input_count,
         )
@@ -380,10 +388,10 @@ class GroundingFilter:
             "Grounding filter applied | query=%r input_events=%d "
             "input_relationships=%d kept_events=0 kept_relationships=0 "
             "why=%r all_dropped=True",
-            query,
+            _diagnostic_text(query),
             len(events),
             len(rels),
-            success_trace.get("why"),
+            _diagnostic_text(success_trace.get("why")),
         )
 
     def _write_owner_trivial_skip_trace(
@@ -415,7 +423,7 @@ class GroundingFilter:
         }
         logger.debug(
             "Grounding filter skipped | query=%r reason=%s input_count=%d kept_count=%d",
-            query,
+            _diagnostic_text(query),
             skip_trace["skipped_reason"],
             original_total,
             kept_count,
@@ -654,10 +662,10 @@ class GroundingFilter:
             "Grounding filter applied | query=%r input_events=%d "
             "input_relationships=%d kept_events=0 kept_relationships=0 "
             "why=%r all_dropped=True",
-            context.query,
+            _diagnostic_text(context.query),
             len(context.events),
             len(context.rels),
-            parsed.why or None,
+            _diagnostic_text(parsed.why or None),
         )
 
     def _apply_valid_keep_result(
@@ -714,12 +722,12 @@ class GroundingFilter:
         logger.info(
             "Grounding filter applied | query=%r input_events=%d input_relationships=%d "
             "kept_events=%d kept_relationships=%d why=%r",
-            context.query,
+            _diagnostic_text(context.query),
             len(context.events),
             len(context.rels),
             len(kept_events),
             len(kept_rels),
-            why or None,
+            _diagnostic_text(why or None),
         )
 
     def _valid_keep_trace(

@@ -153,3 +153,99 @@ def test_log_llm_request_no_boundary_logs_plain_system_prompt() -> None:
     text = _debug_text(logger)
     assert "System Prompt:" in text
     assert "cacheable head" not in text
+
+
+def test_llm_log_setting_omits_content_but_keeps_diagnostics(monkeypatch) -> None:
+    logger = MagicMock()
+    monkeypatch.setattr(
+        llm_logger_module,
+        "full_content_logging_enabled",
+        lambda: False,
+    )
+
+    llm_logger_module.log_llm_request(
+        logger,
+        request_id="req-disabled",
+        model="test-model",
+        system_prompt="SYSTEM-CONTENT-CANARY",
+        messages=[{"role": "user", "content": "USER-CONTENT-CANARY"}],
+        temperature=0.5,
+    )
+    llm_logger_module.log_llm_response(
+        logger,
+        request_id="req-disabled",
+        response="RESPONSE-CONTENT-CANARY",
+        metadata={"assistant_message": "METADATA-CONTENT-CANARY"},
+    )
+
+    text = _debug_text(logger)
+    assert "SYSTEM-CONTENT-CANARY" not in text
+    assert "USER-CONTENT-CANARY" not in text
+    assert "RESPONSE-CONTENT-CANARY" not in text
+    assert "METADATA-CONTENT-CANARY" not in text
+    assert "System prompt chars:" in text
+    assert "Response chars:" in text
+    assert "Parameter names:" in text
+
+
+def test_llm_logs_keep_text_but_redact_known_secrets(monkeypatch) -> None:
+    logger = MagicMock()
+    monkeypatch.setattr(
+        llm_logger_module,
+        "full_content_logging_enabled",
+        lambda: True,
+    )
+
+    llm_logger_module.log_llm_request(
+        logger,
+        request_id="req-redacted",
+        model="test-model",
+        system_prompt="api_key=system-secret",
+        messages=[
+            {
+                "role": "user",
+                "content": "Keep this useful prompt. Authorization: Bearer prompt-secret",
+            }
+        ],
+    )
+
+    text = _debug_text(logger)
+    assert "Keep this useful prompt." in text
+    assert "system-secret" not in text
+    assert "prompt-secret" not in text
+    assert "[REDACTED]" in text
+
+
+def test_llm_logs_omit_inline_image_bodies(monkeypatch) -> None:
+    logger = MagicMock()
+    monkeypatch.setattr(
+        llm_logger_module,
+        "full_content_logging_enabled",
+        lambda: True,
+    )
+    image_data = "A" * 128
+
+    llm_logger_module.log_llm_request(
+        logger,
+        request_id="req-image",
+        model="vision-model",
+        system_prompt="system",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe this"},
+                    {
+                        "type": "image",
+                        "mime_type": "image/png",
+                        "data": image_data,
+                    },
+                ],
+            }
+        ],
+    )
+
+    text = _debug_text(logger)
+    assert "describe this" in text
+    assert image_data not in text
+    assert "[binary content omitted]" in text

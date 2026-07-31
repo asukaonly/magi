@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import Any, Callable
 
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from .contracts import ChatPortraitObservation, RawMemorySnippet
 
 
@@ -90,21 +91,50 @@ class PersonaLensRenderer:
                 timeout=self._timeout,
             )
         except asyncio.TimeoutError:
-            logger.warning(
-                "portrait lens render timed out after %.0fs (snippets=%d topic=%r)",
-                self._timeout, len(snippets), topic,
-            )
+            if full_content_logging_enabled():
+                logger.warning(
+                    "portrait lens render timed out after %.0fs "
+                    "(snippets=%d topic=%r)",
+                    self._timeout,
+                    len(snippets),
+                    topic,
+                )
+            else:
+                logger.warning(
+                    "portrait lens render timed out after %.0fs "
+                    "(snippets=%d topic_chars=%d)",
+                    self._timeout,
+                    len(snippets),
+                    len(topic),
+                )
             return []
         except Exception as exc:
-            logger.warning("portrait lens render failed: %s", exc, exc_info=True)
+            if full_content_logging_enabled():
+                logger.warning("portrait lens render failed: %s", exc, exc_info=True)
+            else:
+                logger.warning(
+                    "portrait lens render failed: error_type=%s",
+                    type(exc).__name__,
+                )
             return []
         observations = self._parse(payload, token_to_id=token_to_id)
         if not observations:
-            logger.warning(
-                "portrait lens render returned no usable observations "
-                "(raw=%r snippets=%d topic=%r)",
-                payload, len(snippets), topic,
-            )
+            if full_content_logging_enabled():
+                logger.warning(
+                    "portrait lens render returned no usable observations "
+                    "(raw=%r snippets=%d topic=%r)",
+                    payload,
+                    len(snippets),
+                    topic,
+                )
+            else:
+                logger.warning(
+                    "portrait lens render returned no usable observations "
+                    "(payload_type=%s snippets=%d topic_chars=%d)",
+                    type(payload).__name__,
+                    len(snippets),
+                    len(topic),
+                )
         return observations
 
     def _build_system_prompt(self, persona: dict[str, Any], topic: str) -> str:

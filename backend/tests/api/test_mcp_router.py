@@ -225,6 +225,28 @@ def test_logs_endpoint_returns_empty_when_not_running(client):
     assert r.json() == {"server_id": "demo", "stderr": [], "last_error": None}
 
 
+def test_mcp_status_and_logs_redact_arbitrary_configured_values(client):
+    c, mgr = client
+    secret = "mcp-router-custom-secret"
+    body = {
+        "server": {"id": "demo", "name": "Demo", "autostart": True},
+        "transport": {
+            "kind": "stdio",
+            "command": "x",
+            "env": {"UNUSUAL_SETTING": secret},
+        },
+    }
+    assert c.post("/api/mcp/servers", json=body).status_code == 201
+    mgr._runtimes["demo"].last_error = f"failed with {secret}"  # type: ignore[attr-defined]
+
+    status_payload = c.get("/api/mcp/servers").json()["data"][0]
+    logs_payload = c.get("/api/mcp/servers/demo/logs").json()
+
+    assert secret not in str(logs_payload)
+    assert status_payload["last_error"] == "failed with [REDACTED]"
+    assert logs_payload["last_error"] == "failed with [REDACTED]"
+
+
 def test_patch_updates_and_restarts(client):
     c, mgr = client
     body = {

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import importlib
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from magi.skills import runner as runner_module
 from magi.skills.runner import SkillRunner
 from magi.skills.schema import SkillContent, SkillFrontmatter
 from magi.skills.subagent import SkillSubagent
-from magi.agent.turn_input import UserTurnInput
 
 
 def test_skill_runner_substitutes_pwd_from_workspace_context(tmp_path: Path) -> None:
@@ -24,6 +25,70 @@ def test_skill_runner_substitutes_pwd_from_workspace_context(tmp_path: Path) -> 
     )
 
     assert rendered == f"pwd={workspace.resolve()}"
+
+
+@pytest.mark.asyncio
+async def test_skill_runner_omits_arguments_when_full_content_logging_is_disabled(
+    monkeypatch,
+    caplog,
+) -> None:
+    class _MissingSkillLoader:
+        def load_skill(self, _name: str):
+            return None
+
+    monkeypatch.setattr(
+        runner_module,
+        "full_content_logging_enabled",
+        lambda: False,
+    )
+    runner = SkillRunner(loader=_MissingSkillLoader(), llm_adapter=None)  # type: ignore[arg-type]
+
+    with caplog.at_level(logging.INFO, logger=runner_module.logger.name):
+        result = await runner.execute(
+            "missing-skill",
+            arguments=["SKILL-ARGUMENT-CANARY"],
+        )
+
+    assert result.success is False
+    assert "SKILL-ARGUMENT-CANARY" not in caplog.text
+    assert "argument_count=1" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_skill_runner_omits_exception_content_when_logging_is_disabled(
+    monkeypatch,
+    caplog,
+) -> None:
+    secret_error = "private skill exception content"
+
+    class _SkillLoader:
+        def load_skill(self, _name: str):
+            return SkillContent(
+                name="private-skill",
+                frontmatter=SkillFrontmatter(
+                    name="private-skill",
+                    description="Private skill",
+                ),
+                prompt_template="Prompt",
+            )
+
+    async def _raise_private_error(*_args, **_kwargs):
+        raise RuntimeError(secret_error)
+
+    monkeypatch.setattr(
+        runner_module,
+        "full_content_logging_enabled",
+        lambda: False,
+    )
+    runner = SkillRunner(loader=_SkillLoader(), llm_adapter=None)  # type: ignore[arg-type]
+    monkeypatch.setattr(runner, "_execute_direct", _raise_private_error)
+
+    with caplog.at_level(logging.ERROR, logger=runner_module.logger.name):
+        result = await runner.execute("private-skill")
+
+    assert result.error == secret_error
+    assert secret_error not in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
 
 
 @pytest.mark.asyncio

@@ -1,12 +1,43 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { api, apiClient, syncBackendHealthFromApiError, toApiClientError, unwrapGatewayPayload } from '@/api/client';
+import {
+  api,
+  apiClient,
+  configureApiClient,
+  syncBackendHealthFromApiError,
+  toApiClientError,
+  unwrapGatewayPayload,
+} from '@/api/client';
+import { redactLogText } from '@/runtime/log-redaction';
 import { useBackendHealthStore } from '@/stores/backend-health';
 
 describe('api client helpers', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    configureApiClient({ sessionToken: undefined });
     useBackendHealthStore.getState().setHealth('healthy');
+  });
+
+  it('registers request, response, and desktop credentials for log redaction', async () => {
+    configureApiClient({ sessionToken: 'desktop-session-secret' });
+    await apiClient.post(
+      '/test-secret-registration',
+      { api_key: 'request-secret-value' },
+      {
+        adapter: async (config) => ({
+          config,
+          data: { bot_token: 'response-secret-value' },
+          headers: {},
+          status: 200,
+          statusText: 'OK',
+        }),
+      },
+    );
+
+    const redacted = redactLogText(
+      'desktop-session-secret request-secret-value response-secret-value',
+    );
+    expect(redacted).toBe('[REDACTED] [REDACTED] [REDACTED]');
   });
 
   it('passes AbortSignal through get config instead of serializing it as query params', async () => {

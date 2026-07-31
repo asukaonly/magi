@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from .diff_utils import deep_merge_dict, extract_dict_overrides
 from .models import AppConfig
+from ..utils.log_redaction import refresh_known_log_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -367,6 +368,7 @@ class ConfigLoaderPersistenceMixin:
 
     def _save(self, updates: Dict[str, Any]) -> bool:
         """Persist configuration updates while holding the persistence lock."""
+        refresh_known_log_secrets(updates)
         try:
             update_keys = sorted(updates.keys())
             logger.info("Configuration save requested | update_paths=%s", update_keys)

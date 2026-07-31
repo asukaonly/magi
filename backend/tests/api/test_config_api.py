@@ -293,6 +293,7 @@ def test_system_config_defaults_include_close_to_tray_enabled_preference():
     assert config.preferences.desktop_notification_previews_enabled is True
     assert config.preferences.allow_media_grounding_for_conversation is True
     assert config.preferences.default_chat_workspace_path == "~/.magi/chat-workspace"
+    assert config.diagnostics.full_content_logging_enabled is True
 
 
 def test_background_auto_dispatch_defaults_off():
@@ -375,6 +376,34 @@ def test_build_system_config_loads_default_chat_workspace_path_from_raw_yaml(
     config = _build_system_config()
 
     assert config.preferences.default_chat_workspace_path == "/tmp/magi"
+
+
+def test_build_system_config_loads_diagnostic_logging_preference(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        "magi.api.routers.config._read_raw_yaml",
+        lambda: {"diagnostics": {"full_content_logging_enabled": False}},
+    )
+
+    config = _build_system_config()
+
+    assert config.diagnostics.full_content_logging_enabled is False
+
+
+def test_build_update_paths_persists_diagnostic_logging_preference(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        "magi.api.routers.config._build_system_config",
+        lambda mask_api_key=False: SystemConfigModel(),
+    )
+    config = SystemConfigModel()
+    config.diagnostics.full_content_logging_enabled = False
+
+    updates = _build_update_paths(config)
+
+    assert updates["diagnostics"] == {"full_content_logging_enabled": False}
 
 
 def test_system_config_does_not_expose_internal_runtime_fields():

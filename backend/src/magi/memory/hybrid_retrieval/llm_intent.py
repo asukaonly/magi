@@ -8,6 +8,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
+from magi.utils.diagnostic_logging import full_content_logging_enabled
+
 from .answerability import (
     extract_comparison_spans,
     extract_query_tokens,
@@ -294,20 +296,34 @@ class LLMIntentDecider:
             return self._parse_response(raw)
         except Exception:
             elapsed_ms = (time.monotonic() - t0) * 1000
-            logger.warning(
-                "LLM intent decider failed model=%s base_url=%s elapsed_ms=%.1f timeout=%s prompt_len=%d"
-                "\n  disable_thinking=True json_mode=True max_tokens=512 temperature=0.3"
-                "\n  system_prompt:\n%s"
-                "\n  user_prompt:\n%s",
-                model,
-                base_url,
-                elapsed_ms,
-                self._timeout,
-                len(user_prompt),
-                _LLM_SYSTEM_PROMPT,
-                user_prompt,
-                exc_info=True,
-            )
+            if full_content_logging_enabled():
+                logger.warning(
+                    "LLM intent decider failed model=%s base_url=%s elapsed_ms=%.1f"
+                    " timeout=%s prompt_len=%d"
+                    "\n  disable_thinking=True json_mode=True max_tokens=512 temperature=0.3"
+                    "\n  system_prompt:\n%s"
+                    "\n  user_prompt:\n%s",
+                    model,
+                    base_url,
+                    elapsed_ms,
+                    self._timeout,
+                    len(user_prompt),
+                    _LLM_SYSTEM_PROMPT,
+                    user_prompt,
+                    exc_info=True,
+                )
+            else:
+                logger.warning(
+                    "LLM intent decider failed model=%s base_url=%s elapsed_ms=%.1f"
+                    " timeout=%s system_prompt_len=%d user_prompt_len=%d",
+                    model,
+                    base_url,
+                    elapsed_ms,
+                    self._timeout,
+                    len(_LLM_SYSTEM_PROMPT),
+                    len(user_prompt),
+                    exc_info=True,
+                )
             return None
 
     def _parse_response(self, raw: str) -> LLMRefinement | None:

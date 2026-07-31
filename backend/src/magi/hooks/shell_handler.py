@@ -29,6 +29,7 @@ import json
 import logging
 from typing import Any, Mapping, Optional
 
+from ..utils.diagnostic_logging import full_content_logging_enabled
 from .contracts import HookContext, HookDecision
 
 logger = logging.getLogger(__name__)
@@ -98,12 +99,20 @@ def _parse_decision_payload(
         return HookDecision.cont(source=source)
     if exit_code == 2:
         return HookDecision.deny(stderr.strip() or "denied by hook", source=source)
-    logger.warning(
-        "shell hook exited with unexpected code=%s source=%s stderr=%s",
-        exit_code,
-        source,
-        stderr.strip()[:200],
-    )
+    if full_content_logging_enabled():
+        logger.warning(
+            "shell hook exited with unexpected code=%s source=%s stderr=%s",
+            exit_code,
+            source,
+            stderr.strip()[:200],
+        )
+    else:
+        logger.warning(
+            "shell hook exited with unexpected code=%s source=%s stderr_chars=%d",
+            exit_code,
+            source,
+            len(stderr),
+        )
     return HookDecision.cont(source=source)
 
 
@@ -126,8 +135,14 @@ def build_shell_hook_handler(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-        except Exception:
-            logger.exception("failed to spawn shell hook command=%s", command)
+        except Exception as exc:
+            if full_content_logging_enabled():
+                logger.exception("failed to spawn shell hook command=%s", command)
+            else:
+                logger.warning(
+                    "failed to spawn shell hook | error_type=%s",
+                    type(exc).__name__,
+                )
             return HookDecision.cont(source=source)
 
         try:
@@ -149,8 +164,15 @@ def build_shell_hook_handler(
                 effective_timeout,
             )
             return HookDecision.cont(source=source)
-        except Exception:
-            logger.exception("shell hook crashed source=%s", source)
+        except Exception as exc:
+            if full_content_logging_enabled():
+                logger.exception("shell hook crashed source=%s", source)
+            else:
+                logger.warning(
+                    "shell hook crashed source=%s error_type=%s",
+                    source,
+                    type(exc).__name__,
+                )
             return HookDecision.cont(source=source)
 
         stdout = (stdout_bytes or b"").decode("utf-8", errors="replace")

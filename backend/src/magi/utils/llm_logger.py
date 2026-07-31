@@ -10,6 +10,14 @@ import sys
 from logging.handlers import RotatingFileHandler
 from typing import Any, Optional
 
+from .diagnostic_logging import full_content_logging_enabled
+from .log_redaction import (
+    OMITTED_BINARY_VALUE,
+    RedactingFormatter,
+    normalize_log_field_name,
+    redact_log_text,
+    redact_log_value,
+)
 from .safe_logging import SafeStreamHandler
 
 LLM_CALL_LOGGER_BASE = "magi.llm.calls"
@@ -52,7 +60,7 @@ def setup_llm_logger() -> logging.Logger:
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(
-        logging.Formatter(
+        RedactingFormatter(
             fmt="%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s] %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
@@ -61,7 +69,7 @@ def setup_llm_logger() -> logging.Logger:
     console_handler = SafeStreamHandler(sys.stdout)
     console_handler.setLevel(logging.DEBUG)
     console_handler.setFormatter(
-        logging.Formatter(
+        RedactingFormatter(
             fmt="%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s] %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
@@ -123,13 +131,53 @@ def _try_pretty_json(text: str) -> str:
 
 def _format_message_content(role: str, content: Any) -> str:
     """Render message content for logs with special handling for tool payloads."""
+    content = _omit_binary_log_payloads(content)
     if isinstance(content, (dict, list)):
-        return json.dumps(content, ensure_ascii=False, indent=2)
+        return json.dumps(redact_log_value(content), ensure_ascii=False, indent=2)
 
     normalized = "" if content is None else str(content)
     if role == "tool":
-        return _try_pretty_json(normalized)
-    return normalized
+        return redact_log_text(_try_pretty_json(normalized))
+    return redact_log_text(normalized)
+
+
+def _omit_binary_log_payloads(value: Any, *, media_parent: bool = False) -> Any:
+    """Keep media metadata while removing bytes and encoded attachment bodies."""
+    if isinstance(value, bytes):
+        return f"{OMITTED_BINARY_VALUE} ({len(value)} bytes)"
+    if isinstance(value, list):
+        return [
+            _omit_binary_log_payloads(item, media_parent=media_parent)
+            for item in value
+        ]
+    if not isinstance(value, dict):
+        return value
+
+    block_type = str(value.get("type") or "").strip().lower()
+    is_media = media_parent or block_type in {
+        "audio",
+        "file",
+        "image",
+        "image_url",
+        "input_audio",
+        "input_file",
+        "input_image",
+        "video",
+    }
+    sanitized: dict[Any, Any] = {}
+    for key, item in value.items():
+        normalized_key = normalize_log_field_name(str(key))
+        if isinstance(item, bytes):
+            sanitized[key] = f"{OMITTED_BINARY_VALUE} ({len(item)} bytes)"
+            continue
+        if isinstance(item, str) and (
+            "base64" in normalized_key
+            or (is_media and normalized_key in {"blob", "body", "data"})
+        ):
+            sanitized[key] = f"{OMITTED_BINARY_VALUE} ({len(item)} chars)"
+            continue
+        sanitized[key] = _omit_binary_log_payloads(item, media_parent=is_media)
+    return sanitized
 
 
 def _format_log_text(text: Any, max_length: int, truncate: bool) -> str:
@@ -137,8 +185,8 @@ def _format_log_text(text: Any, max_length: int, truncate: bool) -> str:
     if not isinstance(text, str):
         text = str(text)
     if not truncate:
-        return text
-    return truncate_text(text, max_length)
+        return redact_log_text(text)
+    return redact_log_text(truncate_text(text, max_length))
 
 
 def _log_system_prompt(
@@ -204,9 +252,29 @@ def log_llm_request(
             separately (mirrors what the provider bridge sends).
         **kwargs: Other parameters.
     """
+    content_enabled = full_content_logging_enabled()
+    safe_request_id = redact_log_text(request_id)
+    safe_model = redact_log_text(model)
     logger.debug("=" * 80)
-    logger.debug(f"LLM_REQUEST [{request_id}] | Model: {model}")
+    logger.debug(f"LLM_REQUEST [{safe_request_id}] | Model: {safe_model}")
     logger.debug("-" * 80)
+    if not content_enabled:
+        roles = [str(message.get("role", "")) for message in messages]
+        message_chars = sum(
+            len(_format_message_content(str(message.get("role", "")), message.get("content", "")))
+            for message in messages
+        )
+        logger.debug(
+            "Full content logging disabled | "
+            f"System prompt chars: {len(system_prompt)} | "
+            f"Messages: {len(messages)} | Message chars: {message_chars} | "
+            f"Roles: {roles}"
+        )
+        if kwargs:
+            logger.debug(f"Parameter names: {sorted(str(key) for key in kwargs)}")
+        logger.debug("=" * 80)
+        return
+
     _log_system_prompt(logger, system_prompt, system_prompt_max_length, truncate, cache_boundary)
     logger.debug("-" * 80)
     logger.debug("Messages:")
@@ -220,7 +288,7 @@ def log_llm_request(
             f"{_format_log_text(rendered_content, message_max_length, truncate)}"
         )
     if kwargs:
-        logger.debug(f"Parameters: {kwargs}")
+        logger.debug(f"Parameters: {redact_log_value(kwargs)}")
     logger.debug("=" * 80)
 
 
@@ -231,7 +299,7 @@ def log_llm_response(
     success: bool = True,
     error: Optional[str] = None,
     duration_ms: Optional[int] = None,
-    truncate: bool = True,
+    truncate: bool = False,
     response_max_length: int = 3000,
     **metadata
 ):
@@ -247,16 +315,27 @@ def log_llm_response(
         duration_ms: Duration in milliseconds.
         **metadata: Additional metadata.
     """
+    content_enabled = full_content_logging_enabled()
     status = "SUCCESS" if success else "FAILED"
     logger.debug("=" * 80)
-    logger.debug(f"LLM_RESPONSE [{request_id}] | {status}")
-    if duration_ms:
+    logger.debug(f"LLM_RESPONSE [{redact_log_text(request_id)}] | {status}")
+    if duration_ms is not None:
         logger.debug(f"Duration: {duration_ms}ms")
     if error:
-        logger.debug(f"error: {error}")
+        logger.debug(
+            f"error: {redact_log_text(error)}"
+            if content_enabled
+            else "error: [details omitted by diagnostics setting]"
+        )
     if metadata:
-        logger.debug(f"Metadata: {metadata}")
+        logger.debug(
+            f"Metadata: {redact_log_value(metadata)}"
+            if content_enabled
+            else f"Metadata fields: {sorted(str(key) for key in metadata)}"
+        )
     logger.debug("-" * 80)
-    if success and response:
+    if success and response and content_enabled:
         logger.debug(f"Response:\n{_format_log_text(_try_pretty_json(response), response_max_length, truncate)}")
+    elif success and response:
+        logger.debug(f"Response chars: {len(response)}")
     logger.debug("=" * 80)

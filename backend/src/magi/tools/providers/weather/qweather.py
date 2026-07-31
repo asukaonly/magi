@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 import aiohttp
 
+from ....utils.diagnostic_logging import full_content_logging_enabled
 from ..base import Provider, ProviderConfig
 
 logger = logging.getLogger(__name__)
@@ -231,13 +232,24 @@ class QWeatherProvider(Provider):
         return credential
 
     def _log_execution(self, execution: _QWeatherExecution) -> None:
-        logger.info(
-            "[QWeather] execute | location=%s | lang=%s | api_host=%s | auth_mode=%s",
-            execution.location,
-            execution.lang,
-            execution.api_host,
-            execution.auth_mode,
-        )
+        if full_content_logging_enabled():
+            logger.info(
+                "[QWeather] execute | location=%s | lang=%s | "
+                "api_host=%s | auth_mode=%s",
+                execution.location,
+                execution.lang,
+                execution.api_host,
+                execution.auth_mode,
+            )
+        else:
+            logger.info(
+                "[QWeather] execute | location_chars=%d | lang=%s | "
+                "api_host=%s | auth_mode=%s",
+                len(execution.location),
+                execution.lang,
+                execution.api_host,
+                execution.auth_mode,
+            )
 
     def _current_result(
         self,
@@ -298,11 +310,20 @@ class QWeatherProvider(Provider):
         url = f"https://{api_host}/geo/v2/city/lookup"
         headers, _ = self._build_auth_headers(api_key)
         params = {"location": location, "number": 1}
-        logger.info(
-            "[QWeather] Geo lookup request | url=%s | params=%s",
-            url,
-            params,
-        )
+        if full_content_logging_enabled():
+            logger.info(
+                "[QWeather] Geo lookup request | url=%s | params=%s",
+                url,
+                params,
+            )
+        else:
+            logger.info(
+                "[QWeather] Geo lookup request | url=%s | "
+                "param_names=%s | location_chars=%d",
+                url,
+                sorted(params),
+                len(location),
+            )
 
         async with aiohttp.ClientSession(trust_env=False) as session:
             async with session.get(
@@ -310,13 +331,24 @@ class QWeatherProvider(Provider):
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    logger.warning(
-                        "[QWeather] Geo lookup failed | status=%s | url=%s | params=%s | body=%s",
-                        response.status,
-                        url,
-                        params,
-                        error_text[:300],
-                    )
+                    if full_content_logging_enabled():
+                        logger.warning(
+                            "[QWeather] Geo lookup failed | status=%s | "
+                            "url=%s | params=%s | body=%s",
+                            response.status,
+                            url,
+                            params,
+                            error_text[:300],
+                        )
+                    else:
+                        logger.warning(
+                            "[QWeather] Geo lookup failed | status=%s | "
+                            "url=%s | param_names=%s | body_chars=%d",
+                            response.status,
+                            url,
+                            sorted(params),
+                            len(error_text),
+                        )
                     raise Exception(
                         self._format_api_error(
                             api_name="GeoAPI",
@@ -354,11 +386,20 @@ class QWeatherProvider(Provider):
             "location": location_id,
             "lang": lang,
         }
-        logger.info(
-            "[QWeather] Weather request | url=%s | params=%s",
-            url,
-            params,
-        )
+        if full_content_logging_enabled():
+            logger.info(
+                "[QWeather] Weather request | url=%s | params=%s",
+                url,
+                params,
+            )
+        else:
+            logger.info(
+                "[QWeather] Weather request | url=%s | param_names=%s | "
+                "location_chars=%d",
+                url,
+                sorted(params),
+                len(location_id),
+            )
 
         async with aiohttp.ClientSession(trust_env=False) as session:
             async with session.get(
@@ -366,13 +407,24 @@ class QWeatherProvider(Provider):
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    logger.warning(
-                        "[QWeather] Weather request failed | status=%s | url=%s | params=%s | body=%s",
-                        response.status,
-                        url,
-                        params,
-                        error_text[:300],
-                    )
+                    if full_content_logging_enabled():
+                        logger.warning(
+                            "[QWeather] Weather request failed | status=%s | "
+                            "url=%s | params=%s | body=%s",
+                            response.status,
+                            url,
+                            params,
+                            error_text[:300],
+                        )
+                    else:
+                        logger.warning(
+                            "[QWeather] Weather request failed | status=%s | "
+                            "url=%s | param_names=%s | body_chars=%d",
+                            response.status,
+                            url,
+                            sorted(params),
+                            len(error_text),
+                        )
                     raise Exception(
                         self._format_api_error(
                             api_name="Weather",
@@ -425,12 +477,22 @@ class QWeatherProvider(Provider):
             "location": location_id,
             "lang": lang,
         }
-        logger.info(
-            "[QWeather] Forecast request | url=%s | params=%s | days=%s",
-            url,
-            params,
-            days,
-        )
+        if full_content_logging_enabled():
+            logger.info(
+                "[QWeather] Forecast request | url=%s | params=%s | days=%s",
+                url,
+                params,
+                days,
+            )
+        else:
+            logger.info(
+                "[QWeather] Forecast request | url=%s | param_names=%s | "
+                "location_chars=%d | days=%s",
+                url,
+                sorted(params),
+                len(location_id),
+                days,
+            )
 
         async with aiohttp.ClientSession(trust_env=False) as session:
             async with session.get(
@@ -438,13 +500,24 @@ class QWeatherProvider(Provider):
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    logger.warning(
-                        "[QWeather] Forecast request failed | status=%s | url=%s | params=%s | body=%s",
-                        response.status,
-                        url,
-                        params,
-                        error_text[:300],
-                    )
+                    if full_content_logging_enabled():
+                        logger.warning(
+                            "[QWeather] Forecast request failed | status=%s | "
+                            "url=%s | params=%s | body=%s",
+                            response.status,
+                            url,
+                            params,
+                            error_text[:300],
+                        )
+                    else:
+                        logger.warning(
+                            "[QWeather] Forecast request failed | status=%s | "
+                            "url=%s | param_names=%s | body_chars=%d",
+                            response.status,
+                            url,
+                            sorted(params),
+                            len(error_text),
+                        )
                     raise Exception(
                         self._format_api_error(
                             api_name="Forecast",

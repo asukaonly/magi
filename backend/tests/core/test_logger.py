@@ -6,6 +6,7 @@ from io import StringIO
 from logging.handlers import RotatingFileHandler
 
 from magi.core.logger import configure_logging, get_logger
+from magi.utils.log_redaction import refresh_known_log_secrets
 
 
 def test_configure_logging_formats_stdlib_logs_with_milliseconds(monkeypatch) -> None:
@@ -82,3 +83,31 @@ def test_configure_logging_uses_rotating_file_handler_for_log_file(tmp_path) -> 
     assert len(file_handlers) == 1
     assert file_handlers[0].maxBytes == 100 * 1024 * 1024
     assert file_handlers[0].backupCount == 10
+
+
+def test_all_root_log_paths_redact_configured_and_structured_secrets(
+    monkeypatch,
+) -> None:
+    stream = StringIO()
+    monkeypatch.setattr("magi.core.logger.sys.stdout", stream)
+    refresh_known_log_secrets(
+        {"network": {"password": "root-config-secret"}},
+        environment={},
+    )
+    configure_logging(level="INFO", json_logs=False)
+
+    logging.getLogger("magi.test.stdlib").error(
+        "request failed with root-config-secret Authorization: Bearer header-secret"
+    )
+    get_logger("magi.test.structlog").error(
+        "provider failed",
+        api_key="structured-secret",
+        input_tokens=42,
+    )
+
+    output = stream.getvalue()
+    assert "root-config-secret" not in output
+    assert "header-secret" not in output
+    assert "structured-secret" not in output
+    assert "input_tokens=42" in output
+    assert output.count("[REDACTED]") >= 3

@@ -9,8 +9,13 @@ import pytest
 import yaml
 
 from magi.config import loader as config_loader
+from magi.utils.diagnostic_logging import (
+    full_content_logging_enabled,
+    set_full_content_logging_enabled,
+)
 from magi.config.loader import ConfigLoader
 from magi.config.models import NetworkProxySettings, PluginsSettings, ProxyType
+from magi.utils.log_redaction import MASKED_LOG_VALUE, redact_log_text
 
 
 def _patch_config_paths(monkeypatch, root: Path) -> None:
@@ -166,6 +171,31 @@ def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkey
         .settings["sensors"]["photo_library_directory"]["sync_interval_minutes"]
         == 120
     )
+
+
+def test_loader_refreshes_diagnostic_policy_and_known_secrets_immediately(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+    loader = ConfigLoader()
+    loader.load()
+
+    saved = loader.save(
+        {
+            "diagnostics.full_content_logging_enabled": False,
+            "network.password": "loader-secret-password",
+        }
+    )
+
+    assert saved is True
+    assert loader.load().diagnostics.full_content_logging_enabled is False
+    assert full_content_logging_enabled() is False
+    assert (
+        redact_log_text("failed with loader-secret-password")
+        == f"failed with {MASKED_LOG_VALUE}"
+    )
+    set_full_content_logging_enabled(True)
 
 
 def test_loader_save_rejects_invalid_config_without_writing(tmp_path: Path, monkeypatch) -> None:

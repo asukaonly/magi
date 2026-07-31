@@ -42,6 +42,8 @@ from .models import AppConfig
 from .loader_file_ops import ConfigLoaderFileOpsMixin
 from .loader_persistence import ConfigLoaderPersistenceMixin
 from .plugin_layout import ConfigPluginLayoutMixin
+from ..utils.diagnostic_logging import set_full_content_logging_enabled
+from ..utils.log_redaction import refresh_known_log_secrets
 from ..utils.packaged_paths import get_backend_root
 
 logger = logging.getLogger(__name__)
@@ -152,9 +154,13 @@ class ConfigLoader(ConfigLoaderPersistenceMixin, ConfigLoaderFileOpsMixin, Confi
 
         # Load YAML file
         self._yaml_data = self._load_yaml()
+        refresh_known_log_secrets(self._yaml_data)
 
         # Build typed config from YAML
         self._config = self._build_config()
+        set_full_content_logging_enabled(
+            self._config.diagnostics.full_content_logging_enabled
+        )
         self._config_signature = self._snapshot_config_signature()
 
         logger.info(f"Configuration loaded from {self._config_file}")

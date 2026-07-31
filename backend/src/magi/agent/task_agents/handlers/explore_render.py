@@ -10,6 +10,7 @@ from ....core.logger import get_logger
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
 from ....context.scenarios import Scenario
+from ....utils.diagnostic_logging import full_content_logging_enabled
 from ..common import (
     BaseExecutionHandler,
     ExecutionMode,
@@ -170,11 +171,20 @@ class ExploreRenderHandler(BaseExecutionHandler):
             )
             response = ""
         if not response.strip():
-            logger.warning(
-                "Explore dossier rendering returned empty response | orchestration_id=%s dossier_preview=%s",
-                orchestration_id,
-                dossier[:300],
-            )
+            if full_content_logging_enabled():
+                logger.warning(
+                    "Explore dossier rendering returned empty response | "
+                    "orchestration_id=%s dossier_preview=%s",
+                    orchestration_id,
+                    dossier[:300],
+                )
+            else:
+                logger.warning(
+                    "Explore dossier rendering returned empty response | "
+                    "orchestration_id=%s dossier_chars=%d",
+                    orchestration_id,
+                    len(dossier),
+                )
             response = self._deps.prompt_service.build_explore_render_fallback(root_user_message, dossier)
         response = self._deps.prompt_service.format_explore_render_response(response)
         return ExecutionResult(

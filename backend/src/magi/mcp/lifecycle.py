@@ -19,6 +19,7 @@ from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
 from ..utils.runtime import get_runtime_paths
 from .loader import MCPConfigLoader
+from .log_security import redact_mcp_traceback
 from .manager import MCPManager
 
 logger = get_logger(__name__)
@@ -57,10 +58,11 @@ class MCPModule(LifecycleModule):
         manager = MCPManager(registry=tool_registry)
         try:
             configs = MCPConfigLoader(config_dir).load_all()
-        except Exception:
-            logger.exception(
+        except Exception as exc:
+            logger.error(
                 "Failed to load MCP server configs",
                 config_dir=str(config_dir),
+                traceback=redact_mcp_traceback(exc),
             )
             configs = []
 
@@ -89,8 +91,11 @@ class MCPModule(LifecycleModule):
             await manager.start_all_autostart()
         except asyncio.CancelledError:
             raise
-        except Exception:
-            logger.exception("MCP autostart raised")
+        except Exception as exc:
+            logger.error(
+                "MCP autostart raised",
+                traceback=redact_mcp_traceback(exc),
+            )
         else:
             logger.info(
                 "MCP autostart completed",
@@ -111,8 +116,11 @@ class MCPModule(LifecycleModule):
         if self._manager is not None:
             try:
                 await self._manager.stop_all()
-            except Exception:
-                logger.exception("MCP shutdown raised")
+            except Exception as exc:
+                logger.error(
+                    "MCP shutdown raised",
+                    traceback=redact_mcp_traceback(exc),
+                )
         if _active_manager is self._manager:
             _active_manager = None
         self._manager = None

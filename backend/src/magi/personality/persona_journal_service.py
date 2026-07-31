@@ -15,6 +15,7 @@ from ..config.models import LLMScenario
 from ..core.logger import get_logger
 from ..llm.provider import get_scenario_llm_pool
 from ..llm.provider_bridge import LLMProviderBridge
+from ..utils.diagnostic_logging import full_content_logging_enabled
 from .active_persona import resolve_persona_config
 from .growth_memory import GrowthMemoryEngine, Milestone, MilestoneType
 from .loader import PersonalityConfig
@@ -152,12 +153,22 @@ def _reflection_has_voice_drift(
     drift = _detect_voice_drift(reflection_text, config)
     if drift is None:
         return False
-    logger.warning(
-        "Journal reflection rejected (voice drift): persona=%s hits=%s preview=%r",
-        persona_name,
-        drift,
-        reflection_text[:120],
-    )
+    if full_content_logging_enabled():
+        logger.warning(
+            "Journal reflection rejected (voice drift): "
+            "persona=%s hits=%s preview=%r",
+            persona_name,
+            drift,
+            reflection_text[:120],
+        )
+    else:
+        logger.warning(
+            "Journal reflection rejected (voice drift): "
+            "persona=%s hit_count=%d reflection_chars=%d",
+            persona_name,
+            len(drift),
+            len(reflection_text),
+        )
     return True
 
 

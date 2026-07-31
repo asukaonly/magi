@@ -256,5 +256,8 @@ preferences:
   conversation_rhythm_mode: "natural"
   allow_media_grounding_for_conversation: true
 
+diagnostics:
+  full_content_logging_enabled: true
+
 debug: false
 log_level: "INFO"

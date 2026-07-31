@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from ..utils.diagnostic_logging import full_content_logging_enabled
 from .registry_stats import ToolExecutionStats
 from .schema import Tool, ToolErrorCode, ToolExecutionContext, ToolResult, ToolSchema
 
@@ -217,7 +218,14 @@ class ToolRegistryExecutionMixin:
         except Exception as e:
             execution_time = time.time() - start_time
             invocation.stats.record_call(False, execution_time)
-            logger.exception("Tool %s execution failed", display_tool_name)
+            if full_content_logging_enabled():
+                logger.exception("Tool %s execution failed", display_tool_name)
+            else:
+                logger.warning(
+                    "Tool %s execution failed | error_type=%s",
+                    display_tool_name,
+                    type(e).__name__,
+                )
             return _execution_error_result(e, execution_time)
 
     async def _execute_tool_body(

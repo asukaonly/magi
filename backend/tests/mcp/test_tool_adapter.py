@@ -1,6 +1,7 @@
 import pytest
 from magi_plugin_sdk.tools import ParameterType
 
+from magi.mcp.log_security import register_mcp_transport_secrets
 from magi.mcp.tool_adapter import build_adapter_class
 
 REMOTE_TOOL = {
@@ -130,6 +131,39 @@ async def test_iserror_result_returns_failed_tool_result():
     result = await cls().execute({}, context=None)
     assert result.success is False
     assert "rate limited" in result.error
+
+
+@pytest.mark.asyncio
+async def test_iserror_result_redacts_custom_mcp_transport_secret():
+    secret = "mcp-tool-error-custom-secret"
+    register_mcp_transport_secrets(
+        {"transport": {"kind": "stdio", "env": {"UNUSUAL_SETTING": secret}}}
+    )
+
+    class Err:
+        async def call_remote(self, *a, **kw):
+            return {
+                "content": [{"type": "text", "text": f"failed with {secret}"}],
+                "isError": True,
+            }
+
+    cls = build_adapter_class(
+        "s",
+        {
+            "name": "x",
+            "description": "d",
+            "inputSchema": {"type": "object", "properties": {}},
+        },
+        manager=Err(),
+        call_timeout_ms=1000,
+        override=None,
+    )
+
+    result = await cls().execute({}, context=None)
+
+    assert result.success is False
+    assert secret not in result.error
+    assert "[REDACTED]" in result.error
 
 
 def test_override_forces_dangerous_off():

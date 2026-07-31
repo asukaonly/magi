@@ -41,9 +41,21 @@ async def _default_emit(session_id: str, payload: dict[str, Any]) -> str:
     """Default emitter used when none is injected. Logs and returns
     a synthetic id — production wires a real emitter via __init__."""
     from ..core.logger import get_logger
+    from ..utils.diagnostic_logging import full_content_logging_enabled
+
     logger = get_logger(__name__)
-    logger.info("ChatSseChannel default emit (no emitter wired): session=%s payload=%s",
-                session_id, payload)
+    if full_content_logging_enabled():
+        logger.info(
+            "ChatSseChannel default emit (no emitter wired): session=%s payload=%s",
+            session_id,
+            payload,
+        )
+    else:
+        logger.info(
+            "ChatSseChannel default emit (no emitter wired): session=%s payload_fields=%s",
+            session_id,
+            sorted(str(key) for key in payload),
+        )
     return f"synthetic_{int(time.time() * 1000)}"
 
 

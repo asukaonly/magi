@@ -7,6 +7,8 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
+from .log_redaction import RedactingFormatter
+
 AGENT_CHAIN_LOGGER_BASE = "magi.agent.chain"
 
 
@@ -46,7 +48,7 @@ def setup_agent_logger() -> logging.Logger:
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(
-        logging.Formatter(
+        RedactingFormatter(
             fmt="%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s] %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )

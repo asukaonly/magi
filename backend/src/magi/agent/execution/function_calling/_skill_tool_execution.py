@@ -8,6 +8,8 @@ import os
 import time
 from typing import Any, cast
 
+from magi.utils.diagnostic_logging import full_content_logging_enabled
+
 from ._tool_execution_contracts import (
     _FunctionCallingToolExecutionHostProtocol,
     _SkillExecutionRequest,
@@ -68,8 +70,19 @@ class _SkillInvocationEventPublisher:
                     source="skill_runner",
                 )
             )
-        except Exception:
-            logger.exception("publish SkillInvocationCompleted failed (skill=%s)", skill_name)
+        except Exception as exc:
+            if full_content_logging_enabled():
+                logger.exception(
+                    "publish SkillInvocationCompleted failed (skill=%s)",
+                    skill_name,
+                )
+            else:
+                logger.warning(
+                    "publish SkillInvocationCompleted failed "
+                    "(skill=%s error_type=%s)",
+                    skill_name,
+                    type(exc).__name__,
+                )
 
     @staticmethod
     def _build_payload(
@@ -420,7 +433,13 @@ class _SkillToolExecutor:
     ) -> ToolCallResult:
         duration_ms = (time.monotonic() - trace.started_mono) * 1000
         finished_at = time.time()
-        logger.error("[FunctionCalling] Skill execution error: %s", exc)
+        if full_content_logging_enabled():
+            logger.error("[FunctionCalling] Skill execution error: %s", exc)
+        else:
+            logger.error(
+                "[FunctionCalling] Skill execution error | error_type=%s",
+                type(exc).__name__,
+            )
         span.set_attributes(
             {
                 "success": False,

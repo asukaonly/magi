@@ -249,6 +249,7 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     updates.update(_llm_update_paths(config))
     updates.update(_memory_update_paths(config))
     updates.update(_preferences_update_paths(config))
+    updates["diagnostics"] = config.diagnostics.model_dump(mode="json")
     updates.update(_personality_update_paths(config, personality_settings))
     updates.update(_timeline_update_paths(config))
     updates.update(_tool_update_paths(config))

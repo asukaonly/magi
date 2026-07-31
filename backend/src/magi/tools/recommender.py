@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from ..utils.diagnostic_logging import full_content_logging_enabled
 from .schema import ToolSchema
 
 if TYPE_CHECKING:
@@ -383,7 +384,13 @@ class ToolRecommender:
         Returns:
             List of recommendations [{"tool": name, "score": float, "reason": str}, ...].
         """
-        logger.info(f"Recommending tools for intent: {intent}")
+        if full_content_logging_enabled():
+            logger.info("Recommending tools for intent: %s", intent)
+        else:
+            logger.info(
+                "Recommending tools for intent | intent_chars=%d",
+                len(intent),
+            )
         matched_tools = self._matched_tools_for_recommendation(
             intent,
             task_hint,
@@ -406,14 +413,20 @@ class ToolRecommender:
         scenario = self.classify_scenario(intent)
         logger.info(f"Classified scenario: {scenario}")
         keywords = self.extract_intent_keywords(intent)
-        logger.info(f"Extracted keywords: {keywords}")
+        if full_content_logging_enabled():
+            logger.info("Extracted keywords: %s", keywords)
+        else:
+            logger.info("Extracted keywords | count=%d", len(keywords))
         matched_tools = self.match_capabilities(
             intent,
             scenario,
             task_hint=task_hint,
             candidate_tools=candidate_tools,
         )
-        logger.info(f"Matched tools: {matched_tools}")
+        if full_content_logging_enabled():
+            logger.info("Matched tools: %s", matched_tools)
+        else:
+            logger.info("Matched tools | count=%d", len(matched_tools))
         return matched_tools
 
     def _collect_recommendations(

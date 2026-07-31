@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Optional, cast
 
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from .grounding import L2GroundingPlan, build_grounding_plan
 from .governed_l2_recall import (
     GovernedL2RecallView,
@@ -84,7 +85,18 @@ class L2QueryExecutionMixin:
         results = _build_query_results(projected, channels.experiences)
         results["trace"] = _build_execution_trace(plan, channels, candidates, results)
 
-        logger.info("L2 retrieval executed | %s", results["trace"])
+        if full_content_logging_enabled():
+            logger.info("L2 retrieval executed | %s", results["trace"])
+        else:
+            logger.info(
+                "L2 retrieval executed | entity_cards=%d relationships=%d "
+                "assertions=%d episodes=%d experiences=%d",
+                len(results.get("entity_cards", [])),
+                len(results.get("relationships", [])),
+                len(results.get("assertions", [])),
+                len(results.get("episodes", [])),
+                len(results.get("experiences", [])),
+            )
         return results
 
 

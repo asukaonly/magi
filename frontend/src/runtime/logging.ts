@@ -1,6 +1,8 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { debug, error, info, warn } from '@tauri-apps/plugin-log';
 
+import { redactConsoleArgs } from './log-redaction';
+
 let initialized = false;
 
 function stringifyConsoleArg(value: unknown): string {
@@ -18,8 +20,9 @@ function formatConsoleArgs(args: unknown[]): string {
 }
 
 export function initializeDesktopLogging(): void {
-  if (initialized || !isTauri()) return;
+  if (initialized) return;
   initialized = true;
+  const desktop = isTauri();
 
   const original = {
     debug: console.debug.bind(console),
@@ -30,25 +33,32 @@ export function initializeDesktopLogging(): void {
   };
 
   console.debug = (...args: unknown[]) => {
-    original.debug(...args);
-    void debug(formatConsoleArgs(args)).catch(() => undefined);
+    const safeArgs = redactConsoleArgs(args);
+    original.debug(...safeArgs);
+    if (desktop) void debug(formatConsoleArgs(safeArgs)).catch(() => undefined);
   };
   console.error = (...args: unknown[]) => {
-    original.error(...args);
-    void error(formatConsoleArgs(args)).catch(() => undefined);
+    const safeArgs = redactConsoleArgs(args);
+    original.error(...safeArgs);
+    if (desktop) void error(formatConsoleArgs(safeArgs)).catch(() => undefined);
   };
   console.info = (...args: unknown[]) => {
-    original.info(...args);
-    void info(formatConsoleArgs(args)).catch(() => undefined);
+    const safeArgs = redactConsoleArgs(args);
+    original.info(...safeArgs);
+    if (desktop) void info(formatConsoleArgs(safeArgs)).catch(() => undefined);
   };
   console.log = (...args: unknown[]) => {
-    original.log(...args);
-    void info(formatConsoleArgs(args)).catch(() => undefined);
+    const safeArgs = redactConsoleArgs(args);
+    original.log(...safeArgs);
+    if (desktop) void info(formatConsoleArgs(safeArgs)).catch(() => undefined);
   };
   console.warn = (...args: unknown[]) => {
-    original.warn(...args);
-    void warn(formatConsoleArgs(args)).catch(() => undefined);
+    const safeArgs = redactConsoleArgs(args);
+    original.warn(...safeArgs);
+    if (desktop) void warn(formatConsoleArgs(safeArgs)).catch(() => undefined);
   };
 
-  void info('[desktop] frontend logging bridge initialized').catch(() => undefined);
+  if (desktop) {
+    void info('[desktop] frontend logging bridge initialized').catch(() => undefined);
+  }
 }

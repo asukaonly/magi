@@ -86,6 +86,15 @@ Primary packages:
 - `identity/`
 - `db/` — Alembic migration environments + runner for the runtime SQLite databases (owned by `DatabaseMigrationModule`, which runs migrations after `core` initializes runtime paths and directories)
 - `utils/` — shared leaf helpers (runtime paths, packaged-path resolution, message text); imported across every layer, imports none
+
+All Python log sinks share one leaf-level redaction helper under `utils/`,
+configured by L1 logging. Configuration loading and MCP transport setup
+register currently known credential values with that boundary. The desktop
+sidecar also protects direct standard output before Rust persists it, and the
+frontend protects browser and desktop console output before forwarding it.
+The diagnostics setting controls only whether higher layers may include full
+textual content. Secret redaction and binary-payload omission remain active
+regardless of that user preference.
 - `hooks/` — hook registry, gateway, and shell-hook handlers; a low cross-cutting substrate consumed by `agent`/`api`/`plugins`, depending only on `core`/`config`
 - `location/` — location sample store, geocode cache, WiFi/IPGeo sources, and the read-side resolver (`LocationModule`); a low provider whose write (pollers) and read (viewport) sides are both driven by `timeline` (L13)
 - `media/` — media source registry; a low provider consumed by `timeline` (L13)

@@ -11,6 +11,8 @@ from magi_plugin_sdk.tools import (
     ToolSchema,
 )
 
+from .log_security import redact_mcp_log_text
+
 
 class _ManagerProto(Protocol):
     async def call_remote(
@@ -128,19 +130,20 @@ def build_adapter_class(
             except Exception as exc:
                 return ToolResult(
                     success=False,
-                    error=str(exc),
+                    error=redact_mcp_log_text(exc),
                     error_code=ToolErrorCode.EXECUTION_ERROR.value,
                 )
             if isinstance(result, dict) and result.get("isError"):
                 return ToolResult(
                     success=False,
-                    error=_extract_text(result),
+                    error=redact_mcp_log_text(_extract_text(result)),
                     error_code=ToolErrorCode.EXECUTION_ERROR.value,
                 )
+            output = redact_mcp_log_text(_extract_text(result)) or ""
             return ToolResult(
                 success=True,
                 data=result,
-                metadata={"output": _extract_text(result)},
+                metadata={"output": output},
             )
 
     _Adapter.__name__ = f"MCPAdapter_{server_id}_{remote['name']}"

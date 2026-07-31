@@ -1411,6 +1411,12 @@
     "startupSettings": "启动设置",
     "autoStartLabel": "开机自动启动",
     "startMinimizedLabel": "启动后最小化到托盘",
+    "diagnostics": {
+      "title": "诊断日志",
+      "description": "控制本地日志保留多少排查信息。",
+      "fullContentLoggingLabel": "保留完整对话日志",
+      "fullContentLoggingDesc": "开启后，诊断日志会保留完整的提问、回复和内部上下文，方便排查问题。密钥和密码始终隐藏，图片和附件内容始终不写入日志。"
+    },
     "proxyOff": "直连（关闭代理）",
     "fakeIpCompatibility": "兼容 TUN 代理的 Fake-IP",
     "fakeIpCompatibilityDesc": "默认开启，只允许 Clash、Surge 或 sing-box 的 TUN 模式使用的 198.18.x.x 映射地址，不会放开局域网。不信任当前 TUN 代理时可以关闭。",

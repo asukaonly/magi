@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from .config import HttpTransport, MCPServerConfig, StdioTransport
 from .connection import HttpConnection, MCPConnection, StdioConnection
+from .log_security import redact_mcp_log_text, register_mcp_transport_secrets
 from .tool_adapter import build_adapter_class
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class MCPManager:
         self._reconnect_backoff = list(reconnect_backoff or _DEFAULT_RECONNECT_BACKOFF)
 
     def add_config(self, cfg: MCPServerConfig) -> None:
+        register_mcp_transport_secrets(cfg)
         self._configs[cfg.server.id] = cfg
 
     def list_configs(self) -> list[MCPServerConfig]:
@@ -184,7 +186,11 @@ class MCPManager:
         try:
             tools = await self._list_paginated(rt, "tools/list", "tools")
         except Exception as exc:
-            logger.warning("tools/list failed for %s: %s", rt.cfg.server.id, exc)
+            logger.warning(
+                "tools/list failed for %s: %s",
+                rt.cfg.server.id,
+                redact_mcp_log_text(exc),
+            )
             return
         for remote in tools:
             override = rt.cfg.tool_overrides.get(remote["name"])
@@ -205,7 +211,11 @@ class MCPManager:
         try:
             rt.resources = await self._list_paginated(rt, "resources/list", "resources")
         except Exception as exc:
-            logger.debug("resources/list failed for %s: %s", rt.cfg.server.id, exc)
+            logger.debug(
+                "resources/list failed for %s: %s",
+                rt.cfg.server.id,
+                redact_mcp_log_text(exc),
+            )
             rt.resources = []
 
     async def _reconcile_resource_templates(self, rt: _ServerRuntime) -> None:
@@ -220,7 +230,7 @@ class MCPManager:
             logger.debug(
                 "resources/templates/list failed for %s: %s",
                 rt.cfg.server.id,
-                exc,
+                redact_mcp_log_text(exc),
             )
             rt.resource_templates = []
 
@@ -231,7 +241,11 @@ class MCPManager:
         try:
             rt.prompts = await self._list_paginated(rt, "prompts/list", "prompts")
         except Exception as exc:
-            logger.debug("prompts/list failed for %s: %s", rt.cfg.server.id, exc)
+            logger.debug(
+                "prompts/list failed for %s: %s",
+                rt.cfg.server.id,
+                redact_mcp_log_text(exc),
+            )
             rt.prompts = []
 
     async def _list_paginated(
@@ -337,13 +351,13 @@ class MCPManager:
                 logger.info("MCP server %s reconnected", server_id)
                 return True
             except Exception as exc:
-                rt.last_error = str(exc)
+                rt.last_error = redact_mcp_log_text(exc)
                 logger.warning(
                     "MCP reconnect attempt %d/%d failed for %s: %s",
                     i + 1,
                     attempts,
                     server_id,
-                    exc,
+                    redact_mcp_log_text(exc),
                 )
         return False
 

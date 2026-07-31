@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional, Protocol, cast
 
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler
 from .models import IntentDeciderInput, RetrievalConfig, RetrievalPayload, RetrievalQuery, TimeRange
 from .service_backstops import HybridRetrievalBackstopMixin
@@ -102,13 +103,22 @@ class HybridRetrievalExecutionMixin(
             payload=payload,
             time_range=decision.time_range,
         )
+        plan_summaries = (
+            [
+                (
+                    p.layer,
+                    p.is_fallback,
+                    getattr(p.conditions, "content_query", "")[:60],
+                )
+                for p in primary_plans
+            ]
+            if full_content_logging_enabled()
+            else [(p.layer, p.is_fallback) for p in primary_plans]
+        )
         logger.debug(
             "Primary plans prepared | plan_count=%d layers=%s",
             len(primary_plans),
-            [
-                (p.layer, p.is_fallback, getattr(p.conditions, "content_query", "")[:60])
-                for p in primary_plans
-            ],
+            plan_summaries,
         )
         return primary_plans
 

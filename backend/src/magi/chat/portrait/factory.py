@@ -8,6 +8,7 @@ import os
 from dataclasses import asdict, is_dataclass
 from typing import Any, Callable
 
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from ...memory.portrait.snippet_fetcher import build_snippet_fetcher
 
 logger = logging.getLogger(__name__)
@@ -61,8 +62,7 @@ class _BridgeJsonAdapter:
 
         kwargs = self._chat_kwargs(system_prompt, user_prompt)
         model, base_url = self._bridge_metadata()
-        debug = _llm_debug_enabled()
-        if debug:
+        if full_content_logging_enabled() and _llm_debug_enabled():
             self._log_llm_request(system_prompt, user_prompt, model)
 
         t0 = _time.monotonic()
@@ -82,7 +82,7 @@ class _BridgeJsonAdapter:
         elapsed_ms = (_time.monotonic() - t0) * 1000
         response_text = text or ""
         self._log_llm_success(user_prompt, response_text, model, base_url, elapsed_ms)
-        if debug:
+        if full_content_logging_enabled() and _llm_debug_enabled():
             logger.info("portrait %s LLM ◀ raw_response:\n%s", self._label, response_text)
         return self._parse_json_response(response_text)
 
@@ -131,19 +131,33 @@ class _BridgeJsonAdapter:
         base_url: str,
         elapsed_ms: float,
     ) -> None:
+        if full_content_logging_enabled():
+            logger.warning(
+                "portrait %s LLM failed model=%s base_url=%s elapsed_ms=%.1f"
+                " timeout=%s prompt_len=%d"
+                "\n  system_prompt:\n%s"
+                "\n  user_prompt:\n%s",
+                self._label,
+                model,
+                base_url,
+                elapsed_ms,
+                self._timeout_seconds,
+                len(user_prompt),
+                system_prompt,
+                user_prompt,
+                exc_info=True,
+            )
+            return
         logger.warning(
             "portrait %s LLM failed model=%s base_url=%s elapsed_ms=%.1f"
-            " timeout=%s prompt_len=%d"
-            "\n  system_prompt:\n%s"
-            "\n  user_prompt:\n%s",
+            " timeout=%s system_prompt_len=%d user_prompt_len=%d",
             self._label,
             model,
             base_url,
             elapsed_ms,
             self._timeout_seconds,
+            len(system_prompt),
             len(user_prompt),
-            system_prompt,
-            user_prompt,
             exc_info=True,
         )
 
@@ -171,12 +185,20 @@ class _BridgeJsonAdapter:
         try:
             return json.loads(response_text)
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
-            logger.warning(
-                "portrait %s LLM returned non-JSON (%s); raw=%r",
-                self._label,
-                exc,
-                response_text,
-            )
+            if full_content_logging_enabled():
+                logger.warning(
+                    "portrait %s LLM returned non-JSON (%s); raw=%r",
+                    self._label,
+                    exc,
+                    response_text,
+                )
+            else:
+                logger.warning(
+                    "portrait %s LLM returned non-JSON (%s); response_len=%d",
+                    self._label,
+                    type(exc).__name__,
+                    len(response_text),
+                )
             return {}
 
 

@@ -19,6 +19,7 @@ import random
 import time
 from typing import Any, Awaitable, Callable
 
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from .cache import CacheKey, PortraitCache
 from .contracts import (
     ChatPortraitObservation,
@@ -268,11 +269,18 @@ class PortraitService:
     ) -> list[RawMemorySnippet] | None:
         snippets = await self._snippet_fetcher(user_id, topic_result)
         if not snippets:
-            logger.info(
-                "portrait compute: no_snippets session=%s topic=%r",
-                session_id,
-                topic_result.topic,
-            )
+            if full_content_logging_enabled():
+                logger.info(
+                    "portrait compute: no_snippets session=%s topic=%r",
+                    session_id,
+                    topic_result.topic,
+                )
+            else:
+                logger.info(
+                    "portrait compute: no_snippets session=%s topic_chars=%d",
+                    session_id,
+                    len(topic_result.topic),
+                )
             return None
         return snippets
 
@@ -296,12 +304,22 @@ class PortraitService:
             topic=topic_result.topic,
         )
         if not observations:
-            logger.info(
-                "portrait compute: no_observations session=%s topic=%r snippets=%d",
-                session_id,
-                topic_result.topic,
-                len(snippets),
-            )
+            if full_content_logging_enabled():
+                logger.info(
+                    "portrait compute: no_observations "
+                    "session=%s topic=%r snippets=%d",
+                    session_id,
+                    topic_result.topic,
+                    len(snippets),
+                )
+            else:
+                logger.info(
+                    "portrait compute: no_observations "
+                    "session=%s topic_chars=%d snippets=%d",
+                    session_id,
+                    len(topic_result.topic),
+                    len(snippets),
+                )
             return None
         return observations
 
@@ -323,12 +341,21 @@ class PortraitService:
             is_cold_start=False,
         )
         self._cache.set(key, payload)
-        logger.info(
-            "portrait compute: success session=%s topic=%r observations=%d",
-            session_id,
-            topic_result.topic,
-            len(observations),
-        )
+        if full_content_logging_enabled():
+            logger.info(
+                "portrait compute: success session=%s topic=%r observations=%d",
+                session_id,
+                topic_result.topic,
+                len(observations),
+            )
+        else:
+            logger.info(
+                "portrait compute: success "
+                "session=%s topic_chars=%d observations=%d",
+                session_id,
+                len(topic_result.topic),
+                len(observations),
+            )
 
     async def _clear_pending_compute(self, key: CacheKey) -> None:
         async with self._pending_lock:

@@ -1412,6 +1412,12 @@
     "startupSettings": "Startup",
     "autoStartLabel": "Launch at login",
     "startMinimizedLabel": "Start minimized to tray",
+    "diagnostics": {
+      "title": "Diagnostic logs",
+      "description": "Control how much troubleshooting detail local logs keep.",
+      "fullContentLoggingLabel": "Keep full conversation logs",
+      "fullContentLoggingDesc": "When enabled, diagnostic logs keep complete prompts, replies, and internal context for troubleshooting. Keys and passwords stay hidden, and image or attachment contents are never logged."
+    },
     "proxyOff": "Direct (proxy off)",
     "fakeIpCompatibility": "Support TUN proxy fake IPs",
     "fakeIpCompatibilityDesc": "Enabled by default. This permits only the 198.18.x.x mapping range used by Clash, Surge, or sing-box TUN mode and does not expose your LAN. Turn it off if you do not trust the active TUN proxy.",

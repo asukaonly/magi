@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 from ...core.logger import get_logger
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from .models import L2EventWindow, L2Phase1Result, L2Phase2Result
 from .llm_priority import l2_llm_priority_for_event_window
 from .pipeline.claim_grounding import (
@@ -96,12 +97,13 @@ class L2LLMExtractionMixin:
             resolved_ref_count=len(result.resolved_refs),
             entity_status=result.diagnostics.get("entity_status"),
         )
-        logger.info(
-            "L2 Phase 1 candidate summary",
-            event_ids=event_ids,
-            entities=_summarize_phase1_entities(result),
-            fact_claims=_summarize_phase1_fact_claims(result),
-        )
+        if full_content_logging_enabled():
+            logger.info(
+                "L2 Phase 1 candidate summary",
+                event_ids=event_ids,
+                entities=_summarize_phase1_entities(result),
+                fact_claims=_summarize_phase1_fact_claims(result),
+            )
         return result
 
     async def integrate_phase2(
@@ -240,12 +242,13 @@ def _log_phase2_completed(
         claim_assessment_count=len(result.claim_assessments),
         assertion_count=len(result.assertion_candidates),
     )
-    logger.info(
-        "L2 Phase 2 candidate summary",
-        event_ids=event_ids,
-        claim_assessments=_summarize_phase2_claim_assessments(result),
-        assertion_candidates=_summarize_phase2_assertions(result),
-    )
+    if full_content_logging_enabled():
+        logger.info(
+            "L2 Phase 2 candidate summary",
+            event_ids=event_ids,
+            claim_assessments=_summarize_phase2_claim_assessments(result),
+            assertion_candidates=_summarize_phase2_assertions(result),
+        )
 
 
 def _summarize_phase1_entities(result: L2Phase1Result) -> list[dict[str, Any]]:

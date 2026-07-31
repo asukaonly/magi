@@ -7,6 +7,8 @@ import logging
 import time
 from typing import Any
 
+from magi.utils.diagnostic_logging import full_content_logging_enabled
+
 logger = logging.getLogger(__name__)
 
 _EXPANSION_SYSTEM_PROMPT = """\
@@ -127,7 +129,8 @@ class QueryExpander:
             elapsed_ms = (time.monotonic() - t0) * 1000
             logger.warning(
                 "Query expansion failed elapsed_ms=%.1f query=%r",
-                elapsed_ms, query[:100],
+                elapsed_ms,
+                query[:100] if full_content_logging_enabled() else "[content omitted]",
                 exc_info=True,
             )
             return []
@@ -142,7 +145,14 @@ class QueryExpander:
         # to find the first valid JSON array.
         start = text.find("[")
         if start == -1:
-            logger.warning("Query expansion response has no JSON array: %r", text[:200])
+            logger.warning(
+                "Query expansion response has no JSON array: %r",
+                (
+                    text[:200]
+                    if full_content_logging_enabled()
+                    else f"[content omitted; chars={len(text)}]"
+                ),
+            )
             return []
 
         parsed = None
@@ -161,7 +171,14 @@ class QueryExpander:
             search_from = end
 
         if parsed is None:
-            logger.warning("Query expansion response is not valid JSON: %r", text[:200])
+            logger.warning(
+                "Query expansion response is not valid JSON: %r",
+                (
+                    text[:200]
+                    if full_content_logging_enabled()
+                    else f"[content omitted; chars={len(text)}]"
+                ),
+            )
             return []
         result = []
         for item in parsed:

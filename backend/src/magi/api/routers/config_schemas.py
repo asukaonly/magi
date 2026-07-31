@@ -13,6 +13,7 @@ from ...config.models import (
     LLMSelectionLimitsSettings,
 )
 from ...system_suggestions.contracts import DismissalRecord
+from ...utils.log_redaction import refresh_known_log_secrets
 from .personality_config_schemas import PersonalityConfigModel as FullPersonalityConfigModel
 
 
@@ -271,6 +272,12 @@ class OnboardingConfigUpdateRequest(BaseModel):
     language: Literal["zh", "en"] = Field(description="Onboarding interface language.")
     llm: LLMConfigModel = Field(description="LLM configuration selected during onboarding.")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _register_secrets_before_validation(cls, value: Any) -> Any:
+        refresh_known_log_secrets(value)
+        return value
+
 
 class NetworkProxyConfigModel(BaseModel):
     enabled: bool = Field(default=False)
@@ -279,6 +286,10 @@ class NetworkProxyConfigModel(BaseModel):
     port: int = Field(default=7890, ge=1, le=65535)
     username: str = Field(default="")
     password: str = Field(default="")
+
+
+class DiagnosticsConfigModel(BaseModel):
+    full_content_logging_enabled: bool = Field(default=True)
 
 
 class PersonalitySettingsModel(BaseModel):
@@ -369,10 +380,17 @@ class SystemConfigModel(BaseModel):
     memory: MemoryConfigModel = Field(default_factory=MemoryConfigModel)
     preferences: UserPreferencesModel = Field(default_factory=UserPreferencesModel)
     network: NetworkProxyConfigModel = Field(default_factory=NetworkProxyConfigModel)
+    diagnostics: DiagnosticsConfigModel = Field(default_factory=DiagnosticsConfigModel)
     personality: FullPersonalityConfigModel = Field(default_factory=FullPersonalityConfigModel)
     personalitySettings: PersonalitySettingsModel = Field(default_factory=PersonalitySettingsModel)
     tools: ToolsConfigModel = Field(default_factory=ToolsConfigModel)
     timeline: TimelineConfigModel = Field(default_factory=TimelineConfigModel)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _register_secrets_before_validation(cls, value: Any) -> Any:
+        refresh_known_log_secrets(value)
+        return value
 
 
 class ConfigResponse(BaseModel):
@@ -404,6 +422,12 @@ class OnboardingStatusResponse(BaseModel):
 class TestTelegramConnectionRequest(BaseModel):
     bot_token: str
     proxy: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _register_secrets_before_validation(cls, value: Any) -> Any:
+        refresh_known_log_secrets(value)
+        return value
 
 
 class TestTelegramConnectionResponse(BaseModel):

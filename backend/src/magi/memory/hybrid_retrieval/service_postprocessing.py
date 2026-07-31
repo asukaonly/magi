@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import logging
 from typing import Any, Dict, List, Protocol, cast
 
+from ...utils.diagnostic_logging import full_content_logging_enabled
 from .correction_evidence_governance import decide_l1_correction_evidence
 from .debug_detail import DETAIL_LIMIT, event_records, log_detail
 from .models import RetrievalPayload, RetrievalQuery
@@ -287,10 +288,15 @@ class HybridRetrievalPostProcessingMixin:
         host: _HybridRetrievalPostProcessingHostProtocol,
         audit: FusionAudit,
     ) -> None:
+        query_log = (
+            request.query
+            if full_content_logging_enabled()
+            else f"[content omitted; {len(request.query)} chars]"
+        )
         logger.debug(
             "Retrieval result fusion applied | query=%r pre_counts=%s post_counts=%s "
             "l1_event_ids_sample=%s",
-            request.query,
+            query_log,
             audit.pre_counts,
             self._layer_result_counts(payload),
             [str(item.get("event_id") or "") for item in payload.l1_events[:10]],
@@ -373,11 +379,16 @@ class HybridRetrievalPostProcessingMixin:
         *,
         request: RetrievalQuery,
     ) -> None:
+        query_log = (
+            request.query
+            if full_content_logging_enabled()
+            else f"[content omitted; {len(request.query)} chars]"
+        )
         logger.debug(
             "Retrieval post-processing completed | query=%r layer_counts=%s "
             "final_result_count=%d l1_evidence_bundle_count=%d "
             "l1_timeline_summary_count=%d evidence_shape=%s reducer_type=%s",
-            request.query,
+            query_log,
             payload.trace["layer_result_counts"],
             payload.trace["final_result_count"],
             payload.trace["l1_evidence_bundle_count"],

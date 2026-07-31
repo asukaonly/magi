@@ -10,6 +10,7 @@ from magi.config.models import LLMScenario, ThinkingDepth
 from magi.core.logger import get_logger
 from magi.llm import LLMProviderBridge
 from magi.memory.answering import build_answer_prompt_payload
+from magi.utils.diagnostic_logging import full_content_logging_enabled
 
 from .answer_normalization import normalize_eval_answer
 
@@ -264,6 +265,17 @@ def _log_answer_synthesis_started(
     system_prompt: str,
     user_prompt: str,
 ) -> None:
+    if not full_content_logging_enabled():
+        log.info(
+            "Eval query answer synthesis started",
+            question_chars=len(question),
+            evidence_hit_count=len(hits),
+            evidence_bundle_count=len(evidence_bundles or []),
+            evidence_chars=len(prompt_payload.evidence_text),
+            system_prompt_chars=len(system_prompt),
+            user_prompt_chars=len(user_prompt),
+        )
+        return
     log.info(
         "Eval query answer synthesis started",
         question=question,
@@ -309,6 +321,15 @@ def _log_answer_synthesis_completed(
     raw_answer: str,
     normalized_answer: str,
 ) -> None:
+    if not full_content_logging_enabled():
+        log.info(
+            "Eval query answer synthesis completed",
+            question_chars=len(question),
+            evidence_hit_count=len(hits),
+            raw_answer_chars=len(raw_answer),
+            answer_chars=len(normalized_answer),
+        )
+        return
     log.info(
         "Eval query answer synthesis completed",
         question=question,

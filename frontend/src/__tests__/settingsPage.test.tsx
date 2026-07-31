@@ -916,6 +916,50 @@ describe('settings page draft saving', () => {
     expect(requestDesktopNotificationPermissionMock).not.toHaveBeenCalled();
   });
 
+  it('keeps full conversation diagnostics enabled by default and saves changes', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    const diagnosticsSwitch = await screen.findByRole('switch', {
+      name: 'settings.diagnostics.fullContentLoggingLabel',
+    });
+    expect(diagnosticsSwitch).toHaveAttribute('data-state', 'checked');
+
+    await user.click(diagnosticsSwitch);
+    expect(diagnosticsSwitch).toHaveAttribute('data-state', 'unchecked');
+    expect(configApi.update).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          diagnostics: {
+            full_content_logging_enabled: false,
+          },
+        })
+      )
+    );
+  });
+
+  it('restores the saved diagnostic logging preference', async () => {
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        diagnostics: {
+          full_content_logging_enabled: false,
+        },
+      },
+    } as any);
+
+    render(<SettingsPage />);
+
+    const diagnosticsSwitch = await screen.findByRole('switch', {
+      name: 'settings.diagnostics.fullContentLoggingLabel',
+    });
+    expect(diagnosticsSwitch).toHaveAttribute('data-state', 'unchecked');
+  });
+
   it('saves proxy credentials from network proxy settings', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
