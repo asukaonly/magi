@@ -57,8 +57,6 @@ class MemoryStoreModule(LifecycleModule):
             "plugin projection service",
         )
 
-        await self._context.core.db_initializer.insert_default_data()
-
         scenario_llm_pool = require_initialized(
             self._context.llm.scenario_llm_pool, "scenario llm pool"
         )

@@ -63,70 +63,71 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 
 1. `subprocess_orphan_cleanup`
 2. `runtime_core_dependencies`
-3. `runtime_database_migrations`
-4. `runtime_identity`
-5. `runtime_configuration`
-6. `runtime_command_queue`
-7. `runtime_message_bus`
-8. `runtime_chat_store`
-9. `runtime_plugin_system`
-10. `runtime_llm`
+3. `runtime_initialization_state`
+4. `runtime_database_migrations`
+5. `runtime_identity`
+6. `runtime_configuration`
+7. `runtime_command_queue`
+8. `runtime_message_bus`
+9. `runtime_chat_store`
+10. `runtime_plugin_system`
+11. `runtime_llm`
 
 ### Phase 2: stateful services and read/write stores
 
-11. `runtime_memory`
-12. `runtime_chat_forgetting_recovery`
-13. `runtime_media_registry`
-14. `runtime_location`
-15. `runtime_manual_entries`
-16. `runtime_history_imports`
-17. `runtime_memory_ingestion_subscriber`
-18. `runtime_llm_usage_subscriber`
-19. `runtime_chat_projector`
-20. `runtime_chat_assistant_memory_projection`
-21. `runtime_control_transcript_subscriber`
-22. `runtime_trace`
-23. `runtime_trace_subscriber`
-24. `runtime_hooks`
-25. `runtime_first_party_tools`
-26. `runtime_tools`
-27. `runtime_skills`
-28. `runtime_mcp`
-29. `runtime_personality`
-30. `runtime_sensor_hub`
-31. `runtime_context`
-32. `runtime_agent_core`
+12. `runtime_memory`
+13. `runtime_chat_forgetting_recovery`
+14. `runtime_media_registry`
+15. `runtime_location`
+16. `runtime_manual_entries`
+17. `runtime_history_imports`
+18. `runtime_memory_ingestion_subscriber`
+19. `runtime_llm_usage_subscriber`
+20. `runtime_chat_projector`
+21. `runtime_chat_assistant_memory_projection`
+22. `runtime_control_transcript_subscriber`
+23. `runtime_trace`
+24. `runtime_trace_subscriber`
+25. `runtime_hooks`
+26. `runtime_first_party_tools`
+27. `runtime_tools`
+28. `runtime_skills`
+29. `runtime_mcp`
+30. `runtime_personality`
+31. `runtime_sensor_hub`
+32. `runtime_context`
+33. `runtime_agent_core`
 
 ### Phase 3: long-running processors and business services
 
-33. `runtime_chat_delivery_recovery`
-34. `runtime_command_processor`
-35. `runtime_plugin_ingress_processor`
-36. `runtime_timeline`
-37. `runtime_timeline_subscriber`
-38. `runtime_kg_subscriber`
-39. `runtime_sensor_state_subscriber`
-40. `runtime_scheduler`
-41. `runtime_agent_schedule_registration`
-42. `runtime_sensor_scheduler`
+34. `runtime_chat_delivery_recovery`
+35. `runtime_command_processor`
+36. `runtime_plugin_ingress_processor`
+37. `runtime_timeline`
+38. `runtime_timeline_subscriber`
+39. `runtime_kg_subscriber`
+40. `runtime_sensor_state_subscriber`
+41. `runtime_scheduler`
+42. `runtime_agent_schedule_registration`
+43. `runtime_sensor_scheduler`
 ### Phase 4: exports and maintenance registration
 
-43. `runtime_exports`
-44. `runtime_control_plane`
-45. `runtime_l1_maintenance_scheduler`
-46. `runtime_l2_maintenance_scheduler`
-47. `runtime_l2_consolidation_scheduler`
-48. `runtime_l2_derive_scheduler`
-49. `runtime_l3_summary_scheduler`
-50. `runtime_l3_maintenance_scheduler`
-51. `runtime_l4_maintenance_scheduler`
-52. `runtime_timeline_schedulers`
-53. `runtime_operational_gc_scheduler`
-54. `runtime_other_dependencies`
-55. `runtime_channels`
-56. `runtime_outreach`
-57. `runtime_scheduler_activation`
-58. `runtime_sensor_sync_executor`
+44. `runtime_exports`
+45. `runtime_control_plane`
+46. `runtime_l1_maintenance_scheduler`
+47. `runtime_l2_maintenance_scheduler`
+48. `runtime_l2_consolidation_scheduler`
+49. `runtime_l2_derive_scheduler`
+50. `runtime_l3_summary_scheduler`
+51. `runtime_l3_maintenance_scheduler`
+52. `runtime_l4_maintenance_scheduler`
+53. `runtime_timeline_schedulers`
+54. `runtime_operational_gc_scheduler`
+55. `runtime_other_dependencies`
+56. `runtime_channels`
+57. `runtime_outreach`
+58. `runtime_scheduler_activation`
+59. `runtime_sensor_sync_executor`
 
 Important rule: bootstrap order is dependency order, not ownership order. For example, the scheduler engine is infrastructure even though it is started after timeline services that will register schedules into it.
 
@@ -135,6 +136,12 @@ their handlers and reconcile their persisted schedule definitions. Only
 `runtime_scheduler_activation` allows jobs to fire, and the sensor executor
 starts after that boundary. Re-registering an unchanged definition is a
 read-only operation so normal startup does not rewrite the scheduler database.
+
+`runtime_initialization_state` owns the central startup ledger. Versioned or
+content-addressed setup records success only after its operation completes, and
+skips later launches only when both the expected revision and input fingerprint
+still match. This ledger never suppresses crash recovery or process-local
+runtime binding.
 
 Important rule: `runtime_llm` is the current deferral boundary. If LLM selections are incomplete or invalid during onboarding, startup stops there and later phases do not run.
 

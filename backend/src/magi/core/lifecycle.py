@@ -6,7 +6,7 @@ from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext
 from ..core.logger import get_logger
 from ..utils.runtime import get_runtime_paths, init_runtime_data
-from ..core.database_initializer import DatabaseInitializer, set_database_initializer
+from ..core.initialization_state import InitializationStateStore
 
 logger = get_logger(__name__)
 
@@ -23,10 +23,27 @@ class CoreDependenciesModule(LifecycleModule):
         self._context.core.runtime_paths = get_runtime_paths()
         logger.info("Runtime directory: %s", self._context.core.runtime_paths.base_dir)
 
-        db_initializer = DatabaseInitializer(runtime_paths=self._context.core.runtime_paths)
-        await db_initializer.initialize_all()
-        # Alembic schema migrations are owned by db/lifecycle.py
-        # (DatabaseMigrationModule), which runs immediately after this module.
-        set_database_initializer(db_initializer)
-        self._context.core.db_initializer = db_initializer
-        logger.info("Database initialization completed")
+        logger.info("Runtime directories initialized")
+
+
+class InitializationStateModule(LifecycleModule):
+    """Initialize the durable ledger for versioned startup work."""
+
+    def __init__(self, context: RuntimeBootstrapContext):
+        super().__init__(
+            name="runtime_initialization_state",
+            dependencies=("runtime_core_dependencies",),
+        )
+        self._context = context
+
+    async def init(self) -> None:
+        runtime_paths = self._context.core.runtime_paths
+        if runtime_paths is None:
+            raise RuntimeError("runtime paths is not initialized")
+        store = InitializationStateStore(runtime_paths.initialization_state_db_path)
+        await store.initialize()
+        self._context.core.initialization_state = store
+        logger.info("Initialization state store ready")
+
+    async def shutdown(self) -> None:
+        self._context.core.initialization_state = None

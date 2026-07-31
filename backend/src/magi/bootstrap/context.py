@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from ..chat import ChatProjector, ChatStore
     from ..config import AppConfig
     from ..utils.runtime import RuntimePaths
-    from ..core.database_initializer import DatabaseInitializer
+    from ..core.initialization_state import InitializationStateStore
     from ..core.maintenance import MaintenanceDaemon
     from ..llm import ScenarioLLMPool
     from ..events.backend import MessageBusBackend
@@ -54,7 +54,7 @@ class CoreBootstrapState:
 
     config: AppConfig | None = None
     runtime_paths: RuntimePaths | None = None
-    db_initializer: DatabaseInitializer | None = None
+    initialization_state: InitializationStateStore | None = None
     # Empty string until PersonalityModule.init() resolves the active persona
     # from the registry. ConfigModule may set a preliminary preferred name from
     # config.agent.personality.name; an empty value means "no preference,

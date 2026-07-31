@@ -218,6 +218,11 @@ class RuntimePaths:
         return self.runtime_dir / "scheduler.db"
 
     @property
+    def initialization_state_db_path(self) -> Path:
+        """Versioned startup-step state database path."""
+        return self.runtime_dir / "bootstrap_state.db"
+
+    @property
     def sensor_state_db_path(self) -> Path:
         """Sensor runtime state database path."""
         return self.runtime_dir / "sensor_state.db"

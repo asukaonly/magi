@@ -10,6 +10,7 @@ import uuid
 import pytest
 import pytest_asyncio
 
+from magi.core.initialization_state import InitializationStateStore
 from magi.personality.persona_repository import PersonaRepository, PersonaSummary
 from magi.personality.reference_research.models import ReferenceDossier, ReferenceIdentity
 from magi.personality import persona_seed
@@ -347,6 +348,72 @@ async def test_seed_builtin_personas_syncs_existing_seed_config(
     assert record.group_name == "general"
     assert record.sort_order == 7
     assert record.config.identity_core.identity_statement == "新设定。"
+
+
+@pytest.mark.asyncio
+async def test_versioned_builtin_persona_sync_skips_unchanged_bundle(
+    repo: PersonaRepository,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed_dir = tmp_path / "en"
+    seed_dir.mkdir()
+    preset_path = seed_dir / "nova_assistant.json"
+    preset_path.write_text(
+        json.dumps(
+            {
+                "meta": {"group": "general", "order": 1},
+                "name": "Nova",
+                "description": "First",
+                "avatar": "nova.png",
+                "identity_core": {"identity_statement": "First version."},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(persona_seed, "_seed_dir", lambda _locale: seed_dir)
+    state = InitializationStateStore(tmp_path / "bootstrap_state.db")
+    await state.initialize()
+
+    first_ran, first_created = await persona_seed.sync_builtin_personas(
+        repo,
+        "en",
+        state,
+    )
+    first_record = await repo.get_by_seed_slug("nova_assistant")
+    second_ran, second_created = await persona_seed.sync_builtin_personas(
+        repo,
+        "en",
+        state,
+    )
+    second_record = await repo.get_by_seed_slug("nova_assistant")
+
+    assert first_ran is True
+    assert len(first_created) == 1
+    assert second_ran is False
+    assert second_created == []
+    assert first_record is not None
+    assert second_record is not None
+    assert second_record.updated_at == first_record.updated_at
+
+    preset_path.write_text(
+        json.dumps(
+            {
+                "meta": {"group": "general", "order": 1},
+                "name": "Nova",
+                "description": "Second",
+                "avatar": "nova.png",
+                "identity_core": {"identity_statement": "Second version."},
+            }
+        ),
+        encoding="utf-8",
+    )
+    third_ran, _ = await persona_seed.sync_builtin_personas(repo, "en", state)
+    third_record = await repo.get_by_seed_slug("nova_assistant")
+
+    assert third_ran is True
+    assert third_record is not None
+    assert third_record.config.description == "Second"
 
 
 @pytest.mark.asyncio

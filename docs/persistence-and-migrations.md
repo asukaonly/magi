@@ -30,6 +30,7 @@ chat payloads, memory records, or plugin state.
 | `data/memory/emotional_state.db` | personality | emotional state KV + events |
 | `data/memory/growth_memory.db` | personality | milestones, relationships, personality evolution |
 | `runtime/scheduler.db` | scheduler | schedules, execution history, sensor sync jobs |
+| `runtime/bootstrap_state.db` | bootstrap | completed revisions, content fingerprints, attempts, and errors for versioned startup work |
 | `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups |
 | `runtime/sensor_state.db` | sensors | per-source cursors, fingerprints, stats |
 | `runtime/background_tasks.db` | runtime | background-task rows and event history, plus recoverable terminal-completion snapshots with frozen outreach intent/body |
@@ -38,6 +39,28 @@ chat payloads, memory records, or plugin state.
 | `data/identity/identity.db` | identity | external channel identity to canonical user mapping |
 | `data/batch/batch.db` | batch | batch job and item manifests |
 | `data/memory/self_memory_v2.db` | (reserved) | — |
+
+### Versioned startup work
+
+`runtime/bootstrap_state.db` is the central ledger for bounded startup work
+whose result can be reused across launches. Each step owns a stable ID, an
+explicit revision, and an optional content fingerprint. The expected revision
+stays in code; the ledger records only the last successful revision and source
+fingerprint plus the latest attempt state.
+
+The ledger follows these rules:
+
+- unchanged successful steps are skipped without rewriting their target store
+- a new revision or content fingerprint triggers the owning step
+- success is recorded only after the work completes
+- failure preserves the last successful revision and records the failed attempt
+- work interrupted by a dead process is reclaimable on the next launch
+- a live second process cannot execute the same step concurrently
+
+The ledger does not replace per-database Alembic revisions. Schema versions
+remain inside each owned database so restoring or replacing one database cannot
+be hidden by a global bootstrap record. Crash recovery, process-local bindings,
+and other every-launch work also remain outside the skip mechanism.
 
 Sensor pagination is part of scheduler truth. When a completed sensor batch
 reports more source data, `scheduler.db` records the parent success and admits

@@ -44,6 +44,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
     assert [module.name for module in modules] == [
         "subprocess_orphan_cleanup",
         "runtime_core_dependencies",
+        "runtime_initialization_state",
         "runtime_database_migrations",
         "runtime_identity",
         "runtime_configuration",
@@ -155,9 +156,11 @@ def test_schema_migrations_run_before_any_db_consuming_module() -> None:
     assert resolved[:migrations_idx] == [
         "subprocess_orphan_cleanup",
         "runtime_core_dependencies",
+        "runtime_initialization_state",
     ], (
-        "schema migrations must run before every other module; only orphan "
-        f"cleanup + core deps may precede them. Got before-migrations: {resolved[:migrations_idx]}"
+        "schema migrations must run before every database consumer; only orphan "
+        "cleanup, core paths, and initialization state may precede them. "
+        f"Got before-migrations: {resolved[:migrations_idx]}"
     )
 
 

@@ -41,7 +41,7 @@ from ..chat.lifecycle import (
 )
 from ..config.lifecycle import ConfigurationModule
 from ..context.lifecycle import ContextModule
-from ..core.lifecycle import CoreDependenciesModule
+from ..core.lifecycle import CoreDependenciesModule, InitializationStateModule
 from ..db.lifecycle import DatabaseMigrationModule
 from ..events.lifecycle import (
     MessageBusModule,
@@ -190,6 +190,7 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
         # plugin / MCP / agent modules start spawning new ones.
         _build_subprocess_orphan_cleanup_module(context),
         CoreDependenciesModule(context),
+        InitializationStateModule(context),
         # Apply Alembic schema migrations before any store opens a connection.
         # Owned by the db package (db/lifecycle.py); depends on core deps for
         # runtime paths + initialized db files. Splitting this out of

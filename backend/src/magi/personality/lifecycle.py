@@ -8,7 +8,7 @@ from ..core.logger import get_logger
 from ..i18n import get_preferred_language
 from .active_persona import set_current_personality
 from .persona_repository import PersonaRepository
-from .persona_seed import seed_builtin_personas, resolve_locale
+from .persona_seed import resolve_locale, sync_builtin_personas
 from .self_memory import SelfMemory
 
 logger = get_logger(__name__)
@@ -50,12 +50,20 @@ class PersonalityModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_personality",
-            dependencies=("runtime_memory", "runtime_configuration", "runtime_core_dependencies"),
+            dependencies=(
+                "runtime_memory",
+                "runtime_configuration",
+                "runtime_initialization_state",
+            ),
         )
         self._context = context
 
     async def init(self) -> None:
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
+        initialization_state = require_initialized(
+            self._context.core.initialization_state,
+            "initialization state",
+        )
 
         # Resolve active persona from the registry (preferred) or filesystem fallback.
         persona_id = ""
@@ -68,12 +76,20 @@ class PersonalityModule(LifecycleModule):
         # remain registry-owned; builtin records follow their seed files.
         existing = await repo.list_all()
         locale = resolve_locale(get_preferred_language())
-        if not existing:
+        has_builtin_persona = any(item.is_builtin for item in existing)
+        if not has_builtin_persona:
             logger.info(
-                "Persona registry empty, auto-seeding builtin personas for locale '%s'",
+                "No builtin persona found; seeding locale '%s'",
                 locale,
             )
-        await seed_builtin_personas(repo, locale)
+        synchronized, _created_ids = await sync_builtin_personas(
+            repo,
+            locale,
+            initialization_state,
+            force=not has_builtin_persona,
+        )
+        if not synchronized:
+            logger.info("Builtin persona seeds unchanged; synchronization skipped")
 
         try:
             active_id = await _ensure_active_persona(repo, personality_name)
@@ -90,7 +106,7 @@ class PersonalityModule(LifecycleModule):
             raise RuntimeError(
                 "PersonalityModule failed to resolve an active persona. "
                 "Check that bundled persona presets exist under backend/personalities/ "
-                "and that seed_builtin_personas completed without errors."
+                "and that builtin persona synchronization completed without errors."
             )
 
         self._context.core.current_personality = personality_name

@@ -6,11 +6,6 @@ from types import SimpleNamespace
 import pytest
 
 
-class _FakeDBInitializer:
-    async def insert_default_data(self) -> None:
-        self.called = True
-
-
 class _FakeScenarioPool:
     def __init__(self) -> None:
         self.configurator = None
@@ -120,7 +115,6 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
         memory_db_path=tmp_path / "memory.db",
         memory_dir=tmp_path / "memory",
     )
-    context.core.db_initializer = _FakeDBInitializer()
     context.llm.scenario_llm_pool = fake_pool
     context.plugins.plugin_projection_service = SimpleNamespace(
         build_temporal_summary_features=lambda *args, **kwargs: {},
@@ -241,7 +235,6 @@ async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdo
         memory_db_path=tmp_path / "memory.db",
         memory_dir=tmp_path / "memory",
     )
-    context.core.db_initializer = _FakeDBInitializer()
     context.llm.scenario_llm_pool = _FakeScenarioPool()
     context.plugins.plugin_projection_service = SimpleNamespace(
         build_temporal_summary_features=lambda *args, **kwargs: {},

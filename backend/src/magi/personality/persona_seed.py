@@ -6,17 +6,23 @@ from ``backend/personalities/{locale}/*.json``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..core.logger import get_logger
 from ..i18n import is_zh_language
 from ..utils.packaged_paths import get_backend_root
 from .persona_repository import PersonaRepository
 
+if TYPE_CHECKING:
+    from ..core.initialization_state import InitializationStateStore
+
 logger = get_logger(__name__)
 
 SEED_LOCALES = ("zh", "en")
+BUILTIN_PERSONA_SEED_REVISION = "1"
 
 
 def resolve_locale(language: str) -> str:
@@ -26,6 +32,48 @@ def resolve_locale(language: str) -> str:
 
 def _seed_dir(locale: str) -> Path:
     return get_backend_root() / "personalities" / locale
+
+
+def seed_bundle_fingerprint(locale: str) -> str:
+    """Return a deterministic fingerprint for one bundled locale directory."""
+    seed_root = _seed_dir(locale)
+    digest = hashlib.sha256()
+    digest.update(locale.encode("utf-8"))
+    if not seed_root.is_dir():
+        digest.update(b"\0missing")
+        return digest.hexdigest()
+    for preset_file in sorted(seed_root.glob("*.json")):
+        digest.update(b"\0")
+        digest.update(preset_file.name.encode("utf-8"))
+        digest.update(b"\0")
+        try:
+            digest.update(preset_file.read_bytes())
+        except OSError:
+            digest.update(b"unreadable")
+    return digest.hexdigest()
+
+
+async def sync_builtin_personas(
+    repo: PersonaRepository,
+    locale: str,
+    initialization_state: InitializationStateStore,
+    *,
+    force: bool = False,
+) -> tuple[bool, list[str]]:
+    """Synchronize bundled personas only when their source bundle changed."""
+    fingerprint = seed_bundle_fingerprint(locale)
+
+    async def _seed() -> list[str]:
+        return await seed_builtin_personas(repo, locale)
+
+    ran, result = await initialization_state.run_step(
+        step_id=f"builtin_personas:{locale}",
+        revision=BUILTIN_PERSONA_SEED_REVISION,
+        fingerprint=fingerprint,
+        operation=_seed,
+        force=force,
+    )
+    return ran, result or []
 
 
 async def seed_builtin_personas(
