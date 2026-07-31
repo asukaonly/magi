@@ -237,6 +237,13 @@ async function openFirstContextActivity(
   await screen.findByTestId("first-context-activity-route");
 }
 
+async function openFirstContextHistory(
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> {
+  await user.click(screen.getByTestId("first-context-route-history"));
+  await screen.findByTestId("first-context-history-route");
+}
+
 describe("OnboardingFlow (linear 5-step)", () => {
   let originalUpdateLanguagePreference: unknown;
   let originalUpdateOnboardingDraft: unknown;
@@ -718,6 +725,22 @@ describe("OnboardingFlow (linear 5-step)", () => {
         draft: "叫我小夏就好",
       }),
     );
+  });
+
+  it("keeps the history route anchored at the top as its content grows", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await openFirstContextHistory(user);
+
+    const historyRoute = screen.getByTestId("first-context-history-route");
+    const routeContent = historyRoute.closest(
+      '[data-testid="first-context-route-content"]',
+    );
+    expect(routeContent).toHaveClass("mb-auto", "mt-0");
+    expect(routeContent).not.toHaveClass("my-auto");
   });
 
   it("keeps changing questions after the whole pool has been shown", async () => {

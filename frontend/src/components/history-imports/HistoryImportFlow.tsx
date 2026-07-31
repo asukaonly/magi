@@ -612,7 +612,10 @@ export function HistoryImportFlow({
               </Button>
             </div>
           </div>
-          <div className="max-h-[360px] divide-y divide-border/45 overflow-y-auto">
+          <div
+            data-testid="history-import-source-list"
+            className="divide-y divide-border/45"
+          >
             {job.sources.map((source) => {
               const busy = selectionBusy === source.source_name;
               return (

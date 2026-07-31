@@ -173,6 +173,9 @@ describe("FirstContextHistoryImport", () => {
       }),
     );
     expect(await screen.findByTestId("history-import-preview")).toBeInTheDocument();
+    const sourceList = screen.getByTestId("history-import-source-list");
+    expect(sourceList).not.toHaveClass("max-h-[360px]");
+    expect(sourceList).not.toHaveClass("overflow-y-auto");
     expect(previewMock).toHaveBeenCalledWith(["/tmp/chat.md"]);
     expect(
       screen.getByRole("button", {

@@ -487,7 +487,10 @@ export function FirstContextStep({
             duration: shouldReduceMotion ? 0 : 0.24,
             ease: [0.22, 1, 0.36, 1],
           }}
-          className={`mx-auto my-auto flex w-full flex-col px-4 py-6 sm:px-5 lg:px-6 ${
+          data-testid="first-context-route-content"
+          className={`mx-auto flex w-full flex-col px-4 py-6 sm:px-5 lg:px-6 ${
+            route === "history" ? "mb-auto mt-0" : "my-auto"
+          } ${
             route === "history"
               ? "max-w-none"
               : route === "activity"
