@@ -7,6 +7,7 @@ const {
   deleteMock,
   getMock,
   getSourcePreviewMock,
+  openExternalUrlMock,
   pickDirectoryMock,
   pickMarkdownFilesMock,
   previewMock,
@@ -17,6 +18,7 @@ const {
   deleteMock: vi.fn(),
   getMock: vi.fn(),
   getSourcePreviewMock: vi.fn(),
+  openExternalUrlMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
   pickMarkdownFilesMock: vi.fn(),
   previewMock: vi.fn(),
@@ -35,6 +37,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("@/runtime/desktop", () => ({
+  openExternalUrl: (...args: unknown[]) => openExternalUrlMock(...args),
   pickDirectory: (...args: unknown[]) => pickDirectoryMock(...args),
   pickMarkdownFiles: (...args: unknown[]) => pickMarkdownFilesMock(...args),
 }));
@@ -285,6 +288,41 @@ describe("FirstContextHistoryImport", () => {
     expect(
       screen.getByText("firstContext.history.sourcePreview.description"),
     ).toBeInTheDocument();
+  });
+
+  it("renders document previews as Markdown instead of raw text", async () => {
+    const user = userEvent.setup();
+    getSourcePreviewMock.mockResolvedValue({
+      source_name: "chat.md",
+      detected_kind: "document",
+      records: [
+        {
+          ...chatPreview().preview_records[0],
+          speaker_name: "__document_author__",
+          is_document_author: true,
+          content: "# 周末记录\n\n- 去了书店\n- 听了一张专辑",
+        },
+      ],
+      truncated: false,
+    });
+    render(<HistoryImportFlow onJobUpdate={vi.fn()} />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.picker.files",
+      }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "firstContext.history.preview.previewFile",
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "周末记录" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("去了书店").tagName).toBe("LI");
+    expect(screen.queryByText("# 周末记录")).not.toBeInTheDocument();
   });
 
   it("supports inverting the file selection to an empty set", async () => {

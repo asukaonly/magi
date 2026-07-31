@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   AlertCircle,
   BookOpenText,
@@ -22,6 +24,7 @@ import {
   type HistoryImportSourceSummary,
 } from "@/api/modules/historyImports";
 import { Button } from "@/components/ui/button";
+import { createMarkdownComponents } from "@/components/ui/markdown-components";
 import {
   Sheet,
   SheetContent,
@@ -44,6 +47,9 @@ const SELF_ALIASES = new Set([
   "本人",
   "自己",
 ]);
+
+const documentPreviewMarkdownComponents = createMarkdownComponents("comfortable");
+const chatPreviewMarkdownComponents = createMarkdownComponents("compact");
 
 function errorReason(error: unknown): string {
   if (!error || typeof error !== "object") {
@@ -760,9 +766,9 @@ export function HistoryImportFlow({
         <SheetContent
           side="right"
           closeLabel={t("firstContext.history.sourcePreview.close")}
-          className="flex w-[min(92vw,720px)] max-w-none flex-col overflow-hidden sm:max-w-none"
+          className="flex w-[min(92vw,720px)] max-w-none flex-col overflow-hidden bg-background sm:max-w-none"
         >
-          <SheetHeader className="border-b border-border/55 pr-16">
+          <SheetHeader className="border-b border-border/55 bg-background/95 pr-16">
             <SheetTitle className="truncate">
               {previewSource?.source_name ?? ""}
             </SheetTitle>
@@ -770,7 +776,7 @@ export function HistoryImportFlow({
               {t("firstContext.history.sourcePreview.description")}
             </SheetDescription>
           </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-muted/25 px-6 py-6 sm:px-8">
             {sourcePreviewLoading ? (
               <div
                 role="status"
@@ -796,26 +802,36 @@ export function HistoryImportFlow({
                 ) : null}
               </div>
             ) : sourcePreview ? (
-              <div className="space-y-4">
+              <div className="mx-auto max-w-[640px] space-y-5">
                 {sourcePreview.records.map((record) =>
                   record.is_document_author ? (
                     <article
                       key={`${record.session_id}:${record.session_seq}`}
-                      className="whitespace-pre-wrap break-words text-sm leading-7 text-foreground/90"
+                      className="break-words border-b border-border/45 pb-5 last:border-b-0 last:pb-0"
                     >
-                      {record.content}
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={documentPreviewMarkdownComponents}
+                      >
+                        {record.content}
+                      </ReactMarkdown>
                     </article>
                   ) : (
                     <article
                       key={`${record.session_id}:${record.session_seq}`}
-                      className="rounded-xl bg-muted/35 px-4 py-3"
+                      className="rounded-xl border border-border/45 bg-background/75 px-4 py-3.5"
                     >
                       <p className="text-xs font-semibold text-foreground/75">
                         {record.speaker_name}
                       </p>
-                      <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">
-                        {record.content}
-                      </p>
+                      <div className="mt-1 break-words text-foreground/90">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={chatPreviewMarkdownComponents}
+                        >
+                          {record.content}
+                        </ReactMarkdown>
+                      </div>
                     </article>
                   ),
                 )}
