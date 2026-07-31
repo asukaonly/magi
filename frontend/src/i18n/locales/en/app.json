@@ -611,6 +611,7 @@
     },
     "sources": {
       "manual_journal": "Manual journal",
+      "history_import_markdown": "Markdown history import",
       "chat": "Chat",
       "chat_projector": "Chat",
       "chrome_history": "Chrome history",
@@ -2764,17 +2765,17 @@
       "unknownTime": "Unknown time",
       "sections": {
         "pulse": "Today's pulse",
-        "ledger": "Connected sources"
+        "ledger": "Ongoing sources"
       },
       "historyImports": {
-        "title": "Things you wrote before",
-        "body": "Import journals, notes, or chats. You can check progress or delete the whole import at any time.",
+        "title": "History imports",
+        "body": "Import journals, notes, or chats once. Changes to the original files are not synced.",
         "add": "Import Markdown",
         "close": "Close import",
         "loading": "Loading past imports.",
         "error": "Past imports could not be loaded.",
         "retry": "Load again",
-        "empty": "No journals, notes, or chat records have been imported yet.",
+        "empty": "No history imports yet.",
         "untitled": "Markdown content",
         "fileCount": "{{count}} files",
         "progress": "Organizing {{progress}}%",
@@ -2802,7 +2803,7 @@
         "backlog": "Queued",
         "errors": "Errors"
       },
-      "ledgerSubtitle": "See status, latest sync, and how much each source added to memory.",
+      "ledgerSubtitle": "These sources keep adding or syncing new records as you use Magi.",
       "columns": {
         "source": "Source",
         "status": "Status",

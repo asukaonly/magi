@@ -49,7 +49,10 @@ import {
 } from '@/api/modules/sensors';
 import { useChatShellStore } from '@/stores';
 import { buildTimelineCapabilities } from '@/utils/timeline-capabilities';
-import { getMemorySourceLabel } from '@/utils/memory-source-copy';
+import {
+  getMemorySourceLabel,
+  isHistoryImportMemorySource,
+} from '@/utils/memory-source-copy';
 import { cn } from '@/lib/utils';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
@@ -850,9 +853,13 @@ export const MemorySourcesPage = () => {
     };
   }, [sourceRefreshVersion]);
 
-  const rows = useMemo(
+  const allRows = useMemo(
     () => buildSourceLedgerRows(dashboard?.source_counts || [], sensorStatus, t),
     [dashboard?.source_counts, sensorStatus, t],
+  );
+  const rows = useMemo(
+    () => allRows.filter((row) => !isHistoryImportMemorySource(row.key)),
+    [allRows],
   );
   const activeBackfillJobs = useMemo(() => rows.filter((row) => isActiveBackfill(row.syncActivity)), [rows]);
   const activeBackfillKey = activeBackfillJobs
@@ -927,7 +934,6 @@ export const MemorySourcesPage = () => {
     <MemoryPageFrame title={t('memory.sourcesPage.title')} description={t('memory.sourcesPage.subtitle')} hideHeader>
       <div className="space-y-6">
         <h1 className="sr-only">{t('memory.sourcesPage.title')}</h1>
-        <HistoryImportsSection />
         {loading ? (
           <MemorySourcesLoading />
         ) : error ? (
@@ -957,6 +963,7 @@ export const MemorySourcesPage = () => {
             />
           </>
         )}
+        <HistoryImportsSection />
       </div>
     </MemoryPageFrame>
   );

@@ -5,6 +5,7 @@ export const KNOWN_MEMORY_EVENT_SOURCES = [
   'runtime_action_emitter',
   'timeline_importer',
   'manual_journal',
+  'history_import_markdown',
   'l2_lab',
   'chat',
   'chrome_history',
@@ -13,6 +14,16 @@ export const KNOWN_MEMORY_EVENT_SOURCES = [
   'terminal_history',
   'git_activity',
 ] as const;
+
+const HISTORY_IMPORT_MEMORY_SOURCES = new Set<string>([
+  'history_import_markdown',
+]);
+
+export const isHistoryImportMemorySource = (
+  source: string | null | undefined,
+): boolean => HISTORY_IMPORT_MEMORY_SOURCES.has(
+  String(source || '').trim().toLowerCase(),
+);
 
 const resolveTranslation = (
   t: MemoryTranslateFn,

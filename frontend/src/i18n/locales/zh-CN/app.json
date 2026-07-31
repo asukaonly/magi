@@ -526,6 +526,7 @@
     },
     "sources": {
       "manual_journal": "手动记录",
+      "history_import_markdown": "Markdown 历史导入",
       "chat": "对话",
       "chat_projector": "聊天",
       "chrome_history": "浏览记录",
@@ -2763,17 +2764,17 @@
       "unknownTime": "未知时间",
       "sections": {
         "pulse": "今日脉搏",
-        "ledger": "已连接来源"
+        "ledger": "持续来源"
       },
       "historyImports": {
-        "title": "过去写过的内容",
-        "body": "导入日记、笔记或聊天记录。你可以随时查看进度，也可以整批删除。",
+        "title": "历史导入",
+        "body": "一次性导入日记、笔记或聊天记录，不会持续同步原文件。",
         "add": "导入 Markdown",
         "close": "收起导入",
         "loading": "正在读取历史导入。",
         "error": "历史导入暂时加载失败。",
         "retry": "重新加载",
-        "empty": "还没有导入过日记、笔记或聊天记录。",
+        "empty": "还没有历史导入。",
         "untitled": "Markdown 内容",
         "fileCount": "{{count}} 个文件",
         "progress": "整理进度 {{progress}}%",
@@ -2801,7 +2802,7 @@
         "backlog": "待处理",
         "errors": "异常"
       },
-      "ledgerSubtitle": "查看状态、最近同步和进入记忆的数量。",
+      "ledgerSubtitle": "这些来源会在使用中持续产生或同步新的记录。",
       "columns": {
         "source": "来源",
         "status": "状态",

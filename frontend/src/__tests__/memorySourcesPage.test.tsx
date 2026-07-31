@@ -26,7 +26,8 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.title': '来源',
         'memory.sourcesPage.subtitle': '看看 Magi 今天从哪里形成记忆',
         'memory.sourcesPage.sections.pulse': '今日脉搏',
-        'memory.sourcesPage.sections.ledger': '已连接来源',
+        'memory.sourcesPage.sections.ledger': '持续来源',
+        'memory.sourcesPage.historyImports.title': '历史导入',
         'memory.sourcesPage.empty.title': '连接第一个来源',
         'memory.sourcesPage.empty.body': '把日历、浏览、照片或终端活动接入 Magi，记忆会从这些真实经历中逐渐形成。',
         'memory.sourcesPage.empty.privacy': '来源数据只保存在本机。',
@@ -179,6 +180,13 @@ const dashboardPayload = {
       avg_importance: 0.4,
       first_event_at: 1782510000,
       last_event_at: 1782913076,
+    },
+    {
+      source: 'history_import_markdown',
+      event_count: 5,
+      avg_importance: 0.6,
+      first_event_at: 1782500000,
+      last_event_at: 1782503600,
     },
   ],
   processing_backlog: { total_pending: 3, all_idle: false },
@@ -392,7 +400,7 @@ describe('MemorySourcesPage', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('已连接来源')).toBeInTheDocument();
+    expect(await screen.findByText('持续来源')).toBeInTheDocument();
     expect(screen.queryByTestId('memory-sources-empty')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '添加来源' }));
@@ -442,7 +450,7 @@ describe('MemorySourcesPage', () => {
     expect(screen.getByRole('button', { name: '浏览全部来源' })).toBeInTheDocument();
     expect(screen.queryByTestId('memory-sources-pulse')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '添加来源' })).not.toBeInTheDocument();
-    expect(screen.queryByText('已连接来源')).not.toBeInTheDocument();
+    expect(screen.queryByText('持续来源')).not.toBeInTheDocument();
     expect(screen.getByTestId('empty-state-connect-calendar')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('empty-state-connect-calendar'));
@@ -507,7 +515,15 @@ describe('MemorySourcesPage', () => {
     expect(screen.queryByText('今天')).not.toBeInTheDocument();
     expect(screen.queryByText('数据较多')).not.toBeInTheDocument();
     expect(screen.queryByText('无数据')).not.toBeInTheDocument();
-    expect(screen.getByText('已连接来源')).toBeInTheDocument();
+    const ongoingHeading = screen.getByText('持续来源');
+    const historyHeading = screen.getByText('历史导入');
+    expect(ongoingHeading).toBeInTheDocument();
+    expect(historyHeading).toBeInTheDocument();
+    expect(
+      ongoingHeading.compareDocumentPosition(historyHeading)
+      & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByText('history_import_markdown')).not.toBeInTheDocument();
     expect(screen.getAllByText('Chrome 历史').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Claude Code').length).toBeGreaterThan(0);
     expect(screen.getAllByText('网易云音乐').length).toBeGreaterThan(0);
