@@ -157,9 +157,10 @@ async def create_plugin_install_candidate(file: UploadFile):
     try:
         archive_sha256, total_bytes = await _write_candidate_archive(file, archive_path)
         manager = _require_plugin_manager()
-        manifest = await run_plugin_archive_operation(
+        inspection = await run_plugin_archive_operation(
             lambda: manager.inspect_plugin_archive(archive_path)
         )
+        manifest = inspection.manifest
         if manifest.kind == "library":
             raise DirectLibraryInstallError(
                 "Library components cannot be installed directly from an archive"
@@ -178,6 +179,7 @@ async def create_plugin_install_candidate(file: UploadFile):
             archive_path=archive_path,
             original_filename=filename,
             archive_sha256=archive_sha256,
+            package_sha256=inspection.package_sha256,
             manifest=manifest,
         )
     except _PluginArchiveUploadTooLargeError as exc:
@@ -249,12 +251,14 @@ async def create_plugin_install_candidate(file: UploadFile):
             "candidate_id": candidate.candidate_id,
             "upload_filename": filename,
             "archive_sha256": candidate.archive_sha256,
+            "package_sha256": candidate.package_sha256,
             "bytes": total_bytes,
         },
     )
     return PluginInstallCandidateResponse(
         candidate_id=candidate.candidate_id,
         archive_sha256=candidate.archive_sha256,
+        package_sha256=candidate.package_sha256,
         expires_at_ms=int(candidate.expires_at * 1000),
         manifest=_candidate_manifest_response(candidate.manifest),
     )

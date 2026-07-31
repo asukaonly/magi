@@ -19,9 +19,14 @@ from magi.plugins.dependency_installation import (
 from magi.plugins.installation import _resolve_plugin_destination
 from magi.plugins.discovery import load_plugin_manifest
 from magi.plugins.package_files import replace_plugin_directory
+from magi.plugins.package_identity import (
+    compute_installed_package_sha256,
+    compute_installed_source_sha256,
+    compute_package_sha256,
+    purge_plugin_bytecode_caches,
+)
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.projections import PluginProjectionService
-from magi.plugins.registry_provenance import plugin_manifest_fingerprint
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
 from magi_plugin_sdk import (
@@ -89,6 +94,8 @@ def _configure_registry_update(
     )
     if isinstance(configured, dict):
         configured = PluginSettings.model_validate(configured)
+    installed_dir = Path(installed_manifest.plugin_dir)
+    purge_plugin_bytecode_caches(installed_dir)
     config.plugins.packages[plugin_id] = configured.model_copy(
         update={
             "enabled": True,
@@ -98,20 +105,17 @@ def _configure_registry_update(
             "install_origin": "registry",
             "registry_source": registry_url,
             "registry_repo_url": repo_url,
-            "registry_entry_fingerprint": "a" * 64,
-            "registry_manifest_fingerprint": plugin_manifest_fingerprint(installed_manifest),
+            "package_sha256": compute_installed_source_sha256(installed_dir),
+            "installed_package_sha256": compute_installed_package_sha256(
+                installed_dir
+            ),
         }
-    )
-    incoming_manifest = load_plugin_manifest(
-        incoming_dir / "plugin.toml",
-        source="external",
     )
     return {
         "install_origin": "registry",
         "registry_source": registry_url,
         "registry_repo_url": repo_url,
-        "registry_entry_fingerprint": "b" * 64,
-        "registry_manifest_fingerprint": plugin_manifest_fingerprint(incoming_manifest),
+        "package_sha256": compute_package_sha256(incoming_dir),
         "expected_registry_update_source": (registry_url, repo_url),
     }
 
@@ -886,7 +890,6 @@ def test_plugin_install_rejects_dependency_replaced_during_preparation(
     )
     registry_url = "https://example.test/registry.json"
     repo_url = "https://github.com/example/plugins.git"
-    dependency_fingerprint = "b" * 64
     config = AppConfig()
     _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
@@ -899,6 +902,11 @@ def test_plugin_install_rejects_dependency_replaced_during_preparation(
     manager.scan(persist_discovery=True)
     initial_state = manager.get_package(library_id)
     assert initial_state is not None
+    dependency_package_sha256 = compute_installed_source_sha256(initial_library)
+    dependency_installed_package_sha256 = compute_installed_package_sha256(
+        initial_library
+    )
+    consumer_package_sha256 = compute_package_sha256(incoming_consumer)
     config.plugins.packages[library_id] = PluginSettings(
         enabled=True,
         trusted=True,
@@ -907,8 +915,8 @@ def test_plugin_install_rejects_dependency_replaced_during_preparation(
         install_origin="registry",
         registry_source=registry_url,
         registry_repo_url=repo_url,
-        registry_entry_fingerprint=dependency_fingerprint,
-        registry_manifest_fingerprint=plugin_manifest_fingerprint(initial_state.manifest),
+        package_sha256=dependency_package_sha256,
+        installed_package_sha256=dependency_installed_package_sha256,
     )
     manager.scan(persist_discovery=False)
 
@@ -924,20 +932,15 @@ def test_plugin_install_rejects_dependency_replaced_during_preparation(
 
     def install_consumer() -> None:
         try:
-            manifest = load_plugin_manifest(
-                incoming_consumer / "plugin.toml",
-                source="external",
-            )
             manager.install_plugin_from_directory(
                 incoming_consumer,
                 progress_reporter=reporter,
                 install_origin="registry",
                 registry_source=registry_url,
                 registry_repo_url=repo_url,
-                registry_entry_fingerprint="a" * 64,
-                registry_manifest_fingerprint=plugin_manifest_fingerprint(manifest),
-                dependency_entry_fingerprints={
-                    library_id: dependency_fingerprint,
+                package_sha256=consumer_package_sha256,
+                dependency_package_sha256={
+                    library_id: dependency_package_sha256,
                 },
             )
         except BaseException as exc:  # pragma: no cover - asserted below
@@ -1443,8 +1446,8 @@ def test_enable_rejects_a_package_that_does_not_match_persisted_identity(
         install_origin="registry",
         registry_source="https://example.test/registry.json",
         registry_repo_url="https://github.com/example/plugins.git",
-        registry_entry_fingerprint="a" * 64,
-        registry_manifest_fingerprint="b" * 64,
+        package_sha256=compute_package_sha256(plugin_dir),
+        installed_package_sha256=compute_installed_package_sha256(plugin_dir),
     )
     _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: managed_root)
@@ -1746,7 +1749,9 @@ def test_build_plugin_runtime_threads_injected_tool_registry(
 
 def test_plugin_projection_service_collects_temporal_summary_features_from_loaded_plugins() -> None:
     class ChromeFeaturePlugin(Plugin):
-        def build_temporal_summary_features(self, *, source_type, events, summary_category, period_start, period_end):  # type: ignore[no-untyped-def]
+        def build_temporal_summary_features(
+            self, *, source_type, events, summary_category, period_start, period_end
+        ):  # type: ignore[no-untyped-def]
             _ = summary_category, period_start, period_end
             assert source_type == "chrome_history"
             assert len(events) == 3
@@ -1866,7 +1871,9 @@ def test_plugin_projection_service_collects_extraction_profiles_from_loaded_plug
 
 def test_plugin_projection_service_passes_temporal_feature_budget_to_new_hooks() -> None:
     class BudgetAwarePlugin(Plugin):
-        def build_temporal_summary_features(self, *, source_type, events, summary_category, period_start, period_end, budget=None):  # type: ignore[no-untyped-def]
+        def build_temporal_summary_features(
+            self, *, source_type, events, summary_category, period_start, period_end, budget=None
+        ):  # type: ignore[no-untyped-def]
             _ = summary_category, period_start, period_end
             assert source_type == "music"
             assert len(events) == 1

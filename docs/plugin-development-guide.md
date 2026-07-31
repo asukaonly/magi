@@ -7,7 +7,7 @@ This guide explains how to build a Magi plugin package with the current unified 
 Use it when you want to:
 
 - add a built-in extension under `plugins/`
-- author an external plugin under `~/.magi/plugins/`
+- author an external plugin in a separate development scan directory
 - contribute new tools, timeline sensors, or channels
 
 ## Prerequisites — Plugin SDK
@@ -186,9 +186,10 @@ Supported roots:
 - built-in repository plugins: `plugins/`
 - user plugins: `~/.magi/plugins/`
 
-For local development, external plugins usually belong under:
-
-- `~/.magi/plugins/<your-plugin>/`
+For local development, use an additional configured scan root outside the
+managed install directory. An explicit local-directory install may also copy a
+package into the managed root while recording it as a development package. Do
+not manually place an unrecorded package under `~/.magi/plugins/`.
 
 The managed user root has a strict layout: one direct child directory named
 exactly after the plugin id, containing `plugin.toml` directly. Root-level
@@ -320,24 +321,37 @@ must be a library, and libraries may depend only on other libraries. Cycles are
 rejected. Keep each `depends_on` list at or below 8 entries and the complete
 target closure at or below 16 packages.
 
-The host binds every library to the approved registry snapshot and extracted
-manifest. Do not assume an unrelated package already present under the same id
-will be reused: its registry source, repository, entry, manifest, and nested
-dependency identities must all match. Shared libraries are removed
+The host binds every library to the approved registry snapshot and the
+canonical digest of its complete contents. Do not assume an unrelated package
+already present under the same id will be reused: its registry source,
+repository, package digest, and nested dependency digests must all match.
+Package tooling must calculate this digest through
+`magi_plugin_sdk.package_identity`, which is the shared authority for framing,
+profiles, streamed file records, and portable paths. Executable permission is
+carried as `PackageFile.executable` publication metadata but deliberately does
+not create a second content identity; published-version history separately
+locks the sorted executable paths.
+After dependency installation, the host also seals the complete local result,
+including `.deps`, and verifies that local seal before code execution. Shared
+libraries are removed
 automatically only after their final installed consumer is removed.
 
 When `dependencies` is non-empty, the distributed plugin must include a
 generated `requirements.lock` with exact versions and hashes. In the companion
-`magi-plugins` repository, refresh generated artifacts after every manifest
-change:
+`magi-plugins` repository, refresh generated artifacts after every distributed
+file change:
 
 ```bash
 bash scripts/refresh.sh <plugin-directory>
 ```
 
-Commit the refreshed lockfile and `registry.json` with the manifest change. Do
-not hand-edit either generated file. A plugin with dependencies but no lockfile
-is rejected during normal installation. Each lock entry must be an ordinary
+Commit the refreshed lockfile, package digest history, and `registry.json` with
+the package change. Do not hand-edit generated files. Once a plugin id and
+version have been published, changing any packaged file without increasing the
+version is rejected. Versions must use canonical numeric `MAJOR.MINOR.PATCH`
+form; aliases, prerelease labels, and build suffixes are not accepted. A plugin
+with dependencies but no lockfile is rejected
+during normal installation. Each lock entry must be an ordinary
 package name pinned to one exact version with SHA-256 hashes. Direct URLs,
 local paths, editable installs, package-manager directives, version ranges,
 and source-only distributions are rejected. Runtime installation accepts

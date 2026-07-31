@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import stat
 import tarfile
+import unicodedata
 import warnings
 import zipfile
 
@@ -197,6 +198,12 @@ def test_rejects_zip_links_and_special_entries(
         "NUL.txt",
         "file:stream",
         "trailing. ",
+        'quote"name',
+        "less<name",
+        "greater>name",
+        "pipe|name",
+        "question?name",
+        "star*name",
     ],
 )
 def test_rejects_non_portable_or_escaping_paths(
@@ -424,6 +431,27 @@ def test_rejects_case_conflicts_in_implicit_parent_directories(
         tmp_path,
         archive_format,
         [("Folder/one", b"one", 0o644), ("folder/two", b"two", 0o644)],
+    )
+
+    with pytest.raises(InvalidPluginArchiveError, match="portable spellings"):
+        extract_plugin_archive(archive, tmp_path / "dest")
+
+
+@pytest.mark.parametrize("archive_format", ["tar", "zip"])
+def test_rejects_unicode_normalization_conflicts_in_parent_directories(
+    tmp_path: Path,
+    archive_format: str,
+) -> None:
+    nfc_name = unicodedata.normalize("NFC", "cafe\u0301")
+    nfd_name = unicodedata.normalize("NFD", "cafe\u0301")
+    assert nfc_name != nfd_name
+    archive = _write_archive_files(
+        tmp_path,
+        archive_format,
+        [
+            (f"{nfc_name}/one", b"one", 0o644),
+            (f"{nfd_name}/two", b"two", 0o644),
+        ],
     )
 
     with pytest.raises(InvalidPluginArchiveError, match="portable spellings"):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+import tempfile
 import threading
 
 import pytest
@@ -14,6 +15,7 @@ from magi.plugins.install_service import (
     PluginInstallService,
 )
 from magi.plugins.manager import PluginManager
+from magi.plugins.package_identity import compute_package_sha256
 from magi.plugins.registry_client import PluginRegistrySnapshot
 from magi.plugins.registry_provenance import registry_install_fingerprint
 from magi.plugins.sensors import SensorRegistry
@@ -68,20 +70,28 @@ def _entry(
     version: str = "1.0.0",
     depends_on: list[str] | None = None,
 ) -> PluginRegistryEntry:
-    return PluginRegistryEntry(
+    entry = PluginRegistryEntry(
         plugin_id=plugin_id,
         name=plugin_id,
         version=version,
+        package_sha256="0" * 64,
         description="Concurrent dependency test package",
         author="Test",
         path=plugin_id,
         kind=kind,
         depends_on=depends_on or [],
     )
+    with tempfile.TemporaryDirectory() as temporary_root:
+        plugin_dir = _write_package(Path(temporary_root), entry)
+        return entry.model_copy(update={"package_sha256": compute_package_sha256(plugin_dir)})
 
 
 def _snapshot(*entries: PluginRegistryEntry) -> PluginRegistrySnapshot:
-    index = PluginRegistryIndex(plugins=list(entries), repo_url=REPO_URL)
+    index = PluginRegistryIndex(
+        plugins=list(entries),
+        registry_version="4",
+        repo_url=REPO_URL,
+    )
     return PluginRegistrySnapshot(
         index=index,
         registry_url=REGISTRY_URL,
@@ -251,6 +261,19 @@ async def test_concurrent_targets_reuse_identical_shared_library(
     manager, library_installs = _manager(monkeypatch, tmp_path, interleaving)
     registry = _Registry(snapshot, interleaving)
     service = PluginInstallService(registry_client=registry, plugin_manager=manager)
+    event_loop_thread = threading.get_ident()
+    validation_threads: list[int] = []
+    original_validation = service._assert_installed_library_reusable
+
+    def track_validation(*args, **kwargs) -> None:
+        validation_threads.append(threading.get_ident())
+        original_validation(*args, **kwargs)
+
+    monkeypatch.setattr(
+        service,
+        "_assert_installed_library_reusable",
+        track_validation,
+    )
 
     first = asyncio.create_task(
         service.install_from_registry(
@@ -276,6 +299,52 @@ async def test_concurrent_targets_reuse_identical_shared_library(
     assert manager.get_package(LIBRARY_ID) is not None
     assert manager.get_package("first-target") is not None
     assert manager.get_package("second-target") is not None
+    assert validation_threads
+    assert event_loop_thread not in validation_threads
+
+
+@pytest.mark.asyncio
+async def test_preinstalled_library_validation_runs_off_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    library = _entry(LIBRARY_ID, kind="library")
+    first_target = _entry("first-target", depends_on=[LIBRARY_ID])
+    second_target = _entry("second-target", depends_on=[LIBRARY_ID])
+    snapshot = _snapshot(library, first_target, second_target)
+    interleaving = _InstallInterleaving(target_goal=1)
+    manager, _ = _manager(monkeypatch, tmp_path, interleaving)
+    service = PluginInstallService(
+        registry_client=_Registry(snapshot, interleaving),
+        plugin_manager=manager,
+    )
+
+    await service.install_from_registry(
+        "first-target",
+        expected_fingerprint=snapshot.install_fingerprint,
+    )
+
+    event_loop_thread = threading.get_ident()
+    validation_threads: list[int] = []
+    original_validation = service._assert_installed_library_reusable
+
+    def track_validation(*args, **kwargs) -> None:
+        validation_threads.append(threading.get_ident())
+        original_validation(*args, **kwargs)
+
+    monkeypatch.setattr(
+        service,
+        "_assert_installed_library_reusable",
+        track_validation,
+    )
+
+    await service.install_from_registry(
+        "second-target",
+        expected_fingerprint=snapshot.install_fingerprint,
+    )
+
+    assert validation_threads
+    assert event_loop_thread not in validation_threads
 
 
 @pytest.mark.asyncio

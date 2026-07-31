@@ -98,10 +98,12 @@ def test_inspect_reads_capabilities_without_installing(tmp_path):
 
     mgr = PluginManager.__new__(PluginManager)  # avoid full init
     archive = _make_archive(tmp_path)
-    manifest = mgr.inspect_plugin_archive(archive)
+    inspection = mgr.inspect_plugin_archive(archive)
+    manifest = inspection.manifest
     assert manifest.plugin_id == "demo"
     assert manifest.capabilities[0].capability == "network"
     assert manifest.capabilities[0].scope == ["x.com"]
+    assert len(inspection.package_sha256) == 64
 
 
 def test_corrupt_targz_raises_invalid_archive(tmp_path):

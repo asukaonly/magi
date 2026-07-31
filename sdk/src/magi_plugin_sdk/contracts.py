@@ -16,6 +16,8 @@ from pydantic import (
     model_validator,
 )
 
+from .versioning import PluginVersion
+
 _RESERVED_PLUGIN_IDENTIFIERS = {
     "aux",
     "con",
@@ -418,6 +420,18 @@ class PluginDisplayGroupSpec(BaseModel):
     member_order: int = 100
 
 
+def _validate_direct_plugin_dependencies(
+    plugin_id: str,
+    depends_on: list[str],
+) -> None:
+    """Require one package dependency list to be unique and non-reflexive."""
+
+    if len(depends_on) != len(set(depends_on)):
+        raise ValueError("Plugin dependencies cannot contain duplicate plugin ids")
+    if plugin_id in depends_on:
+        raise ValueError("Plugin package cannot depend on itself")
+
+
 class PluginManifest(BaseModel):
     """Parsed manifest for a plugin package.
 
@@ -431,7 +445,7 @@ class PluginManifest(BaseModel):
     plugin_id: _PluginIdentifier = Field(alias="id")
     name: str
     name_i18n: dict[str, str] = Field(default_factory=dict)
-    version: str
+    version: PluginVersion
     description: str = ""
     description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = "Magi Team"
@@ -498,6 +512,13 @@ class PluginManifest(BaseModel):
             raise ValueError("Plugin entrypoint names must be single Python identifiers")
         return value
 
+    @model_validator(mode="after")
+    def validate_direct_dependencies(self) -> "PluginManifest":
+        """Reject duplicate and self-referential package dependencies."""
+
+        _validate_direct_plugin_dependencies(self.plugin_id, self.depends_on)
+        return self
+
     @property
     def plugin_path(self) -> Path:
         return Path(self.plugin_dir)
@@ -539,7 +560,11 @@ class PluginRegistryEntry(BaseModel):
     plugin_id: _PluginIdentifier
     name: str
     name_i18n: dict[str, str] = Field(default_factory=dict)
-    version: str
+    version: PluginVersion
+    package_sha256: str = Field(
+        pattern=r"^[0-9a-f]{64}$",
+        description="Host-verified digest of the complete distributable plugin package.",
+    )
     path: str = ""
     description: str = ""
     description_i18n: dict[str, str] = Field(default_factory=dict)
@@ -573,18 +598,85 @@ class PluginRegistryEntry(BaseModel):
     """Optional declaration that this plugin should appear under a shared
     user-facing group instead of a standalone card."""
 
+    @model_validator(mode="after")
+    def validate_direct_dependencies(self) -> "PluginRegistryEntry":
+        """Reject duplicate and self-referential package dependencies."""
+
+        _validate_direct_plugin_dependencies(self.plugin_id, self.depends_on)
+        return self
+
     @property
     def display_icon(self) -> str:
         """Return the install-independent icon value used by host UIs."""
         return self.icon_data or self.icon
 
 
+def _validate_registry_dependency_graph(
+    entries: list[PluginRegistryEntry],
+) -> None:
+    """Require registry ids and dependency edges to form one valid graph."""
+
+    entries_by_id: dict[str, PluginRegistryEntry] = {}
+    for entry in entries:
+        if entry.plugin_id in entries_by_id:
+            raise ValueError(
+                f"Plugin registry contains duplicate plugin id: {entry.plugin_id}"
+            )
+        entries_by_id[entry.plugin_id] = entry
+
+    for entry in entries:
+        for dependency_id in entry.depends_on:
+            dependency = entries_by_id.get(dependency_id)
+            if dependency is None:
+                raise ValueError(
+                    f"Plugin {entry.plugin_id} depends on missing package "
+                    f"{dependency_id}"
+                )
+            if dependency.kind != "library":
+                raise ValueError(
+                    f"Plugin {entry.plugin_id} depends on non-library package "
+                    f"{dependency_id}"
+                )
+
+    unresolved_dependency_counts = {
+        entry.plugin_id: len(entry.depends_on) for entry in entries
+    }
+    dependents_by_id = {entry.plugin_id: [] for entry in entries}
+    for entry in entries:
+        for dependency_id in entry.depends_on:
+            dependents_by_id[dependency_id].append(entry.plugin_id)
+
+    ready = [
+        plugin_id
+        for plugin_id, count in unresolved_dependency_counts.items()
+        if count == 0
+    ]
+    resolved_count = 0
+    while ready:
+        dependency_id = ready.pop()
+        resolved_count += 1
+        for dependent_id in dependents_by_id[dependency_id]:
+            unresolved_dependency_counts[dependent_id] -= 1
+            if unresolved_dependency_counts[dependent_id] == 0:
+                ready.append(dependent_id)
+
+    if resolved_count != len(entries):
+        raise ValueError("Plugin registry dependency cycle detected")
+
+
 class PluginRegistryIndex(BaseModel):
     """Response model for the remote plugin registry listing."""
 
     plugins: list[PluginRegistryEntry] = Field(default_factory=list, max_length=4096)
-    registry_version: str = "1"
+    registry_version: Literal["4"]
     repo_url: str = ""
+
+    @model_validator(mode="after")
+    def validate_dependency_graph(self) -> "PluginRegistryIndex":
+        """Reject registry entries and dependency edges that are not self-consistent."""
+
+        _validate_registry_dependency_graph(self.plugins)
+        return self
 
 
 class SummaryProfileSpec(BaseModel):

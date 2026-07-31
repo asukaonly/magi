@@ -70,6 +70,28 @@ from .i18n import (
     set_current_language,
 )
 from .logging import configure_basic_logging, get_logger
+from .package_identity import (
+    CanonicalPackagePath,
+    ConflictingPackageIdentityPathError,
+    INSTALLED_PACKAGE_IDENTITY_PROFILE,
+    InvalidPackageIdentityPathError,
+    PACKAGE_IDENTITY_DOMAIN,
+    PACKAGE_IDENTITY_RECORD_DOMAIN,
+    PACKAGE_IDENTITY_VERSION,
+    PackageIdentityBuildError,
+    PackageIdentityBuilder,
+    PackageIdentityContractError,
+    PackageIdentityFile,
+    PackageFile,
+    PortablePathTracker,
+    SOURCE_PACKAGE_IDENTITY_PROFILE,
+    WINDOWS_FORBIDDEN_PATH_CHARACTERS,
+    WINDOWS_RESERVED_PATH_STEMS,
+    canonicalize_package_path,
+    compute_package_identity_sha256,
+    normalize_package_path_component,
+    windows_path_component_issue,
+)
 from .sensors import (
     ActivityFacet,
     ContentBlock,
@@ -102,6 +124,13 @@ from .tools import (
     ToolParameter,
     ToolResult,
     ToolSchema,
+)
+from .versioning import (
+    MAX_PLUGIN_VERSION_LENGTH,
+    PLUGIN_VERSION_PATTERN,
+    PluginVersion,
+    is_plugin_version_newer,
+    parse_plugin_version,
 )
 from .capabilities import (
     BackgroundPort,
@@ -204,6 +233,33 @@ __all__ = [
     "ManagedSubprocess",
     "RegistryEntry",
     "DEFAULT_REGISTRY_PATH",
+    # Plugin package versions
+    "MAX_PLUGIN_VERSION_LENGTH",
+    "PLUGIN_VERSION_PATTERN",
+    "PluginVersion",
+    "is_plugin_version_newer",
+    "parse_plugin_version",
+    # Plugin package identity
+    "CanonicalPackagePath",
+    "ConflictingPackageIdentityPathError",
+    "INSTALLED_PACKAGE_IDENTITY_PROFILE",
+    "InvalidPackageIdentityPathError",
+    "PACKAGE_IDENTITY_DOMAIN",
+    "PACKAGE_IDENTITY_RECORD_DOMAIN",
+    "PACKAGE_IDENTITY_VERSION",
+    "PackageIdentityBuildError",
+    "PackageIdentityBuilder",
+    "PackageIdentityContractError",
+    "PackageIdentityFile",
+    "PackageFile",
+    "PortablePathTracker",
+    "SOURCE_PACKAGE_IDENTITY_PROFILE",
+    "WINDOWS_FORBIDDEN_PATH_CHARACTERS",
+    "WINDOWS_RESERVED_PATH_STEMS",
+    "canonicalize_package_path",
+    "compute_package_identity_sha256",
+    "normalize_package_path_component",
+    "windows_path_component_issue",
     # Version
     "__version__",
 ]

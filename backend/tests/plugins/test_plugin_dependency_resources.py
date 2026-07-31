@@ -259,6 +259,7 @@ async def test_registry_sources_share_cumulative_workflow_budget_and_cleanup(
         plugin_id="shared-library",
         name="Shared Library",
         version="1.0.0",
+        package_sha256="a" * 64,
         kind="library",
         path="shared/source",
     )
@@ -266,11 +267,13 @@ async def test_registry_sources_share_cumulative_workflow_budget_and_cleanup(
         plugin_id="demo-plugin",
         name="Demo Plugin",
         version="1.0.0",
+        package_sha256="b" * 64,
         path="shared/source",
         depends_on=["shared-library"],
     )
     index = PluginRegistryIndex(
         plugins=[target, library],
+        registry_version="4",
         repo_url="https://github.com/example/plugins.git",
     )
     snapshot = PluginRegistrySnapshot(

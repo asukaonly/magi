@@ -41,8 +41,8 @@ def test_manifest_reads_permissions_capabilities():
             "version": "1.0.0",
             "permissions": {
                 "capabilities": [{"capability": "network", "scope": ["a.com"]}],
-                "declares": ["legacy"],          # legacy key tolerated
-                "memory_access": ["write_l1"],   # legacy key tolerated
+                "declares": ["legacy"],  # legacy key tolerated
+                "memory_access": ["write_l1"],  # legacy key tolerated
             },
         }
     )
@@ -60,6 +60,7 @@ def test_registry_entry_top_level_capabilities():
             "plugin_id": "x",
             "name": "X",
             "version": "1.0.0",
+            "package_sha256": "a" * 64,
             "capabilities": [{"capability": "calendar"}],
         }
     )

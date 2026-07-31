@@ -103,7 +103,7 @@ class PluginRegistryEntryResponse(BaseModel):
 
 class PluginRegistryResponse(BaseModel):
     plugins: list[PluginRegistryEntryResponse] = Field(default_factory=list)
-    registry_version: str = "1"
+    registry_version: Literal["4"]
     install_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
@@ -122,7 +122,8 @@ class PluginInstallCandidateApprovalRequest(BaseModel):
 
 class PluginInstallCandidateResponse(BaseModel):
     candidate_id: str
-    archive_sha256: str
+    archive_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    package_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     expires_at_ms: int
     manifest: PluginManifestResponse
 

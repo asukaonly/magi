@@ -17,7 +17,7 @@ from magi.api.routers import plugins_registry_routes
 class _FakeIndex:
     def __init__(self) -> None:
         self.plugins: list = []
-        self.registry_version = "test"
+        self.registry_version = "4"
 
 
 class _FakeRegistry:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import tempfile
 import time
 
 import pytest
@@ -14,6 +15,7 @@ from magi.plugins.install_candidates import (
     PluginInstallCandidateNotFoundError,
     PluginInstallCandidateStore,
 )
+from magi.plugins.package_identity import compute_package_sha256
 
 
 def _manifest() -> PluginManifest:
@@ -24,6 +26,17 @@ def _manifest() -> PluginManifest:
         entry_module="plugin",
         entry_class="DemoPlugin",
     )
+
+
+def _package_sha256() -> str:
+    with tempfile.TemporaryDirectory(prefix="magi-candidate-package-") as tmp:
+        package_dir = Path(tmp)
+        (package_dir / "plugin.toml").write_text(
+            '[plugin]\nid = "demo-plugin"\nname = "Demo"\nversion = "1.0.0"\n',
+            encoding="utf-8",
+        )
+        (package_dir / "plugin.py").write_text("VALUE = 1\n", encoding="utf-8")
+        return compute_package_sha256(package_dir)
 
 
 def _register_candidate(
@@ -40,6 +53,7 @@ def _register_candidate(
         archive_path=archive_path,
         original_filename=original_filename,
         archive_sha256=digest,
+        package_sha256=_package_sha256(),
         manifest=_manifest(),
     )
 
@@ -56,6 +70,7 @@ def test_candidate_claim_binds_install_to_the_inspected_archive(tmp_path: Path) 
     assert claimed is candidate
     assert claimed.claimed_at is not None
     assert claimed.archive_bytes == b"archive"
+    assert claimed.package_sha256 == candidate.package_sha256
     assert not claimed.archive_path.exists()
     with pytest.raises(PluginInstallCandidateClaimedError):
         store.claim(
@@ -188,6 +203,7 @@ def test_candidate_byte_budget_rejects_excess_staged_content(tmp_path: Path) -> 
             archive_path=archive_path,
             original_filename="second.zip",
             archive_sha256=hashlib.sha256(b"6789").hexdigest(),
+            package_sha256=_package_sha256(),
             manifest=_manifest(),
         )
 

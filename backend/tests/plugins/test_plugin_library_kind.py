@@ -24,7 +24,10 @@ import pytest
 from magi.config.models import AppConfig, PluginSettings
 from magi.plugins import package_files as package_files_module
 from magi.plugins.manager import PluginManager
-from magi.plugins.registry_provenance import plugin_manifest_fingerprint
+from magi.plugins.package_identity import (
+    compute_installed_package_sha256,
+    compute_installed_source_sha256,
+)
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry
 
@@ -93,7 +96,15 @@ def _set_registry_dependency_provenance(
     registry_url = "https://example.test/registry.json"
     repo_url = "https://github.com/example/plugins.git"
     library_state = manager.get_package(library_id)
+    consumer_state = manager.get_package(consumer_id)
     assert library_state is not None
+    assert consumer_state is not None
+    library_dir = Path(library_state.manifest.plugin_dir)
+    consumer_dir = Path(consumer_state.manifest.plugin_dir)
+    library_package_sha256 = compute_installed_source_sha256(library_dir)
+    consumer_package_sha256 = compute_installed_source_sha256(consumer_dir)
+    library_installed_package_sha256 = compute_installed_package_sha256(library_dir)
+    consumer_installed_package_sha256 = compute_installed_package_sha256(consumer_dir)
     config.plugins.packages[library_id] = PluginSettings(
         enabled=True,
         trusted=True,
@@ -102,22 +113,20 @@ def _set_registry_dependency_provenance(
         install_origin="registry",
         registry_source=registry_url,
         registry_repo_url=repo_url,
-        registry_entry_fingerprint=f"entry-{library_id}",
-        registry_manifest_fingerprint=plugin_manifest_fingerprint(library_state.manifest),
+        package_sha256=library_package_sha256,
+        installed_package_sha256=library_installed_package_sha256,
     )
     config.plugins.packages[consumer_id] = PluginSettings(
         enabled=True,
         trusted=True,
         source="external",
-        manifest_path=manager.get_package(consumer_id).manifest.manifest_path,
+        manifest_path=consumer_state.manifest.manifest_path,
         install_origin="registry",
         registry_source=registry_url,
         registry_repo_url=repo_url,
-        registry_entry_fingerprint=f"entry-{consumer_id}",
-        registry_manifest_fingerprint=plugin_manifest_fingerprint(
-            manager.get_package(consumer_id).manifest
-        ),
-        dependency_entry_fingerprints={library_id: f"entry-{library_id}"},
+        package_sha256=consumer_package_sha256,
+        installed_package_sha256=consumer_installed_package_sha256,
+        dependency_package_sha256={library_id: library_package_sha256},
     )
 
 
@@ -337,6 +346,11 @@ def test_library_is_persisted_as_enabled_and_trusted(
     """Newly-discovered library packages must default to enabled+trusted so
     consumers can rely on them without the user having to toggle anything."""
     _write_library(tmp_path, lib_id="testlib_a")
+    monkeypatch.setattr(
+        package_files_module,
+        "user_plugins_root",
+        lambda: tmp_path / "managed-root",
+    )
     config = AppConfig()
     _patch_config(monkeypatch, config)
 
@@ -355,6 +369,11 @@ def test_library_load_does_not_instantiate_plugin_class(
     """Libraries have no entry_class — load_plugin must short-circuit
     instead of trying to instantiate Plugin and crashing."""
     _write_library(tmp_path, lib_id="testlib_b")
+    monkeypatch.setattr(
+        package_files_module,
+        "user_plugins_root",
+        lambda: tmp_path / "managed-root",
+    )
     config = AppConfig()
     _patch_config(monkeypatch, config)
 
@@ -434,9 +453,13 @@ def test_missing_dep_yields_clear_error_not_crash(
         install_origin="registry",
         registry_source="https://example.test/registry.json",
         registry_repo_url="https://github.com/example/plugins.git",
-        registry_entry_fingerprint="entry-orphan-consumer",
-        registry_manifest_fingerprint=plugin_manifest_fingerprint(orphan_state.manifest),
-        dependency_entry_fingerprints={"missing_lib": "entry-missing_lib"},
+        package_sha256=compute_installed_source_sha256(
+            Path(orphan_state.manifest.plugin_dir)
+        ),
+        installed_package_sha256=compute_installed_package_sha256(
+            Path(orphan_state.manifest.plugin_dir)
+        ),
+        dependency_package_sha256={"missing_lib": "0" * 64},
     )
     manager.scan(persist_discovery=False)
     # Must not raise — startup keeps going, plugin is marked unhealthy.
@@ -457,6 +480,11 @@ def test_broken_plugin_does_not_crash_other_plugins(
     onboarding-crash bug)."""
     _write_broken_plugin(tmp_path, plugin_id="broken-plugin")
     _write_simple_tool_plugin(tmp_path, plugin_id="healthy-plugin", tool_name="healthy-hello")
+    monkeypatch.setattr(
+        package_files_module,
+        "user_plugins_root",
+        lambda: tmp_path / "managed-root",
+    )
     config = AppConfig()
     _patch_config(monkeypatch, config)
 
@@ -655,8 +683,27 @@ def test_startup_rejects_invalid_transitive_dependency_provenance(
     manager.scan(persist_discovery=True)
     library_a = manager.get_package("library-a")
     library_b = manager.get_package("library-b")
+    nested_consumer = manager.get_package("nested-consumer")
     assert library_a is not None
     assert library_b is not None
+    assert nested_consumer is not None
+    library_a_dir = Path(library_a.manifest.plugin_dir)
+    library_b_dir = Path(library_b.manifest.plugin_dir)
+    nested_consumer_dir = Path(nested_consumer.manifest.plugin_dir)
+    library_a_package_sha256 = compute_installed_source_sha256(library_a_dir)
+    library_b_package_sha256 = compute_installed_source_sha256(library_b_dir)
+    nested_consumer_package_sha256 = compute_installed_source_sha256(
+        nested_consumer_dir
+    )
+    library_a_installed_package_sha256 = compute_installed_package_sha256(
+        library_a_dir
+    )
+    library_b_installed_package_sha256 = compute_installed_package_sha256(
+        library_b_dir
+    )
+    nested_consumer_installed_package_sha256 = compute_installed_package_sha256(
+        nested_consumer_dir
+    )
     config.plugins.packages["library-b"] = PluginSettings(
         enabled=True,
         trusted=True,
@@ -665,8 +712,8 @@ def test_startup_rejects_invalid_transitive_dependency_provenance(
         install_origin="upload",
         registry_source=registry_url,
         registry_repo_url=repo_url,
-        registry_entry_fingerprint="entry-library-b",
-        registry_manifest_fingerprint=plugin_manifest_fingerprint(library_b.manifest),
+        package_sha256=library_b_package_sha256,
+        installed_package_sha256=library_b_installed_package_sha256,
     )
     config.plugins.packages["library-a"] = PluginSettings(
         enabled=True,
@@ -676,23 +723,21 @@ def test_startup_rejects_invalid_transitive_dependency_provenance(
         install_origin="registry",
         registry_source=registry_url,
         registry_repo_url=repo_url,
-        registry_entry_fingerprint="entry-library-a",
-        registry_manifest_fingerprint=plugin_manifest_fingerprint(library_a.manifest),
-        dependency_entry_fingerprints={"library-b": "entry-library-b"},
+        package_sha256=library_a_package_sha256,
+        installed_package_sha256=library_a_installed_package_sha256,
+        dependency_package_sha256={"library-b": library_b_package_sha256},
     )
     config.plugins.packages["nested-consumer"] = PluginSettings(
         enabled=True,
         trusted=True,
         source="external",
-        manifest_path=manager.get_package("nested-consumer").manifest.manifest_path,
+        manifest_path=nested_consumer.manifest.manifest_path,
         install_origin="registry",
         registry_source=registry_url,
         registry_repo_url=repo_url,
-        registry_entry_fingerprint="entry-nested-consumer",
-        registry_manifest_fingerprint=plugin_manifest_fingerprint(
-            manager.get_package("nested-consumer").manifest
-        ),
-        dependency_entry_fingerprints={"library-a": "entry-library-a"},
+        package_sha256=nested_consumer_package_sha256,
+        installed_package_sha256=nested_consumer_installed_package_sha256,
+        dependency_package_sha256={"library-a": library_a_package_sha256},
     )
     manager.scan(persist_discovery=False)
 

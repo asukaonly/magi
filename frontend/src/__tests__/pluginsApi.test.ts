@@ -281,6 +281,7 @@ describe('pluginsApi.getSettingsResource', () => {
     const candidate = {
       candidate_id: 'candidate-1',
       archive_sha256: 'a'.repeat(64),
+      package_sha256: 'b'.repeat(64),
       expires_at_ms: 123,
       manifest: {
         plugin_id: 'demo-plugin',
@@ -375,7 +376,7 @@ describe('pluginsApi.getSettingsResource', () => {
   });
 
   it('fetches the registry without cache-bypass params by default', async () => {
-    vi.mocked(api.get).mockResolvedValue({ plugins: [], registry_version: 'v1' } as any);
+    vi.mocked(api.get).mockResolvedValue({ plugins: [], registry_version: '4' } as any);
 
     await pluginsApi.getRegistry();
 
@@ -383,7 +384,7 @@ describe('pluginsApi.getSettingsResource', () => {
   });
 
   it('passes refresh=true to bypass the registry cache when forced', async () => {
-    vi.mocked(api.get).mockResolvedValue({ plugins: [], registry_version: 'v1' } as any);
+    vi.mocked(api.get).mockResolvedValue({ plugins: [], registry_version: '4' } as any);
 
     await pluginsApi.getRegistry({ force: true });
 

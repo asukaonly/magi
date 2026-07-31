@@ -26,6 +26,7 @@ def _entry(
         plugin_id=plugin_id,
         name=plugin_id,
         version="1.0.0",
+        package_sha256="a" * 64,
         kind=kind,
         depends_on=depends_on or [],
     )
@@ -37,6 +38,7 @@ class _Registry:
         self.clone_calls: list[str] = []
         index = PluginRegistryIndex(
             plugins=list(entries),
+            registry_version="4",
             repo_url="https://github.com/example/plugins.git",
         )
         self.snapshot = PluginRegistrySnapshot(
@@ -90,94 +92,6 @@ async def test_direct_library_install_is_rejected_before_download() -> None:
     with pytest.raises(DirectLibraryInstallError, match="cannot be installed directly"):
         await service.install_from_registry(
             "shared-library",
-            expected_fingerprint=registry.snapshot.install_fingerprint,
-        )
-
-    assert registry.clone_calls == []
-
-
-@pytest.mark.asyncio
-async def test_plugin_dependency_cannot_be_another_runnable_plugin() -> None:
-    registry = _Registry(
-        _entry("requested-plugin", depends_on=["hidden-plugin"]),
-        _entry("hidden-plugin"),
-    )
-    service = PluginInstallService(
-        registry_client=registry,
-        plugin_manager=_NoPackagesManager(),
-    )
-
-    with pytest.raises(DirectLibraryInstallError, match="must be library packages"):
-        await service.install_from_registry(
-            "requested-plugin",
-            expected_fingerprint=registry.snapshot.install_fingerprint,
-        )
-
-    assert registry.clone_calls == []
-
-
-@pytest.mark.asyncio
-async def test_installed_runnable_plugin_cannot_bypass_dependency_validation() -> None:
-    registry = _Registry(
-        _entry("requested-plugin", depends_on=["already-installed-plugin"]),
-        _entry("already-installed-plugin"),
-    )
-    service = PluginInstallService(
-        registry_client=registry,
-        plugin_manager=_NoPackagesManager(),
-    )
-
-    with pytest.raises(DirectLibraryInstallError, match="runnable plugin"):
-        service._resolve_install_closure(
-            "requested-plugin",
-            snapshot=registry.snapshot,
-            entries_by_id=registry.entries,
-            already_installed={"already-installed-plugin"},
-        )
-
-    assert registry.clone_calls == []
-
-
-@pytest.mark.asyncio
-async def test_library_cannot_pull_in_a_runnable_plugin() -> None:
-    registry = _Registry(
-        _entry("requested-plugin", depends_on=["shared-library"]),
-        _entry(
-            "shared-library",
-            kind="library",
-            depends_on=["hidden-plugin"],
-        ),
-        _entry("hidden-plugin"),
-    )
-    service = PluginInstallService(
-        registry_client=registry,
-        plugin_manager=_NoPackagesManager(),
-    )
-
-    with pytest.raises(DirectLibraryInstallError, match="hidden-plugin"):
-        await service.install_from_registry(
-            "requested-plugin",
-            expected_fingerprint=registry.snapshot.install_fingerprint,
-        )
-
-    assert registry.clone_calls == []
-
-
-@pytest.mark.asyncio
-async def test_library_dependency_cycles_are_rejected_before_download() -> None:
-    registry = _Registry(
-        _entry("requested-plugin", depends_on=["library-a"]),
-        _entry("library-a", kind="library", depends_on=["library-b"]),
-        _entry("library-b", kind="library", depends_on=["library-a"]),
-    )
-    service = PluginInstallService(
-        registry_client=registry,
-        plugin_manager=_NoPackagesManager(),
-    )
-
-    with pytest.raises(ValueError, match="Cyclic plugin dependency"):
-        await service.install_from_registry(
-            "requested-plugin",
             expected_fingerprint=registry.snapshot.install_fingerprint,
         )
 

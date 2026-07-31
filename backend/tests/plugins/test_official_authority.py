@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,17 +13,22 @@ from magi.plugins.contracts import (
     PluginRegistryEntry,
     PluginRegistryIndex,
 )
-from magi.plugins.install_service import PluginInstallService
-from magi.plugins import package_files
+from magi.plugins import install_service as install_service_module
+from magi.plugins import package_files, package_integrity
+from magi.plugins.install_service import (
+    PluginInstallService,
+    registry_source_matches_installed_package,
+)
+from magi.plugins.package_identity import (
+    compute_installed_package_sha256,
+    compute_installed_source_sha256,
+)
 from magi.plugins.registry_client import (
     DEFAULT_REGISTRY_URL,
     DEFAULT_REPO_URL,
     PluginRegistrySnapshot,
 )
-from magi.plugins.registry_provenance import (
-    plugin_manifest_fingerprint,
-    registry_install_fingerprint,
-)
+from magi.plugins.registry_provenance import registry_install_fingerprint
 
 
 class _FakeManifest:
@@ -62,6 +68,7 @@ def test_canonical_registry_config_without_managed_identity_is_not_official() ->
         _authoritative_official(
             manifest,
             packages=_cfg_with("calendar", True),
+            trusted=True,
         )
         is False
     )
@@ -93,11 +100,28 @@ def test_canonical_managed_registry_package_can_be_official(
         install_origin="registry",
         registry_source=DEFAULT_REGISTRY_URL,
         registry_repo_url=DEFAULT_REPO_URL,
-        registry_entry_fingerprint="entry-calendar",
-        registry_manifest_fingerprint=plugin_manifest_fingerprint(manifest),
+        package_sha256=compute_installed_source_sha256(plugin_dir),
+        installed_package_sha256=compute_installed_package_sha256(plugin_dir),
     )
 
-    assert _authoritative_official(manifest, packages={"calendar": configured}) is True
+    def fail_if_full_verification_runs(_plugin_dir: Path) -> None:
+        raise AssertionError("Official badge must not scan plugin contents")
+
+    monkeypatch.setattr(
+        package_integrity,
+        "purge_plugin_bytecode_caches",
+        fail_if_full_verification_runs,
+    )
+
+    assert _authoritative_official(manifest, packages={"calendar": configured}) is False
+    assert (
+        _authoritative_official(
+            manifest,
+            packages={"calendar": configured},
+            trusted=True,
+        )
+        is True
+    )
 
 
 @pytest.mark.parametrize(
@@ -122,6 +146,7 @@ def test_custom_registry_or_repository_cannot_claim_official_status(
                 registry_url=registry_url,
                 repo_url=repo_url,
             ),
+            trusted=True,
         )
         is False
     )
@@ -134,6 +159,7 @@ def test_non_builtin_ignores_forged_manifest_official() -> None:
         _authoritative_official(
             manifest,
             packages=_cfg_with("evil", False),
+            trusted=True,
         )
         is False
     )
@@ -146,6 +172,7 @@ def test_legacy_official_config_without_registry_provenance_is_not_authoritative
         _authoritative_official(
             manifest,
             packages={"legacy": PluginSettings(official=True)},
+            trusted=True,
         )
         is False
     )
@@ -204,11 +231,16 @@ def _snapshot(*, official_source: bool) -> PluginRegistrySnapshot:
         plugin_id="calendar",
         name="Calendar",
         version="1.0.0",
+        package_sha256="1" * 64,
         path="plugins/calendar",
         official=True,
     )
     registry_url = DEFAULT_REGISTRY_URL if official_source else "https://mirror.example/index.json"
-    index = PluginRegistryIndex(plugins=[entry], repo_url=DEFAULT_REPO_URL)
+    index = PluginRegistryIndex(
+        plugins=[entry],
+        registry_version="4",
+        repo_url=DEFAULT_REPO_URL,
+    )
     return PluginRegistrySnapshot(
         index=index,
         registry_url=registry_url,
@@ -220,6 +252,57 @@ def _snapshot(*, official_source: bool) -> PluginRegistrySnapshot:
         ),
         official_source=official_source,
     )
+
+
+def test_marketplace_source_projection_uses_last_verified_trust_without_scanning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(package_files, "user_plugins_root", lambda: tmp_path)
+    plugin_dir = tmp_path / "calendar"
+    plugin_dir.mkdir()
+    manifest_path = plugin_dir / "plugin.toml"
+    manifest_path.write_text("[plugin]\n", encoding="utf-8")
+    manifest = PluginManifest(
+        id="calendar",
+        name="Calendar",
+        version="1.0.0",
+        source="external",
+        plugin_dir=str(plugin_dir),
+        manifest_path=str(manifest_path),
+    )
+    configured = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="external",
+        manifest_path=str(manifest_path),
+        official=True,
+        install_origin="registry",
+        registry_source=DEFAULT_REGISTRY_URL,
+        registry_repo_url=DEFAULT_REPO_URL,
+        package_sha256=compute_installed_source_sha256(plugin_dir),
+        installed_package_sha256=compute_installed_package_sha256(plugin_dir),
+    )
+    config = SimpleNamespace(
+        plugins=SimpleNamespace(packages={"calendar": configured}),
+    )
+    monkeypatch.setattr(install_service_module, "get_config", lambda: config)
+
+    def fail_if_full_verification_runs(_plugin_dir: Path) -> None:
+        raise AssertionError("Marketplace projection must not scan plugin contents")
+
+    monkeypatch.setattr(
+        package_integrity,
+        "purge_plugin_bytecode_caches",
+        fail_if_full_verification_runs,
+    )
+    snapshot = _snapshot(official_source=True)
+
+    untrusted = PluginPackageState(manifest=manifest, trusted=False)
+    trusted = PluginPackageState(manifest=manifest, trusted=True)
+
+    assert registry_source_matches_installed_package(untrusted, snapshot) is False
+    assert registry_source_matches_installed_package(trusted, snapshot) is True
 
 
 @pytest.mark.asyncio
@@ -254,3 +337,4 @@ async def test_install_passes_only_effective_official_value_to_manager(
     assert manager.install_kwargs["install_origin"] == "registry"
     assert manager.install_kwargs["registry_source"] == snapshot.registry_url
     assert manager.install_kwargs["registry_repo_url"] == snapshot.repo_url
+    assert manager.install_kwargs["package_sha256"] == snapshot.index.plugins[0].package_sha256

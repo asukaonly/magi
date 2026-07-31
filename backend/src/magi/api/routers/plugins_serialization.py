@@ -15,7 +15,7 @@ from ...plugins.contracts import (
 )
 from ...plugins.i18n import PluginI18n
 from ...plugins.icon_assets import resolve_plugin_icon
-from ...plugins.package_integrity import is_verified_registry_package
+from ...plugins.package_integrity import has_registry_install_record
 from ...plugins.provider import resolve_plugin_manager
 from ...plugins.registry_client import is_official_registry_source
 from .plugins_schemas import (
@@ -27,15 +27,16 @@ from .plugins_schemas import (
 logger = logging.getLogger(__name__)
 
 
-def _authoritative_official(manifest, *, packages) -> bool:
+def _authoritative_official(manifest, *, packages, trusted: bool = False) -> bool:
     """Resolve a plugin's official status from the authoritative source."""
     if getattr(manifest, "source", None) == "builtin":
         return bool(getattr(manifest, "official", False))
     entry = packages.get(getattr(manifest, "plugin_id", None))
     return bool(
         entry is not None
+        and trusted
         and getattr(entry, "official", None)
-        and is_verified_registry_package(manifest, entry)
+        and has_registry_install_record(manifest, entry)
         and is_official_registry_source(
             getattr(entry, "registry_source", None),
             getattr(entry, "registry_repo_url", None),
@@ -80,7 +81,12 @@ def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
     return PluginI18n(plugin_id, Path(plugin_dir))
 
 
-def _serialize_manifest(manifest: PluginManifest, *, packages=None) -> PluginManifestResponse:
+def _serialize_manifest(
+    manifest: PluginManifest,
+    *,
+    packages=None,
+    trusted: bool = False,
+) -> PluginManifestResponse:
     i18n = _get_plugin_i18n(manifest.plugin_id, manifest.plugin_dir)
     plugin_id_normalized = normalize_plugin_id(manifest.plugin_id)
 
@@ -100,7 +106,7 @@ def _serialize_manifest(manifest: PluginManifest, *, packages=None) -> PluginMan
         author=manifest.author,
         icon=resolve_plugin_icon(manifest.icon, manifest.plugin_dir),
         display_group=manifest.display_group,
-        official=_authoritative_official(manifest, packages=packages),
+        official=_authoritative_official(manifest, packages=packages, trusted=trusted),
         contribution_types=[item.value for item in manifest.contribution_types],
         source=manifest.source,
         plugin_dir=manifest.plugin_dir,
@@ -432,7 +438,11 @@ def _serialize_package(state: PluginPackageState, *, packages=None) -> PluginPac
     i18n = _get_plugin_i18n(state.manifest.plugin_id, state.manifest.plugin_dir)
 
     return PluginPackageResponse(
-        manifest=_serialize_manifest(state.manifest, packages=packages),
+        manifest=_serialize_manifest(
+            state.manifest,
+            packages=packages,
+            trusted=state.trusted,
+        ),
         enabled=state.enabled,
         trusted=state.trusted,
         loaded=state.loaded,
@@ -459,7 +469,11 @@ def _serialize_package_lightweight(
             author=manifest.author,
             icon=resolve_plugin_icon(manifest.icon, manifest.plugin_dir),
             display_group=manifest.display_group,
-            official=_authoritative_official(manifest, packages=packages),
+            official=_authoritative_official(
+                manifest,
+                packages=packages,
+                trusted=state.trusted,
+            ),
             contribution_types=[ct.value for ct in manifest.contribution_types],
             source=manifest.source,
             plugin_dir=manifest.plugin_dir,

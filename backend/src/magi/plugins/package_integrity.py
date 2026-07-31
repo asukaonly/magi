@@ -8,19 +8,33 @@ from typing import Any
 from ..config import PluginSettings
 from .contracts import PluginManifest
 from .package_files import is_managed_plugin_manifest_path
-from .registry_provenance import plugin_manifest_fingerprint
+from .package_identity import (
+    PluginPackageIdentityError,
+    purge_plugin_bytecode_caches,
+    verify_installed_package_sha256,
+    verify_installed_source_sha256,
+)
+
+_VERIFIED_INSTALL_ORIGINS = frozenset({"registry", "upload"})
 
 
-def package_identity_error(
+def _coerce_plugin_settings(
+    configured: PluginSettings | dict[str, Any] | None,
+) -> PluginSettings | None:
+    if isinstance(configured, dict):
+        return PluginSettings.model_validate(configured)
+    return configured
+
+
+def package_install_record_error(
     manifest: PluginManifest,
     configured: PluginSettings | dict[str, Any] | None,
 ) -> str | None:
-    """Return a safe-load rejection reason when persisted identity does not match."""
+    """Return a cheap rejection reason for persisted package ownership metadata."""
 
+    configured = _coerce_plugin_settings(configured)
     if configured is None:
         return None
-    if isinstance(configured, dict):
-        configured = PluginSettings.model_validate(configured)
     if configured.source != manifest.source:
         return "Plugin source does not match its persisted installation record"
     if manifest.source == "builtin":
@@ -33,15 +47,80 @@ def package_identity_error(
     if manifest_path != configured_manifest_path:
         return "Plugin manifest path does not match its persisted installation record"
 
-    if configured.install_origin in {"registry", "upload"} and not (
-        is_managed_plugin_manifest_path(manifest.plugin_id, manifest.manifest_path)
-    ):
+    is_managed_package = is_managed_plugin_manifest_path(
+        manifest.plugin_id,
+        manifest.manifest_path,
+    )
+    if is_managed_package and configured.install_origin not in {
+        *_VERIFIED_INSTALL_ORIGINS,
+        "local",
+    }:
+        return "Managed plugin installation origin is missing from its installation record"
+    if configured.install_origin in _VERIFIED_INSTALL_ORIGINS and not is_managed_package:
         return "Installed plugin is outside Magi's managed plugin directory"
 
-    if configured.install_origin == "registry":
-        if not is_verified_registry_package(manifest, configured):
-            return "Installed plugin no longer matches its verified marketplace package"
+    if configured.install_origin not in _VERIFIED_INSTALL_ORIGINS:
+        return None
+    if configured.install_origin == "registry" and not (
+        configured.registry_source and configured.registry_repo_url
+    ):
+        return "Marketplace plugin source is missing from its persisted installation record"
+    if not configured.package_sha256:
+        return "Installed plugin package digest is missing from its installation record"
+    if not configured.installed_package_sha256:
+        return "Installed plugin seal is missing from its installation record"
     return None
+
+
+def package_identity_error(
+    manifest: PluginManifest,
+    configured: PluginSettings | dict[str, Any] | None,
+) -> str | None:
+    """Return a safe-load rejection reason after complete on-disk verification."""
+
+    record_error = package_install_record_error(manifest, configured)
+    if record_error is not None:
+        return record_error
+    configured = _coerce_plugin_settings(configured)
+    if (
+        configured is None
+        or manifest.source == "builtin"
+        or configured.install_origin not in _VERIFIED_INSTALL_ORIGINS
+    ):
+        return None
+    assert configured.package_sha256 is not None
+    assert configured.installed_package_sha256 is not None
+    try:
+        plugin_dir = Path(manifest.plugin_dir)
+        purge_plugin_bytecode_caches(plugin_dir)
+        verify_installed_source_sha256(
+            plugin_dir,
+            configured.package_sha256,
+        )
+        verify_installed_package_sha256(
+            plugin_dir,
+            configured.installed_package_sha256,
+        )
+    except PluginPackageIdentityError as exc:
+        return f"Installed plugin package integrity check failed: {exc}"
+    return None
+
+
+def has_registry_install_record(
+    manifest: PluginManifest,
+    configured: PluginSettings | dict[str, Any] | None,
+) -> bool:
+    """Return whether cheap persisted metadata describes one marketplace install."""
+
+    configured = _coerce_plugin_settings(configured)
+    return bool(
+        isinstance(manifest, PluginManifest)
+        and configured is not None
+        and manifest.source == "external"
+        and configured.source == "external"
+        and configured.install_origin == "registry"
+        and package_install_record_error(manifest, configured) is None
+    )
 
 
 def is_verified_registry_package(
@@ -50,24 +129,15 @@ def is_verified_registry_package(
 ) -> bool:
     """Return whether a manifest is the exact host-managed registry package."""
 
-    if isinstance(configured, dict):
-        configured = PluginSettings.model_validate(configured)
-    if configured is None or not isinstance(manifest, PluginManifest):
-        return False
     return bool(
-        manifest.source == "external"
-        and configured.source == "external"
-        and configured.install_origin == "registry"
-        and configured.registry_source
-        and configured.registry_repo_url
-        and configured.registry_entry_fingerprint
-        and configured.registry_manifest_fingerprint
-        and configured.manifest_path
-        and Path(configured.manifest_path).expanduser().resolve(strict=False)
-        == Path(manifest.manifest_path).expanduser().resolve(strict=False)
-        and is_managed_plugin_manifest_path(manifest.plugin_id, manifest.manifest_path)
-        and configured.registry_manifest_fingerprint == plugin_manifest_fingerprint(manifest)
+        has_registry_install_record(manifest, configured)
+        and package_identity_error(manifest, configured) is None
     )
 
 
-__all__ = ["is_verified_registry_package", "package_identity_error"]
+__all__ = [
+    "has_registry_install_record",
+    "is_verified_registry_package",
+    "package_identity_error",
+    "package_install_record_error",
+]

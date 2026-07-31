@@ -45,6 +45,7 @@ def _entry() -> PluginRegistryEntry:
         plugin_id=manifest.plugin_id,
         name=manifest.name,
         version=manifest.version,
+        package_sha256="a" * 64,
         description=manifest.description,
         author=manifest.author,
         contribution_types=[item.value for item in manifest.contribution_types],

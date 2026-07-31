@@ -9,6 +9,8 @@ import shutil
 import tempfile
 from typing import Any
 
+from magi_plugin_sdk.versioning import is_plugin_version_newer
+
 from ..config import PluginSettings, get_config
 from .operation_execution import run_plugin_archive_operation, run_plugin_preparation_operation
 from .contracts import (
@@ -29,14 +31,14 @@ from .installation import (
     PluginPackageConflictError,
     PluginRegistrySourceConflictError,
 )
-from .package_integrity import is_verified_registry_package
+from .package_identity import verify_package_sha256
+from .package_integrity import (
+    has_registry_install_record,
+    is_verified_registry_package,
+)
 from . import package_files
 from .registry_client import PluginRegistryClient
 from .registry_client import PluginRegistrySnapshot
-from .registry_provenance import (
-    plugin_manifest_fingerprint,
-    registry_entry_fingerprint,
-)
 from .provisional_dependencies import (
     ProvisionalDependencyConflictError,
     ProvisionalDependencyCoordinator,
@@ -87,21 +89,27 @@ class PluginRegistrySnapshotMismatchError(ValueError):
     """Raised when marketplace consent no longer matches the registry."""
 
 
+class PluginRegistryVersionError(ValueError):
+    """Raised when a marketplace update does not advance the package version."""
+
+
 PluginDependencyConflictError = PluginDependencyValidationError
 MAX_PLUGIN_DEPENDENCY_CLOSURE = 16
 
 
 def registry_source_matches_installed_package(
-    manifest: PluginManifest,
+    state: PluginPackageState,
     snapshot: PluginRegistrySnapshot,
 ) -> bool:
-    """Return whether an installed package belongs to this exact registry source."""
+    """Return whether last-verified state belongs to this exact registry source."""
 
+    manifest = state.manifest
     configured = get_config().plugins.packages.get(manifest.plugin_id)
     if isinstance(configured, dict):
         configured = PluginSettings.model_validate(configured)
     return bool(
-        is_verified_registry_package(manifest, configured)
+        state.trusted
+        and has_registry_install_record(manifest, configured)
         and configured is not None
         and configured.registry_source == snapshot.registry_url
         and configured.registry_repo_url == snapshot.repo_url
@@ -183,6 +191,15 @@ class PluginInstallService:
             )
         entries_by_id = self._snapshot_entries(snapshot)
         entry = self._fetch_installable_entry(entries_by_id, plugin_id)
+        if expected_registry_update_source is not None:
+            installed = self._require_manager().get_package(plugin_id)
+            if installed is None or not is_plugin_version_newer(
+                entry.version,
+                installed.manifest.version,
+            ):
+                raise PluginRegistryVersionError(
+                    "Marketplace updates must use a newer plugin version"
+                )
         full_closure = self._resolve_install_closure(
             entry.plugin_id,
             snapshot=snapshot,
@@ -201,11 +218,14 @@ class PluginInstallService:
             raise PluginDependencyConflictError(str(exc)) from exc
 
         try:
-            order = self._resolve_install_closure(
-                entry.plugin_id,
-                snapshot=snapshot,
-                entries_by_id=entries_by_id,
-                already_installed=self._installed_plugin_ids(),
+            installed_plugin_ids = self._installed_plugin_ids()
+            order = await run_plugin_preparation_operation(
+                lambda: self._resolve_install_closure(
+                    entry.plugin_id,
+                    snapshot=snapshot,
+                    entries_by_id=entries_by_id,
+                    already_installed=installed_plugin_ids,
+                )
             )
             temp_root = Path(tempfile.mkdtemp(prefix="magi-plugin-dl-"))
             try:
@@ -298,7 +318,10 @@ class PluginInstallService:
         configured = get_config().plugins.packages.get(plugin_id)
         if isinstance(configured, dict):
             configured = PluginSettings.model_validate(configured)
-        if not is_verified_registry_package(state.manifest, configured):
+        package_is_verified = await run_plugin_preparation_operation(
+            lambda: is_verified_registry_package(state.manifest, configured)
+        )
+        if not package_is_verified:
             raise PluginRegistrySourceConflictError(
                 "The installed plugin does not have a verified marketplace source. "
                 "Uninstall it before installing from this marketplace."
@@ -323,6 +346,7 @@ class PluginInstallService:
         archive_path: Path,
         *,
         approved_manifest: PluginManifest,
+        approved_package_sha256: str,
         consented_capabilities: list[PluginCapability],
         progress_reporter=None,
         admission_lease: PluginInstallAdmissionLease | None = None,
@@ -335,6 +359,7 @@ class PluginInstallService:
             return await self._install_from_archive_admitted(
                 archive_path,
                 approved_manifest=approved_manifest,
+                approved_package_sha256=approved_package_sha256,
                 consented_capabilities=consented_capabilities,
                 progress_reporter=progress_reporter,
             )
@@ -347,6 +372,7 @@ class PluginInstallService:
         archive_path: Path,
         *,
         approved_manifest: PluginManifest,
+        approved_package_sha256: str,
         consented_capabilities: list[PluginCapability],
         progress_reporter=None,
     ) -> PluginPackageState:
@@ -357,8 +383,12 @@ class PluginInstallService:
                 raise PluginSideloadConflictError(
                     f"Plugin is already installed: {approved_manifest.plugin_id}"
                 )
-            inspected_manifest = manager.inspect_plugin_archive(archive_path)
-            if _approval_manifest_payload(inspected_manifest) != _approval_manifest_payload(
+            inspection = manager.inspect_plugin_archive(archive_path)
+            if inspection.package_sha256 != approved_package_sha256:
+                raise PluginInstallApprovalMismatchError(
+                    "Plugin package no longer matches the inspected content"
+                )
+            if _approval_manifest_payload(inspection.manifest) != _approval_manifest_payload(
                 approved_manifest
             ):
                 raise PluginInstallApprovalMismatchError(
@@ -366,6 +396,7 @@ class PluginInstallService:
                 )
             return manager.install_plugin_from_archive(
                 archive_path,
+                expected_package_sha256=approved_package_sha256,
                 consented_capabilities=consented_capabilities,
                 progress_reporter=progress_reporter,
             )
@@ -397,26 +428,17 @@ class PluginInstallService:
         if entry.kind == "library" and self._plugin_manager is not None:
             existing = self._plugin_manager.get_package(entry.plugin_id)
             if existing is not None:
-                self._assert_installed_library_reusable(
-                    entry,
-                    snapshot=snapshot,
-                    entries_by_id=entries_by_id,
+                await run_plugin_preparation_operation(
+                    lambda: self._assert_installed_library_reusable(
+                        entry,
+                        snapshot=snapshot,
+                        entries_by_id=entries_by_id,
+                    )
                 )
                 return existing
-        entry_fingerprint = registry_entry_fingerprint(
-            entry,
-            registry_url=snapshot.registry_url,
-            repo_url=snapshot.repo_url,
-        )
-        dependency_entry_fingerprints = {
-            dep_id: registry_entry_fingerprint(
-                entries_by_id[dep_id],
-                registry_url=snapshot.registry_url,
-                repo_url=snapshot.repo_url,
-            )
-            for dep_id in entry.depends_on
+        dependency_package_sha256 = {
+            dep_id: entries_by_id[dep_id].package_sha256 for dep_id in entry.depends_on
         }
-        manifest_fingerprint = plugin_manifest_fingerprint(manifest)
         effective_official = bool(snapshot.official_source and entry.official)
         if self._plugin_manager is None:
             raise RuntimeError("Plugin manager is not initialized")
@@ -429,9 +451,7 @@ class PluginInstallService:
                     entry,
                     outcome=outcome,
                     snapshot=snapshot,
-                    entry_fingerprint=entry_fingerprint,
-                    manifest_fingerprint=manifest_fingerprint,
-                    dependency_entry_fingerprints=dependency_entry_fingerprints,
+                    dependency_package_sha256=dependency_package_sha256,
                 ),
                 self._detach_provisional_library,
             )
@@ -445,9 +465,8 @@ class PluginInstallService:
                 install_origin="registry",
                 registry_source=snapshot.registry_url,
                 registry_repo_url=snapshot.repo_url,
-                registry_entry_fingerprint=entry_fingerprint,
-                registry_manifest_fingerprint=manifest_fingerprint,
-                dependency_entry_fingerprints=dependency_entry_fingerprints,
+                package_sha256=entry.package_sha256,
+                dependency_package_sha256=dependency_package_sha256,
                 dependency_workflow_budget=workflow_budget,
                 reject_existing=is_target and expected_registry_update_source is None,
                 expected_registry_update_source=(
@@ -471,11 +490,7 @@ class PluginInstallService:
                 plugin_id=entry.plugin_id,
                 registry_source=snapshot.registry_url,
                 registry_repo_url=snapshot.repo_url,
-                registry_entry_fingerprint=registry_entry_fingerprint(
-                    entry,
-                    registry_url=snapshot.registry_url,
-                    repo_url=snapshot.repo_url,
-                ),
+                package_sha256=entry.package_sha256,
             )
             for entry in order
             if entry.kind == "library"
@@ -487,19 +502,16 @@ class PluginInstallService:
         *,
         outcome: PluginDirectoryInstallOutcome,
         snapshot: PluginRegistrySnapshot,
-        entry_fingerprint: str,
-        manifest_fingerprint: str,
-        dependency_entry_fingerprints: dict[str, str],
+        dependency_package_sha256: dict[str, str],
     ) -> ProvisionalLibraryReceipt:
         return ProvisionalLibraryReceipt(
             requirement=ProvisionalLibraryRequirement(
                 plugin_id=entry.plugin_id,
                 registry_source=snapshot.registry_url,
                 registry_repo_url=snapshot.repo_url,
-                registry_entry_fingerprint=entry_fingerprint,
+                package_sha256=entry.package_sha256,
             ),
-            registry_manifest_fingerprint=manifest_fingerprint,
-            dependency_entry_fingerprints=tuple(sorted(dependency_entry_fingerprints.items())),
+            dependency_package_sha256=tuple(sorted(dependency_package_sha256.items())),
             plugin_dir=outcome.plugin_dir,
             manifest_path=outcome.manifest_path,
             destination_identity=outcome.destination_identity,
@@ -687,17 +699,11 @@ class PluginInstallService:
                 f"Installed dependency {entry.plugin_id} must be removed and reinstalled"
             )
 
-        expected_entry_fingerprint = registry_entry_fingerprint(
-            entry,
-            registry_url=snapshot.registry_url,
-            repo_url=snapshot.repo_url,
-        )
-        expected_dependency_fingerprints = {
-            dependency_id: registry_entry_fingerprint(
-                self._fetch_registry_entry(entries_by_id, dependency_id),
-                registry_url=snapshot.registry_url,
-                repo_url=snapshot.repo_url,
-            )
+        expected_dependency_package_sha256 = {
+            dependency_id: self._fetch_registry_entry(
+                entries_by_id,
+                dependency_id,
+            ).package_sha256
             for dependency_id in entry.depends_on
         }
         manifest = state.manifest
@@ -710,9 +716,9 @@ class PluginInstallService:
             and configured.install_origin == "registry"
             and configured.registry_source == snapshot.registry_url
             and configured.registry_repo_url == snapshot.repo_url
-            and configured.registry_entry_fingerprint == expected_entry_fingerprint
-            and configured.dependency_entry_fingerprints == expected_dependency_fingerprints
-            and configured.registry_manifest_fingerprint == plugin_manifest_fingerprint(manifest)
+            and configured.package_sha256 == entry.package_sha256
+            and configured.dependency_package_sha256 == expected_dependency_package_sha256
+            and is_verified_registry_package(manifest, configured)
         )
         if valid:
             try:
@@ -794,6 +800,10 @@ def _validate_registry_package_directory(
     manifest_file = package_files.find_plugin_manifest_in_tree(source_dir)
     if manifest_file is None:
         raise ValueError("Registry package does not contain a plugin.toml")
+    verify_package_sha256(
+        manifest_file.parent,
+        entry.package_sha256,
+    )
     manifest = load_plugin_manifest(manifest_file, source="external")
     validate_registry_package(entry, manifest)
     return manifest

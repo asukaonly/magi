@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 import httpx
+from magi_plugin_sdk.versioning import is_plugin_version_newer as _version_newer
 
 from ..config import get_config
 from . import package_files
@@ -37,7 +38,7 @@ INDEX_CACHE_TTL = 300  # 5 minutes
 MAX_REGISTRY_INDEX_BYTES = 4 * 1024 * 1024
 MAX_REGISTRY_TARBALL_BYTES = 64 * 1024 * 1024
 INDEX_DISK_CACHE_RELATIVE_PATH = Path("registry") / "index.json"
-REGISTRY_DISK_CACHE_SCHEMA_VERSION = 1
+REGISTRY_DISK_CACHE_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -532,13 +533,3 @@ def is_official_registry_source(registry_url: str | None, repo_url: str | None) 
         and repo_url
         and _normalize_repo_url(repo_url) == _normalize_repo_url(DEFAULT_REPO_URL)
     )
-
-
-def _version_newer(remote: str, local: str) -> bool:
-    """Compare semver-style version strings (best-effort)."""
-    try:
-        remote_parts = [int(p) for p in remote.split(".")]
-        local_parts = [int(p) for p in local.split(".")]
-        return remote_parts > local_parts
-    except (ValueError, AttributeError):
-        return remote != local

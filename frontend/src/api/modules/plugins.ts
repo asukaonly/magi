@@ -259,6 +259,7 @@ export interface PluginPackageState {
 export interface PluginInstallCandidate {
   candidate_id: string;
   archive_sha256: string;
+  package_sha256: string;
   expires_at_ms: number;
   manifest: PluginManifest;
 }
@@ -403,7 +404,7 @@ export interface PluginRegistryEntry {
 
 export interface PluginRegistryResponse {
   plugins: PluginRegistryEntry[];
-  registry_version: string;
+  registry_version: '4';
   install_fingerprint: string;
 }
 

@@ -14,6 +14,7 @@ from magi.plugins.contracts import (
 from magi.plugins.install_service import (
     PluginInstallService,
     PluginRegistrySnapshotMismatchError,
+    PluginRegistryVersionError,
 )
 from magi.plugins.registry_client import PluginRegistrySnapshot
 from magi.plugins.registry_provenance import registry_install_fingerprint
@@ -24,6 +25,7 @@ def _entry(**updates) -> PluginRegistryEntry:
         "plugin_id": "demo-plugin",
         "name": "Demo Plugin",
         "version": "1.0.0",
+        "package_sha256": "a" * 64,
         "path": "plugins/demo-plugin",
     }
     payload.update(updates)
@@ -31,16 +33,14 @@ def _entry(**updates) -> PluginRegistryEntry:
 
 
 def _snapshot(
-    entry: PluginRegistryEntry,
-    *,
-    registry_version: str = "1",
+    *entries: PluginRegistryEntry,
     registry_url: str = "https://example.test/registry.json",
     repo_url: str = "https://github.com/example/plugins.git",
     official_source: bool = False,
 ) -> PluginRegistrySnapshot:
     index = PluginRegistryIndex(
-        plugins=[entry],
-        registry_version=registry_version,
+        plugins=list(entries),
+        registry_version="4",
         repo_url=repo_url,
     )
     return PluginRegistrySnapshot(
@@ -91,11 +91,19 @@ class _Registry:
 
 
 class _Manager:
-    def __init__(self) -> None:
+    def __init__(self, installed: PluginPackageState | None = None) -> None:
         self.install_calls: list[dict] = []
+        self.installed = installed
 
     def installed_plugin_ids(self) -> set[str]:
-        return set()
+        if self.installed is None:
+            return set()
+        return {self.installed.manifest.plugin_id}
+
+    def get_package(self, plugin_id: str):
+        if self.installed is not None and self.installed.manifest.plugin_id == plugin_id:
+            return self.installed
+        return None
 
     def install_plugin_from_directory(self, plugin_dir: Path, **kwargs):
         self.install_calls.append({"plugin_dir": plugin_dir, **kwargs})
@@ -141,7 +149,10 @@ async def test_registry_install_rejects_stale_consent_before_download() -> None:
                 ]
             )
         ),
-        _snapshot(_entry(depends_on=["shared-library"])),
+        _snapshot(
+            _entry(depends_on=["shared-library"]),
+            _entry(plugin_id="shared-library", kind="library"),
+        ),
         _snapshot(
             _entry(),
             repo_url="https://github.com/example/other-plugins.git",
@@ -207,3 +218,37 @@ async def test_registry_install_uses_one_snapshot_and_effective_official_value(
     assert manager.install_calls[0]["official"] is False
     assert manager.install_calls[0]["registry_source"] == approved.registry_url
     assert manager.install_calls[0]["registry_repo_url"] == approved.repo_url
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("remote_version", ["2.0.0", "1.9.9"])
+async def test_registry_update_rejects_same_or_older_version_before_download(
+    remote_version: str,
+) -> None:
+    snapshot = _snapshot(_entry(version=remote_version))
+    registry = _Registry(snapshot)
+    manager = _Manager(
+        PluginPackageState(
+            manifest=PluginManifest(
+                id="demo-plugin",
+                name="Demo Plugin",
+                version="2.0.0",
+                source="external",
+            ),
+            enabled=True,
+            trusted=True,
+        )
+    )
+    service = PluginInstallService(registry_client=registry, plugin_manager=manager)
+
+    with pytest.raises(PluginRegistryVersionError, match="newer"):
+        await service._install_from_registry_admitted(
+            "demo-plugin",
+            expected_fingerprint=snapshot.install_fingerprint,
+            expected_registry_update_source=(
+                snapshot.registry_url,
+                snapshot.repo_url,
+            ),
+        )
+
+    assert registry.clone_calls == []

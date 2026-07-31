@@ -33,7 +33,7 @@ describe('PluginMarketplace', () => {
 
   it('shows registry-provided plugin icons on standalone marketplace cards', async () => {
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
-      registry_version: '1',
+      registry_version: '4',
       install_fingerprint: 'fingerprint-1',
       plugins: [
         {
@@ -94,12 +94,12 @@ describe('PluginMarketplace', () => {
     const getRegistry = vi
       .spyOn(pluginsApi, 'getRegistry')
       .mockResolvedValueOnce({
-        registry_version: '1',
+        registry_version: '4',
         install_fingerprint: 'fingerprint-old',
         plugins: [registryEntry('0.1.0')],
       })
       .mockResolvedValueOnce({
-        registry_version: '2',
+        registry_version: '4',
         install_fingerprint: 'fingerprint-new',
         plugins: [registryEntry('0.2.0')],
       });
@@ -143,7 +143,7 @@ describe('PluginMarketplace', () => {
   it('updates with the fingerprint from the details the user confirmed', async () => {
     const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
-      registry_version: '2',
+      registry_version: '4',
       install_fingerprint: 'update-fingerprint',
       plugins: [
         {
@@ -254,7 +254,7 @@ describe('PluginMarketplace', () => {
       capabilities: [networkCapability],
     });
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
-      registry_version: '2',
+      registry_version: '4',
       install_fingerprint: 'group-update-fingerprint',
       plugins: [
         groupedEntry('chrome-history', 'Chrome', false),
@@ -312,7 +312,7 @@ describe('PluginMarketplace', () => {
   it('groups browser history implementations and lets users choose entries before installing', async () => {
     const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
-      registry_version: '1',
+      registry_version: '4',
       install_fingerprint: 'fingerprint-1',
       plugins: [
         {
@@ -457,7 +457,7 @@ describe('PluginMarketplace', () => {
   it('shows partially installed grouped entries and installs only missing selections', async () => {
     const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
-      registry_version: '1',
+      registry_version: '4',
       install_fingerprint: 'fingerprint-1',
       plugins: [
         {
@@ -568,7 +568,7 @@ describe('PluginMarketplace', () => {
   it('shows one grouped progress panel while installing grouped browser entries', async () => {
     const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
-      registry_version: '1',
+      registry_version: '4',
       install_fingerprint: 'fingerprint-1',
       plugins: [
         {
@@ -658,13 +658,14 @@ describe('PluginMarketplace', () => {
   it('uploads a sideload package once and installs the inspected candidate', async () => {
     const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
-      registry_version: '1',
+      registry_version: '4',
       install_fingerprint: 'fingerprint-1',
       plugins: [],
     });
     const candidate = {
       candidate_id: 'candidate-1',
       archive_sha256: 'a'.repeat(64),
+      package_sha256: 'c'.repeat(64),
       expires_at_ms: Date.now() + 60_000,
       manifest: {
         plugin_id: 'demo-plugin',
@@ -713,13 +714,14 @@ describe('PluginMarketplace', () => {
   it('discards an inspected sideload candidate when the user cancels', async () => {
     const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
-      registry_version: '1',
+      registry_version: '4',
       install_fingerprint: 'fingerprint-1',
       plugins: [],
     });
     vi.spyOn(pluginsApi, 'createInstallCandidate').mockResolvedValue({
       candidate_id: 'candidate-2',
       archive_sha256: 'b'.repeat(64),
+      package_sha256: 'd'.repeat(64),
       expires_at_ms: Date.now() + 60_000,
       manifest: {
         plugin_id: 'demo-plugin',

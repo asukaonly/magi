@@ -2094,7 +2094,7 @@ describe('settings page draft saving', () => {
       ],
     } as any);
     vi.mocked(pluginsApi.getRegistry).mockResolvedValue({
-      registry_version: '1',
+      registry_version: '4',
       install_fingerprint: 'fingerprint-1',
       plugins: [
         browserRegistryEntry('chrome-history', 'Chrome History', 'Chrome', 10, true),

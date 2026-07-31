@@ -3,19 +3,25 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 import shutil
+import tempfile
 import threading
 
 import pytest
 
-from magi.config.models import AppConfig
+from magi.config.models import AppConfig, PluginSettings
+from magi.plugins import install_service as install_service_module
 from magi.plugins import package_files
 from magi.plugins.contracts import PluginRegistryEntry, PluginRegistryIndex
-from magi.plugins.discovery import load_plugin_manifest
 from magi.plugins.install_service import (
     PluginInstallService,
     _acquire_provisional_dependencies,
 )
 from magi.plugins.manager import PluginManager
+from magi.plugins.package_identity import (
+    compute_installed_package_sha256,
+    compute_installed_source_sha256,
+    compute_package_sha256,
+)
 from magi.plugins.provisional_dependencies import (
     ProvisionalDependencyConflictError,
     ProvisionalDependencyCoordinator,
@@ -23,11 +29,7 @@ from magi.plugins.provisional_dependencies import (
     ProvisionalLibraryRequirement,
 )
 from magi.plugins.registry_client import PluginRegistrySnapshot
-from magi.plugins.registry_provenance import (
-    plugin_manifest_fingerprint,
-    registry_entry_fingerprint,
-    registry_install_fingerprint,
-)
+from magi.plugins.registry_provenance import registry_install_fingerprint
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry
 
@@ -79,23 +81,40 @@ def _patch_config(
 def _entry(
     plugin_id: str,
     *,
+    version: str = "1.0.0",
     kind: str = "plugin",
     depends_on: list[str] | None = None,
+    broken: bool = False,
+    plugin_source: str | None = None,
 ) -> PluginRegistryEntry:
-    return PluginRegistryEntry(
+    entry = PluginRegistryEntry(
         plugin_id=plugin_id,
         name=plugin_id,
-        version="1.0.0",
+        version=version,
+        package_sha256="0" * 64,
         description="Dependency rollback test package",
         author="Test",
         path=plugin_id,
         kind=kind,
         depends_on=depends_on or [],
     )
+    return entry.model_copy(
+        update={
+            "package_sha256": _generated_package_sha256(
+                entry,
+                broken=broken,
+                plugin_source=plugin_source,
+            )
+        }
+    )
 
 
 def _snapshot(*entries: PluginRegistryEntry) -> PluginRegistrySnapshot:
-    index = PluginRegistryIndex(plugins=list(entries), repo_url=REPO_URL)
+    index = PluginRegistryIndex(
+        plugins=list(entries),
+        registry_version="4",
+        repo_url=REPO_URL,
+    )
     return PluginRegistrySnapshot(
         index=index,
         registry_url=REGISTRY_URL,
@@ -157,6 +176,19 @@ class RollbackPlugin(Plugin):
             encoding="utf-8",
         )
     return plugin_dir
+
+
+def _generated_package_sha256(
+    entry: PluginRegistryEntry,
+    *,
+    broken: bool = False,
+    plugin_source: str | None = None,
+) -> str:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        plugin_dir = _write_package(Path(temp_dir), entry, broken=broken)
+        if plugin_source is not None:
+            (plugin_dir / "plugin.py").write_text(plugin_source, encoding="utf-8")
+        return compute_package_sha256(plugin_dir)
 
 
 class _Registry:
@@ -242,13 +274,13 @@ def _requirement(
     plugin_id: str,
     *,
     registry_source: str = REGISTRY_URL,
-    entry_fingerprint: str = "a" * 64,
+    package_sha256: str = "a" * 64,
 ) -> ProvisionalLibraryRequirement:
     return ProvisionalLibraryRequirement(
         plugin_id=plugin_id,
         registry_source=registry_source,
         registry_repo_url=REPO_URL,
-        registry_entry_fingerprint=entry_fingerprint,
+        package_sha256=package_sha256,
     )
 
 
@@ -257,8 +289,7 @@ def _receipt(
 ) -> ProvisionalLibraryReceipt:
     return ProvisionalLibraryReceipt(
         requirement=requirement,
-        registry_manifest_fingerprint="c" * 64,
-        dependency_entry_fingerprints=(),
+        dependency_package_sha256=(),
         plugin_dir="/tmp/provisional-library",
         manifest_path="/tmp/provisional-library/plugin.toml",
         destination_identity=(1, 2),
@@ -266,8 +297,116 @@ def _receipt(
     )
 
 
+@pytest.mark.asyncio
+async def test_registry_update_keeps_disabled_plugin_unloaded(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plugin_id = "disabled-update-target"
+    initial_entry = _entry(plugin_id, version="1.0.0")
+    initial_snapshot = _snapshot(initial_entry)
+    manager, config, _ = _manager(monkeypatch, tmp_path)
+    coordinator = ProvisionalDependencyCoordinator()
+
+    installed = await _service(
+        _Registry(initial_snapshot),
+        manager,
+        coordinator,
+    ).install_from_registry(
+        plugin_id,
+        expected_fingerprint=initial_snapshot.install_fingerprint,
+    )
+    assert installed.target_state.loaded is True
+
+    disabled = manager.disable_plugin(plugin_id)
+    assert disabled.enabled is False
+    assert disabled.loaded is False
+    assert disabled.trusted is True
+
+    updated_entry = _entry(plugin_id, version="1.1.0")
+    updated_snapshot = _snapshot(updated_entry)
+    event_loop_thread = threading.get_ident()
+    verification_threads: list[int] = []
+    original_verification = install_service_module.is_verified_registry_package
+
+    def track_verification(*args, **kwargs) -> bool:
+        verification_threads.append(threading.get_ident())
+        return original_verification(*args, **kwargs)
+
+    monkeypatch.setattr(
+        install_service_module,
+        "is_verified_registry_package",
+        track_verification,
+    )
+    updated = await _service(
+        _Registry(updated_snapshot),
+        manager,
+        coordinator,
+    ).update_from_registry(
+        plugin_id,
+        expected_fingerprint=updated_snapshot.install_fingerprint,
+    )
+
+    configured = PluginSettings.model_validate(config.plugins.packages[plugin_id])
+    assert updated.manifest.version == "1.1.0"
+    assert updated.enabled is False
+    assert updated.loaded is False
+    assert updated.trusted is True
+    assert configured.enabled is False
+    assert configured.trusted is True
+    assert manager.get_loaded_plugin(plugin_id) is None
+    assert verification_threads
+    assert event_loop_thread not in verification_threads
+
+
+@pytest.mark.asyncio
+async def test_registry_update_keeps_enabled_plugin_loaded(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plugin_id = "enabled-update-target"
+    initial_entry = _entry(plugin_id, version="1.0.0")
+    initial_snapshot = _snapshot(initial_entry)
+    manager, config, _ = _manager(monkeypatch, tmp_path)
+    coordinator = ProvisionalDependencyCoordinator()
+
+    installed = await _service(
+        _Registry(initial_snapshot),
+        manager,
+        coordinator,
+    ).install_from_registry(
+        plugin_id,
+        expected_fingerprint=initial_snapshot.install_fingerprint,
+    )
+    previous_instance = manager.get_loaded_plugin(plugin_id)
+    assert installed.target_state.loaded is True
+    assert previous_instance is not None
+
+    updated_entry = _entry(plugin_id, version="1.1.0")
+    updated_snapshot = _snapshot(updated_entry)
+    updated = await _service(
+        _Registry(updated_snapshot),
+        manager,
+        coordinator,
+    ).update_from_registry(
+        plugin_id,
+        expected_fingerprint=updated_snapshot.install_fingerprint,
+    )
+
+    configured = PluginSettings.model_validate(config.plugins.packages[plugin_id])
+    current_instance = manager.get_loaded_plugin(plugin_id)
+    assert updated.manifest.version == "1.1.0"
+    assert updated.enabled is True
+    assert updated.loaded is True
+    assert updated.trusted is True
+    assert configured.enabled is True
+    assert configured.trusted is True
+    assert current_instance is not None
+    assert current_instance is not previous_instance
+
+
 @pytest.mark.parametrize(
-    ("registry_source", "entry_fingerprint"),
+    ("registry_source", "package_sha256"),
     [
         ("https://other.example.test/registry.json", "a" * 64),
         (REGISTRY_URL, "b" * 64),
@@ -275,7 +414,7 @@ def _receipt(
 )
 def test_incompatible_claim_fails_atomically_without_partial_claims(
     registry_source: str,
-    entry_fingerprint: str,
+    package_sha256: str,
 ) -> None:
     coordinator = ProvisionalDependencyCoordinator()
     active_requirement = _requirement("active-library")
@@ -284,7 +423,7 @@ def test_incompatible_claim_fails_atomically_without_partial_claims(
     incompatible_requirement = _requirement(
         active_requirement.plugin_id,
         registry_source=registry_source,
-        entry_fingerprint=entry_fingerprint,
+        package_sha256=package_sha256,
     )
 
     with pytest.raises(ProvisionalDependencyConflictError):
@@ -434,7 +573,7 @@ async def test_failed_target_removes_new_provisional_library(
     tmp_path: Path,
 ) -> None:
     library = _entry("rollback-library", kind="library")
-    target = _entry("broken-target", depends_on=[library.plugin_id])
+    target = _entry("broken-target", depends_on=[library.plugin_id], broken=True)
     snapshot = _snapshot(library, target)
     manager, config, user_root = _manager(monkeypatch, tmp_path)
     coordinator = ProvisionalDependencyCoordinator()
@@ -503,7 +642,11 @@ async def test_late_workflow_reinstalls_library_after_prior_cleanup(
     tmp_path: Path,
 ) -> None:
     library = _entry("release-first-library", kind="library")
-    failed_target = _entry("release-first-broken-target", depends_on=[library.plugin_id])
+    failed_target = _entry(
+        "release-first-broken-target",
+        depends_on=[library.plugin_id],
+        broken=True,
+    )
     successful_target = _entry("release-first-success-target", depends_on=[library.plugin_id])
     snapshot = _snapshot(library, failed_target, successful_target)
     manager, _, user_root = _manager(monkeypatch, tmp_path)
@@ -546,25 +689,29 @@ async def test_failed_target_preserves_preexisting_library(
     tmp_path: Path,
 ) -> None:
     library = _entry("existing-library", kind="library")
-    target = _entry("broken-existing-target", depends_on=[library.plugin_id])
+    target = _entry(
+        "broken-existing-target",
+        depends_on=[library.plugin_id],
+        broken=True,
+    )
     snapshot = _snapshot(library, target)
     manager, config, user_root = _manager(monkeypatch, tmp_path)
     source_root = tmp_path / "preexisting"
     library_dir = _write_package(source_root, library)
-    manifest = load_plugin_manifest(library_dir / "plugin.toml", source="external")
-    entry_fingerprint = registry_entry_fingerprint(
-        library,
-        registry_url=REGISTRY_URL,
-        repo_url=REPO_URL,
-    )
+    package_sha256 = compute_package_sha256(library_dir)
+    assert package_sha256 == library.package_sha256
     manager.install_plugin_from_directory(
         library_dir,
         install_origin="registry",
         registry_source=REGISTRY_URL,
         registry_repo_url=REPO_URL,
-        registry_entry_fingerprint=entry_fingerprint,
-        registry_manifest_fingerprint=plugin_manifest_fingerprint(manifest),
-        dependency_entry_fingerprints={},
+        package_sha256=package_sha256,
+        dependency_package_sha256={},
+    )
+    configured_library = PluginSettings.model_validate(config.plugins.packages[library.plugin_id])
+    assert configured_library.package_sha256 == package_sha256
+    assert configured_library.installed_package_sha256 == (
+        compute_installed_package_sha256(user_root / library.plugin_id)
     )
     coordinator = ProvisionalDependencyCoordinator()
 
@@ -590,7 +737,11 @@ async def test_failed_and_successful_workflows_share_library_without_deletion(
     tmp_path: Path,
 ) -> None:
     library = _entry("shared-rollback-library", kind="library")
-    failed_target = _entry("failed-shared-target", depends_on=[library.plugin_id])
+    failed_target = _entry(
+        "failed-shared-target",
+        depends_on=[library.plugin_id],
+        broken=True,
+    )
     successful_target = _entry("successful-shared-target", depends_on=[library.plugin_id])
     snapshot = _snapshot(library, failed_target, successful_target)
     successful_target_waiting = asyncio.Event()
@@ -646,7 +797,11 @@ async def test_late_workflow_claims_published_library_before_first_release(
     tmp_path: Path,
 ) -> None:
     library = _entry("late-claim-library", kind="library")
-    failed_target = _entry("late-claim-broken-target", depends_on=[library.plugin_id])
+    failed_target = _entry(
+        "late-claim-broken-target",
+        depends_on=[library.plugin_id],
+        broken=True,
+    )
     successful_target = _entry("late-claim-success-target", depends_on=[library.plugin_id])
     snapshot = _snapshot(library, failed_target, successful_target)
     manager, _, user_root = _manager(monkeypatch, tmp_path)
@@ -723,7 +878,11 @@ async def test_creator_manager_cleans_when_stale_manager_releases_last(
     tmp_path: Path,
 ) -> None:
     library = _entry("creator-owned-library", kind="library")
-    creator_target = _entry("creator-owned-broken-target", depends_on=[library.plugin_id])
+    creator_target = _entry(
+        "creator-owned-broken-target",
+        depends_on=[library.plugin_id],
+        broken=True,
+    )
     stale_target = _entry("stale-manager-target", depends_on=[library.plugin_id])
     snapshot = _snapshot(library, creator_target, stale_target)
     creator_manager, config, user_root = _manager(monkeypatch, tmp_path)
@@ -798,8 +957,16 @@ async def test_two_failed_workflows_remove_shared_library_after_last_release(
     tmp_path: Path,
 ) -> None:
     library = _entry("all-failed-library", kind="library")
-    first_target = _entry("first-broken-target", depends_on=[library.plugin_id])
-    second_target = _entry("second-broken-target", depends_on=[library.plugin_id])
+    first_target = _entry(
+        "first-broken-target",
+        depends_on=[library.plugin_id],
+        broken=True,
+    )
+    second_target = _entry(
+        "second-broken-target",
+        depends_on=[library.plugin_id],
+        broken=True,
+    )
     snapshot = _snapshot(library, first_target, second_target)
     targets_ready = asyncio.Event()
     target_count = 0
@@ -851,7 +1018,11 @@ async def test_nested_libraries_are_removed_in_reverse_dependency_order(
 ) -> None:
     leaf = _entry("rollback-leaf", kind="library")
     parent = _entry("rollback-parent", kind="library", depends_on=[leaf.plugin_id])
-    target = _entry("broken-nested-target", depends_on=[parent.plugin_id])
+    target = _entry(
+        "broken-nested-target",
+        depends_on=[parent.plugin_id],
+        broken=True,
+    )
     snapshot = _snapshot(leaf, parent, target)
     manager, config, user_root = _manager(monkeypatch, tmp_path)
     coordinator = ProvisionalDependencyCoordinator()
@@ -882,8 +1053,16 @@ async def test_nested_library_owned_by_stale_manager_preserves_retained_parent(
 ) -> None:
     leaf = _entry("cross-owner-leaf", kind="library")
     parent = _entry("cross-owner-parent", kind="library", depends_on=[leaf.plugin_id])
-    leaf_target = _entry("cross-owner-leaf-target", depends_on=[leaf.plugin_id])
-    parent_target = _entry("cross-owner-parent-target", depends_on=[parent.plugin_id])
+    leaf_target = _entry(
+        "cross-owner-leaf-target",
+        depends_on=[leaf.plugin_id],
+        broken=True,
+    )
+    parent_target = _entry(
+        "cross-owner-parent-target",
+        depends_on=[parent.plugin_id],
+        broken=True,
+    )
     snapshot = _snapshot(leaf, parent, leaf_target, parent_target)
     leaf_manager, config, user_root = _manager(monkeypatch, tmp_path)
     parent_manager = _new_manager(user_root)
@@ -981,9 +1160,9 @@ async def test_identity_change_prevents_provisional_library_deletion(
         if plugin_id == target.plugin_id:
             package_config = config.plugins.packages[library.plugin_id]
             if isinstance(package_config, dict):
-                package_config["registry_entry_fingerprint"] = "f" * 64
+                package_config["package_sha256"] = "f" * 64
             else:
-                package_config.registry_entry_fingerprint = "f" * 64
+                package_config.package_sha256 = "f" * 64
             raise RuntimeError("identity changed before rollback")
         return original_load(plugin_id)
 
@@ -1063,7 +1242,11 @@ async def test_generation_replaced_before_receipt_registration_is_preserved(
     tmp_path: Path,
 ) -> None:
     library = _entry("pre-receipt-replacement-library", kind="library")
-    target = _entry("pre-receipt-replacement-target", depends_on=[library.plugin_id])
+    target = _entry(
+        "pre-receipt-replacement-target",
+        depends_on=[library.plugin_id],
+        broken=True,
+    )
     snapshot = _snapshot(library, target)
     manager, config, user_root = _manager(monkeypatch, tmp_path)
     coordinator = ProvisionalDependencyCoordinator()
@@ -1112,37 +1295,31 @@ async def test_new_consumer_prevents_provisional_library_deletion(
     tmp_path: Path,
 ) -> None:
     library = _entry("new-consumer-library", kind="library")
-    target = _entry("new-consumer-broken-target", depends_on=[library.plugin_id])
+    target = _entry(
+        "new-consumer-broken-target",
+        depends_on=[library.plugin_id],
+        broken=True,
+    )
     consumer = _entry("late-installed-consumer", depends_on=[library.plugin_id])
     snapshot = _snapshot(library, target, consumer)
     manager, config, user_root = _manager(monkeypatch, tmp_path)
     coordinator = ProvisionalDependencyCoordinator()
     consumer_dir = _write_package(tmp_path / "consumer-source", consumer)
-    consumer_manifest = load_plugin_manifest(
-        consumer_dir / "plugin.toml",
-        source="external",
-    )
-    library_fingerprint = registry_entry_fingerprint(
-        library,
-        registry_url=REGISTRY_URL,
-        repo_url=REPO_URL,
-    )
+    consumer_package_sha256 = compute_package_sha256(consumer_dir)
+    assert consumer_package_sha256 == consumer.package_sha256
     original_install = manager.install_plugin_from_directory
 
     def install_consumer_before_target(plugin_dir: Path, **kwargs):
         if plugin_dir.name == target.plugin_id:
+            library_package_sha256 = compute_installed_source_sha256(user_root / library.plugin_id)
+            assert library_package_sha256 == library.package_sha256
             original_install(
                 consumer_dir,
                 install_origin="registry",
                 registry_source=REGISTRY_URL,
                 registry_repo_url=REPO_URL,
-                registry_entry_fingerprint=registry_entry_fingerprint(
-                    consumer,
-                    registry_url=REGISTRY_URL,
-                    repo_url=REPO_URL,
-                ),
-                registry_manifest_fingerprint=plugin_manifest_fingerprint(consumer_manifest),
-                dependency_entry_fingerprints={library.plugin_id: library_fingerprint},
+                package_sha256=consumer_package_sha256,
+                dependency_package_sha256={library.plugin_id: library_package_sha256},
             )
         return original_install(plugin_dir, **kwargs)
 
@@ -1171,12 +1348,19 @@ async def test_new_consumer_prevents_provisional_library_deletion(
 
 
 @pytest.mark.asyncio
-async def test_import_cache_does_not_prevent_provisional_library_deletion(
+async def test_import_cache_is_purged_before_provisional_library_deletion(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     library = _entry("runtime_cache_library", kind="library")
-    target = _entry("runtime-cache-target", depends_on=[library.plugin_id])
+    target_source = (
+        f"import {library.plugin_id}\n" "raise RuntimeError('failed after dependency import')\n"
+    )
+    target = _entry(
+        "runtime-cache-target",
+        depends_on=[library.plugin_id],
+        plugin_source=target_source,
+    )
     snapshot = _snapshot(library, target)
     manager, config, user_root = _manager(monkeypatch, tmp_path)
     coordinator = ProvisionalDependencyCoordinator()
@@ -1199,10 +1383,7 @@ async def test_import_cache_does_not_prevent_provisional_library_deletion(
             _Registry(
                 snapshot,
                 plugin_sources={
-                    target.plugin_id: (
-                        f"import {library.plugin_id}\n"
-                        "raise RuntimeError('failed after dependency import')\n"
-                    )
+                    target.plugin_id: target_source,
                 },
             ),
             manager,
@@ -1212,7 +1393,7 @@ async def test_import_cache_does_not_prevent_provisional_library_deletion(
             expected_fingerprint=snapshot.install_fingerprint,
         )
 
-    assert observed_import_cache == [True]
+    assert observed_import_cache == [False]
     assert manager.get_package(library.plugin_id) is None
     assert library.plugin_id not in config.plugins.packages
     assert not (user_root / library.plugin_id).exists()

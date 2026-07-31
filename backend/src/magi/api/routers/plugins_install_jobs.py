@@ -36,6 +36,7 @@ from ...plugins.install_service import (
     PluginPackageConflictError,
     PluginRegistrySourceConflictError,
     PluginRegistrySnapshotMismatchError,
+    PluginRegistryVersionError,
 )
 from ...plugins.package_files import InvalidPluginArchiveError
 from .plugins_common import (
@@ -400,6 +401,8 @@ class PluginInstallJobManager:
                 ),
                 error_code="PLUGIN_REGISTRY_CHANGED",
             )
+        except PluginRegistryVersionError as exc:
+            job.fail(str(exc), error_code="PLUGIN_VERSION_NOT_ADVANCED")
         except (PluginPackageConflictError, PluginRegistrySourceConflictError):
             job.fail(
                 core_i18n.t(
@@ -468,6 +471,8 @@ class PluginInstallJobManager:
                 ),
                 error_code="PLUGIN_REGISTRY_CHANGED",
             )
+        except PluginRegistryVersionError as exc:
+            job.fail(str(exc), error_code="PLUGIN_VERSION_NOT_ADVANCED")
         except (PluginPackageConflictError, PluginRegistrySourceConflictError):
             job.fail(
                 core_i18n.t(
@@ -534,6 +539,7 @@ class PluginInstallJobManager:
                 state = await install_service.install_from_archive(
                     archive_path,
                     approved_manifest=candidate.manifest,
+                    approved_package_sha256=candidate.package_sha256,
                     consented_capabilities=candidate.manifest.capabilities,
                     progress_reporter=self._reporter(job),
                     admission_lease=job.admission_lease,

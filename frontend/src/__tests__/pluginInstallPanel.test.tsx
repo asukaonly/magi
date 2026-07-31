@@ -440,7 +440,7 @@ describe('PluginInstallPanel', () => {
           capabilities: [{ capability: 'network', scope: ['ws.audioscrobbler.com'] }],
         },
       ],
-      registry_version: '2',
+      registry_version: '4',
       install_fingerprint: 'fingerprint-2',
     } as any);
     const installSpy = vi
@@ -479,7 +479,7 @@ describe('PluginInstallPanel', () => {
   it('does not allow consent when the requested plugin is absent from the registry', async () => {
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       plugins: [],
-      registry_version: '2',
+      registry_version: '4',
       install_fingerprint: 'fingerprint-for-other-plugins',
     } as any);
     const installSpy = vi

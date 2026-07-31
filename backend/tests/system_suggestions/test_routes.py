@@ -221,6 +221,7 @@ def app_with_installable():
         plugin_id="spotify-history",
         name="spotify-history",
         version="0.1.0",
+        package_sha256="a" * 64,
         suggestion_descriptor=SuggestionDescriptor(
             category="music_history",
             triggers=Triggers(intents=[], entities=[], keywords={"zh": ["音乐"], "en": ["music"]}),
@@ -442,6 +443,7 @@ async def test_default_candidates_carries_registry_source_authority(
         plugin_id="registry-candidate",
         name="Registry Candidate",
         version="1.0.0",
+        package_sha256="a" * 64,
         suggestion_descriptor=SuggestionDescriptor(
             category="test",
             triggers=Triggers(),
@@ -490,6 +492,7 @@ def test_custom_registry_candidate_never_executes_local_requirements(
         plugin_id="custom-registry-candidate",
         name="Custom Candidate",
         version="1.0.0",
+        package_sha256="a" * 64,
         suggestion_descriptor=SuggestionDescriptor(
             category="test",
             triggers=Triggers(),

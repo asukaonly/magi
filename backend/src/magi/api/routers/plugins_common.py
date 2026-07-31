@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException, status
+from magi_plugin_sdk.versioning import is_plugin_version_newer as _version_newer
 
 from ... import i18n as core_i18n
 from ...plugins.install_service import PluginInstallService
@@ -65,16 +66,6 @@ def _require_package(plugin_id: str):
             detail=core_i18n.t("plugins.errors.not_found", fallback="Plugin not found"),
         )
     return manager, package
-
-
-def _version_newer(remote: str, local: str) -> bool:
-    """Compare semver-style version strings (best-effort)."""
-    try:
-        remote_parts = [int(p) for p in remote.split(".")]
-        local_parts = [int(p) for p in local.split(".")]
-        return remote_parts > local_parts
-    except (ValueError, AttributeError):
-        return remote != local
 
 
 __all__ = [

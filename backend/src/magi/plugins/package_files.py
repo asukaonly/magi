@@ -14,9 +14,15 @@ import stat
 import struct
 import tarfile
 import tempfile
-import unicodedata
 import uuid
 import zipfile
+
+from magi_plugin_sdk.package_identity import (
+    InvalidPackageIdentityPathError,
+    PortablePathTracker,
+    canonicalize_package_path,
+    normalize_package_path_component,
+)
 
 from .operation_execution import serialize_plugin_archive_operation
 
@@ -42,15 +48,6 @@ _ZIP_CENTRAL_SIGNATURE = b"PK\x01\x02"
 _ZIP_MAX_COMMENT_BYTES = (1 << 16) - 1
 _ZIP_SENTINEL_16 = (1 << 16) - 1
 _ZIP_SENTINEL_32 = (1 << 32) - 1
-
-_WINDOWS_RESERVED_PATH_STEMS = {
-    "aux",
-    "con",
-    "nul",
-    "prn",
-    *(f"com{index}" for index in range(1, 10)),
-    *(f"lpt{index}" for index in range(1, 10)),
-}
 
 
 class InvalidPluginArchiveError(ValueError):
@@ -101,7 +98,7 @@ class _ArchivePlan:
         self.members: list[_PlannedArchiveMember] = []
         self._seen_paths: set[str] = set()
         self._file_paths: set[str] = set()
-        self._portable_path_spellings: dict[str, str] = {}
+        self._path_tracker = PortablePathTracker()
         self._total_bytes = 0
         self._member_count = 0
 
@@ -123,24 +120,20 @@ class _ArchivePlan:
         normalized = _normalize_archive_member_path(raw_name, is_dir=is_dir)
         if normalized is None:
             return
-        relative_path, portable_key = normalized
+        relative_path = normalized
+        try:
+            portable_key = canonicalize_package_path(relative_path.parts).portable_key
+        except InvalidPackageIdentityPathError as exc:
+            raise InvalidPluginArchiveError(str(exc)) from exc
 
         if portable_key in self._seen_paths:
             raise InvalidPluginArchiveError(
                 f"Duplicate or case-conflicting archive path: {raw_name}"
             )
-
-        exact_parts = [unicodedata.normalize("NFC", part) for part in relative_path.parts]
-        portable_parts = portable_key.split("/")
-        for index in range(1, len(portable_parts) + 1):
-            portable_prefix = "/".join(portable_parts[:index])
-            exact_prefix = "/".join(exact_parts[:index])
-            previous_spelling = self._portable_path_spellings.get(portable_prefix)
-            if previous_spelling is not None and previous_spelling != exact_prefix:
-                raise InvalidPluginArchiveError(
-                    f"Archive paths have conflicting portable spellings: {raw_name}"
-                )
-            self._portable_path_spellings[portable_prefix] = exact_prefix
+        try:
+            self._path_tracker.add(relative_path.parts)
+        except InvalidPackageIdentityPathError as exc:
+            raise InvalidPluginArchiveError(str(exc)) from exc
 
         key_parts = portable_key.split("/")
         for index in range(1, len(key_parts)):
@@ -673,7 +666,7 @@ def _normalize_archive_member_path(
     raw_name: str,
     *,
     is_dir: bool,
-) -> tuple[Path, str] | None:
+) -> Path | None:
     if not isinstance(raw_name, str) or not raw_name:
         raise InvalidPluginArchiveError("Archive contains an empty path")
     if "\x00" in raw_name or any(ord(character) < 32 for character in raw_name):
@@ -706,36 +699,23 @@ def _normalize_archive_member_path(
     if len(parts) > MAX_PLUGIN_ARCHIVE_PATH_DEPTH:
         raise InvalidPluginArchiveError(f"Archive path is too deep: {raw_name}")
 
-    portable_parts: list[str] = []
     for part in parts:
         if part in {"", ".", ".."}:
             raise InvalidPluginArchiveError(f"Archive contains an unsafe path: {raw_name}")
-        if ":" in part:
-            raise InvalidPluginArchiveError(
-                f"Archive path contains a Windows drive or stream: {raw_name}"
-            )
-        if part.endswith((" ", ".")):
-            raise InvalidPluginArchiveError(
-                f"Archive path has a non-portable trailing character: {raw_name}"
-            )
         try:
-            encoded_part = part.encode("utf-8")
+            normalized_part = normalize_package_path_component(part)
+        except InvalidPackageIdentityPathError as exc:
+            raise InvalidPluginArchiveError(str(exc)) from exc
+        try:
+            encoded_part = normalized_part.encode("utf-8")
         except UnicodeEncodeError as exc:
             raise InvalidPluginArchiveError(
                 f"Archive path component is not valid UTF-8 text: {raw_name!r}"
             ) from exc
         if len(encoded_part) > MAX_PLUGIN_ARCHIVE_COMPONENT_BYTES:
             raise InvalidPluginArchiveError(f"Archive path component is too long: {raw_name}")
-        reserved_stem = part.rstrip(" .").split(".", 1)[0].casefold()
-        if reserved_stem in _WINDOWS_RESERVED_PATH_STEMS:
-            raise InvalidPluginArchiveError(
-                f"Archive path uses a reserved Windows name: {raw_name}"
-            )
-        portable_parts.append(unicodedata.normalize("NFC", part).casefold())
 
-    relative_path = Path(*parts)
-    portable_key = "/".join(portable_parts)
-    return relative_path, portable_key
+    return Path(*parts)
 
 
 def _prepare_archive_destination(dest: Path) -> Path:

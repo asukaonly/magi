@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from pathlib import Path
+import tempfile
 import threading
 
 import pytest
@@ -42,6 +43,8 @@ from magi.plugins.install_service import (
     PluginSideloadConflictError,
 )
 from magi.plugins.install_admission import PluginInstallAdmissionCoordinator
+from magi.plugins.installation import PluginArchiveInspection
+from magi.plugins.package_identity import compute_package_sha256
 
 
 def _manifest() -> PluginManifest:
@@ -60,6 +63,17 @@ def _manifest() -> PluginManifest:
     )
 
 
+def _package_sha256() -> str:
+    with tempfile.TemporaryDirectory(prefix="magi-candidate-job-package-") as tmp:
+        package_dir = Path(tmp)
+        (package_dir / "plugin.toml").write_text(
+            '[plugin]\nid = "demo-plugin"\nname = "Demo Plugin"\nversion = "1.0.0"\n',
+            encoding="utf-8",
+        )
+        (package_dir / "plugin.py").write_text("VALUE = 1\n", encoding="utf-8")
+        return compute_package_sha256(package_dir)
+
+
 def _registered_candidate(store: PluginInstallCandidateStore):
     candidate_id, archive_path = store.reserve_archive(".zip")
     archive_path.write_bytes(b"archive")
@@ -68,6 +82,7 @@ def _registered_candidate(store: PluginInstallCandidateStore):
         archive_path=archive_path,
         original_filename="demo.zip",
         archive_sha256=hashlib.sha256(b"archive").hexdigest(),
+        package_sha256=_package_sha256(),
         manifest=_manifest(),
     )
 
@@ -559,12 +574,14 @@ async def test_job_installs_exact_candidate_and_always_removes_it(monkeypatch, t
             archive_path: Path,
             *,
             approved_manifest,
+            approved_package_sha256,
             consented_capabilities,
             progress_reporter,
             admission_lease,
         ):
             captured["archive_bytes"] = archive_path.read_bytes()
             captured["approved_manifest"] = approved_manifest
+            captured["approved_package_sha256"] = approved_package_sha256
             captured["capabilities"] = consented_capabilities
             captured["admission_lease"] = admission_lease
             progress_reporter("install", "Installing", 50)
@@ -585,6 +602,7 @@ async def test_job_installs_exact_candidate_and_always_removes_it(monkeypatch, t
 
     assert captured["archive_bytes"] == b"archive"
     assert captured["approved_manifest"] == candidate.manifest
+    assert captured["approved_package_sha256"] == candidate.package_sha256
     assert captured["capabilities"] == candidate.manifest.capabilities
     assert captured["admission_lease"] is None
     assert job.status == "completed"
@@ -595,6 +613,7 @@ async def test_job_installs_exact_candidate_and_always_removes_it(monkeypatch, t
 @pytest.mark.asyncio
 async def test_archive_install_persists_the_approved_capabilities(monkeypatch, tmp_path):
     state = PluginPackageState(manifest=_manifest())
+    package_sha256 = _package_sha256()
     captured: dict[str, object] = {}
 
     class _Manager:
@@ -603,17 +622,22 @@ async def test_archive_install_persists_the_approved_capabilities(monkeypatch, t
 
         def inspect_plugin_archive(self, archive_path):
             assert archive_path == tmp_path / "demo.zip"
-            return _manifest()
+            return PluginArchiveInspection(
+                manifest=_manifest(),
+                package_sha256=package_sha256,
+            )
 
         def install_plugin_from_archive(
             self,
             archive_path,
             *,
+            expected_package_sha256,
             consented_capabilities,
             progress_reporter=None,
         ):
             assert archive_path == tmp_path / "demo.zip"
             assert progress_reporter is None
+            captured["expected_package_sha256"] = expected_package_sha256
             captured["consented_capabilities"] = consented_capabilities
             return state
 
@@ -625,10 +649,12 @@ async def test_archive_install_persists_the_approved_capabilities(monkeypatch, t
     result = await service.install_from_archive(
         tmp_path / "demo.zip",
         approved_manifest=state.manifest,
+        approved_package_sha256=package_sha256,
         consented_capabilities=state.manifest.capabilities,
     )
 
     assert result is state
+    assert captured["expected_package_sha256"] == package_sha256
     assert captured["consented_capabilities"] == state.manifest.capabilities
 
 
@@ -648,6 +674,7 @@ async def test_archive_install_rejects_an_id_installed_after_inspection(tmp_path
         await service.install_from_archive(
             tmp_path / "demo.zip",
             approved_manifest=_manifest(),
+            approved_package_sha256=_package_sha256(),
             consented_capabilities=[],
         )
 
@@ -655,13 +682,17 @@ async def test_archive_install_rejects_an_id_installed_after_inspection(tmp_path
 @pytest.mark.asyncio
 async def test_archive_install_rejects_manifest_changed_after_approval(tmp_path):
     changed = _manifest().model_copy(update={"version": "2.0.0"})
+    package_sha256 = _package_sha256()
 
     class _Manager:
         def get_package(self, _plugin_id):
             return None
 
         def inspect_plugin_archive(self, _archive_path):
-            return changed
+            return PluginArchiveInspection(
+                manifest=changed,
+                package_sha256=package_sha256,
+            )
 
     service = PluginInstallService(
         registry_client=object(),
@@ -672,5 +703,6 @@ async def test_archive_install_rejects_manifest_changed_after_approval(tmp_path)
         await service.install_from_archive(
             tmp_path / "demo.zip",
             approved_manifest=_manifest(),
+            approved_package_sha256=package_sha256,
             consented_capabilities=[],
         )

@@ -25,14 +25,14 @@ class ProvisionalLibraryRequirement:
     plugin_id: str
     registry_source: str
     registry_repo_url: str
-    registry_entry_fingerprint: str
+    package_sha256: str
 
     @property
     def provenance(self) -> tuple[str, str, str]:
         return (
             self.registry_source,
             self.registry_repo_url,
-            self.registry_entry_fingerprint,
+            self.package_sha256,
         )
 
 
@@ -41,8 +41,7 @@ class ProvisionalLibraryReceipt:
     """Identity captured when a workflow publishes a previously absent library."""
 
     requirement: ProvisionalLibraryRequirement
-    registry_manifest_fingerprint: str
-    dependency_entry_fingerprints: tuple[tuple[str, str], ...]
+    dependency_package_sha256: tuple[tuple[str, str], ...]
     plugin_dir: str
     manifest_path: str
     destination_identity: DirectoryIdentity

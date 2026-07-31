@@ -84,6 +84,7 @@ def test_registry_entry_uses_the_same_identifier_contract() -> None:
             plugin_id="../../escape",
             name="Example",
             version="1.0.0",
+            package_sha256="a" * 64,
         )
 
     with pytest.raises(ValidationError):
@@ -91,8 +92,37 @@ def test_registry_entry_uses_the_same_identifier_contract() -> None:
             plugin_id="example",
             name="Example",
             version="1.0.0",
+            package_sha256="a" * 64,
             depends_on=["BadDependency"],
         )
+
+
+@pytest.mark.parametrize("model", [PluginManifest, PluginRegistryEntry])
+@pytest.mark.parametrize(
+    "version",
+    [
+        "1",
+        "1.0",
+        "01.0.0",
+        "1.0.0-beta",
+        "1.0.0+build",
+        "latest",
+        f"{'1' * 33}.0.0",
+    ],
+)
+def test_plugin_versions_require_canonical_major_minor_patch(model, version: str) -> None:
+    payload = {
+        "name": "Example",
+        "version": version,
+    }
+    if model is PluginManifest:
+        payload["id"] = "example"
+    else:
+        payload["plugin_id"] = "example"
+        payload["package_sha256"] = "a" * 64
+
+    with pytest.raises(ValidationError):
+        model.model_validate(payload)
 
 
 @pytest.mark.parametrize("model", [PluginManifest, PluginRegistryEntry])
@@ -103,6 +133,8 @@ def test_package_rejects_more_than_eight_direct_dependencies(model) -> None:
         "depends_on": [f"library-{index}" for index in range(9)],
     }
     identifier_field = "id" if model is PluginManifest else "plugin_id"
+    if model is PluginRegistryEntry:
+        payload["package_sha256"] = "a" * 64
     payload[identifier_field] = "example"
 
     with pytest.raises(ValidationError):

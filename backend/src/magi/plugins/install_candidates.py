@@ -48,6 +48,7 @@ class PluginInstallCandidate:
     archive_suffix: str
     original_filename: str
     archive_sha256: str
+    package_sha256: str
     manifest: PluginManifest
     created_at: float
     expires_at: float
@@ -115,10 +116,17 @@ class PluginInstallCandidateStore:
         archive_path: Path,
         original_filename: str,
         archive_sha256: str,
+        package_sha256: str,
         manifest: PluginManifest,
     ) -> PluginInstallCandidate:
         """Register a successfully inspected staged archive."""
 
+        if (
+            len(package_sha256) != 64
+            or package_sha256.casefold() != package_sha256
+            or any(character not in "0123456789abcdef" for character in package_sha256)
+        ):
+            raise ValueError("Plugin package digest must be lowercase SHA-256")
         with self._lock:
             self._prune_expired_locked()
             if candidate_id not in self._reserved_until:
@@ -146,6 +154,7 @@ class PluginInstallCandidateStore:
                 archive_suffix=(".tar.gz" if resolved_archive.name.endswith(".tar.gz") else ".zip"),
                 original_filename=original_filename,
                 archive_sha256=archive_sha256,
+                package_sha256=package_sha256,
                 manifest=manifest,
                 created_at=created_at,
                 expires_at=created_at + self._ttl_seconds,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from enum import Enum
 import logging
 from pathlib import Path
 import shutil
@@ -16,8 +17,14 @@ from .operation_execution import plugin_preparation_slot, serialize_plugin_archi
 from .contracts import PluginCapability, PluginManifest, PluginPackageState
 from .discovery import load_plugin_manifest
 from .icon_assets import resolve_plugin_icon
+from .package_identity import (
+    compute_installed_package_sha256,
+    compute_package_sha256,
+    purge_plugin_bytecode_caches,
+    verify_installed_source_sha256,
+    verify_package_sha256,
+)
 from .package_integrity import package_identity_error
-from .registry_provenance import plugin_manifest_fingerprint
 from .provisional_dependencies import (
     DirectoryIdentity,
     PathIdentity,
@@ -47,6 +54,7 @@ __all__ = [
     "InstallProgressReporter",
     "PluginDependencyValidationError",
     "PluginInstallationMixin",
+    "PluginArchiveInspection",
     "PluginDirectoryInstallOutcome",
     "PluginPackageConflictError",
     "PluginRegistrySourceConflictError",
@@ -69,6 +77,14 @@ class PluginPackageConflictError(ValueError):
 
 class PluginRegistrySourceConflictError(ValueError):
     """Raised when a registry update does not match the installed source."""
+
+
+class _PluginInstallActivationPolicy(str, Enum):
+    """Define how a committed package should enter the runtime."""
+
+    ENABLE = "enable"
+    DISABLE = "disable"
+    PRESERVE_ENABLED = "preserve_enabled"
 
 
 def _report_install_progress(
@@ -118,6 +134,7 @@ class _PluginInstallPlan:
     plugin_id: str
     source_dir: Path
     dest_dir: Path
+    package_sha256: str | None
 
 
 @dataclass(frozen=True)
@@ -142,8 +159,15 @@ class _PluginDependencyTarget:
     manifest_identity: tuple[int, int, int, int] | None
     registry_source: str
     registry_repo_url: str
-    registry_entry_fingerprint: str
-    registry_manifest_fingerprint: str
+    package_sha256: str
+
+
+@dataclass(frozen=True)
+class PluginArchiveInspection:
+    """Manifest and complete content identity for one safely extracted archive."""
+
+    manifest: PluginManifest
+    package_sha256: str
 
 
 @dataclass(frozen=True)
@@ -189,6 +213,7 @@ class PluginInstallationMixin:
         self,
         archive_path: Path,
         *,
+        expected_package_sha256: str,
         consented_capabilities: list[PluginCapability],
         progress_reporter: InstallProgressReporter | None = None,
     ) -> PluginPackageState:
@@ -214,6 +239,7 @@ class PluginInstallationMixin:
                 manifest_file,
                 user_root,
                 install_origin="upload",
+                expected_package_sha256=expected_package_sha256,
             )
             self._reject_sideload_overwrite(plan)
             self._log_install_plan(plan, message="Installing external plugin package")
@@ -221,7 +247,7 @@ class PluginInstallationMixin:
                 plan,
                 progress_reporter=progress_reporter,
                 stage_message="Validating staged plugin package",
-                activate_after_swap=False,
+                activation_policy=_PluginInstallActivationPolicy.DISABLE,
                 consented_capabilities=consented_capabilities,
                 install_origin="upload",
                 reject_existing=True,
@@ -232,7 +258,7 @@ class PluginInstallationMixin:
         return outcome.state
 
     @serialize_plugin_archive_operation
-    def inspect_plugin_archive(self, archive_path: Path) -> PluginManifest:
+    def inspect_plugin_archive(self, archive_path: Path) -> PluginArchiveInspection:
         """Extract + read plugin.toml from an archive WITHOUT installing or
         persisting anything. Used to surface declared capabilities for the
         pre-install consent step (sideload)."""
@@ -242,15 +268,21 @@ class PluginInstallationMixin:
             manifest_file = package_files.find_plugin_manifest_in_tree(tmp_path)
             if manifest_file is None:
                 raise ValueError("Archive does not contain a plugin.toml")
+            package_sha256 = compute_package_sha256(
+                manifest_file.parent,
+            )
             manifest = self._load_manifest(manifest_file, source="external")
             self._reject_unmanaged_package_dependencies(
                 manifest,
                 install_origin="upload",
             )
-            return manifest.model_copy(
-                update={
-                    "icon": resolve_plugin_icon(manifest.icon, manifest_file.parent),
-                }
+            return PluginArchiveInspection(
+                manifest=manifest.model_copy(
+                    update={
+                        "icon": resolve_plugin_icon(manifest.icon, manifest_file.parent),
+                    }
+                ),
+                package_sha256=package_sha256,
             )
 
     def install_plugin_from_directory(
@@ -263,9 +295,8 @@ class PluginInstallationMixin:
         install_origin: str = "local",
         registry_source: str | None = None,
         registry_repo_url: str | None = None,
-        registry_entry_fingerprint: str | None = None,
-        registry_manifest_fingerprint: str | None = None,
-        dependency_entry_fingerprints: dict[str, str] | None = None,
+        package_sha256: str | None = None,
+        dependency_package_sha256: dict[str, str] | None = None,
         dependency_workflow_budget: PluginDependencyWorkflowBudget | None = None,
         reject_existing: bool = False,
         expected_registry_update_source: tuple[str, str] | None = None,
@@ -285,21 +316,25 @@ class PluginInstallationMixin:
             manifest_file,
             _prepare_user_plugins_root(),
             install_origin=install_origin,
+            expected_package_sha256=package_sha256,
         )
         self._log_install_plan(plan, message="Installing plugin from directory")
+        activation_policy = (
+            _PluginInstallActivationPolicy.PRESERVE_ENABLED
+            if expected_registry_update_source is not None
+            else _PluginInstallActivationPolicy.ENABLE
+        )
         outcome = self._replace_plugin_package(
             plan,
             progress_reporter=progress_reporter,
             stage_message="Preparing staged plugin package",
-            activate_after_swap=True,
+            activation_policy=activation_policy,
             official=official,
             consented_capabilities=consented_capabilities,
             install_origin=install_origin,
             registry_source=registry_source,
             registry_repo_url=registry_repo_url,
-            registry_entry_fingerprint=registry_entry_fingerprint,
-            registry_manifest_fingerprint=registry_manifest_fingerprint,
-            dependency_entry_fingerprints=dependency_entry_fingerprints,
+            dependency_package_sha256=dependency_package_sha256,
             dependency_workflow_budget=dependency_workflow_budget,
             reject_existing=reject_existing,
             expected_registry_update_source=expected_registry_update_source,
@@ -309,8 +344,10 @@ class PluginInstallationMixin:
 
         if plan.manifest.kind == "library":
             logger.info("Installed library package", extra={"plugin_id": plan.plugin_id})
-        else:
+        elif outcome.state.enabled:
             logger.info("Installed and enabled plugin", extra={"plugin_id": plan.plugin_id})
+        else:
+            logger.info("Installed disabled plugin", extra={"plugin_id": plan.plugin_id})
         _report_install_progress(progress_reporter, "completed", "Plugin package installed", 100.0)
         return outcome.state
 
@@ -320,17 +357,28 @@ class PluginInstallationMixin:
         user_root: Path,
         *,
         install_origin: str,
+        expected_package_sha256: str | None = None,
     ) -> _PluginInstallPlan:
         manifest = self._load_manifest(manifest_file, source="external")
         plugin_id = manifest.plugin_id
         self._reject_builtin_overwrite(plugin_id)
         if install_origin != "registry":
             self._reject_host_reserved_package_id(plugin_id)
+        package_sha256: str | None = None
+        if install_origin in {"registry", "upload"}:
+            if expected_package_sha256 is None:
+                raise ValueError("Managed plugin packages require a complete content digest")
+            verify_package_sha256(
+                manifest_file.parent,
+                expected_package_sha256,
+            )
+            package_sha256 = expected_package_sha256
         return _PluginInstallPlan(
             manifest=manifest,
             plugin_id=plugin_id,
             source_dir=manifest_file.parent,
             dest_dir=_resolve_plugin_destination(user_root, plugin_id),
+            package_sha256=package_sha256,
         )
 
     def _reject_builtin_overwrite(self, plugin_id: str) -> None:
@@ -401,15 +449,13 @@ class PluginInstallationMixin:
         *,
         progress_reporter: InstallProgressReporter | None,
         stage_message: str,
-        activate_after_swap: bool,
+        activation_policy: _PluginInstallActivationPolicy,
         official: bool | None = None,
         consented_capabilities: list[PluginCapability] | None,
         install_origin: str,
         registry_source: str | None = None,
         registry_repo_url: str | None = None,
-        registry_entry_fingerprint: str | None = None,
-        registry_manifest_fingerprint: str | None = None,
-        dependency_entry_fingerprints: dict[str, str] | None = None,
+        dependency_package_sha256: dict[str, str] | None = None,
         dependency_workflow_budget: PluginDependencyWorkflowBudget | None = None,
         reject_existing: bool,
         expected_registry_update_source: tuple[str, str] | None = None,
@@ -429,10 +475,10 @@ class PluginInstallationMixin:
             )
         expected_target = self._capture_plugin_install_target(
             plan,
-            validate_dependencies=activate_after_swap,
+            validate_dependencies=activation_policy is not _PluginInstallActivationPolicy.DISABLE,
             registry_source=registry_source,
             registry_repo_url=registry_repo_url,
-            dependency_entry_fingerprints=dependency_entry_fingerprints or {},
+            dependency_package_sha256=dependency_package_sha256 or {},
         )
 
         def prepare_staging_dir(staged_dir: Path) -> None:
@@ -451,6 +497,14 @@ class PluginInstallationMixin:
                 plan.dest_dir,
                 prepare_staging_dir=prepare_staging_dir,
             )
+        installed_package_sha256: str | None = None
+        if plan.package_sha256 is not None:
+            purge_plugin_bytecode_caches(staged_dir)
+            verify_installed_source_sha256(
+                staged_dir,
+                plan.package_sha256,
+            )
+            installed_package_sha256 = compute_installed_package_sha256(staged_dir)
         backup_dir: Path | None = None
         try:
             if dependency_workflow_budget is not None:
@@ -459,15 +513,14 @@ class PluginInstallationMixin:
                 plan,
                 staged_dir=staged_dir,
                 progress_reporter=progress_reporter,
-                activate_after_swap=activate_after_swap,
+                activation_policy=activation_policy,
                 official=official,
                 consented_capabilities=consented_capabilities,
                 install_origin=install_origin,
                 registry_source=registry_source,
                 registry_repo_url=registry_repo_url,
-                registry_entry_fingerprint=registry_entry_fingerprint,
-                registry_manifest_fingerprint=registry_manifest_fingerprint,
-                dependency_entry_fingerprints=dependency_entry_fingerprints or {},
+                installed_package_sha256=installed_package_sha256,
+                dependency_package_sha256=dependency_package_sha256 or {},
                 reject_existing=reject_existing,
                 expected_registry_update_source=expected_registry_update_source,
                 expected_target=expected_target,
@@ -483,15 +536,14 @@ class PluginInstallationMixin:
         *,
         staged_dir: Path,
         progress_reporter: InstallProgressReporter | None,
-        activate_after_swap: bool,
+        activation_policy: _PluginInstallActivationPolicy,
         official: bool | None,
         consented_capabilities: list[PluginCapability] | None,
         install_origin: str,
         registry_source: str | None,
         registry_repo_url: str | None,
-        registry_entry_fingerprint: str | None,
-        registry_manifest_fingerprint: str | None,
-        dependency_entry_fingerprints: dict[str, str],
+        installed_package_sha256: str | None,
+        dependency_package_sha256: dict[str, str],
         reject_existing: bool,
         expected_registry_update_source: tuple[str, str] | None,
         expected_target: _PluginInstallTarget,
@@ -508,9 +560,8 @@ class PluginInstallationMixin:
             install_origin=install_origin,
             registry_source=registry_source,
             registry_repo_url=registry_repo_url,
-            registry_entry_fingerprint=registry_entry_fingerprint,
-            registry_manifest_fingerprint=registry_manifest_fingerprint,
-            dependency_entry_fingerprints=dependency_entry_fingerprints,
+            installed_package_sha256=installed_package_sha256,
+            dependency_package_sha256=dependency_package_sha256,
         )
         if reusable_library is not None:
             return (
@@ -531,10 +582,10 @@ class PluginInstallationMixin:
         self._assert_plugin_install_target_unchanged(
             plan,
             expected_target,
-            validate_dependencies=activate_after_swap,
+            validate_dependencies=activation_policy is not _PluginInstallActivationPolicy.DISABLE,
             registry_source=registry_source,
             registry_repo_url=registry_repo_url,
-            dependency_entry_fingerprints=dependency_entry_fingerprints,
+            dependency_package_sha256=dependency_package_sha256,
         )
 
         snapshot = self._snapshot_install_state(plan.plugin_id)
@@ -548,18 +599,22 @@ class PluginInstallationMixin:
             and expected_target.destination_identity is None
             and expected_target.manifest_identity is None
         )
+        enabled_after_swap = self._resolve_enabled_after_swap(
+            snapshot,
+            activation_policy=activation_policy,
+        )
         config_updates = self._build_install_config_updates(
             plan,
             snapshot=snapshot,
-            activate_after_swap=activate_after_swap,
+            activation_policy=activation_policy,
+            enabled_after_swap=enabled_after_swap,
             official=official,
             consented_capabilities=consented_capabilities,
             install_origin=install_origin,
             registry_source=registry_source,
             registry_repo_url=registry_repo_url,
-            registry_entry_fingerprint=registry_entry_fingerprint,
-            registry_manifest_fingerprint=registry_manifest_fingerprint,
-            dependency_entry_fingerprints=dependency_entry_fingerprints,
+            installed_package_sha256=installed_package_sha256,
+            dependency_package_sha256=dependency_package_sha256,
             reset_existing_config=reject_existing,
         )
 
@@ -574,7 +629,7 @@ class PluginInstallationMixin:
         def validate_promoted_dir() -> None:
             nonlocal installed_outcome, installed_state
 
-            if activate_after_swap:
+            if activation_policy is not _PluginInstallActivationPolicy.DISABLE:
                 # Persist the new package identity before discovery so stale or
                 # orphaned configuration cannot project trust onto the new files.
                 persist_install_config()
@@ -589,30 +644,28 @@ class PluginInstallationMixin:
             if not package_files.is_managed_plugin_manifest_path(
                 plan.plugin_id,
                 state.manifest.manifest_path,
-            ) or plugin_manifest_fingerprint(state.manifest) != plugin_manifest_fingerprint(
-                plan.manifest
+            ) or (
+                plan.package_sha256 is not None
+                and package_identity_error(
+                    state.manifest, get_config().plugins.packages.get(plan.plugin_id)
+                )
+                is not None
             ):
                 raise RuntimeError(
                     "Plugin discovery did not resolve the newly published managed package"
                 )
 
-            should_load = activate_after_swap or bool(
-                snapshot.package_state is not None and snapshot.package_state.loaded
-            )
-            if not activate_after_swap:
-                state.enabled = False
-                state.trusted = False
+            state.enabled = enabled_after_swap
+            state.trusted = activation_policy is not _PluginInstallActivationPolicy.DISABLE
+            if activation_policy is _PluginInstallActivationPolicy.DISABLE:
                 state.current_settings = {}
-            if should_load:
-                if activate_after_swap:
-                    _report_install_progress(
-                        progress_reporter,
-                        "activate",
-                        "Enabling plugin package",
-                        94.0,
-                    )
-                    state.enabled = True
-                    state.trusted = True
+            if enabled_after_swap:
+                _report_install_progress(
+                    progress_reporter,
+                    "activate",
+                    "Enabling plugin package",
+                    94.0,
+                )
                 state = self.load_plugin(plan.plugin_id)
 
             installed_state = state
@@ -643,7 +696,7 @@ class PluginInstallationMixin:
                 self.load_plugin(plan.plugin_id)
 
         try:
-            if not activate_after_swap:
+            if activation_policy is _PluginInstallActivationPolicy.DISABLE:
                 persist_install_config()
             backup_dir = package_files.promote_staged_plugin_directory(
                 staged_dir,
@@ -694,9 +747,8 @@ class PluginInstallationMixin:
         install_origin: str,
         registry_source: str | None,
         registry_repo_url: str | None,
-        registry_entry_fingerprint: str | None,
-        registry_manifest_fingerprint: str | None,
-        dependency_entry_fingerprints: dict[str, str],
+        installed_package_sha256: str | None,
+        dependency_package_sha256: dict[str, str],
     ) -> PluginPackageState | None:
         """Reuse an identical library that another install committed first.
 
@@ -730,15 +782,14 @@ class PluginInstallationMixin:
                 "approved registry package; uninstall it before retrying"
             ) from exc
 
-        expected_manifest_fingerprint = plugin_manifest_fingerprint(plan.manifest)
         valid = (
             state is not None
             and configured is not None
             and destination_exists
             and registry_source is not None
             and registry_repo_url is not None
-            and registry_entry_fingerprint is not None
-            and registry_manifest_fingerprint == expected_manifest_fingerprint
+            and plan.package_sha256 is not None
+            and installed_package_sha256 is not None
             and state.manifest.kind == "library"
             and state.manifest.source == "external"
             and state.enabled
@@ -748,11 +799,11 @@ class PluginInstallationMixin:
             and configured.install_origin == "registry"
             and configured.registry_source == registry_source
             and configured.registry_repo_url == registry_repo_url
-            and configured.registry_entry_fingerprint == registry_entry_fingerprint
-            and configured.registry_manifest_fingerprint == registry_manifest_fingerprint
-            and configured.dependency_entry_fingerprints == dependency_entry_fingerprints
-            and plugin_manifest_fingerprint(state.manifest) == expected_manifest_fingerprint
-            and plugin_manifest_fingerprint(disk_manifest) == expected_manifest_fingerprint
+            and configured.package_sha256 == plan.package_sha256
+            and configured.installed_package_sha256 == installed_package_sha256
+            and configured.dependency_package_sha256 == dependency_package_sha256
+            and package_identity_error(state.manifest, configured) is None
+            and package_identity_error(disk_manifest, configured) is None
             and Path(state.manifest.plugin_dir).resolve(strict=False)
             == plan.dest_dir.resolve(strict=False)
         )
@@ -766,7 +817,7 @@ class PluginInstallationMixin:
             state.manifest,
             registry_source=registry_source,
             registry_repo_url=registry_repo_url,
-            dependency_entry_fingerprints=dependency_entry_fingerprints,
+            dependency_package_sha256=dependency_package_sha256,
         )
         return state
 
@@ -777,7 +828,7 @@ class PluginInstallationMixin:
         validate_dependencies: bool,
         registry_source: str | None,
         registry_repo_url: str | None,
-        dependency_entry_fingerprints: dict[str, str],
+        dependency_package_sha256: dict[str, str],
     ) -> _PluginInstallTarget:
         """Capture the package identity that a prepared install may replace."""
 
@@ -787,7 +838,7 @@ class PluginInstallationMixin:
                 plan.manifest,
                 registry_source=registry_source,
                 registry_repo_url=registry_repo_url,
-                dependency_entry_fingerprints=dependency_entry_fingerprints,
+                dependency_package_sha256=dependency_package_sha256,
             )
             if validate_dependencies
             else ()
@@ -807,14 +858,14 @@ class PluginInstallationMixin:
         validate_dependencies: bool,
         registry_source: str | None,
         registry_repo_url: str | None,
-        dependency_entry_fingerprints: dict[str, str],
+        dependency_package_sha256: dict[str, str],
     ) -> None:
         current = self._capture_plugin_install_target(
             plan,
             validate_dependencies=validate_dependencies,
             registry_source=registry_source,
             registry_repo_url=registry_repo_url,
-            dependency_entry_fingerprints=dependency_entry_fingerprints,
+            dependency_package_sha256=dependency_package_sha256,
         )
         dependencies_unchanged = len(current.dependency_targets) == len(
             expected.dependency_targets
@@ -824,10 +875,7 @@ class PluginInstallationMixin:
             and current_dependency.manifest_identity == expected_dependency.manifest_identity
             and current_dependency.registry_source == expected_dependency.registry_source
             and current_dependency.registry_repo_url == expected_dependency.registry_repo_url
-            and current_dependency.registry_entry_fingerprint
-            == expected_dependency.registry_entry_fingerprint
-            and current_dependency.registry_manifest_fingerprint
-            == expected_dependency.registry_manifest_fingerprint
+            and current_dependency.package_sha256 == expected_dependency.package_sha256
             for current_dependency, expected_dependency in zip(
                 current.dependency_targets,
                 expected.dependency_targets,
@@ -851,7 +899,7 @@ class PluginInstallationMixin:
         *,
         registry_source: str | None,
         registry_repo_url: str | None,
-        dependency_entry_fingerprints: dict[str, str],
+        dependency_package_sha256: dict[str, str],
     ) -> tuple[_PluginDependencyTarget, ...]:
         """Validate and capture the full library closure under the lifecycle lock."""
 
@@ -864,11 +912,11 @@ class PluginInstallationMixin:
             *,
             source: str | None,
             repo_url: str | None,
-            expected_fingerprints: dict[str, str],
+            expected_package_sha256: dict[str, str],
         ) -> None:
             dependency_ids = list(consumer.depends_on)
             if not dependency_ids:
-                if expected_fingerprints:
+                if expected_package_sha256:
                     raise PluginDependencyValidationError(
                         f"Plugin {consumer.plugin_id} has unexpected dependency provenance"
                     )
@@ -876,7 +924,7 @@ class PluginInstallationMixin:
             if consumer.source != "builtin" and (
                 source is None
                 or repo_url is None
-                or set(expected_fingerprints) != set(dependency_ids)
+                or set(expected_package_sha256) != set(dependency_ids)
             ):
                 raise PluginDependencyValidationError(
                     f"Plugin {consumer.plugin_id} has incomplete registry dependency provenance"
@@ -917,8 +965,7 @@ class PluginInstallationMixin:
                         manifest_identity=self._path_identity(manifest_path),
                         registry_source="builtin",
                         registry_repo_url="builtin",
-                        registry_entry_fingerprint="builtin",
-                        registry_manifest_fingerprint=plugin_manifest_fingerprint(state.manifest),
+                        package_sha256="builtin",
                     )
                 else:
                     raw_configured = get_config().plugins.packages.get(dependency_id)
@@ -927,8 +974,8 @@ class PluginInstallationMixin:
                         if raw_configured is not None
                         else None
                     )
-                    expected_entry_fingerprint = expected_fingerprints[dependency_id]
-                    expectation = (source or "", repo_url or "", expected_entry_fingerprint)
+                    expected_digest = expected_package_sha256[dependency_id]
+                    expectation = (source or "", repo_url or "", expected_digest)
                     if (
                         configured is None
                         or not state.enabled
@@ -938,10 +985,8 @@ class PluginInstallationMixin:
                         or configured.install_origin != "registry"
                         or configured.registry_source != source
                         or configured.registry_repo_url != repo_url
-                        or configured.registry_entry_fingerprint != expected_entry_fingerprint
-                        or not configured.registry_manifest_fingerprint
-                        or configured.registry_manifest_fingerprint
-                        != plugin_manifest_fingerprint(state.manifest)
+                        or configured.package_sha256 != expected_digest
+                        or package_identity_error(state.manifest, configured) is not None
                     ):
                         raise PluginDependencyValidationError(
                             f"Installed dependency {dependency_id} does not match the "
@@ -954,8 +999,7 @@ class PluginInstallationMixin:
                         manifest_identity=self._path_identity(manifest_path),
                         registry_source=configured.registry_source,
                         registry_repo_url=configured.registry_repo_url,
-                        registry_entry_fingerprint=configured.registry_entry_fingerprint,
-                        registry_manifest_fingerprint=(configured.registry_manifest_fingerprint),
+                        package_sha256=configured.package_sha256,
                     )
 
                 previous_expectation = resolved.get(dependency_id)
@@ -973,8 +1017,8 @@ class PluginInstallationMixin:
                         state.manifest,
                         source=(configured.registry_source if configured is not None else None),
                         repo_url=(configured.registry_repo_url if configured is not None else None),
-                        expected_fingerprints=(
-                            dict(configured.dependency_entry_fingerprints)
+                        expected_package_sha256=(
+                            dict(configured.dependency_package_sha256)
                             if configured is not None
                             else {}
                         ),
@@ -987,7 +1031,7 @@ class PluginInstallationMixin:
             manifest,
             source=registry_source,
             repo_url=registry_repo_url,
-            expected_fingerprints=dependency_entry_fingerprints,
+            expected_package_sha256=dependency_package_sha256,
         )
         return tuple(targets)
 
@@ -1016,25 +1060,41 @@ class PluginInstallationMixin:
         return _PluginInstallSnapshot(package_state=package_state, config=config)
 
     @staticmethod
+    def _resolve_enabled_after_swap(
+        snapshot: _PluginInstallSnapshot,
+        *,
+        activation_policy: _PluginInstallActivationPolicy,
+    ) -> bool:
+        if activation_policy is _PluginInstallActivationPolicy.ENABLE:
+            return True
+        if activation_policy is _PluginInstallActivationPolicy.DISABLE:
+            return False
+        if snapshot.config is None:
+            raise PluginRegistrySourceConflictError(
+                "The installed plugin no longer has marketplace installation state"
+            )
+        return snapshot.config.enabled
+
+    @staticmethod
     def _build_install_config_updates(
         plan: _PluginInstallPlan,
         *,
         snapshot: _PluginInstallSnapshot,
-        activate_after_swap: bool,
+        activation_policy: _PluginInstallActivationPolicy,
+        enabled_after_swap: bool,
         official: bool | None,
         consented_capabilities: list[PluginCapability] | None,
         install_origin: str,
         registry_source: str | None,
         registry_repo_url: str | None,
-        registry_entry_fingerprint: str | None,
-        registry_manifest_fingerprint: str | None,
-        dependency_entry_fingerprints: dict[str, str],
+        installed_package_sha256: str | None,
+        dependency_package_sha256: dict[str, str],
         reset_existing_config: bool,
     ) -> dict[str, object]:
         prefix = f"plugins.packages.{plan.plugin_id}"
-        if activate_after_swap:
+        if activation_policy is not _PluginInstallActivationPolicy.DISABLE:
             updates: dict[str, object] = {
-                f"{prefix}.enabled": True,
+                f"{prefix}.enabled": enabled_after_swap,
                 f"{prefix}.trusted": True,
                 f"{prefix}.source": plan.manifest.source,
                 f"{prefix}.manifest_path": str(plan.dest_dir / "plugin.toml"),
@@ -1065,9 +1125,9 @@ class PluginInstallationMixin:
         updates[f"{prefix}.install_origin"] = install_origin
         updates[f"{prefix}.registry_source"] = registry_source
         updates[f"{prefix}.registry_repo_url"] = registry_repo_url
-        updates[f"{prefix}.registry_entry_fingerprint"] = registry_entry_fingerprint
-        updates[f"{prefix}.registry_manifest_fingerprint"] = registry_manifest_fingerprint
-        updates[f"{prefix}.dependency_entry_fingerprints"] = dict(dependency_entry_fingerprints)
+        updates[f"{prefix}.package_sha256"] = plan.package_sha256
+        updates[f"{prefix}.installed_package_sha256"] = installed_package_sha256
+        updates[f"{prefix}.dependency_package_sha256"] = dict(dependency_package_sha256)
         return updates
 
     @staticmethod
@@ -1161,11 +1221,10 @@ class PluginInstallationMixin:
             and configured.install_origin == "registry"
             and configured.registry_source == requirement.registry_source
             and configured.registry_repo_url == requirement.registry_repo_url
-            and configured.registry_entry_fingerprint == requirement.registry_entry_fingerprint
-            and configured.registry_manifest_fingerprint == receipt.registry_manifest_fingerprint
-            and tuple(sorted(configured.dependency_entry_fingerprints.items()))
-            == receipt.dependency_entry_fingerprints
-            and plugin_manifest_fingerprint(state.manifest) == receipt.registry_manifest_fingerprint
+            and configured.package_sha256 == requirement.package_sha256
+            and tuple(sorted(configured.dependency_package_sha256.items()))
+            == receipt.dependency_package_sha256
+            and package_identity_error(state.manifest, configured) is None
             and plugin_dir == expected_plugin_dir
             and manifest_path == expected_manifest_path
             and package_files.is_managed_plugin_manifest_path(plugin_id, manifest_path)
@@ -1221,9 +1280,9 @@ class PluginInstallationMixin:
             if consumer_id == library_id:
                 continue
             raw_dependency_fingerprints = (
-                raw_configured.get("dependency_entry_fingerprints", {})
+                raw_configured.get("dependency_package_sha256", {})
                 if isinstance(raw_configured, dict)
-                else getattr(raw_configured, "dependency_entry_fingerprints", {})
+                else getattr(raw_configured, "dependency_package_sha256", {})
             )
             claims_dependency = library_id in raw_dependency_fingerprints
             try:

@@ -61,10 +61,14 @@ At runtime the flow is:
 
 ## Scan Paths
 
-The plugin manager scans two roots:
+The plugin manager scans two roots by default:
 
 - repository built-ins: `plugins/`
-- user-installed plugins: `~/.magi/plugins/` (marketplace installs and manually placed plugins)
+- host-managed user installs: `~/.magi/plugins/`
+
+Additional development roots may be configured outside the managed user
+directory. Unrecorded packages must not be copied or linked into the managed
+root.
 
 These roots are persisted in:
 
@@ -156,10 +160,12 @@ Installing a plugin from a local archive is a two-step, single-upload flow:
 
 1. the desktop uploads the archive once to `POST /api/plugins/install/candidates`
 2. the backend writes it to a server-owned path, checks the archive and manifest,
-   and returns a short-lived candidate id plus a SHA-256 digest
+   and returns a short-lived candidate id, the uploaded-file digest, and the
+   canonical digest of the complete extracted package
 3. the consent surface shows the declared access from that candidate
-4. confirmation starts a job with the candidate id and the same digest; the
-   candidate can be claimed only once
+4. confirmation starts a job with the candidate id and the same uploaded-file
+   digest; the candidate can be claimed only once, and installation repeats
+   extraction and requires the complete-package digest to remain identical
 5. cancellation, expiry, install completion, and install failure remove the
    backend-owned candidate files
 
@@ -193,12 +199,22 @@ Inspection validates package structure, manifest fields, icons, and declared
 access. It does not prove what arbitrary plugin code will do. A sideloaded
 package remains disabled and untrusted after installation; code is loaded only
 after a separate enable action. The disabled, untrusted state, cleared settings,
-and reviewed access are persisted before the package directory becomes visible
-to startup scanning. Installation staging lives outside plugin scan roots, and
-discovery ignores hidden transaction directories as a second startup guard.
-Sideloading never replaces an existing or host-reserved package with the same
-id. If installation or persistence fails, the new package, temporary data,
-runtime state, and partial configuration are rolled back together.
+reviewed access, and complete-package digest are persisted before the package
+directory becomes visible to startup scanning. The digest covers every
+distributed regular file's normalized relative path and content. File
+permissions are enforced by extraction policy instead of entering the digest,
+because desktop filesystems do not preserve one portable executable-bit model.
+The framing, source and installed profiles, portable path rules, and streamed
+digest builder are owned by `magi_plugin_sdk.package_identity`; registry
+publishers and the host must reuse that contract instead of implementing local
+variants. `PackageFile.executable` remains publication metadata and is excluded
+from the content identity, while version-history validation separately binds
+the sorted executable-path set for each published version.
+Installation staging lives outside plugin scan roots, and discovery
+ignores hidden transaction directories as a second startup guard. Sideloading
+never replaces an existing or host-reserved package with the same id. If
+installation or persistence fails, the new package, temporary data, runtime
+state, and partial configuration are rolled back together.
 
 Sideloaded and local-directory packages must be self-contained at the Magi
 package layer. A non-registry package with a non-empty `depends_on` declaration
@@ -1005,11 +1021,16 @@ External plugins are hosted in the `magi-plugins` repository (`github.com/asukao
 
 ### Registry
 
-The marketplace index is a `registry.json` file at the repository root containing an array of `PluginRegistryEntry` objects:
+The marketplace index is a `registry.json` object at the repository root. Its
+required `registry_version` is `"4"`; clients reject missing, older, and future
+contract versions instead of guessing how to interpret them. Its `plugins`
+array contains `PluginRegistryEntry` objects:
 
 - `plugin_id` - unique identifier matching the plugin's `plugin.toml`
 - `name` - display name
-- `version` - semver string
+- `version` - canonical `MAJOR.MINOR.PATCH` numeric version
+- `package_sha256` - canonical digest of every distributed file in this exact
+  plugin version
 - `path` - subdirectory path within the repository
 - `description` - short description
 - `author` - plugin author
@@ -1061,9 +1082,13 @@ lock is missing. `MAGI_ALLOW_UNLOCKED_PLUGIN_DEPS=1` exists only as an explicit
 developer-mode escape hatch and must not be treated as a normal distribution
 path.
 
-The companion plugin repository regenerates lockfiles and `registry.json`
-together. Its CI checks both outputs for drift, so a manifest or dependency
-change is not complete until the generated artifacts are committed with it.
+The companion plugin repository regenerates lockfiles, complete-package
+digests, and `registry.json` together. Its CI checks all generated outputs for
+drift. It also records the digest first published for every plugin id and
+version, so changing any distributed file requires a version bump instead of
+silently replacing an existing version. The current registry entry must remain
+at that plugin's highest published version; it cannot be moved back to an older
+release.
 
 ### Host Package Dependencies
 
@@ -1080,15 +1105,26 @@ than Python package `dependencies`.
 
 The complete closure is resolved from one normalized registry snapshot before
 any package is installed. Registry and extracted-manifest fields must match for
-every package. The host persists the exact registry URL, repository URL, entry
-fingerprint, manifest fingerprint, and direct-dependency fingerprints for each
-installed package.
+every package. The host also requires the canonical digest of every extracted
+package to match `package_sha256` before dependency installation or plugin code
+loading. It persists the exact registry URL, repository URL, upstream package
+digest, and direct-dependency package digests for each installed package.
 
-These fingerprints bind the approved marketplace declarations and their source,
-then the installer checks the extracted `plugin.toml` against those
-declarations. They are not a digest or signature of every package code file.
-Content-addressed package archives, immutable repository revisions, and signed
-package metadata remain future supply-chain work.
+There is only one upstream package identity: `package_sha256`. The host also
+creates a local installation seal after installing hash-locked Python
+dependencies. That seal covers the published package plus the complete
+platform-specific `.deps` tree and is recomputed before execution. It is not a
+second marketplace identity: it records the exact local result produced from
+the approved package. Python `__pycache__` directories are removed before
+sealing and verification; loose bytecode and every source, native extension,
+script, and data file remain covered.
+
+The registry snapshot fingerprint remains separate because it binds user
+consent to the exact marketplace view and source shown at approval time; it is
+not stored as another package identity. A package digest prevents repository
+branch drift from changing approved files, but it is not a publisher signature
+if an attacker can replace both the registry and repository. Signing the
+maintainer-owned registry remains future supply-chain work.
 
 An installed library is reusable only when all of that provenance still
 matches and its full nested library closure remains valid. The same recursive
@@ -1101,7 +1137,7 @@ Before an install decides which packages are already present, it claims the
 complete library closure from the approved registry snapshot in dependency-first
 order. These process-wide in-flight claims include libraries that another
 workflow has just published. Workflows may share a claim only when the plugin
-id, registry URL, repository URL, and registry entry fingerprint are identical;
+id, registry URL, repository URL, and complete-package digest are identical;
 any cross-source or cross-version identity conflict fails before package
 preparation begins. A runtime should have one active `PluginManager`; runtime
 replacement must cancel or drain install workflows before retiring the previous
@@ -1110,11 +1146,12 @@ manager.
 If an install fails or is cancelled, rollback considers only libraries newly
 published by that in-flight claim group. The final claimant checks them in
 reverse dependency order and removes a library only when its frozen package
-generation, manifest, persisted provenance, and dependency fingerprints still
-match and no runtime or managed on-disk consumer exists. Normal runtime cache
-files do not change the package generation. If ownership, identity, configuration,
-or consumer state is stale or ambiguous, rollback keeps the library rather than
-risk deleting a package that another workflow now uses.
+generation, persisted provenance, complete-package digest, and dependency
+digests still match and no runtime or managed on-disk consumer exists. Normal
+runtime cache files do not change the package generation. If ownership,
+identity, configuration, or consumer state is stale or ambiguous, rollback
+keeps the library rather than risk deleting a package that another workflow
+now uses.
 
 Two lower-priority lifecycle gaps remain explicit:
 
@@ -1134,13 +1171,18 @@ Managed packages are discoverable only at the exact
 `~/.magi/plugins/<plugin_id>/plugin.toml` path; root manifests, nested
 manifests, mismatched directory names, and symlinked packages are ignored.
 A marketplace package is trusted only while its persisted source, repository,
-manifest path, and manifest fingerprint still match that managed package.
+manifest path, upstream package digest, and local installation seal still match
+that managed package. A startup scan removes bytecode caches, recomputes both
+views, and refuses to load changed source or dependency content. Distributed
+source packages containing dependency directories or bytecode products are
+rejected.
 A same-id package from another scan root cannot inherit its enable state,
 settings, consent, provenance, or official status.
 
 Fresh marketplace installs never replace an existing package. Marketplace
 updates are accepted only from the exact registry URL and repository that
-installed the package; switching registries requires uninstalling first.
+installed the package, and the advertised version must be newer; switching
+registries requires uninstalling first.
 Uploaded archives and local-directory installs also never replace an existing
 or host-reserved id. Destructive uninstall is limited to exact, non-symlinked
 managed package directories. A package discovered through another scan root
@@ -1152,7 +1194,8 @@ Magi.
 1. The frontend starts an install, update, or upload job through the plugin API and polls the returned `job_id`
 2. Marketplace install and update requests include the exact registry
    declaration-and-source fingerprint shown when the user approved the action;
-   this is consent binding, not a whole-package code signature
+   this is consent binding, while `package_sha256` is the one upstream package
+   identity
 3. The backend job reports `status`, `stage`, `progress_pct`, installer
    messages, and bounded install logs while work continues in the background.
    One log entry is limited to 4 KiB, retained logs to 240 entries and 256 KiB,
@@ -1170,13 +1213,21 @@ Magi.
    approved snapshot fingerprint
 8. Each requested subdirectory is extracted through the same safe archive
    planner used for uploads, including path, link, type, collision, entry-count,
-   and expanded-size checks
+   and expanded-size checks. Before dependency installation, its complete
+   contents must match the package digest in the approved registry snapshot
 9. `PluginManager.install_plugin_from_directory()` stages the package and
    publishes it into `~/.magi/plugins/<plugin_id>/` only after the final
-   lifecycle validation succeeds
+   lifecycle validation succeeds; the published tree is checked again before
+   it is activated
 10. Python dependencies declared by the plugin are installed from its hash-verified `requirements.lock` into the plugin-local `.deps/` directory; pip output is attached to the install job logs. Source/dev runs use the active backend Python. Packaged desktop runs pass `Contents/Resources/plugin-python/.../python` through `MAGI_PLUGIN_PYTHON`; the packaged `magi-backend` sidecar is never used as a pip executable.
-11. Registry packages are enabled after their atomic install commit; uploaded
+11. The host removes Python bytecode caches and seals the full platform-specific
+    installation, including `.deps`, before publishing it
+12. Fresh registry installs are enabled after their atomic install commit.
+    Registry updates preserve the plugin's previous enabled state, while uploaded
     packages remain disabled and require a separate enable action
+13. Startup and reload recompute both the upstream package identity and local
+    installation seal. Changed or legacy managed packages without both records
+    stay disabled until reinstalled
 
 Packaged desktop builds stage two generated runtime resources under `frontend/src-tauri/`: `sidecar-dist/` for the backend sidecar and `plugin-python/` for plugin dependency installation. Release CI runs `scripts/prepare-plugin-python-runtime.py` to download a python-build-standalone runtime for the target platform, writes it to `MAGI_PLUGIN_PYTHON_SOURCE`, and requires that source during sidecar staging. Local development builds may omit the variable and use a local venv fallback. macOS signing scripts sign Mach-O files in both runtime resource roots before notarization.
 

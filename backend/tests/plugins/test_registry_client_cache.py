@@ -19,15 +19,17 @@ from magi.plugins.registry_client import (
 from magi.plugins.registry_client import PluginRegistrySnapshot
 
 
-def _registry_payload(version: str = "1") -> dict[str, Any]:
+def _registry_payload(marker: str = "default") -> dict[str, Any]:
     return {
-        "registry_version": version,
+        "registry_version": "4",
         "repo_url": "https://github.com/example/magi-plugins.git",
         "plugins": [
             {
                 "plugin_id": "chrome-history",
                 "name": "Chrome History",
                 "version": "0.1.0",
+                "description": marker,
+                "package_sha256": "a" * 64,
                 "path": "chrome-history",
                 "platforms": ["macos"],
             }
@@ -192,7 +194,7 @@ async def test_fetch_index_persists_successful_registry_response(
 
     index = await client.fetch_index(force=True)
 
-    assert index.registry_version == "2"
+    assert index.plugins[0].description == "2"
     assert cache_path.exists()
 
 
@@ -225,7 +227,7 @@ async def test_fetch_index_falls_back_to_disk_cache_after_remote_failure(
 
     index = await cold_client.fetch_index(force=True)
 
-    assert index.registry_version == "cached"
+    assert index.plugins[0].description == "cached"
 
 
 @pytest.mark.asyncio
@@ -250,8 +252,8 @@ async def test_concurrent_fetch_index_calls_share_one_remote_request(
 
     first, second = await asyncio.gather(client.fetch_index(), client.fetch_index())
 
-    assert first.registry_version == "coalesced"
-    assert second.registry_version == "coalesced"
+    assert first.plugins[0].description == "coalesced"
+    assert second.plugins[0].description == "coalesced"
     assert calls == ["https://example.test/registry.json"]
 
 
@@ -292,7 +294,7 @@ async def test_concurrent_forced_index_refreshes_share_one_success(
 
     assert first_result is second_result
     assert second_result is cached_result
-    assert first_result.registry_version == "shared"
+    assert first_result.plugins[0].description == "shared"
     assert calls == 1
 
 
@@ -334,7 +336,7 @@ async def test_concurrent_forced_index_refreshes_share_one_failure(
 
     recovered = await client.fetch_index(force=True)
 
-    assert recovered.registry_version == "recovered"
+    assert recovered.plugins[0].description == "recovered"
     assert calls == 2
 
 
@@ -379,7 +381,7 @@ async def test_cancelled_index_waiter_does_not_cancel_shared_refresh(
 
     result = await successful_waiter
 
-    assert result.registry_version == "completed"
+    assert result.plugins[0].description == "completed"
     assert calls == 1
     assert not remote_cancelled.is_set()
 
@@ -429,7 +431,7 @@ async def test_timed_out_index_waiter_does_not_cancel_shared_refresh(
 
     result = await successful_waiter
 
-    assert result.registry_version == "completed"
+    assert result.plugins[0].description == "completed"
     assert calls == 1
     assert not remote_cancelled.is_set()
 
@@ -455,8 +457,8 @@ async def test_sequential_forced_index_refreshes_each_fetch_remote(
     first = await client.fetch_index(force=True)
     second = await client.fetch_index(force=True)
 
-    assert first.registry_version == "1"
-    assert second.registry_version == "2"
+    assert first.plugins[0].description == "1"
+    assert second.plugins[0].description == "2"
     assert calls == 2
 
 
@@ -508,7 +510,7 @@ async def test_registry_index_timeout_falls_back_to_bound_disk_cache(
 
     index = await client.fetch_index(force=True)
 
-    assert index.registry_version == "cached"
+    assert index.plugins[0].description == "cached"
 
 
 @pytest.mark.asyncio

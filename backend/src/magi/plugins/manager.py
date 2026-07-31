@@ -555,10 +555,8 @@ class PluginManager(PluginInstallationMixin):
             registry_repo_url=(
                 package_config.registry_repo_url if package_config is not None else None
             ),
-            dependency_entry_fingerprints=(
-                dict(package_config.dependency_entry_fingerprints)
-                if package_config is not None
-                else {}
+            dependency_package_sha256=(
+                dict(package_config.dependency_package_sha256) if package_config is not None else {}
             ),
         )
         for dependency_target in dependency_targets:

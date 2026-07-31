@@ -117,7 +117,7 @@ async def list_registry_plugins(
             and manager is not None
             and (installed_state := manager.get_package(entry.plugin_id)) is not None
             and registry_source_matches_installed_package(
-                installed_state.manifest,
+                installed_state,
                 snapshot,
             )
         ):
@@ -187,7 +187,7 @@ async def check_plugin_updates():
         plugin_id = state.manifest.plugin_id
         if plugin_id not in all_installed:
             continue
-        if registry_source_matches_installed_package(state.manifest, snapshot):
+        if registry_source_matches_installed_package(state, snapshot):
             installed[plugin_id] = state.manifest.version
     if not installed:
         return []

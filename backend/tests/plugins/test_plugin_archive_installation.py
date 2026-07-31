@@ -105,6 +105,20 @@ def _manager(user_root: Path) -> PluginManager:
     )
 
 
+def _install_archive(
+    manager: PluginManager,
+    archive_path: Path,
+    *,
+    consented_capabilities: list[PluginCapability],
+):
+    inspection = manager.inspect_plugin_archive(archive_path)
+    return manager.install_plugin_from_archive(
+        archive_path,
+        expected_package_sha256=inspection.package_sha256,
+        consented_capabilities=consented_capabilities,
+    )
+
+
 def test_archive_install_commits_reviewed_state_as_disabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -142,7 +156,8 @@ def test_archive_install_commits_reviewed_state_as_disabled(
     monkeypatch.setattr(manager, "_install_staged_dependencies", record_staging_path)
     monkeypatch.setattr(installation_module, "save_config", persist_before_publish)
 
-    state = manager.install_plugin_from_archive(
+    state = _install_archive(
+        manager,
         archive_path,
         consented_capabilities=consent,
     )
@@ -155,6 +170,9 @@ def test_archive_install_commits_reviewed_state_as_disabled(
     assert package_config.trusted is False
     assert package_config.official is False
     assert package_config.consented_capabilities == consent
+    assert package_config.package_sha256 is not None
+    assert package_config.installed_package_sha256 is not None
+    assert package_config.installed_package_sha256 != package_config.package_sha256
     assert (user_root / "archive-policy-test" / "plugin.toml").is_file()
     assert len(staged_paths) == 1
     assert len(saved) == 1
@@ -179,7 +197,8 @@ def test_archive_install_does_not_inherit_orphaned_package_state(
     manager = _manager(user_root)
     consent = [PluginCapability(capability="network", scope=["example.com"])]
 
-    state = manager.install_plugin_from_archive(
+    state = _install_archive(
+        manager,
         archive_path,
         consented_capabilities=consent,
     )
@@ -208,7 +227,8 @@ def test_archive_install_rolls_back_when_reviewed_state_cannot_be_saved(
     manager = _manager(user_root)
 
     with pytest.raises(RuntimeError, match="Failed to persist plugin installation state"):
-        manager.install_plugin_from_archive(
+        _install_archive(
+            manager,
             archive_path,
             consented_capabilities=[PluginCapability(capability="network", scope=["example.com"])],
         )
@@ -242,7 +262,8 @@ def test_archive_install_restores_config_when_post_publish_validation_fails(
     monkeypatch.setattr(manager, "scan", fail_first_post_publish_scan)
 
     with pytest.raises(RuntimeError, match="post-publish validation failed"):
-        manager.install_plugin_from_archive(
+        _install_archive(
+            manager,
             archive_path,
             consented_capabilities=[PluginCapability(capability="network", scope=["example.com"])],
         )
@@ -273,13 +294,15 @@ def test_archive_install_never_replaces_an_existing_package(
     monkeypatch.setattr(package_files, "user_plugins_root", lambda: user_root)
     manager = _manager(user_root)
     consent = [PluginCapability(capability="network", scope=["example.com"])]
-    manager.install_plugin_from_archive(
+    _install_archive(
+        manager,
         first_archive,
         consented_capabilities=consent,
     )
 
     with pytest.raises(ValueError, match="Cannot replace an installed plugin"):
-        manager.install_plugin_from_archive(
+        _install_archive(
+            manager,
             replacement_archive,
             consented_capabilities=consent,
         )
@@ -305,7 +328,8 @@ def test_archive_install_rejects_host_reserved_package_ids(
     manager = _manager(user_root)
 
     with pytest.raises(ValueError, match="Cannot replace an installed plugin"):
-        manager.install_plugin_from_archive(
+        _install_archive(
+            manager,
             archive_path,
             consented_capabilities=[PluginCapability(capability="network", scope=["example.com"])],
         )
@@ -329,7 +353,8 @@ def test_archive_install_rejects_unbound_package_dependencies(
     manager = _manager(user_root)
 
     with pytest.raises(ValueError, match="installed from the marketplace"):
-        manager.install_plugin_from_archive(
+        _install_archive(
+            manager,
             archive_path,
             consented_capabilities=[],
         )
@@ -367,7 +392,8 @@ def test_archive_preparation_does_not_hold_the_lifecycle_lock(
 
     def install() -> None:
         try:
-            manager.install_plugin_from_archive(
+            _install_archive(
+                manager,
                 archive_path,
                 consented_capabilities=[
                     PluginCapability(capability="network", scope=["example.com"])

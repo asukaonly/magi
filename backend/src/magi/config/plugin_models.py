@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
 from magi_plugin_sdk.contracts import PluginCapability
+
+_PackageSha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
 class PluginSettings(BaseModel):
@@ -39,17 +41,17 @@ class PluginSettings(BaseModel):
         default=None,
         description="Registry repository URL used to download this package.",
     )
-    registry_entry_fingerprint: Optional[str] = Field(
+    package_sha256: Optional[_PackageSha256] = Field(
         default=None,
-        description="Host-computed fingerprint of the registry entry and source.",
+        description="Verified upstream SHA-256 identity of the distributed plugin package.",
     )
-    registry_manifest_fingerprint: Optional[str] = Field(
+    installed_package_sha256: Optional[_PackageSha256] = Field(
         default=None,
-        description="Host-computed fingerprint of the installed manifest.",
+        description="Host-generated SHA-256 seal of the complete local installation.",
     )
-    dependency_entry_fingerprints: Dict[str, str] = Field(
+    dependency_package_sha256: Dict[str, _PackageSha256] = Field(
         default_factory=dict,
-        description="Approved registry entry fingerprints for direct library dependencies.",
+        description="Verified package SHA-256 identities for direct plugin dependencies.",
     )
 
 
