@@ -214,6 +214,12 @@ Current log sources:
 
 - packaged desktop builds: `~/.magi/logs/backend.log`
 - desktop dev hot mode: `~/.magi/logs/backend-dev-hot.log`, or `MAGI_BACKEND_LOG_FILE` when that environment variable is set
+- desktop host diagnostics: `~/.magi/logs/desktop.log`; the host keeps one
+  active file bounded to 50 MB and uses the same serialized writer for ordinary
+  writes, rotation, and user-requested clearing
+- the desktop host passes the resolved absolute backend output path to the
+  sidecar, so Windows home-directory differences and relative dev paths cannot
+  make the clear operation target a different file
 
 The log excerpt is for local troubleshooting only. It should stay bounded and should not replace the retry action.
 
@@ -450,6 +456,13 @@ The destructive **Clear All Memory** action is broader than L0-L4:
   working/orchestration state, all memory layers, manual-entry assets, external
   channel conversation mappings and receipts, notification cursors, and queued
   proactive notifications plus their delivery history
+- it erases existing local diagnostic log contents, including rotated log files
+  and the desktop backend output log; active log files remain usable and may
+  contain new operational entries produced after the clear boundary
+- the backend clears its own files while its writers are paused; the desktop
+  host then clears the host-owned log through the same synchronized writer and
+  makes a final pass over the sidecar output before the product reports the
+  action complete
 - it preserves product configuration: installed/enabled channels, external
   account authentication, channel binding preferences, LLM settings, persona
   settings, and unrelated runtime notifications are not remembered
@@ -512,7 +525,9 @@ Current storage implementation notes:
 - `llm_usage.db` may include bounded prompt-cache diagnostic rows controlled by `lifecycle.llm_usage.cache_observability`; disabling that setting removes those rows during lifecycle cleanup.
 - `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery; raw trace data defaults to a 7-day retention window.
 - managed chat attachment and derived text files live under `~/.magi/data/resources/chat/`; an explicit user message/session/history deletion makes the content inaccessible before file cleanup begins. Shared files remain while another visible message owns them. If private file cleanup is interrupted, the product reports the deletion as complete with a recovery warning and startup safely finishes the remaining local cleanup. `lifecycle.chat_assets.delete_on_session_delete` controls the separate periodic orphan sweep for session directories that no longer have active chat rows.
-- runtime logs are governed by size-based `RotatingFileHandler` limits, not lifecycle row retention.
+- runtime logs are governed by size-based rotation limits rather than lifecycle
+  row retention; the destructive Clear All Memory action is the explicit user
+  boundary that erases their existing contents.
 - rebuildable plugin state belongs under `~/.magi/cache/plugins/<plugin_id>/`, not under memory storage.
 
 ## Tool And Plugin Management

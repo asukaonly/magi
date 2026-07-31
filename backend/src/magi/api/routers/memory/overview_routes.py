@@ -8,6 +8,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import HTTPException, status
 
+from ....core.log_history import clear_diagnostic_log_history
 from ....memory.store_lifecycle import MemoryClearCompletedWithRecoveryError
 
 from .clear import ClearMemoryResponseModel, build_clear_memory_response
@@ -415,6 +416,19 @@ async def clear_memory_layers():
         l4_count,
         chat_context_count,
     )
+
+    try:
+        log_clear_result = await clear_diagnostic_log_history()
+    except Exception:
+        warnings.append("diagnostic_log_cleanup_failed")
+        logger.error("clear_memory: diagnostic log cleanup failed")
+    else:
+        if log_clear_result.failed_entries:
+            warnings.append("diagnostic_log_cleanup_failed")
+            logger.error(
+                "clear_memory: diagnostic log cleanup left %d entries uncleared",
+                log_clear_result.failed_entries,
+            )
 
     return build_clear_memory_response(
         l0_count=l0_count,

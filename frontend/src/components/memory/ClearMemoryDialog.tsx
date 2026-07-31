@@ -65,6 +65,7 @@ export const ClearMemoryDialog: React.FC<ClearMemoryDialogProps> = ({
               <li>{t('memory.clearConfirm.learnedSkills')}</li>
               <li>{t('memory.clearConfirm.currentContext')}</li>
               <li>{t('memory.clearConfirm.pendingNotifications')}</li>
+              <li>{t('memory.clearConfirm.diagnosticLogs')}</li>
             </ol>
           </div>
           <p className="text-sm leading-6 text-muted-foreground">

@@ -37,6 +37,18 @@ def _isolate_orchestration_store(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_diagnostic_log_cleanup(monkeypatch):
+    cleanup = AsyncMock(
+        return_value=SimpleNamespace(cleared_entries=4, failed_entries=0)
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes.clear_diagnostic_log_history",
+        cleanup,
+    )
+    return cleanup
+
+
+@pytest.fixture(autouse=True)
 def _isolate_chat_read_service(monkeypatch):
     class _FakeChatReadService:
         async def aclear_all_sessions(self) -> int:
@@ -2317,6 +2329,7 @@ def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
 def test_memory_clear_api_clears_all_layers(
     monkeypatch,
     _isolate_orchestration_store,
+    _isolate_diagnostic_log_cleanup,
 ):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
@@ -2380,6 +2393,7 @@ def test_memory_clear_api_clears_all_layers(
     assert body["results"]["l4"]["count"] == 1
     assert body["results"]["chat_context"]["count"] == 4
     _isolate_orchestration_store.clear_all.assert_awaited_once()
+    _isolate_diagnostic_log_cleanup.assert_awaited_once_with()
     assert clear_order == [
         "background-enter",
         "chat",
@@ -2678,6 +2692,27 @@ def test_memory_clear_finishes_data_clear_when_sensor_queue_cleanup_fails(
     assert response.json()["warnings"] == ["sensor_cleanup_failed"]
     unified.clear_all_memory.assert_awaited_once()
     task_agent_manager.resume_chat_work.assert_awaited_once()
+
+
+def test_memory_clear_warns_when_diagnostic_logs_cannot_be_fully_erased(
+    monkeypatch,
+    _isolate_diagnostic_log_cleanup,
+) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    _isolate_diagnostic_log_cleanup.return_value = SimpleNamespace(
+        cleared_entries=3,
+        failed_entries=1,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    assert response.json()["warnings"] == ["diagnostic_log_cleanup_failed"]
 
 
 def test_memory_clear_reports_success_when_physical_chat_cleanup_is_pending(

@@ -9,6 +9,11 @@ export interface DesktopShellHandlers {
   onRequestQuit: () => void;
 }
 
+export interface DesktopLogClearResult {
+  clearedEntries: number;
+  failedEntries: number;
+}
+
 type Unlisten = () => void | Promise<void>;
 
 function isTauriRuntime(): boolean {
@@ -153,6 +158,10 @@ export async function openExternalUrl(url: string): Promise<void> {
   }
 
   window.open(normalizedUrl, '_blank', 'noopener,noreferrer');
+}
+
+export async function clearDesktopLogHistory(): Promise<DesktopLogClearResult | undefined> {
+  return invokeDesktopCommand<DesktopLogClearResult>('clear_desktop_log_history');
 }
 
 export async function confirmExitApp(): Promise<void> {

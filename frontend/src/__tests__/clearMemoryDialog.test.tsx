@@ -58,6 +58,7 @@ describe('ClearMemoryDialog', () => {
     expect(screen.getByRole('button', { name: 'memory.clearConfirm.cancel' })).toBeInTheDocument();
     expect(screen.getByTestId('clear-memory-dialog-body')).toHaveClass('px-6');
     expect(screen.getByText('memory.clearConfirm.pendingNotifications')).toBeInTheDocument();
+    expect(screen.getByText('memory.clearConfirm.diagnosticLogs')).toBeInTheDocument();
     expect(screen.getByText('memory.clearConfirm.preservedSettings')).toBeInTheDocument();
   });
 });

@@ -1697,6 +1697,7 @@
     "memoryCleared": "已清除历史与记忆，共 {{count}} 项",
     "memoryClearFailed": "清除记忆失败",
     "memoryClearRecoveryPending": "内容已不可访问。如果聊天或外部消息仍不可用，请重启应用完成收尾。",
+    "memoryClearDiagnosticLogsIncomplete": "部分旧诊断日志未能清除。请关闭并重新打开应用后，再执行一次清除。",
     "memoryClearCompletedWithWarnings": "清除已完成，但有部分后台收尾没有正常完成。建议重启应用后再确认一次。",
     "clearConfirm": {
       "title": "确认清除所有记忆？",
@@ -1767,7 +1768,7 @@
       },
       "dangerZone": {
         "title": "危险操作",
-        "description": "永久清除聊天历史、全部记忆和会话关联的待发通知。模型配置、插件账号和频道偏好不会被清除。",
+        "description": "永久清除聊天历史、全部记忆、会话关联的待发通知和过去的诊断日志。模型配置、插件账号和频道偏好不会被清除。",
         "clearButton": "清除全部记忆"
       },
       "vector": {
@@ -4328,6 +4329,7 @@
     "clearFailed": "清除记忆失败，请重试。",
     "clearRefreshFailed": "记忆已清除，但当前页面暂时没有刷新。",
     "clearRecoveryPending": "内容已不可访问。请重启应用完成收尾，再开始新聊天或向外发送消息。",
+    "clearDiagnosticLogsIncomplete": "部分旧诊断日志未能清除。请关闭并重新打开应用后，再执行一次清除。",
     "clearCompletedWithWarnings": "清除已完成，但有部分后台收尾没有正常完成。建议重启应用后再确认一次。",
     "sources": {
       "chat_projector": "聊天",
@@ -4623,6 +4625,7 @@
       "learnedSkills": "从历史中沉淀出的经验和技能",
       "currentContext": "当前会话里的上下文缓存",
       "pendingNotifications": "频道会话关联、送达记录和尚未发出的任务通知",
+      "diagnosticLogs": "过去的本地诊断日志及其轮换副本",
       "preservedSettings": "模型配置、插件账号、身份绑定和频道偏好会保留。",
       "countdownHint": "请等待 {{seconds}} 秒后确认清除。",
       "readyHint": "现在可以确认清除了。",

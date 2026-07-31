@@ -19,6 +19,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 import {
   cancelExitRequest,
+  clearDesktopLogHistory,
   confirmExitApp,
   openExternalUrl,
   registerDesktopShellHandlers,
@@ -87,5 +88,16 @@ describe('desktop runtime bridge', () => {
     expect(invokeMock).toHaveBeenCalledWith('open_url', {
       url: 'https://example.com/docs?q=a&next=b|c',
     });
+  });
+
+  it('asks the desktop owner to erase its active log files', async () => {
+    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+    invokeMock.mockResolvedValue({ clearedEntries: 3, failedEntries: 0 });
+
+    await expect(clearDesktopLogHistory()).resolves.toEqual({
+      clearedEntries: 3,
+      failedEntries: 0,
+    });
+    expect(invokeMock).toHaveBeenCalledWith('clear_desktop_log_history');
   });
 });

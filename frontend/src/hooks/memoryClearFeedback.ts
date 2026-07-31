@@ -3,8 +3,11 @@ import type { ClearMemoryResponse } from '@/api/modules/memory';
 export interface MemoryClearFeedback {
   clearedItemCount: number;
   recoveryPending: boolean;
+  diagnosticLogsIncomplete: boolean;
   otherWarningsPresent: boolean;
 }
+
+const DIAGNOSTIC_LOG_CLEANUP_WARNING = 'diagnostic_log_cleanup_failed';
 
 const CONVERSATION_RECOVERY_WARNINGS = new Set([
   'chat_asset_cleanup_pending',
@@ -28,8 +31,10 @@ export const summarizeMemoryClear = (
     recoveryPending: warnings.some((warning) => (
       CONVERSATION_RECOVERY_WARNINGS.has(warning)
     )),
+    diagnosticLogsIncomplete: warnings.includes(DIAGNOSTIC_LOG_CLEANUP_WARNING),
     otherWarningsPresent: warnings.some((warning) => (
       !CONVERSATION_RECOVERY_WARNINGS.has(warning)
+      && warning !== DIAGNOSTIC_LOG_CLEANUP_WARNING
     )),
   };
 };

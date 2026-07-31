@@ -1,6 +1,7 @@
 // Hide the console window in release builds on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod desktop_log_history;
 mod desktop_presence;
 mod dmg_cleanup;
 mod external_url;
@@ -27,7 +28,9 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(25);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const BACKEND_LOG_TAIL_BYTES: u64 = 64 * 1024;
+const DESKTOP_LOG_MAX_BYTES: u64 = 50 * 1024 * 1024;
 const DESKTOP_SESSION_TOKEN_ENV: &str = "MAGI_DESKTOP_SESSION_TOKEN";
+const BACKEND_LOG_FILE_ENV: &str = "MAGI_BACKEND_LOG_FILE";
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -658,8 +661,21 @@ fn home_dir() -> Result<PathBuf, String> {
         .map_err(|_| "Neither HOME nor USERPROFILE is set".to_string())
 }
 
+fn desktop_log_dir() -> Result<PathBuf, String> {
+    match home_dir() {
+        Ok(home) => Ok(home.join(".magi").join("logs")),
+        Err(_) => env::current_dir()
+            .map(|current| current.join(".magi").join("logs"))
+            .map_err(|err| format!("Failed to resolve desktop log directory: {err}")),
+    }
+}
+
 fn sidecar_backend_log_path() -> Result<PathBuf, String> {
-    Ok(home_dir()?.join(".magi").join("logs").join("backend.log"))
+    Ok(desktop_log_dir()?.join("backend.log"))
+}
+
+fn configure_backend_log_environment(command: &mut Command, backend_log_path: &Path) {
+    command.env(BACKEND_LOG_FILE_ENV, backend_log_path);
 }
 
 fn open_sidecar_log_stdio() -> Result<(Stdio, Stdio), String> {
@@ -707,11 +723,13 @@ fn spawn_sidecar_role(
             .map_err(|e| format!("Failed to set plugin Python executable permission: {e}"))?;
     }
 
+    let backend_log_path = sidecar_backend_log_path()?;
     let (stdout, stderr) = open_sidecar_log_stdio()?;
 
     let mut command = Command::new(&sidecar_path);
     suppress_child_console_window(&mut command);
     isolate_python_worker_environment(&mut command);
+    configure_backend_log_environment(&mut command, &backend_log_path);
     command
         .arg("--role")
         .arg(role)
@@ -799,17 +817,25 @@ fn build_dev_pythonpath(project_root: &Path) -> Result<OsString, String> {
 }
 
 fn dev_backend_log_path() -> Result<PathBuf, String> {
-    if let Ok(configured) = env::var("MAGI_BACKEND_LOG_FILE") {
+    if let Ok(configured) = env::var(BACKEND_LOG_FILE_ENV) {
         let trimmed = configured.trim();
         if !trimmed.is_empty() {
-            return Ok(PathBuf::from(trimmed));
+            let configured_path = PathBuf::from(trimmed);
+            let current_dir = env::current_dir()
+                .map_err(|err| format!("Failed to resolve current directory: {err}"))?;
+            return Ok(resolve_configured_log_path(&configured_path, &current_dir));
         }
     }
 
-    Ok(home_dir()?
-        .join(".magi")
-        .join("logs")
-        .join("backend-dev-hot.log"))
+    Ok(desktop_log_dir()?.join("backend-dev-hot.log"))
+}
+
+fn resolve_configured_log_path(configured_path: &Path, current_dir: &Path) -> PathBuf {
+    if configured_path.is_absolute() {
+        configured_path.to_path_buf()
+    } else {
+        current_dir.join(configured_path)
+    }
 }
 
 fn current_backend_log_path() -> Result<PathBuf, String> {
@@ -869,6 +895,7 @@ fn spawn_dev_backend_role(
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let project_root = find_project_root()?;
     let backend_dir = find_backend_dir()?;
+    let backend_log_path = dev_backend_log_path()?;
     let (stdout, stderr) = open_dev_backend_log_stdio()?;
     let python_command = resolve_dev_python_command(&project_root);
     let plugin_python = env::var_os("MAGI_PLUGIN_PYTHON")
@@ -878,6 +905,7 @@ fn spawn_dev_backend_role(
     let mut command = Command::new(&python_command);
     suppress_child_console_window(&mut command);
     isolate_python_worker_environment(&mut command);
+    configure_backend_log_environment(&mut command, &backend_log_path);
     command
         .arg("run_server.py")
         .arg("--role")
@@ -1360,6 +1388,13 @@ fn open_url(url: String) -> Result<(), String> {
     external_url::open(&url)
 }
 
+#[tauri::command]
+fn clear_desktop_log_history(
+    state: State<'_, desktop_log_history::DesktopLogRuntime>,
+) -> Result<desktop_log_history::DesktopLogClearResult, String> {
+    Ok(state.clear())
+}
+
 #[cfg(windows)]
 mod dwm_caption {
     use std::ffi::c_void;
@@ -1471,35 +1506,24 @@ fn disable_native_window_decorations(app: &AppHandle) {
 }
 
 fn main() {
-    let log_dir = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join(".magi")
-        .join("logs");
+    let log_dir = desktop_log_dir().expect("failed to resolve desktop log directory");
+    let backend_log_path =
+        current_backend_log_path().expect("failed to resolve backend log file path");
     let log_level = if cfg!(debug_assertions) {
         log::LevelFilter::Debug
     } else {
         log::LevelFilter::Info
     };
+    let desktop_log_runtime = desktop_log_history::DesktopLogRuntime::install(
+        log_dir,
+        backend_log_path,
+        DESKTOP_LOG_MAX_BYTES,
+        log_level,
+    )
+    .expect("failed to initialize desktop logging");
 
     let app = tauri::Builder::default()
-        .plugin(
-            tauri_plugin_log::Builder::new()
-                .target(tauri_plugin_log::Target::new(
-                    tauri_plugin_log::TargetKind::Folder {
-                        path: log_dir,
-                        file_name: Some("desktop".to_string()),
-                    },
-                ))
-                .target(tauri_plugin_log::Target::new(
-                    tauri_plugin_log::TargetKind::Stdout,
-                ))
-                .level(log_level)
-                .max_file_size(10 * 1024 * 1024) // 10 MB per file
-                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
-                .build(),
-        )
+        .plugin(tauri_plugin_log::Builder::new().skip_logger().build())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             let _ = desktop_presence::restore_main_window(app);
         }))
@@ -1513,6 +1537,7 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .manage(BackendState::default())
+        .manage(desktop_log_runtime)
         .manage(desktop_presence::DesktopPresenceState::default())
         .setup(move |app| {
             let current_version = app.package_info().version.to_string();
@@ -1574,6 +1599,7 @@ fn main() {
             confirm_exit_app,
             cancel_exit_request,
             open_url,
+            clear_desktop_log_history,
             set_window_caption_color
         ])
         .build(tauri::generate_context!())
@@ -1593,9 +1619,10 @@ mod tests {
     #[cfg(windows)]
     use super::plugin_python_candidates_from_resource_dir;
     use super::{
-        build_external_backend_config, first_existing_dir, isolate_python_worker_environment,
-        ordered_builtin_avatar_dirs, plugin_python_path_from_resource_dir,
-        suppress_child_console_window, wait_for_process_stop, BackendProcess,
+        build_external_backend_config, configure_backend_log_environment, first_existing_dir,
+        isolate_python_worker_environment, ordered_builtin_avatar_dirs,
+        plugin_python_path_from_resource_dir, resolve_configured_log_path,
+        suppress_child_console_window, wait_for_process_stop, BackendProcess, BACKEND_LOG_FILE_ENV,
         DESKTOP_SESSION_TOKEN_ENV,
     };
     use std::process::{Command, Stdio};
@@ -1659,6 +1686,36 @@ mod tests {
         assert!(command
             .get_envs()
             .any(|(name, value)| { name == DESKTOP_SESSION_TOKEN_ENV && value.is_none() }));
+    }
+
+    #[test]
+    fn backend_log_environment_uses_host_resolved_absolute_paths() {
+        let mut command = Command::new("python");
+        let backend_log = std::env::temp_dir()
+            .join("magi-runtime")
+            .join("logs")
+            .join("backend.log");
+
+        configure_backend_log_environment(&mut command, &backend_log);
+
+        assert!(command.get_envs().any(|(name, value)| {
+            name == BACKEND_LOG_FILE_ENV && value == Some(backend_log.as_os_str())
+        }));
+    }
+
+    #[test]
+    fn relative_backend_log_path_is_resolved_before_worker_chdir() {
+        let current_dir = std::env::temp_dir().join("magi-desktop");
+        let absolute_log = current_dir.join("absolute-backend-hot.log");
+
+        assert_eq!(
+            resolve_configured_log_path(std::path::Path::new("logs/backend-hot.log"), &current_dir,),
+            current_dir.join("logs/backend-hot.log"),
+        );
+        assert_eq!(
+            resolve_configured_log_path(&absolute_log, &current_dir),
+            absolute_log,
+        );
     }
 
     #[test]

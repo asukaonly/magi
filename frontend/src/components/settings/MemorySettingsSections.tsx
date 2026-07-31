@@ -288,6 +288,9 @@ export function MemoryGeneralSettingsSection({
       if (feedback.recoveryPending) {
         toast.warning(t('settings.memoryClearRecoveryPending'));
       }
+      if (feedback.diagnosticLogsIncomplete) {
+        toast.warning(t('settings.memoryClearDiagnosticLogsIncomplete'));
+      }
       if (feedback.otherWarningsPresent) {
         toast.warning(t('settings.memoryClearCompletedWithWarnings'));
       }

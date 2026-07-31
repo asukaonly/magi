@@ -719,6 +719,9 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     if (feedback.recoveryPending) {
       toast.warning(t('memory.clearRecoveryPending'));
     }
+    if (feedback.diagnosticLogsIncomplete) {
+      toast.warning(t('memory.clearDiagnosticLogsIncomplete'));
+    }
     if (feedback.otherWarningsPresent) {
       toast.warning(t('memory.clearCompletedWithWarnings'));
     }

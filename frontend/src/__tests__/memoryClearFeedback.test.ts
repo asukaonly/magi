@@ -24,6 +24,7 @@ describe('summarizeMemoryClear', () => {
     expect(summarizeMemoryClear(clearResult())).toEqual({
       clearedItemCount: 21,
       recoveryPending: false,
+      diagnosticLogsIncomplete: false,
       otherWarningsPresent: false,
     });
   });
@@ -40,6 +41,7 @@ describe('summarizeMemoryClear', () => {
     expect(summarizeMemoryClear(result)).toEqual({
       clearedItemCount: 16,
       recoveryPending: true,
+      diagnosticLogsIncomplete: false,
       otherWarningsPresent: false,
     });
   });
@@ -50,7 +52,19 @@ describe('summarizeMemoryClear', () => {
     }))).toEqual({
       clearedItemCount: 21,
       recoveryPending: false,
+      diagnosticLogsIncomplete: false,
       otherWarningsPresent: true,
+    });
+  });
+
+  it('reports incomplete diagnostic log cleanup separately', () => {
+    expect(summarizeMemoryClear(clearResult({
+      warnings: ['diagnostic_log_cleanup_failed'],
+    }))).toEqual({
+      clearedItemCount: 21,
+      recoveryPending: false,
+      diagnosticLogsIncomplete: true,
+      otherWarningsPresent: false,
     });
   });
 });

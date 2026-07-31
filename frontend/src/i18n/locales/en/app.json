@@ -1698,6 +1698,7 @@
     "memoryCleared": "Cleared conversation history and memory ({{count}} items)",
     "memoryClearFailed": "Failed to clear memory",
     "memoryClearRecoveryPending": "The content is no longer accessible. If chat or external messages remain unavailable, restart the app to finish cleanup.",
+    "memoryClearDiagnosticLogsIncomplete": "Some old diagnostic logs could not be erased. Close the app, reopen it, and run the clear action again.",
     "memoryClearCompletedWithWarnings": "The clear completed, but some background cleanup did not finish normally. Restart the app and check again.",
     "clearConfirm": {
       "title": "Confirm Clear All Memory?",
@@ -1768,7 +1769,7 @@
       },
       "dangerZone": {
         "title": "Danger Zone",
-        "description": "Permanently clear chat history, all memory, and pending notifications tied to those conversations. Model settings, plugin accounts, and channel preferences are kept.",
+        "description": "Permanently clear chat history, all memory, related pending notifications, and past diagnostic logs. Model settings, plugin accounts, and channel preferences are kept.",
         "clearButton": "Clear All Memory"
       },
       "vector": {
@@ -4330,6 +4331,7 @@
     "clearFailed": "Memory could not be cleared. Please try again.",
     "clearRefreshFailed": "Memory was cleared, but this view could not refresh yet.",
     "clearRecoveryPending": "The content is no longer accessible. Restart the app to finish cleanup before starting a new chat or sending external messages.",
+    "clearDiagnosticLogsIncomplete": "Some old diagnostic logs could not be erased. Close the app, reopen it, and run the clear action again.",
     "clearCompletedWithWarnings": "The clear completed, but some background cleanup did not finish normally. Restart the app and check again.",
     "sources": {
       "chat_projector": "Chat",
@@ -4625,6 +4627,7 @@
       "learnedSkills": "Learned experience and procedural skills",
       "currentContext": "Cached context from the current conversation",
       "pendingNotifications": "Channel conversation links, delivery records, and unsent task notifications",
+      "diagnosticLogs": "Past local diagnostic logs, including rotated copies",
       "preservedSettings": "Model settings, plugin accounts, identity links, and channel preferences are kept.",
       "countdownHint": "Please wait {{seconds}} seconds before confirming.",
       "readyHint": "You can confirm the clear action now.",
