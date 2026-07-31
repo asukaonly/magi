@@ -125,19 +125,30 @@ class SchedulerService:
             timezone=ZoneInfo("UTC"),
         )
         self._running = False
+        self._active = False
 
     @property
     def repository(self) -> ScheduleRepository:
         return self._repository
 
-    async def start(self) -> None:
+    async def start(self, *, paused: bool = False) -> None:
         if self._running:
             return
         await self._repository.initialize()
         await self._repository.reset_running_flags()
-        self._scheduler.start()
+        self._scheduler.start(paused=paused)
         self._running = True
+        self._active = not paused
         await self._restore_persisted_jobs()
+
+    def activate(self) -> None:
+        """Allow persisted jobs to run after all startup contributors are ready."""
+        if not self._running:
+            raise RuntimeError("Scheduler service is not started")
+        if self._active:
+            return
+        self._scheduler.resume()
+        self._active = True
 
     async def stop(self) -> None:
         if not self._running:
@@ -145,12 +156,19 @@ class SchedulerService:
         self._scheduler.shutdown(wait=False)
         self._jobstore_engine.dispose()
         self._running = False
+        self._active = False
 
     def register_handler(self, target_type: ScheduledTargetType, handler: ScheduleHandler) -> None:
         self._handlers[target_type] = handler
 
     async def schedule(self, definition: ScheduleDefinition) -> ScheduleDefinition:
         async with self._schedule_lock:
+            existing = await self._repository.get_schedule(definition.schedule_id)
+            if existing is not None and _same_schedule_definition(existing, definition):
+                job_id = existing.job_id or existing.schedule_id
+                if existing.enabled and self._scheduler.get_job(job_id) is None:
+                    await self._upsert_job(existing)
+                return existing
             await self._repository.upsert_schedule(definition)
             if definition.enabled:
                 await self._upsert_job(definition)
@@ -726,4 +744,21 @@ def _same_once_trigger(left: ScheduleDefinition, right: ScheduleDefinition) -> b
         left.trigger.trigger_type is TriggerType.ONCE
         and right.trigger.trigger_type is TriggerType.ONCE
         and left.trigger.config == right.trigger.config
+    )
+
+
+def _same_schedule_definition(
+    left: ScheduleDefinition,
+    right: ScheduleDefinition,
+) -> bool:
+    """Return whether persisting ``right`` would leave the schedule unchanged."""
+    return (
+        left.schedule_id == right.schedule_id
+        and left.target_type is right.target_type
+        and left.target_key == right.target_key
+        and left.trigger == right.trigger
+        and left.target_payload == right.target_payload
+        and left.enabled == right.enabled
+        and left.metadata == right.metadata
+        and (left.job_id or left.schedule_id) == (right.job_id or right.schedule_id)
     )

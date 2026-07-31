@@ -3,10 +3,61 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import time
+from unittest.mock import AsyncMock
 
 import pytest
 
 from magi.scheduler import SchedulerService, ScheduledExecutionContext, ScheduledExecutionResult, ScheduledTargetType
+
+
+@pytest.mark.asyncio
+async def test_scheduler_can_prepare_jobs_before_activation(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+
+    await service.start(paused=True)
+    try:
+        assert service._scheduler.state == 2
+        service.activate()
+        assert service._scheduler.state == 1
+    finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_identical_schedule_registration_skips_persistent_writes(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+    await service.start()
+    try:
+        await service.schedule_interval(
+            schedule_id="stable",
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global",
+            seconds=300.0,
+            target_payload={"scope": "all"},
+        )
+        upsert_schedule = AsyncMock(wraps=service.repository.upsert_schedule)
+        upsert_job = AsyncMock(wraps=service._upsert_job)
+        service.repository.upsert_schedule = upsert_schedule
+        service._upsert_job = upsert_job
+
+        await service.schedule_interval(
+            schedule_id="stable",
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global",
+            seconds=300.0,
+            target_payload={"scope": "all"},
+        )
+
+        upsert_schedule.assert_not_awaited()
+        upsert_job.assert_not_awaited()
+    finally:
+        await service.stop()
 
 
 @pytest.mark.asyncio

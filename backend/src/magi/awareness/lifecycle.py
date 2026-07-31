@@ -131,7 +131,7 @@ class SensorSyncExecutorModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_sensor_sync_executor",
-            dependencies=("runtime_sensor_scheduler",),
+            dependencies=("runtime_sensor_scheduler", "runtime_scheduler_activation"),
         )
         self._context = context
         self._executor: SensorSyncExecutor | None = None

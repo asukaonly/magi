@@ -109,26 +109,32 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 40. `runtime_scheduler`
 41. `runtime_agent_schedule_registration`
 42. `runtime_sensor_scheduler`
-43. `runtime_sensor_sync_executor`
-
 ### Phase 4: exports and maintenance registration
 
-44. `runtime_exports`
-45. `runtime_control_plane`
-46. `runtime_l1_maintenance_scheduler`
-47. `runtime_l2_maintenance_scheduler`
-48. `runtime_l2_consolidation_scheduler`
-49. `runtime_l2_derive_scheduler`
-50. `runtime_l3_summary_scheduler`
-51. `runtime_l3_maintenance_scheduler`
-52. `runtime_l4_maintenance_scheduler`
-53. `runtime_timeline_schedulers`
-54. `runtime_operational_gc_scheduler`
-55. `runtime_other_dependencies`
-56. `runtime_channels`
-57. `runtime_outreach`
+43. `runtime_exports`
+44. `runtime_control_plane`
+45. `runtime_l1_maintenance_scheduler`
+46. `runtime_l2_maintenance_scheduler`
+47. `runtime_l2_consolidation_scheduler`
+48. `runtime_l2_derive_scheduler`
+49. `runtime_l3_summary_scheduler`
+50. `runtime_l3_maintenance_scheduler`
+51. `runtime_l4_maintenance_scheduler`
+52. `runtime_timeline_schedulers`
+53. `runtime_operational_gc_scheduler`
+54. `runtime_other_dependencies`
+55. `runtime_channels`
+56. `runtime_outreach`
+57. `runtime_scheduler_activation`
+58. `runtime_sensor_sync_executor`
 
 Important rule: bootstrap order is dependency order, not ownership order. For example, the scheduler engine is infrastructure even though it is started after timeline services that will register schedules into it.
+
+The scheduler is prepared in a paused state. Startup contributors first bind
+their handlers and reconcile their persisted schedule definitions. Only
+`runtime_scheduler_activation` allows jobs to fire, and the sensor executor
+starts after that boundary. Re-registering an unchanged definition is a
+read-only operation so normal startup does not rewrite the scheduler database.
 
 Important rule: `runtime_llm` is the current deferral boundary. If LLM selections are incomplete or invalid during onboarding, startup stops there and later phases do not run.
 

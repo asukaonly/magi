@@ -71,7 +71,7 @@ from ..personality.lifecycle import PersonalityModule
 from ..plugins.lifecycle import PluginSystemModule
 from ..runtime_trace import RuntimeTraceStore
 from ..runtime_trace.lifecycle import RuntimeTraceSubscriberModule
-from ..scheduler.lifecycle import SchedulerModule
+from ..scheduler.lifecycle import SchedulerActivationModule, SchedulerModule
 from ..hooks.lifecycle import HooksModule
 from ..skills.lifecycle import SkillsModule
 from ..timeline.handler import build_timeline_handler
@@ -274,7 +274,6 @@ def _build_processing_modules(context: RuntimeBootstrapContext) -> list[Lifecycl
         SchedulerModule(context),
         AgentScheduleRegistrationModule(context),
         SensorScheduleRegistrationModule(context),
-        SensorSyncExecutorModule(context),
     ]
 
 
@@ -298,6 +297,8 @@ def _build_exports_and_maintenance_modules(context: RuntimeBootstrapContext) -> 
         OtherDependenciesModule(context),
         ChannelsModule(context),
         OutreachModule(context),
+        SchedulerActivationModule(context),
+        SensorSyncExecutorModule(context),
     ]
 
 

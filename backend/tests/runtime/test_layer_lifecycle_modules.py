@@ -84,7 +84,6 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_scheduler",
         "runtime_agent_schedule_registration",
         "runtime_sensor_scheduler",
-        "runtime_sensor_sync_executor",
         "runtime_exports",
         "runtime_control_plane",
         "runtime_l1_maintenance_scheduler",
@@ -99,7 +98,33 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_other_dependencies",
         "runtime_channels",
         "runtime_outreach",
+        "runtime_scheduler_activation",
+        "runtime_sensor_sync_executor",
     ]
+
+
+def test_background_schedule_execution_starts_after_all_registrations() -> None:
+    """Keep schedule writers ahead of scheduler and sensor execution."""
+    from magi.bootstrap.builder import build_runtime_modules
+    from magi.bootstrap.context import RuntimeBootstrapContext
+    from magi.bootstrap.lifecycle import ModuleLifecycleOrchestrator
+
+    resolved = [
+        module.name
+        for module in ModuleLifecycleOrchestrator(
+            build_runtime_modules(RuntimeBootstrapContext())
+        )._modules
+    ]
+    activation_index = resolved.index("runtime_scheduler_activation")
+    executor_index = resolved.index("runtime_sensor_sync_executor")
+    schedule_registrations = [
+        name
+        for name in resolved
+        if name.endswith("_scheduler") or name == "runtime_agent_schedule_registration"
+    ]
+
+    assert all(resolved.index(name) < activation_index for name in schedule_registrations)
+    assert activation_index < executor_index
 
 
 def test_schema_migrations_run_before_any_db_consuming_module() -> None:
