@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from magi.api.routers import config as config_module
-from magi.api.routers.config_schemas import SystemConfigModel
+from magi.api.routers.config_schemas import LLMProviderConfigModel, SystemConfigModel
 
 
 @pytest.fixture
@@ -40,6 +40,42 @@ def _patch_successful_runtime_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
         "_refresh_or_initialize_runtime_after_config_update",
         _skip_runtime_refresh,
     )
+
+
+def _config_with_provider_key(api_key: str) -> SystemConfigModel:
+    config = SystemConfigModel()
+    config.llm.providers["openai"] = LLMProviderConfigModel(
+        enabled=True,
+        provider_type="openai",
+        display_name="OpenAI",
+        api_key=api_key,
+        base_url="https://api.openai.com/v1",
+        services={
+            "chat": {
+                "enabled": True,
+                "api_key": api_key,
+                "base_url": "https://api.openai.com/v1",
+            },
+            "embedding": {
+                "enabled": True,
+                "api_key": api_key,
+                "base_url": "https://api.openai.com/v1",
+            },
+            "image_generation": {
+                "enabled": True,
+                "api_key": api_key,
+                "base_url": "https://api.openai.com/v1",
+            },
+            "tts": {
+                "enabled": True,
+                "api_key": api_key,
+                "base_url": "https://api.openai.com/v1",
+            },
+        },
+    )
+    config.llm.selections["core"].provider_id = "openai"
+    config.llm.selections["core"].model = "gpt-5.6"
+    return config
 
 
 def test_onboarding_status_reads_persisted_completion_state(
@@ -108,6 +144,37 @@ def test_completed_installation_cannot_load_onboarding_template(
     assert template_called is False
 
 
+def test_onboarding_template_recovers_only_masked_backend_llm_draft(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "agent.yaml"
+    _write_onboarding_state(config_path, completed=False)
+    _patch_config_path(monkeypatch, config_path)
+    calls: list[bool] = []
+
+    def _build_recovered_config(mask_api_key: bool = False) -> SystemConfigModel:
+        calls.append(mask_api_key)
+        return _config_with_provider_key(
+            "sk-dra****" if mask_api_key else "sk-draft-secret",
+        )
+
+    monkeypatch.setattr(config_module, "_build_system_config", _build_recovered_config)
+
+    response = client.get("/config/onboarding-template")
+
+    assert response.status_code == 200
+    assert calls == [True]
+    payload = response.json()["data"]["config"]
+    assert payload["llm"]["providers"]["openai"]["api_key"] == "sk-dra****"
+    for service_name in ("chat", "embedding", "image_generation", "tts"):
+        assert payload["llm"]["providers"]["openai"]["services"][service_name][
+            "api_key"
+        ] == "sk-dra****"
+    assert "sk-draft-secret" not in response.text
+
+
 def test_onboarding_draft_only_saves_language_and_llm(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -126,11 +193,15 @@ def test_onboarding_draft_only_saves_language_and_llm(
         lambda updates: captured.update(updates) is None,
     )
     monkeypatch.setattr(config_module, "reload_config", lambda: object())
-    monkeypatch.setattr(
-        config_module,
-        "_build_system_config",
-        lambda mask_api_key=False: SystemConfigModel(),
-    )
+    build_calls: list[bool] = []
+
+    def _build_saved_config(mask_api_key: bool = False) -> SystemConfigModel:
+        build_calls.append(mask_api_key)
+        return _config_with_provider_key(
+            "sk-sav****" if mask_api_key else "sk-saved-secret",
+        )
+
+    monkeypatch.setattr(config_module, "_build_system_config", _build_saved_config)
     _patch_successful_runtime_refresh(monkeypatch)
 
     response = client.put(
@@ -146,6 +217,11 @@ def test_onboarding_draft_only_saves_language_and_llm(
         "preferences.language",
     }
     assert captured["preferences.language"] == "en"
+    assert build_calls == [False, True]
+    assert response.json()["data"]["llm"]["providers"]["openai"]["api_key"] == (
+        "sk-sav****"
+    )
+    assert "sk-saved-secret" not in response.text
 
 
 def test_onboarding_completion_preserves_unrelated_settings(
@@ -171,11 +247,15 @@ def test_onboarding_completion_preserves_unrelated_settings(
         lambda updates: captured.update(updates) is None,
     )
     monkeypatch.setattr(config_module, "reload_config", lambda: object())
-    monkeypatch.setattr(
-        config_module,
-        "_build_system_config",
-        lambda mask_api_key=False: SystemConfigModel(),
-    )
+    build_calls: list[bool] = []
+
+    def _build_saved_config(mask_api_key: bool = False) -> SystemConfigModel:
+        build_calls.append(mask_api_key)
+        return _config_with_provider_key(
+            "sk-fin****" if mask_api_key else "sk-finished-secret",
+        )
+
+    monkeypatch.setattr(config_module, "_build_system_config", _build_saved_config)
     _patch_successful_runtime_refresh(monkeypatch)
 
     response = client.post(
@@ -194,6 +274,73 @@ def test_onboarding_completion_preserves_unrelated_settings(
     }
     assert captured["preferences.onboarding_completed"] is True
     assert captured["preferences.product_tour_completed"] is True
+    assert build_calls == [False, True]
+    assert response.json()["data"]["llm"]["providers"]["openai"]["api_key"] == (
+        "sk-fin****"
+    )
+    assert "sk-finished-secret" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "complete"),
+    [
+        ("put", "/config/onboarding-draft", False),
+        ("post", "/config/onboarding-complete", True),
+    ],
+)
+def test_onboarding_explicitly_cleared_key_is_not_restored(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    path: str,
+    complete: bool,
+) -> None:
+    current = _config_with_provider_key("sk-old-secret")
+    current.llm.providers["openai"].base_url = "https://old.example/v1"
+    current.llm.providers["openai"].services.chat.base_url = "https://old.example/v1"
+    submitted = _config_with_provider_key("")
+    submitted.llm.providers["openai"].base_url = "http://127.0.0.1:11434/v1"
+    submitted.llm.providers["openai"].services.chat.base_url = (
+        "http://127.0.0.1:11434/v1"
+    )
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(config_module, "get_config", lambda: current)
+
+    def _build_config(mask_api_key: bool = False) -> SystemConfigModel:
+        return submitted.model_copy(deep=True) if mask_api_key else current.model_copy(deep=True)
+
+    monkeypatch.setattr(config_module, "_build_system_config", _build_config)
+
+    async def _capture_persist(**kwargs: Any) -> object:
+        updates, proposed = kwargs["prepare_update"]()
+        captured["updates"] = updates
+        captured["proposed"] = proposed
+        return object()
+
+    monkeypatch.setattr(config_module, "_persist_config_update", _capture_persist)
+
+    response = client.request(
+        method,
+        path,
+        json={
+            "language": "en",
+            "llm": submitted.llm.model_dump(mode="json"),
+        },
+    )
+
+    assert response.status_code == 200
+    provider_update = captured["updates"]["llm.providers"]["openai"]
+    assert provider_update["api_key"] == ""
+    for service_name in ("chat", "embedding", "image_generation", "tts"):
+        assert provider_update["services"][service_name]["api_key"] == ""
+    assert provider_update["base_url"] == "http://127.0.0.1:11434/v1"
+    proposed = captured["proposed"]
+    assert proposed.llm.providers["openai"].api_key == ""
+    for service_name in ("chat", "embedding", "image_generation", "tts"):
+        assert getattr(proposed.llm.providers["openai"].services, service_name).api_key == ""
+    assert provider_update.get("api_key") != "sk-old-secret"
+    assert ("preferences.onboarding_completed" in captured["updates"]) is complete
 
 
 def test_completed_installation_rejects_repeated_onboarding_completion(

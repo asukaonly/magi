@@ -94,6 +94,7 @@ Safety and configuration ownership rules:
 - a failed or invalid onboarding template response must stop the flow and offer retry; the client must not substitute a fresh default configuration
 - recovered progress cannot resume beyond model setup without a connection result from the current app session; saved persona and first-context choices may be retained, but the flow must return to model setup for verification
 - the client persists onboarding as one versioned progress snapshot; unsupported or malformed snapshots fall back safely, while valid snapshots retain persona drafts, source progress, and first-context work without restoring transient request ownership
+- the browser-owned progress snapshot contains UI progress, language, and user-authored onboarding drafts, but never LLM configuration or credential fields; the backend owns the complete LLM draft and credentials, persists it when model setup is verified, and returns only masked credentials when an unfinished setup is resumed
 - onboarding writes own only the selected language, LLM configuration, and completion flags; agent, memory, network, personality, tool, timeline, and unrelated preference settings must remain unchanged
 - onboarding completion is server-owned state; ordinary settings saves must preserve it and cannot move a completed installation back into onboarding
 

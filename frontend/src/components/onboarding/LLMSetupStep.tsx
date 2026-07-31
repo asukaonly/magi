@@ -81,6 +81,17 @@ function providerRequiresApiKey(provider: LLMProviderConfig): boolean {
   return provider.provider_type !== 'custom' || (provider.api_format || 'openai') !== 'openai';
 }
 
+function isMaskedApiKey(value?: string | null): boolean {
+  return Boolean(value && (value.endsWith('****') || value.endsWith('***')));
+}
+
+function updateCommonBaseUrl(provider: LLMProviderConfig, baseUrl: string): void {
+  provider.base_url = baseUrl;
+  for (const service of Object.values(provider.services)) {
+    service.base_url = '';
+  }
+}
+
 function isValidConfig(value: LLMConfig): boolean {
   const coreProviderId = value.selections?.core?.provider_id || '';
   const provider = value.providers?.[coreProviderId];
@@ -555,6 +566,7 @@ export function LLMSetupStep({
     nextProvider.services.chat.base_url = '';
     nextProvider.services.embedding.base_url = '';
     nextProvider.services.image_generation.base_url = '';
+    nextProvider.services.tts.base_url = '';
     if (!planId) {
       nextProvider.services.embedding.enabled = Boolean(activeProviderMeta?.resolved_embedding_models?.length);
       nextProvider.services.image_generation.enabled = false;
@@ -586,6 +598,7 @@ export function LLMSetupStep({
       provider.services.chat.base_url = '';
       provider.services.embedding.base_url = '';
       provider.services.image_generation.base_url = '';
+      provider.services.tts.base_url = '';
     });
   };
 
@@ -604,13 +617,21 @@ export function LLMSetupStep({
         aria-label={t('llmSetup.apiKeyLabel')}
         className={cn(fieldClassName, 'pr-10')}
         type={showApiKey ? 'text' : 'password'}
+        autoComplete="off"
         value={activeProvider?.api_key || activeProvider?.services?.chat?.api_key || ''}
         placeholder={t('llmSetup.apiKeyPlaceholder')}
+        onFocus={(event) => {
+          if (isMaskedApiKey(event.currentTarget.value)) {
+            event.currentTarget.select();
+          }
+        }}
         onChange={(event) => {
           const apiKey = event.target.value;
           updateActiveProvider((provider) => {
             provider.api_key = apiKey;
-            provider.services.chat.api_key = apiKey;
+            for (const service of Object.values(provider.services)) {
+              service.api_key = apiKey;
+            }
           });
         }}
       />
@@ -844,7 +865,7 @@ export function LLMSetupStep({
                       onChange={(event) => {
                         const baseUrl = event.target.value;
                         updateActiveProvider((provider) => {
-                          provider.base_url = baseUrl;
+                          updateCommonBaseUrl(provider, baseUrl);
                         });
                       }}
                     />
@@ -965,7 +986,7 @@ export function LLMSetupStep({
                           onChange={(event) => {
                             const baseUrl = event.target.value;
                             updateActiveProvider((provider) => {
-                              provider.base_url = baseUrl;
+                              updateCommonBaseUrl(provider, baseUrl);
                             });
                           }}
                         />

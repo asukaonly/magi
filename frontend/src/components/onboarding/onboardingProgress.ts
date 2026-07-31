@@ -11,8 +11,13 @@ import type {
   CustomPersonaDraft,
   PersonaCreationDraft,
 } from "./persona-preview/personaPreviewModel";
+import {
+  ONBOARDING_PROGRESS_VERSION,
+  sanitizeOnboardingProgressStorage,
+  stripOnboardingCredentialFields,
+} from "./onboardingStorage";
 
-export const ONBOARDING_PROGRESS_VERSION = 1;
+export { ONBOARDING_PROGRESS_VERSION } from "./onboardingStorage";
 const LLM_SETUP_STEP = 1;
 const COMPLETE_STEP = 4;
 
@@ -73,6 +78,50 @@ type OnboardingProgressAction = {
   type: "save";
   progress: SaveOnboardingProgress;
 };
+
+interface PersistedOnboardingValues {
+  preferences: {
+    language: string;
+  };
+}
+
+interface PersistedOnboardingProgressState
+  extends Omit<OnboardingProgressState, "values"> {
+  values: PersistedOnboardingValues;
+}
+
+/**
+ * Keep browser-owned onboarding state limited to non-sensitive UI progress.
+ * The backend owns the complete LLM draft, including every credential.
+ */
+export function serializeOnboardingProgress(
+  state: OnboardingProgressState,
+): string {
+  const snapshot: PersistedOnboardingProgressState = {
+    version: state.version,
+    current: state.current,
+    values: {
+      preferences: {
+        language: state.values.preferences?.language || "zh",
+      },
+    },
+    seedSlug: state.seedSlug,
+    customPersonas: stripOnboardingCredentialFields(
+      state.customPersonas,
+    ) as CustomPersonaDraft[],
+    personaCreationDraft: stripOnboardingCredentialFields(
+      state.personaCreationDraft,
+    ) as PersonaCreationDraft | null,
+    firstContextPluginIds: state.firstContextPluginIds,
+    firstContextCountsByPluginId: stripOnboardingCredentialFields(
+      state.firstContextCountsByPluginId,
+    ) as Record<string, number | null>,
+    firstContextProgress: stripOnboardingCredentialFields(
+      state.firstContextProgress,
+    ) as FirstContextProgress,
+  };
+  return JSON.stringify(snapshot);
+}
 
 function normalizeFirstContextProgress(
   raw: unknown,
@@ -192,15 +241,18 @@ export function restoreOnboardingProgress(
       typeof parsed.current === "number"
         ? Math.max(0, Math.min(COMPLETE_STEP, parsed.current))
         : 0;
+    const persistedPreferences = (
+      parsed.values as Partial<SystemConfig>
+    ).preferences;
     const values: SystemConfig = {
-      ...parsed.values,
+      ...initialConfig,
       preferences: {
-        ...parsed.values.preferences,
+        ...initialConfig.preferences,
         language:
           (savedLanguage === "en" || savedLanguage === "zh"
             ? savedLanguage
             : undefined) ||
-          parsed.values.preferences?.language ||
+          persistedPreferences?.language ||
           initialConfig.preferences.language,
       },
     };
@@ -260,12 +312,18 @@ export function useOnboardingProgress({
   const [state, dispatch] = useReducer(
     onboardingProgressReducer,
     initialConfig,
-    (config) =>
-      restoreOnboardingProgress(
-        localStorage.getItem(storageKey),
+    (config) => {
+      const sanitized = sanitizeOnboardingProgressStorage(storageKey);
+      const restored = restoreOnboardingProgress(
+        sanitized,
         config,
         localStorage.getItem("magi_language"),
-      ),
+      );
+      if (sanitized) {
+        localStorage.setItem(storageKey, serializeOnboardingProgress(restored));
+      }
+      return restored;
+    },
   );
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -276,7 +334,7 @@ export function useOnboardingProgress({
       const nextState = onboardingProgressReducer(stateRef.current, action);
       stateRef.current = nextState;
       dispatch(action);
-      localStorage.setItem(storageKey, JSON.stringify(nextState));
+      localStorage.setItem(storageKey, serializeOnboardingProgress(nextState));
       return nextState;
     },
     [storageKey],

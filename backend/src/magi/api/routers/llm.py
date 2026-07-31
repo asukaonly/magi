@@ -18,6 +18,7 @@ from ...config.llm_registry import (
 )
 from ...config.models import LLMProviderSettings
 from ...core.logger import get_logger
+from ..services.config_secrets import normalize_masked_llm_provider_secrets
 from .config_schemas import (
     LLMProviderConfigModel,
     LLMProviderConnectionConfigModel,
@@ -155,6 +156,11 @@ async def discover_llm_provider_models(payload: DiscoverLLMModelsRequestModel):
 @llm_router.post("/providers/test", response_model=TestLLMProviderApiResponseModel)
 async def test_llm_provider_connection(payload: TestLLMProviderRequestModel):
     provider_payload = LLMProviderConfigModel.model_validate(payload.provider)
+    provider_payload = normalize_masked_llm_provider_secrets(
+        payload.provider_id,
+        provider_payload,
+        get_config(),
+    )
     registry = _load_llm_provider_registry()
     registry_meta = find_provider_meta(
         registry,

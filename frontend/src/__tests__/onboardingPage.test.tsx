@@ -43,6 +43,7 @@ vi.mock('@/components/plugins/PluginInstallPanel', () => ({
 
 describe('OnboardingPage', () => {
   beforeEach(() => {
+    localStorage.clear();
     getOnboardingStatusMock.mockReset();
     getOnboardingStatusMock.mockResolvedValue({ data: { completed: false } });
     getOnboardingTemplateMock.mockReset();
@@ -64,6 +65,35 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'page.retryLoadConfig' }));
 
     expect(await screen.findByTestId('onboarding-flow')).toBeInTheDocument();
+  });
+
+  it('removes credentials from an older browser snapshot before loading the backend draft', async () => {
+    localStorage.setItem('magi_onboarding_state', JSON.stringify({
+      version: 1,
+      current: 2,
+      values: {
+        preferences: { language: 'zh' },
+        llm: {
+          providers: {
+            openai: { api_key: 'sk-stale-browser-secret' },
+          },
+        },
+      },
+      seedSlug: 'ember',
+      api_key: 'sk-stale-root-secret',
+    }));
+    getOnboardingTemplateMock.mockRejectedValueOnce(new Error('template unavailable'));
+
+    render(<OnboardingPage />);
+
+    expect(await screen.findByText('page.loadConfigFailed')).toBeInTheDocument();
+    const stored = localStorage.getItem('magi_onboarding_state') || '';
+    expect(stored).not.toContain('sk-stale-browser-secret');
+    expect(stored).not.toContain('sk-stale-root-secret');
+    expect(stored).not.toContain('api_key');
+    expect(JSON.parse(stored).values).toEqual({
+      preferences: { language: 'zh' },
+    });
   });
 
   it('treats a successful response without a template as a load failure', async () => {

@@ -8,6 +8,8 @@ import MainLayout from '../components/layout/MainLayout';
 import OnboardingLoadError from '../components/onboarding/OnboardingLoadError';
 import { configApi } from '../api/modules/config';
 import { LoadingSpinner } from '../components/ui/loading-spinner';
+import { STORAGE_KEYS } from '../constants/app';
+import { sanitizeOnboardingProgressStorage } from '../components/onboarding/onboardingStorage';
 
 const ChatPage = React.lazy(() =>
   import('../pages/Chat').then((m) => ({ default: m.ChatPage }))
@@ -111,6 +113,7 @@ const OnboardingGuard: React.FC<{
     : 'loading';
 
   const check = React.useCallback(async () => {
+    sanitizeOnboardingProgressStorage(STORAGE_KEYS.ONBOARDING_STATE);
     const requestId = ++requestIdRef.current;
     setSnapshot({ requireCompleted, status: 'loading' });
     try {

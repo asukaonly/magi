@@ -85,6 +85,7 @@ vi.mock('../pages/Personality', () => ({
 
 describe('app shell routing', () => {
   beforeEach(() => {
+    localStorage.clear();
     getOnboardingStatusMock.mockReset();
     getOnboardingStatusMock.mockResolvedValue({ data: { completed: true } });
     window.history.replaceState({}, '', '/chat');
@@ -169,6 +170,37 @@ describe('app shell routing', () => {
 
     expect(await screen.findByTestId('chat-page')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
+  });
+
+  it('removes legacy onboarding credentials before opening a completed installation', async () => {
+    localStorage.setItem('magi_onboarding_state', JSON.stringify({
+      version: 1,
+      current: 3,
+      values: {
+        preferences: { language: 'en' },
+        llm: {
+          providers: {
+            openai: { api_key: 'sk-legacy-secret' },
+          },
+        },
+      },
+      apiKey: 'sk-root-secret',
+    }));
+    vi.resetModules();
+    const { default: AppRouter } = await import('@/router');
+
+    await act(async () => {
+      render(<AppRouter />);
+    });
+
+    expect(await screen.findByTestId('chat-page')).toBeInTheDocument();
+    const stored = localStorage.getItem('magi_onboarding_state') || '';
+    expect(stored).not.toContain('sk-legacy-secret');
+    expect(stored).not.toContain('sk-root-secret');
+    expect(stored).not.toContain('api_key');
+    expect(JSON.parse(stored).values).toEqual({
+      preferences: { language: 'en' },
+    });
   });
 
   it('rechecks completion when leaving onboarding for the main app', async () => {

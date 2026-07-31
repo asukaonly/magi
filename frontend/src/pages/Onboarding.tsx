@@ -8,6 +8,7 @@ import { STORAGE_KEYS } from '@/constants/app';
 import { resolveInitialLanguage } from '@/utils/language';
 import { configApi, SystemConfig } from '../api/modules/config';
 import OnboardingFlow from '../components/onboarding/OnboardingFlow';
+import { sanitizeOnboardingProgressStorage } from '../components/onboarding/onboardingStorage';
 
 const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
 
@@ -44,6 +45,8 @@ const OnboardingPage: React.FC = () => {
   }, [navigate]);
 
   const load = useCallback(async () => {
+    sanitizeOnboardingProgressStorage(STORAGE_KEY);
+
     const requestId = ++requestIdRef.current;
     setConfig(null);
     setLoadFailed(false);
@@ -52,14 +55,6 @@ const OnboardingPage: React.FC = () => {
       const template = response.data?.config;
       if (!template) {
         throw new Error('Onboarding template response is missing configuration');
-      }
-
-      const coreProviderId = template.llm?.selections?.core?.provider_id;
-      const coreProvider = coreProviderId ? template.llm?.providers?.[coreProviderId] : undefined;
-
-      // If onboarding is seeded from masked environment credentials, clear cached local edits.
-      if (coreProvider?.services?.chat?.api_key?.endsWith('****')) {
-        localStorage.removeItem(STORAGE_KEY);
       }
 
       if (requestId === requestIdRef.current) {

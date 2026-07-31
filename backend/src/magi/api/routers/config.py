@@ -496,11 +496,13 @@ async def test_config(request: Request, config: SystemConfigModel):
 @config_router.get("/onboarding-template", response_model=OnboardingTemplateResponse)
 async def get_onboarding_template(request: Request):
     _ensure_onboarding_incomplete(request)
+    template = _build_onboarding_template()
+    template.llm = _build_system_config(mask_api_key=True).llm
     return OnboardingTemplateResponse(
         success=True,
         message=_t(request, "config.onboarding.template_loaded", "Onboarding template loaded"),
         data=OnboardingTemplateDataModel(
-            config=_build_onboarding_template(),
+            config=template,
         ),
     )
 
@@ -547,7 +549,7 @@ async def update_onboarding_draft(
         return ConfigResponse(
             success=True,
             message=_t(request, "config.onboarding.draft_saved", "Onboarding draft saved"),
-            data=_build_system_config(),
+            data=_build_system_config(mask_api_key=True),
         )
     except HTTPException:
         raise
@@ -652,7 +654,7 @@ async def complete_onboarding(
         return ConfigResponse(
             success=True,
             message=_t(request, "config.onboarding.saved", "Onboarding configuration saved"),
-            data=_build_system_config(),
+            data=_build_system_config(mask_api_key=True),
         )
     except HTTPException:
         raise

@@ -1566,6 +1566,172 @@ def test_llm_provider_test_endpoint_falls_back_to_registry_default_base_url(
     }
 
 
+def test_llm_provider_test_endpoint_resolves_masked_key_from_backend_draft(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(llm_router, prefix="/llm")
+    client = TestClient(app)
+    captured: dict[str, object] = {}
+
+    async def _fake_probe(provider_id: str, provider, model: str):  # type: ignore[no-untyped-def]
+        captured["provider_id"] = provider_id
+        captured["provider_api_key"] = provider.api_key
+        captured["service_api_keys"] = {
+            service_name: getattr(provider.services, service_name).api_key
+            for service_name in ("chat", "embedding", "image_generation", "tts")
+        }
+        captured["model"] = model
+        return {"model": model, "latency_ms": 12, "preview": "hello"}
+
+    runtime_provider = _provider_settings(api_key="sk-backend-owned")
+    runtime_provider.services.tts.api_key = "sk-backend-owned"
+    runtime_provider.services.tts.base_url = "https://api.openai.com/v1"
+    monkeypatch.setattr(
+        "magi.api.routers.llm.get_config",
+        lambda: SimpleNamespace(
+            llm=SimpleNamespace(providers={"openai": runtime_provider}),
+        ),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.llm._test_llm_provider_connection",
+        _fake_probe,
+        raising=False,
+    )
+
+    response = client.post(
+        "/llm/providers/test",
+        json={
+            "provider_id": "openai",
+            "model": "gpt-5.6",
+            "provider": {
+                "enabled": True,
+                "provider_type": "openai",
+                "display_name": "OpenAI",
+                "api_key": "sk-bac****",
+                "base_url": "https://api.openai.com/v1",
+                "services": {
+                    "chat": {
+                        "enabled": True,
+                        "api_key": "sk-bac****",
+                        "base_url": "https://api.openai.com/v1",
+                    },
+                    "embedding": {
+                        "enabled": True,
+                        "api_key": "sk-bac****",
+                        "base_url": "https://api.openai.com/v1",
+                    },
+                    "image_generation": {
+                        "enabled": True,
+                        "api_key": "sk-bac****",
+                        "base_url": "https://api.openai.com/v1",
+                    },
+                    "tts": {
+                        "enabled": True,
+                        "api_key": "sk-bac****",
+                        "base_url": "https://api.openai.com/v1",
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "provider_id": "openai",
+        "provider_api_key": "sk-backend-owned",
+        "service_api_keys": {
+            "chat": "sk-backend-owned",
+            "embedding": "sk-backend-owned",
+            "image_generation": "sk-backend-owned",
+            "tts": "sk-backend-owned",
+        },
+        "model": "gpt-5.6",
+    }
+
+
+def test_llm_provider_test_endpoint_does_not_restore_an_explicitly_cleared_key(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(llm_router, prefix="/llm")
+    client = TestClient(app)
+    captured: dict[str, object] = {}
+
+    async def _fake_probe(provider_id: str, provider, model: str):  # type: ignore[no-untyped-def]
+        captured["provider_api_key"] = provider.api_key
+        captured["service_api_keys"] = {
+            service_name: getattr(provider.services, service_name).api_key
+            for service_name in ("chat", "embedding", "image_generation", "tts")
+        }
+        captured["base_url"] = provider.base_url
+        return {"model": model, "latency_ms": 12, "preview": "hello"}
+
+    runtime_provider = _provider_settings(api_key="sk-old-secret")
+    runtime_provider.services.tts.api_key = "sk-old-secret"
+    runtime_provider.services.tts.base_url = "https://old.example/v1"
+    monkeypatch.setattr(
+        "magi.api.routers.llm.get_config",
+        lambda: SimpleNamespace(
+            llm=SimpleNamespace(providers={"custom": runtime_provider}),
+        ),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.llm._test_llm_provider_connection",
+        _fake_probe,
+        raising=False,
+    )
+
+    response = client.post(
+        "/llm/providers/test",
+        json={
+            "provider_id": "custom",
+            "model": "local-model",
+            "provider": {
+                "enabled": True,
+                "provider_type": "openai",
+                "display_name": "Local service",
+                "api_key": "",
+                "base_url": "http://127.0.0.1:11434/v1",
+                "services": {
+                    "chat": {
+                        "enabled": True,
+                        "api_key": "",
+                        "base_url": "http://127.0.0.1:11434/v1",
+                    },
+                    "embedding": {
+                        "enabled": True,
+                        "api_key": "",
+                        "base_url": "http://127.0.0.1:11434/v1",
+                    },
+                    "image_generation": {
+                        "enabled": True,
+                        "api_key": "",
+                        "base_url": "http://127.0.0.1:11434/v1",
+                    },
+                    "tts": {
+                        "enabled": True,
+                        "api_key": "",
+                        "base_url": "http://127.0.0.1:11434/v1",
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "provider_api_key": "",
+        "service_api_keys": {
+            "chat": "",
+            "embedding": "",
+            "image_generation": "",
+            "tts": "",
+        },
+        "base_url": "http://127.0.0.1:11434/v1",
+    }
+
+
 def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
     monkeypatch: pytest.MonkeyPatch,
 ):

@@ -555,6 +555,16 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(nextBtn).toBeDisabled();
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await waitFor(() => expect(nextBtn).toBeEnabled());
+
+    const localProgressWrites = localStorageMock.setItem.mock.calls.filter(
+      ([key]) => key === "magi_onboarding_state",
+    );
+    expect(localProgressWrites.length).toBeGreaterThan(0);
+    for (const [, serialized] of localProgressWrites) {
+      expect(serialized).not.toContain("sk-test");
+      expect(serialized).not.toContain("api_key");
+    }
+
     await user.click(nextBtn);
 
     await waitFor(() =>
@@ -1386,10 +1396,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(screen.getByRole("button", { name: /Ember/i }));
     await user.click(screen.getByRole("button", { name: "actions.next" }));
     await waitFor(() =>
-      expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1),
+      expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(2),
     );
     const draftPayload = vi.mocked(configApi.updateOnboardingDraft).mock
-      .calls[0][0] as any;
+      .calls[1][0] as any;
     expect(draftPayload.llm.selections.context_decider.model).toBe(
       "glm-4.5-air",
     );
@@ -1603,6 +1613,101 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(
       screen.queryByRole("button", { name: /Ember/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("clears recovered service keys and tests the newly entered common endpoint", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    const initialConfig = structuredClone(DEFAULT_SYSTEM_CONFIG);
+    initialConfig.llm.providers.custom = {
+      enabled: true,
+      provider_type: "custom",
+      display_name: "Local service",
+      provider_plan: null,
+      api_key: "sk-pro****",
+      base_url: "https://old.example/v1",
+      services: {
+        chat: {
+          enabled: true,
+          api_key: "sk-cha****",
+          base_url: "https://old-chat.example/v1",
+        },
+        embedding: {
+          enabled: true,
+          api_key: "sk-emb****",
+          base_url: "https://old-embedding.example/v1",
+        },
+        image_generation: {
+          enabled: true,
+          api_key: "sk-img****",
+          base_url: "https://old-image.example/v1",
+          timeout: 180,
+          native_protocol: null,
+        },
+        tts: {
+          enabled: true,
+          api_key: "sk-tts****",
+          base_url: "https://old-tts.example/v1",
+          model: "",
+          voice: "",
+          response_format: "",
+        },
+      },
+      api_format: "openai",
+      custom_models: ["local-model"],
+      custom_default_model: "local-model",
+      model_metadata_overrides: {},
+    };
+    initialConfig.llm.selections.core.provider_id = "custom";
+    initialConfig.llm.selections.core.model = "local-model";
+    initialConfig.llm.selections.context_decider.provider_id = "custom";
+    initialConfig.llm.selections.context_decider.model = "local-model";
+
+    render(<OnboardingFlow initialConfig={initialConfig} />);
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    const keyInput = await screen.findByTestId("llm-setup-api-key");
+    await user.clear(keyInput);
+    const baseUrlInput = screen.getByTestId("llm-setup-base-url");
+    await user.clear(baseUrlInput);
+    await user.type(baseUrlInput, "http://127.0.0.1:11434/v1");
+    await user.click(
+      screen.getByRole("button", { name: "llmSetup.verifyConnection" }),
+    );
+
+    await waitFor(() =>
+      expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1),
+    );
+    const testedProvider = vi.mocked(configApi.testLLMProviderConnection).mock
+      .calls[0][0].provider;
+    expect(testedProvider.api_key).toBe("");
+    expect(testedProvider.base_url).toBe("http://127.0.0.1:11434/v1");
+    expect(testedProvider.services.chat.api_key).toBe("");
+    expect(testedProvider.services.chat.base_url).toBe(
+      "http://127.0.0.1:11434/v1",
+    );
+    for (const serviceName of [
+      "embedding",
+      "image_generation",
+      "tts",
+    ] as const) {
+      const service = testedProvider.services[serviceName];
+      expect(service.api_key).toBe("");
+      expect(service.base_url).toBe("");
+    }
+
+    await waitFor(() =>
+      expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1),
+    );
+    const savedProvider = vi.mocked(configApi.updateOnboardingDraft).mock
+      .calls[0][0].llm.providers.custom;
+    expect(savedProvider.api_key).toBe("");
+    expect(savedProvider.base_url).toBe("http://127.0.0.1:11434/v1");
+    for (const service of Object.values(savedProvider.services)) {
+      expect(service.api_key).toBe("");
+      expect(service.base_url).toBe("");
+    }
   });
 
   it("enters the app when completion was saved but the response was lost", async () => {
@@ -1863,7 +1968,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     ).toBeInTheDocument();
   });
 
-  it("activates the chosen persona before entering first context", async () => {
+  it("persists verified model setup before activating the chosen persona", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     const completeOnboarding = vi
@@ -1895,9 +2000,9 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await screen.findByText("firstContext.title");
     expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
     expect(
-      vi.mocked(personasApi.setActive).mock.invocationCallOrder[0],
-    ).toBeLessThan(
       vi.mocked(configApi.updateOnboardingDraft).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      vi.mocked(personasApi.setActive).mock.invocationCallOrder[0],
     );
     expect(completeOnboarding).not.toHaveBeenCalled();
   });
@@ -1928,7 +2033,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       "aria-pressed",
       "true",
     );
-    expect(configApi.updateOnboardingDraft).not.toHaveBeenCalled();
+    expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
     expect(completeOnboarding).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "actions.next" }));
@@ -1967,7 +2072,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       "messages.personaUnavailable",
     );
     expect(personasApi.setActive).not.toHaveBeenCalled();
-    expect(configApi.updateOnboardingDraft).not.toHaveBeenCalled();
+    expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
   });
 
   it("blocks progress when the active-persona response names a different persona", async () => {
@@ -1986,7 +2091,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "messages.personaActivationFailed",
     );
-    expect(configApi.updateOnboardingDraft).not.toHaveBeenCalled();
+    expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
   });
 
   it("disables persona controls and navigation while activation is pending", async () => {

@@ -388,8 +388,60 @@ describe('LLMSetupStep', () => {
 
     const latest = onChangeSpy.mock.calls[onChangeSpy.mock.calls.length - 1]?.[0] as LLMConfig;
     expect(latest.providers.openai.api_key).toBe('sk-test');
+    for (const service of Object.values(latest.providers.openai.services)) {
+      expect(service.api_key).toBe('sk-test');
+    }
     expect(latest.selections.core.model).toBe('gpt-4o');
     expect(latest.selections.context_decider.model).toBe('gpt-4o-mini');
+  });
+
+  it('clears every recovered service credential from the single onboarding key field', async () => {
+    const user = userEvent.setup();
+    const initial = emptyValue();
+    initial.providers.openai = {
+      enabled: true,
+      provider_type: 'openai',
+      display_name: 'OpenAI',
+      provider_plan: null,
+      api_key: 'sk-pro****',
+      base_url: 'https://api.openai.com/v1',
+      services: {
+        chat: { enabled: true, api_key: 'sk-cha****', base_url: '' },
+        embedding: { enabled: true, api_key: 'sk-emb****', base_url: '' },
+        image_generation: {
+          enabled: true,
+          api_key: 'sk-img****',
+          base_url: '',
+          timeout: 180,
+          native_protocol: null,
+        },
+        tts: {
+          enabled: true,
+          api_key: 'sk-tts****',
+          base_url: '',
+          model: '',
+          voice: '',
+          response_format: '',
+        },
+      },
+      api_format: 'openai',
+      custom_models: [],
+      custom_default_model: '',
+      model_metadata_overrides: {},
+    };
+    initial.selections.core.provider_id = 'openai';
+    initial.selections.core.model = 'gpt-4o';
+    const onChangeSpy = vi.fn();
+    render(<Harness initial={initial} onChangeSpy={onChangeSpy} />);
+
+    const input = await screen.findByTestId('llm-setup-api-key');
+    await user.clear(input);
+
+    const latest = onChangeSpy.mock.calls[onChangeSpy.mock.calls.length - 1]?.[0] as LLMConfig;
+    expect(latest.providers.openai.api_key).toBe('');
+    for (const service of Object.values(latest.providers.openai.services)) {
+      expect(service.api_key).toBe('');
+    }
   });
 
   it('tests the selected provider from onboarding before continuing', async () => {

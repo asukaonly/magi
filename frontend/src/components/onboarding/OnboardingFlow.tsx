@@ -155,6 +155,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [installableError, setInstallableError] = useState<Error | null>(null);
   const installablePreloadStartedRef = useRef(false);
   const lastPersistedLanguageRef = useRef<LanguageCode | null>(null);
+  const lastPersistedDraftFingerprintRef = useRef(
+    JSON.stringify({
+      language: initialConfig.preferences.language,
+      llm: initialConfig.llm,
+    }),
+  );
   const initializedLanguageRef = useRef<LanguageCode | null>(null);
   const mountedRef = useRef(true);
   const loadInstallableSources = useCallback(async () => {
@@ -475,30 +481,30 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     );
   };
 
-  const persistRuntimeConfigBeforeFirstContext = async (): Promise<boolean> => {
+  const persistOnboardingDraft = async (): Promise<boolean> => {
+    const values = form.getFieldsValue(true) as SystemConfig;
+    if (!values.preferences) {
+      values.preferences = { ...initialConfig.preferences };
+    }
+    values.llm = llmValue;
+    const payload = {
+      language: normalizeLanguageCode(values.preferences.language),
+      llm: values.llm,
+    };
+    const fingerprint = JSON.stringify(payload);
+    if (lastPersistedDraftFingerprintRef.current === fingerprint) {
+      return true;
+    }
+
     setSaving(true);
     try {
-      const values = form.getFieldsValue(true) as SystemConfig;
-      if (!values.preferences) {
-        values.preferences = { ...initialConfig.preferences };
-      }
-      values.llm = llmValue;
       await withTimeout(
-        configApi.updateOnboardingDraft({
-          language: values.preferences.language,
-          llm: values.llm,
-        }),
+        configApi.updateOnboardingDraft(payload),
         ONBOARDING_SAVE_TIMEOUT_MS,
         t("messages.saveTimedOut"),
       );
-      saveProgress(
-        values,
-        seedSlug,
-        customPersonas,
-        FIRST_CONTEXT_STEP,
-        firstContextPluginIds,
-        firstContextCountsByPluginId,
-      );
+      lastPersistedDraftFingerprintRef.current = fingerprint;
+      saveProgress(values);
       return true;
     } catch (error: any) {
       toast.error(error?.message || t("messages.saveFailed"));
@@ -506,6 +512,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     } finally {
       setSaving(false);
     }
+  };
+
+  const testAndPersistLlmConnection = async (
+    force = false,
+  ): Promise<boolean> => {
+    if (!(await testLlmConnection(force))) {
+      return false;
+    }
+    return persistOnboardingDraft();
   };
 
   const enterAppAfterCompletion = (
@@ -639,7 +654,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         toast.warning(t("llm.completeSelections"));
         return;
       }
-      if (!(await testLlmConnection())) {
+      if (!(await testAndPersistLlmConnection())) {
         return;
       }
     }
@@ -648,7 +663,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       if (!(await confirmPersonaSelection())) {
         return;
       }
-      const persisted = await persistRuntimeConfigBeforeFirstContext();
+      const persisted = await persistOnboardingDraft();
       if (!persisted) {
         return;
       }
@@ -737,7 +752,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           onChange={handleLlmChange}
           onValid={setLlmValid}
           connectionTestState={llmConnectionTestState}
-          onTestConnection={testLlmConnection}
+          onTestConnection={testAndPersistLlmConnection}
           onConnectionConfigPendingChange={setLlmConnectionConfigPending}
         />
       );
