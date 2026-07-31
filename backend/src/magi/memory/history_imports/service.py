@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
+from dataclasses import replace
 from functools import partial
 import hashlib
 import re
@@ -24,7 +25,12 @@ from ..event_contracts import (
     TomDepth,
 )
 from .markdown_parser import DOCUMENT_AUTHOR, parse_markdown
-from .models import HistoryImportJob, HistoryImportRecord, ParsedHistoryFile
+from .models import (
+    HistoryImportJob,
+    HistoryImportRecord,
+    HistoryImportSourcePreview,
+    ParsedHistoryFile,
+)
 from .store import HistoryImportStore
 
 logger = get_logger(__name__)
@@ -36,6 +42,8 @@ QUICK_TARGET_RECORDS = 200
 QUICK_MAX_RECORDS = 500
 RAW_BATCH_SIZE = 100
 PROJECTION_BATCH_SIZE = 40
+SOURCE_PREVIEW_MAX_RECORDS = 200
+SOURCE_PREVIEW_MAX_CHARS = 48_000
 
 
 class HistoryImportError(RuntimeError):
@@ -163,6 +171,45 @@ class HistoryImportService:
 
         return await self._store.list_active_jobs(limit=limit)
 
+    async def get_source_preview(
+        self,
+        *,
+        job_id: str,
+        source_name: str,
+    ) -> HistoryImportSourcePreview:
+        """Return a bounded preview for one file without changing its selection."""
+
+        job = await self.get_job(job_id)
+        if source_name not in job.source_files:
+            raise HistoryImportValidationError("history_import_source_not_found")
+        source = next(
+            item for item in job.sources if item.source_name == source_name
+        )
+        loaded = await self._store.list_source_records(
+            job_id=job_id,
+            source_name=source_name,
+            limit=SOURCE_PREVIEW_MAX_RECORDS + 1,
+        )
+        truncated = len(loaded) > SOURCE_PREVIEW_MAX_RECORDS
+        remaining_chars = SOURCE_PREVIEW_MAX_CHARS
+        records: list[HistoryImportRecord] = []
+        for record in loaded[:SOURCE_PREVIEW_MAX_RECORDS]:
+            if remaining_chars <= 0:
+                truncated = True
+                break
+            content = record.content
+            if len(content) > remaining_chars:
+                content = content[:remaining_chars]
+                truncated = True
+            records.append(replace(record, content=content))
+            remaining_chars -= len(content)
+        return HistoryImportSourcePreview(
+            source_name=source_name,
+            detected_kind=source.detected_kind,
+            records=records,
+            truncated=truncated,
+        )
+
     async def update_selection(
         self,
         *,
@@ -176,7 +223,11 @@ class HistoryImportService:
             job = await self.get_job(job_id)
             if job.quick_ready or job.imported_count > 0:
                 raise HistoryImportValidationError("history_import_selection_locked")
-            normalized = _validate_included_files(job, included_files)
+            normalized = _validate_included_files(
+                job,
+                included_files,
+                allow_empty=True,
+            )
             return await self._store.update_selection(
                 job_id=job_id,
                 included_files=normalized,
@@ -495,11 +546,13 @@ def _unique_source_names(
 def _validate_included_files(
     job: HistoryImportJob,
     included_files: list[str],
+    *,
+    allow_empty: bool = False,
 ) -> list[str]:
     normalized = list(
         dict.fromkeys(str(item or "").strip() for item in included_files if str(item or "").strip())
     )
-    if not normalized:
+    if not normalized and not allow_empty:
         raise HistoryImportValidationError("history_import_selection_empty")
     known = set(job.source_files)
     if any(item not in known for item in normalized):
@@ -607,4 +660,6 @@ __all__ = [
     "MAX_MARKDOWN_FILES",
     "MAX_MARKDOWN_FILE_BYTES",
     "MAX_MARKDOWN_TOTAL_BYTES",
+    "SOURCE_PREVIEW_MAX_CHARS",
+    "SOURCE_PREVIEW_MAX_RECORDS",
 ]

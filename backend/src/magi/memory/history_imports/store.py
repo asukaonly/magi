@@ -378,6 +378,29 @@ class HistoryImportStore:
             limit=limit,
         )
 
+    async def list_source_records(
+        self,
+        *,
+        job_id: str,
+        source_name: str,
+        limit: int,
+    ) -> list[HistoryImportRecord]:
+        """Return one source in its original order for reader-facing preview."""
+
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT *
+                FROM history_import_records
+                WHERE job_id = ? AND source_name = ?
+                ORDER BY session_id ASC, session_seq ASC
+                LIMIT ?
+                """,
+                (job_id, source_name, max(1, min(int(limit), 501))),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [_record_from_row(row) for row in rows]
+
     async def list_imported_event_ids(self, *, job_id: str) -> list[str]:
         async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(

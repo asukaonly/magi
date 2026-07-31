@@ -426,7 +426,7 @@
         "body": "Select one or more files, or choose the folder where you keep them.",
         "files": "Choose Markdown files",
         "folder": "Choose a folder",
-        "note": "Supports .md and .markdown. Your originals are never changed. Before importing, you can exclude content and confirm which writing is yours.",
+        "note": "Supports .md and .markdown. Your originals are never changed, and you can preview each file first.",
         "scenarios": {
           "journal": {
             "title": "Journals and daily notes",
@@ -445,23 +445,21 @@
       "preview": {
         "files": "{{count}} files",
         "selectedFiles": "{{selected}} of {{total}} files selected",
-        "boundaryNote": "Personal writing stays whole by file; chats are recognized by message",
-        "messageCount": "{{count}} messages",
-        "documentUnit": "Kept as one document",
         "kind": {
           "chat": "Chat records",
           "document": "Personal writing",
           "mixed": "Chats and personal writing"
         },
-        "chooseContent": "Confirm what to bring in",
-        "chooseContentBody": "Exclude files that are not yours, mostly contain excerpts, or that you do not want Magi to read yet.",
-        "localPreview": "Previewed only on this device",
+        "chooseContent": "Choose files to bring in",
+        "chooseContentBody": "For personal writing, select only files you wrote. For chats, you will identify your name next.",
         "includeFile": "Import file: {{file}}",
+        "selectAll": "Select all",
+        "invertSelection": "Invert",
+        "preview": "Preview",
+        "previewFile": "Preview file: {{file}}",
         "approximateOrder": "Source order",
         "approximateFileTime": "File time, for ordering only",
         "dateRange": "{{first}} to {{last}}",
-        "sample": "Content preview",
-        "sourceOrder": "Source order",
         "chooseAgain": "Choose again",
         "confirm": "Confirm and import",
         "importing": "Preparing the first items…"
@@ -471,9 +469,13 @@
         "body": "Only your own words can shape Magi's understanding of you. Other messages are used only as context.",
         "messageCount": "{{count}} messages"
       },
-      "writing": {
-        "title": "I wrote most of the selected personal content",
-        "body": "After confirmation, this is treated as your own account. First exclude files that mostly contain saved articles, excerpts, or someone else's writing."
+      "sourcePreview": {
+        "description": "For review only. The original file will not be changed.",
+        "loading": "Loading preview…",
+        "error": "This file cannot be previewed right now.",
+        "retry": "Try again",
+        "truncated": "This file is long, so only the beginning is shown here. The full content will still be processed during import.",
+        "close": "Close preview"
       },
       "warnings": {
         "timestamps_from_file_order": "Some messages have no timestamp. Magi preserves their file order without treating estimated times as exact.",

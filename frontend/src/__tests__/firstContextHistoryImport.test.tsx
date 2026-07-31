@@ -6,6 +6,7 @@ const {
   confirmMock,
   deleteMock,
   getMock,
+  getSourcePreviewMock,
   pickDirectoryMock,
   pickMarkdownFilesMock,
   previewMock,
@@ -15,6 +16,7 @@ const {
   confirmMock: vi.fn(),
   deleteMock: vi.fn(),
   getMock: vi.fn(),
+  getSourcePreviewMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
   pickMarkdownFilesMock: vi.fn(),
   previewMock: vi.fn(),
@@ -41,6 +43,7 @@ vi.mock("@/api/modules/historyImports", () => ({
   historyImportsApi: {
     previewMarkdown: (...args: unknown[]) => previewMock(...args),
     get: (...args: unknown[]) => getMock(...args),
+    getSourcePreview: (...args: unknown[]) => getSourcePreviewMock(...args),
     confirm: (...args: unknown[]) => confirmMock(...args),
     resume: (...args: unknown[]) => resumeMock(...args),
     delete: (...args: unknown[]) => deleteMock(...args),
@@ -135,6 +138,12 @@ describe("FirstContextHistoryImport", () => {
     previewMock.mockResolvedValue(chatPreview());
     confirmMock.mockResolvedValue(readyJob());
     getMock.mockResolvedValue(readyJob());
+    getSourcePreviewMock.mockResolvedValue({
+      source_name: "chat.md",
+      detected_kind: "chat",
+      records: chatPreview().preview_records,
+      truncated: false,
+    });
     deleteMock.mockResolvedValue(undefined);
     updateSelectionMock.mockImplementation(
       async (_jobId: string, includedFiles: string[]) => ({
@@ -163,10 +172,9 @@ describe("FirstContextHistoryImport", () => {
     expect(await screen.findByTestId("history-import-preview")).toBeInTheDocument();
     expect(previewMock).toHaveBeenCalledWith(["/tmp/chat.md"]);
     expect(
-      screen.getByText("firstContext.history.preview.sourceOrder"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("firstContext.history.preview.boundaryNote"),
+      screen.getByRole("button", {
+        name: "firstContext.history.preview.previewFile",
+      }),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("firstContext.history.preview.meaningfulRecords"),
@@ -199,7 +207,7 @@ describe("FirstContextHistoryImport", () => {
     );
   });
 
-  it("requires explicit authorship confirmation for personal writing", async () => {
+  it("treats selecting a personal file as its authorship confirmation", async () => {
     const user = userEvent.setup();
     previewMock.mockResolvedValue({
       ...chatPreview(),
@@ -239,16 +247,68 @@ describe("FirstContextHistoryImport", () => {
     const confirm = await screen.findByRole("button", {
       name: "firstContext.history.preview.confirm",
     });
-    expect(confirm).toBeDisabled();
+    expect(confirm).toBeEnabled();
     expect(
-      screen.getByText("firstContext.history.preview.documentUnit"),
+      screen.getByText("firstContext.history.preview.approximateFileTime"),
     ).toBeInTheDocument();
     expect(
-      screen.getAllByText("firstContext.history.preview.approximateFileTime"),
-    ).toHaveLength(2);
+      screen.queryByText("firstContext.history.writing.title"),
+    ).not.toBeInTheDocument();
 
-    await user.click(screen.getAllByRole("checkbox")[1]);
-    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
+    expect(confirmMock).toHaveBeenCalledWith("him-1", {
+      selfParticipants: [],
+      confirmPersonalWriting: true,
+      includedFiles: ["chat.md"],
+    });
+  });
+
+  it("previews one file in a side panel", async () => {
+    const user = userEvent.setup();
+    render(<HistoryImportFlow onJobUpdate={vi.fn()} />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.picker.files",
+      }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "firstContext.history.preview.previewFile",
+      }),
+    );
+
+    expect(getSourcePreviewMock).toHaveBeenCalledWith("him-1", "chat.md");
+    expect(
+      await screen.findByText("I started learning pottery."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("firstContext.history.sourcePreview.description"),
+    ).toBeInTheDocument();
+  });
+
+  it("supports inverting the file selection to an empty set", async () => {
+    const user = userEvent.setup();
+    render(<HistoryImportFlow onJobUpdate={vi.fn()} />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.picker.files",
+      }),
+    );
+    const confirm = await screen.findByRole("button", {
+      name: "firstContext.history.preview.confirm",
+    });
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.preview.invertSelection",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(updateSelectionMock).toHaveBeenCalledWith("him-1", []),
+    );
+    expect(confirm).toBeDisabled();
   });
 
   it("deletes the preview before choosing different files", async () => {

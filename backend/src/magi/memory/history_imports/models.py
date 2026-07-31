@@ -63,6 +63,21 @@ class HistoryImportSourceSummary:
 
 
 @dataclass(slots=True)
+class HistoryImportSourcePreview:
+    """Bounded content preview for one selected source file."""
+
+    source_name: str
+    detected_kind: str
+    records: list[HistoryImportRecord]
+    truncated: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["records"] = [item.to_dict() for item in self.records]
+        return payload
+
+
+@dataclass(slots=True)
 class HistoryImportJob:
     """Durable import lifecycle and reader-facing progress."""
 
@@ -114,6 +129,7 @@ __all__ = [
     "HistoryImportJob",
     "HistoryImportParticipant",
     "HistoryImportRecord",
+    "HistoryImportSourcePreview",
     "HistoryImportSourceSummary",
     "ParsedHistoryFile",
 ]

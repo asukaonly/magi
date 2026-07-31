@@ -87,6 +87,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/history-imports/markdown/preview": {"POST"},
         "/history-imports": {"GET"},
         "/history-imports/{job_id}": {"GET", "DELETE"},
+        "/history-imports/{job_id}/source-preview": {"GET"},
         "/history-imports/{job_id}/selection": {"PATCH"},
         "/history-imports/{job_id}/confirm": {"POST"},
         "/history-imports/{job_id}/resume": {"POST"},

@@ -40,6 +40,13 @@ export interface HistoryImportSourceSummary {
   included: boolean;
 }
 
+export interface HistoryImportSourcePreview {
+  source_name: string;
+  detected_kind: HistoryImportDetectedKind;
+  records: HistoryImportRecordPreview[];
+  truncated: boolean;
+}
+
 export interface HistoryImportJob {
   job_id: string;
   source_type: string;
@@ -84,6 +91,17 @@ export const historyImportsApi = {
   async list(): Promise<HistoryImportJob[]> {
     const response = await api.get<HistoryImportJob[]>(
       '/memory/history-imports',
+    );
+    return unwrapGatewayPayload(response);
+  },
+
+  async getSourcePreview(
+    jobId: string,
+    sourceName: string,
+  ): Promise<HistoryImportSourcePreview> {
+    const response = await api.get<HistoryImportSourcePreview>(
+      `/memory/history-imports/${encodeURIComponent(jobId)}/source-preview`,
+      { params: { source_name: sourceName } },
     );
     return unwrapGatewayPayload(response);
   },

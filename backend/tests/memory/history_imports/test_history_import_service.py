@@ -17,7 +17,11 @@ from magi.db.migrations.memory_shared.versions.v37_history_import_selection impo
     SCHEMA_SQL as SELECTION_SCHEMA_SQL,
 )
 from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
-from magi.memory.history_imports.service import HistoryImportService
+from magi.memory.history_imports.service import (
+    SOURCE_PREVIEW_MAX_CHARS,
+    HistoryImportService,
+    HistoryImportValidationError,
+)
 from magi.memory.history_imports.store import HistoryImportStore
 
 
@@ -341,6 +345,57 @@ async def test_selection_excludes_unwanted_files_before_any_memory_write(
         "# Journal\n\nI started learning pottery."
     ]
     await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_preview_selection_can_be_empty_but_confirmation_cannot(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    markdown = tmp_path / "journal.md"
+    markdown.write_text("# Journal\n\nA quiet morning.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+
+    preview = await service.preview_markdown_paths([str(markdown)])
+    empty = await service.update_selection(
+        job_id=preview.job_id,
+        included_files=[],
+    )
+
+    assert empty.included_files == []
+    assert empty.sources[0].included is False
+    with pytest.raises(
+        HistoryImportValidationError,
+        match="history_import_selection_empty",
+    ):
+        await service.confirm(
+            job_id=preview.job_id,
+            self_participants=[],
+            confirm_personal_writing=True,
+            included_files=[],
+        )
+
+
+@pytest.mark.asyncio
+async def test_source_preview_returns_bounded_content_for_one_file(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    markdown = tmp_path / "long-journal.md"
+    markdown.write_text("A" * (SOURCE_PREVIEW_MAX_CHARS + 500), encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+
+    job = await service.preview_markdown_paths([str(markdown)])
+    preview = await service.get_source_preview(
+        job_id=job.job_id,
+        source_name="long-journal.md",
+    )
+
+    assert preview.source_name == "long-journal.md"
+    assert preview.detected_kind == "document"
+    assert len(preview.records) == 1
+    assert len(preview.records[0].content) == SOURCE_PREVIEW_MAX_CHARS
+    assert preview.truncated is True
 
 
 @pytest.mark.asyncio

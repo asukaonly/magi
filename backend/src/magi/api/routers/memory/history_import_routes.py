@@ -27,7 +27,7 @@ class HistoryImportConfirmBody(BaseModel):
 
 
 class HistoryImportSelectionBody(BaseModel):
-    included_files: list[str] = Field(min_length=1, max_length=50)
+    included_files: list[str] = Field(default_factory=list, max_length=50)
 
 
 class HistoryImportParticipantResponse(BaseModel):
@@ -59,6 +59,13 @@ class HistoryImportSourceSummaryResponse(BaseModel):
     timestamp_confidence: str
     sample: str
     included: bool
+
+
+class HistoryImportSourcePreviewResponse(BaseModel):
+    source_name: str
+    detected_kind: str
+    records: list[HistoryImportRecordPreviewResponse]
+    truncated: bool
 
 
 class HistoryImportJobResponse(BaseModel):
@@ -224,6 +231,42 @@ async def get_history_import(job_id: str) -> HistoryImportJobResponse:
     return _response(job)
 
 
+@memory_router.get(
+    "/history-imports/{job_id}/source-preview",
+    response_model=HistoryImportSourcePreviewResponse,
+)
+async def get_history_import_source_preview(
+    job_id: str,
+    source_name: str,
+) -> HistoryImportSourcePreviewResponse:
+    try:
+        preview = await _require_service().get_source_preview(
+            job_id=job_id,
+            source_name=source_name,
+        )
+    except Exception as exc:
+        _raise_service_error(exc)
+        raise
+    return HistoryImportSourcePreviewResponse(
+        source_name=preview.source_name,
+        detected_kind=preview.detected_kind,
+        records=[
+            HistoryImportRecordPreviewResponse(
+                source_name=record.source_name,
+                session_id=record.session_id,
+                session_seq=record.session_seq,
+                speaker_name=record.speaker_name,
+                is_document_author=record.speaker_name == DOCUMENT_AUTHOR,
+                content=record.content,
+                event_at=record.event_at,
+                timestamp_confidence=record.timestamp_confidence,
+            )
+            for record in preview.records
+        ],
+        truncated=preview.truncated,
+    )
+
+
 @memory_router.patch(
     "/history-imports/{job_id}/selection",
     response_model=HistoryImportJobResponse,
@@ -296,11 +339,13 @@ __all__ = [
     "HistoryImportParticipantResponse",
     "HistoryImportRecordPreviewResponse",
     "HistoryImportSelectionBody",
+    "HistoryImportSourcePreviewResponse",
     "HistoryImportSourceSummaryResponse",
     "MarkdownHistoryPreviewBody",
     "confirm_history_import",
     "delete_history_import",
     "get_history_import",
+    "get_history_import_source_preview",
     "list_history_imports",
     "preview_markdown_history",
     "resume_history_import",

@@ -488,7 +488,9 @@ export function FirstContextStep({
             ease: [0.22, 1, 0.36, 1],
           }}
           className={`mx-auto my-auto flex w-full flex-col px-4 py-6 sm:px-5 lg:px-6 ${
-            route === "activity" || route === "history"
+            route === "history"
+              ? "max-w-none"
+              : route === "activity"
               ? "max-w-[860px]"
               : route === "question"
                 ? "max-w-[800px]"

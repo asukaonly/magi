@@ -426,7 +426,7 @@
         "body": "选择一个或多个文件，也可以直接选择保存这些内容的文件夹。",
         "files": "选择 Markdown 文件",
         "folder": "选择文件夹",
-        "note": "支持 .md 和 .markdown。原文件不会被修改；导入前可以排除不想带入的内容，并确认哪些文字属于你。",
+        "note": "支持 .md 和 .markdown。原文件不会被修改，导入前可以逐个预览。",
         "scenarios": {
           "journal": {
             "title": "日记与日常记录",
@@ -445,23 +445,21 @@
       "preview": {
         "files": "{{count}} 个文件",
         "selectedFiles": "已选择 {{selected}} / {{total}} 个文件",
-        "boundaryNote": "个人文字按文件整篇保留，聊天记录按发言识别",
-        "messageCount": "{{count}} 条发言",
-        "documentUnit": "整篇保留",
         "kind": {
           "chat": "聊天记录",
           "document": "个人文字",
           "mixed": "聊天与个人文字"
         },
-        "chooseContent": "确认要带入的内容",
-        "chooseContentBody": "取消不属于你、以摘录为主，或暂时不想让 Magi 读取的文件。",
-        "localPreview": "仅在本机预览",
+        "chooseContent": "选择要带入的文件",
+        "chooseContentBody": "个人文字只选择你本人写的；聊天记录会在下一步确认你的名字。",
         "includeFile": "导入文件：{{file}}",
+        "selectAll": "全选",
+        "invertSelection": "反选",
+        "preview": "预览",
+        "previewFile": "预览文件：{{file}}",
         "approximateOrder": "按原文顺序",
         "approximateFileTime": "文件时间，仅供排序",
         "dateRange": "{{first}} 至 {{last}}",
-        "sample": "内容预览",
-        "sourceOrder": "按原文顺序",
         "chooseAgain": "重新选择",
         "confirm": "确认并开始导入",
         "importing": "正在准备第一批内容…"
@@ -471,9 +469,13 @@
         "body": "只有你本人说过的话会影响 Magi 对你的认识；其他人的发言只作为上下文。",
         "messageCount": "{{count}} 条发言"
       },
-      "writing": {
-        "title": "选中的个人文字主要由我写成",
-        "body": "确认后，这些内容会作为你的自述被理解。如果某个文件主要是网页摘录、收藏文章或他人文字，请先在上方取消选择。"
+      "sourcePreview": {
+        "description": "仅用于确认内容，不会修改原文件。",
+        "loading": "正在读取预览…",
+        "error": "暂时无法预览这个文件。",
+        "retry": "重试",
+        "truncated": "文件较长，这里只展示前一部分。导入时仍会处理完整内容。",
+        "close": "关闭预览"
       },
       "warnings": {
         "timestamps_from_file_order": "部分消息没有时间，Magi 会保留文件中的先后顺序，但不会把推测的时间当作精确信息。",
