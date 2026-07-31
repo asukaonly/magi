@@ -322,14 +322,6 @@ export function HistoryImportFlow({
     () => job?.participants.filter((participant) => !participant.is_document_author) ?? [],
     [job],
   );
-  const selectedRecordCount = includedSources.reduce(
-    (total, source) => total + source.record_count,
-    0,
-  );
-  const selectedMeaningfulCount = includedSources.reduce(
-    (total, source) => total + source.meaningful_count,
-    0,
-  );
   const progress = job
     ? Math.min(100, Math.round((job.imported_count / Math.max(job.total_records, 1)) * 100))
     : 0;
@@ -356,7 +348,11 @@ export function HistoryImportFlow({
     firstEventAt: number,
     lastEventAt: number,
     confidence: string,
+    detectedKind: HistoryImportJob["detected_kind"],
   ): string => {
+    if (confidence === "file_mtime" && detectedKind === "document") {
+      return t("firstContext.history.preview.approximateFileTime");
+    }
     if (["file_order", "file_mtime", "mixed", "source_order"].includes(confidence)) {
       return t("firstContext.history.preview.approximateOrder");
     }
@@ -477,9 +473,7 @@ export function HistoryImportFlow({
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
             <div className="min-w-0 flex-1">
               <h4 className="text-[15px] font-semibold text-foreground">
-                {t("firstContext.history.ready.title", {
-                  count: job.quick_imported_count,
-                })}
+                {t("firstContext.history.ready.title")}
               </h4>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 {complete
@@ -496,8 +490,7 @@ export function HistoryImportFlow({
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
                 {t("firstContext.history.ready.progress", {
-                  imported: job.imported_count,
-                  total: job.total_records,
+                  progress,
                 })}
               </p>
             </div>
@@ -540,17 +533,7 @@ export function HistoryImportFlow({
           })}
         </span>
         <span aria-hidden="true">·</span>
-        <span>
-          {t("firstContext.history.preview.records", {
-            count: selectedRecordCount,
-          })}
-        </span>
-        <span aria-hidden="true">·</span>
-        <span>
-          {t("firstContext.history.preview.meaningfulRecords", {
-            count: selectedMeaningfulCount,
-          })}
-        </span>
+        <span>{t("firstContext.history.preview.boundaryNote")}</span>
       </div>
 
       <section className="overflow-hidden rounded-xl border border-border/70 bg-card">
@@ -607,9 +590,11 @@ export function HistoryImportFlow({
                   <span>{t(`firstContext.history.preview.kind.${source.detected_kind}`)}</span>
                   <span aria-hidden="true">·</span>
                   <span>
-                    {t("firstContext.history.preview.records", {
-                      count: source.record_count,
-                    })}
+                    {source.detected_kind === "chat"
+                      ? t("firstContext.history.preview.messageCount", {
+                          count: source.record_count,
+                        })
+                      : t("firstContext.history.preview.documentUnit")}
                   </span>
                   <span aria-hidden="true">·</span>
                   <span>
@@ -617,6 +602,7 @@ export function HistoryImportFlow({
                       source.first_event_at,
                       source.last_event_at,
                       source.timestamp_confidence,
+                      source.detected_kind,
                     )}
                   </span>
                 </span>
@@ -710,7 +696,10 @@ export function HistoryImportFlow({
                     "document_heading",
                   ].includes(record.timestamp_confidence)
                     ? dateFormatter.format(new Date(record.event_at * 1000))
-                    : t("firstContext.history.preview.sourceOrder")}
+                    : record.is_document_author &&
+                        record.timestamp_confidence === "file_mtime"
+                      ? t("firstContext.history.preview.approximateFileTime")
+                      : t("firstContext.history.preview.sourceOrder")}
                 </span>
               </div>
               <p className="mt-1.5 line-clamp-2 text-sm leading-6 text-foreground/85">

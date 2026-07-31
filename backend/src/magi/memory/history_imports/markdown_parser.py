@@ -10,7 +10,6 @@ from typing import Any
 from .models import ParsedHistoryFile
 
 DOCUMENT_AUTHOR = "__document_author__"
-MAX_DOCUMENT_CHUNK_CHARS = 4_000
 
 _DATE_HEADING_RE = re.compile(r"^#{1,6}\s+(?P<value>\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}(?:日)?)\s*$")
 _SOURCE_DATE_RE = re.compile(
@@ -102,7 +101,7 @@ def parse_markdown(
     text: str,
     file_mtime: float,
 ) -> ParsedHistoryFile:
-    """Parse chat-shaped Markdown, falling back to authored document sections."""
+    """Parse chat-shaped Markdown, falling back to one authored document."""
 
     frontmatter, body = _extract_frontmatter(str(text or ""))
     clean_text = body.strip()
@@ -132,19 +131,27 @@ def parse_markdown(
             warnings=warnings,
         )
 
-    document_records = _parse_document_sections(
-        clean_text,
-        fallback_timestamp=source_timestamp,
-        fallback_confidence=source_timestamp_confidence,
+    document_timestamp, document_timestamp_confidence = _document_timestamp(
+        source_name=source_name,
+        frontmatter=frontmatter,
+        file_mtime=file_mtime,
     )
     warnings = ["document_author_confirmation_required"]
-    if source_timestamp_confidence == "file_mtime":
+    if document_timestamp_confidence == "file_mtime":
         warnings.append("timestamps_from_file_mtime")
     return ParsedHistoryFile(
         source_name=source_name,
         session_key=_session_key(source_name),
         detected_kind="document",
-        records=document_records,
+        records=[
+            {
+                "speaker_name": DOCUMENT_AUTHOR,
+                "content": clean_text,
+                "event_at": document_timestamp,
+                "timestamp_confidence": document_timestamp_confidence,
+                "meaningful": is_meaningful_content(clean_text),
+            }
+        ],
         warnings=warnings,
     )
 
@@ -193,6 +200,25 @@ def _source_timestamp(
         parsed = _parse_timestamp(match.group("value"))
         if parsed is not None:
             return parsed, "document_heading"
+    return float(file_mtime), "file_mtime"
+
+
+def _document_timestamp(
+    *,
+    source_name: str,
+    frontmatter: dict[str, str],
+    file_mtime: float,
+) -> tuple[float, str]:
+    """Resolve document-level time without interpreting body headings."""
+
+    for key in ("date", "created", "created_at", "createdat", "timestamp"):
+        parsed = _parse_timestamp(frontmatter.get(key))
+        if parsed is not None:
+            return parsed, "frontmatter"
+
+    filename_timestamp = _parse_source_date(Path(source_name).stem)
+    if filename_timestamp is not None:
+        return filename_timestamp, "source_name"
     return float(file_mtime), "file_mtime"
 
 
@@ -370,75 +396,6 @@ def _finalize_chat_timestamps(
     return parsed, used_fallback
 
 
-def _parse_document_sections(
-    text: str,
-    *,
-    fallback_timestamp: float,
-    fallback_confidence: str,
-) -> list[dict[str, Any]]:
-    sections: list[str] = []
-    current: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("#") and current:
-            _append_document_chunks(sections, "\n".join(current).strip())
-            current = [line]
-            continue
-        current.append(line)
-    if current:
-        _append_document_chunks(sections, "\n".join(current).strip())
-    if not sections:
-        raise ValueError("markdown_empty")
-    records: list[dict[str, Any]] = []
-    last_timestamp: float | None = None
-    for index, content in enumerate(sections):
-        timestamp = _timestamp_from_section_heading(content)
-        confidence = "explicit" if timestamp is not None else fallback_confidence
-        if timestamp is None:
-            timestamp = float(fallback_timestamp) + float(index)
-        if last_timestamp is not None and timestamp <= last_timestamp:
-            timestamp = last_timestamp + 0.001
-            if confidence == "explicit":
-                confidence = "source_order"
-        last_timestamp = float(timestamp)
-        records.append(
-            {
-                "speaker_name": DOCUMENT_AUTHOR,
-                "content": content,
-                "event_at": float(timestamp),
-                "timestamp_confidence": confidence,
-                "meaningful": is_meaningful_content(content),
-            }
-        )
-    return records
-
-
-def _timestamp_from_section_heading(content: str) -> float | None:
-    first_line = next(
-        (line.strip() for line in content.splitlines() if line.strip()),
-        "",
-    )
-    match = _DATE_HEADING_RE.match(first_line)
-    if match is None:
-        return None
-    return _parse_timestamp(match.group("value"))
-
-
-def _append_document_chunks(sections: list[str], content: str) -> None:
-    remaining = content.strip()
-    while remaining:
-        if len(remaining) <= MAX_DOCUMENT_CHUNK_CHARS:
-            sections.append(remaining)
-            return
-        split_at = remaining.rfind("\n\n", 0, MAX_DOCUMENT_CHUNK_CHARS)
-        if split_at < MAX_DOCUMENT_CHUNK_CHARS // 2:
-            split_at = remaining.rfind("\n", 0, MAX_DOCUMENT_CHUNK_CHARS)
-        if split_at < MAX_DOCUMENT_CHUNK_CHARS // 2:
-            split_at = MAX_DOCUMENT_CHUNK_CHARS
-        sections.append(remaining[:split_at].strip())
-        remaining = remaining[split_at:].strip()
-
-
 def _parse_timestamp(value: object) -> float | None:
     text = str(value or "").strip()
     if not text:
@@ -491,7 +448,6 @@ def is_meaningful_content(content: str) -> bool:
 
 __all__ = [
     "DOCUMENT_AUTHOR",
-    "MAX_DOCUMENT_CHUNK_CHARS",
     "is_meaningful_content",
     "parse_markdown",
     "parse_markdown_path",

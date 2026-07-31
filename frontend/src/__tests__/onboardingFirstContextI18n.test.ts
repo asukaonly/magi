@@ -74,6 +74,15 @@ function readPath(value: unknown, path: string): unknown {
   }, value);
 }
 
+function leafPaths(value: unknown, prefix = ""): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [prefix];
+  }
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
+    leafPaths(child, prefix ? `${prefix}.${key}` : key),
+  );
+}
+
 describe("first-context onboarding copy", () => {
   it("keeps every route and recovery message translated in both locales", () => {
     for (const resource of [zhCnOnboarding, enOnboarding]) {
@@ -100,6 +109,17 @@ describe("first-context onboarding copy", () => {
         expect(String(value).trim(), path).not.toBe("");
       }
     }
+  });
+
+  it("keeps Markdown import copy aligned in both locales", () => {
+    expect(leafPaths(enOnboarding.firstContext.history).sort()).toEqual(
+      leafPaths(zhCnOnboarding.firstContext.history).sort(),
+    );
+    expect(
+      leafPaths(enApp.memory.sourcesPage.historyImports).sort(),
+    ).toEqual(
+      leafPaths(zhCnApp.memory.sourcesPage.historyImports).sort(),
+    );
   });
 
   it("keeps personal and everyday question ids aligned", () => {

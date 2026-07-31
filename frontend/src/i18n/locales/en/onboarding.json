@@ -445,8 +445,9 @@
       "preview": {
         "files": "{{count}} files",
         "selectedFiles": "{{selected}} of {{total}} files selected",
-        "records": "{{count}} items",
-        "meaningfulRecords": "{{count}} have enough detail",
+        "boundaryNote": "Personal writing stays whole by file; chats are recognized by message",
+        "messageCount": "{{count}} messages",
+        "documentUnit": "Kept as one document",
         "kind": {
           "chat": "Chat records",
           "document": "Personal writing",
@@ -457,6 +458,7 @@
         "localPreview": "Previewed only on this device",
         "includeFile": "Import file: {{file}}",
         "approximateOrder": "Source order",
+        "approximateFileTime": "File time, for ordering only",
         "dateRange": "{{first}} to {{last}}",
         "sample": "Content preview",
         "sourceOrder": "Source order",
@@ -479,11 +481,11 @@
         "document_author_confirmation_required": "These files look like personal writing, so author confirmation is required before import."
       },
       "ready": {
-        "title": "{{count}} items are ready",
+        "title": "The first content is ready",
         "background": "You can start the first chat now. When it fits naturally, Magi can use something you confirmed as a starting point while the rest continues organizing.",
         "completed": "All selected content has been saved and entered organizing in its original order.",
         "failed": "The first items are safe, but later organizing paused. You can continue it.",
-        "progress": "Saved {{imported}} / {{total}} items",
+        "progress": "Organizing {{progress}}%",
         "retry": "Continue organizing",
         "note": "Quick context is only an initial view. Long-term understanding still comes from processing the complete history in order."
       },

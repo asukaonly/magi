@@ -83,6 +83,12 @@ describe("HistoryImportsSection", () => {
     expect(
       await screen.findByText("journal/2026-07-01.md +1"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("memory.sourcesPage.historyImports.fileCount"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("memory.sourcesPage.historyImports.recordCount"),
+    ).not.toBeInTheDocument();
     await user.click(
       screen.getByRole("button", {
         name: "memory.sourcesPage.historyImports.deleteAction",

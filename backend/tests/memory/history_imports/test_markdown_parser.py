@@ -58,7 +58,7 @@ It makes me slow down.
     assert all(item["timestamp_confidence"] == "file_order" for item in parsed.records)
 
 
-def test_falls_back_to_personal_document_sections() -> None:
+def test_falls_back_to_one_personal_document() -> None:
     parsed = parse_markdown(
         source_name="journal.md",
         file_mtime=1_800_000_000,
@@ -78,8 +78,16 @@ def test_falls_back_to_personal_document_sections() -> None:
     )
 
     assert parsed.detected_kind == "document"
-    assert len(parsed.records) == 3
+    assert len(parsed.records) == 1
     assert {item["speaker_name"] for item in parsed.records} == {DOCUMENT_AUTHOR}
+    assert parsed.records[0]["content"] == (
+        "# 七月\n\n"
+        "最近重新开始跑步。\n\n"
+        "## 想继续做的事\n\n"
+        "每周至少去两次公园。\n\n"
+        "## 关于音乐\n\n"
+        "最近反复在听同一张专辑。"
+    )
     assert "document_author_confirmation_required" in parsed.warnings
 
 
@@ -134,7 +142,7 @@ def test_uses_date_from_daily_note_filename() -> None:
     assert "timestamps_from_file_mtime" not in parsed.warnings
 
 
-def test_preserves_multiple_dated_document_sections() -> None:
+def test_preserves_multiple_dated_sections_inside_one_document() -> None:
     parsed = parse_markdown(
         source_name="weekly.md",
         file_mtime=1_900_000_000,
@@ -149,8 +157,24 @@ def test_preserves_multiple_dated_document_sections() -> None:
 """,
     )
 
-    assert [item["timestamp_confidence"] for item in parsed.records] == [
-        "explicit",
-        "explicit",
-    ]
-    assert parsed.records[0]["event_at"] < parsed.records[1]["event_at"]
+    assert len(parsed.records) == 1
+    assert parsed.records[0]["timestamp_confidence"] == "file_mtime"
+    assert parsed.records[0]["event_at"] == 1_900_000_000
+    assert "## 2025-11-01" in parsed.records[0]["content"]
+    assert "## 2025-11-03" in parsed.records[0]["content"]
+
+
+def test_keeps_long_personal_writing_as_one_document() -> None:
+    paragraph = "这是很长的一段个人记录。" * 500
+
+    parsed = parse_markdown(
+        source_name="long-note.md",
+        file_mtime=1_900_000_000,
+        text=f"# 长文\n\n{paragraph}\n\n## 结尾\n\n准备下次继续写。",
+    )
+
+    assert parsed.detected_kind == "document"
+    assert len(parsed.records) == 1
+    assert parsed.records[0]["content"].startswith("# 长文")
+    assert parsed.records[0]["content"].endswith("准备下次继续写。")
+    assert len(parsed.records[0]["content"]) > 4_000

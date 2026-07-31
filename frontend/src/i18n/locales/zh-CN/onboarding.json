@@ -445,8 +445,9 @@
       "preview": {
         "files": "{{count}} 个文件",
         "selectedFiles": "已选择 {{selected}} / {{total}} 个文件",
-        "records": "{{count}} 条内容",
-        "meaningfulRecords": "其中 {{count}} 条信息较完整",
+        "boundaryNote": "个人文字按文件整篇保留，聊天记录按发言识别",
+        "messageCount": "{{count}} 条发言",
+        "documentUnit": "整篇保留",
         "kind": {
           "chat": "聊天记录",
           "document": "个人文字",
@@ -457,6 +458,7 @@
         "localPreview": "仅在本机预览",
         "includeFile": "导入文件：{{file}}",
         "approximateOrder": "按原文顺序",
+        "approximateFileTime": "文件时间，仅供排序",
         "dateRange": "{{first}} 至 {{last}}",
         "sample": "内容预览",
         "sourceOrder": "按原文顺序",
@@ -479,11 +481,11 @@
         "document_author_confirmation_required": "这些文件更像个人文字，需要你确认作者身份后才能导入。"
       },
       "ready": {
-        "title": "已经准备好 {{count}} 条内容",
+        "title": "第一批内容已经准备好",
         "background": "现在可以进入第一次聊天。Magi 会在合适时从你确认的内容里找到自然的切入点，剩余内容会继续在后台整理。",
         "completed": "所选内容已经全部保存，并按原来的顺序进入整理。",
         "failed": "第一批内容已经保留，后续整理暂时中断，可以重新继续。",
-        "progress": "已保存 {{imported}} / {{total}} 条",
+        "progress": "整理进度 {{progress}}%",
         "retry": "继续整理",
         "note": "快速准备的内容只用于尽快建立初步上下文；长期认识仍以完整顺序整理后的结果为准。"
       },

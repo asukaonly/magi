@@ -165,6 +165,12 @@ describe("FirstContextHistoryImport", () => {
     expect(
       screen.getByText("firstContext.history.preview.sourceOrder"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("firstContext.history.preview.boundaryNote"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("firstContext.history.preview.meaningfulRecords"),
+    ).not.toBeInTheDocument();
 
     const sourceCheckbox = screen.getByRole("checkbox", {
       name: "firstContext.history.preview.includeFile",
@@ -202,6 +208,7 @@ describe("FirstContextHistoryImport", () => {
         {
           ...chatPreview().sources[0],
           detected_kind: "document",
+          timestamp_confidence: "file_mtime",
         },
       ],
       participants: [
@@ -218,6 +225,7 @@ describe("FirstContextHistoryImport", () => {
           ...chatPreview().preview_records[0],
           is_document_author: true,
           speaker_name: "__document_author__",
+          timestamp_confidence: "file_mtime",
         },
       ],
     } satisfies HistoryImportJob);
@@ -232,6 +240,12 @@ describe("FirstContextHistoryImport", () => {
       name: "firstContext.history.preview.confirm",
     });
     expect(confirm).toBeDisabled();
+    expect(
+      screen.getByText("firstContext.history.preview.documentUnit"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText("firstContext.history.preview.approximateFileTime"),
+    ).toHaveLength(2);
 
     await user.click(screen.getAllByRole("checkbox")[1]);
     await waitFor(() => expect(confirm).toBeEnabled());

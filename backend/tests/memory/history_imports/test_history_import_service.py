@@ -175,6 +175,46 @@ async def test_delete_forgets_every_imported_raw_event(
 
 
 @pytest.mark.asyncio
+async def test_personal_markdown_headings_import_as_one_source_event(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    markdown = tmp_path / "weekly.md"
+    markdown.write_text(
+        "# 本周记录\n\n"
+        "周一重新开始跑步。\n\n"
+        "## 最近在听\n\n"
+        "反复听同一张专辑。\n\n"
+        "## 下周\n\n"
+        "想去一次公园。\n",
+        encoding="utf-8",
+    )
+    memory = _MemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+
+    preview = await service.preview_markdown_paths([str(markdown)])
+
+    assert preview.detected_kind == "document"
+    assert preview.total_records == 1
+    assert preview.sources[0].record_count == 1
+    assert preview.preview_records[0].content == markdown.read_text(
+        encoding="utf-8"
+    ).strip()
+
+    ready = await service.confirm(
+        job_id=preview.job_id,
+        self_participants=[],
+        confirm_personal_writing=True,
+        included_files=preview.included_files,
+    )
+
+    assert ready.quick_imported_count == 1
+    assert len(memory.raw_events) == 1
+    assert memory.raw_events[0].content == preview.preview_records[0].content
+    await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_quick_context_expands_but_stops_at_the_bounded_maximum(
     tmp_path: Path,
     history_store: HistoryImportStore,

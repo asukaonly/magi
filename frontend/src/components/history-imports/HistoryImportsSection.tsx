@@ -225,10 +225,6 @@ export default function HistoryImportsSection(): JSX.Element {
                             {t("memory.sourcesPage.historyImports.fileCount", {
                               count: job.included_files.length,
                             })}
-                            <span aria-hidden="true"> · </span>
-                            {t("memory.sourcesPage.historyImports.recordCount", {
-                              count: job.total_records,
-                            })}
                           </p>
                         </div>
                       </div>
@@ -247,8 +243,7 @@ export default function HistoryImportsSection(): JSX.Element {
                         <p>{dateFormatter.format(new Date(job.created_at * 1000))}</p>
                         <p>
                           {t("memory.sourcesPage.historyImports.progress", {
-                            imported: job.imported_count,
-                            total: job.total_records,
+                            progress,
                           })}
                         </p>
                       </div>
