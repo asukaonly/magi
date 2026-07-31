@@ -3,6 +3,7 @@
 
 mod desktop_presence;
 mod dmg_cleanup;
+mod external_url;
 
 use magi_gateway::{api, ipc, notification_bridge};
 
@@ -1353,48 +1354,10 @@ fn cancel_exit_request() -> Result<(), String> {
     Ok(())
 }
 
-/// Open an external URL using the OS's native handler.
-///
-/// Bypasses the Tauri shell plugin's URL scope restrictions so that plugin
-/// authors can deep-link to platform settings panes (e.g.
-/// `x-apple.systempreferences:` on macOS, `ms-settings:` on Windows).
-/// The trade-off: Rust trusts the caller's URL completely. Only frontend
-/// code in this app can invoke it; never expose this to untrusted input.
+/// Open an approved external URL using the operating system's default handler.
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
-    let url = url.trim();
-    if url.is_empty() {
-        return Err("empty URL".to_string());
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        Command::new("/usr/bin/open")
-            .arg(url)
-            .spawn()
-            .map_err(|e| format!("open failed: {e}"))?;
-        return Ok(());
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let mut command = Command::new("cmd");
-        suppress_child_console_window(&mut command);
-        command
-            .args(["/C", "start", "", url])
-            .spawn()
-            .map_err(|e| format!("start failed: {e}"))?;
-        return Ok(());
-    }
-    #[cfg(target_os = "linux")]
-    {
-        Command::new("xdg-open")
-            .arg(url)
-            .spawn()
-            .map_err(|e| format!("xdg-open failed: {e}"))?;
-        return Ok(());
-    }
-    #[allow(unreachable_code)]
-    Err("unsupported platform".to_string())
+    external_url::open(&url)
 }
 
 #[cfg(windows)]

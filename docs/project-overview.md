@@ -77,6 +77,8 @@ public service.
 
 On confirmed desktop quit, the Tauri shell hides the main window first and then stops the Python sidecar in the background before exiting. Windows helper processes used for sidecar startup and shutdown must be launched without visible console windows so quit feels like a native desktop close rather than a terminal-driven teardown.
 
+External links are opened only after the desktop host validates their protocol. Web and email links are allowed on every platform; macOS and Windows additionally allow only their own system-settings protocol. Empty, malformed, credential-bearing, control-character, and all other protocol forms are rejected. Windows sends approved links directly to the native system handler and must never route them through a command interpreter.
+
 ### Gateway-visible API contract
 
 The frontend talks to the Rust gateway, not directly to the Python FastAPI app. The gateway-visible contract is therefore the union of Rust-native routes, Rust static mounts, and Python routes that are reached through the IPC proxy fallback.

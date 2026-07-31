@@ -20,6 +20,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 import {
   cancelExitRequest,
   confirmExitApp,
+  openExternalUrl,
   registerDesktopShellHandlers,
   syncCloseToTrayPreference,
 } from '@/runtime/desktop';
@@ -75,5 +76,16 @@ describe('desktop runtime bridge', () => {
     expect(invokeMock).toHaveBeenNthCalledWith(1, 'set_close_to_tray_enabled', { enabled: false });
     expect(invokeMock).toHaveBeenNthCalledWith(2, 'confirm_exit_app');
     expect(invokeMock).toHaveBeenNthCalledWith(3, 'cancel_exit_request');
+  });
+
+  it('hands external URLs to the validated desktop command', async () => {
+    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+
+    await openExternalUrl('  https://example.com/docs?q=a&next=b|c  ');
+
+    expect(invokeMock).toHaveBeenCalledOnce();
+    expect(invokeMock).toHaveBeenCalledWith('open_url', {
+      url: 'https://example.com/docs?q=a&next=b|c',
+    });
   });
 });

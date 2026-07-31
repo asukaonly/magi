@@ -2399,6 +2399,8 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tokio",
+ "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
