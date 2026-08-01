@@ -14,6 +14,7 @@ from ....memory.store_lifecycle import MemoryClearCompletedWithRecoveryError
 from .clear import ClearMemoryResponseModel, build_clear_memory_response
 from .dependencies import (
     _resolve_manual_entry_asset_store,
+    _resolve_mcp_resource_cache,
     _resolve_memory_integration,
     _resolve_channels_module,
     _resolve_channel_session_mapper,
@@ -352,22 +353,23 @@ async def clear_memory_layers():
                         else []
                     )
                     async with _conversation_delivery_clear_boundary():
-                        try:
-                            counts = await unified_memory.clear_all_memory(
-                                auxiliary_clearers=auxiliary_clearers,
-                                context_clearer=clear_chat_runtime_state,
-                            )
-                        except MemoryClearCompletedWithRecoveryError as exc:
-                            counts = exc.counts
-                            warnings.append("memory_writer_resume_failed")
-                            logger.error(
-                                "clear_memory: memory data was cleared but writers did not resume",
-                                exc_info=(
-                                    type(exc.recovery_error),
-                                    exc.recovery_error,
-                                    exc.recovery_error.__traceback__,
-                                ),
-                            )
+                        async with _resolve_mcp_resource_cache().global_data_clear_boundary():
+                            try:
+                                counts = await unified_memory.clear_all_memory(
+                                    auxiliary_clearers=auxiliary_clearers,
+                                    context_clearer=clear_chat_runtime_state,
+                                )
+                            except MemoryClearCompletedWithRecoveryError as exc:
+                                counts = exc.counts
+                                warnings.append("memory_writer_resume_failed")
+                                logger.error(
+                                    "clear_memory: memory data was cleared but writers did not resume",
+                                    exc_info=(
+                                        type(exc.recovery_error),
+                                        exc.recovery_error,
+                                        exc.recovery_error.__traceback__,
+                                    ),
+                                )
                     if sensor_cleanup_failure is not None:
                         warnings.append("sensor_cleanup_failed")
                         logger.error(

@@ -102,6 +102,18 @@ def _resolve_manual_entry_weather_fetcher():
         return None
 
 
+def _resolve_mcp_resource_cache():
+    override = _package_override(
+        "_resolve_mcp_resource_cache",
+        _resolve_mcp_resource_cache,
+    )
+    if override is not None:
+        return override()
+    from magi.mcp.resource_cache import get_default_cache
+
+    return get_default_cache()
+
+
 def _resolve_memory_integration():
     override = _package_override("_resolve_memory_integration", _resolve_memory_integration)
     if override is not None:

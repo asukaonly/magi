@@ -16,9 +16,17 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Callable
 
+from ..core.operation_barrier import AsyncOperationBarrier
+
 DEFAULT_TTL_SECONDS = 60.0
+
+
+class MCPResourceCacheClearedError(RuntimeError):
+    """Raised when a resource read crossed a full local-data clear."""
 
 
 class MCPResourceCache:
@@ -27,6 +35,8 @@ class MCPResourceCache:
         self._entries: dict[tuple[str, str], tuple[float, Any]] = {}
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._global_lock = asyncio.Lock()
+        self._clear_barrier = AsyncOperationBarrier()
+        self._clear_generation = 0
 
     def get(self, server_id: str, uri: str) -> Any | None:
         key = (server_id, uri)
@@ -49,7 +59,19 @@ class MCPResourceCache:
         self._entries.pop((server_id, uri), None)
 
     def clear(self) -> None:
+        self._clear_generation += 1
         self._entries.clear()
+        self._locks.clear()
+
+    @asynccontextmanager
+    async def global_data_clear_boundary(self) -> AsyncIterator[None]:
+        """Drain active reads and reject reads queued across a data clear."""
+        async with self._clear_barrier.exclusive():
+            self.clear()
+            try:
+                yield
+            finally:
+                self.clear()
 
     async def get_or_fetch(
         self,
@@ -57,20 +79,30 @@ class MCPResourceCache:
         uri: str,
         fetch: Callable[[str, str], Awaitable[Any]],
     ) -> Any:
-        cached = self.get(server_id, uri)
-        if cached is not None:
-            return cached
-
-        async with self._global_lock:
-            lock = self._locks.setdefault((server_id, uri), asyncio.Lock())
-
-        async with lock:
+        expected_generation = self._clear_generation
+        async with self._clear_barrier.operation():
+            if expected_generation != self._clear_generation:
+                raise MCPResourceCacheClearedError(
+                    "MCP resource read was cancelled by a local data clear"
+                )
             cached = self.get(server_id, uri)
             if cached is not None:
                 return cached
-            value = await fetch(server_id, uri)
-            self.put(server_id, uri, value)
-            return value
+
+            async with self._global_lock:
+                lock = self._locks.setdefault((server_id, uri), asyncio.Lock())
+
+            async with lock:
+                cached = self.get(server_id, uri)
+                if cached is not None:
+                    return cached
+                value = await fetch(server_id, uri)
+                if expected_generation != self._clear_generation:
+                    raise MCPResourceCacheClearedError(
+                        "MCP resource read was cancelled by a local data clear"
+                    )
+                self.put(server_id, uri, value)
+                return value
 
 
 _default_cache: MCPResourceCache | None = None

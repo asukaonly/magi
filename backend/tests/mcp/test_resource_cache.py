@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from magi.mcp.resource_cache import MCPResourceCache
+from magi.mcp.resource_cache import MCPResourceCache, MCPResourceCacheClearedError
 
 
 @pytest.mark.asyncio
@@ -68,3 +68,73 @@ async def test_invalidate_drops_entry():
     assert cache.get("s", "u") == {"v": 1}
     cache.invalidate("s", "u")
     assert cache.get("s", "u") is None
+
+
+@pytest.mark.asyncio
+async def test_global_data_clear_waits_for_active_fetch_and_removes_result():
+    cache = MCPResourceCache(ttl_seconds=10)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fetch(_server_id: str, _uri: str):
+        started.set()
+        await release.wait()
+        return {"private": "resource text"}
+
+    fetch_task = asyncio.create_task(cache.get_or_fetch("s", "private://u", fetch))
+    await started.wait()
+    clear_entered = asyncio.Event()
+
+    async def clear_cache() -> None:
+        async with cache.global_data_clear_boundary():
+            clear_entered.set()
+
+    clear_task = asyncio.create_task(clear_cache())
+    await asyncio.sleep(0)
+    assert not clear_entered.is_set()
+
+    release.set()
+    assert await fetch_task == {"private": "resource text"}
+    await clear_task
+    assert cache.get("s", "private://u") is None
+
+
+@pytest.mark.asyncio
+async def test_global_data_clear_rejects_fetch_queued_before_clear():
+    cache = MCPResourceCache(ttl_seconds=10)
+    blocker_started = asyncio.Event()
+    release_blocker = asyncio.Event()
+
+    async def blocking_fetch(_server_id: str, _uri: str):
+        blocker_started.set()
+        await release_blocker.wait()
+        return {"private": "first"}
+
+    active = asyncio.create_task(cache.get_or_fetch("s", "private://active", blocking_fetch))
+    await blocker_started.wait()
+    clear_entered = asyncio.Event()
+    release_clear = asyncio.Event()
+
+    async def clear_cache() -> None:
+        async with cache.global_data_clear_boundary():
+            clear_entered.set()
+            await release_clear.wait()
+
+    clear_task = asyncio.create_task(clear_cache())
+    await asyncio.sleep(0)
+
+    async def stale_source(_server_id: str, _uri: str):
+        return {"private": "old"}
+
+    stale_fetch = asyncio.create_task(
+        cache.get_or_fetch("s", "private://queued", stale_source)
+    )
+
+    release_blocker.set()
+    await active
+    await clear_entered.wait()
+    release_clear.set()
+    await clear_task
+
+    with pytest.raises(MCPResourceCacheClearedError):
+        await stale_fetch
