@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import stat
 import tempfile
 import time
 from collections import OrderedDict
@@ -18,8 +19,9 @@ from pathlib import Path
 from threading import RLock
 from typing import Tuple
 
-from .contracts import ChatPortraitObservation, ChatPortraitPayload
+from magi_plugin_sdk.fs import path_is_link, remove_managed_file
 
+from .contracts import ChatPortraitObservation, ChatPortraitPayload
 
 CacheKey = Tuple[str, str, str]
 
@@ -48,9 +50,7 @@ class PortraitCache:
         self._max = int(max_entries)
         self._data: OrderedDict[CacheKey, tuple[float, ChatPortraitPayload]] = OrderedDict()
         self._lock = RLock()
-        self._persistence_path: Path | None = (
-            Path(persistence_path) if persistence_path else None
-        )
+        self._persistence_path: Path | None = Path(persistence_path) if persistence_path else None
         if self._persistence_path is not None:
             self._load_from_disk()
 
@@ -148,7 +148,9 @@ class PortraitCache:
             payload_text = json.dumps(snapshot, ensure_ascii=False)
             # Atomic write: tmp file in same dir, then rename.
             fd, tmp_name = tempfile.mkstemp(
-                prefix=".portrait-cache-", suffix=".json", dir=str(path.parent),
+                prefix=".portrait-cache-",
+                suffix=".json",
+                dir=str(path.parent),
             )
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -168,33 +170,36 @@ class PortraitCache:
         path = self._persistence_path
         if path is None:
             return
-        candidates = [path]
-        if path.parent.exists():
-            candidates.extend(path.parent.glob(".portrait-cache-*.json"))
-        for candidate in candidates:
-            try:
-                candidate.unlink(missing_ok=True)
-            except OSError as exc:
-                logger.warning("portrait cache delete failed (%s): %s", candidate, exc)
+        try:
+            clear_persisted_portrait_cache(path)
+        except OSError as exc:
+            logger.warning("portrait cache delete failed (%s): %s", path, exc)
+            raise
 
 
 def clear_persisted_portrait_cache(
     persistence_path: str | os.PathLike[str],
 ) -> int:
-    """Remove the persisted portrait and crash-leftover atomic-write files."""
+    """Remove portrait cache entries without following managed links."""
     path = Path(persistence_path)
+    parent = path.parent
+    try:
+        parent_stat = os.lstat(parent)
+    except FileNotFoundError:
+        return 0
+    if path_is_link(parent, path_stat=parent_stat) or not stat.S_ISDIR(parent_stat.st_mode):
+        return int(remove_managed_file(parent))
+
     candidates = [path]
-    if path.parent.exists():
-        candidates.extend(path.parent.glob(".portrait-cache-*.json"))
+    with os.scandir(parent) as entries:
+        candidates.extend(
+            parent / entry.name
+            for entry in entries
+            if entry.name.startswith(".portrait-cache-") and entry.name.endswith(".json")
+        )
     deleted = 0
     for candidate in candidates:
-        try:
-            candidate.unlink(missing_ok=False)
-        except FileNotFoundError:
-            continue
-        except OSError as exc:
-            logger.warning("portrait cache delete failed (%s): %s", candidate, exc)
-        else:
+        if remove_managed_file(candidate):
             deleted += 1
     return deleted
 
@@ -205,13 +210,15 @@ def _payload_from_dict(data: dict) -> ChatPortraitPayload:
     for obs in observations_raw:
         if not isinstance(obs, dict):
             continue
-        observations.append(ChatPortraitObservation(
-            kind=str(obs.get("kind") or "reflection"),  # type: ignore[arg-type]
-            text=str(obs.get("text") or ""),
-            basis_count=int(obs.get("basis_count") or 0),
-            basis_summary=str(obs.get("basis_summary") or ""),
-            basis_refs=[str(r) for r in (obs.get("basis_refs") or []) if r],
-        ))
+        observations.append(
+            ChatPortraitObservation(
+                kind=str(obs.get("kind") or "reflection"),  # type: ignore[arg-type]
+                text=str(obs.get("text") or ""),
+                basis_count=int(obs.get("basis_count") or 0),
+                basis_summary=str(obs.get("basis_summary") or ""),
+                basis_refs=[str(r) for r in (obs.get("basis_refs") or []) if r],
+            )
+        )
     return ChatPortraitPayload(
         session_id=str(data.get("session_id") or ""),
         persona_id=str(data.get("persona_id") or ""),

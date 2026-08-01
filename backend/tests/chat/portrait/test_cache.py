@@ -1,6 +1,12 @@
+import os
+import stat
 import time
+from pathlib import Path
+from types import SimpleNamespace
 
-from magi.chat.portrait.cache import PortraitCache
+import pytest
+
+from magi.chat.portrait.cache import PortraitCache, clear_persisted_portrait_cache
 from magi.chat.portrait.contracts import ChatPortraitPayload
 
 
@@ -79,3 +85,82 @@ def test_clear_removes_persisted_payload_and_crash_temp_file(tmp_path):
     assert cache.get_stale(key) is None
     assert not path.exists()
     assert not crash_temp.exists()
+
+
+def test_clear_removes_linked_parent_without_following_it(tmp_path: Path) -> None:
+    parent = tmp_path / "portrait"
+    path = parent / "cache.json"
+    cache = PortraitCache(ttl_seconds=300, max_entries=10, persistence_path=path)
+    external = tmp_path / "external"
+    external.mkdir()
+    external_cache = external / "cache.json"
+    external_cache.write_text("private", encoding="utf-8")
+    external_temp = external / ".portrait-cache-private.json"
+    external_temp.write_text("private temp", encoding="utf-8")
+    try:
+        parent.symlink_to(external, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory links are unavailable on this platform")
+
+    cache.clear()
+
+    assert parent.is_symlink() is False
+    assert parent.exists() is False
+    assert external_cache.read_text(encoding="utf-8") == "private"
+    assert external_temp.read_text(encoding="utf-8") == "private temp"
+
+
+def test_clear_persisted_portrait_cache_detects_reparse_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "portrait"
+    path = parent / "cache.json"
+    external = tmp_path / "external"
+    external.mkdir()
+    external_cache = external / "cache.json"
+    external_cache.write_text("private", encoding="utf-8")
+    try:
+        parent.symlink_to(external, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory links are unavailable on this platform")
+
+    original_lstat = os.lstat
+
+    def reparse_lstat(candidate, *args, **kwargs):
+        result = original_lstat(candidate, *args, **kwargs)
+        if Path(candidate) == parent and stat.S_ISLNK(result.st_mode):
+            return SimpleNamespace(
+                st_mode=stat.S_IFDIR | 0o700,
+                st_file_attributes=0x0400,
+            )
+        return result
+
+    monkeypatch.setattr(os, "lstat", reparse_lstat)
+
+    assert clear_persisted_portrait_cache(path) == 1
+    assert parent.is_symlink() is False
+    assert parent.exists() is False
+    assert external_cache.read_text(encoding="utf-8") == "private"
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO unsupported")
+def test_clear_persisted_portrait_cache_unlinks_special_targets_only(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "portrait"
+    parent.mkdir()
+    external = tmp_path / "external.json"
+    external.write_text("must survive", encoding="utf-8")
+    path = parent / "cache.json"
+    path.symlink_to(external)
+    hard_link = parent / ".portrait-cache-hardlink.json"
+    os.link(external, hard_link)
+    fifo = parent / ".portrait-cache-fifo.json"
+    os.mkfifo(fifo)
+
+    assert clear_persisted_portrait_cache(path) == 3
+    assert path.is_symlink() is False
+    assert not hard_link.exists()
+    assert not fifo.exists()
+    assert external.read_text(encoding="utf-8") == "must survive"
