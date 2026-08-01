@@ -82,12 +82,15 @@ def _is_path_link(path: Path) -> bool:
     return bool(callable(is_junction) and is_junction())
 
 
-def _validate_managed_file_path(path: str | Path) -> tuple[Path, Path]:
+def _validate_managed_file_path(
+    path: str | Path,
+) -> tuple[Path, Path, tuple[int, int]]:
     target = Path(path)
     if target.name in {"", ".", ".."}:
         raise UnsafeManagedPathError("Managed file path must name one file")
     parent = target.parent
     directory_chain = [parent, *parent.parents]
+    parent_identity: tuple[int, int] | None = None
     for directory in reversed(directory_chain):
         try:
             directory_stat = os.lstat(directory)
@@ -99,7 +102,11 @@ def _validate_managed_file_path(path: str | Path) -> tuple[Path, Path]:
             raise UnsafeManagedPathError(
                 "Managed file parent chain must contain only real directories"
             )
-    return target, parent
+        if directory == parent:
+            parent_identity = (directory_stat.st_dev, directory_stat.st_ino)
+    if parent_identity is None:
+        raise UnsafeManagedPathError("Managed file parent identity is unavailable")
+    return target, parent, parent_identity
 
 
 def _validate_managed_target_type(path: Path) -> None:
@@ -114,7 +121,11 @@ def _validate_managed_target_type(path: Path) -> None:
     )
 
 
-def _open_managed_directory(parent: Path) -> int:
+def _open_managed_directory(
+    parent: Path,
+    *,
+    expected_identity: tuple[int, int],
+) -> int:
     flags = os.O_RDONLY
     flags |= getattr(os, "O_DIRECTORY", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
@@ -125,15 +136,22 @@ def _open_managed_directory(parent: Path) -> int:
             "Managed file parent could not be opened safely"
         ) from exc
     directory_stat = os.fstat(directory_fd)
-    if not stat.S_ISDIR(directory_stat.st_mode):
+    directory_identity = (directory_stat.st_dev, directory_stat.st_ino)
+    if (
+        not stat.S_ISDIR(directory_stat.st_mode)
+        or directory_identity != expected_identity
+    ):
         os.close(directory_fd)
         raise UnsafeManagedPathError("Managed file parent must be a real directory")
     return directory_fd
 
 
 def _atomic_write_managed_posix(path: Path, data: bytes) -> None:
-    _, parent = _validate_managed_file_path(path)
-    directory_fd = _open_managed_directory(parent)
+    _, parent, parent_identity = _validate_managed_file_path(path)
+    directory_fd = _open_managed_directory(
+        parent,
+        expected_identity=parent_identity,
+    )
     temp_name = f".{path.name}.{secrets.token_hex(12)}.tmp"
     temp_fd: int | None = None
     try:
@@ -180,7 +198,7 @@ def _atomic_write_managed_posix(path: Path, data: bytes) -> None:
 
 
 def _atomic_write_managed_windows(path: Path, data: bytes) -> None:
-    target, parent = _validate_managed_file_path(path)
+    target, parent, parent_identity = _validate_managed_file_path(path)
     _validate_managed_target_type(target)
     fd, temp_name = tempfile.mkstemp(
         prefix=f".{target.name}.",
@@ -192,8 +210,8 @@ def _atomic_write_managed_windows(path: Path, data: bytes) -> None:
             file.write(data)
             file.flush()
             os.fsync(file.fileno())
-        _, current_parent = _validate_managed_file_path(target)
-        if current_parent != parent:
+        _, current_parent, current_identity = _validate_managed_file_path(target)
+        if current_parent != parent or current_identity != parent_identity:
             raise UnsafeManagedPathError("Managed file parent changed during write")
         _validate_managed_target_type(target)
         os.replace(temp_name, target)
@@ -237,7 +255,7 @@ def remove_managed_file(path: str | Path) -> bool:
     exist. Directories and special files are rejected.
     """
 
-    target, parent = _validate_managed_file_path(path)
+    target, parent, parent_identity = _validate_managed_file_path(path)
     if _IS_WINDOWS:
         try:
             target_stat = os.lstat(target)
@@ -250,7 +268,10 @@ def remove_managed_file(path: str | Path) -> bool:
         os.unlink(target)
         return True
 
-    directory_fd = _open_managed_directory(parent)
+    directory_fd = _open_managed_directory(
+        parent,
+        expected_identity=parent_identity,
+    )
     try:
         try:
             target_stat = os.stat(

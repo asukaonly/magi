@@ -181,6 +181,55 @@ def test_managed_file_operations_reject_linked_ancestor(
     assert external_target.read_text(encoding="utf-8") == "external"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX directory descriptor test")
+@pytest.mark.parametrize("operation", ["write", "remove"])
+def test_managed_file_operations_reject_ancestor_replaced_during_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    import magi_plugin_sdk.fs as sdk_fs
+
+    managed_root = tmp_path / "managed"
+    managed_parent = managed_root / "nested"
+    managed_parent.mkdir(parents=True)
+    managed_target = managed_parent / "state.json"
+    managed_target.write_text("managed", encoding="utf-8")
+    external_root = tmp_path / "external"
+    external_parent = external_root / "nested"
+    external_parent.mkdir(parents=True)
+    external_target = external_parent / "state.json"
+    external_target.write_text("external", encoding="utf-8")
+    parked_root = tmp_path / "parked-managed"
+    original_open = os.open
+    swapped = False
+
+    def swap_ancestor_before_open(
+        path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        if not swapped and Path(path) == managed_parent and dir_fd is None:
+            swapped = True
+            managed_root.rename(parked_root)
+            managed_root.symlink_to(external_root, target_is_directory=True)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", swap_ancestor_before_open)
+
+    with pytest.raises(sdk_fs.UnsafeManagedPathError):
+        if operation == "write":
+            sdk_fs.atomic_write_managed_text(managed_target, "changed")
+        else:
+            sdk_fs.remove_managed_file(managed_target)
+
+    assert external_target.read_text(encoding="utf-8") == "external"
+    assert (parked_root / "nested" / "state.json").read_text(encoding="utf-8") == "managed"
+
+
 @pytest.mark.parametrize("operation", ["write", "remove"])
 def test_managed_file_operations_reject_directory_target(
     tmp_path: Path,
