@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import FastAPI
@@ -3372,6 +3372,25 @@ def test_memory_clear_holds_plugin_ingress_boundary(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert boundary_active is False
+
+
+def test_memory_clear_removes_legacy_user_content(monkeypatch) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    legacy_clearer = Mock(return_value=4)
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_legacy_user_content_clearer",
+        lambda: legacy_clearer,
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    legacy_clearer.assert_called_once_with()
 
 
 def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):

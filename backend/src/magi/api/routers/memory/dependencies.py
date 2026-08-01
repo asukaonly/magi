@@ -278,6 +278,30 @@ def _resolve_runtime_trace_store():
     return store
 
 
+def _resolve_legacy_user_content_clearer():
+    override = _package_override(
+        "_resolve_legacy_user_content_clearer",
+        _resolve_legacy_user_content_clearer,
+    )
+    if override is not None:
+        return override()
+    try:
+        from magi.core.container import get_container
+        from magi.memory.legacy_user_content import clear_legacy_user_content
+
+        context = get_container().runtime_bootstrap_context()
+        runtime_paths = context.core.runtime_paths
+    except Exception:
+        return None
+    if runtime_paths is None:
+        return None
+
+    def clear() -> int:
+        return clear_legacy_user_content(runtime_paths)
+
+    return clear
+
+
 def _resolve_orchestration_store():
     override = _package_override(
         "_resolve_orchestration_store",

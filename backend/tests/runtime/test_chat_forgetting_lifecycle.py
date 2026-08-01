@@ -17,6 +17,7 @@ async def test_startup_restores_barriers_before_recovering_chat_surfaces(
     from magi.chat import read_service as read_service_module
     from magi.chat import runtime_forgetting as runtime_forgetting_module
     from magi.chat.lifecycle import ChatForgettingRecoveryModule
+    from magi.utils.runtime import RuntimePaths
 
     calls: list[str] = []
 
@@ -100,25 +101,30 @@ async def test_startup_restores_barriers_before_recovering_chat_surfaces(
     )
 
     context = RuntimeBootstrapContext()
-    context.core.runtime_paths = type(
-        "_RuntimePaths",
-        (),
-        {"cache_dir": tmp_path / "cache"},
-    )()
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    context.core.runtime_paths = runtime_paths
     context.chat.store = object()
     context.memory.unified_memory = _Memory()
     context.runtime_commands.runtime_command_queue = object()
-    portrait_dir = tmp_path / "cache" / "portrait"
+    portrait_dir = runtime_paths.cache_dir / "portrait"
     portrait_dir.mkdir(parents=True)
     portrait_cache = portrait_dir / "cache.json"
     portrait_temp = portrait_dir / ".portrait-cache-orphan.json"
     portrait_cache.write_text("private portrait", encoding="utf-8")
     portrait_temp.write_text("private temp portrait", encoding="utf-8")
+    legacy_other = runtime_paths.others_dir / "private.md"
+    legacy_other.parent.mkdir(parents=True, exist_ok=True)
+    legacy_other.write_text("private legacy notes", encoding="utf-8")
+    legacy_self_memory = runtime_paths.self_memory_db_path
+    legacy_self_memory.parent.mkdir(parents=True, exist_ok=True)
+    legacy_self_memory.write_text("private legacy memory", encoding="utf-8")
 
     await ChatForgettingRecoveryModule(context).init()
 
     assert not portrait_cache.exists()
     assert not portrait_temp.exists()
+    assert not legacy_other.exists()
+    assert not legacy_self_memory.exists()
 
     assert calls == [
         "list-completed-forgets",

@@ -2177,6 +2177,11 @@ independent table deletes.
   any event whose source occurrence is at or before that cutoff. An unfinished
   global conversation clear also suppresses handler dispatch until recovery
   completes.
+- Full clear also removes retired user-content locations that current runtime
+  code no longer reads: every entry under the managed `others/` directory and
+  the reserved `self_memory_v2.db` file with its SQLite sidecars. Cleanup does
+  not follow symbolic links and does not touch current stores, configuration,
+  persona definitions, models, or installed packages.
 
 ### What Compression Means
 

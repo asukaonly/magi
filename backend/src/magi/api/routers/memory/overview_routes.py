@@ -15,6 +15,7 @@ from .clear import ClearMemoryResponseModel, build_clear_memory_response
 from .dependencies import (
     _resolve_manual_entry_asset_store,
     _resolve_manual_entry_weather_fetcher,
+    _resolve_legacy_user_content_clearer,
     _resolve_mcp_resource_cache,
     _resolve_memory_integration,
     _resolve_channels_module,
@@ -362,6 +363,11 @@ async def clear_memory_layers():
                     self_memory = _resolve_self_memory()
                     if self_memory is not None:
                         auxiliary_clearers.append(self_memory.clear_learned_state)
+                    legacy_user_content_clearer = (
+                        _resolve_legacy_user_content_clearer()
+                    )
+                    if legacy_user_content_clearer is not None:
+                        auxiliary_clearers.append(legacy_user_content_clearer)
                     async with _conversation_delivery_clear_boundary():
                         async with AsyncExitStack() as content_cache_scope:
                             await content_cache_scope.enter_async_context(
