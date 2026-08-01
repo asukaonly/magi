@@ -21,6 +21,7 @@ end-to-end story those individual tests tell collectively.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,7 @@ from magi.identity import (
     LocalUserResolver,
     canonicalize_user_id,
 )
+from magi_plugin_sdk.channels import ChannelInboundContext
 
 
 _CHANNELS_SCHEMA = """
@@ -75,6 +77,12 @@ class _FakeSessionProvisioner:
         return True
 
 
+class _AllowingBoundary:
+    @asynccontextmanager
+    async def operation(self, _context):
+        yield
+
+
 @pytest.mark.asyncio
 async def test_weixin_and_desktop_inbounds_converge_on_canonical_user(
     tmp_path: Path,
@@ -100,11 +108,16 @@ async def test_weixin_and_desktop_inbounds_converge_on_canonical_user(
     mapper = ChannelSessionMapper(
         db_path=str(channels_db),
         session_provisioner=_FakeSessionProvisioner(),
+        ingress_boundary=_AllowingBoundary(),  # type: ignore[arg-type]
         identity_resolver=resolver,
     )
     await mapper.initialize()
 
     weixin_mapping = await mapper.resolve_or_create(
+        inbound_context=ChannelInboundContext(
+            provider_occurred_at_ms=1,
+            clear_generation=0,
+        ),
         channel_type="weixin",
         external_chat_id="o9cq805VkoHSU8CcaDYe0iaJa-DM@im.wechat",
         external_user_id="o9cq805VkoHSU8CcaDYe0iaJa-DM@im.wechat",

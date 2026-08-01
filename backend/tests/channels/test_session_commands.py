@@ -14,6 +14,7 @@ Pins:
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -22,6 +23,19 @@ from magi.channels.session_commands import (
     SessionCommandOutcome,
     is_new_session_command,
     try_handle_session_command,
+)
+from magi_plugin_sdk.channels import ChannelInboundContext
+
+
+class _AllowingBoundary:
+    @asynccontextmanager
+    async def operation(self, _context):
+        yield
+
+
+_INBOUND_CONTEXT = ChannelInboundContext(
+    provider_occurred_at_ms=1,
+    clear_generation=0,
 )
 
 
@@ -134,10 +148,12 @@ async def test_dispatcher_short_circuits_new_session(monkeypatch) -> None:
 
     mapper = _FakeMapper(_FakeMapping("weixin", "chat-abc@im.wechat"))
     disp = dispatcher_mod.ChannelMessageDispatcher(
+        ingress_boundary=_AllowingBoundary(),  # type: ignore[arg-type]
         session_mapper=mapper,
         message_dispatcher=_spy_dispatch,
     )
     outcome = await disp.dispatch_user_message(
+        inbound_context=_INBOUND_CONTEXT,
         source="weixin", user_id="u", message="/新会话", session_id="chsess_x",
     )
 
@@ -163,10 +179,12 @@ async def test_dispatcher_dispatches_normal_message(monkeypatch) -> None:
 
     mapper = _FakeMapper(_FakeMapping("weixin", "c"))
     disp = dispatcher_mod.ChannelMessageDispatcher(
+        ingress_boundary=_AllowingBoundary(),  # type: ignore[arg-type]
         session_mapper=mapper,
         message_dispatcher=_spy_dispatch,
     )
     outcome = await disp.dispatch_user_message(
+        inbound_context=_INBOUND_CONTEXT,
         source="weixin", user_id="u", message="今天天气怎么样", session_id="chsess_x",
     )
 

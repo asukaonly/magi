@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -44,6 +45,7 @@ class InboundMessage:
     external_chat_id: str
     external_user_id: str
     external_message_id: str
+    provider_occurred_at_ms: int
     external_username: str | None = None
     text: str = ""
     attachments: list[dict[str, Any]] = field(default_factory=list)
@@ -52,6 +54,43 @@ class InboundMessage:
     reply_to_external_id: str | None = None
     thread_id: str | None = None
     raw_event: Any = None
+
+
+class ChannelInboundRejectionReason(str, Enum):
+    """Stable terminal reasons for rejecting an external inbound message."""
+
+    INVALID_METADATA = "invalid_metadata"
+    CLEARED_MESSAGE = "cleared_message"
+
+
+class ChannelInboundRejectedError(RuntimeError):
+    """Raised when an external inbound message must be dropped permanently.
+
+    Channel plugins must treat this error as a terminal delivery result: advance
+    the provider cursor or acknowledge the update, and do not retry it. Retrying
+    cannot make an event from before a destructive clear admissible again.
+    """
+
+    def __init__(
+        self,
+        reason: ChannelInboundRejectionReason,
+        message: str,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelInboundContext:
+    """Host-issued admission context for one external provider event.
+
+    A plugin must obtain this context before creating a session mapping,
+    persisting attachments, handling a control command, or dispatching a chat
+    message. The same context must be passed to every host call for that event.
+    """
+
+    provider_occurred_at_ms: int
+    clear_generation: int
 
 
 @dataclass(slots=True)
@@ -125,6 +164,7 @@ class ChannelAttachmentStoreProtocol(Protocol):
     async def store_attachment(
         self,
         *,
+        inbound_context: ChannelInboundContext,
         session_id: str,
         turn_id: str,
         kind: str,
@@ -142,6 +182,7 @@ class ChannelSessionMapperProtocol(Protocol):
     async def resolve_or_create(
         self,
         *,
+        inbound_context: ChannelInboundContext,
         channel_type: str,
         external_chat_id: str,
         external_user_id: str,
@@ -190,9 +231,22 @@ class ChannelSessionMapperProtocol(Protocol):
 class ChannelMessageDispatcherProtocol(Protocol):
     """Host-provided inbound message dispatch facade injected into channels."""
 
+    async def capture_inbound_context(
+        self,
+        *,
+        provider_occurred_at_ms: int,
+    ) -> ChannelInboundContext:
+        """Admit a provider event before any host-owned state is created.
+
+        ``provider_occurred_at_ms`` must be the provider's event timestamp, not
+        the local polling or receipt time. A rejected event is terminal and must
+        not be retried.
+        """
+
     async def dispatch_user_message(
         self,
         *,
+        inbound_context: ChannelInboundContext,
         source: str,
         user_id: str,
         message: str,
@@ -222,6 +276,7 @@ class ChannelControlPortProtocol(Protocol):
     async def handle_command(
         self,
         *,
+        inbound_context: ChannelInboundContext,
         message: str,
         session_id: str | None,
         channel_type: str,
@@ -387,7 +442,12 @@ class Channel(ABC):
         _ = session_mapper
 
     def bind_message_dispatcher(self, dispatcher: ChannelMessageDispatcherProtocol) -> None:
-        """Inject the host-provided inbound message dispatcher after construction."""
+        """Inject the host-provided inbound message dispatcher after construction.
+
+        The channel must call ``capture_inbound_context`` before any other
+        host-owned inbound operation and pass the returned context through the
+        entire ingress flow.
+        """
         _ = dispatcher
 
     def bind_attachment_store(self, attachment_store: ChannelAttachmentStoreProtocol) -> None:
@@ -402,6 +462,9 @@ class Channel(ABC):
 __all__ = [
     "Channel",
     "ChannelConfig",
+    "ChannelInboundContext",
+    "ChannelInboundRejectedError",
+    "ChannelInboundRejectionReason",
     "ChannelAttachmentStoreProtocol",
     "ChannelControlCommandResult",
     "ChannelControlPortProtocol",

@@ -759,6 +759,225 @@ async def test_user_message_clear_boundary_purges_every_old_payload_and_preserve
 
 
 @pytest.mark.asyncio
+async def test_external_message_context_rejects_pre_clear_and_cross_generation_events(
+    tmp_path: Path,
+) -> None:
+    from magi.events.runtime_queue import (
+        SQLiteRuntimeCommandQueue,
+        StaleExternalUserMessageError,
+    )
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    try:
+        old_occurred_at_ms = 1
+        captured_generation = await queue.capture_external_user_message_context(
+            provider_occurred_at_ms=old_occurred_at_ms,
+        )
+        assert captured_generation == 0
+
+        async with queue.user_message_clear_boundary():
+            generation, _ = await queue.advance_user_message_generation_and_purge()
+        assert generation == 1
+
+        with pytest.raises(StaleExternalUserMessageError):
+            async with queue.external_user_message_operation(
+                provider_occurred_at_ms=old_occurred_at_ms,
+                captured_generation=captured_generation,
+            ):
+                pass
+        with pytest.raises(StaleExternalUserMessageError):
+            await queue.capture_external_user_message_context(
+                provider_occurred_at_ms=old_occurred_at_ms,
+            )
+
+        with sqlite3.connect(queue.db_path) as conn:
+            cleared_at_ms = int(
+                float(
+                    conn.execute(
+                        "SELECT updated_at FROM runtime_user_message_clear_state "
+                        "WHERE singleton_id = 1"
+                    ).fetchone()[0]
+                )
+                * 1000
+            )
+        current_generation = await queue.capture_external_user_message_context(
+            provider_occurred_at_ms=cleared_at_ms + 1,
+        )
+        assert current_generation == generation
+        async with queue.external_user_message_operation(
+            provider_occurred_at_ms=cleared_at_ms + 1,
+            captured_generation=current_generation,
+        ):
+            pass
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_external_message_clear_boundary_survives_restart(tmp_path: Path) -> None:
+    from magi.events.runtime_queue import (
+        SQLiteRuntimeCommandQueue,
+        StaleExternalUserMessageError,
+    )
+
+    db_path = tmp_path / "runtime_commands.db"
+    first = SQLiteRuntimeCommandQueue(db_path=str(db_path))
+    await first.start()
+    async with first.user_message_clear_boundary():
+        await first.advance_user_message_generation_and_purge()
+    with sqlite3.connect(db_path) as conn:
+        cleared_at_ms = int(
+            float(
+                conn.execute(
+                    "SELECT updated_at FROM runtime_user_message_clear_state "
+                    "WHERE singleton_id = 1"
+                ).fetchone()[0]
+            )
+            * 1000
+        )
+    await first.stop()
+
+    restarted = SQLiteRuntimeCommandQueue(db_path=str(db_path))
+    await restarted.start()
+    try:
+        with pytest.raises(StaleExternalUserMessageError):
+            await restarted.capture_external_user_message_context(
+                provider_occurred_at_ms=cleared_at_ms,
+            )
+        assert (
+            await restarted.capture_external_user_message_context(
+                provider_occurred_at_ms=cleared_at_ms + 1,
+            )
+            == 1
+        )
+    finally:
+        await restarted.stop()
+
+
+@pytest.mark.asyncio
+async def test_global_clear_waits_for_active_external_message_mutation(
+    tmp_path: Path,
+) -> None:
+    import asyncio
+
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    context_generation = await queue.capture_external_user_message_context(
+        provider_occurred_at_ms=1,
+    )
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    cleared = asyncio.Event()
+
+    async def mutate() -> None:
+        async with queue.external_user_message_operation(
+            provider_occurred_at_ms=1,
+            captured_generation=context_generation,
+        ):
+            entered.set()
+            await release.wait()
+
+    async def clear() -> None:
+        await entered.wait()
+        async with queue.user_message_global_clear_boundary():
+            await queue.advance_user_message_generation_and_purge()
+            cleared.set()
+
+    mutation_task = asyncio.create_task(mutate())
+    clear_task = asyncio.create_task(clear())
+    try:
+        await entered.wait()
+        await asyncio.sleep(0)
+        assert not cleared.is_set()
+        release.set()
+        await asyncio.wait_for(asyncio.gather(mutation_task, clear_task), timeout=1)
+        assert cleared.is_set()
+    finally:
+        release.set()
+        await asyncio.gather(mutation_task, clear_task, return_exceptions=True)
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_global_clear_rejects_provider_events_that_occur_during_clear(
+    tmp_path: Path,
+) -> None:
+    import asyncio
+
+    from magi.events.runtime_queue import (
+        SQLiteRuntimeCommandQueue,
+        StaleExternalUserMessageError,
+    )
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    try:
+        async with queue.user_message_global_clear_boundary():
+            await queue.advance_user_message_generation_and_purge()
+            with sqlite3.connect(queue.db_path) as conn:
+                clear_started_at_ms = int(
+                    float(
+                        conn.execute(
+                            "SELECT updated_at FROM runtime_user_message_clear_state "
+                            "WHERE singleton_id = 1"
+                        ).fetchone()[0]
+                    )
+                    * 1000
+                )
+            await asyncio.sleep(0.01)
+
+        with sqlite3.connect(queue.db_path) as conn:
+            clear_finished_at_ms = int(
+                float(
+                    conn.execute(
+                        "SELECT updated_at FROM runtime_user_message_clear_state "
+                        "WHERE singleton_id = 1"
+                    ).fetchone()[0]
+                )
+                * 1000
+            )
+        assert clear_finished_at_ms > clear_started_at_ms
+
+        with pytest.raises(StaleExternalUserMessageError):
+            await queue.capture_external_user_message_context(
+                provider_occurred_at_ms=clear_started_at_ms + 1,
+            )
+        assert (
+            await queue.capture_external_user_message_context(
+                provider_occurred_at_ms=clear_finished_at_ms + 1,
+            )
+            == 1
+        )
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_value", [None, 0, -1, True, 1.5, "1"])
+async def test_external_message_context_fails_closed_without_valid_provider_time(
+    tmp_path: Path,
+    invalid_value: object,
+) -> None:
+    from magi.events.runtime_queue import (
+        InvalidExternalUserMessageMetadataError,
+        SQLiteRuntimeCommandQueue,
+    )
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    try:
+        with pytest.raises(InvalidExternalUserMessageMetadataError):
+            await queue.capture_external_user_message_context(
+                provider_occurred_at_ms=invalid_value,  # type: ignore[arg-type]
+            )
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
 async def test_session_delete_barrier_purges_only_matching_payloads_and_survives_restart(
     tmp_path: Path,
 ) -> None:

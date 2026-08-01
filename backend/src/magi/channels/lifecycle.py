@@ -32,6 +32,7 @@ logger = get_logger(__name__)
 class _ChannelDependencies:
     plugin_manager: Any
     runtime_paths: Any
+    runtime_command_queue: Any
     session_provisioner: Any
     attachment_store: Any
     trace_store: Any
@@ -41,6 +42,7 @@ class _ChannelDependencies:
 class _ChannelStartup:
     registry: Any
     session_mapper: Any
+    ingress_boundary: Any
     binding_settings_store: Any
     cp_wiring: Any
     plugin_channel_count: int
@@ -146,6 +148,7 @@ class ChannelsModule(LifecycleModule):
             dependencies=(
                 "runtime_chat_store",
                 "runtime_trace",
+                "runtime_command_queue",
                 "runtime_configuration",
                 "runtime_core_dependencies",
                 "runtime_agent_core",
@@ -271,17 +274,23 @@ class ChannelsModule(LifecycleModule):
             self._context.agent_runtime.background_task_manager,
             "background task manager",
         )
-        async with background_task_manager.conversation_scope_boundary(
-            reason="recover_global_conversation_clear"
-        ):
-            await session_mapper.clear_conversation_state()
-            await background_task_manager.clear_all_history()
-            await get_orchestration_store().clear_all()
-            completed = await chat_read_service.acomplete_global_clear()
-            if not completed:
-                raise RuntimeError(
-                    "Pending global conversation clear could not be completed"
-                )
+        runtime_command_queue = require_initialized(
+            self._context.runtime_commands.runtime_command_queue,
+            "runtime command queue",
+        )
+        async with runtime_command_queue.user_message_global_clear_boundary():
+            async with background_task_manager.conversation_scope_boundary(
+                reason="recover_global_conversation_clear"
+            ):
+                await session_mapper.clear_conversation_state()
+                await background_task_manager.clear_all_history()
+                await get_orchestration_store().clear_all()
+                await runtime_command_queue.seal_external_user_message_clear_cutoff()
+                completed = await chat_read_service.acomplete_global_clear()
+                if not completed:
+                    raise RuntimeError(
+                        "Pending global conversation clear could not be completed"
+                    )
         logger.info(
             "Recovered interrupted cross-store conversation clear",
             cleared_chat_count=pending_count,
@@ -304,10 +313,16 @@ class ChannelsModule(LifecycleModule):
         deps: _ChannelDependencies,
         channel_instances: list[Any],
     ) -> _ChannelStartup:
+        from .ingress_boundary import ChannelIngressBoundary
+
         channels_db_path = _channels_db_path(deps.runtime_paths)
+        ingress_boundary = ChannelIngressBoundary(
+            runtime_command_queue=deps.runtime_command_queue,
+        )
         session_mapper = await self._create_session_mapper(
             db_path=channels_db_path,
             session_provisioner=deps.session_provisioner,
+            ingress_boundary=ingress_boundary,
         )
         self._receipts_store = await self._create_receipts_store(channels_db_path)
         binding_settings_store = await self._create_binding_settings_store(channels_db_path)
@@ -317,11 +332,13 @@ class ChannelsModule(LifecycleModule):
             deps=deps,
             channel_instances=channel_instances,
             session_mapper=session_mapper,
+            ingress_boundary=ingress_boundary,
             cp_wiring=cp_wiring,
         )
         return _ChannelStartup(
             registry=registry,
             session_mapper=session_mapper,
+            ingress_boundary=ingress_boundary,
             binding_settings_store=binding_settings_store,
             cp_wiring=cp_wiring,
             plugin_channel_count=len(channel_instances),
@@ -333,6 +350,7 @@ class ChannelsModule(LifecycleModule):
         deps: _ChannelDependencies,
         channel_instances: list[Any],
         session_mapper: Any,
+        ingress_boundary: Any,
         cp_wiring: Any,
     ):
         from .registry import ChannelRegistry
@@ -345,11 +363,16 @@ class ChannelsModule(LifecycleModule):
             message_dispatcher=self._message_dispatcher(
                 cp_wiring=cp_wiring,
                 session_mapper=session_mapper,
+                ingress_boundary=ingress_boundary,
             ),
-            attachment_store=deps.attachment_store,
+            attachment_store=self._guarded_attachment_store(
+                attachment_store=deps.attachment_store,
+                ingress_boundary=ingress_boundary,
+            ),
             control_port=self._control_port(
                 cp_wiring=cp_wiring,
                 session_mapper=session_mapper,
+                ingress_boundary=ingress_boundary,
             ),
         )
         # chat_sse must register even when no plugin channels are loaded.
@@ -414,6 +437,10 @@ class ChannelsModule(LifecycleModule):
                 self._context.core.runtime_paths,
                 "runtime paths",
             ),
+            runtime_command_queue=require_initialized(
+                self._context.runtime_commands.runtime_command_queue,
+                "runtime command queue",
+            ),
             session_provisioner=require_initialized(
                 self._context.chat.channel_session_provisioner,
                 "chat channel session provisioner",
@@ -428,13 +455,20 @@ class ChannelsModule(LifecycleModule):
             ),
         )
 
-    async def _create_session_mapper(self, *, db_path: str, session_provisioner: Any):
+    async def _create_session_mapper(
+        self,
+        *,
+        db_path: str,
+        session_provisioner: Any,
+        ingress_boundary: Any,
+    ):
         from .session_mapper import ChannelSessionMapper
 
         identity_resolver = getattr(self._context.identity, "resolver", None)
         session_mapper = ChannelSessionMapper(
             db_path=db_path,
             session_provisioner=session_provisioner,
+            ingress_boundary=ingress_boundary,
             identity_resolver=identity_resolver,
         )
         await session_mapper.initialize()
@@ -458,22 +492,49 @@ class ChannelsModule(LifecycleModule):
         cp_module = getattr(self._context.control_plane, "module", None)
         return getattr(cp_module, "wiring", None) if cp_module else None
 
-    def _message_dispatcher(self, *, cp_wiring: Any, session_mapper: Any):
+    def _message_dispatcher(
+        self,
+        *,
+        cp_wiring: Any,
+        session_mapper: Any,
+        ingress_boundary: Any,
+    ):
         from .dispatcher import ChannelMessageDispatcher
 
         return ChannelMessageDispatcher(
+            ingress_boundary=ingress_boundary,
             permission_registry=(cp_wiring.pending_permissions if cp_wiring else None),
             interaction_broker=(cp_wiring.broker if cp_wiring else None),
             session_mapper=session_mapper,
         )
 
-    def _control_port(self, *, cp_wiring: Any, session_mapper: Any):
+    def _control_port(
+        self,
+        *,
+        cp_wiring: Any,
+        session_mapper: Any,
+        ingress_boundary: Any,
+    ):
         from .control_commands import HostControlPort
 
         return HostControlPort(
+            ingress_boundary=ingress_boundary,
             session_mapper=session_mapper,
             permission_registry=(cp_wiring.pending_permissions if cp_wiring else None),
             interaction_broker=(cp_wiring.broker if cp_wiring else None),
+        )
+
+    @staticmethod
+    def _guarded_attachment_store(
+        *,
+        attachment_store: Any,
+        ingress_boundary: Any,
+    ):
+        from .attachment_store import GuardedChannelAttachmentStore
+
+        return GuardedChannelAttachmentStore(
+            delegate=attachment_store,
+            ingress_boundary=ingress_boundary,
         )
 
     def _register_plugin_channels(

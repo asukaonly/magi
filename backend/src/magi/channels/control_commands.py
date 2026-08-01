@@ -21,9 +21,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from magi_plugin_sdk.channels import ChannelControlCommandResult
+from magi_plugin_sdk.channels import (
+    ChannelControlCommandResult,
+    ChannelInboundContext,
+)
 
 from ..core.logger import get_logger
+from .ingress_boundary import ChannelIngressBoundary
 
 logger = get_logger(__name__)
 
@@ -57,15 +61,36 @@ class HostControlPort:
     def __init__(
         self,
         *,
+        ingress_boundary: ChannelIngressBoundary,
         session_mapper: Any = None,
         permission_registry: Any = None,
         interaction_broker: Any = None,
     ) -> None:
+        self._ingress_boundary = ingress_boundary
         self._session_mapper = session_mapper
         self._permission_registry = permission_registry
         self._broker = interaction_broker
 
     async def handle_command(
+        self,
+        *,
+        inbound_context: ChannelInboundContext,
+        message: str,
+        session_id: str | None,
+        channel_type: str,
+        external_chat_id: str,
+        external_user_id: str,
+    ) -> ChannelControlCommandResult | None:
+        async with self._ingress_boundary.operation(inbound_context):
+            return await self._handle_admitted_command(
+                message=message,
+                session_id=session_id,
+                channel_type=channel_type,
+                external_chat_id=external_chat_id,
+                external_user_id=external_user_id,
+            )
+
+    async def _handle_admitted_command(
         self,
         *,
         message: str,

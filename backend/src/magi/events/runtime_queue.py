@@ -41,6 +41,14 @@ class StaleUserMessageDeliveryAttemptError(RuntimeError):
     """Raised when enqueue targets an attempt older than the current receipt."""
 
 
+class InvalidExternalUserMessageMetadataError(ValueError):
+    """Raised when a channel event lacks a valid provider occurrence time."""
+
+
+class StaleExternalUserMessageError(RuntimeError):
+    """Raised when a channel event belongs to an earlier clear boundary."""
+
+
 class UserMessageScheduleOutcome(str, Enum):
     """Result of scheduling one explicit logical-turn delivery attempt."""
 
@@ -487,7 +495,13 @@ class SQLiteRuntimeCommandQueue:
 
         async with self.user_message_destructive_operation():
             async with self.user_message_clear_boundary():
-                yield
+                initial_generation, _ = await self._load_user_message_clear_state()
+                try:
+                    yield
+                finally:
+                    current_generation, _ = await self._load_user_message_clear_state()
+                    if current_generation != initial_generation:
+                        await self.seal_external_user_message_clear_cutoff()
 
     @asynccontextmanager
     async def user_message_clear_boundary(self) -> AsyncIterator[None]:
@@ -507,6 +521,59 @@ class SQLiteRuntimeCommandQueue:
         if self._user_message_generation is None:
             raise RuntimeError("Runtime user-message generation is not initialized")
         return int(self._user_message_generation)
+
+    async def capture_external_user_message_context(
+        self,
+        *,
+        provider_occurred_at_ms: int,
+    ) -> int:
+        """Capture the current clear generation for one provider event.
+
+        The provider timestamp is checked against the durable clear time before
+        any channel-owned session, mapping, attachment, or message may be
+        created. Generation zero means no destructive clear has happened yet,
+        so initial provider backlogs remain admissible.
+        """
+
+        normalized_occurred_at_ms = _normalize_provider_occurred_at_ms(
+            provider_occurred_at_ms
+        )
+        async with self.user_message_operation():
+            generation, cleared_at_ms = await self._load_user_message_clear_state()
+            _validate_external_user_message_boundary(
+                provider_occurred_at_ms=normalized_occurred_at_ms,
+                captured_generation=generation,
+                current_generation=generation,
+                cleared_at_ms=cleared_at_ms,
+            )
+            return generation
+
+    @asynccontextmanager
+    async def external_user_message_operation(
+        self,
+        *,
+        provider_occurred_at_ms: int,
+        captured_generation: int,
+    ) -> AsyncIterator[None]:
+        """Validate and protect one channel-side inbound state mutation."""
+
+        normalized_occurred_at_ms = _normalize_provider_occurred_at_ms(
+            provider_occurred_at_ms
+        )
+        normalized_generation = _normalize_external_clear_generation(
+            captured_generation
+        )
+        async with self.user_message_operation():
+            current_generation, cleared_at_ms = (
+                await self._load_user_message_clear_state()
+            )
+            _validate_external_user_message_boundary(
+                provider_occurred_at_ms=normalized_occurred_at_ms,
+                captured_generation=normalized_generation,
+                current_generation=current_generation,
+                cleared_at_ms=cleared_at_ms,
+            )
+            yield
 
     async def is_user_message_scope_blocked(
         self,
@@ -670,6 +737,32 @@ class SQLiteRuntimeCommandQueue:
         self._user_message_generation = next_generation
         return next_generation, purged_count
 
+    async def seal_external_user_message_clear_cutoff(self) -> int:
+        """Move the provider-event cutoff to the end of a completed clear.
+
+        The generation advances at clear admission so already captured work
+        becomes stale immediately. This second timestamp update rejects provider
+        events that occurred while the clear held the exclusive boundary.
+        """
+
+        task = asyncio.current_task()
+        if task is None or task is not self._user_message_clear_owner:
+            raise RuntimeError(
+                "External user-message cutoff can only seal inside the clear boundary"
+            )
+        now = time.time()
+        async with self._write_lock, sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE runtime_user_message_clear_state
+                SET updated_at = ?
+                WHERE singleton_id = ?
+                """,
+                (now, _USER_MESSAGE_CLEAR_STATE_ID),
+            )
+            await db.commit()
+        return int(now * 1000)
+
     async def ack(self, command_id: int) -> None:
         await self._update_status(command_id=command_id, status=STATUS_COMPLETED, clear_claim=True)
 
@@ -816,6 +909,24 @@ class SQLiteRuntimeCommandQueue:
                 raise RuntimeError("Runtime user-message clear state is missing")
             self._user_message_generation = int(row[0])
 
+    async def _load_user_message_clear_state(self) -> tuple[int, int]:
+        """Read the generation and clear timestamp from durable storage."""
+
+        await self._initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT generation, updated_at
+                FROM runtime_user_message_clear_state
+                WHERE singleton_id = ?
+                """,
+                (_USER_MESSAGE_CLEAR_STATE_ID,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            raise RuntimeError("Runtime user-message clear state is missing")
+        return int(row[0]), int(float(row[1]) * 1000)
+
     async def _update_status(self, *, command_id: int, status: str, clear_claim: bool) -> None:
         await self._initialize()
         async with self._write_lock, sqlite_connection_async(self.db_path) as db:
@@ -867,6 +978,39 @@ def _normalize_delivery_attempt_no(value: object) -> int:
     if normalized < 0:
         raise ValueError("Delivery attempt number must be a non-negative integer")
     return normalized
+
+
+def _normalize_provider_occurred_at_ms(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise InvalidExternalUserMessageMetadataError(
+            "Provider occurrence time must be a positive integer in epoch milliseconds"
+        )
+    return value
+
+
+def _normalize_external_clear_generation(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise InvalidExternalUserMessageMetadataError(
+            "Captured clear generation must be a non-negative integer"
+        )
+    return value
+
+
+def _validate_external_user_message_boundary(
+    *,
+    provider_occurred_at_ms: int,
+    captured_generation: int,
+    current_generation: int,
+    cleared_at_ms: int,
+) -> None:
+    if captured_generation != current_generation:
+        raise StaleExternalUserMessageError(
+            "External message crossed a destructive clear boundary"
+        )
+    if current_generation > 0 and provider_occurred_at_ms <= cleared_at_ms:
+        raise StaleExternalUserMessageError(
+            "External message occurred before the latest destructive clear"
+        )
 
 
 def _message_id_from_correlation_id(correlation_id: str | None) -> str:
@@ -951,7 +1095,9 @@ async def _matching_user_message_command_ids(
 
 
 __all__ = [
+    "InvalidExternalUserMessageMetadataError",
     "SQLiteRuntimeCommandQueue",
+    "StaleExternalUserMessageError",
     "StaleUserMessageDeliveryAttemptError",
     "UserMessageScopeBlockedError",
     "UserMessageScheduleOutcome",

@@ -3,11 +3,25 @@
 from __future__ import annotations
 
 import re
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
 
 from magi.channels.dispatcher import ChannelMessageDispatcher
+from magi_plugin_sdk.channels import ChannelInboundContext
+
+
+class _AllowingBoundary:
+    @asynccontextmanager
+    async def operation(self, _context):
+        yield
+
+
+_INBOUND_CONTEXT = ChannelInboundContext(
+    provider_occurred_at_ms=1,
+    clear_generation=0,
+)
 
 
 class _RecordingDispatch:
@@ -35,8 +49,12 @@ async def _forwarded_turn_id(
     client_turn_id: str | None = None,
     metadata: dict[str, object] | None = None,
 ) -> object:
-    dispatcher = ChannelMessageDispatcher(message_dispatcher=recorder)
+    dispatcher = ChannelMessageDispatcher(
+        ingress_boundary=_AllowingBoundary(),  # type: ignore[arg-type]
+        message_dispatcher=recorder,
+    )
     await dispatcher.dispatch_user_message(
+        inbound_context=_INBOUND_CONTEXT,
         source=source,
         user_id="local_user",
         message="hello",

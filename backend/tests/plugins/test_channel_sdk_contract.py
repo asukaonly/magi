@@ -3,6 +3,9 @@ from __future__ import annotations
 from magi.channels import Channel as BackendChannel
 from magi.channels import ChannelConfig as BackendChannelConfig
 from magi.channels import ChannelAttachmentStoreProtocol as BackendChannelAttachmentStoreProtocol
+from magi.channels import ChannelInboundContext as BackendChannelInboundContext
+from magi.channels import ChannelInboundRejectedError as BackendChannelInboundRejectedError
+from magi.channels import ChannelInboundRejectionReason as BackendChannelInboundRejectionReason
 from magi.channels import ChannelMessageDispatcherProtocol as BackendChannelMessageDispatcherProtocol
 from magi.channels import ChannelMessageDispatchOutcome as BackendChannelMessageDispatchOutcome
 from magi.channels import ChannelSessionMapperProtocol as BackendChannelSessionMapperProtocol
@@ -15,6 +18,9 @@ from magi.channels.contracts import ChannelMessageDispatchOutcome as BackendChan
 from magi_plugin_sdk.channels import Channel as SdkChannel
 from magi_plugin_sdk.channels import ChannelConfig as SdkChannelConfig
 from magi_plugin_sdk.channels import ChannelAttachmentStoreProtocol as SdkChannelAttachmentStoreProtocol
+from magi_plugin_sdk.channels import ChannelInboundContext as SdkChannelInboundContext
+from magi_plugin_sdk.channels import ChannelInboundRejectedError as SdkChannelInboundRejectedError
+from magi_plugin_sdk.channels import ChannelInboundRejectionReason as SdkChannelInboundRejectionReason
 from magi_plugin_sdk.channels import ChannelMessageDispatcherProtocol as SdkChannelMessageDispatcherProtocol
 from magi_plugin_sdk.channels import ChannelMessageDispatchOutcome as SdkChannelMessageDispatchOutcome
 from magi_plugin_sdk.channels import ChannelSessionMapperProtocol as SdkChannelSessionMapperProtocol
@@ -28,12 +34,14 @@ class StubChannelSessionMapper:
     async def resolve_or_create(
         self,
         *,
+        inbound_context: SdkChannelInboundContext,
         channel_type: str,
         external_chat_id: str,
         external_user_id: str,
         is_group: bool = False,
         display_name: str | None = None,
     ) -> SdkChannelSessionMapping:
+        _ = inbound_context
         return SdkChannelSessionMapping(
             channel_type=channel_type,
             external_chat_id=external_chat_id,
@@ -71,9 +79,20 @@ class StubChannelSessionMapper:
 
 
 class StubChannelMessageDispatcher:
+    async def capture_inbound_context(
+        self,
+        *,
+        provider_occurred_at_ms: int,
+    ) -> SdkChannelInboundContext:
+        return SdkChannelInboundContext(
+            provider_occurred_at_ms=provider_occurred_at_ms,
+            clear_generation=0,
+        )
+
     async def dispatch_user_message(
         self,
         *,
+        inbound_context: SdkChannelInboundContext,
         source: str,
         user_id: str,
         message: str,
@@ -86,6 +105,7 @@ class StubChannelMessageDispatcher:
         runtime_namespace: str | None = None,
     ) -> SdkChannelMessageDispatchOutcome:
         _ = (
+            inbound_context,
             source,
             user_id,
             message,
@@ -104,6 +124,7 @@ class StubChannelAttachmentStore:
     async def store_attachment(
         self,
         *,
+        inbound_context: SdkChannelInboundContext,
         session_id: str,
         turn_id: str,
         kind: str,
@@ -111,7 +132,7 @@ class StubChannelAttachmentStore:
         content: bytes,
         mime_type: str,
     ) -> dict[str, object]:
-        _ = session_id, turn_id, kind, original_name, content, mime_type
+        _ = inbound_context, session_id, turn_id, kind, original_name, content, mime_type
         return {"attachment_id": "att_test", "kind": "file"}
 
 
@@ -119,6 +140,9 @@ def test_backend_channel_contracts_reexport_sdk_symbols() -> None:
     assert BackendChannel is SdkChannel
     assert BackendChannelConfig is SdkChannelConfig
     assert BackendChannelAttachmentStoreProtocol is SdkChannelAttachmentStoreProtocol
+    assert BackendChannelInboundContext is SdkChannelInboundContext
+    assert BackendChannelInboundRejectedError is SdkChannelInboundRejectedError
+    assert BackendChannelInboundRejectionReason is SdkChannelInboundRejectionReason
     assert BackendChannelMessageDispatcherProtocol is SdkChannelMessageDispatcherProtocol
     assert BackendChannelMessageDispatchOutcome is SdkChannelMessageDispatchOutcome
     assert BackendChannelContractsMessageDispatcherProtocol is SdkChannelMessageDispatcherProtocol
@@ -159,9 +183,9 @@ def test_control_port_contract_reexport_and_structural_typing() -> None:
     # The port is structurally typed — a stub with handle_command satisfies it.
     class _StubControlPort:
         async def handle_command(
-            self, *, message, session_id, channel_type, external_chat_id, external_user_id,
+            self, *, inbound_context, message, session_id, channel_type, external_chat_id, external_user_id,
         ):
-            _ = message, session_id, channel_type, external_chat_id, external_user_id
+            _ = inbound_context, message, session_id, channel_type, external_chat_id, external_user_id
             return None
 
     assert isinstance(_StubControlPort(), SdkPort)

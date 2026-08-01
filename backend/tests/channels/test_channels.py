@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,41 @@ from magi.channels.contracts import (
     OutboundContent,
 )
 from magi.channels.registry import ChannelRegistry
-from magi.channels.session_mapper import ChannelSessionMapper
+from magi.channels.session_mapper import ChannelSessionMapper as _ChannelSessionMapper
+from magi_plugin_sdk.channels import ChannelInboundContext
+
+
+class _AllowingBoundary:
+    @asynccontextmanager
+    async def operation(self, _context):
+        yield
+
+
+_INBOUND_CONTEXT = ChannelInboundContext(
+    provider_occurred_at_ms=1,
+    clear_generation=0,
+)
+
+
+class ChannelSessionMapper(_ChannelSessionMapper):
+    """Test adapter that supplies the mandatory host ingress context."""
+
+    def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+        super().__init__(
+            ingress_boundary=_AllowingBoundary(),  # type: ignore[arg-type]
+            **kwargs,
+        )
+
+    async def resolve_or_create(
+        self,
+        *,
+        inbound_context: ChannelInboundContext = _INBOUND_CONTEXT,
+        **kwargs,
+    ):
+        return await super().resolve_or_create(
+            inbound_context=inbound_context,
+            **kwargs,
+        )
 
 
 # ---------------------------------------------------------------------------

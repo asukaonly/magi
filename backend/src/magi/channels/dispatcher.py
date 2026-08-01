@@ -13,12 +13,14 @@ import hashlib
 import json
 
 from magi_plugin_sdk.channels import (
+    ChannelInboundContext,
     ChannelMessageDispatcherProtocol,
     ChannelMessageDispatchOutcome,
 )
 
 from ..core.runtime_bindings import require_user_message_dispatcher
 from ..control.permission.slash_commands import try_handle_control_command
+from .ingress_boundary import ChannelIngressBoundary
 from .session_commands import try_handle_session_command
 
 
@@ -32,11 +34,13 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
     def __init__(
         self,
         *,
+        ingress_boundary: ChannelIngressBoundary,
         permission_registry: object | None = None,
         interaction_broker: object | None = None,
         session_mapper: object | None = None,
         message_dispatcher: object | None = None,
     ) -> None:
+        self._ingress_boundary = ingress_boundary
         # Optional Phase H+2 wiring — when both are provided, inbound
         # messages are checked for /approve|/deny slash commands before
         # being dispatched to the LLM. When None (legacy / tests that
@@ -50,9 +54,21 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
         self._session_mapper = session_mapper
         self._message_dispatcher = message_dispatcher
 
+    async def capture_inbound_context(
+        self,
+        *,
+        provider_occurred_at_ms: int,
+    ) -> ChannelInboundContext:
+        """Capture the host clear generation before any inbound side effect."""
+
+        return await self._ingress_boundary.capture(
+            provider_occurred_at_ms=provider_occurred_at_ms,
+        )
+
     async def dispatch_user_message(
         self,
         *,
+        inbound_context: ChannelInboundContext,
         source: str,
         user_id: str,
         message: str,
@@ -64,38 +80,46 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
         metadata: dict[str, object] | None = None,
         runtime_namespace: str | None = None,
     ) -> ChannelMessageDispatchOutcome:
-        command_outcome = await self._try_handle_channel_command(
-            user_id=user_id,
-            session_id=session_id,
-            message=message,
-        )
-        if command_outcome is not None:
-            return command_outcome
+        async with self._ingress_boundary.operation(inbound_context):
+            command_outcome = await self._try_handle_channel_command(
+                user_id=user_id,
+                session_id=session_id,
+                message=message,
+            )
+            if command_outcome is not None:
+                return command_outcome
 
-        message_dispatcher, dispatcher_error = self._resolve_message_dispatcher(
-            user_id=user_id,
-            session_id=session_id,
-        )
-        if dispatcher_error is not None:
-            return dispatcher_error
+            message_dispatcher, dispatcher_error = self._resolve_message_dispatcher(
+                user_id=user_id,
+                session_id=session_id,
+            )
+            if dispatcher_error is not None:
+                return dispatcher_error
 
-        outcome = await message_dispatcher(
-            source=source,
-            user_id=user_id,
-            message=message,
-            session_id=session_id,
-            attachments=attachments,
-            reply_to_message_id=reply_to_message_id,
-            workspace_path=workspace_path,
-            client_turn_id=_resolve_client_turn_id(
+            controlled_metadata = dict(metadata or {})
+            controlled_metadata["provider_occurred_at_ms"] = (
+                inbound_context.provider_occurred_at_ms
+            )
+            controlled_metadata["channel_clear_generation"] = (
+                inbound_context.clear_generation
+            )
+            outcome = await message_dispatcher(
                 source=source,
-                client_turn_id=client_turn_id,
-                metadata=metadata,
-            ),
-            metadata=metadata,
-            runtime_namespace=runtime_namespace,
-        )
-        return _channel_dispatch_outcome(outcome)
+                user_id=user_id,
+                message=message,
+                session_id=session_id,
+                attachments=attachments,
+                reply_to_message_id=reply_to_message_id,
+                workspace_path=workspace_path,
+                client_turn_id=_resolve_client_turn_id(
+                    source=source,
+                    client_turn_id=client_turn_id,
+                    metadata=controlled_metadata,
+                ),
+                metadata=controlled_metadata,
+                runtime_namespace=runtime_namespace,
+            )
+            return _channel_dispatch_outcome(outcome)
 
     async def _try_handle_channel_command(
         self,

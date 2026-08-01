@@ -9,10 +9,12 @@ from pathlib import Path
 from typing import Protocol
 
 import aiosqlite
+from magi_plugin_sdk.channels import ChannelInboundContext
 
 from ..core.logger import get_logger
 from ..identity import CANONICAL_LOCAL_USER, ExternalIdentity, IdentityResolver
 from .contracts import ChannelSessionMapping
+from .ingress_boundary import ChannelIngressBoundary
 
 logger = get_logger(__name__)
 
@@ -59,10 +61,12 @@ class ChannelSessionMapper:
         *,
         db_path: str,
         session_provisioner: ChannelChatSessionProvisioner,
+        ingress_boundary: ChannelIngressBoundary,
         identity_resolver: IdentityResolver | None = None,
     ) -> None:
         self._db_path = str(Path(db_path).expanduser())
         self._session_provisioner = session_provisioner
+        self._ingress_boundary = ingress_boundary
         self._identity_resolver = identity_resolver
         self._initialized = False
         self._resolve_lock = asyncio.Lock()
@@ -75,6 +79,7 @@ class ChannelSessionMapper:
     async def resolve_or_create(
         self,
         *,
+        inbound_context: ChannelInboundContext,
         channel_type: str,
         external_chat_id: str,
         external_user_id: str,
@@ -82,45 +87,46 @@ class ChannelSessionMapper:
         display_name: str | None = None,
     ) -> ChannelSessionMapping:
         """Look up existing mapping; if none, create a new Magi session."""
-        async with self._resolve_lock:
-            existing = await self.lookup(channel_type, external_chat_id)
-            if existing is not None:
-                available = (
-                    await self._session_provisioner.is_channel_session_available(
-                        magi_user_id=existing.magi_user_id,
-                        session_id=existing.magi_session_id,
+        async with self._ingress_boundary.operation(inbound_context):
+            async with self._resolve_lock:
+                existing = await self.lookup(channel_type, external_chat_id)
+                if existing is not None:
+                    available = (
+                        await self._session_provisioner.is_channel_session_available(
+                            magi_user_id=existing.magi_user_id,
+                            session_id=existing.magi_session_id,
+                        )
                     )
+                    if available:
+                        return await self._touch_existing_mapping(existing)
+                    await self.delete_mapping(channel_type, external_chat_id)
+
+                magi_user_id = await self._resolve_magi_user_id(
+                    channel_type=channel_type,
+                    external_user_id=external_user_id,
                 )
-                if available:
-                    return await self._touch_existing_mapping(existing)
-                await self.delete_mapping(channel_type, external_chat_id)
+                now_ms = int(time.time() * 1000)
+                session_id = await self._session_provisioner.create_channel_session(
+                    channel_type=channel_type,
+                    external_chat_id=external_chat_id,
+                    magi_user_id=magi_user_id,
+                    display_name=display_name,
+                    created_at_ms=now_ms,
+                )
 
-            magi_user_id = await self._resolve_magi_user_id(
-                channel_type=channel_type,
-                external_user_id=external_user_id,
-            )
-            now_ms = int(time.time() * 1000)
-            session_id = await self._session_provisioner.create_channel_session(
-                channel_type=channel_type,
-                external_chat_id=external_chat_id,
-                magi_user_id=magi_user_id,
-                display_name=display_name,
-                created_at_ms=now_ms,
-            )
-
-            mapping = self._build_new_mapping(
-                channel_type=channel_type,
-                external_chat_id=external_chat_id,
-                magi_user_id=magi_user_id,
-                session_id=session_id,
-                is_group=is_group,
-                display_name=display_name,
-                external_user_id=external_user_id,
-                now_ms=now_ms,
-            )
-            await self._insert(mapping)
-            self._log_mapping_created(mapping)
-            return mapping
+                mapping = self._build_new_mapping(
+                    channel_type=channel_type,
+                    external_chat_id=external_chat_id,
+                    magi_user_id=magi_user_id,
+                    session_id=session_id,
+                    is_group=is_group,
+                    display_name=display_name,
+                    external_user_id=external_user_id,
+                    now_ms=now_ms,
+                )
+                await self._insert(mapping)
+                self._log_mapping_created(mapping)
+                return mapping
 
     async def _touch_existing_mapping(
         self,

@@ -37,6 +37,7 @@ from magi.channels.chat_sse_channel import ChatSseChannel
 from magi.channels.lifecycle import ChannelsModule
 from magi.channels.session_mapper import ChannelSessionMapper
 from magi.chat.read_service import ChatReadService
+from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
 from magi.utils.runtime import RuntimePaths
 from magi_plugin_sdk.channels import Channel, ChannelTarget, OutboundContent
 
@@ -72,6 +73,12 @@ class _StubAttachmentStore:
         return {}
 
 
+class _AllowingBoundary:
+    @asynccontextmanager
+    async def operation(self, _context):
+        yield
+
+
 class _NoPendingChatClearReadService:
     async def aget_interrupted_global_clear_count(self):
         return None
@@ -93,6 +100,9 @@ def _build_ctx(*, plugins: list[Channel], tmp_path: Path) -> RuntimeBootstrapCon
     ctx = RuntimeBootstrapContext()
     ctx.plugins.plugin_manager = _FakePluginManager(plugins)  # type: ignore[assignment]
     ctx.core.runtime_paths = RuntimePaths(base_dir=tmp_path)
+    ctx.runtime_commands.runtime_command_queue = SQLiteRuntimeCommandQueue(
+        db_path=str(ctx.core.runtime_paths.message_queue_db_path)
+    )
     ctx.chat.channel_session_provisioner = _StubSessionProvisioner()
     ctx.chat.channel_attachment_store = _StubAttachmentStore()
     # Real RuntimeTraceStore — ChannelsModule passes it to ChatSseChannel,
@@ -420,6 +430,7 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
     mapper = ChannelSessionMapper(
         db_path=str(runtime_paths.channels_db_path),
         session_provisioner=_StubSessionProvisioner(),
+        ingress_boundary=_AllowingBoundary(),  # type: ignore[arg-type]
     )
     await mapper.initialize()
     orchestration_store = SimpleNamespace(clear_all=AsyncMock(return_value={}))
@@ -470,12 +481,29 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
         lambda: orchestration_store,
     )
 
+    runtime_command_queue = SQLiteRuntimeCommandQueue(
+        db_path=str(runtime_paths.message_queue_db_path)
+    )
+    await runtime_command_queue.start()
+    async with runtime_command_queue.user_message_clear_boundary():
+        await runtime_command_queue.advance_user_message_generation_and_purge()
+    with sqlite3.connect(runtime_paths.message_queue_db_path) as queue_connection:
+        cutoff_before_recovery = float(
+            queue_connection.execute(
+                "SELECT updated_at FROM runtime_user_message_clear_state "
+                "WHERE singleton_id = 1"
+            ).fetchone()[0]
+        )
+    await asyncio.sleep(0.01)
+
     context = RuntimeBootstrapContext()
     context.agent_runtime.background_task_manager = background_manager
+    context.runtime_commands.runtime_command_queue = runtime_command_queue
     try:
         await ChannelsModule(context)._recover_pending_conversation_clear(mapper)
     finally:
         await background_manager.stop()
+        await runtime_command_queue.stop()
 
     assert chat_read_service.get_interrupted_global_clear_count() is None
     with sqlite3.connect(runtime_paths.channels_db_path) as channel_connection:
@@ -489,6 +517,14 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
     assert await background_store.get_task(background_task.task_id) is None
     assert await background_store.list_events(background_task.task_id) == []
     assert await background_store.count_pending_completion_intents() == 0
+    with sqlite3.connect(runtime_paths.message_queue_db_path) as queue_connection:
+        cutoff_after_recovery = float(
+            queue_connection.execute(
+                "SELECT updated_at FROM runtime_user_message_clear_state "
+                "WHERE singleton_id = 1"
+            ).fetchone()[0]
+        )
+    assert cutoff_after_recovery > cutoff_before_recovery
     chat_read_service.close()
 
 

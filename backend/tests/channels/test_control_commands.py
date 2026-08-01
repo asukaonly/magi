@@ -1,13 +1,26 @@
 """Unified host control-command port — composes permission + session + help."""
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import pytest
 
 from magi.channels.control_commands import HostControlPort
 from magi.control.common.interaction_broker import InteractionBroker
 from magi.control.permission.brokered_prompter import PendingPermissionRegistry
 from magi.control.permission.contracts import PermissionRequest, RiskLevel, ToolOrigin
-from magi_plugin_sdk.channels import ChannelSessionMapping
+from magi_plugin_sdk.channels import ChannelInboundContext, ChannelSessionMapping
+
+
+class _AllowingBoundary:
+    @asynccontextmanager
+    async def operation(self, _context):
+        yield
+
+
+_INBOUND_CONTEXT = ChannelInboundContext(
+    provider_occurred_at_ms=1,
+    clear_generation=0,
+)
 
 
 class _FakeMapper:
@@ -38,6 +51,7 @@ def _make_request(*, session_id="s1") -> PermissionRequest:
 
 def _port(*, mapper=None, registry=None, broker=None) -> HostControlPort:
     return HostControlPort(
+        ingress_boundary=_AllowingBoundary(),  # type: ignore[arg-type]
         session_mapper=mapper, permission_registry=registry, interaction_broker=broker,
     )
 
@@ -51,6 +65,7 @@ async def test_session_command_returns_session_result() -> None:
     mapper = _FakeMapper(_mapping())
     port = _port(mapper=mapper)
     r = await port.handle_command(
+        inbound_context=_INBOUND_CONTEXT,
         message="/新会话", session_id="sess-1",
         channel_type="weixin", external_chat_id="chat-1", external_user_id="u",
     )
@@ -65,6 +80,7 @@ async def test_permission_command_returns_permission_result() -> None:
     await registry.add(_make_request(session_id="s1"))
     port = _port(registry=registry, broker=broker)
     r = await port.handle_command(
+        inbound_context=_INBOUND_CONTEXT,
         message="/approve", session_id="s1",
         channel_type="weixin", external_chat_id="c", external_user_id="u",
     )
@@ -75,6 +91,7 @@ async def test_permission_command_returns_permission_result() -> None:
 async def test_help_returns_help_result() -> None:
     port = _port()
     r = await port.handle_command(
+        inbound_context=_INBOUND_CONTEXT,
         message="/help", session_id="s1",
         channel_type="weixin", external_chat_id="c", external_user_id="u",
     )
@@ -88,6 +105,7 @@ async def test_non_command_returns_none() -> None:
     broker = InteractionBroker()
     port = _port(mapper=mapper, registry=registry, broker=broker)
     r = await port.handle_command(
+        inbound_context=_INBOUND_CONTEXT,
         message="今天天气怎么样", session_id="sess-1",
         channel_type="weixin", external_chat_id="c", external_user_id="u",
     )
@@ -101,6 +119,7 @@ async def test_session_works_when_permission_deps_absent() -> None:
     mapper = _FakeMapper(_mapping())
     port = _port(mapper=mapper)
     r = await port.handle_command(
+        inbound_context=_INBOUND_CONTEXT,
         message="/reset", session_id="sess-1",
         channel_type="weixin", external_chat_id="chat-1", external_user_id="u",
     )
