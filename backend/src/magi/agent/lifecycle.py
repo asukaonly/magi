@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
@@ -62,6 +63,7 @@ class AgentRuntimeModule(LifecycleModule):
         create_chat_agent_factory: Callable[..., Callable[[str], "TaskAgent"]],
         chat_read_service_factory: Callable[..., Any],
         build_timeline_handler: Callable[..., Any],
+        global_clear_pending: Callable[[], Awaitable[bool]],
     ):
         super().__init__(
             name="runtime_agent_core",
@@ -83,6 +85,7 @@ class AgentRuntimeModule(LifecycleModule):
         self._create_chat_agent_factory = create_chat_agent_factory
         self._chat_read_service_factory = chat_read_service_factory
         self._build_timeline_handler = build_timeline_handler
+        self._global_clear_pending = global_clear_pending
 
     async def init(self) -> None:
         if self._context.runtime_commands.full_clear_recovery_pending:
@@ -325,7 +328,10 @@ class AgentRuntimeModule(LifecycleModule):
         await agent_runtime.start()
         background_wiring.manager.add_listener(broadcast_background_task_state_changed)
         await background_wiring.manager.start()
-        await self._resume_batch_jobs(background_wiring)
+        await self._resume_batch_jobs(
+            background_wiring,
+            global_clear_pending=self._global_clear_pending,
+        )
 
         bg_settings = deps.config.agent.background_tasks
         logger.info(
@@ -336,14 +342,17 @@ class AgentRuntimeModule(LifecycleModule):
         )
 
     @staticmethod
-    async def _resume_batch_jobs(background_wiring: BackgroundTaskWiring) -> None:
+    async def _resume_batch_jobs(
+        background_wiring: BackgroundTaskWiring,
+        *,
+        global_clear_pending: Callable[[], Awaitable[bool]],
+    ) -> None:
         # Batch restart-recovery: pick up RUNNING batch jobs left by a previous
         # process (manager._running is empty after restart) and refill their runs.
         from .batch.driver import BatchDriver
         from .batch.store import default_batch_store
-        from ..chat import get_chat_read_service
 
-        if await get_chat_read_service().aget_interrupted_global_clear_count() is not None:
+        if await global_clear_pending():
             cleared = await default_batch_store().clear_all()
             logger.info(
                 "discarded batch manifests during interrupted data clear recovery",

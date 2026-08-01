@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
+
+
+class PluginIngressClearStateReader(Protocol):
+    """Read the durable generation and cutoff for plugin ingress filtering."""
+
+    async def __call__(self) -> tuple[int, float]: ...
 
 
 @dataclass(slots=True)

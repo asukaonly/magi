@@ -64,6 +64,7 @@ from ..memory.lifecycle import (
     MemoryIngestionSubscriberModule,
     MemoryStoreModule,
 )
+from ..memory.clear_generation import current_memory_clear_state
 from ..memory.manual_entries.lifecycle import ManualEntriesModule
 from ..memory.history_imports.lifecycle import HistoryImportsModule
 from ..media.lifecycle import MediaRegistryModule
@@ -89,6 +90,11 @@ from ..user_profile.portrait_projection_scheduler import (
 )
 
 logger = get_logger(__name__)
+
+
+async def _is_global_conversation_clear_pending() -> bool:
+    pending_count = await get_chat_read_service().aget_interrupted_global_clear_count()
+    return pending_count is not None
 
 
 RuntimeWorkerPhaseBuilder = Callable[[RuntimeBootstrapContext], list[LifecycleModule]]
@@ -122,9 +128,13 @@ def _build_runtime_trace_module(context: RuntimeBootstrapContext) -> LifecycleMo
         runtime_paths = context.core.runtime_paths
         if runtime_paths is None:
             raise RuntimeError("runtime paths is not initialized")
+
+        async def read_plugin_ingress_clear_state() -> tuple[int, float]:
+            return await current_memory_clear_state(str(runtime_paths.memory_db_path))
+
         store = RuntimeTraceStore(
             db_path=str(runtime_paths.runtime_trace_db_path),
-            memory_clear_state_db_path=str(runtime_paths.memory_db_path),
+            plugin_ingress_clear_state_reader=read_plugin_ingress_clear_state,
         )
         await store.initialize()
         context.runtime_trace.store = store
@@ -261,6 +271,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
             create_chat_agent_factory=create_chat_agent_factory,
             chat_read_service_factory=get_chat_read_service,
             build_timeline_handler=build_timeline_handler,
+            global_clear_pending=_is_global_conversation_clear_pending,
         ),
     ]
 
@@ -270,7 +281,10 @@ def _build_processing_modules(context: RuntimeBootstrapContext) -> list[Lifecycl
     return [
         ChatDeliveryRecoveryModule(context),
         RuntimeCommandProcessorModule(context),
-        PluginIngressProcessorModule(context),
+        PluginIngressProcessorModule(
+            context,
+            global_clear_pending=_is_global_conversation_clear_pending,
+        ),
         TimelineModule(context),
         TimelineSubscriberModule(context),
         KGSubscriberModule(context),

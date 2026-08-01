@@ -454,6 +454,7 @@ async def test_plugin_ingress_drops_events_at_or_before_memory_clear_cutoff(
 ) -> None:
     from magi.memory.clear_generation import (
         advance_memory_clear_generation,
+        current_memory_clear_state,
         ensure_memory_clear_state,
     )
     from magi.runtime_trace import RuntimeTraceStore, StoredPluginIngressEventRecord
@@ -465,9 +466,12 @@ async def test_plugin_ingress_drops_events_at_or_before_memory_clear_cutoff(
         await advance_memory_clear_generation(db, updated_at=2_000.0)
         await db.commit()
 
+    async def read_memory_clear_state() -> tuple[int, float]:
+        return await current_memory_clear_state(str(memory_db_path))
+
     store = RuntimeTraceStore(
         db_path=str(tmp_path / "runtime_trace.db"),
-        memory_clear_state_db_path=str(memory_db_path),
+        plugin_ingress_clear_state_reader=read_memory_clear_state,
     )
     await store.initialize()
     try:

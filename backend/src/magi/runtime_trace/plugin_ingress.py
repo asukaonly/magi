@@ -9,7 +9,7 @@ from typing import Any, TypeVar
 import aiosqlite
 
 from ..core.sqlite import secure_compact_sqlite, sqlite_connection_async
-from .contracts import PluginIngressEventRecord
+from .contracts import PluginIngressClearStateReader, PluginIngressEventRecord
 
 T = TypeVar("T")
 
@@ -18,7 +18,7 @@ class PluginIngressPersistenceMixin:
     """Persist and claim plugin ingress events."""
 
     db_path: str
-    memory_clear_state_db_path: str | None
+    _plugin_ingress_clear_state_reader: PluginIngressClearStateReader | None
     _plugin_ingress_barrier: Any
 
     async def initialize(self) -> None:
@@ -145,13 +145,10 @@ class PluginIngressPersistenceMixin:
             return max(0, int(cursor.rowcount or 0))
 
     async def _plugin_ingress_clear_cutoff_ms(self) -> int | None:
-        if not self.memory_clear_state_db_path:
+        reader = self._plugin_ingress_clear_state_reader
+        if reader is None:
             return None
-        from ..memory.clear_generation import current_memory_clear_state
-
-        generation, cutoff_seconds = await current_memory_clear_state(
-            self.memory_clear_state_db_path
-        )
+        generation, cutoff_seconds = await reader()
         if generation <= 0:
             return None
         return int(cutoff_seconds * 1000)

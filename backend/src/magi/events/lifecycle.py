@@ -425,9 +425,9 @@ class PluginIngressProcessorModule(LifecycleModule):
         self,
         context: RuntimeBootstrapContext,
         *,
+        global_clear_pending: Callable[[], Awaitable[bool]],
         handlers: list[PluginIngressHandlerRegistration] | None = None,
         poll_interval_seconds: float = 0.1,
-        global_clear_pending: Callable[[], Awaitable[bool]] | None = None,
     ):
         super().__init__(
             name="runtime_plugin_ingress_processor",
@@ -441,7 +441,7 @@ class PluginIngressProcessorModule(LifecycleModule):
             (registration.plugin_target, registration.event_type): registration.handler
             for registration in (handlers or [])
         }
-        self._global_clear_pending = global_clear_pending or _chat_global_clear_pending
+        self._global_clear_pending = global_clear_pending
 
     async def init(self) -> None:
         plugin_manager = self._context.plugins.plugin_manager
@@ -519,10 +519,3 @@ class PluginIngressProcessorModule(LifecycleModule):
             return
 
         await store.complete_plugin_ingress_event(event.event_id)
-
-
-async def _chat_global_clear_pending() -> bool:
-    from ..chat.read_service import get_chat_read_service
-
-    pending_count = await get_chat_read_service().aget_interrupted_global_clear_count()
-    return pending_count is not None
