@@ -128,6 +128,30 @@ class BackgroundTaskRowStoreMixin:
             await db.commit()
             return cursor.rowcount > 0
 
+    async def clear_all(self) -> dict[str, int]:
+        """Atomically remove all task rows, events, and completion intents."""
+        await self.initialize()
+        tables = (
+            "background_task_completion_intents",
+            "background_task_events",
+            "background_tasks",
+        )
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                removed: dict[str, int] = {}
+                for table in tables:
+                    cursor = await db.execute(f"SELECT COUNT(*) FROM {table}")
+                    row = await cursor.fetchone()
+                    removed[table] = int(row[0]) if row is not None else 0
+                for table in tables:
+                    await db.execute(f"DELETE FROM {table}")
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        return removed
+
     async def list_tasks(
         self,
         *,

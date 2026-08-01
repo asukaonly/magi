@@ -85,6 +85,16 @@ class _BackgroundTaskAdmissionScope:
     task_ids: frozenset[str] | None
     pending_message_ids: frozenset[str] | None
 
+    @property
+    def is_global(self) -> bool:
+        return (
+            self.user_id is None
+            and self.session_id is None
+            and self.origin_turn_ids is None
+            and self.task_ids is None
+            and self.pending_message_ids is None
+        )
+
     def matches(self, *, task_id: str | None, spec: BackgroundTaskSpec) -> bool:
         if self.user_id is not None and spec.user_id != self.user_id:
             return False
@@ -336,6 +346,17 @@ class BackgroundTaskManager:
         finally:
             async with self._admission_lock:
                 self._admission_scopes.pop(token, None)
+
+    async def clear_all_history(self) -> dict[str, int]:
+        """Delete every durable task record while global admission is sealed."""
+
+        self._require_started()
+        async with self._admission_lock:
+            if not any(scope.is_global for scope in self._admission_scopes.values()):
+                raise RuntimeError(
+                    "Background task history clear requires a global admission seal"
+                )
+            return await self._store.clear_all()
 
     async def cancel(self, task_id: str, *, reason: str = "user_requested") -> bool:
         """Request cancellation of a running or pending task.

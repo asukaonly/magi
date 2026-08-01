@@ -75,6 +75,7 @@ def _raise_recovery_failure(failures: list[tuple[str, BaseException]]) -> None:
 
 async def _clear_chat_runtime_state(
     *,
+    background_task_manager,
     warnings: list[str],
     mark_chat_clear_committed: Callable[[int], None],
 ) -> int:
@@ -120,6 +121,23 @@ async def _clear_chat_runtime_state(
         logger.warning(
             "clear_memory: channel conversation cleanup will resume at channel startup"
         )
+    background_cleanup_succeeded = background_task_manager is not None
+    if background_task_manager is not None:
+        try:
+            await background_task_manager.clear_all_history()
+        except BaseException as exc:
+            background_cleanup_succeeded = False
+            if chat_failure is None:
+                warnings.append("background_task_history_cleanup_failed")
+            logger.error(
+                "clear_memory: background task history cleanup failed",
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
+    elif chat_failure is None:
+        warnings.append("background_task_history_cleanup_pending")
+        logger.warning(
+            "clear_memory: background task history cleanup will resume at startup"
+        )
     orchestration_cleanup_succeeded = True
     try:
         await _resolve_orchestration_store().clear_all()
@@ -139,6 +157,7 @@ async def _clear_chat_runtime_state(
     if (
         chat_failure is None
         and channel_cleanup_succeeded
+        and background_cleanup_succeeded
         and orchestration_cleanup_succeeded
     ):
         finalize = getattr(chat_read_service, "acomplete_global_clear", None)
@@ -261,6 +280,7 @@ async def clear_memory_layers():
 
     async def clear_chat_runtime_state() -> int:
         return await _clear_chat_runtime_state(
+            background_task_manager=background_task_manager,
             warnings=warnings,
             mark_chat_clear_committed=mark_chat_clear_committed,
         )

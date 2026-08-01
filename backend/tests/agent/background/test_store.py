@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from magi.agent.background import (
@@ -157,6 +155,38 @@ async def test_delete_task_removes_task_and_events(store: BackgroundTaskStore) -
     assert await store.list_events(task.task_id) == []
     # Idempotent: second delete returns False instead of raising.
     assert await store.delete_task(task.task_id) is False
+
+
+@pytest.mark.asyncio
+async def test_clear_all_removes_tasks_events_and_completion_intents(
+    store: BackgroundTaskStore,
+) -> None:
+    task = BackgroundTask.new(_make_spec(goal="private task payload"))
+    await store.create_task(task)
+    task.status = BackgroundTaskStatus.SUCCEEDED
+    task.summary = "private completion summary"
+    task.result_payload = {"private": "result"}
+    await store.persist_terminal_transition(
+        task,
+        BackgroundTaskEvent.transition(
+            task_id=task.task_id,
+            attempt_index=task.attempt_index,
+            from_status=BackgroundTaskStatus.PENDING,
+            to_status=BackgroundTaskStatus.SUCCEEDED,
+            message="private terminal event",
+        ),
+    )
+
+    removed = await store.clear_all()
+
+    assert removed == {
+        "background_tasks": 1,
+        "background_task_events": 1,
+        "background_task_completion_intents": 1,
+    }
+    assert await store.get_task(task.task_id) is None
+    assert await store.list_events(task.task_id) == []
+    assert await store.count_pending_completion_intents() == 0
 
 
 # ----------------------------------------------------------------------

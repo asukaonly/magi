@@ -148,6 +148,7 @@ class ChannelsModule(LifecycleModule):
                 "runtime_trace",
                 "runtime_configuration",
                 "runtime_core_dependencies",
+                "runtime_agent_core",
                 "runtime_plugin_system",
                 # Phase H+2: ChannelsModule wires the control-fanout
                 # late bindings (prompter.bind_fanout_callback,
@@ -266,13 +267,21 @@ class ChannelsModule(LifecycleModule):
         )
         if pending_count is None:
             return
-        await session_mapper.clear_conversation_state()
-        await get_orchestration_store().clear_all()
-        completed = await chat_read_service.acomplete_global_clear()
-        if not completed:
-            raise RuntimeError(
-                "Pending global conversation clear could not be completed"
-            )
+        background_task_manager = require_initialized(
+            self._context.agent_runtime.background_task_manager,
+            "background task manager",
+        )
+        async with background_task_manager.conversation_scope_boundary(
+            reason="recover_global_conversation_clear"
+        ):
+            await session_mapper.clear_conversation_state()
+            await background_task_manager.clear_all_history()
+            await get_orchestration_store().clear_all()
+            completed = await chat_read_service.acomplete_global_clear()
+            if not completed:
+                raise RuntimeError(
+                    "Pending global conversation clear could not be completed"
+                )
         logger.info(
             "Recovered interrupted cross-store conversation clear",
             cleared_chat_count=pending_count,

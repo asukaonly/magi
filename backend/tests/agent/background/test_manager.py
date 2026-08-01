@@ -7,6 +7,7 @@ import pytest
 
 from magi.agent.background import (
     BackgroundTask,
+    BackgroundTaskEvent,
     BackgroundTaskSpec,
     BackgroundTaskStatus,
     BackgroundTaskStore,
@@ -646,6 +647,58 @@ async def test_conversation_scope_boundary_rejects_exact_pending_message_admissi
         )
     finally:
         release.set()
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_clear_all_history_requires_and_uses_global_admission_seal(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+
+    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
+        return BackgroundTaskRunResult(summary="done")
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    await manager.start()
+    try:
+        with pytest.raises(RuntimeError, match="global admission seal"):
+            await manager.clear_all_history()
+
+        async with manager.conversation_scope_boundary(
+            session_id="different-session",
+            reason="scoped_conversation_clear",
+        ):
+            with pytest.raises(RuntimeError, match="global admission seal"):
+                await manager.clear_all_history()
+
+        task = BackgroundTask.new(_make_spec(origin_turn_id="terminal-before-clear"))
+        await store.create_task(task)
+        task.status = BackgroundTaskStatus.SUCCEEDED
+        await store.persist_terminal_transition(
+            task,
+            BackgroundTaskEvent.transition(
+                task_id=task.task_id,
+                attempt_index=task.attempt_index,
+                from_status=BackgroundTaskStatus.PENDING,
+                to_status=BackgroundTaskStatus.SUCCEEDED,
+            ),
+        )
+
+        async with manager.conversation_scope_boundary(reason="user_clear_all_memory"):
+            removed = await manager.clear_all_history()
+
+        assert removed == {
+            "background_tasks": 1,
+            "background_task_events": 1,
+            "background_task_completion_intents": 1,
+        }
+        assert await store.get_task(task.task_id) is None
+        assert await store.list_events(task.task_id) == []
+        assert await store.count_pending_completion_intents() == 0
+    finally:
         await manager.stop()
 
 

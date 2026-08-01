@@ -12,6 +12,7 @@ Verifies:
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 import sqlite3
 from types import SimpleNamespace
@@ -21,6 +22,17 @@ import pytest
 
 from _shared.db_schema import apply_chain_schema
 from magi.bootstrap.context import RuntimeBootstrapContext
+from magi.agent.background import (
+    BackgroundTask,
+    BackgroundTaskEvent,
+    BackgroundTaskManager,
+    BackgroundTaskSpec,
+    BackgroundTaskStatus,
+    BackgroundTaskStore,
+    BackgroundTaskTriggerSource,
+)
+from magi.agent.background.executor import BackgroundTaskRunResult
+from magi.agent.cancel import CancelToken
 from magi.channels.chat_sse_channel import ChatSseChannel
 from magi.channels.lifecycle import ChannelsModule
 from magi.channels.session_mapper import ChannelSessionMapper
@@ -205,6 +217,19 @@ async def test_channels_startup_recovers_pending_conversation_clear_before_start
         async def start_all(self):
             events.append("registry-started")
 
+    class _BackgroundTaskManager:
+        @asynccontextmanager
+        async def conversation_scope_boundary(self, **kwargs):
+            assert kwargs == {"reason": "recover_global_conversation_clear"}
+            events.append("background-sealed")
+            try:
+                yield
+            finally:
+                events.append("background-released")
+
+        async def clear_all_history(self):
+            events.append("background-history-cleared")
+
     monkeypatch.setattr(
         "magi.channels.lifecycle.require_chat_read_service",
         lambda: _ChatReadService(),
@@ -215,6 +240,7 @@ async def test_channels_startup_recovers_pending_conversation_clear_before_start
     )
 
     ctx = _build_ctx(plugins=[], tmp_path=tmp_path)
+    ctx.agent_runtime.background_task_manager = _BackgroundTaskManager()
     module = ChannelsModule(ctx)
     startup = SimpleNamespace(
         registry=_Registry(),
@@ -245,9 +271,12 @@ async def test_channels_startup_recovers_pending_conversation_clear_before_start
 
     assert events == [
         "clear-checked",
+        "background-sealed",
         "channel-state-cleared",
+        "background-history-cleared",
         "orchestration-cleared",
         "clear-finalized",
+        "background-released",
         "registry-started",
         "runtime-activated",
     ]
@@ -280,6 +309,18 @@ async def test_channels_startup_stays_closed_when_pending_clear_cannot_finalize(
         async def start_all(self):
             events.append("registry-started")
 
+    class _BackgroundTaskManager:
+        @asynccontextmanager
+        async def conversation_scope_boundary(self, **_kwargs):
+            events.append("background-sealed")
+            try:
+                yield
+            finally:
+                events.append("background-released")
+
+        async def clear_all_history(self):
+            events.append("background-history-cleared")
+
     monkeypatch.setattr(
         "magi.channels.lifecycle.require_chat_read_service",
         lambda: _ChatReadService(),
@@ -289,7 +330,9 @@ async def test_channels_startup_stays_closed_when_pending_clear_cannot_finalize(
         lambda: _OrchestrationStore(),
     )
 
-    module = ChannelsModule(_build_ctx(plugins=[], tmp_path=tmp_path))
+    ctx = _build_ctx(plugins=[], tmp_path=tmp_path)
+    ctx.agent_runtime.background_task_manager = _BackgroundTaskManager()
+    module = ChannelsModule(ctx)
     startup = SimpleNamespace(
         registry=_Registry(),
         session_mapper=_SessionMapper(),
@@ -311,9 +354,12 @@ async def test_channels_startup_stays_closed_when_pending_clear_cannot_finalize(
         await module._start_channels()
 
     assert events == [
+        "background-sealed",
         "channel-state-cleared",
+        "background-history-cleared",
         "orchestration-cleared",
         "clear-finalization-declined",
+        "background-released",
     ]
 
 
@@ -325,6 +371,7 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     apply_chain_schema("chat", runtime_paths.chat_db_path)
     apply_chain_schema("channels", runtime_paths.channels_db_path)
+    apply_chain_schema("background_tasks", runtime_paths.background_tasks_db_path)
     chat_read_service = ChatReadService(runtime_paths=runtime_paths)
     chat_connection = chat_read_service._get_conn()
     chat_connection.execute(
@@ -376,6 +423,44 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
     )
     await mapper.initialize()
     orchestration_store = SimpleNamespace(clear_all=AsyncMock(return_value={}))
+    background_store = BackgroundTaskStore(
+        db_path=str(runtime_paths.background_tasks_db_path)
+    )
+    background_task = BackgroundTask.new(
+        BackgroundTaskSpec(
+            user_id="local_user",
+            session_id="session-before-clear",
+            origin_turn_id="turn-before-clear",
+            title="Private task",
+            goal="Private task goal",
+            selected_tools=[],
+            trigger_source=BackgroundTaskTriggerSource.PLANNER,
+        )
+    )
+    await background_store.create_task(background_task)
+    background_task.status = BackgroundTaskStatus.SUCCEEDED
+    await background_store.persist_terminal_transition(
+        background_task,
+        BackgroundTaskEvent.transition(
+            task_id=background_task.task_id,
+            attempt_index=background_task.attempt_index,
+            from_status=BackgroundTaskStatus.PENDING,
+            to_status=BackgroundTaskStatus.SUCCEEDED,
+        ),
+    )
+
+    async def run_fn(
+        task: BackgroundTask,
+        token: CancelToken,
+    ) -> BackgroundTaskRunResult:
+        return BackgroundTaskRunResult(summary="unused")
+
+    background_manager = BackgroundTaskManager(
+        store=background_store,
+        run_fn=run_fn,
+        max_concurrent=1,
+    )
+    await background_manager.start()
     monkeypatch.setattr(
         "magi.channels.lifecycle.require_chat_read_service",
         lambda: chat_read_service,
@@ -385,9 +470,12 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
         lambda: orchestration_store,
     )
 
-    await ChannelsModule(RuntimeBootstrapContext())._recover_pending_conversation_clear(
-        mapper
-    )
+    context = RuntimeBootstrapContext()
+    context.agent_runtime.background_task_manager = background_manager
+    try:
+        await ChannelsModule(context)._recover_pending_conversation_clear(mapper)
+    finally:
+        await background_manager.stop()
 
     assert chat_read_service.get_interrupted_global_clear_count() is None
     with sqlite3.connect(runtime_paths.channels_db_path) as channel_connection:
@@ -398,7 +486,49 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
             "SELECT COUNT(*) FROM outreach_outbox"
         ).fetchone() == (0,)
     orchestration_store.clear_all.assert_awaited_once()
+    assert await background_store.get_task(background_task.task_id) is None
+    assert await background_store.list_events(background_task.task_id) == []
+    assert await background_store.count_pending_completion_intents() == 0
     chat_read_service.close()
+
+
+@pytest.mark.asyncio
+async def test_pending_global_clear_recovery_does_not_finalize_when_task_cleanup_fails(
+    tmp_path,
+    monkeypatch,
+):
+    finalize = AsyncMock(return_value=True)
+
+    class _ChatReadService:
+        async def aget_interrupted_global_clear_count(self):
+            return 1
+
+        acomplete_global_clear = finalize
+
+    class _SessionMapper:
+        clear_conversation_state = AsyncMock(return_value={})
+
+    class _BackgroundTaskManager:
+        @asynccontextmanager
+        async def conversation_scope_boundary(self, **_kwargs):
+            yield
+
+        async def clear_all_history(self):
+            raise OSError("background task database unavailable")
+
+    monkeypatch.setattr(
+        "magi.channels.lifecycle.require_chat_read_service",
+        lambda: _ChatReadService(),
+    )
+    context = _build_ctx(plugins=[], tmp_path=tmp_path)
+    context.agent_runtime.background_task_manager = _BackgroundTaskManager()
+
+    with pytest.raises(OSError, match="background task database unavailable"):
+        await ChannelsModule(context)._recover_pending_conversation_clear(
+            _SessionMapper()
+        )
+
+    finalize.assert_not_awaited()
 
 
 @pytest.mark.asyncio

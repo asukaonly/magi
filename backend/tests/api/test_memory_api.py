@@ -118,6 +118,29 @@ def _isolate_external_conversation_clear_dependencies(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_background_task_history_cleanup(monkeypatch):
+    @asynccontextmanager
+    async def boundary(**_kwargs):  # type: ignore[no-untyped-def]
+        yield
+
+    manager = SimpleNamespace(
+        conversation_scope_boundary=boundary,
+        clear_all_history=AsyncMock(
+            return_value={
+                "background_tasks": 0,
+                "background_task_events": 0,
+                "background_task_completion_intents": 0,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_background_task_manager",
+        lambda: manager,
+    )
+    return manager
+
+
 class _FakeL0Store:
     checkpoint_db_path = "/tmp/l0.db"
     _sessions: dict = {}
@@ -2366,6 +2389,9 @@ def test_memory_clear_api_clears_all_layers(
 
     background_task_manager = SimpleNamespace(
         conversation_scope_boundary=background_scope_boundary,
+        clear_all_history=AsyncMock(
+            side_effect=lambda: clear_order.append("background-history-cleared") or {}
+        ),
     )
 
     monkeypatch.setattr(
@@ -2397,9 +2423,56 @@ def test_memory_clear_api_clears_all_layers(
     assert clear_order == [
         "background-enter",
         "chat",
+        "background-history-cleared",
         "memory-finished",
         "background-exit",
     ]
+
+
+def test_memory_clear_keeps_global_intent_when_background_history_cleanup_fails(
+    monkeypatch,
+) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    finalize = AsyncMock(return_value=True)
+
+    class _ChatReadService:
+        async def aclear_all_sessions(self) -> int:
+            return 1
+
+        acomplete_global_clear = finalize
+
+    @asynccontextmanager
+    async def boundary(**_kwargs):  # type: ignore[no-untyped-def]
+        yield
+
+    background_task_manager = SimpleNamespace(
+        conversation_scope_boundary=boundary,
+        clear_all_history=AsyncMock(
+            side_effect=OSError("background task database unavailable")
+        ),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _ChatReadService(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_background_task_manager",
+        lambda: background_task_manager,
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    assert response.json()["warnings"] == [
+        "background_task_history_cleanup_failed"
+    ]
+    background_task_manager.clear_all_history.assert_awaited_once()
+    finalize.assert_not_awaited()
 
 
 def test_memory_clear_resumes_rebuild_starts_when_pause_fails(monkeypatch):
