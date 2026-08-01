@@ -79,17 +79,16 @@ class SharedMemoryClearCounts:
 
 @dataclass(frozen=True, slots=True)
 class _VectorIndexSpec:
-    layer: str
     registry_table: str
     entity_column: str
     vec_table_prefix: str
 
 
 _VECTOR_INDEX_SPECS = (
-    _VectorIndexSpec("l2", "l2_entity_vectors", "entity_id", "l2_entity_vec"),
-    _VectorIndexSpec("l2", "l2_edge_vectors", "entity_id", "l2_edge_vec"),
-    _VectorIndexSpec("l3", "l3_summary_chunk_vectors", "chunk_id", "l3_summary_chunk_vec"),
-    _VectorIndexSpec("l4", "l4_skill_chunk_vectors", "chunk_id", "l4_skill_chunk_vec"),
+    _VectorIndexSpec("l2_entity_vectors", "entity_id", "l2_entity_vec"),
+    _VectorIndexSpec("l2_edge_vectors", "entity_id", "l2_edge_vec"),
+    _VectorIndexSpec("l3_summary_chunk_vectors", "chunk_id", "l3_summary_chunk_vec"),
+    _VectorIndexSpec("l4_skill_chunk_vectors", "chunk_id", "l4_skill_chunk_vec"),
 )
 
 
@@ -111,13 +110,11 @@ async def _count_existing_rows(
 def _vector_indexes_to_clear(
     *,
     existing_tables: set[str],
-    dormant_layers: frozenset[str],
 ) -> tuple[_VectorIndexSpec, ...]:
     return tuple(
         spec
         for spec in _VECTOR_INDEX_SPECS
-        if spec.layer in dormant_layers
-        and (
+        if (
             spec.registry_table in existing_tables
             or any(name.startswith(spec.vec_table_prefix) for name in existing_tables)
         )
@@ -142,9 +139,8 @@ async def clear_shared_auxiliary_memory(
     db_path: str,
     *,
     advance_clear_generation: bool = False,
-    dormant_vector_layers: frozenset[str] = frozenset(),
 ) -> SharedMemoryClearCounts:
-    """Delete all user content, including rows owned by disabled layers."""
+    """Delete all user content, including stale shared vector indexes."""
 
     vector_specs: tuple[_VectorIndexSpec, ...] = ()
     counts = SharedMemoryClearCounts()
@@ -186,7 +182,6 @@ async def clear_shared_auxiliary_memory(
                     await db.execute(f"DELETE FROM {table}")
             vector_specs = _vector_indexes_to_clear(
                 existing_tables=existing_tables,
-                dormant_layers=dormant_vector_layers,
             )
             await db.commit()
             invalidate_context_caches(db_path)

@@ -728,7 +728,7 @@ class L1EventWriteMixin:
             await host._vector_index.close()
 
         db_path = Path(host.db_path)
-        for suffix in ("", "-wal", "-shm"):
+        for suffix in ("", "-wal", "-shm", "-journal"):
             path = Path(str(db_path) + suffix)
             if path.exists():
                 logger.info("L1EventStore.clear: deleting %s", path)

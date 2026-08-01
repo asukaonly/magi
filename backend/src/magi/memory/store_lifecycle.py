@@ -24,7 +24,7 @@ from .shared_clear import clear_shared_auxiliary_memory
 
 logger = logging.getLogger(__name__)
 
-_MEMORY_ARCHIVE_FILE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}\.db(?:-wal|-shm)?$")
+_MEMORY_ARCHIVE_FILE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}\.db(?:-wal|-shm|-journal)?$")
 
 
 class MemoryClearCompletedWithRecoveryError(RuntimeError):
@@ -175,15 +175,6 @@ class UnifiedMemoryLifecycleMixin:
                             shared_counts = await clear_shared_auxiliary_memory(
                                 self.memory_db_path,
                                 advance_clear_generation=self.l2 is None,
-                                dormant_vector_layers=frozenset(
-                                    layer
-                                    for layer, store in (
-                                        ("l2", self.l2),
-                                        ("l3", self.l3),
-                                        ("l4", self.l4),
-                                    )
-                                    if store is None
-                                ),
                             )
                             l0_count += shared_counts.l0
                             l2_count += shared_counts.l2
@@ -324,7 +315,7 @@ class UnifiedMemoryLifecycleMixin:
     def _clear_dormant_l1_database(self) -> int:
         """Remove a persisted L1 database even when L1 is disabled."""
 
-        for suffix in ("", "-wal", "-shm"):
+        for suffix in ("", "-wal", "-shm", "-journal"):
             remove_managed_file(f"{self.l1_db_path}{suffix}")
         return 0
 

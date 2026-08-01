@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import aiosqlite
 import pytest
+import sqlite_vec
 from magi_plugin_sdk.fs import UnsafeManagedPathError
 
 from _shared.sqlite_privacy import (
@@ -18,6 +19,7 @@ from magi.context.user_profile_service import UserProfileService
 from magi.memory.derivation_revision import MemoryClearGenerationChangedError
 from magi.memory.embedding.embedding_service import EmbeddingResult
 from magi.memory.embedding.sqlite_vec_index import SqliteVecIndex
+from magi.memory.l1.event_store import L1EventStore
 from magi.memory.l2.corrections.models import (
     ApplyAssertionCorrectionCommand,
     ApplyRelationshipCorrectionCommand,
@@ -34,7 +36,7 @@ from magi.memory.l2.pipeline import L2Pipeline
 from magi.memory.l2.store import L2CognitionStore
 from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
 from magi.memory.shared_clear import clear_shared_auxiliary_memory
-from magi.memory.unified_store import UnifiedMemoryStore
+from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
 from magi.user_profile.models import UserProfileProjection
 from magi.user_profile.projection_repository import UserProfileProjectionRepository
 from magi.user_profile.projection_builder import UserProfileProjectionBuilder
@@ -445,11 +447,12 @@ async def test_catalog_clear_closes_cleanup_only_indexes_without_embedding_model
     await edge_index.upsert(entity_id="private-edge", embedding=embedding)
     await seeded.close()
 
-    catalog = L2EntityCatalog(db_path=db_path)
-    assert catalog._vector_index is not None and catalog._vector_index._db is None
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    assert catalog._vector_index is None
 
     await catalog.clear()
 
+    assert catalog._vector_index is not None
     assert catalog._vector_index._db is None
     assert catalog._edge_vector_index._db is None
     async with aiosqlite.connect(db_path) as db:
@@ -559,10 +562,18 @@ async def test_unified_clear_removes_archives_and_manual_assets_only(tmp_path) -
     memory_root = tmp_path / "memory"
     archive_dir = memory_root / "archive"
     archive_dir.mkdir(parents=True)
-    for name in ("2026-07-14.db", "2026-07-14.db-wal", "2026-07-14.db-shm"):
+    managed_archive_names = (
+        "2026-07-14.db",
+        "2026-07-14.db-wal",
+        "2026-07-14.db-shm",
+        "2026-07-14.db-journal",
+    )
+    for name in managed_archive_names:
         (archive_dir / name).write_bytes(b"private archive")
     keep_archive_file = archive_dir / "README.txt"
     keep_archive_file.write_text("keep")
+    unmanaged_similar_name = archive_dir / "2026-07-14.db-journal.bak"
+    unmanaged_similar_name.write_text("keep")
 
     media_root = tmp_path / "media"
     asset_store = ManualEntryAssetStore(media_root=media_root)
@@ -587,7 +598,9 @@ async def test_unified_clear_removes_archives_and_manual_assets_only(tmp_path) -
     assert unrelated_media.read_bytes() == b"keep"
     assert archive_dir.is_dir()
     assert keep_archive_file.read_text() == "keep"
-    assert not list(archive_dir.glob("*.db*"))
+    assert unmanaged_similar_name.read_text() == "keep"
+    for name in managed_archive_names:
+        assert not os.path.lexists(archive_dir / name)
 
 
 async def test_unified_clear_replaces_archive_directory_link_without_following_it(
@@ -839,6 +852,12 @@ async def test_unified_clear_removes_every_dormant_memory_layer(tmp_path) -> Non
         await db.execute("CREATE TABLE events(content TEXT NOT NULL)")
         await db.execute("INSERT INTO events(content) VALUES (?)", (private_marker,))
         await db.commit()
+    l1_journal_path = f"{l1_db_path}-journal"
+    l1_unmanaged_backup_path = f"{l1_db_path}-journal.bak"
+    with open(l1_journal_path, "wb") as journal_file:
+        journal_file.write(private_marker.encode("utf-8"))
+    with open(l1_unmanaged_backup_path, "wb") as backup_file:
+        backup_file.write(b"keep")
 
     l3_index = SqliteVecIndex(
         db_path=db_path,
@@ -873,6 +892,9 @@ async def test_unified_clear_removes_every_dormant_memory_layer(tmp_path) -> Non
     assert counts["l3"] == 1
     assert counts["l4"] == 1
     assert not os.path.lexists(l1_db_path)
+    assert not os.path.lexists(l1_journal_path)
+    with open(l1_unmanaged_backup_path, "rb") as backup_file:
+        assert backup_file.read() == b"keep"
     async with aiosqlite.connect(db_path) as db:
         for table in (
             "entity_catalog",
@@ -893,6 +915,100 @@ async def test_unified_clear_removes_every_dormant_memory_layer(tmp_path) -> Non
             "SELECT generation FROM memory_clear_state WHERE singleton_id = 1"
         ) as cursor:
             assert await cursor.fetchone() == (1,)
+    assert_sqlite_fragment_absent(db_path, private_marker)
+
+
+async def test_active_l1_clear_removes_rollback_journal(tmp_path) -> None:
+    db_path = str(tmp_path / "l1_events.db")
+    journal_path = f"{db_path}-journal"
+    store = L1EventStore(db_path=db_path, vector_enabled=False)
+    await store.initialize(start_workers=False)
+    original_count_events = store.count_events
+
+    async def count_events_and_seed_journal() -> int:
+        count = await original_count_events()
+        with open(journal_path, "wb") as journal_file:
+            journal_file.write(b"private-active-l1-marker")
+        return count
+
+    store.count_events = count_events_and_seed_journal  # type: ignore[method-assign]
+
+    await store.clear(restart_workers=False)
+
+    assert not os.path.lexists(journal_path)
+    await store.shutdown()
+
+
+async def test_unified_clear_removes_stale_vectors_when_active_layers_disable_vectors(
+    tmp_path,
+) -> None:
+    private_marker = "magi-disabled-vector-private-marker-that-must-not-survive"
+    memory_root = tmp_path / "memory"
+    memory_root.mkdir()
+    db_path = str(memory_root / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    vector_specs = (
+        ("l2_entity_vectors", "entity_id", "l2_entity_vec", "entity"),
+        ("l2_edge_vectors", "entity_id", "l2_edge_vec", "edge"),
+        ("l3_summary_chunk_vectors", "chunk_id", "l3_summary_chunk_vec", "summary"),
+        ("l4_skill_chunk_vectors", "chunk_id", "l4_skill_chunk_vec", "skill"),
+    )
+    vector_tables: list[str] = []
+    for registry_table, entity_column, vec_table_prefix, entity_kind in vector_specs:
+        index = SqliteVecIndex(
+            db_path=db_path,
+            registry_table=registry_table,
+            entity_column=entity_column,
+            vec_table_prefix=vec_table_prefix,
+        )
+        await index.upsert(
+            entity_id=f"{private_marker}-{entity_kind}",
+            embedding=EmbeddingResult(
+                model_name="private-disabled-vector-model",
+                dimension=2,
+                vector=[1.0, 0.0],
+            ),
+        )
+        await index.close()
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(f"SELECT vec_table FROM {registry_table}") as cursor:
+                vector_tables.extend(str(row[0]) for row in await cursor.fetchall())
+
+    assert sqlite_fragment_present(db_path, private_marker)
+    unified = UnifiedMemoryStore(
+        memory_db_path=db_path,
+        persist_dir=str(memory_root),
+        enable_l0=False,
+        enable_l1=False,
+        enable_l2=True,
+        enable_l3=True,
+        enable_l4=True,
+        tuning=MemoryStoreTuning(
+            enable_l1_vectors=False,
+            enable_l2_vectors=False,
+            enable_l3_vectors=False,
+            enable_l4_vectors=False,
+        ),
+    )
+    assert unified.l2_entity_catalog is not None
+    assert unified.l2_entity_catalog._vector_index is None
+    assert unified.l3 is not None and unified.l3._vector_index is None
+    assert unified.l4 is not None and unified.l4._vector_index is None
+
+    await unified.clear_all_memory()
+
+    async with aiosqlite.connect(db_path) as db:
+        await db.enable_load_extension(True)
+        try:
+            await db.execute("SELECT load_extension(?)", (sqlite_vec.loadable_path(),))
+        finally:
+            await db.enable_load_extension(False)
+        for registry_table, _, _, _ in vector_specs:
+            async with db.execute(f"SELECT COUNT(*) FROM {registry_table}") as cursor:
+                assert await cursor.fetchone() == (0,), registry_table
+        for vector_table in vector_tables:
+            async with db.execute(f'SELECT COUNT(*) FROM "{vector_table}"') as cursor:
+                assert await cursor.fetchone() == (0,), vector_table
     assert_sqlite_fragment_absent(db_path, private_marker)
 
 
