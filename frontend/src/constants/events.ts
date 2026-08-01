@@ -10,6 +10,8 @@
 // ============================================================================
 
 export const APP_EVENTS = {
+  /** Dispatched before the durable clear request to retire in-flight writes. */
+  MEMORY_CLEAR_STARTED: 'magi-memory-clear-started',
   /** Dispatched when memory is cleared */
   MEMORY_CLEARED: 'magi-memory-cleared',
   /** Dispatched after one chat session is durably deleted */
@@ -91,6 +93,7 @@ export function subscribeToAppEvent(
 // ============================================================================
 
 export const dispatchAppEvent = {
+  memoryClearStarted: () => dispatchCustomAppEvent(APP_EVENTS.MEMORY_CLEAR_STARTED),
   memoryCleared: () => dispatchCustomAppEvent(APP_EVENTS.MEMORY_CLEARED),
   chatSessionDeleted: (sessionId: string) => dispatchCustomAppEvent(
     APP_EVENTS.CHAT_SESSION_DELETED,

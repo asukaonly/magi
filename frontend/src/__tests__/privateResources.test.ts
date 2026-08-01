@@ -14,6 +14,7 @@ vi.mock('@/api/client', () => ({
 
 import {
   clearPrivateResourceAccessCache,
+  getCachedPrivateResourceUrl,
   parsePrivateResourceSource,
   resolvePrivateResourceUrl,
   type PrivateResourceDescriptor,
@@ -145,6 +146,27 @@ describe('privateResources', () => {
       `http://127.0.0.1:43123${CHAT_ACCESS_PATH}&resource_ticket=shared`,
       `http://127.0.0.1:43123${CHAT_ACCESS_PATH}&resource_ticket=shared`,
     ]);
+  });
+
+  it('retires an unfinished grant request when content is cleared', async () => {
+    let completeRequest!: (value: {
+      data: { access_url: string; expires_at_ms: number };
+    }) => void;
+    clientMocks.post.mockReturnValue(new Promise((resolve) => {
+      completeRequest = resolve;
+    }));
+
+    const pending = resolvePrivateResourceUrl(CHAT_DESCRIPTOR);
+    expect(clearPrivateResourceAccessCache()).toBe(true);
+    completeRequest({
+      data: {
+        access_url: `${CHAT_ACCESS_PATH}&resource_ticket=retired`,
+        expires_at_ms: Date.now() + 60_000,
+      },
+    });
+
+    await expect(pending).rejects.toThrow('retired');
+    expect(getCachedPrivateResourceUrl(CHAT_DESCRIPTOR)).toBeNull();
   });
 
   it('requests a new grant when the cached one is close to expiry', async () => {

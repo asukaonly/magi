@@ -10,6 +10,7 @@
  */
 
 const PREFIX = 'magi.composer.mru.';
+let cacheGeneration = 0;
 
 const safeStorage = (): Storage | null => {
   try {
@@ -28,6 +29,7 @@ export class MRUCache {
   private namespace: string;
   private limit: number;
   private cache: string[] | null = null;
+  private generation = cacheGeneration;
 
   constructor(namespace: string, limit = 20) {
     this.namespace = namespace;
@@ -39,6 +41,10 @@ export class MRUCache {
   }
 
   load(): string[] {
+    if (this.generation !== cacheGeneration) {
+      this.cache = null;
+      this.generation = cacheGeneration;
+    }
     if (this.cache !== null) return this.cache;
     const ls = safeStorage();
     if (!ls) {
@@ -90,6 +96,7 @@ export class MRUCache {
 
   clear(): void {
     this.cache = [];
+    this.generation = cacheGeneration;
     const ls = safeStorage();
     if (!ls) return;
     try {
@@ -97,5 +104,33 @@ export class MRUCache {
     } catch {
       // ignore
     }
+  }
+}
+
+export function clearAllComposerMruCaches(): boolean {
+  cacheGeneration += 1;
+  const storage = safeStorage();
+  if (!storage) {
+    return typeof window === 'undefined';
+  }
+  try {
+    const keys: string[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key?.startsWith(PREFIX)) {
+        keys.push(key);
+      }
+    }
+    for (const key of keys) {
+      storage.removeItem(key);
+    }
+    for (let index = 0; index < storage.length; index += 1) {
+      if (storage.key(index)?.startsWith(PREFIX)) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
   }
 }

@@ -171,6 +171,20 @@ describe('useChatComposerController pending ask drafts', () => {
     expect(hook.result.current.inputValue).toBe('');
   });
 
+  it('clears the ordinary draft and attachments for destructive deletion', () => {
+    const hook = renderController('session-a', null);
+    act(() => {
+      hook.result.current.setInputValue('private unsent draft');
+    });
+
+    act(() => {
+      hook.result.current.clearDeletedSessionDraftState();
+    });
+
+    expect(hook.result.current.inputValue).toBe('');
+    expect(clearDraftAttachmentsMock).toHaveBeenCalledTimes(1);
+  });
+
   it('clears an accepted first-context answer after the prompt advances', () => {
     const firstContextQuestion = {
       questionId: 'repeating_content' as const,

@@ -11,15 +11,19 @@ interface BackgroundTaskState {
   activeCount: number;
   /** Timestamp of the last successful refresh; ``0`` means never loaded. */
   lastRefreshedAt: number;
+  clearBoundaryAt: number | null;
+  retiredTaskIds: Record<string, true>;
 
   /** Replace the entire cache with a fresh snapshot from the list endpoint. */
   hydrate: (tasks: BackgroundTaskDTO[], activeCount: number) => void;
   /** Apply a realtime state update (always the authoritative task record). */
-  upsert: (task: BackgroundTaskDTO) => void;
+  upsert: (task: BackgroundTaskDTO) => boolean;
   /** Drop a task after a successful dismiss. */
   remove: (taskId: string) => void;
   /** Reset to an empty state (used on sign-out / session change). */
   reset: () => void;
+  /** Clear content and permanently reject events belonging to the old boundary. */
+  retireForMemoryClear: (clearBoundaryAt: number) => void;
 }
 
 const ACTIVE_STATUSES: ReadonlyArray<BackgroundTaskStatus> = [
@@ -28,30 +32,54 @@ const ACTIVE_STATUSES: ReadonlyArray<BackgroundTaskStatus> = [
   'cancelling',
 ];
 
+const isTaskAllowedAfterClear = (
+  state: Pick<BackgroundTaskState, 'clearBoundaryAt' | 'retiredTaskIds'>,
+  task: BackgroundTaskDTO,
+): boolean => {
+  if (state.clearBoundaryAt === null) {
+    return true;
+  }
+  if (state.retiredTaskIds[task.task_id]) {
+    return false;
+  }
+  const createdAt = Number(task.created_at);
+  return Number.isFinite(createdAt) && createdAt > state.clearBoundaryAt;
+};
+
 export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
   tasksById: {},
   orderedIds: [],
   activeCount: 0,
   lastRefreshedAt: 0,
+  clearBoundaryAt: null,
+  retiredTaskIds: {},
 
   hydrate: (tasks, activeCount) =>
-    set(() => {
+    set((state) => {
+      const acceptedTasks = tasks.filter((task) => isTaskAllowedAfterClear(state, task));
       const tasksById: Record<string, BackgroundTaskDTO> = {};
       const orderedIds: string[] = [];
-      for (const task of tasks) {
+      for (const task of acceptedTasks) {
         tasksById[task.task_id] = task;
         orderedIds.push(task.task_id);
       }
       return {
         tasksById,
         orderedIds,
-        activeCount,
+        activeCount: state.clearBoundaryAt === null
+          ? activeCount
+          : acceptedTasks.filter((task) => ACTIVE_STATUSES.includes(task.status)).length,
         lastRefreshedAt: Date.now(),
       };
     }),
 
-  upsert: (task) =>
+  upsert: (task) => {
+    let accepted = false;
     set((state) => {
+      if (!isTaskAllowedAfterClear(state, task)) {
+        return state;
+      }
+      accepted = true;
       const previous = state.tasksById[task.task_id];
       const wasActive = previous ? ACTIVE_STATUSES.includes(previous.status) : false;
       const isActive = ACTIVE_STATUSES.includes(task.status);
@@ -71,7 +99,9 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
         orderedIds,
         activeCount,
       };
-    }),
+    });
+    return accepted;
+  },
 
   remove: (taskId) =>
     set((state) => {
@@ -89,7 +119,32 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
       };
     }),
 
-  reset: () => set({ tasksById: {}, orderedIds: [], activeCount: 0, lastRefreshedAt: 0 }),
+  reset: () => set({
+    tasksById: {},
+    orderedIds: [],
+    activeCount: 0,
+    lastRefreshedAt: 0,
+    clearBoundaryAt: null,
+    retiredTaskIds: {},
+  }),
+
+  retireForMemoryClear: (clearBoundaryAt) => set((state) => {
+    const normalizedBoundary = Number.isFinite(clearBoundaryAt)
+      ? Math.max(0, clearBoundaryAt)
+      : Date.now() / 1000;
+    const retiredTaskIds = { ...state.retiredTaskIds };
+    for (const taskId of state.orderedIds) {
+      retiredTaskIds[taskId] = true;
+    }
+    return {
+      tasksById: {},
+      orderedIds: [],
+      activeCount: 0,
+      lastRefreshedAt: 0,
+      clearBoundaryAt: normalizedBoundary,
+      retiredTaskIds,
+    };
+  }),
 }));
 
 /** Returns all tasks in the current newest-first order. */

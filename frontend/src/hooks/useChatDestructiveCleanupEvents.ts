@@ -20,7 +20,6 @@ type UseChatDestructiveCleanupEventsOptions = {
   clearAllInlineSkillRetries: () => void;
   clearAllPendingResponseTurns: () => void;
   clearAllRetryableSends: () => void;
-  clearConversationBoundDraftState: () => void;
   clearDeletedSessionDraftState: () => void;
   clearInlineSkillRetriesForSession: (sessionId: string) => void;
   clearPendingResponseTurn: (
@@ -41,7 +40,6 @@ export function useChatDestructiveCleanupEvents({
   clearAllInlineSkillRetries,
   clearAllPendingResponseTurns,
   clearAllRetryableSends,
-  clearConversationBoundDraftState,
   clearDeletedSessionDraftState,
   clearInlineSkillRetriesForSession,
   clearPendingResponseTurn,
@@ -97,7 +95,7 @@ export function useChatDestructiveCleanupEvents({
         clearAllInlineSkillRetries();
         clearAllPendingResponseTurns();
         clearAllAdmissionPendingTurns();
-        clearConversationBoundDraftState();
+        clearDeletedSessionDraftState();
         clearSessionLifecycleState();
         setCurrentSessionId(null);
         resetTraceDrawer();
@@ -115,7 +113,6 @@ export function useChatDestructiveCleanupEvents({
     clearAllInlineSkillRetries,
     clearAllPendingResponseTurns,
     clearAllRetryableSends,
-    clearConversationBoundDraftState,
     clearDeletedSessionDraftState,
     clearInlineSkillRetriesForSession,
     clearPendingResponseTurn,

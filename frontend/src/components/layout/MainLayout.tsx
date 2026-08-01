@@ -19,6 +19,7 @@ import { ChatWorkspaceProvider } from '@/stores/chat-workspace-context';
 import { ProductTour } from '@/components/onboarding/ProductTour';
 import { useProductTourFlag } from '@/hooks/useProductTourFlag';
 import { PluginInstallPanel } from '@/components/plugins/PluginInstallPanel';
+import { useMemoryClearEpoch } from '@/hooks/useMemoryClearEpoch';
 
 const PageContentErrorFallback = () => {
   const { t } = useTranslation('app');
@@ -107,6 +108,7 @@ const MainLayout: React.FC = () => {
   const viewportIsNarrow = useChatShellStore((state) => state.viewportIsNarrow);
   const portraitRailOpen = useChatShellStore((state) => state.portraitRailOpen);
   const currentSessionId = useConversationStore((state) => state.currentSessionId);
+  const memoryClearEpoch = useMemoryClearEpoch();
   const { completed: tourCompleted, loaded: tourLoaded, markCompleted: markTour } = useProductTourFlag();
   useBackendHealth();
 
@@ -148,8 +150,8 @@ const MainLayout: React.FC = () => {
             <div className="col-start-2 flex min-h-0 min-w-0 flex-col">
               <BackendHealthBanner />
               <main className="min-h-0 flex-1 overflow-hidden">
-                <div className="page-enter h-full overflow-hidden">
-                  <ErrorBoundary resetKey={location.pathname} fallback={<PageContentErrorFallback />}>
+                <div key={memoryClearEpoch} className="page-enter h-full overflow-hidden">
+                  <ErrorBoundary resetKey={`${location.pathname}:${memoryClearEpoch}`} fallback={<PageContentErrorFallback />}>
                     <Outlet />
                   </ErrorBoundary>
                 </div>

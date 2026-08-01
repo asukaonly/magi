@@ -204,6 +204,32 @@ function continuationStorageKey(sessionId: string): string {
   return `${CONTINUATION_STORAGE_PREFIX}:${sessionId}`;
 }
 
+export function clearFirstContextContinuationSelections(): boolean {
+  if (typeof window === "undefined") {
+    return true;
+  }
+  try {
+    const keys: string[] = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith(`${CONTINUATION_STORAGE_PREFIX}:`)) {
+        keys.push(key);
+      }
+    }
+    for (const key of keys) {
+      window.localStorage.removeItem(key);
+    }
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      if (window.localStorage.key(index)?.startsWith(`${CONTINUATION_STORAGE_PREFIX}:`)) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function loadFirstContextContinuationSelection(
   sessionId: string | null,
 ): FirstContextContinuationSelection | null {

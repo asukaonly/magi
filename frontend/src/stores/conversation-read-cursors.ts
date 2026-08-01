@@ -74,6 +74,20 @@ export const readCursorsInitialized = (): boolean => {
   }
 };
 
+export const clearConversationReadCursors = (): boolean => {
+  if (!canUseLocalStorage()) {
+    return typeof window === 'undefined';
+  }
+  try {
+    window.localStorage.removeItem(READ_CURSOR_STORAGE_KEY);
+    window.localStorage.removeItem(READ_CURSOR_INITIALIZED_KEY);
+    return window.localStorage.getItem(READ_CURSOR_STORAGE_KEY) === null
+      && window.localStorage.getItem(READ_CURSOR_INITIALIZED_KEY) === null;
+  } catch {
+    return false;
+  }
+};
+
 const latestTimestampFromMessages = (messages: ChatTimelineMessage[]): number => (
   messages.reduce((latest, message) => {
     const timestamp = normalizeNonNegativeInteger(message.timestamp);

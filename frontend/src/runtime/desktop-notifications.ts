@@ -120,6 +120,18 @@ const rememberNotificationSent = (dedupeId: string | null | undefined): void => 
   }
 };
 
+export function clearDesktopNotificationContentState(): boolean {
+  if (!canUseLocalStorage()) {
+    return typeof window === 'undefined';
+  }
+  try {
+    window.localStorage.removeItem(DEDUPE_STORAGE_KEY);
+    return window.localStorage.getItem(DEDUPE_STORAGE_KEY) === null;
+  } catch {
+    return false;
+  }
+}
+
 const ensureNotificationPermission = async (): Promise<boolean> => {
   try {
     if (await isPermissionGranted()) {

@@ -1698,6 +1698,7 @@
     "memoryClearFailed": "清除记忆失败",
     "memoryClearRecoveryPending": "内容已不可访问。如果聊天或外部消息仍不可用，请重启应用完成收尾。",
     "memoryClearDiagnosticLogsIncomplete": "部分旧诊断日志未能清除。请关闭并重新打开应用后，再执行一次清除。",
+    "memoryClearBrowserStateIncomplete": "部分页面中的旧内容未能清除。请关闭并重新打开应用后，再执行一次清除。",
     "memoryClearCompletedWithWarnings": "清除已完成，但有部分后台收尾没有正常完成。建议重启应用后再确认一次。",
     "clearConfirm": {
       "title": "确认清除所有记忆？",
@@ -4330,6 +4331,7 @@
     "clearRefreshFailed": "记忆已清除，但当前页面暂时没有刷新。",
     "clearRecoveryPending": "内容已不可访问。请重启应用完成收尾，再开始新聊天或向外发送消息。",
     "clearDiagnosticLogsIncomplete": "部分旧诊断日志未能清除。请关闭并重新打开应用后，再执行一次清除。",
+    "clearBrowserStateIncomplete": "部分页面中的旧内容未能清除。请关闭并重新打开应用后，再执行一次清除。",
     "clearCompletedWithWarnings": "清除已完成，但有部分后台收尾没有正常完成。建议重启应用后再确认一次。",
     "sources": {
       "chat_projector": "聊天",

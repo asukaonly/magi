@@ -4,6 +4,7 @@ import { memoryApi } from '@/api/modules/memory';
 import { clearAllMemory } from '@/hooks/clearAllMemory';
 import { completeMemoryClear } from '@/hooks/chatRetryLifecycle';
 import { clearDesktopLogHistory } from '@/runtime/desktop';
+import { APP_EVENTS } from '@/constants/events';
 
 vi.mock('@/api/modules/memory', () => ({
   memoryApi: {
@@ -22,6 +23,10 @@ vi.mock('@/runtime/desktop', () => ({
 describe('clearAllMemory', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(completeMemoryClear).mockReturnValue({
+      browserStateCleared: true,
+      failedScopes: [],
+    });
     vi.mocked(clearDesktopLogHistory).mockResolvedValue({
       clearedEntries: 4,
       failedEntries: 0,
@@ -50,6 +55,10 @@ describe('clearAllMemory', () => {
   });
 
   it('keeps local retries when the clear boundary did not complete', async () => {
+    const clearStarted = vi.fn();
+    const clearCompleted = vi.fn();
+    window.addEventListener(APP_EVENTS.MEMORY_CLEAR_STARTED, clearStarted);
+    window.addEventListener(APP_EVENTS.MEMORY_CLEARED, clearCompleted);
     vi.mocked(memoryApi.clearAll).mockResolvedValue({
       success: false,
       results: {
@@ -66,6 +75,10 @@ describe('clearAllMemory', () => {
       'Memory clear request was not completed',
     );
     expect(completeMemoryClear).not.toHaveBeenCalled();
+    expect(clearStarted).toHaveBeenCalledTimes(1);
+    expect(clearCompleted).not.toHaveBeenCalled();
+    window.removeEventListener(APP_EVENTS.MEMORY_CLEAR_STARTED, clearStarted);
+    window.removeEventListener(APP_EVENTS.MEMORY_CLEARED, clearCompleted);
   });
 
   it('keeps the data clear successful but warns when desktop logs remain', async () => {
@@ -109,5 +122,28 @@ describe('clearAllMemory', () => {
 
     expect(result.warnings).toEqual(['diagnostic_log_cleanup_failed']);
     expect(completeMemoryClear).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the durable clear successful but warns when browser content remains', async () => {
+    vi.mocked(memoryApi.clearAll).mockResolvedValue({
+      success: true,
+      results: {
+        l0: { cleared: true, count: 0 },
+        l1: { cleared: true, count: 0 },
+        l2: { cleared: true, count: 0 },
+        l3: { cleared: true, count: 0 },
+        l4: { cleared: true, count: 0 },
+        chat_context: { cleared: true, count: 0 },
+      },
+    });
+    vi.mocked(completeMemoryClear).mockReturnValue({
+      browserStateCleared: false,
+      failedScopes: ['onboarding'],
+    });
+
+    const result = await clearAllMemory();
+
+    expect(result.success).toBe(true);
+    expect(result.warnings).toEqual(['browser_state_cleanup_failed']);
   });
 });

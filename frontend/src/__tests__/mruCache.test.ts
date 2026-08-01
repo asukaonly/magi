@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MRUCache } from '@/lib/mruCache';
+import { clearAllComposerMruCaches, MRUCache } from '@/lib/mruCache';
 
 const memoryStorage = (): Storage => {
   const data = new Map<string, string>();
@@ -84,5 +84,29 @@ describe('MRUCache', () => {
     const b = new MRUCache('ns2');
     a.recordUse('foo');
     expect(b.load()).toEqual([]);
+  });
+
+  it('clears every composer namespace from storage and memory', () => {
+    const commands = new MRUCache('commands');
+    const mentions = new MRUCache('mentions');
+    commands.recordUse('summarize');
+    mentions.recordUse('filesystem|file:///private/report.txt');
+
+    expect(clearAllComposerMruCaches()).toBe(true);
+
+    expect(commands.load()).toEqual([]);
+    expect(mentions.load()).toEqual([]);
+    expect(localStorage.getItem('magi.composer.mru.commands')).toBeNull();
+    expect(localStorage.getItem('magi.composer.mru.mentions')).toBeNull();
+  });
+
+  it('reports when browser storage refuses to remove composer content', () => {
+    const stubbornStorage = memoryStorage();
+    stubbornStorage.setItem('magi.composer.mru.mentions', '["private"]');
+    stubbornStorage.removeItem = vi.fn();
+    vi.stubGlobal('localStorage', stubbornStorage);
+
+    expect(clearAllComposerMruCaches()).toBe(false);
+    expect(localStorage.getItem('magi.composer.mru.mentions')).toBe('["private"]');
   });
 });

@@ -312,8 +312,7 @@ export const applyRealtimeStoreProjection = (
   if (eventName === 'background_task_state_changed' && message.data && typeof message.data === 'object') {
     const payload = message.data as Record<string, unknown>;
     if (typeof payload.task_id === 'string' && typeof payload.status === 'string') {
-      useBackgroundTaskStore.getState().upsert(payload as any);
-      return true;
+      return useBackgroundTaskStore.getState().upsert(payload as any);
     }
     return false;
   }

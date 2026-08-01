@@ -1699,6 +1699,7 @@
     "memoryClearFailed": "Failed to clear memory",
     "memoryClearRecoveryPending": "The content is no longer accessible. If chat or external messages remain unavailable, restart the app to finish cleanup.",
     "memoryClearDiagnosticLogsIncomplete": "Some old diagnostic logs could not be erased. Close the app, reopen it, and run the clear action again.",
+    "memoryClearBrowserStateIncomplete": "Some old page content could not be erased. Close the app, reopen it, and run the clear action again.",
     "memoryClearCompletedWithWarnings": "The clear completed, but some background cleanup did not finish normally. Restart the app and check again.",
     "clearConfirm": {
       "title": "Confirm Clear All Memory?",
@@ -4332,6 +4333,7 @@
     "clearRefreshFailed": "Memory was cleared, but this view could not refresh yet.",
     "clearRecoveryPending": "The content is no longer accessible. Restart the app to finish cleanup before starting a new chat or sending external messages.",
     "clearDiagnosticLogsIncomplete": "Some old diagnostic logs could not be erased. Close the app, reopen it, and run the clear action again.",
+    "clearBrowserStateIncomplete": "Some old page content could not be erased. Close the app, reopen it, and run the clear action again.",
     "clearCompletedWithWarnings": "The clear completed, but some background cleanup did not finish normally. Restart the app and check again.",
     "sources": {
       "chat_projector": "Chat",

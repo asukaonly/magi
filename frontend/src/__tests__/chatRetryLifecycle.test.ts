@@ -26,6 +26,8 @@ import {
   type RetryableInlineSkillOperation,
 } from '@/hooks/chatRetryableSendStorage';
 import { useConversationStore } from '@/stores/conversation-store';
+import { useBackgroundTaskStore } from '@/stores/background-tasks';
+import { useChatShellStore } from '@/stores/chat-shell';
 
 const { clearAllMock, listNotificationsMock } = vi.hoisted(() => ({
   clearAllMock: vi.fn(),
@@ -138,6 +140,7 @@ describe('chat retry lifecycle', () => {
     window.sessionStorage.clear();
     window.localStorage.clear();
     useConversationStore.getState().reset();
+    useBackgroundTaskStore.getState().reset();
     clearAllMock.mockReset();
     listNotificationsMock.mockReset().mockResolvedValue({
       items: [],
@@ -204,6 +207,80 @@ describe('chat retry lifecycle', () => {
       CHAT_SESSION_KEY(DEFAULT_USER_ID),
       'session-a',
     );
+    window.localStorage.setItem('magi_onboarding_state', JSON.stringify({
+      version: 1,
+      current: 2,
+      values: { preferences: { language: 'zh' } },
+      customPersonas: [{ description: 'private persona draft' }],
+      personaCreationDraft: { description: 'private draft' },
+      firstContextProgress: {
+        draft: 'private answer',
+        sessionId: 'session-a',
+        turnId: 'turn-a',
+      },
+    }));
+    window.localStorage.setItem(
+      'magi.first-context-continuation:session-a',
+      JSON.stringify({ version: 1, mode: 'dismissed' }),
+    );
+    window.localStorage.setItem(
+      'magi.composer.mru.mentions',
+      JSON.stringify(['filesystem|file:///private/report.txt']),
+    );
+    window.localStorage.setItem(
+      'magi.chat.readCursors.v1',
+      JSON.stringify({ 'session-a': { messageCount: 1, lastTimestamp: 1 } }),
+    );
+    window.localStorage.setItem('magi.chat.readCursors.initialized.v1', 'true');
+    window.localStorage.setItem(
+      'magi.desktopNotifications.sent.v1',
+      JSON.stringify({ ids: ['message-a'] }),
+    );
+    window.localStorage.setItem(
+      'magi.desktopNotifications.preferences.v1',
+      JSON.stringify({ desktopNotificationsEnabled: true }),
+    );
+    window.localStorage.setItem('magi_language', 'zh');
+    window.localStorage.setItem('magi-theme-mode', 'dark');
+    window.localStorage.setItem('magi_onboarding_completed', 'true');
+    useBackgroundTaskStore.getState().hydrate([{
+      task_id: 'old-task',
+      status: 'running',
+      attempt_index: 0,
+      spec: {
+        user_id: DEFAULT_USER_ID,
+        session_id: 'session-a',
+        origin_turn_id: 'turn-a',
+        title: 'Private task',
+        goal: 'Private goal',
+        selected_tools: [],
+        workspace_path: null,
+        trigger_source: 'user',
+        priority: 0,
+        max_iterations: 1,
+        timeout_seconds: null,
+      },
+      orchestration_id: null,
+      user_task_id: null,
+      summary: null,
+      result_payload: {},
+      error: null,
+      cancel_reason: null,
+      created_at: 1,
+      started_at: 1,
+      finished_at: null,
+      updated_at: 1,
+    }], 1);
+    useChatShellStore.getState().setTimelinePanel({
+      draftQuery: 'private timeline draft',
+      moodDays: [{
+        date: '2026-07-01',
+        dominant_valence: 'warm',
+        volatility: 0.1,
+        event_count: 1,
+        sparkline: [0.5],
+      }],
+    });
     clearAllMock.mockResolvedValue(successfulClearResponse());
     const listener = vi.fn();
     window.addEventListener(APP_EVENTS.MEMORY_CLEARED, listener);
@@ -223,6 +300,31 @@ describe('chat retry lifecycle', () => {
     expect(window.localStorage.getItem(
       CHAT_SESSION_KEY(DEFAULT_USER_ID),
     )).toBeNull();
+    const onboarding = JSON.parse(
+      window.localStorage.getItem('magi_onboarding_state') || '{}',
+    );
+    expect(onboarding.current).toBe(2);
+    expect(onboarding.customPersonas).toEqual([]);
+    expect(onboarding.personaCreationDraft).toBeNull();
+    expect(onboarding.firstContextProgress).toMatchObject({
+      draft: '',
+      sessionId: null,
+      turnId: null,
+    });
+    expect(window.localStorage.getItem(
+      'magi.first-context-continuation:session-a',
+    )).toBeNull();
+    expect(window.localStorage.getItem('magi.composer.mru.mentions')).toBeNull();
+    expect(window.localStorage.getItem('magi.chat.readCursors.v1')).toBeNull();
+    expect(window.localStorage.getItem('magi.chat.readCursors.initialized.v1')).toBeNull();
+    expect(window.localStorage.getItem('magi.desktopNotifications.sent.v1')).toBeNull();
+    expect(window.localStorage.getItem('magi.desktopNotifications.preferences.v1')).not.toBeNull();
+    expect(window.localStorage.getItem('magi_language')).toBe('zh');
+    expect(window.localStorage.getItem('magi-theme-mode')).toBe('dark');
+    expect(window.localStorage.getItem('magi_onboarding_completed')).toBe('true');
+    expect(useBackgroundTaskStore.getState().orderedIds).toEqual([]);
+    expect(useChatShellStore.getState().timelinePanel.draftQuery).toBe('');
+    expect(useChatShellStore.getState().timelinePanel.moodDays).toEqual([]);
     expect(listNotificationsMock).toHaveBeenCalledTimes(1);
     expect(listener).toHaveBeenCalledTimes(1);
     window.removeEventListener(APP_EVENTS.MEMORY_CLEARED, listener);

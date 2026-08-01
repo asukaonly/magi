@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -128,6 +128,7 @@ vi.mock("@/components/timeline/manual-entries/RichTextEditor", () => ({
 }));
 
 import { QuickEntrySheet } from "@/components/timeline/manual-entries/QuickEntrySheet";
+import { dispatchAppEvent } from "@/constants/events";
 
 beforeEach(() => {
   createMock.mockReset();
@@ -154,6 +155,40 @@ beforeEach(() => {
 });
 
 describe("QuickEntrySheet", () => {
+  it("aborts an unfinished upload and releases its preview on a full clear", async () => {
+    uploadMock.mockImplementation((_file: File, options: { signal: AbortSignal }) => (
+      new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          reject(new DOMException('aborted', 'AbortError'));
+        });
+      })
+    ));
+    const { container } = render(<QuickEntrySheet open onClose={() => {}} />);
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(screen.getByPlaceholderText(/写下/), {
+      target: { value: 'draft survives a failed clear' },
+    });
+
+    fireEvent.change(fileInput!, {
+      target: { files: [new File(['image'], 'private.png', { type: 'image/png' })] },
+    });
+    await waitFor(() => expect(uploadMock).toHaveBeenCalledTimes(1));
+    const signal = uploadMock.mock.calls[0][1].signal as AbortSignal;
+    expect(signal.aborted).toBe(false);
+
+    act(() => dispatchAppEvent.memoryClearStarted());
+
+    await waitFor(() => expect(signal.aborted).toBe(true));
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:quick-entry-test');
+    expect(screen.getByPlaceholderText(/写下/)).toHaveValue(
+      'draft survives a failed clear',
+    );
+    act(() => dispatchAppEvent.memoryCleared());
+
+    await waitFor(() => expect(screen.getByPlaceholderText(/写下/)).toHaveValue(''));
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
   it("disables save when body is empty and no attachments", () => {
     render(<QuickEntrySheet open onClose={() => {}} />);
     const saveBtn = screen.getByRole("button", { name: "保存" });

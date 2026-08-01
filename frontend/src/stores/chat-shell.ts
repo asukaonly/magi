@@ -48,6 +48,7 @@ export interface DesktopShellState {
   setPortraitRailOpen: (open: boolean) => void;
   setViewportIsNarrow: (narrow: boolean) => void;
   setTimelinePanel: (next: Partial<TimelinePanelState>) => void;
+  resetContentState: () => void;
 }
 
 const padNumber = (value: number): string => String(value).padStart(2, '0');
@@ -112,4 +113,9 @@ export const useChatShellStore = create<DesktopShellState>((set) => ({
   setViewportIsNarrow: (viewportIsNarrow) => set({ viewportIsNarrow }),
   setTimelinePanel: (next) =>
     set((state) => ({ timelinePanel: { ...state.timelinePanel, ...next } })),
+  resetContentState: () => set({
+    currentSessionId: null,
+    portraitRailOpen: false,
+    timelinePanel: createDefaultTimelinePanel(),
+  }),
 }));

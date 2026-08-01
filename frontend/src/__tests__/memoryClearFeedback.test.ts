@@ -25,6 +25,7 @@ describe('summarizeMemoryClear', () => {
       clearedItemCount: 21,
       recoveryPending: false,
       diagnosticLogsIncomplete: false,
+      browserStateIncomplete: false,
       otherWarningsPresent: false,
     });
   });
@@ -42,6 +43,7 @@ describe('summarizeMemoryClear', () => {
       clearedItemCount: 16,
       recoveryPending: true,
       diagnosticLogsIncomplete: false,
+      browserStateIncomplete: false,
       otherWarningsPresent: false,
     });
   });
@@ -53,6 +55,7 @@ describe('summarizeMemoryClear', () => {
       clearedItemCount: 21,
       recoveryPending: false,
       diagnosticLogsIncomplete: false,
+      browserStateIncomplete: false,
       otherWarningsPresent: true,
     });
   });
@@ -64,6 +67,19 @@ describe('summarizeMemoryClear', () => {
       clearedItemCount: 21,
       recoveryPending: false,
       diagnosticLogsIncomplete: true,
+      browserStateIncomplete: false,
+      otherWarningsPresent: false,
+    });
+  });
+
+  it('reports incomplete browser-owned content cleanup separately', () => {
+    expect(summarizeMemoryClear(clearResult({
+      warnings: ['browser_state_cleanup_failed'],
+    }))).toEqual({
+      clearedItemCount: 21,
+      recoveryPending: false,
+      diagnosticLogsIncomplete: false,
+      browserStateIncomplete: true,
       otherWarningsPresent: false,
     });
   });

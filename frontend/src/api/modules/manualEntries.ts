@@ -185,13 +185,19 @@ export const manualEntriesApi = {
    * Upload a single image and get back a content-addressed asset_ref.
    * Pass the ref to `create()` / `update()` via `attachment_refs`.
    */
-  async uploadAsset(file: File): Promise<AssetUploadResponse> {
+  async uploadAsset(
+    file: File,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<AssetUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
     const response = await api.post<AssetUploadResponse>(
       `/memory/manual-entries/assets`,
       formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        signal: options.signal,
+      },
     );
     return unwrapGatewayPayload(response);
   },

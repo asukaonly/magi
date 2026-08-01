@@ -24,6 +24,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { RichTextEditor } from './RichTextEditor';
 import { resolveTimelineAssetUrl } from '@/utils/timelineAssetUrl';
 import { cn } from '@/lib/utils';
+import { APP_EVENTS, subscribeToAppEvent } from '@/constants/events';
 
 interface QuickEntrySheetProps {
   open: boolean;
@@ -239,6 +240,8 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   const initializedEntryKeyRef = useRef<string | null>(null);
   const locationEditedRef = useRef(false);
   const autoLocationLabelRef = useRef<string | null>(null);
+  const attachmentsRef = useRef<AttachmentDraft[]>([]);
+  const uploadControllersRef = useRef(new Map<string, AbortController>());
 
   const [body, setBody] = useState('');
   const [mode, setMode] = useState<EditorMode>('quick');
@@ -266,6 +269,74 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
    *  right answer is to drop the chip, not to invent one). */
   const [weather, setWeather] = useState<ManualEntryWeather | null>(null);
   const [saving, setSaving] = useState(false);
+  attachmentsRef.current = attachments;
+
+  const abortPendingUploads = useCallback(() => {
+    for (const controller of uploadControllersRef.current.values()) {
+      controller.abort();
+    }
+    uploadControllersRef.current.clear();
+  }, []);
+
+  const releaseAttachmentPreviews = useCallback((updateState: boolean) => {
+    const current = attachmentsRef.current;
+    attachmentsRef.current = [];
+    for (const attachment of current) {
+      if (attachment.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(attachment.previewUrl);
+      }
+    }
+    if (updateState) {
+      setAttachments([]);
+    }
+  }, []);
+
+  const retireLocalAttachmentPreviews = useCallback(() => {
+    const retained: AttachmentDraft[] = [];
+    for (const attachment of attachmentsRef.current) {
+      if (attachment.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(attachment.previewUrl);
+      } else {
+        retained.push(attachment);
+      }
+    }
+    attachmentsRef.current = retained;
+    setAttachments(retained);
+  }, []);
+
+  const clearDraftForMemoryClear = useCallback(() => {
+    abortPendingUploads();
+    releaseAttachmentPreviews(true);
+    createAttemptRef.current = null;
+    editRetryAsNewRef.current = false;
+    setBody('');
+    setBodyDoc(null);
+    setMood(null);
+    setLocation(null);
+    setWeather(null);
+    setTimeShift({ kind: 'now' });
+    setSaving(false);
+  }, [abortPendingUploads, releaseAttachmentPreviews]);
+
+  const retireUploadsForMemoryClear = useCallback(() => {
+    abortPendingUploads();
+    retireLocalAttachmentPreviews();
+  }, [abortPendingUploads, retireLocalAttachmentPreviews]);
+
+  useEffect(() => subscribeToAppEvent(
+    APP_EVENTS.MEMORY_CLEAR_STARTED,
+    retireUploadsForMemoryClear,
+  ), [retireUploadsForMemoryClear]);
+
+  useEffect(() => subscribeToAppEvent(
+    APP_EVENTS.MEMORY_CLEARED,
+    clearDraftForMemoryClear,
+  ), [clearDraftForMemoryClear]);
+
+  useEffect(() => () => {
+    abortPendingUploads();
+    releaseAttachmentPreviews(false);
+  }, [abortPendingUploads, releaseAttachmentPreviews]);
 
   // Initialize once per real open or entry switch. A late location resolver
   // update must not reset text the user has already entered.
@@ -353,15 +424,12 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     setLocation(nextAutoLocation);
   }, [open, existingEntry, initialLocationLabel]);
 
-  // Free object URLs created for upload previews when the sheet closes.
+  // Closing retires upload work even when the route remains mounted.
   useEffect(() => {
     if (open) return;
-    return () => {
-      attachments.forEach((a) => {
-        if (a.previewUrl.startsWith('blob:')) URL.revokeObjectURL(a.previewUrl);
-      });
-    };
-  }, [open, attachments]);
+    abortPendingUploads();
+    releaseAttachmentPreviews(true);
+  }, [abortPendingUploads, open, releaseAttachmentPreviews]);
 
   const anyUploading = attachments.some((a) => a.status === 'uploading');
   const hasContent = body.trim().length > 0 || attachments.some((a) => a.status === 'ready');
@@ -386,18 +454,28 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     }
     const draftId = nextDraftId();
     const previewUrl = URL.createObjectURL(file);
+    const uploadController = new AbortController();
+    uploadControllersRef.current.set(draftId, uploadController);
     setAttachments((prev) => [
       ...prev,
       { draftId, assetRef: null, previewUrl, status: 'uploading' },
     ]);
     try {
-      const { asset_ref } = await manualEntriesApi.uploadAsset(file);
+      const { asset_ref } = await manualEntriesApi.uploadAsset(file, {
+        signal: uploadController.signal,
+      });
+      if (uploadController.signal.aborted) {
+        return;
+      }
       setAttachments((prev) =>
         prev.map((a) =>
           a.draftId === draftId ? { ...a, assetRef: asset_ref, status: 'ready' } : a,
         ),
       );
     } catch (err: any) {
+      if (uploadController.signal.aborted) {
+        return;
+      }
       setAttachments((prev) =>
         prev.map((a) =>
           a.draftId === draftId
@@ -411,6 +489,8 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           message: err?.message,
         }),
       );
+    } finally {
+      uploadControllersRef.current.delete(draftId);
     }
   }, [t]);
 
@@ -425,6 +505,8 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   }, [uploadFile]);
 
   const removeAttachment = useCallback((draftId: string) => {
+    uploadControllersRef.current.get(draftId)?.abort();
+    uploadControllersRef.current.delete(draftId);
     setAttachments((prev) => {
       const target = prev.find((a) => a.draftId === draftId);
       if (target && target.previewUrl.startsWith('blob:')) {

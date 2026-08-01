@@ -722,6 +722,9 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     if (feedback.diagnosticLogsIncomplete) {
       toast.warning(t('memory.clearDiagnosticLogsIncomplete'));
     }
+    if (feedback.browserStateIncomplete) {
+      toast.warning(t('memory.clearBrowserStateIncomplete'));
+    }
     if (feedback.otherWarningsPresent) {
       toast.warning(t('memory.clearCompletedWithWarnings'));
     }

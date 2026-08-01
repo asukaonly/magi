@@ -5,9 +5,71 @@ import {
   restoreOnboardingProgress,
   serializeOnboardingProgress,
 } from "../components/onboarding/onboardingProgress";
-import { sanitizeStoredOnboardingProgress } from "../components/onboarding/onboardingStorage";
+import {
+  clearOnboardingContentState,
+  sanitizeStoredOnboardingProgress,
+} from "../components/onboarding/onboardingStorage";
 
 describe("onboarding progress restoration", () => {
+  it("removes onboarding-authored content while preserving setup progress", () => {
+    window.localStorage.setItem("magi_onboarding_state", JSON.stringify({
+      version: 1,
+      current: 3,
+      values: { preferences: { language: "zh" } },
+      seedSlug: "ember",
+      customPersonas: [{ slug: "private-persona", description: "private" }],
+      personaCreationDraft: { description: "unfinished private draft" },
+      firstContextPluginIds: ["chrome-history"],
+      firstContextCountsByPluginId: { "chrome-history": 42 },
+      firstContextProgress: {
+        route: "story",
+        questionId: "easy_topic",
+        seenQuestionIds: ["preferred_name", "easy_topic"],
+        draft: "private first-context answer",
+        sessionCreationKey: "creation-secret",
+        sessionId: "session-secret",
+        turnId: "turn-secret",
+        messageId: "message-secret",
+        historyImportJobId: "import-secret",
+        historyPreparedCount: 42,
+        submitted: true,
+        sendUncertain: true,
+      },
+    }));
+
+    expect(clearOnboardingContentState()).toBe(true);
+
+    const stored = JSON.parse(
+      window.localStorage.getItem("magi_onboarding_state") || "{}",
+    );
+    expect(stored).toMatchObject({
+      version: 1,
+      current: 3,
+      values: { preferences: { language: "zh" } },
+      seedSlug: "ember",
+      firstContextPluginIds: ["chrome-history"],
+      firstContextCountsByPluginId: { "chrome-history": 42 },
+      customPersonas: [],
+      personaCreationDraft: null,
+      firstContextProgress: {
+        route: "story",
+        questionId: "easy_topic",
+        seenQuestionIds: ["preferred_name", "easy_topic"],
+        draft: "",
+        sessionCreationKey: null,
+        sessionId: null,
+        turnId: null,
+        messageId: null,
+        historyImportJobId: null,
+        historyPreparedCount: 0,
+        submitted: false,
+        sendUncertain: false,
+      },
+    });
+    expect(JSON.stringify(stored)).not.toContain("private");
+    expect(JSON.stringify(stored)).not.toContain("secret");
+  });
+
   it("falls back safely for invalid JSON", () => {
     const restored = restoreOnboardingProgress(
       "{not-json",

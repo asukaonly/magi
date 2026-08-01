@@ -1,3 +1,5 @@
+import { STORAGE_KEYS } from "../../constants/app";
+
 export const ONBOARDING_PROGRESS_VERSION = 1;
 
 const CREDENTIAL_FIELD_NAMES = new Set([
@@ -98,4 +100,74 @@ export function sanitizeOnboardingProgressStorage(
     localStorage.removeItem(storageKey);
   }
   return sanitized;
+}
+
+/** Remove user-authored onboarding content without resetting setup choices. */
+export function clearOnboardingContentState(
+  storageKey: string = STORAGE_KEYS.ONBOARDING_STATE,
+): boolean {
+  if (typeof window === "undefined") {
+    return true;
+  }
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (raw === null) {
+      return true;
+    }
+    const sanitized = sanitizeStoredOnboardingProgress(raw);
+    if (!sanitized) {
+      window.localStorage.removeItem(storageKey);
+      return window.localStorage.getItem(storageKey) === null;
+    }
+    const snapshot = JSON.parse(sanitized) as Record<string, unknown>;
+    const rawFirstContext = snapshot.firstContextProgress;
+    const firstContext = rawFirstContext
+      && typeof rawFirstContext === "object"
+      && !Array.isArray(rawFirstContext)
+      ? rawFirstContext as Record<string, unknown>
+      : {};
+    snapshot.customPersonas = [];
+    snapshot.personaCreationDraft = null;
+    snapshot.firstContextProgress = {
+      ...firstContext,
+      draft: "",
+      sessionCreationKey: null,
+      sessionId: null,
+      turnId: null,
+      messageId: null,
+      historyImportJobId: null,
+      historyPreparedCount: 0,
+      submitted: false,
+      sendUncertain: false,
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(snapshot));
+
+    const persisted = JSON.parse(
+      window.localStorage.getItem(storageKey) || "null",
+    ) as Record<string, unknown> | null;
+    const persistedFirstContext = persisted?.firstContextProgress;
+    if (
+      !persisted
+      || !Array.isArray(persisted.customPersonas)
+      || persisted.customPersonas.length !== 0
+      || persisted.personaCreationDraft !== null
+      || !persistedFirstContext
+      || typeof persistedFirstContext !== "object"
+      || Array.isArray(persistedFirstContext)
+    ) {
+      return false;
+    }
+    const verified = persistedFirstContext as Record<string, unknown>;
+    return verified.draft === ""
+      && verified.sessionCreationKey === null
+      && verified.sessionId === null
+      && verified.turnId === null
+      && verified.messageId === null
+      && verified.historyImportJobId === null
+      && verified.historyPreparedCount === 0
+      && verified.submitted === false
+      && verified.sendUncertain === false;
+  } catch {
+    return false;
+  }
 }

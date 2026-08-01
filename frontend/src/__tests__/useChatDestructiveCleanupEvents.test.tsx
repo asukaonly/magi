@@ -10,7 +10,6 @@ const renderCleanupHook = (currentSessionId = 'session-a') => {
     clearAllInlineSkillRetries: vi.fn(),
     clearAllPendingResponseTurns: vi.fn(),
     clearAllRetryableSends: vi.fn(),
-    clearConversationBoundDraftState: vi.fn(),
     clearDeletedSessionDraftState: vi.fn(),
     clearInlineSkillRetriesForSession: vi.fn(),
     clearPendingResponseTurn: vi.fn(),
@@ -54,7 +53,6 @@ describe('useChatDestructiveCleanupEvents', () => {
     expect(hook.callbacks.clearSessionHistory).toHaveBeenCalledWith('session-a');
     expect(hook.callbacks.clearSessionLifecycleState).toHaveBeenCalledWith('session-a');
     expect(hook.callbacks.clearDeletedSessionDraftState).toHaveBeenCalledTimes(1);
-    expect(hook.callbacks.clearConversationBoundDraftState).not.toHaveBeenCalled();
     expect(hook.callbacks.setCurrentSessionId).toHaveBeenCalledWith(null);
     expect(hook.callbacks.resetTraceDrawer).toHaveBeenCalledTimes(1);
   });
@@ -85,7 +83,7 @@ describe('useChatDestructiveCleanupEvents', () => {
     expect(hook.callbacks.clearAllInlineSkillRetries).toHaveBeenCalledTimes(1);
     expect(hook.callbacks.clearAllPendingResponseTurns).toHaveBeenCalledTimes(1);
     expect(hook.callbacks.clearAllAdmissionPendingTurns).toHaveBeenCalledTimes(1);
-    expect(hook.callbacks.clearConversationBoundDraftState).toHaveBeenCalledTimes(1);
+    expect(hook.callbacks.clearDeletedSessionDraftState).toHaveBeenCalledTimes(1);
     expect(hook.callbacks.clearSessionLifecycleState).toHaveBeenCalledWith();
     expect(hook.callbacks.setCurrentSessionId).toHaveBeenCalledWith(null);
     expect(hook.callbacks.resetTraceDrawer).toHaveBeenCalledTimes(1);

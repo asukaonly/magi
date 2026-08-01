@@ -127,4 +127,30 @@ describe('desktop chat notifications', () => {
     expect(setBadgeCountMock).toHaveBeenNthCalledWith(1, 5);
     expect(setBadgeCountMock).toHaveBeenNthCalledWith(2, undefined);
   });
+
+  it('clears notification content dedupe while preserving preferences', async () => {
+    const {
+      clearDesktopNotificationContentState,
+      notifyForUnreadChatMessage,
+      syncDesktopNotificationPreferences,
+    } = await import('@/runtime/desktop-notifications');
+    syncDesktopNotificationPreferences({
+      desktop_notifications_enabled: true,
+      desktop_notification_previews_enabled: false,
+    });
+    await notifyForUnreadChatMessage({
+      sessionId: 'session-b',
+      currentSessionId: 'session-a',
+      title: 'Session B',
+      body: 'private body',
+      dedupeId: 'private-message-id',
+      desktopNotificationsEnabled: true,
+      desktopNotificationPreviewsEnabled: false,
+    });
+
+    expect(clearDesktopNotificationContentState()).toBe(true);
+
+    expect(window.localStorage.getItem('magi.desktopNotifications.sent.v1')).toBeNull();
+    expect(window.localStorage.getItem('magi.desktopNotifications.preferences.v1')).not.toBeNull();
+  });
 });

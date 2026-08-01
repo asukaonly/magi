@@ -30,6 +30,7 @@ const MIN_REMAINING_LIFETIME_MS = 5_000;
 const MAX_CACHED_GRANTS = 512;
 const cachedGrants = new Map<string, CachedGrant>();
 const pendingGrants = new Map<string, Promise<CachedGrant>>();
+let accessGeneration = 0;
 
 function gatewayOrigin(): string {
   return resolveApiBaseUrl().replace(/\/api\/?$/, '');
@@ -169,6 +170,7 @@ export async function resolvePrivateResourceUrl(
   options: { force?: boolean } = {},
 ): Promise<string> {
   const key = descriptorKey(descriptor);
+  const requestGeneration = accessGeneration;
   if (options.force) {
     cachedGrants.delete(key);
   } else {
@@ -186,6 +188,9 @@ export async function resolvePrivateResourceUrl(
   const request = api
     .post<PrivateResourceGrant>('/private-resource-tickets', descriptor)
     .then((response) => {
+      if (requestGeneration !== accessGeneration) {
+        throw new Error('Private resource access request was retired');
+      }
       const grant = response.data;
       if (
         !grant
@@ -218,14 +223,18 @@ export async function resolvePrivateResourceUrl(
       return cachedGrant;
     })
     .finally(() => {
-      pendingGrants.delete(key);
+      if (pendingGrants.get(key) === request) {
+        pendingGrants.delete(key);
+      }
     });
 
   pendingGrants.set(key, request);
   return (await request).url;
 }
 
-export function clearPrivateResourceAccessCache(): void {
+export function clearPrivateResourceAccessCache(): boolean {
+  accessGeneration += 1;
   cachedGrants.clear();
   pendingGrants.clear();
+  return cachedGrants.size === 0 && pendingGrants.size === 0;
 }

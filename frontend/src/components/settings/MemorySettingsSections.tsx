@@ -291,6 +291,9 @@ export function MemoryGeneralSettingsSection({
       if (feedback.diagnosticLogsIncomplete) {
         toast.warning(t('settings.memoryClearDiagnosticLogsIncomplete'));
       }
+      if (feedback.browserStateIncomplete) {
+        toast.warning(t('settings.memoryClearBrowserStateIncomplete'));
+      }
       if (feedback.otherWarningsPresent) {
         toast.warning(t('settings.memoryClearCompletedWithWarnings'));
       }
