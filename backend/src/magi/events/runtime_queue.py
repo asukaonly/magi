@@ -32,6 +32,14 @@ STATUS_FAILED = "failed"
 _USER_MESSAGE_CLEAR_STATE_ID = 1
 DEFAULT_CLAIM_LEASE_SECONDS = 60.0
 
+FULL_CLEAR_SENSITIVE_COMMAND_TYPES = frozenset(
+    {
+        RuntimeCommandType.USER_MESSAGE,
+        RuntimeCommandType.SENSOR_SYNC,
+        RuntimeCommandType.SENSOR_STATE_FLUSH,
+    }
+)
+
 
 class UserMessageScopeBlockedError(RuntimeError):
     """Raised when ingress targets a durably deleted chat scope."""
@@ -88,6 +96,7 @@ class SQLiteRuntimeCommandQueue:
         # under load (CI). An asyncio.Lock makes in-process writes strictly serial.
         self._write_lock = asyncio.Lock()
         self._user_message_barrier = AsyncOperationBarrier()
+        self._full_clear_command_barrier = AsyncOperationBarrier()
         self._user_message_destructive_lock = asyncio.Lock()
         self._user_message_generation: int | None = None
         self._user_message_generation_load_lock = asyncio.Lock()
@@ -180,10 +189,36 @@ class SQLiteRuntimeCommandQueue:
         payload: dict[str, object],
         correlation_id: str,
         created_at: float,
-        user_message_generation: int = 0,
     ) -> int:
         if command_type is RuntimeCommandType.USER_MESSAGE:
             raise ValueError("User messages must use the attempt-aware scheduling API")
+        if command_type in FULL_CLEAR_SENSITIVE_COMMAND_TYPES:
+            async with self.clear_sensitive_command_operation():
+                await self._ensure_user_message_generation_loaded()
+                return await self._insert_command(
+                    command_type=command_type,
+                    payload=payload,
+                    correlation_id=correlation_id,
+                    created_at=created_at,
+                    user_message_generation=self.current_user_message_generation(),
+                )
+        return await self._insert_command(
+            command_type=command_type,
+            payload=payload,
+            correlation_id=correlation_id,
+            created_at=created_at,
+            user_message_generation=0,
+        )
+
+    async def _insert_command(
+        self,
+        *,
+        command_type: RuntimeCommandType,
+        payload: dict[str, object],
+        correlation_id: str,
+        created_at: float,
+        user_message_generation: int,
+    ) -> int:
         await self._initialize()
         payload_json = json.dumps(payload, ensure_ascii=False)
         async with self._write_lock, sqlite_connection_async(self.db_path) as db:
@@ -483,6 +518,12 @@ class SQLiteRuntimeCommandQueue:
             yield
 
     @asynccontextmanager
+    async def clear_sensitive_command_operation(self) -> AsyncIterator[None]:
+        """Protect work whose payload must not cross a full-clear boundary."""
+        async with self._full_clear_command_barrier.operation():
+            yield
+
+    @asynccontextmanager
     async def user_message_destructive_operation(self) -> AsyncIterator[None]:
         """Serialize destructive chat and full-memory operations."""
 
@@ -491,21 +532,22 @@ class SQLiteRuntimeCommandQueue:
 
     @asynccontextmanager
     async def user_message_global_clear_boundary(self) -> AsyncIterator[None]:
-        """Serialize and quiesce every user-message path for a global clear."""
+        """Serialize and quiesce every clear-sensitive runtime path."""
 
         async with self.user_message_destructive_operation():
-            async with self.user_message_clear_boundary():
-                initial_generation, _ = await self._load_user_message_clear_state()
-                try:
-                    yield
-                finally:
-                    current_generation, _ = await self._load_user_message_clear_state()
-                    if current_generation != initial_generation:
-                        await self.seal_external_user_message_clear_cutoff()
+            async with self._full_clear_command_barrier.exclusive():
+                async with self.user_message_clear_boundary():
+                    initial_generation, _ = await self._load_user_message_clear_state()
+                    try:
+                        yield
+                    finally:
+                        current_generation, _ = await self._load_user_message_clear_state()
+                        if current_generation != initial_generation:
+                            await self.seal_external_user_message_clear_cutoff()
 
     @asynccontextmanager
     async def user_message_clear_boundary(self) -> AsyncIterator[None]:
-        """Block new user-message work while a destructive clear is in progress."""
+        """Block user-message work during a destructive chat operation."""
         async with self._user_message_barrier.exclusive():
             task = asyncio.current_task()
             if task is None:
@@ -706,7 +748,7 @@ class SQLiteRuntimeCommandQueue:
         return len(command_ids)
 
     async def advance_user_message_generation_and_purge(self) -> tuple[int, int]:
-        """Advance the clear generation and remove every older user-message payload."""
+        """Advance the clear generation and remove every older sensitive command."""
 
         task = asyncio.current_task()
         if task is None or task is not self._user_message_clear_owner:
@@ -739,9 +781,12 @@ class SQLiteRuntimeCommandQueue:
                 cursor = await db.execute(
                     """
                     DELETE FROM runtime_commands
-                    WHERE command_type = ?
+                    WHERE command_type IN (?, ?, ?)
                     """,
-                    (RuntimeCommandType.USER_MESSAGE.value,),
+                    tuple(
+                        command_type.value
+                        for command_type in FULL_CLEAR_SENSITIVE_COMMAND_TYPES
+                    ),
                 )
                 purged_count = int(cursor.rowcount or 0)
                 await db.execute("DELETE FROM runtime_user_message_idempotency")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from pathlib import Path
 
@@ -586,6 +587,93 @@ async def test_runtime_command_queue_enqueues_and_claims_sensor_state_flush(tmp_
         assert stats["pending_count"] == 0
         assert stats["claimed_count"] == 0
         assert stats["completed_count"] == 1
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_global_clear_purges_every_clear_sensitive_runtime_command(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import (
+        RefreshLLMConfigCommand,
+        RuntimeCommandType,
+        SensorStateFlushCommand,
+        SensorSyncCommand,
+        UserMessageCommand,
+    )
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+
+    try:
+        await queue.enqueue_user_message(
+            UserMessageCommand(
+                source="api",
+                user_id="user-1",
+                session_id="session-1",
+                turn_id="turn-1",
+                message="old message",
+            )
+        )
+        await queue.enqueue_sensor_sync(
+            SensorSyncCommand(
+                source="api",
+                source_name="chrome_history",
+                sync_mode="backfill",
+            )
+        )
+        await queue.enqueue_sensor_state_flush(
+            SensorStateFlushCommand(
+                source="api",
+                source_name="screen_time",
+            )
+        )
+        refresh_id = await queue.enqueue_refresh_llm_config(
+            RefreshLLMConfigCommand(source="api", reason="settings_saved")
+        )
+
+        post_clear_enqueue: asyncio.Task[int] | None = None
+        async with queue.user_message_global_clear_boundary():
+            generation, purged = await queue.advance_user_message_generation_and_purge()
+            post_clear_enqueue = asyncio.create_task(
+                queue.enqueue_sensor_sync(
+                    SensorSyncCommand(source="api", source_name="calendar")
+                )
+            )
+            await asyncio.sleep(0)
+            assert post_clear_enqueue.done() is False
+
+        assert generation == 1
+        assert purged == 3
+        assert (
+            await queue.claim_next(
+                consumer_name="runtime-worker",
+                command_types=(
+                    RuntimeCommandType.USER_MESSAGE,
+                    RuntimeCommandType.SENSOR_SYNC,
+                    RuntimeCommandType.SENSOR_STATE_FLUSH,
+                ),
+            )
+            is None
+        )
+
+        refresh = await queue.claim_next(
+            consumer_name="runtime-worker",
+            command_types=(RuntimeCommandType.REFRESH_LLM_CONFIG,),
+        )
+        assert refresh is not None
+        assert refresh.command_id == refresh_id
+
+        assert post_clear_enqueue is not None
+        await post_clear_enqueue
+        post_clear_sync = await queue.claim_next(
+            consumer_name="runtime-worker",
+            command_types=(RuntimeCommandType.SENSOR_SYNC,),
+        )
+        assert post_clear_sync is not None
+        assert post_clear_sync.user_message_generation == 1
     finally:
         await queue.stop()
 

@@ -2078,10 +2078,19 @@ independent table deletes.
 - Full clear takes the matching exclusive ingress boundary before it takes the
   memory store's exclusive operation boundary. This lock order is mandatory.
 - After active chat and embedding work is stopped, clear advances a durable
-  user-message generation. Every `USER_MESSAGE` command present at that
-  boundary is deleted from the runtime queue in every state, including
-  completed and failed rows, so message bodies do not survive the
-  user-requested clear. Non-chat runtime commands are preserved.
+  clear generation shared by `USER_MESSAGE`, `SENSOR_SYNC`, and
+  `SENSOR_STATE_FLUSH`. Every command of those types present at that boundary
+  is deleted from the runtime queue in every state, including claimed,
+  completed, and failed rows. Runtime-only configuration and channel refresh
+  commands are preserved.
+- Runtime-command processing holds a shared full-clear boundary from claim
+  through handler completion and acknowledgement or requeue. Full clear takes
+  the exclusive side first, stops new claims, and waits for in-flight message,
+  manual sensor-sync, and sensor-state-flush handlers to exit. Sensor command
+  enqueue uses the same boundary, so an enqueue racing clear is either deleted
+  as pre-clear work or admitted afterward with the new generation. A stale
+  manual backfill or state flush can therefore neither run nor recreate user
+  data after clear.
 - The generation travels with the command through the local message bus,
   `SensorHub`, router fact, and task-agent admission. It also remains attached to
   user-derived Explore orchestration state, worker updates, and the final

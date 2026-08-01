@@ -2520,6 +2520,136 @@ def test_memory_clear_api_clears_all_layers(
     ]
 
 
+@pytest.mark.asyncio
+async def test_memory_clear_waits_for_sensor_command_and_purges_sensor_queue(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import asyncio
+
+    from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
+    from magi.api.routers.memory.overview_routes import clear_memory_layers
+    from magi.bootstrap.context import RuntimeBootstrapContext
+    from magi.events.contracts import (
+        RefreshLLMConfigCommand,
+        RuntimeCommandType,
+        SensorStateFlushCommand,
+        SensorSyncCommand,
+    )
+    from magi.events.lifecycle import RuntimeCommandProcessorModule
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    queue = SQLiteRuntimeCommandQueue(
+        db_path=str(tmp_path / "runtime_commands.db")
+    )
+    await queue.start()
+    command_started = asyncio.Event()
+    release_command = asyncio.Event()
+    memory_clear_started = asyncio.Event()
+    sync_writes: list[str] = []
+    flush_writes: list[str] = []
+
+    class _BlockingSensorScheduler:
+        async def queue_manual_sync(self, source_name: str, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            command_started.set()
+            await release_command.wait()
+            sync_writes.append(source_name)
+
+    class _RecordingSensorExecutor:
+        async def flush_sensor_state(self, source_name: str) -> None:
+            flush_writes.append(source_name)
+
+    class _ObservedUnifiedMemory(_FakeUnifiedMemory):
+        async def clear_all_memory(self, **kwargs):  # type: ignore[no-untyped-def]
+            memory_clear_started.set()
+            return await super().clear_all_memory(**kwargs)
+
+    context = RuntimeBootstrapContext()
+    context.agent_runtime.sensor_scheduler_contrib = _BlockingSensorScheduler()
+    context.agent_runtime.sensor_sync_executor = _RecordingSensorExecutor()
+    processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
+
+    await queue.enqueue_sensor_sync(
+        SensorSyncCommand(
+            source="api",
+            source_name="chrome_history",
+            sync_mode="backfill",
+        )
+    )
+    await queue.enqueue_sensor_state_flush(
+        SensorStateFlushCommand(source="api", source_name="screen_time")
+    )
+    refresh_id = await queue.enqueue_refresh_llm_config(
+        RefreshLLMConfigCommand(source="api", reason="settings_saved")
+    )
+    processing = asyncio.create_task(
+        processor._run_next_command(queue=queue, message_bus=object())
+    )
+    clearing: asyncio.Task[dict] | None = None
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_runtime_command_queue",
+        lambda: queue,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _ObservedUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_task_agent_manager",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_sensor_hub",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        _embedding_rebuild_manager,
+        "pause_starts_and_cancel_all",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        _embedding_rebuild_manager,
+        "resume_starts",
+        AsyncMock(),
+    )
+
+    try:
+        await asyncio.wait_for(command_started.wait(), timeout=1)
+        clearing = asyncio.create_task(clear_memory_layers())
+        await asyncio.sleep(0.02)
+        assert memory_clear_started.is_set() is False
+
+        release_command.set()
+        await asyncio.wait_for(processing, timeout=1)
+        result = await asyncio.wait_for(clearing, timeout=2)
+
+        assert result["success"] is True
+        assert sync_writes == ["chrome_history"]
+        assert flush_writes == []
+        assert (await queue.get_stats()) == {
+            "pending_count": 1,
+            "claimed_count": 0,
+            "completed_count": 0,
+            "failed_count": 0,
+        }
+        refresh = await queue.claim_next(
+            consumer_name="runtime-worker",
+            command_types=(RuntimeCommandType.REFRESH_LLM_CONFIG,),
+        )
+        assert refresh is not None
+        assert refresh.command_id == refresh_id
+    finally:
+        release_command.set()
+        if clearing is not None:
+            await asyncio.gather(clearing, return_exceptions=True)
+        if not processing.done():
+            processing.cancel()
+        await asyncio.gather(processing, return_exceptions=True)
+        await queue.stop()
+
+
 def test_memory_clear_rejects_when_scheduler_is_unavailable(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

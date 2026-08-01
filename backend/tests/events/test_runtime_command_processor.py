@@ -517,7 +517,7 @@ async def test_runtime_command_processor_requeues_user_messages_without_local_su
 
 
 @pytest.mark.asyncio
-async def test_claimed_user_message_is_discarded_when_clear_advances_before_dispatch(
+async def test_global_clear_waits_for_claimed_user_message_dispatch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -539,12 +539,13 @@ async def test_claimed_user_message_is_discarded_when_clear_advances_before_disp
             user_id="user-1",
             session_id="session-old",
             turn_id="turn-old",
-            message="must not dispatch after clear",
+            message="finish dispatch before clear",
         )
     )
     real_claim_next = queue.claim_next
     command_claimed = asyncio.Event()
     release_claim = asyncio.Event()
+    clear_entered = asyncio.Event()
 
     async def _claim_then_pause(**kwargs):  # type: ignore[no-untyped-def]
         command = await real_claim_next(**kwargs)
@@ -556,24 +557,216 @@ async def test_claimed_user_message_is_discarded_when_clear_advances_before_disp
     dispatch_task = asyncio.create_task(
         processor._run_next_command(queue=queue, message_bus=message_bus)
     )
+    clear_task: asyncio.Task[tuple[int, int]] | None = None
+
+    async def _clear() -> tuple[int, int]:
+        async with queue.user_message_global_clear_boundary():
+            clear_entered.set()
+            return await queue.advance_user_message_generation_and_purge()
+
     try:
         await asyncio.wait_for(command_claimed.wait(), timeout=1)
-        async with queue.user_message_clear_boundary():
-            generation, purged = await queue.advance_user_message_generation_and_purge()
-        assert generation == 1
-        assert purged == 1
+        clear_task = asyncio.create_task(_clear())
+        await asyncio.sleep(0.02)
+        assert clear_entered.is_set() is False
 
         release_claim.set()
         await asyncio.wait_for(dispatch_task, timeout=1)
-        assert await sensor_hub.get_batch(timeout_seconds=0.05) == []
+        assert await asyncio.wait_for(clear_task, timeout=1) == (1, 1)
+        batch = await sensor_hub.get_batch(timeout_seconds=0.05)
+        assert len(batch) == 1
+        assert batch[0].payload["content"] == "finish dispatch before clear"
         assert processor._active_commands == 0
     finally:
         release_claim.set()
+        if clear_task is not None:
+            await asyncio.gather(clear_task, return_exceptions=True)
         if not dispatch_task.done():
             dispatch_task.cancel()
-            await asyncio.gather(dispatch_task, return_exceptions=True)
+        await asyncio.gather(dispatch_task, return_exceptions=True)
         await sensor_hub.stop()
         await message_bus.stop()
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command_kind", ["sensor_sync", "sensor_state_flush"])
+async def test_global_clear_waits_for_active_sensor_command(
+    tmp_path: Path,
+    command_kind: str,
+) -> None:
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    context = RuntimeBootstrapContext()
+    command_started = asyncio.Event()
+    release_command = asyncio.Event()
+    clear_entered = asyncio.Event()
+    order: list[str] = []
+
+    class _BlockingSensorScheduler:
+        async def queue_manual_sync(self, source_name: str, **kwargs):  # type: ignore[no-untyped-def]
+            _ = (source_name, kwargs)
+            command_started.set()
+            await release_command.wait()
+            order.append("sensor_write")
+
+    class _BlockingSensorExecutor:
+        async def flush_sensor_state(self, source_name: str) -> None:
+            _ = source_name
+            command_started.set()
+            await release_command.wait()
+            order.append("sensor_write")
+
+    context.agent_runtime.sensor_scheduler_contrib = _BlockingSensorScheduler()
+    context.agent_runtime.sensor_sync_executor = _BlockingSensorExecutor()
+    processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
+
+    if command_kind == "sensor_sync":
+        await queue.enqueue_sensor_sync(
+            SensorSyncCommand(
+                source="api",
+                source_name="chrome_history",
+                sync_mode="backfill",
+            )
+        )
+    else:
+        await queue.enqueue_sensor_state_flush(
+            SensorStateFlushCommand(source="api", source_name="screen_time")
+        )
+
+    processing = asyncio.create_task(
+        processor._run_next_command(queue=queue, message_bus=object())
+    )
+
+    async def _clear() -> tuple[int, int]:
+        async with queue.user_message_global_clear_boundary():
+            clear_entered.set()
+            order.append("clear")
+            return await queue.advance_user_message_generation_and_purge()
+
+    clearing: asyncio.Task[tuple[int, int]] | None = None
+    try:
+        await asyncio.wait_for(command_started.wait(), timeout=1)
+        clearing = asyncio.create_task(_clear())
+        await asyncio.sleep(0.02)
+
+        assert clear_entered.is_set() is False
+
+        release_command.set()
+        await asyncio.wait_for(processing, timeout=1)
+        assert await asyncio.wait_for(clearing, timeout=1) == (1, 1)
+        assert order == ["sensor_write", "clear"]
+    finally:
+        release_command.set()
+        if clearing is not None:
+            await asyncio.gather(clearing, return_exceptions=True)
+        if not processing.done():
+            processing.cancel()
+        await asyncio.gather(processing, return_exceptions=True)
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command_kind", ["sensor_sync", "sensor_state_flush"])
+async def test_sensor_command_queued_before_clear_cannot_run_after_clear(
+    tmp_path: Path,
+    command_kind: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    processor = RuntimeCommandProcessorModule(
+        RuntimeBootstrapContext(),
+        poll_interval_seconds=0.01,
+    )
+    executed: list[RuntimeCommandType] = []
+
+    async def _record_execution(command, message_bus):  # type: ignore[no-untyped-def]
+        _ = message_bus
+        executed.append(command.command_type)
+        return True
+
+    monkeypatch.setattr(processor, "_execute_runtime_command", _record_execution)
+    if command_kind == "sensor_sync":
+        await queue.enqueue_sensor_sync(
+            SensorSyncCommand(
+                source="api",
+                source_name="chrome_history",
+                sync_mode="backfill",
+            )
+        )
+    else:
+        await queue.enqueue_sensor_state_flush(
+            SensorStateFlushCommand(source="api", source_name="screen_time")
+        )
+
+    processing: asyncio.Task[None] | None = None
+    try:
+        async with queue.user_message_global_clear_boundary():
+            processing = asyncio.create_task(
+                processor._run_next_command(queue=queue, message_bus=object())
+            )
+            await asyncio.sleep(0.02)
+            assert executed == []
+            generation, purged = await queue.advance_user_message_generation_and_purge()
+            assert generation == 1
+            assert purged == 1
+
+        assert processing is not None
+        await asyncio.wait_for(processing, timeout=1)
+        assert executed == []
+    finally:
+        if processing is not None and not processing.done():
+            processing.cancel()
+            await asyncio.gather(processing, return_exceptions=True)
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command_type",
+    [
+        RuntimeCommandType.USER_MESSAGE,
+        RuntimeCommandType.SENSOR_SYNC,
+        RuntimeCommandType.SENSOR_STATE_FLUSH,
+    ],
+)
+async def test_processor_rejects_stale_clear_sensitive_command(
+    tmp_path: Path,
+    command_type: RuntimeCommandType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    async with queue.user_message_global_clear_boundary():
+        generation, purged = await queue.advance_user_message_generation_and_purge()
+    assert (generation, purged) == (1, 0)
+
+    processor = RuntimeCommandProcessorModule(RuntimeBootstrapContext())
+    executed: list[RuntimeCommandType] = []
+
+    async def _record_execution(command, message_bus):  # type: ignore[no-untyped-def]
+        _ = message_bus
+        executed.append(command.command_type)
+        return True
+
+    monkeypatch.setattr(processor, "_execute_runtime_command", _record_execution)
+    stale_command = RuntimeQueuedCommand(
+        command_id=999,
+        command_type=command_type,
+        payload={},
+        correlation_id="stale-command",
+        user_message_generation=0,
+    )
+
+    try:
+        await processor._execute_admitted_command(
+            queue=queue,
+            command=stale_command,
+            message_bus=object(),
+        )
+        assert executed == []
+    finally:
         await queue.stop()
 
 

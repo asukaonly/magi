@@ -1571,7 +1571,17 @@ For `sensor_sync` targets, the scheduler does not execute any sensor plugin code
 
 The `sensor_sync_jobs` table enforces at most one outstanding job per `(target_type, target_key)` via a partial unique index. A slow sensor causes skipped ticks, not backlog growth.
 
-Manual sync requests reuse the same queueing model through `SensorSchedulerContributor.queue_manual_sync()`. Sensor runtime-state flushes also run on the executor thread to avoid cross-thread access to shared sensor instances.
+Manual sync requests first enter the persisted runtime-command queue, then
+reuse the scheduler model through `SensorSchedulerContributor.queue_manual_sync()`.
+Sensor runtime-state flushes use the same runtime-command admission and then run
+on the executor thread to avoid cross-thread access to shared sensor instances.
+The runtime processor holds one full-clear boundary from command claim through
+completion. Full clear blocks new claims and sensor-command enqueue, waits for
+active handlers, advances the shared clear generation, and deletes every
+pre-clear `USER_MESSAGE`, `SENSOR_SYNC`, and `SENSOR_STATE_FLUSH` command in all
+states. Configuration and channel refresh commands remain queued. This keeps an
+old manual backfill or state flush from creating scheduler or sensor state after
+the clear has completed.
 
 The executor has explicit `running`, `stopping`, and `stopped` lifecycle states.
 Shutdown waits for the active worker for a bounded interval. If that wait times

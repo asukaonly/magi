@@ -21,7 +21,10 @@ from .events import (
     REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY,
 )
 from .in_memory_backend import InMemoryMessageBusBackend
-from .runtime_queue import SQLiteRuntimeCommandQueue
+from .runtime_queue import (
+    FULL_CLEAR_SENSITIVE_COMMAND_TYPES,
+    SQLiteRuntimeCommandQueue,
+)
 
 logger = get_logger(__name__)
 
@@ -159,10 +162,28 @@ class RuntimeCommandProcessorModule(LifecycleModule):
             await asyncio.sleep(self._poll_interval_seconds)
             return
 
-        command = await self._claim_next_command(queue)
+        command = None
+        async with queue.clear_sensitive_command_operation():
+            if not self._draining:
+                command = await self._claim_next_command(queue)
+            if command is not None:
+                await self._process_claimed_command(
+                    queue=queue,
+                    command=command,
+                    message_bus=message_bus,
+                )
+
         if command is None:
             await asyncio.sleep(self._poll_interval_seconds)
-            return
+
+    async def _process_claimed_command(
+        self,
+        *,
+        queue: Any,
+        command: Any,
+        message_bus: Any,
+    ) -> None:
+        """Execute one claimed command while its clear boundary remains shared."""
 
         self._mark_command_started()
         try:
@@ -177,23 +198,17 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                         )
                         await queue.ack(command.command_id)
                         return
-                    if (
-                        int(command.user_message_generation)
-                        != queue.current_user_message_generation()
-                    ):
-                        logger.info(
-                            "Discarding stale user-message runtime command",
-                            command_id=command.command_id,
-                            command_generation=command.user_message_generation,
-                            current_generation=queue.current_user_message_generation(),
-                        )
-                        await queue.ack(command.command_id)
-                        return
-                    published = await self._execute_runtime_command(command, message_bus)
-                    await self._complete_runtime_command(queue, command, published)
+                    await self._execute_admitted_command(
+                        queue=queue,
+                        command=command,
+                        message_bus=message_bus,
+                    )
                 return
-            published = await self._execute_runtime_command(command, message_bus)
-            await self._complete_runtime_command(queue, command, published)
+            await self._execute_admitted_command(
+                queue=queue,
+                command=command,
+                message_bus=message_bus,
+            )
         except asyncio.CancelledError:
             await asyncio.shield(
                 queue.requeue(
@@ -212,6 +227,30 @@ class RuntimeCommandProcessorModule(LifecycleModule):
             raise
         finally:
             self._mark_command_finished()
+
+    async def _execute_admitted_command(
+        self,
+        *,
+        queue: Any,
+        command: Any,
+        message_bus: Any,
+    ) -> None:
+        if (
+            command.command_type in FULL_CLEAR_SENSITIVE_COMMAND_TYPES
+            and int(command.user_message_generation)
+            != queue.current_user_message_generation()
+        ):
+            logger.info(
+                "Discarding stale clear-sensitive runtime command",
+                command_id=command.command_id,
+                command_type=command.command_type.value,
+                command_generation=command.user_message_generation,
+                current_generation=queue.current_user_message_generation(),
+            )
+            await queue.ack(command.command_id)
+            return
+        published = await self._execute_runtime_command(command, message_bus)
+        await self._complete_runtime_command(queue, command, published)
 
     async def _claim_next_command(self, queue: Any) -> Any | None:
         return await queue.claim_next(

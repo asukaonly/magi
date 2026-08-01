@@ -276,7 +276,7 @@ async def get_memory_statistics():
 
 @memory_router.delete("/clear", response_model=ClearMemoryResponseModel)
 async def clear_memory_layers():
-    """Permanently clear memory, chat content, derived evidence, and pending delivery state."""
+    """Clear user data plus every queued or active command that can recreate it."""
     logger.info("clear_memory: request received")
     unified_memory = _resolve_unified_memory()
     if not unified_memory:
@@ -365,7 +365,7 @@ async def clear_memory_layers():
                                 "clear_memory: failed to discard stale SensorHub messages"
                             )
                     logger.info(
-                        "clear_memory: advanced user-message boundary. "
+                        "clear_memory: advanced full-clear command boundary. "
                         "generation=%d commands=%d sensor_events=%d",
                         generation,
                         purged_commands,
