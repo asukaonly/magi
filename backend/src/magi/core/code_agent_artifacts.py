@@ -26,6 +26,14 @@ class CodeAgentArtifactPathError(ValueError):
     """Raised when a code-delegation path cannot be proven to stay in scope."""
 
 
+@dataclass(frozen=True, slots=True)
+class WorkspaceSessionArtifactReference:
+    """Exact workspace-owned session cache that must be removed."""
+
+    workspace_path: str
+    session_id: str
+
+
 def normalize_code_agent_delegation_id(value: object) -> str:
     """Return one canonical delegation id that is safe as a path component."""
 
@@ -137,6 +145,29 @@ def _resolve_artifact_child_directory(
             "code-agent scope could not be created"
         ) from exc
     return _existing_real_artifact_directory(child)
+
+
+def _resolve_existing_workspace_session_dir(
+    *,
+    workspace_root: str | Path,
+    session_id: object,
+) -> tuple[Path, Path | None]:
+    resolved_root = resolve_code_agent_workspace_root(workspace_root)
+    normalized_session_id = normalize_chat_asset_component(
+        session_id,
+        label="session_id",
+    )
+    current = resolved_root
+    for component in (".magi", "sessions", normalized_session_id):
+        child = _resolve_artifact_child_directory(
+            current,
+            component,
+            create=False,
+        )
+        if child is None:
+            return resolved_root, None
+        current = child
+    return resolved_root, current
 
 
 @dataclass(frozen=True, slots=True)
@@ -587,12 +618,64 @@ class CodeAgentArtifactGC:
             return
 
 
+class WorkspaceSessionArtifactGC:
+    """Remove complete Magi session caches from exact user workspaces."""
+
+    def delete_references(
+        self,
+        references: list[WorkspaceSessionArtifactReference],
+    ) -> int:
+        deleted = 0
+        seen: set[tuple[str, str]] = set()
+        for reference in references:
+            identity = (reference.workspace_path, reference.session_id)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            if self._delete_reference(reference):
+                deleted += 1
+        return deleted
+
+    def _delete_reference(
+        self,
+        reference: WorkspaceSessionArtifactReference,
+    ) -> bool:
+        raw_workspace_root = Path(reference.workspace_path).expanduser()
+        if not raw_workspace_root.is_absolute():
+            raise CodeAgentArtifactDeletionError(
+                "Workspace session cache root must be absolute"
+            )
+        if raw_workspace_root.is_symlink():
+            raise CodeAgentArtifactDeletionError(
+                "Workspace session cache root is not a real directory"
+            )
+        if not raw_workspace_root.exists():
+            return False
+        try:
+            workspace_root, session_dir = _resolve_existing_workspace_session_dir(
+                workspace_root=raw_workspace_root,
+                session_id=reference.session_id,
+            )
+        except (CodeAgentArtifactPathError, ValueError) as exc:
+            raise CodeAgentArtifactDeletionError(
+                "Workspace session cache identity or path is not safe"
+            ) from exc
+        if session_dir is None:
+            return False
+
+        CodeAgentArtifactGC._remove_tree(session_dir)
+        CodeAgentArtifactGC._remove_empty_directory(workspace_root / ".magi" / "sessions")
+        return True
+
+
 __all__ = [
     "CodeAgentArtifactDeletionError",
     "CodeAgentArtifactGC",
     "CodeAgentArtifactLocator",
     "CodeAgentArtifactPathError",
     "CodeAgentDelegationReference",
+    "WorkspaceSessionArtifactGC",
+    "WorkspaceSessionArtifactReference",
     "normalize_code_agent_delegation_id",
     "normalize_code_agent_delegation_references",
     "resolve_code_agent_workspace_root",

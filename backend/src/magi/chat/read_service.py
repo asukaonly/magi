@@ -13,6 +13,8 @@ from ..core.logger import get_logger
 from ..core.code_agent_artifacts import (
     CodeAgentArtifactGC,
     CodeAgentDelegationReference,
+    WorkspaceSessionArtifactGC,
+    WorkspaceSessionArtifactReference,
 )
 from ..core.sqlite import connect_sqlite
 from ..utils.runtime import RuntimePaths, get_runtime_paths
@@ -75,6 +77,7 @@ class ChatReadService(
         self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
         self._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
         self._code_agent_artifact_gc = CodeAgentArtifactGC()
+        self._workspace_session_artifact_gc = WorkspaceSessionArtifactGC()
         self._conn: Optional[sqlite3.Connection] = None
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -608,6 +611,17 @@ class ChatReadService(
         if gc is None:
             gc = CodeAgentArtifactGC()
             self._code_agent_artifact_gc = gc
+        gc.delete_references(references)
+
+    def _delete_workspace_session_artifacts(
+        self,
+        *,
+        references: list[WorkspaceSessionArtifactReference],
+    ) -> None:
+        gc = getattr(self, "_workspace_session_artifact_gc", None)
+        if gc is None:
+            gc = WorkspaceSessionArtifactGC()
+            self._workspace_session_artifact_gc = gc
         gc.delete_references(references)
 
     def _list_chat_snapshot_asset_references(

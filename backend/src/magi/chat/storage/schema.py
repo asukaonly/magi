@@ -261,6 +261,13 @@ CREATE TABLE IF NOT EXISTS chat_global_clear_intent (
         CHECK (session_count >= 0)
 );
 
+CREATE TABLE IF NOT EXISTS chat_workspace_session_cleanup (
+    workspace_path TEXT NOT NULL,
+    session_id TEXT COLLATE NOCASE NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (workspace_path, session_id)
+);
+
 CREATE TABLE IF NOT EXISTS chat_cleared_session_scopes (
     session_id TEXT COLLATE NOCASE PRIMARY KEY,
     cleared_at_ms INTEGER NOT NULL

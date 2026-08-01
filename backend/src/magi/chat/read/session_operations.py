@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import Protocol, cast
 
 from ...core.chat_cleanup import ChatSurfaceCleanupPendingError
-from ...core.code_agent_artifacts import CodeAgentDelegationReference
+from ...core.code_agent_artifacts import (
+    CodeAgentDelegationReference,
+    WorkspaceSessionArtifactReference,
+)
 from ...core.logger import get_logger
 from ...memory.l1.chat_sessions import ChatSessionRecord, create_chat_session_record
 from ..workspace_identity import claim_workspace_identity
@@ -53,6 +56,7 @@ from .schema import (
     CHAT_SESSIONS_TABLE,
     CHAT_TURNS_TABLE,
     CHAT_USER_TURN_DELIVERY_TABLE,
+    CHAT_WORKSPACE_SESSION_CLEANUP_TABLE,
 )
 
 logger = get_logger(__name__)
@@ -189,6 +193,12 @@ class _ChatSessionOperationsHost(Protocol):
         self,
         *,
         references: list[CodeAgentDelegationReference],
+    ) -> None: ...
+
+    def _delete_workspace_session_artifacts(
+        self,
+        *,
+        references: list[WorkspaceSessionArtifactReference],
     ) -> None: ...
 
     def _list_chat_snapshot_asset_references(
@@ -1094,6 +1104,49 @@ class ChatSessionOperationsMixin:
             )
             conn.execute(
                 f"""
+                INSERT OR IGNORE INTO {CHAT_WORKSPACE_SESSION_CLEANUP_TABLE}(
+                    workspace_path,
+                    session_id,
+                    created_at_ms
+                )
+                SELECT
+                    workspace_path,
+                    session_id,
+                    CAST(strftime('%s', 'now') AS INTEGER) * 1000
+                FROM {CHAT_SESSIONS_TABLE}
+                WHERE TRIM(COALESCE(workspace_path, '')) <> ''
+                """
+            )
+            conn.execute(
+                f"""
+                INSERT OR IGNORE INTO {CHAT_WORKSPACE_SESSION_CLEANUP_TABLE}(
+                    workspace_path,
+                    session_id,
+                    created_at_ms
+                )
+                SELECT
+                    workspace_path,
+                    session_id,
+                    CAST(strftime('%s', 'now') AS INTEGER) * 1000
+                FROM {CHAT_CODE_DELEGATION_ARTIFACTS_TABLE}
+                WHERE TRIM(workspace_path) <> ''
+                """
+            )
+            workspace_session_references = [
+                WorkspaceSessionArtifactReference(
+                    workspace_path=str(row["workspace_path"]),
+                    session_id=str(row["session_id"]),
+                )
+                for row in conn.execute(
+                    f"""
+                    SELECT workspace_path, session_id
+                    FROM {CHAT_WORKSPACE_SESSION_CLEANUP_TABLE}
+                    ORDER BY workspace_path, session_id
+                    """
+                ).fetchall()
+            ]
+            conn.execute(
+                f"""
                 INSERT OR IGNORE INTO {CHAT_CLEARED_SESSION_SCOPES_TABLE}(
                     session_id,
                     cleared_at_ms
@@ -1158,9 +1211,13 @@ class ChatSessionOperationsMixin:
         host._delete_code_delegation_artifacts(
             references=code_delegation_references,
         )
+        host._delete_workspace_session_artifacts(
+            references=workspace_session_references,
+        )
 
         conn.execute("BEGIN IMMEDIATE")
         try:
+            conn.execute(f"DELETE FROM {CHAT_WORKSPACE_SESSION_CLEANUP_TABLE}")
             conn.execute(f"DELETE FROM {CHAT_MESSAGE_ASSET_REFS_TABLE}")
             conn.execute(
                 f"DELETE FROM {CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE}"
@@ -1230,6 +1287,7 @@ class ChatSessionOperationsMixin:
                   + (SELECT COUNT(*) FROM {CHAT_MESSAGE_ASSET_REFS_TABLE})
                   + (SELECT COUNT(*) FROM {CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE})
                   + (SELECT COUNT(*) FROM {CHAT_CODE_DELEGATION_ARTIFACTS_TABLE})
+                  + (SELECT COUNT(*) FROM {CHAT_WORKSPACE_SESSION_CLEANUP_TABLE})
                   + (SELECT COUNT(*) FROM {CHAT_ASSISTANT_MEMORY_OUTBOX_TABLE})
                   + (SELECT COUNT(*) FROM {CHAT_USER_TURN_DELIVERY_TABLE})
                   + (SELECT COUNT(*) FROM {CHAT_CONTEXT_SUMMARIES_TABLE})
