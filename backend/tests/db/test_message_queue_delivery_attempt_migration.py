@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from alembic import command
+from alembic.script import ScriptDirectory
 import pytest
 
 from magi.db.runner import MIGRATION_TARGETS, _build_config
@@ -187,6 +188,7 @@ def test_message_queue_v5_upgrade_resumes_each_receipt_rebuild_boundary(
         conn.commit()
 
     command.upgrade(config, "head")
+    expected_head = ScriptDirectory.from_config(config).get_current_head()
 
     with sqlite3.connect(db_path) as conn:
         assert conn.execute(
@@ -212,7 +214,7 @@ def test_message_queue_v5_upgrade_resumes_each_receipt_rebuild_boundary(
         ).fetchone() is None
         assert conn.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("v5",)
+        ).fetchone() == (expected_head,)
 
 
 def test_message_queue_v5_upgrade_fails_closed_on_receipt_conflict(
