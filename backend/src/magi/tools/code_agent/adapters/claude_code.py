@@ -2,7 +2,8 @@
 
 Spawns the binary in headless stream-json mode, parses each JSONL event
 into a typed ``RunEvent``, persists raw stdout/stderr, and extracts the
-final assistant text + cost from the transcript for the service.
+final assistant text + cost from the transcript for the service. Session
+persistence is disabled so Magi remains the only owner of delegated context.
 """
 
 from __future__ import annotations
@@ -312,6 +313,7 @@ class ClaudeCodeAdapter:
         argv: list[str] = [
             binary_path,
             "-p",
+            "--no-session-persistence",
             "--output-format",
             "stream-json",
             "--include-partial-messages",

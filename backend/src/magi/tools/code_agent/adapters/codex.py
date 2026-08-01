@@ -3,7 +3,8 @@
 Codex emits ``--json`` JSONL events on stdout. The "final assistant message"
 isn't always cleanly tagged, so we use ``-o <path>`` to redirect it to a file
 and read the file at the end. Cost is not reliably present in the JSONL
-stream and is left as None.
+stream and is left as None. Runs are ephemeral so delegated user context is
+owned and deleted by Magi instead of being copied into the user's Codex history.
 """
 
 from __future__ import annotations
@@ -278,6 +279,7 @@ class CodexAdapter:
         argv: list[str] = [
             binary_path,
             "exec",
+            "--ephemeral",
             "--json",
             "--sandbox",
             "workspace-write",

@@ -179,6 +179,7 @@ def test_build_argv_passes_uuid_session_id(tmp_path: Path) -> None:
     # 8-4-4-4-12 hex grouping
     assert len(session_id) == 36
     assert session_id.count("-") == 4
+    assert "--no-session-persistence" in argv
 
 
 @pytest.mark.asyncio

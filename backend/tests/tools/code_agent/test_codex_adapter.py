@@ -112,6 +112,7 @@ def test_codex_adapter_targets_isolated_worktree(tmp_path: Path) -> None:
 
     assert argv[argv.index("--cd") + 1] == str(worktree)
     assert str(tmp_path) != str(worktree)
+    assert "--ephemeral" in argv
 
 
 @pytest.mark.asyncio
