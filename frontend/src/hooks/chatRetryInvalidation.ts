@@ -1,4 +1,11 @@
+import {
+  captureBrowserContentGeneration,
+  isBrowserContentGenerationCurrent,
+  type BrowserContentGeneration,
+} from '@/lib/browserContentGeneration';
+
 export type ChatRetryGuard = {
+  browserContentGeneration: BrowserContentGeneration;
   globalEpoch: number;
   sessionId: string;
   sessionEpoch: number;
@@ -34,6 +41,7 @@ export const captureChatRetryGuard = (
   const normalizedSessionId = normalizeId(sessionId);
   const normalizedTurnId = normalizeId(turnId) || null;
   return {
+    browserContentGeneration: captureBrowserContentGeneration(),
     globalEpoch,
     sessionId: normalizedSessionId,
     sessionEpoch: getSessionEpoch(normalizedSessionId),
@@ -43,7 +51,8 @@ export const captureChatRetryGuard = (
 };
 
 export const isChatRetryGuardCurrent = (guard: ChatRetryGuard): boolean => (
-  guard.globalEpoch === globalEpoch
+  isBrowserContentGenerationCurrent(guard.browserContentGeneration)
+  && guard.globalEpoch === globalEpoch
   && guard.sessionEpoch === getSessionEpoch(guard.sessionId)
   && guard.turnEpoch === getTurnEpoch(guard.sessionId, guard.turnId)
 );
@@ -85,6 +94,7 @@ export const invalidateAllChatRetries = (): void => {
 };
 
 export type ChatHistoryGuard = {
+  browserContentGeneration: BrowserContentGeneration;
   globalEpoch: number;
   sessionId: string;
   sessionEpoch: number;
@@ -95,6 +105,7 @@ export const captureChatHistoryGuard = (
 ): ChatHistoryGuard => {
   const normalizedSessionId = normalizeId(sessionId);
   return {
+    browserContentGeneration: captureBrowserContentGeneration(),
     globalEpoch: historyGlobalEpoch,
     sessionId: normalizedSessionId,
     sessionEpoch: historySessionEpochs.get(normalizedSessionId) ?? 0,
@@ -104,7 +115,8 @@ export const captureChatHistoryGuard = (
 export const isChatHistoryGuardCurrent = (
   guard: ChatHistoryGuard,
 ): boolean => (
-  guard.globalEpoch === historyGlobalEpoch
+  isBrowserContentGenerationCurrent(guard.browserContentGeneration)
+  && guard.globalEpoch === historyGlobalEpoch
   && guard.sessionEpoch === (
     historySessionEpochs.get(guard.sessionId) ?? 0
   )

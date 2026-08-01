@@ -4,6 +4,10 @@ import {
   requestPermission,
   sendNotification,
 } from '@tauri-apps/plugin-notification';
+import {
+  captureBrowserContentGeneration,
+  isBrowserContentGenerationCurrent,
+} from '@/lib/browserContentGeneration';
 
 type DesktopNotificationPreferences = {
   desktopNotificationsEnabled: boolean;
@@ -27,7 +31,6 @@ type RealtimeLikeMessage = {
 const PREFERENCES_STORAGE_KEY = 'magi.desktopNotifications.preferences.v1';
 const DEDUPE_STORAGE_KEY = 'magi.desktopNotifications.sent.v1';
 const MAX_DEDUPE_IDS = 80;
-let notificationContentGeneration = 0;
 
 const DEFAULT_PREFERENCES: DesktopNotificationPreferences = {
   desktopNotificationsEnabled: false,
@@ -122,7 +125,6 @@ const rememberNotificationSent = (dedupeId: string | null | undefined): void => 
 };
 
 export function clearDesktopNotificationContentState(): boolean {
-  notificationContentGeneration += 1;
   if (!canUseLocalStorage()) {
     return typeof window === 'undefined';
   }
@@ -170,11 +172,11 @@ export async function notifyForUnreadChatMessage(request: UnreadChatNotification
   ) {
     return false;
   }
-  const contentGeneration = notificationContentGeneration;
+  const contentGeneration = captureBrowserContentGeneration();
   if (!await ensureNotificationPermission()) {
     return false;
   }
-  if (contentGeneration !== notificationContentGeneration) {
+  if (!isBrowserContentGenerationCurrent(contentGeneration)) {
     return false;
   }
 

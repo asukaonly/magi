@@ -37,6 +37,10 @@ import { commandsApi, messagesApi, type CommandDescriptor, type SkillCommandDesc
 import { DEFAULT_USER_ID } from '@/constants';
 import { dispatchAppEvent } from '@/constants/events';
 import {
+  captureBrowserContentGeneration,
+  isBrowserContentGenerationCurrent,
+} from '@/lib/browserContentGeneration';
+import {
   clearPersistedChatRetriesForSession,
   clearPersistedChatRetriesForTurn,
 } from '@/hooks/chatRetryLifecycle';
@@ -699,6 +703,10 @@ export const ChatPage: React.FC = () => {
     const targetSessionId = String(clearHistorySessionId || '').trim();
     if (!targetSessionId || clearHistoryInFlightRef.current) return;
 
+    const contentGeneration = captureBrowserContentGeneration();
+    const operationIsCurrent = () => (
+      isBrowserContentGenerationCurrent(contentGeneration)
+    );
     clearHistoryInFlightRef.current = true;
     setClearHistoryLoading(true);
     setClearHistoryError(null);
@@ -711,6 +719,9 @@ export const ChatPage: React.FC = () => {
             DEFAULT_USER_ID,
             targetSessionId,
           );
+          if (!operationIsCurrent()) {
+            return;
+          }
           if (!result.success) {
             throw new Error('Clear history request was not completed');
           }
@@ -752,6 +763,9 @@ export const ChatPage: React.FC = () => {
           dispatchAppEvent.chatHistoryCleared(targetSessionId);
         },
       );
+      if (!operationIsCurrent()) {
+        return;
+      }
       if (!admission.entered) {
         throw new Error('Clear history admission was not completed');
       }
@@ -762,9 +776,11 @@ export const ChatPage: React.FC = () => {
         toast.success(t('chat.clearHistoryDialog.success'));
       }
     } catch {
-      const message = t('chat.clearHistoryDialog.error');
-      setClearHistoryError(message);
-      toast.error(message);
+      if (operationIsCurrent()) {
+        const message = t('chat.clearHistoryDialog.error');
+        setClearHistoryError(message);
+        toast.error(message);
+      }
     } finally {
       clearHistoryInFlightRef.current = false;
       setClearHistoryLoading(false);
@@ -784,6 +800,10 @@ export const ChatPage: React.FC = () => {
 
   const handleInternalCommand = React.useCallback(
     async (action: 'clear' | 'new-session' | 'cancel' | 'help') => {
+      const contentGeneration = captureBrowserContentGeneration();
+      const operationIsCurrent = () => (
+        isBrowserContentGenerationCurrent(contentGeneration)
+      );
       try {
         if (action === 'clear') {
           if (!currentSessionId) {
@@ -796,6 +816,9 @@ export const ChatPage: React.FC = () => {
         }
         if (action === 'new-session') {
           const created = await messagesApi.createNewSession(DEFAULT_USER_ID);
+          if (!operationIsCurrent()) {
+            return;
+          }
           const newId = created?.session_id ?? null;
           if (newId) {
             activateRealtimeChatSession(newId);
@@ -810,6 +833,9 @@ export const ChatPage: React.FC = () => {
             return;
           }
           const outcome = await requestRunCancel(pendingResponseTurnId);
+          if (!operationIsCurrent()) {
+            return;
+          }
           if (outcome === 'settled') {
             clearPendingResponseTurn({
               sessionId: currentSessionId || undefined,
@@ -820,13 +846,18 @@ export const ChatPage: React.FC = () => {
         }
         if (action === 'help') {
           const list = await commandsApi.list();
+          if (!operationIsCurrent()) {
+            return;
+          }
           const lines = list.map((c) => `/${c.name} — ${c.description}`).join('\n');
           toast.message('Commands', {
             description: lines || t('chat.commands.empty', { defaultValue: 'No matching commands.' }),
           });
         }
       } catch (exc: any) {
-        toast.error(exc?.message ?? String(exc));
+        if (operationIsCurrent()) {
+          toast.error(exc?.message ?? String(exc));
+        }
       }
     },
     [

@@ -223,6 +223,7 @@ vi.mock('@/api', () => ({
     labelMessage: vi.fn(),
     deleteMessage: vi.fn(),
     clearHistory: vi.fn(),
+    createNewSession: vi.fn(),
     sendMessage: vi.fn().mockResolvedValue({
       success: true,
       message: 'ok',
@@ -512,6 +513,11 @@ export function defineChatPageSuite(
           } as any;
         },
       );
+      vi.mocked(messagesApi.createNewSession).mockReset().mockResolvedValue({
+        success: true,
+        user_id: 'local_user',
+        session_id: null,
+      });
       vi.mocked(commandsApi.list).mockReset().mockResolvedValue([]);
       vi.mocked(commandsApi.listSkills).mockReset().mockResolvedValue([]);
       vi.mocked(commandsApi.run).mockReset();

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { dispatchAppEvent } from '@/constants/events';
 
 const {
   isPermissionGrantedMock,
@@ -178,6 +179,7 @@ describe('desktop chat notifications', () => {
       expect(requestPermissionMock).toHaveBeenCalledTimes(1);
     });
 
+    dispatchAppEvent.memoryClearStarted();
     expect(clearDesktopNotificationContentState()).toBe(true);
     resolvePermission?.('granted');
 

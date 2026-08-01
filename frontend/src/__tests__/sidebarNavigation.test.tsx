@@ -5,6 +5,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { toast } from 'sonner';
 import { configApi, messagesApi } from '@/api';
 import Sidebar from '@/components/layout/Sidebar';
+import { dispatchAppEvent } from '@/constants/events';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { useNotificationStore } from '@/stores/notifications';
 import {
@@ -366,6 +367,61 @@ describe('sidebar navigation', () => {
     expect(storage.get('chat_session_local_user')).toBe('session-new');
   });
 
+  it('does not restore a session whose create response arrives after a full clear starts', async () => {
+    const user = userEvent.setup();
+    let resolveCreate!: (
+      value: Awaited<ReturnType<typeof messagesApi.createNewSession>>,
+    ) => void;
+    vi.mocked(messagesApi.listSessions).mockResolvedValue({
+      sessions: [
+        {
+          session_id: 'session-a',
+          title: 'Existing Session',
+          last_message_preview: '',
+          last_timestamp: 10,
+          message_count: 0,
+        },
+      ],
+      user_id: 'local_user',
+      count: 1,
+    });
+    vi.mocked(messagesApi.createNewSession).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Sidebar />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
+    await user.click(await screen.findByRole('button', { name: 'shell.newChat' }));
+    await waitFor(() => {
+      expect(messagesApi.createNewSession).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      dispatchAppEvent.memoryClearStarted();
+    });
+    await act(async () => {
+      resolveCreate({
+        success: true,
+        user_id: 'local_user',
+        session_id: 'session-before-clear',
+      });
+      await Promise.resolve();
+    });
+
+    expect(useConversationStore.getState().currentSessionId).not.toBe('session-before-clear');
+    expect(storage.get('chat_session_local_user')).not.toBe('session-before-clear');
+    expect(messagesApi.listSessions).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('location')).toHaveTextContent('/');
+  });
+
 
   it('keeps the currently selected session when it still exists in the refreshed list', async () => {
     vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
@@ -644,6 +700,78 @@ describe('sidebar navigation', () => {
     expect(toast.warning).toHaveBeenCalledWith(
       'shell.deleteSessionCleanupPending',
     );
+  });
+
+  it('does not commit a session deletion that resolves after a full clear starts', async () => {
+    const user = userEvent.setup();
+    const sessionA = {
+      session_id: 'session-a',
+      title: '杭州天气',
+      last_user_message_preview: '杭州天气',
+      last_message_preview: '今天有点冷',
+      last_timestamp: 10,
+      message_count: 1,
+    };
+    let resolveDelete!: (
+      value: Awaited<ReturnType<typeof messagesApi.deleteSession>>,
+    ) => void;
+    vi.mocked(messagesApi.listSessions).mockResolvedValue({
+      sessions: [sessionA],
+      user_id: 'local_user',
+      count: 1,
+    });
+    vi.mocked(messagesApi.deleteSession).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDelete = resolve;
+      }),
+    );
+    useConversationStore.setState({
+      currentSessionId: 'session-a',
+      orderedSessionIds: ['session-a'],
+      sessionsById: { 'session-a': sessionA },
+      messagesBySession: {},
+      unreadBySession: {},
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Sidebar />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
+    await user.pointer([{
+      target: await screen.findByRole('button', { name: '杭州天气' }),
+      keys: '[MouseRight]',
+    }]);
+    await user.click(await screen.findByRole('button', { name: 'shell.deleteSession' }));
+    await user.click(await screen.findByRole('button', { name: 'shell.confirmDeleteSession' }));
+    await waitFor(() => {
+      expect(messagesApi.deleteSession).toHaveBeenCalledWith('local_user', 'session-a');
+    });
+
+    act(() => {
+      dispatchAppEvent.memoryClearStarted();
+    });
+    await act(async () => {
+      resolveDelete({
+        success: true,
+        user_id: 'local_user',
+        deleted_session_id: 'session-a',
+        cleanup_pending: true,
+      });
+      await Promise.resolve();
+    });
+
+    expect(useConversationStore.getState().currentSessionId).toBe('session-a');
+    expect(storage.get('chat_session_local_user')).toBe('session-a');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'shell.confirmDeleteSession' })).toBeEnabled();
+    expect(screen.getByTestId('location')).toHaveTextContent('/');
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(messagesApi.listSessions).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the current session and retries when session deletion fails', async () => {

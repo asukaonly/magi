@@ -20,6 +20,10 @@ import { useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import {
+  captureBrowserContentGeneration,
+  isBrowserContentGenerationCurrent,
+} from '@/lib/browserContentGeneration';
 import { messagesApi, type ChatSessionListItem } from '@/api';
 import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
 import { APP_EVENTS } from '@/constants/events';
@@ -128,9 +132,13 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const sessionCreationPromiseRef = useRef<Promise<string | null> | null>(null);
 
   const refreshSessions = useCallback(async (preferredSessionId?: string | null) => {
+    const contentGeneration = captureBrowserContentGeneration();
     const requestId = refreshRequestIdRef.current + 1;
     refreshRequestIdRef.current = requestId;
-    const requestIsCurrent = () => refreshRequestIdRef.current === requestId;
+    const requestIsCurrent = () => (
+      refreshRequestIdRef.current === requestId
+      && isBrowserContentGenerationCurrent(contentGeneration)
+    );
     const sessionStorageKey = CHAT_SESSION_KEY(USER_ID);
     const readPersistedSessionId = () => {
       try {
@@ -206,7 +214,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         hydrateSessions([], useConversationStore.getState().currentSessionId);
       }
     } finally {
-      if (requestIsCurrent()) {
+      if (refreshRequestIdRef.current === requestId) {
         setLoading(false);
       }
     }
@@ -268,12 +276,22 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   }, [sessionMenu]);
 
   const handleCreateSession = async () => {
+    const contentGeneration = captureBrowserContentGeneration();
+    const operationIsCurrent = () => (
+      isBrowserContentGenerationCurrent(contentGeneration)
+    );
     try {
       const result = await messagesApi.createNewSession(USER_ID);
+      if (!operationIsCurrent()) {
+        return;
+      }
       if (result.session_id) {
         activateRealtimeChatSession(result.session_id);
         window.localStorage.setItem(CHAT_SESSION_KEY(USER_ID), result.session_id);
         await refreshSessions(result.session_id);
+        if (!operationIsCurrent()) {
+          return;
+        }
         setActivePanel('conversation');
         setOpenPanel('conversation');
         navigate('/chat');
@@ -302,10 +320,20 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     if (!nextTitle) {
       return;
     }
+    const contentGeneration = captureBrowserContentGeneration();
+    const operationIsCurrent = () => (
+      isBrowserContentGenerationCurrent(contentGeneration)
+    );
     setActionPending(true);
     try {
       await messagesApi.renameSession(USER_ID, renameTargetSession.session_id, nextTitle);
+      if (!operationIsCurrent()) {
+        return;
+      }
       await refreshSessions();
+      if (!operationIsCurrent()) {
+        return;
+      }
       setRenameTargetSession(null);
     } finally {
       setActionPending(false);
@@ -317,11 +345,19 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       return;
     }
     const targetSessionId = deleteTargetSession.session_id;
+    const contentGeneration = captureBrowserContentGeneration();
+    const operationIsCurrent = () => (
+      isBrowserContentGenerationCurrent(contentGeneration)
+    );
     setActionPending(true);
     let deleteConfirmed = false;
     let cleanupPending = false;
     try {
       const result = await messagesApi.deleteSession(USER_ID, targetSessionId);
+      if (!operationIsCurrent()) {
+        setActionPending(false);
+        return;
+      }
       if (
         !result.success
         || String(result.deleted_session_id || '').trim() !== targetSessionId
@@ -331,7 +367,13 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       deleteConfirmed = true;
       cleanupPending = result.cleanup_pending;
     } catch {
-      toast.error(t('shell.deleteSessionFailed'));
+      if (operationIsCurrent()) {
+        toast.error(t('shell.deleteSessionFailed'));
+      }
+    }
+    if (!operationIsCurrent()) {
+      setActionPending(false);
+      return;
     }
     if (!deleteConfirmed) {
       setActionPending(false);

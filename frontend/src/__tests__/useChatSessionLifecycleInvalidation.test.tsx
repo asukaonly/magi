@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { clearPersistedChatRetriesForTurn } from '@/hooks/chatRetryLifecycle';
+import { dispatchAppEvent } from '@/constants/events';
 import { useChatSessionLifecycle } from '@/hooks/useChatSessionLifecycle';
 import { useConversationStore } from '@/stores/conversation-store';
 
@@ -96,6 +97,45 @@ describe('useChatSessionLifecycle destructive invalidation', () => {
           message_id: 'message-old',
           role: 'user',
           content: 'Deleted content',
+          timestamp: 1,
+          turn_id: 'turn-old',
+          kind: 'user',
+        }],
+        count: 1,
+      });
+      expect(await pending).toMatchObject({ loaded: false });
+    });
+
+    expect(useConversationStore.getState().messagesBySession['session-1']).toBeUndefined();
+  });
+
+  it('does not restore history whose response arrives after a full clear starts', async () => {
+    const historyRequest = createDeferred<{
+      user_id: string;
+      session_id: string;
+      messages: Array<Record<string, unknown>>;
+      count: number;
+    }>();
+    getHistoryMock.mockReturnValue(historyRequest.promise);
+    const hook = renderHook(() => useChatSessionLifecycle({
+      currentSessionId: 'session-1',
+      upsertMessage: useConversationStore.getState().upsertMessage,
+      removeMessage: useConversationStore.getState().removeMessage,
+      translate: (key) => key,
+    }));
+    const pending = hook.result.current.ensureSessionHistoryReady('session-1');
+
+    act(() => {
+      dispatchAppEvent.memoryClearStarted();
+    });
+    await act(async () => {
+      historyRequest.resolve({
+        user_id: 'local_user',
+        session_id: 'session-1',
+        messages: [{
+          message_id: 'message-old',
+          role: 'user',
+          content: 'Content from before the clear',
           timestamp: 1,
           turn_id: 'turn-old',
           kind: 'user',

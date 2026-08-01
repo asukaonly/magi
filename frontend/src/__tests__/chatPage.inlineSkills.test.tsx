@@ -20,6 +20,7 @@ import { ChatPage } from '@/pages/Chat';
 import { useConversationStore } from '@/stores/conversation-store';
 import { normalizeHistoryMessages } from '@/domain/chat/state';
 import { commandsApi, messagesApi } from '@/api';
+import { dispatchAppEvent } from '@/constants/events';
 import { configApi } from '@/api/modules/config';
 import { personasApi } from '@/api/modules/personas';
 import {
@@ -37,6 +38,40 @@ defineChatPageSuite('ChatPage inline skills and clearing', () => {
     await waitFor(() => {
       expect(messagesApi.getHistory).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('does not switch to a session whose response arrives after a full clear starts', async () => {
+    const user = userEvent.setup();
+    let resolveCreate!: (
+      value: Awaited<ReturnType<typeof messagesApi.createNewSession>>,
+    ) => void;
+    vi.mocked(messagesApi.createNewSession).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+    render(<ChatPage />);
+
+    const composer = await screen.findByPlaceholderText('chat.inputPlaceholder');
+    await user.type(composer, '/new');
+    await user.click(await screen.findByRole('option', { name: /\/new-session/ }));
+    await waitFor(() => {
+      expect(messagesApi.createNewSession).toHaveBeenCalledWith('local_user');
+    });
+
+    act(() => {
+      dispatchAppEvent.memoryClearStarted();
+    });
+    await act(async () => {
+      resolveCreate({
+        success: true,
+        user_id: 'local_user',
+        session_id: 'session-before-clear',
+      });
+      await Promise.resolve();
+    });
+
+    expect(useConversationStore.getState().currentSessionId).toBe('session-1');
   });
 
   it('renders historical assistant messages with their stored persona identity', async () => {
@@ -161,6 +196,58 @@ defineChatPageSuite('ChatPage inline skills and clearing', () => {
         expect.objectContaining({ message: 'Message after clear' }),
       );
     });
+  });
+
+  it('does not finish an old clear-history callback after a full clear starts', async () => {
+    const user = userEvent.setup();
+    let resolveClear!: (
+      value: Awaited<ReturnType<typeof messagesApi.clearHistory>>,
+    ) => void;
+    vi.mocked(messagesApi.clearHistory).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveClear = resolve;
+      }),
+    );
+    render(<ChatPage />);
+
+    const composer = await screen.findByPlaceholderText('chat.inputPlaceholder');
+    await user.type(composer, '/cl');
+    await user.click(await screen.findByRole('option', { name: /\/clear/ }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'chat.clearHistoryDialog.title',
+    });
+    const confirm = within(dialog).getByRole('button', {
+      name: 'chat.clearHistoryDialog.confirm',
+    });
+    await user.click(confirm);
+    await waitFor(() => {
+      expect(messagesApi.clearHistory).toHaveBeenCalledWith('local_user', 'session-1');
+      expect(confirm).toBeDisabled();
+    });
+
+    act(() => {
+      dispatchAppEvent.memoryClearStarted();
+    });
+    await act(async () => {
+      resolveClear({
+        success: true,
+        message: 'old clear completed',
+        user_id: 'local_user',
+        session_id: 'session-1',
+        cleared_message_ids: [],
+        cleared_turn_ids: [],
+        cleanup_pending: true,
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('dialog', {
+      name: 'chat.clearHistoryDialog.title',
+    })).toBeInTheDocument();
+    expect(confirm).toBeEnabled();
+    expect(useConversationStore.getState().currentSessionId).toBe('session-1');
+    expect(toastWarningMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
   });
 
   it('waits for an active send before clearing the chat', async () => {

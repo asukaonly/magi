@@ -1,4 +1,8 @@
 import { api, resolveApiBaseUrl } from '../client';
+import {
+  captureBrowserContentGeneration,
+  isBrowserContentGenerationCurrent,
+} from '@/lib/browserContentGeneration';
 
 export type PrivateResourceDescriptor =
   | {
@@ -171,6 +175,7 @@ export async function resolvePrivateResourceUrl(
 ): Promise<string> {
   const key = descriptorKey(descriptor);
   const requestGeneration = accessGeneration;
+  const browserContentGeneration = captureBrowserContentGeneration();
   if (options.force) {
     cachedGrants.delete(key);
   } else {
@@ -188,7 +193,10 @@ export async function resolvePrivateResourceUrl(
   const request = api
     .post<PrivateResourceGrant>('/private-resource-tickets', descriptor)
     .then((response) => {
-      if (requestGeneration !== accessGeneration) {
+      if (
+        requestGeneration !== accessGeneration
+        || !isBrowserContentGenerationCurrent(browserContentGeneration)
+      ) {
         throw new Error('Private resource access request was retired');
       }
       const grant = response.data;

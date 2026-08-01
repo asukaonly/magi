@@ -5,6 +5,8 @@
  * communication without tight coupling.
  */
 
+import { advanceBrowserContentGeneration } from '@/lib/browserContentGeneration';
+
 // ============================================================================
 // Event Names
 // ============================================================================
@@ -103,7 +105,10 @@ export function subscribeToAppEvent(
 // ============================================================================
 
 export const dispatchAppEvent = {
-  memoryClearStarted: () => dispatchCustomAppEvent(APP_EVENTS.MEMORY_CLEAR_STARTED),
+  memoryClearStarted: () => {
+    advanceBrowserContentGeneration();
+    dispatchCustomAppEvent(APP_EVENTS.MEMORY_CLEAR_STARTED);
+  },
   memoryClearFailed: (message: string) => dispatchCustomAppEvent(
     APP_EVENTS.MEMORY_CLEAR_FAILED,
     { message },

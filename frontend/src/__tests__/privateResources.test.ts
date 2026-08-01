@@ -19,6 +19,7 @@ import {
   resolvePrivateResourceUrl,
   type PrivateResourceDescriptor,
 } from '@/api/modules/privateResources';
+import { dispatchAppEvent } from '@/constants/events';
 
 const CHAT_DESCRIPTOR: PrivateResourceDescriptor = {
   kind: 'chat_attachment',
@@ -161,6 +162,27 @@ describe('privateResources', () => {
     completeRequest({
       data: {
         access_url: `${CHAT_ACCESS_PATH}&resource_ticket=retired`,
+        expires_at_ms: Date.now() + 60_000,
+      },
+    });
+
+    await expect(pending).rejects.toThrow('retired');
+    expect(getCachedPrivateResourceUrl(CHAT_DESCRIPTOR)).toBeNull();
+  });
+
+  it('retires an unfinished grant request as soon as a full clear starts', async () => {
+    let completeRequest!: (value: {
+      data: { access_url: string; expires_at_ms: number };
+    }) => void;
+    clientMocks.post.mockReturnValue(new Promise((resolve) => {
+      completeRequest = resolve;
+    }));
+
+    const pending = resolvePrivateResourceUrl(CHAT_DESCRIPTOR);
+    dispatchAppEvent.memoryClearStarted();
+    completeRequest({
+      data: {
+        access_url: `${CHAT_ACCESS_PATH}&resource_ticket=retired-at-start`,
         expires_at_ms: Date.now() + 60_000,
       },
     });
