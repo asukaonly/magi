@@ -55,20 +55,25 @@ def ensure_db_schema():
 
 
 @pytest.fixture(autouse=True)
-def _reset_chat_trace_singleton():
-    """ChatTraceReadService freezes runtime paths at construction and the
-    container Singleton caches the instance — whichever test triggers the
-    first construction pins its (possibly tmp, already-deleted) paths for the
-    whole process. Reset the singleton so each test constructs fresh."""
-    yield
+def _reset_chat_read_singletons():
+    """Reset chat readers that freeze runtime paths at construction."""
     from magi.core.container import get_container
 
-    try:
-        provider = get_container().chat_trace_read_service
-        provider.reset_override()
-        provider.reset()
-    except Exception:
-        pass
+    def reset() -> None:
+        try:
+            container = get_container()
+            for provider in (
+                container.chat_read_service,
+                container.chat_trace_read_service,
+            ):
+                provider.reset_override()
+                provider.reset()
+        except Exception:
+            pass
+
+    reset()
+    yield
+    reset()
 
 
 @pytest.fixture(autouse=True)
