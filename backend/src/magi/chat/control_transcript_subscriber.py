@@ -18,9 +18,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from typing import Any, Iterable
 
+from ..core.operation_barrier import AsyncOperationBarrier
 from ..events.domain_payloads import (
     AskSnapshot,
     ControlAskAnswered,
@@ -28,7 +32,7 @@ from ..events.domain_payloads import (
     ControlPlanStateChanged,
     ControlTodoStateChanged,
 )
-from ..events.events import Event, EventTypes
+from ..events.events import Event, EventTypes, published_memory_epoch
 from ..events.payload_helpers import expect_payload, PayloadTypeError
 from ..identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .contracts import ChatMessageRecord
@@ -744,11 +748,21 @@ class ControlTranscriptSubscriber:
     publish order.
     """
 
-    def __init__(self, *, event_bus) -> None:
+    def __init__(
+        self,
+        *,
+        event_bus,
+        memory_epoch_getter: Callable[[], int] | None = None,
+    ) -> None:
         self._bus = event_bus
+        self._memory_epoch_getter = memory_epoch_getter
         self._sub_ids: list[str] = []
         self._inflight: set[asyncio.Task] = set()
         self._serialize_lock = asyncio.Lock()
+        self._clear_barrier = AsyncOperationBarrier()
+        self._clear_generation = 0
+        self._clear_request_count = 0
+        self._clear_cutoff_event_timestamp = 0.0
 
     async def start(self) -> None:
         self._sub_ids.append(
@@ -786,53 +800,100 @@ class ControlTranscriptSubscriber:
             return
         await asyncio.gather(*list(self._inflight), return_exceptions=True)
 
+    @asynccontextmanager
+    async def user_content_clear_boundary(self) -> AsyncIterator[None]:
+        """Drain admitted projections and reject events crossing a full clear."""
+        self._clear_request_count += 1
+        self._clear_generation += 1
+        try:
+            async with self._clear_barrier.exclusive():
+                yield
+        finally:
+            self._clear_cutoff_event_timestamp = max(
+                self._clear_cutoff_event_timestamp,
+                time.time(),
+            )
+            self._clear_request_count -= 1
+
     # -- event handlers -----------------------------------------------------
 
     async def _on_plan_state_changed(self, event: Event) -> None:
+        if not self._admits_event(event):
+            return
         try:
             payload = expect_payload(event, ControlPlanStateChanged)
         except PayloadTypeError:
             logger.exception("malformed ControlPlanStateChanged payload")
             return
-        self._spawn(self._project_plan_state(payload))
+        self._spawn(lambda: self._project_plan_state(payload))
 
     async def _on_todo_state_changed(self, event: Event) -> None:
+        if not self._admits_event(event):
+            return
         try:
             payload = expect_payload(event, ControlTodoStateChanged)
         except PayloadTypeError:
             logger.exception("malformed ControlTodoStateChanged payload")
             return
-        self._spawn(self._project_todo_state(payload))
+        self._spawn(lambda: self._project_todo_state(payload))
 
     async def _on_ask_requested(self, event: Event) -> None:
+        if not self._admits_event(event):
+            return
         try:
             payload = expect_payload(event, ControlAskRequested)
         except PayloadTypeError:
             logger.exception("malformed ControlAskRequested payload")
             return
-        self._spawn(self._project_ask_requested(payload))
+        self._spawn(lambda: self._project_ask_requested(payload))
 
     async def _on_ask_answered(self, event: Event) -> None:
+        if not self._admits_event(event):
+            return
         try:
             payload = expect_payload(event, ControlAskAnswered)
         except PayloadTypeError:
             logger.exception("malformed ControlAskAnswered payload")
             return
-        self._spawn(self._project_ask_answered(payload))
+        self._spawn(lambda: self._project_ask_answered(payload))
 
     # -- projection (serialized + error-isolated) ---------------------------
 
-    def _spawn(self, coro) -> None:
-        task = asyncio.create_task(self._serialized(coro))
+    def _spawn(self, operation: Callable[[], Awaitable[None]]) -> None:
+        generation = self._clear_generation
+        task = asyncio.create_task(self._serialized(operation, generation))
         self._inflight.add(task)
         task.add_done_callback(self._inflight.discard)
 
-    async def _serialized(self, coro) -> None:
-        async with self._serialize_lock:
-            try:
-                await coro
-            except Exception:
-                logger.exception("control transcript projection failed")
+    async def _serialized(
+        self,
+        operation: Callable[[], Awaitable[None]],
+        generation: int,
+    ) -> None:
+        try:
+            async with self._serialize_lock:
+                async with self._clear_barrier.operation():
+                    if generation != self._clear_generation:
+                        return
+                    await operation()
+        except Exception:
+            logger.exception("control transcript projection failed")
+
+    def _admits_event(self, event: Event) -> bool:
+        if self._clear_request_count > 0:
+            return False
+        if event.timestamp <= self._clear_cutoff_event_timestamp:
+            return False
+        if self._memory_epoch_getter is None:
+            return True
+        event_epoch = published_memory_epoch(event)
+        if event_epoch is None:
+            return True
+        try:
+            return event_epoch == int(self._memory_epoch_getter())
+        except Exception:
+            logger.exception("control transcript memory epoch resolution failed")
+            return False
 
     async def _project_plan_state(self, p: ControlPlanStateChanged) -> None:
         await persist_plan_state_message(

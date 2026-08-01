@@ -49,6 +49,7 @@ from ..control.permission.rules import PermissionRuleStore
 from ..control.session_store import ControlSessionStore
 from ..control.settings import ControlSettings
 from ..control.settings_manager import ControlSettingsManager
+from ..control.user_content_clear import ControlUserContentClearCoordinator
 from ..core.container import get_container
 from ..core.logger import get_logger
 from .context import RuntimeBootstrapContext
@@ -74,6 +75,7 @@ class ControlPlaneWiring:
         "gateway",
         "pending_permissions",
         "prompter",
+        "user_content_clear",
     )
 
     def __init__(
@@ -86,6 +88,7 @@ class ControlPlaneWiring:
         gateway: PermissionGateway,
         pending_permissions: PendingPermissionRegistry,
         prompter: BrokeredPermissionPrompter,
+        user_content_clear: ControlUserContentClearCoordinator,
     ) -> None:
         self.settings_manager = settings_manager
         self.rule_store = rule_store
@@ -93,6 +96,7 @@ class ControlPlaneWiring:
         self.session_store = session_store
         self.gateway = gateway
         self.pending_permissions = pending_permissions
+        self.user_content_clear = user_content_clear
         #: The constructed prompter — exposed so ChannelsModule (which
         #: initializes later) can bind a control-fanout callback via
         #: ``prompter.bind_fanout_callback`` once the channel registry
@@ -139,6 +143,11 @@ class ControlPlaneModule(LifecycleModule):
         broker = InteractionBroker()
         session_store = ControlSessionStore()
         pending_permissions = PendingPermissionRegistry()
+        user_content_clear = ControlUserContentClearCoordinator(
+            session_store=session_store,
+            pending_permissions=pending_permissions,
+            interaction_broker=broker,
+        )
 
         async def _publish_permission_event(
             channel: str, payload: dict
@@ -184,6 +193,7 @@ class ControlPlaneModule(LifecycleModule):
             gateway=gateway,
             pending_permissions=pending_permissions,
             prompter=prompter,
+            user_content_clear=user_content_clear,
         )
         # Park the module on context so ChannelsModule (Phase H+2) can
         # reach the prompter to bind a control-fanout callback. See

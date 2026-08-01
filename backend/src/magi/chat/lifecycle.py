@@ -387,20 +387,46 @@ class ControlTranscriptSubscriberModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext) -> None:
         super().__init__(
             name="runtime_control_transcript_subscriber",
-            dependencies=("runtime_chat_store", "runtime_message_bus"),
+            dependencies=(
+                "runtime_chat_store",
+                "runtime_message_bus",
+                "runtime_memory",
+                "runtime_control_plane",
+            ),
         )
         self._context = context
         self._subscriber = None
+        self._clear_coordinator = None
 
     async def init(self) -> None:
         from .control_transcript_subscriber import ControlTranscriptSubscriber
 
         message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
-        self._subscriber = ControlTranscriptSubscriber(event_bus=message_bus)
+        memory = require_initialized(
+            self._context.memory.unified_memory,
+            "unified memory",
+        )
+        control_module = require_initialized(
+            self._context.control_plane.module,
+            "control plane module",
+        )
+        wiring = require_initialized(control_module.wiring, "control plane wiring")
+        self._clear_coordinator = wiring.user_content_clear
+        self._subscriber = ControlTranscriptSubscriber(
+            event_bus=message_bus,
+            memory_epoch_getter=memory.memory_operation_epoch,
+        )
         await self._subscriber.start()
+        self._clear_coordinator.bind_transcript_subscriber(self._subscriber)
         logger.info("ControlTranscriptSubscriber started")
 
     async def shutdown(self) -> None:
         if self._subscriber is not None:
+            if (
+                self._clear_coordinator is not None
+                and self._clear_coordinator.transcript_subscriber is self._subscriber
+            ):
+                self._clear_coordinator.bind_transcript_subscriber(None)
             await self._subscriber.stop()
             self._subscriber = None
+        self._clear_coordinator = None

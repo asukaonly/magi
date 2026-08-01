@@ -9,7 +9,7 @@ from magi.control.common.events import publish_control_todo_state_changed
 from magi.control.provider import resolve_control_session_store
 from magi.core.logger import get_logger
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
-from magi.control.session_store import TodoListError
+from magi.control.session_store import ControlSessionClearedError, TodoListError
 from magi_plugin_sdk.tools import (
     ParameterType,
     Tool,
@@ -103,35 +103,38 @@ class TodoWriteTool(Tool):
         except RuntimeError as exc:
             return ToolResult(success=False, error=str(exc))
         try:
-            todos = await store.replace_todos(sid, normalised)
-        except TodoListError as exc:
-            return ToolResult(success=False, error=str(exc))
-        logger.info(
-            "todo_write.replaced",
-            session_id=sid,
-            count=len(todos),
-            in_progress=sum(1 for t in todos if t.status.value == "in_progress"),
-        )
-        await publish_control_todo_state_changed(
-            session_id=sid,
-            user_id=user_id,
-            turn_id=turn_id,
-            items=[t.to_dict() for t in todos],
-        )
-        try:
-            from magi.control.common.events import publish_control_event
+            async with store.user_content_operation():
+                todos = await store.replace_todos(sid, normalised)
+                logger.info(
+                    "todo_write.replaced",
+                    session_id=sid,
+                    count=len(todos),
+                    in_progress=sum(
+                        1 for t in todos if t.status.value == "in_progress"
+                    ),
+                )
+                await publish_control_todo_state_changed(
+                    session_id=sid,
+                    user_id=user_id,
+                    turn_id=turn_id,
+                    items=[t.to_dict() for t in todos],
+                )
+                try:
+                    from magi.control.common.events import publish_control_event
 
-            await publish_control_event(
-                "control.todo.updated",
-                {
-                    "session_id": sid,
-                    "items": [t.to_dict() for t in todos],
-                },
-                session_id=sid,
-                turn_id=turn_id,
-            )
-        except Exception:  # pragma: no cover - defensive
-            logger.debug("todo_write.event_failed", exc_info=True)
+                    await publish_control_event(
+                        "control.todo.updated",
+                        {
+                            "session_id": sid,
+                            "items": [t.to_dict() for t in todos],
+                        },
+                        session_id=sid,
+                        turn_id=turn_id,
+                    )
+                except Exception:  # pragma: no cover - defensive
+                    logger.debug("todo_write.event_failed", exc_info=True)
+        except (ControlSessionClearedError, TodoListError) as exc:
+            return ToolResult(success=False, error=str(exc))
         return ToolResult(
             success=True,
             data={"items": [t.to_dict() for t in todos]},

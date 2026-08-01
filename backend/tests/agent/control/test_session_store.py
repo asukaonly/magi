@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from magi.control.session_store import (
+    ControlSessionClearedError,
     ControlSessionStore,
     DEFAULT_PLAN_MODE_ALLOWED_TOOLS,
     TodoItem,
@@ -175,7 +178,13 @@ async def test_ask_open_then_close_user() -> None:
     assert payload["timeout_seconds"] == 30.0
     assert payload["expires_at_ms"] == int(ask.expires_at * 1000)
 
-    closed = await store.close_ask("s1", answer="yes", resolution="user")
+    closed = await store.close_ask(
+        "s1",
+        request_id=ask.request_id,
+        expected_generation=ask.clear_generation,
+        answer="yes",
+        resolution="user",
+    )
     assert closed is not None
     assert closed.answer == "yes"
     assert closed.resolution == "user"
@@ -186,7 +195,16 @@ async def test_ask_open_then_close_user() -> None:
 @pytest.mark.asyncio
 async def test_ask_close_without_open_returns_none() -> None:
     store = ControlSessionStore()
-    assert await store.close_ask("s1", answer=None, resolution="timeout") is None
+    assert (
+        await store.close_ask(
+            "s1",
+            request_id="missing",
+            expected_generation=0,
+            answer=None,
+            resolution="timeout",
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
@@ -197,3 +215,70 @@ async def test_reset_single_session() -> None:
     store.reset("s1")
     assert store.plan_state("s1").active is False
     assert store.plan_state("s2").active is True
+
+
+@pytest.mark.asyncio
+async def test_full_clear_erases_session_content_and_reopens_cleanly() -> None:
+    store = ControlSessionStore()
+    await store.enter_plan_mode("s1")
+    await store.replace_todos("s1", [{"title": "secret todo"}])
+    old_ask = await store.open_ask(
+        "s1",
+        question="secret question",
+        request_id="old-ask",
+    )
+
+    async with store.user_content_clear_boundary():
+        assert store.plan_state("s1").active is False
+        assert store.plan_allows("s1", "bash") is False
+        assert store.list_todos("s1") == []
+        assert store.ask_state("s1") is None
+        with pytest.raises(ControlSessionClearedError):
+            await store.enter_plan_mode("during-clear")
+
+    assert store.plan_state("s1").active is False
+    assert store.list_todos("s1") == []
+    assert store.ask_state("s1") is None
+    with pytest.raises(ControlSessionClearedError):
+        await store.close_ask(
+            "s1",
+            request_id=old_ask.request_id,
+            expected_generation=old_ask.clear_generation,
+            answer="late answer",
+            resolution="user",
+        )
+
+    await store.enter_plan_mode("fresh")
+    await store.replace_todos("fresh", [{"title": "new todo"}])
+    fresh_ask = await store.open_ask(
+        "fresh",
+        question="new question",
+        request_id="fresh-ask",
+    )
+    assert store.plan_state("fresh").active is True
+    assert [item.content for item in store.list_todos("fresh")] == ["new todo"]
+    assert store.ask_state("fresh") is fresh_ask
+
+
+@pytest.mark.asyncio
+async def test_full_clear_waits_for_admitted_operations_and_rejects_queued_writes() -> None:
+    store = ControlSessionStore()
+    clear_entered = asyncio.Event()
+    release_clear = asyncio.Event()
+
+    async def clear() -> None:
+        async with store.user_content_clear_boundary():
+            clear_entered.set()
+            await release_clear.wait()
+
+    async with store.user_content_operation():
+        clear_task = asyncio.create_task(clear())
+        await asyncio.sleep(0)
+        assert clear_entered.is_set() is False
+        with pytest.raises(ControlSessionClearedError):
+            await store.replace_todos("old", [{"title": "late todo"}])
+
+    await asyncio.wait_for(clear_entered.wait(), timeout=1)
+    assert store.list_todos("old") == []
+    release_clear.set()
+    await clear_task

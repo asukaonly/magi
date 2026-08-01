@@ -109,6 +109,12 @@ The tools dichotomy (capability vs runtime-actuator) is the connective insight: 
 - `magi.skills` is a host execution engine rather than plugin implementation code; its agent execution dependency is injected, and third-party skill content remains runtime-guarded.
 - The background task manager stays behind `BackgroundPort`; no control-plane move was needed.
 - Layer numbering was updated: `events` remains L3 and `control` is L4.
+- Full user-data deletion owns a single control-plane clear boundary. It first
+  seals the chat transcript projector, rejects pending ask and permission
+  waiters, then clears in-memory plan, todo, ask, and pending-permission state.
+  Clear generations prevent pre-clear operations or queued events from
+  recreating that content after deletion, while the same runtime instances
+  reopen for new sessions after the boundary exits.
 
 ## Target Layering
 
@@ -139,3 +145,5 @@ import-linter `layers` contract: insert `control` between `plugins` and `events`
 8. [x] Added `control` to the layer/import rules, removed retired control edges, and kept `magi.control` forbidden to plugin implementation code.
 9. [x] Removed the direct memory-provider dependency from `find_relevant_tools_tool`; discovery now uses the tool index and injected capabilities.
 10. [x] The migration exit check reached a zero-edge plugin-isolation baseline and removed the control-to-chat/transport debt. Later unrelated layer checks are outside this ADR.
+11. [x] Joined control session state, pending interactions, permission prompts,
+    and chat transcript projection to the product-wide user-data clear boundary.

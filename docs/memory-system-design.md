@@ -2124,6 +2124,12 @@ independent table deletes.
   Proactive external delivery and ask fanout also fail closed while the
   persistent chat clear marker exists. This keeps active replies and
   notifications from racing the cross-store cleanup.
+- The same boundary seals the control transcript projector before clearing
+  in-memory plan, todo, ask, and pending-permission state. Pending ask and
+  permission waiters are rejected rather than resumed with stale answers.
+  Control generations and identity checks invalidate operations that started
+  before clear, while the existing control services reopen for new sessions
+  after the boundary exits.
 - Message, session, history, and full-memory deletion also open the matching
   background admission boundary before cancelling existing foreground and
   background work. The boundary rejects matching enqueue and retry until

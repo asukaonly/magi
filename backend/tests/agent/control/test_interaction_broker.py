@@ -104,3 +104,61 @@ async def test_different_kinds_share_id() -> None:
     await broker.resolve(interaction_id="x", kind="ask", response="a")
     assert await perm_task == "p"
     assert await ask_task == "a"
+
+
+@pytest.mark.asyncio
+async def test_full_clear_rejects_old_waiter_and_allows_fresh_same_id() -> None:
+    broker = InteractionBroker()
+    old_waiter = asyncio.create_task(
+        broker.wait(
+            interaction_id="same-id",
+            kind="permission",
+            timeout_seconds=None,
+            metadata={"secret": "old"},
+        )
+    )
+    await asyncio.sleep(0)
+    assert broker.pending_count() == 1
+
+    async with broker.user_content_clear_boundary():
+        assert broker.pending_count() == 0
+        assert (
+            await broker.get_pending_metadata(
+                interaction_id="same-id",
+                kind="permission",
+            )
+            is None
+        )
+        assert (
+            await broker.resolve(
+                interaction_id="same-id",
+                kind="permission",
+                response="late",
+            )
+            is False
+        )
+        with pytest.raises(InteractionClosedError) as exc:
+            await broker.wait(
+                interaction_id="during-clear",
+                kind="permission",
+                timeout_seconds=None,
+            )
+        assert exc.value.reason == "user_content_cleared"
+
+    fresh_waiter = asyncio.create_task(
+        broker.wait(
+            interaction_id="same-id",
+            kind="permission",
+            timeout_seconds=1,
+        )
+    )
+    await asyncio.sleep(0)
+    assert await broker.resolve(
+        interaction_id="same-id",
+        kind="permission",
+        response="fresh",
+    )
+    assert await fresh_waiter == "fresh"
+    with pytest.raises(InteractionClosedError) as exc:
+        await old_waiter
+    assert exc.value.reason == "user_content_cleared"

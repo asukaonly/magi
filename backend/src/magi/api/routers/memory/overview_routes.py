@@ -22,6 +22,7 @@ from .dependencies import (
     _resolve_memory_integration,
     _resolve_channels_module,
     _resolve_channel_session_mapper,
+    _resolve_control_user_content_clear,
     _resolve_chat_portrait_service,
     _resolve_background_task_manager,
     _resolve_batch_store,
@@ -302,6 +303,16 @@ async def clear_memory_layers():
                 "Scheduler service not initialized",
             ),
         )
+    control_user_content_clear = _resolve_control_user_content_clear()
+    if control_user_content_clear is None:
+        logger.warning("clear_memory: control clear boundary not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t(
+                "memory.errors.control_uninitialized",
+                "Control plane not initialized",
+            ),
+        )
     sensor_hub = _resolve_sensor_hub()
     rebuild_pause_started = False
     chat_pause_started = False
@@ -342,6 +353,9 @@ async def clear_memory_layers():
                                 reason="user_clear_all_memory",
                             )
                         )
+                    await background_scope.enter_async_context(
+                        control_user_content_clear.user_content_clear_boundary()
+                    )
                     await background_scope.enter_async_context(
                         _resolve_tool_registry().user_content_clear_boundary()
                     )

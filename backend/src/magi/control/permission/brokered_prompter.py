@@ -21,8 +21,11 @@ the user can retry — which is exactly what we want.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
+from magi.core.operation_barrier import AsyncOperationBarrier
 from magi.core.logger import get_logger
 
 from ..common.interaction_broker import InteractionBroker, InteractionTimeoutError
@@ -34,10 +37,15 @@ from .gateway import UserPromptResponse
 
 __all__ = [
     "BrokeredPermissionPrompter",
+    "PendingPermissionClearedError",
     "PendingPermissionRegistry",
 ]
 
 logger = get_logger(__name__)
+
+
+class PendingPermissionClearedError(RuntimeError):
+    """Raised when a permission request crosses a full data clear."""
 
 
 class PendingPermissionRegistry:
@@ -52,14 +60,88 @@ class PendingPermissionRegistry:
     def __init__(self) -> None:
         self._pending: dict[str, PermissionRequest] = {}
         self._lock = asyncio.Lock()
+        self._clear_barrier = AsyncOperationBarrier()
+        self._clear_generation = 0
+        self._clear_request_count = 0
 
-    async def add(self, request: PermissionRequest) -> None:
-        async with self._lock:
-            self._pending[request.request_id] = request
+    @asynccontextmanager
+    async def user_content_clear_boundary(self) -> AsyncIterator[None]:
+        """Clear pending prompts and reject registrations until clear ends."""
+        self._clear_request_count += 1
+        self._clear_generation += 1
+        try:
+            async with self._clear_barrier.exclusive():
+                async with self._lock:
+                    self._pending.clear()
+                yield
+        finally:
+            self._clear_request_count -= 1
 
-    async def remove(self, request_id: str) -> PermissionRequest | None:
-        async with self._lock:
-            return self._pending.pop(request_id, None)
+    async def add(self, request: PermissionRequest) -> int:
+        generation = self._clear_generation
+        if self._clear_request_count > 0:
+            raise PendingPermissionClearedError(
+                "pending permissions are being cleared"
+            )
+        async with self._clear_barrier.operation():
+            if (
+                self._clear_request_count > 0
+                or generation != self._clear_generation
+            ):
+                raise PendingPermissionClearedError(
+                    "permission registration crossed a full data clear"
+                )
+            async with self._lock:
+                self._pending[request.request_id] = request
+            return generation
+
+    @asynccontextmanager
+    async def request_operation(
+        self,
+        request: PermissionRequest,
+        *,
+        expected_generation: int,
+    ) -> AsyncIterator[None]:
+        """Keep one request's pre-wait notification phase inside its generation."""
+        if self._clear_request_count > 0:
+            raise PendingPermissionClearedError(
+                "pending permissions are being cleared"
+            )
+        async with self._clear_barrier.operation():
+            if (
+                self._clear_request_count > 0
+                or expected_generation != self._clear_generation
+            ):
+                raise PendingPermissionClearedError(
+                    "permission request crossed a full data clear"
+                )
+            async with self._lock:
+                if self._pending.get(request.request_id) is not request:
+                    raise PendingPermissionClearedError(
+                        "permission request is no longer pending"
+                    )
+            yield
+
+    async def remove(
+        self,
+        request_id: str,
+        *,
+        expected: PermissionRequest | None = None,
+    ) -> PermissionRequest | None:
+        generation = self._clear_generation
+        if self._clear_request_count > 0:
+            return None
+        async with self._clear_barrier.operation():
+            if (
+                self._clear_request_count > 0
+                or generation != self._clear_generation
+            ):
+                return None
+            async with self._lock:
+                current = self._pending.get(request_id)
+                if current is None or (expected is not None and current is not expected):
+                    return None
+                return self._pending.pop(request_id)
 
     def snapshot(
         self, *, session_id: str | None = None
@@ -71,12 +153,16 @@ class PendingPermissionRegistry:
         only; pass a sentinel string like ``"*"`` externally if you
         want unfiltered snapshots.
         """
+        if self._clear_request_count > 0:
+            return []
         items = list(self._pending.values())
         if session_id == "*":
             return items
         return [req for req in items if req.session_id == session_id]
 
     def get(self, request_id: str) -> PermissionRequest | None:
+        if self._clear_request_count > 0:
+            return None
         return self._pending.get(request_id)
 
     def find_by_short_id(
@@ -103,6 +189,8 @@ class PendingPermissionRegistry:
         derivation convention (``derive_short_id`` lowercases) and
         to be forgiving of users who type uppercase.
         """
+        if self._clear_request_count > 0:
+            return None
         needle = short_id.strip().lower()
         if not needle:
             return None
@@ -173,11 +261,20 @@ class BrokeredPermissionPrompter:
         timeout_seconds: float,
     ) -> UserPromptResponse:
         self._apply_timeout(request, timeout_seconds)
-        await self._registry.add(request)
-        await self._notify_permission_requested(request)
-        await self._fanout_permission_request(request)
+        broker_generation = self._broker.user_content_generation()
+        registry_generation = await self._registry.add(request)
         try:
-            response = await self._wait_for_permission_response(request, timeout_seconds)
+            async with self._registry.request_operation(
+                request,
+                expected_generation=registry_generation,
+            ):
+                await self._notify_permission_requested(request)
+                await self._fanout_permission_request(request)
+            response = await self._wait_for_permission_response(
+                request,
+                timeout_seconds,
+                expected_generation=broker_generation,
+            )
         finally:
             await self._clear_permission_request(request)
 
@@ -222,12 +319,15 @@ class BrokeredPermissionPrompter:
         self,
         request: PermissionRequest,
         timeout_seconds: float,
+        *,
+        expected_generation: int,
     ) -> Any:
         try:
             return await self._broker.wait(
                 interaction_id=request.request_id,
                 kind="permission",
                 timeout_seconds=timeout_seconds,
+                expected_generation=expected_generation,
             )
         except InteractionTimeoutError:
             logger.info(
@@ -238,7 +338,12 @@ class BrokeredPermissionPrompter:
             raise
 
     async def _clear_permission_request(self, request: PermissionRequest) -> None:
-        await self._registry.remove(request.request_id)
+        removed = await self._registry.remove(
+            request.request_id,
+            expected=request,
+        )
+        if removed is None:
+            return
         # Phase H+2: push a "resolved" event so connected clients
         # (desktop modal, other channels' inline prompts) can immediately
         # clear their UI instead of waiting for poll-based reconciliation.

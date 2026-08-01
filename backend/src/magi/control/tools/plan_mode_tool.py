@@ -11,6 +11,7 @@ from typing import Any, Dict
 
 from magi.control.common.events import publish_control_plan_state_changed
 from magi.control.provider import resolve_control_session_store
+from magi.control.session_store import ControlSessionClearedError
 from magi.core.logger import get_logger
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from magi_plugin_sdk.tools import (
@@ -82,15 +83,23 @@ class EnterPlanModeTool(Tool):
             store = resolve_control_session_store()
         except RuntimeError as exc:
             return ToolResult(success=False, error=str(exc))
-        state = await store.enter_plan_mode(sid)
-        logger.info("plan_mode.entered", session_id=sid)
-        await publish_control_plan_state_changed(
-            session_id=sid,
-            user_id=_user_id(context),
-            turn_id=_turn_id(context),
-            state=state.to_dict(),
-        )
-        await _emit_plan_event(sid, state.to_dict(), turn_id=_turn_id(context))
+        try:
+            async with store.user_content_operation():
+                state = await store.enter_plan_mode(sid)
+                logger.info("plan_mode.entered", session_id=sid)
+                await publish_control_plan_state_changed(
+                    session_id=sid,
+                    user_id=_user_id(context),
+                    turn_id=_turn_id(context),
+                    state=state.to_dict(),
+                )
+                await _emit_plan_event(
+                    sid,
+                    state.to_dict(),
+                    turn_id=_turn_id(context),
+                )
+        except ControlSessionClearedError as exc:
+            return ToolResult(success=False, error=str(exc))
         return ToolResult(success=True, data=state.to_dict())
 
 
@@ -140,15 +149,27 @@ class ExitPlanModeTool(Tool):
             store = resolve_control_session_store()
         except RuntimeError as exc:
             return ToolResult(success=False, error=str(exc))
-        state = await store.exit_plan_mode(sid, plan_text=plan_text)
-        logger.info("plan_mode.exited", session_id=sid, plan_length=len(plan_text))
-        await publish_control_plan_state_changed(
-            session_id=sid,
-            user_id=_user_id(context),
-            turn_id=_turn_id(context),
-            state=state.to_dict(),
-        )
-        await _emit_plan_event(sid, state.to_dict(), turn_id=_turn_id(context))
+        try:
+            async with store.user_content_operation():
+                state = await store.exit_plan_mode(sid, plan_text=plan_text)
+                logger.info(
+                    "plan_mode.exited",
+                    session_id=sid,
+                    plan_length=len(plan_text),
+                )
+                await publish_control_plan_state_changed(
+                    session_id=sid,
+                    user_id=_user_id(context),
+                    turn_id=_turn_id(context),
+                    state=state.to_dict(),
+                )
+                await _emit_plan_event(
+                    sid,
+                    state.to_dict(),
+                    turn_id=_turn_id(context),
+                )
+        except ControlSessionClearedError as exc:
+            return ToolResult(success=False, error=str(exc))
         return ToolResult(success=True, data=state.to_dict())
 
 

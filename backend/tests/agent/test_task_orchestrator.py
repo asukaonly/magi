@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -38,6 +39,10 @@ class _FakeControlSessionStore:
     async def replace_todos(self, session_id: str, items: list[dict[str, object]]):
         self.replace_calls.append((session_id, items))
         return []
+
+    @asynccontextmanager
+    async def user_content_operation(self):
+        yield
 
 
 @pytest.mark.asyncio

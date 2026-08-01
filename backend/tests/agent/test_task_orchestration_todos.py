@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
@@ -15,6 +16,10 @@ class _RecordingTodoStore:
     async def replace_todos(self, session_id: str, items: list[dict[str, Any]]):
         self.calls.append((session_id, list(items)))
         return []
+
+    @asynccontextmanager
+    async def user_content_operation(self):
+        yield
 
 
 class _TodoProjector(TaskOrchestrationTodosMixin):

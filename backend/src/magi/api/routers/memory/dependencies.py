@@ -254,6 +254,27 @@ def _resolve_channels_module():
     return getattr(getattr(context, "channels", None), "module", None)
 
 
+def _resolve_control_user_content_clear():
+    override = _package_override(
+        "_resolve_control_user_content_clear",
+        _resolve_control_user_content_clear,
+    )
+    if override is not None:
+        return override()
+    try:
+        from magi.core.container import get_container
+
+        context = get_container().runtime_bootstrap_context()
+    except Exception:
+        return None
+    control_module = getattr(getattr(context, "control_plane", None), "module", None)
+    wiring = getattr(control_module, "wiring", None)
+    coordinator = getattr(wiring, "user_content_clear", None)
+    if not callable(getattr(coordinator, "user_content_clear_boundary", None)):
+        return None
+    return coordinator
+
+
 def _resolve_self_memory():
     override = _package_override("_resolve_self_memory", _resolve_self_memory)
     if override is not None:

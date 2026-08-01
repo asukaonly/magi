@@ -23,6 +23,7 @@ golden for all five representative cases:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import dataclasses
 
@@ -39,7 +40,11 @@ from magi.events.domain_payloads import (
     ControlPlanStateChanged,
     ControlTodoStateChanged,
 )
-from magi.events.events import Event, EventTypes
+from magi.events.events import (
+    Event,
+    EventTypes,
+    PUBLISHED_MEMORY_EPOCH_METADATA_KEY,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -573,3 +578,72 @@ async def test_answered_ask_does_not_recreate_deleted_request(
     assert up == ["ask:ask-1"]
     assert hi == []
     await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_full_clear_drains_active_projection_and_discards_old_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.chat.control_transcript_subscriber import ControlTranscriptSubscriber
+
+    memory_epoch = 0
+    active_started = asyncio.Event()
+    release_active = asyncio.Event()
+    clear_entered = asyncio.Event()
+    release_clear = asyncio.Event()
+    projected: list[str] = []
+
+    sub = ControlTranscriptSubscriber(
+        event_bus=_FakeBus(),
+        memory_epoch_getter=lambda: memory_epoch,
+    )
+
+    async def project(payload: ControlPlanStateChanged) -> None:
+        plan_text = str(payload.state.get("plan_text") or "")
+        if plan_text == "active":
+            active_started.set()
+            await release_active.wait()
+        projected.append(plan_text)
+
+    monkeypatch.setattr(sub, "_project_plan_state", project)
+
+    def event(plan_text: str, *, epoch: int) -> Event:
+        return Event(
+            type=EventTypes.CONTROL_PLAN_STATE_CHANGED,
+            data=ControlPlanStateChanged(
+                session_id="session-1",
+                user_id="user-1",
+                turn_id="turn-1",
+                state={"active": False, "plan_text": plan_text},
+            ),
+            metadata={PUBLISHED_MEMORY_EPOCH_METADATA_KEY: epoch},
+        )
+
+    await sub._on_plan_state_changed(event("active", epoch=0))
+    await asyncio.wait_for(active_started.wait(), timeout=1)
+    await sub._on_plan_state_changed(event("queued-old", epoch=0))
+    old_timestamp_event = event("old-timestamp", epoch=1)
+
+    async def clear() -> None:
+        async with sub.user_content_clear_boundary():
+            clear_entered.set()
+            await release_clear.wait()
+
+    clear_task = asyncio.create_task(clear())
+    await asyncio.sleep(0)
+    assert clear_entered.is_set() is False
+    await sub._on_plan_state_changed(event("during-clear", epoch=0))
+
+    release_active.set()
+    await asyncio.wait_for(clear_entered.wait(), timeout=1)
+    memory_epoch = 1
+    release_clear.set()
+    await clear_task
+    await sub.drain()
+
+    await sub._on_plan_state_changed(event("stale-epoch", epoch=0))
+    await sub._on_plan_state_changed(old_timestamp_event)
+    await sub._on_plan_state_changed(event("fresh", epoch=1))
+    await sub.drain()
+
+    assert projected == ["active", "fresh"]

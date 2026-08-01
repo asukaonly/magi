@@ -15,6 +15,7 @@ from magi.control.permission.gateway import PermissionGateway
 from magi.control.permission.rules import PermissionRuleStore
 from magi.control.session_store import ControlSessionStore
 from magi.control.settings_manager import ControlSettingsManager
+from magi.control.user_content_clear import ControlUserContentClearCoordinator
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.bootstrap.control_plane import ControlPlaneModule
 from magi.core.container import get_container
@@ -57,6 +58,10 @@ async def test_control_plane_module_wires_all_singletons(tmp_path: Path) -> None
         assert isinstance(wiring.broker, InteractionBroker)
         assert isinstance(wiring.session_store, ControlSessionStore)
         assert isinstance(wiring.gateway, PermissionGateway)
+        assert isinstance(
+            wiring.user_content_clear,
+            ControlUserContentClearCoordinator,
+        )
 
         # All DI bindings resolve to the same instances.
         assert resolve_control_session_store() is wiring.session_store

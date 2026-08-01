@@ -31,6 +31,8 @@ Design notes
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
@@ -111,6 +113,34 @@ class InteractionBroker:
         self._pending: dict[tuple[str, str], PendingInteraction[Any]] = {}
         self._closed: bool = False
         self._lock = asyncio.Lock()
+        self._clear_generation = 0
+        self._clear_request_count = 0
+
+    @asynccontextmanager
+    async def user_content_clear_boundary(self) -> AsyncIterator[None]:
+        """Reject pending interactions and seal the broker during a full clear."""
+        self._clear_request_count += 1
+        self._clear_generation += 1
+        try:
+            async with self._lock:
+                pending = list(self._pending.values())
+                self._pending.clear()
+            for item in pending:
+                if not item.future.done():
+                    item.future.set_exception(
+                        InteractionClosedError(
+                            item.interaction_id,
+                            kind=item.kind,
+                            reason="user_content_cleared",
+                        )
+                    )
+            yield
+        finally:
+            self._clear_request_count -= 1
+
+    def user_content_generation(self) -> int:
+        """Return the generation a new logical interaction must retain."""
+        return self._clear_generation
 
     # ------------------------------------------------------------------
     # Waiter side
@@ -123,6 +153,7 @@ class InteractionBroker:
         kind: str,
         timeout_seconds: float | None,
         metadata: dict[str, Any] | None = None,
+        expected_generation: int | None = None,
     ) -> Any:
         """Suspend until :meth:`resolve` is called for the same key.
 
@@ -130,24 +161,50 @@ class InteractionBroker:
             InteractionTimeoutError: deadline elapsed.
             InteractionClosedError: broker was closed while waiting.
         """
+        generation = (
+            self._clear_generation
+            if expected_generation is None
+            else int(expected_generation)
+        )
         if self._closed:
             raise InteractionClosedError(
                 interaction_id, kind=kind, reason="broker_closed_on_enter"
             )
+        if self._clear_request_count > 0:
+            raise InteractionClosedError(
+                interaction_id,
+                kind=kind,
+                reason="user_content_cleared",
+            )
         key = (kind, interaction_id)
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future[Any] = loop.create_future()
         async with self._lock:
+            if self._closed:
+                raise InteractionClosedError(
+                    interaction_id,
+                    kind=kind,
+                    reason="broker_closed_on_enter",
+                )
+            if (
+                self._clear_request_count > 0
+                or generation != self._clear_generation
+            ):
+                raise InteractionClosedError(
+                    interaction_id,
+                    kind=kind,
+                    reason="user_content_cleared",
+                )
             if key in self._pending:
                 raise RuntimeError(
                     f"interaction {kind}:{interaction_id} already pending"
                 )
-            self._pending[key] = PendingInteraction(
+            future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+            pending = PendingInteraction(
                 interaction_id=interaction_id,
                 kind=kind,
                 future=future,
                 metadata=dict(metadata or {}),
             )
+            self._pending[key] = pending
         try:
             if timeout_seconds is None:
                 return await future
@@ -156,7 +213,8 @@ class InteractionBroker:
             raise InteractionTimeoutError(interaction_id, kind=kind) from exc
         finally:
             async with self._lock:
-                self._pending.pop(key, None)
+                if self._pending.get(key) is pending:
+                    self._pending.pop(key, None)
 
     # ------------------------------------------------------------------
     # Resolver side
@@ -175,6 +233,8 @@ class InteractionBroker:
         matching interaction was pending (late/duplicate resolution).
         """
         async with self._lock:
+            if self._clear_request_count > 0:
+                return False
             pending = self._pending.get((kind, interaction_id))
             if pending is None:
                 logger.debug(
@@ -197,6 +257,8 @@ class InteractionBroker:
     ) -> bool:
         """Cancel a pending interaction with :class:`InteractionClosedError`."""
         async with self._lock:
+            if self._clear_request_count > 0:
+                return False
             pending = self._pending.get((kind, interaction_id))
             if pending is None or pending.future.done():
                 return False
@@ -214,6 +276,8 @@ class InteractionBroker:
         """Return an isolated snapshot of one pending interaction's metadata."""
 
         async with self._lock:
+            if self._clear_request_count > 0:
+                return None
             pending = self._pending.get((kind, interaction_id))
             if pending is None or pending.future.done():
                 return None
@@ -224,9 +288,13 @@ class InteractionBroker:
     # ------------------------------------------------------------------
 
     def pending_count(self) -> int:
+        if self._clear_request_count > 0:
+            return 0
         return len(self._pending)
 
     def list_pending(self) -> list[PendingInteraction[Any]]:
+        if self._clear_request_count > 0:
+            return []
         return list(self._pending.values())
 
     async def close(self, *, reason: str = "broker_closed") -> None:

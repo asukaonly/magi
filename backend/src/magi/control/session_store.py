@@ -22,12 +22,17 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable
 
+from magi.core.operation_barrier import AsyncOperationBarrier
+
 __all__ = [
     "AskState",
+    "ControlSessionClearedError",
     "ControlSessionStore",
     "PlanModeState",
     "TodoItem",
@@ -104,6 +109,10 @@ class TodoListError(ValueError):
     """Raised when a todo list violates the server-side invariants."""
 
 
+class ControlSessionClearedError(RuntimeError):
+    """Raised when a control-state operation crosses a full data clear."""
+
+
 @dataclass(slots=True)
 class PlanModeState:
     active: bool = False
@@ -135,6 +144,7 @@ class AskState:
     answer: str | None = None
     #: ``"user"`` | ``"cancelled"`` | ``"timeout"`` | ``None`` while pending.
     resolution: str | None = None
+    clear_generation: int = field(default=0, repr=False)
 
     @property
     def status(self) -> str:
@@ -205,9 +215,60 @@ class ControlSessionStore:
     ) -> None:
         self._entries: dict[str, _SessionEntry] = {}
         self._lock = asyncio.Lock()
+        self._clear_barrier = AsyncOperationBarrier()
+        self._clear_generation = 0
+        self._clear_request_count = 0
         self._default_plan_mode_allowed_tools: tuple[str, ...] = tuple(
             default_plan_mode_allowed_tools
         )
+
+    @asynccontextmanager
+    async def user_content_operation(
+        self,
+        *,
+        expected_generation: int | None = None,
+    ) -> AsyncIterator[int]:
+        """Guard one logical control-state write against a full data clear.
+
+        Callers that mutate state and then publish an event can wrap both steps
+        in this boundary. This makes the mutation and its projection one clear
+        operation instead of leaving a publish window after the store write.
+        """
+        generation = (
+            self._clear_generation
+            if expected_generation is None
+            else int(expected_generation)
+        )
+        if self._clear_request_count > 0:
+            raise ControlSessionClearedError(
+                "control session content is being cleared"
+            )
+        async with self._clear_barrier.operation():
+            if (
+                self._clear_request_count > 0
+                or generation != self._clear_generation
+            ):
+                raise ControlSessionClearedError(
+                    "control session operation crossed a full data clear"
+                )
+            yield generation
+
+    @asynccontextmanager
+    async def user_content_clear_boundary(self) -> AsyncIterator[None]:
+        """Clear session content and reject writes until the global clear ends."""
+        self._clear_request_count += 1
+        self._clear_generation += 1
+        try:
+            async with self._clear_barrier.exclusive():
+                async with self._lock:
+                    self._entries.clear()
+                yield
+        finally:
+            self._clear_request_count -= 1
+
+    def user_content_generation(self) -> int:
+        """Return the generation a new logical control operation must retain."""
+        return self._clear_generation
 
     # ------------------------------------------------------------------
     # Plan mode
@@ -219,15 +280,16 @@ class ControlSessionStore:
         *,
         allowed_tools: Iterable[str] | None = None,
     ) -> PlanModeState:
-        async with self._lock:
-            entry = self._entries.setdefault(session_id, _SessionEntry())
-            entry.plan = PlanModeState(
-                active=True,
-                allowed_tools=tuple(allowed_tools) if allowed_tools else (),
-                entered_at=time.time(),
-                plan_text=None,
-            )
-            return entry.plan
+        async with self.user_content_operation():
+            async with self._lock:
+                entry = self._entries.setdefault(session_id, _SessionEntry())
+                entry.plan = PlanModeState(
+                    active=True,
+                    allowed_tools=tuple(allowed_tools) if allowed_tools else (),
+                    entered_at=time.time(),
+                    plan_text=None,
+                )
+                return entry.plan
 
     async def exit_plan_mode(
         self,
@@ -235,17 +297,20 @@ class ControlSessionStore:
         *,
         plan_text: str | None = None,
     ) -> PlanModeState:
-        async with self._lock:
-            entry = self._entries.setdefault(session_id, _SessionEntry())
-            entry.plan = PlanModeState(
-                active=False,
-                allowed_tools=(),
-                plan_text=plan_text,
-                entered_at=entry.plan.entered_at,
-            )
-            return entry.plan
+        async with self.user_content_operation():
+            async with self._lock:
+                entry = self._entries.setdefault(session_id, _SessionEntry())
+                entry.plan = PlanModeState(
+                    active=False,
+                    allowed_tools=(),
+                    plan_text=plan_text,
+                    entered_at=entry.plan.entered_at,
+                )
+                return entry.plan
 
     def plan_state(self, session_id: str) -> PlanModeState:
+        if self._clear_request_count > 0:
+            return PlanModeState()
         entry = self._entries.get(session_id)
         return entry.plan if entry else PlanModeState()
 
@@ -256,6 +321,8 @@ class ControlSessionStore:
         only tools in the session allowlist (or the store default if
         no session allowlist was set) are allowed.
         """
+        if self._clear_request_count > 0:
+            return False
         state = self.plan_state(session_id)
         if not state.active:
             return True
@@ -288,12 +355,15 @@ class ControlSessionStore:
                     )
             todos.append(item)
 
-        async with self._lock:
-            entry = self._entries.setdefault(session_id, _SessionEntry())
-            entry.todos = todos
-            return list(entry.todos)
+        async with self.user_content_operation():
+            async with self._lock:
+                entry = self._entries.setdefault(session_id, _SessionEntry())
+                entry.todos = todos
+                return list(entry.todos)
 
     def list_todos(self, session_id: str) -> list[TodoItem]:
+        if self._clear_request_count > 0:
+            return []
         entry = self._entries.get(session_id)
         return list(entry.todos) if entry else []
 
@@ -311,39 +381,57 @@ class ControlSessionStore:
         timeout_seconds: float | None = None,
         request_id: str | None = None,
     ) -> AskState:
-        now = time.time()
-        timeout_value = float(timeout_seconds) if timeout_seconds is not None else None
-        expires_at = now + timeout_value if timeout_value and timeout_value > 0 else None
-        async with self._lock:
-            entry = self._entries.setdefault(session_id, _SessionEntry())
-            entry.ask = AskState(
-                request_id=request_id or uuid.uuid4().hex,
-                question=question,
-                options=tuple(options),
-                allow_free_text=bool(allow_free_text),
-                asked_at=now,
-                timeout_seconds=timeout_value,
-                expires_at=expires_at,
+        async with self.user_content_operation() as generation:
+            now = time.time()
+            timeout_value = (
+                float(timeout_seconds) if timeout_seconds is not None else None
             )
-            return entry.ask
+            expires_at = (
+                now + timeout_value if timeout_value and timeout_value > 0 else None
+            )
+            async with self._lock:
+                entry = self._entries.setdefault(session_id, _SessionEntry())
+                entry.ask = AskState(
+                    request_id=request_id or uuid.uuid4().hex,
+                    question=question,
+                    options=tuple(options),
+                    allow_free_text=bool(allow_free_text),
+                    asked_at=now,
+                    timeout_seconds=timeout_value,
+                    expires_at=expires_at,
+                    clear_generation=generation,
+                )
+                return entry.ask
 
     async def close_ask(
         self,
         session_id: str,
         *,
+        request_id: str,
+        expected_generation: int,
         answer: str | None,
         resolution: str,
     ) -> AskState | None:
-        async with self._lock:
-            entry = self._entries.get(session_id)
-            if entry is None or entry.ask is None:
-                return None
-            entry.ask.answer = answer
-            entry.ask.resolution = resolution
-            entry.ask.answered_at = time.time()
-            return entry.ask
+        async with self.user_content_operation(
+            expected_generation=expected_generation
+        ):
+            async with self._lock:
+                entry = self._entries.get(session_id)
+                if (
+                    entry is None
+                    or entry.ask is None
+                    or entry.ask.request_id != request_id
+                    or entry.ask.clear_generation != expected_generation
+                ):
+                    return None
+                entry.ask.answer = answer
+                entry.ask.resolution = resolution
+                entry.ask.answered_at = time.time()
+                return entry.ask
 
     def ask_state(self, session_id: str) -> AskState | None:
+        if self._clear_request_count > 0:
+            return None
         entry = self._entries.get(session_id)
         return entry.ask if entry else None
 

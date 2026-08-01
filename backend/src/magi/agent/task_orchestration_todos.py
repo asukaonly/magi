@@ -39,10 +39,24 @@ class TaskOrchestrationTodosMixin:
             terminal_subtask_statuses=self._TERMINAL_SUBTASK_STATUSES,
             terminal_orchestration_statuses=self._TERMINAL_ORCHESTRATION_STATUSES,
         )
-        if not await _replace_session_todos(store, state, session_id, items):
-            return
-        await _publish_todo_state_changed(state, session_id, items)
-        await _publish_todo_updated_event(state, session_id, items)
+        try:
+            async with store.user_content_operation():
+                if not await _replace_session_todos(
+                    store,
+                    state,
+                    session_id,
+                    items,
+                ):
+                    return
+                await _publish_todo_state_changed(state, session_id, items)
+                await _publish_todo_updated_event(state, session_id, items)
+        except Exception as exc:  # pragma: no cover - defensive clear boundary
+            logger.debug(
+                "planner_todos.operation_rejected",
+                session_id=session_id,
+                orchestration_id=state.orchestration_id,
+                error=str(exc),
+            )
 
 
 def _resolve_control_session_store(provider: Any) -> Any | None:

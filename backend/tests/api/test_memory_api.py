@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -184,6 +186,20 @@ def _isolate_scheduler_clear_boundary(monkeypatch):
         lambda: service,
     )
     return service
+
+
+@pytest.fixture(autouse=True)
+def _isolate_control_user_content_clear_boundary(monkeypatch):
+    @asynccontextmanager
+    async def boundary():
+        yield
+
+    coordinator = SimpleNamespace(user_content_clear_boundary=boundary)
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_control_user_content_clear",
+        lambda: coordinator,
+    )
+    return coordinator
 
 
 class _FakeL0Store:
@@ -2423,6 +2439,7 @@ def test_memory_clear_api_clears_all_layers(
             assert clear_order == [
                 "scheduler-enter",
                 "background-enter",
+                "control-enter",
                 "tools-enter",
                 "scheduler-clear",
             ]
@@ -2448,12 +2465,30 @@ def test_memory_clear_api_clears_all_layers(
             clear_order.append("scheduler-exit")
 
     async def clear_scheduler_data():
-        assert clear_order == ["scheduler-enter", "background-enter", "tools-enter"]
+        assert clear_order == [
+            "scheduler-enter",
+            "background-enter",
+            "control-enter",
+            "tools-enter",
+        ]
         clear_order.append("scheduler-clear")
 
     @asynccontextmanager
-    async def tool_content_boundary():
+    async def control_content_boundary():
         assert clear_order == ["scheduler-enter", "background-enter"]
+        clear_order.append("control-enter")
+        try:
+            yield
+        finally:
+            clear_order.append("control-exit")
+
+    @asynccontextmanager
+    async def tool_content_boundary():
+        assert clear_order == [
+            "scheduler-enter",
+            "background-enter",
+            "control-enter",
+        ]
         clear_order.append("tools-enter")
         try:
             yield
@@ -2487,6 +2522,12 @@ def test_memory_clear_api_clears_all_layers(
         lambda: scheduler_service,
     )
     monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_control_user_content_clear",
+        lambda: SimpleNamespace(
+            user_content_clear_boundary=control_content_boundary
+        ),
+    )
+    monkeypatch.setattr(
         "magi.api.routers.memory.overview_routes._resolve_tool_registry",
         lambda: SimpleNamespace(user_content_clear_boundary=tool_content_boundary),
     )
@@ -2509,15 +2550,164 @@ def test_memory_clear_api_clears_all_layers(
     assert clear_order == [
         "scheduler-enter",
         "background-enter",
+        "control-enter",
         "tools-enter",
         "scheduler-clear",
         "chat",
         "background-history-cleared",
         "memory-finished",
         "tools-exit",
+        "control-exit",
         "background-exit",
         "scheduler-exit",
     ]
+
+
+@pytest.mark.asyncio
+async def test_memory_clear_api_rejects_old_control_waiters_and_reopens(
+    monkeypatch,
+) -> None:
+    from magi.chat.control_transcript_subscriber import ControlTranscriptSubscriber
+    from magi.control.ask_service import ControlAskRequest, ControlAskService
+    from magi.control.common import InteractionBroker, InteractionClosedError
+    from magi.control.permission.brokered_prompter import (
+        BrokeredPermissionPrompter,
+        PendingPermissionRegistry,
+    )
+    from magi.control.permission.contracts import (
+        PermissionRequest,
+        RiskLevel,
+        ToolOrigin,
+    )
+    from magi.control.session_store import ControlSessionStore
+    from magi.control.user_content_clear import ControlUserContentClearCoordinator
+
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    store = ControlSessionStore()
+    broker = InteractionBroker()
+    registry = PendingPermissionRegistry()
+    coordinator = ControlUserContentClearCoordinator(
+        session_store=store,
+        pending_permissions=registry,
+        interaction_broker=broker,
+    )
+    coordinator.bind_transcript_subscriber(
+        ControlTranscriptSubscriber(event_bus=SimpleNamespace())
+    )
+    ask_service = ControlAskService(
+        session_store=store,
+        interaction_broker=broker,
+    )
+    prompter = BrokeredPermissionPrompter(
+        broker=broker,
+        registry=registry,
+    )
+
+    def ask_request(session_id: str, question: str) -> ControlAskRequest:
+        return ControlAskRequest(
+            session_id=session_id,
+            user_id="user-1",
+            turn_id="turn-1",
+            question=question,
+            options=["yes", "no"],
+            allow_free_text=False,
+            timeout_seconds=30,
+        )
+
+    def permission_request(request_id: str, session_id: str) -> PermissionRequest:
+        return PermissionRequest(
+            request_id=request_id,
+            tool_name="bash",
+            arguments={"command": "private command"},
+            risk_level=RiskLevel.HIGH,
+            origin=ToolOrigin.CHAT,
+            agent_id="chat",
+            session_id=session_id,
+            turn_id="turn-1",
+            workspace=None,
+        )
+
+    async def wait_until(predicate) -> None:
+        async with asyncio.timeout(1):
+            while not predicate():
+                await asyncio.sleep(0)
+
+    await store.enter_plan_mode("session-old")
+    await store.replace_todos("session-old", [{"title": "private todo"}])
+    old_ask_task = asyncio.create_task(
+        ask_service.ask(ask_request("session-old", "private question"))
+    )
+    old_permission = permission_request("same-id", "session-old")
+    old_permission_task = asyncio.create_task(
+        prompter(old_permission, timeout_seconds=30)
+    )
+    await wait_until(
+        lambda: store.ask_state("session-old") is not None
+        and registry.get("same-id") is old_permission
+        and broker.pending_count() == 2
+    )
+    old_ask = store.ask_state("session-old")
+    assert old_ask is not None
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        _FakeUnifiedMemory,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_control_user_content_clear",
+        lambda: coordinator,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    assert store.plan_state("session-old").active is False
+    assert store.list_todos("session-old") == []
+    assert store.ask_state("session-old") is None
+    assert registry.snapshot(session_id="*") == []
+    assert await broker.resolve(
+        interaction_id=old_ask.request_id,
+        kind="ask",
+        response="late answer",
+    ) is False
+    assert await broker.resolve(
+        interaction_id="same-id",
+        kind="permission",
+        response={"outcome": "allowed"},
+    ) is False
+    with pytest.raises(InteractionClosedError):
+        await old_ask_task
+    with pytest.raises(InteractionClosedError):
+        await old_permission_task
+
+    fresh_ask_task = asyncio.create_task(
+        ask_service.ask(ask_request("session-fresh", "fresh question"))
+    )
+    await wait_until(lambda: store.ask_state("session-fresh") is not None)
+    fresh_ask = store.ask_state("session-fresh")
+    assert fresh_ask is not None
+    assert await broker.resolve(
+        interaction_id=fresh_ask.request_id,
+        kind="ask",
+        response="yes",
+    )
+    assert (await fresh_ask_task).answer == "yes"
+
+    fresh_permission = permission_request("same-id", "session-fresh")
+    fresh_permission_task = asyncio.create_task(
+        prompter(fresh_permission, timeout_seconds=30)
+    )
+    await wait_until(lambda: registry.get("same-id") is fresh_permission)
+    assert await broker.resolve(
+        interaction_id="same-id",
+        kind="permission",
+        response={"outcome": "allowed"},
+    )
+    assert (await fresh_permission_task).allow is True
 
 
 @pytest.mark.asyncio
@@ -2669,6 +2859,28 @@ def test_memory_clear_rejects_when_scheduler_is_unavailable(monkeypatch):
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Scheduler service not initialized"
+    unified.clear_all_memory.assert_not_awaited()
+
+
+def test_memory_clear_rejects_when_control_boundary_is_unavailable(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    unified = _FakeUnifiedMemory()
+    unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: unified,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_control_user_content_clear",
+        lambda: None,
+    )
+
+    with language_context("en"):
+        response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Control plane not initialized"
     unified.clear_all_memory.assert_not_awaited()
 
 

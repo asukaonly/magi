@@ -12,6 +12,7 @@ from magi.control.common.interaction_broker import (
 )
 from magi.control.permission.brokered_prompter import (
     BrokeredPermissionPrompter,
+    PendingPermissionClearedError,
     PendingPermissionRegistry,
 )
 from magi.control.permission.contracts import (
@@ -64,6 +65,24 @@ async def test_registry_round_trip() -> None:
     assert await registry.remove("req-a") is req
     assert registry.snapshot(session_id="*") == []
     assert await registry.remove("req-a") is None
+
+
+@pytest.mark.asyncio
+async def test_registry_clear_rejects_adds_and_preserves_new_same_id() -> None:
+    registry = PendingPermissionRegistry()
+    old = _request("same-id")
+    await registry.add(old)
+
+    async with registry.user_content_clear_boundary():
+        assert registry.snapshot(session_id="*") == []
+        assert registry.get("same-id") is None
+        with pytest.raises(PendingPermissionClearedError):
+            await registry.add(_request("during-clear"))
+
+    fresh = _request("same-id")
+    await registry.add(fresh)
+    assert await registry.remove("same-id", expected=old) is None
+    assert registry.get("same-id") is fresh
 
 
 @pytest.mark.asyncio

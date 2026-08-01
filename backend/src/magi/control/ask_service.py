@@ -11,6 +11,7 @@ from typing import Any
 from .common import InteractionTimeoutError
 from .common import events as control_events
 from . import provider as control_provider
+from .session_store import ControlSessionClearedError
 from ..core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -51,6 +52,8 @@ class _AskState:
     manager: Any
     timeout_value: float | None
     request_id: str
+    session_generation: int
+    broker_generation: int
 
 
 @dataclass(frozen=True)
@@ -113,14 +116,17 @@ class ControlAskService:
             return _cancelled_outcome()
 
         try:
-            ask = await self._store.open_ask(
-                state.sid,
-                question=request.question,
-                options=request.options,
-                allow_free_text=request.allow_free_text,
-                timeout_seconds=state.timeout_value,
-                request_id=state.request_id,
-            )
+            async with self._store.user_content_operation(
+                expected_generation=state.session_generation
+            ):
+                ask = await self._store.open_ask(
+                    state.sid,
+                    question=request.question,
+                    options=request.options,
+                    allow_free_text=request.allow_free_text,
+                    timeout_seconds=state.timeout_value,
+                    request_id=state.request_id,
+                )
         except Exception:
             await self._cancel_wait_tasks(
                 wait_tasks.answer_task,
@@ -128,14 +134,28 @@ class ControlAskService:
             )
             raise
 
-        await self._publish_opened(
-            request=request,
-            ask=ask,
-            is_background=state.is_background,
-            bg_task_id=state.bg_task_id,
-            manager=state.manager,
-            timeout_value=state.timeout_value,
-        )
+        try:
+            async with self._store.user_content_operation(
+                expected_generation=ask.clear_generation
+            ):
+                if self._store.ask_state(state.sid) is not ask:
+                    raise ControlSessionClearedError(
+                        "ask state was replaced before it could be published"
+                    )
+                await self._publish_opened(
+                    request=request,
+                    ask=ask,
+                    is_background=state.is_background,
+                    bg_task_id=state.bg_task_id,
+                    manager=state.manager,
+                    timeout_value=state.timeout_value,
+                )
+        except Exception:
+            await self._cancel_wait_tasks(
+                wait_tasks.answer_task,
+                wait_tasks.cancel_task,
+            )
+            raise
 
         try:
             wait_result = await self._wait_for_answer_or_cancel(
@@ -147,6 +167,7 @@ class ControlAskService:
         except InteractionTimeoutError:
             await self._close_timeout(
                 request=request,
+                ask=ask,
                 is_background=state.is_background,
                 bg_task_id=state.bg_task_id,
                 manager=state.manager,
@@ -173,6 +194,8 @@ class ControlAskService:
                 float(request.timeout_seconds) if request.timeout_seconds is not None else None
             ),
             request_id=uuid.uuid4().hex,
+            session_generation=self._store.user_content_generation(),
+            broker_generation=self._broker.user_content_generation(),
         )
 
     def _start_wait_tasks(
@@ -196,6 +219,7 @@ class ControlAskService:
                         if option
                     ],
                 },
+                expected_generation=state.broker_generation,
             ),
             name=f"ask-user-question-{state.request_id}",
         )
@@ -282,18 +306,23 @@ class ControlAskService:
         answer: Any,
     ) -> ControlAskOutcome:
         answer_text = str(answer) if answer is not None else ""
-        closed_ask = await self._store.close_ask(
-            state.sid,
-            answer=answer_text,
-            resolution="user",
-        )
-        if closed_ask is not None:
-            await self._publish_answered(
-                request=request,
-                ask=closed_ask,
-                answer_text=answer_text,
-                is_background=state.is_background,
+        async with self._store.user_content_operation(
+            expected_generation=ask.clear_generation
+        ):
+            closed_ask = await self._store.close_ask(
+                state.sid,
+                request_id=ask.request_id,
+                expected_generation=ask.clear_generation,
+                answer=answer_text,
+                resolution="user",
             )
+            if closed_ask is not None:
+                await self._publish_answered(
+                    request=request,
+                    ask=closed_ask,
+                    answer_text=answer_text,
+                    is_background=state.is_background,
+                )
         await self._resume_background(bg_task_id=state.bg_task_id, manager=state.manager)
         logger.info(
             "ask_user_question.answered",
@@ -429,20 +458,30 @@ class ControlAskService:
         bg_task_id: str | None,
         manager: Any,
     ) -> None:
-        closed_ask = await self._store.close_ask(
-            request.session_id, answer=None, resolution="cancelled"
-        )
-        if closed_ask is not None:
-            try:
-                await control_events.publish_control_ask_requested(
-                    session_id=request.session_id,
-                    user_id=request.user_id,
-                    turn_id=request.turn_id,
-                    ask=closed_ask,
-                    background=is_background,
-                )
-            except Exception:
-                logger.debug("ask_user_question.persist_cancelled_failed", exc_info=True)
+        async with self._store.user_content_operation(
+            expected_generation=ask.clear_generation
+        ):
+            closed_ask = await self._store.close_ask(
+                request.session_id,
+                request_id=ask.request_id,
+                expected_generation=ask.clear_generation,
+                answer=None,
+                resolution="cancelled",
+            )
+            if closed_ask is not None:
+                try:
+                    await control_events.publish_control_ask_requested(
+                        session_id=request.session_id,
+                        user_id=request.user_id,
+                        turn_id=request.turn_id,
+                        ask=closed_ask,
+                        background=is_background,
+                    )
+                except Exception:
+                    logger.debug(
+                        "ask_user_question.persist_cancelled_failed",
+                        exc_info=True,
+                    )
         await self._resume_background(bg_task_id=bg_task_id, manager=manager)
         logger.info(
             "ask_user_question.cancelled",
@@ -455,24 +494,35 @@ class ControlAskService:
         self,
         *,
         request: ControlAskRequest,
+        ask: Any,
         is_background: bool,
         bg_task_id: str | None,
         manager: Any,
     ) -> None:
-        closed_ask = await self._store.close_ask(
-            request.session_id, answer=None, resolution="timeout"
-        )
-        if closed_ask is not None:
-            try:
-                await control_events.publish_control_ask_requested(
-                    session_id=request.session_id,
-                    user_id=request.user_id,
-                    turn_id=request.turn_id,
-                    ask=closed_ask,
-                    background=is_background,
-                )
-            except Exception:
-                logger.debug("ask_user_question.persist_timeout_failed", exc_info=True)
+        async with self._store.user_content_operation(
+            expected_generation=ask.clear_generation
+        ):
+            closed_ask = await self._store.close_ask(
+                request.session_id,
+                request_id=ask.request_id,
+                expected_generation=ask.clear_generation,
+                answer=None,
+                resolution="timeout",
+            )
+            if closed_ask is not None:
+                try:
+                    await control_events.publish_control_ask_requested(
+                        session_id=request.session_id,
+                        user_id=request.user_id,
+                        turn_id=request.turn_id,
+                        ask=closed_ask,
+                        background=is_background,
+                    )
+                except Exception:
+                    logger.debug(
+                        "ask_user_question.persist_timeout_failed",
+                        exc_info=True,
+                    )
         await self._resume_background(bg_task_id=bg_task_id, manager=manager)
 
     @staticmethod

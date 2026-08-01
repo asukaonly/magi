@@ -64,6 +64,9 @@ class _ImmediateAnswerBroker:
     def __init__(self, answer: str) -> None:
         self._answer = answer
 
+    def user_content_generation(self) -> int:
+        return 0
+
     async def wait(
         self,
         *,
@@ -71,6 +74,7 @@ class _ImmediateAnswerBroker:
         kind: str,
         timeout_seconds: float,
         metadata: dict[str, Any] | None = None,
+        expected_generation: int | None = None,
     ) -> Any:
         # Yield once so the rest of the open/suspend flow runs before we
         # resolve, mirroring a real out-of-band resolution.
@@ -79,6 +83,9 @@ class _ImmediateAnswerBroker:
 
 
 class _TimeoutBroker:
+    def user_content_generation(self) -> int:
+        return 0
+
     async def wait(
         self,
         *,
@@ -86,12 +93,16 @@ class _TimeoutBroker:
         kind: str,
         timeout_seconds: float,
         metadata: dict[str, Any] | None = None,
+        expected_generation: int | None = None,
     ) -> Any:
         await asyncio.sleep(0)
         raise InteractionTimeoutError(interaction_id, kind=kind)
 
 
 class _NeverBroker:
+    def user_content_generation(self) -> int:
+        return 0
+
     async def wait(
         self,
         *,
@@ -99,6 +110,7 @@ class _NeverBroker:
         kind: str,
         timeout_seconds: float,
         metadata: dict[str, Any] | None = None,
+        expected_generation: int | None = None,
     ) -> Any:
         await asyncio.Event().wait()
 
@@ -152,8 +164,21 @@ def _install_spies(monkeypatch: pytest.MonkeyPatch, trace: _Trace, store: Contro
         trace.record("open_ask", session_id=session_id, request_id=ask.request_id)
         return ask
 
-    async def _spy_close_ask(session_id: str, *, answer: str | None, resolution: str):
-        ask = await real_close_ask(session_id, answer=answer, resolution=resolution)
+    async def _spy_close_ask(
+        session_id: str,
+        *,
+        request_id: str,
+        expected_generation: int,
+        answer: str | None,
+        resolution: str,
+    ):
+        ask = await real_close_ask(
+            session_id,
+            request_id=request_id,
+            expected_generation=expected_generation,
+            answer=answer,
+            resolution=resolution,
+        )
         trace.record("close_ask", session_id=session_id, answer=answer, resolution=resolution)
         return ask
 
