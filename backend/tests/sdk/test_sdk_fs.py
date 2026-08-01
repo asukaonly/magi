@@ -9,7 +9,10 @@ def test_sdk_exposes_atomic_io():
         append_jsonl,
         append_jsonl_many,
         atomic_write_bytes,
+        atomic_write_managed_bytes,
+        atomic_write_managed_text,
         atomic_write_text,
+        remove_managed_file,
     )
 
 
@@ -63,3 +66,141 @@ def test_host_atomic_io_reexports_sdk():
     from magi_plugin_sdk.fs import atomic_write_text as sdk_fn
 
     assert host_fn is sdk_fn
+
+
+def test_managed_write_replaces_target_link_without_touching_source(
+    tmp_path: Path,
+) -> None:
+    from magi_plugin_sdk.fs import atomic_write_managed_text
+
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    external = tmp_path / "external.json"
+    external.write_text("external", encoding="utf-8")
+    target = managed / "state.json"
+    target.symlink_to(external)
+
+    atomic_write_managed_text(target, "managed")
+
+    assert target.is_symlink() is False
+    assert target.read_text(encoding="utf-8") == "managed"
+    assert external.read_text(encoding="utf-8") == "external"
+
+
+def test_managed_write_replaces_hard_link_without_touching_source(
+    tmp_path: Path,
+) -> None:
+    from magi_plugin_sdk.fs import atomic_write_managed_text
+
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    external = tmp_path / "external.json"
+    external.write_text("external", encoding="utf-8")
+    target = managed / "state.json"
+    os.link(external, target)
+
+    atomic_write_managed_text(target, "managed")
+
+    assert target.read_text(encoding="utf-8") == "managed"
+    assert external.read_text(encoding="utf-8") == "external"
+
+
+def test_managed_remove_unlinks_target_link_without_touching_source(
+    tmp_path: Path,
+) -> None:
+    from magi_plugin_sdk.fs import remove_managed_file
+
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    external = tmp_path / "external.json"
+    external.write_text("external", encoding="utf-8")
+    target = managed / "state.json"
+    target.symlink_to(external)
+
+    assert remove_managed_file(target) is True
+    assert target.exists() is False
+    assert target.is_symlink() is False
+    assert external.read_text(encoding="utf-8") == "external"
+    assert remove_managed_file(target) is False
+
+
+@pytest.mark.parametrize("operation", ["write", "remove"])
+def test_managed_file_operations_reject_linked_parent(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    from magi_plugin_sdk.fs import (
+        UnsafeManagedPathError,
+        atomic_write_managed_text,
+        remove_managed_file,
+    )
+
+    external = tmp_path / "external"
+    external.mkdir()
+    external_target = external / "state.json"
+    external_target.write_text("external", encoding="utf-8")
+    linked_parent = tmp_path / "managed"
+    linked_parent.symlink_to(external, target_is_directory=True)
+    target = linked_parent / "state.json"
+
+    with pytest.raises(UnsafeManagedPathError):
+        if operation == "write":
+            atomic_write_managed_text(target, "changed")
+        else:
+            remove_managed_file(target)
+
+    assert external_target.read_text(encoding="utf-8") == "external"
+
+
+@pytest.mark.parametrize("operation", ["write", "remove"])
+def test_managed_file_operations_reject_linked_ancestor(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    from magi_plugin_sdk.fs import (
+        UnsafeManagedPathError,
+        atomic_write_managed_text,
+        remove_managed_file,
+    )
+
+    external = tmp_path / "external"
+    nested = external / "nested"
+    nested.mkdir(parents=True)
+    external_target = nested / "state.json"
+    external_target.write_text("external", encoding="utf-8")
+    linked_ancestor = tmp_path / "linked"
+    linked_ancestor.symlink_to(external, target_is_directory=True)
+    target = linked_ancestor / "nested" / "state.json"
+
+    with pytest.raises(UnsafeManagedPathError):
+        if operation == "write":
+            atomic_write_managed_text(target, "changed")
+        else:
+            remove_managed_file(target)
+
+    assert external_target.read_text(encoding="utf-8") == "external"
+
+
+@pytest.mark.parametrize("operation", ["write", "remove"])
+def test_managed_file_operations_reject_directory_target(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    from magi_plugin_sdk.fs import (
+        UnsafeManagedPathError,
+        atomic_write_managed_text,
+        remove_managed_file,
+    )
+
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    target = managed / "state.json"
+    target.mkdir()
+
+    with pytest.raises(UnsafeManagedPathError):
+        if operation == "write":
+            atomic_write_managed_text(target, "changed")
+        else:
+            remove_managed_file(target)
+
+    assert target.is_dir()

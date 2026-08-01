@@ -726,8 +726,11 @@ Sensors inheriting `SensorBase` from `magi_plugin_sdk.sensors` have access to th
 - `collect_items(context)`: pull-sync entry point; returns `SensorSyncResult` with items, cursor, and stats
 - `fetch_item(item)`: optional pre-processing/enrichment before `build_output`
 - `clear_user_content(context)`: remove sensor-owned local raw, derived, pending,
-  and temporary content while preserving source configuration, credentials,
-  account binding, cursor, and watermark
+  and temporary content while preserving settings, credentials, connected
+  accounts, and source progress. For plugin-managed state files, use
+  `magi_plugin_sdk.fs.atomic_write_managed_text()` and
+  `magi_plugin_sdk.fs.remove_managed_file()` so clear hooks replace or remove
+  links themselves instead of following them into user-owned files.
 
 `SensorOutput` is now a source-truth contract, not a final display-string contract.
 

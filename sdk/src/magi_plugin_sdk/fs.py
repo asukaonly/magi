@@ -4,10 +4,13 @@ Canonical home for pure file-IO helpers shared by the host and plugins.
 Plugins import from here; the host re-exports from
 magi.agent.workspace_cache.{atomic_io,locking} for back-compat.
 """
+
 from __future__ import annotations
 
 import json
 import os
+import secrets
+import stat
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -15,6 +18,11 @@ from pathlib import Path
 from typing import IO, Any, Iterable, Iterator, Mapping
 
 _IS_WINDOWS = sys.platform == "win32"
+
+
+class UnsafeManagedPathError(RuntimeError):
+    """Raised when a plugin-managed file path could escape through indirection."""
+
 
 if _IS_WINDOWS:
     import msvcrt
@@ -49,7 +57,9 @@ def file_lock(f: IO) -> Iterator[None]:
 
 def _atomic_write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=path.parent
+    )
     try:
         with os.fdopen(fd, "wb") as f:
             with file_lock(f):
@@ -63,6 +73,202 @@ def _atomic_write(path: Path, data: bytes) -> None:
         except FileNotFoundError:
             pass
         raise
+
+
+def _is_path_link(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    is_junction = getattr(path, "is_junction", None)
+    return bool(callable(is_junction) and is_junction())
+
+
+def _validate_managed_file_path(path: str | Path) -> tuple[Path, Path]:
+    target = Path(path)
+    if target.name in {"", ".", ".."}:
+        raise UnsafeManagedPathError("Managed file path must name one file")
+    parent = target.parent
+    directory_chain = [parent, *parent.parents]
+    for directory in reversed(directory_chain):
+        try:
+            directory_stat = os.lstat(directory)
+        except FileNotFoundError as exc:
+            raise UnsafeManagedPathError(
+                "Managed file parent directory does not exist"
+            ) from exc
+        if _is_path_link(directory) or not stat.S_ISDIR(directory_stat.st_mode):
+            raise UnsafeManagedPathError(
+                "Managed file parent chain must contain only real directories"
+            )
+    return target, parent
+
+
+def _validate_managed_target_type(path: Path) -> None:
+    try:
+        target_stat = os.lstat(path)
+    except FileNotFoundError:
+        return
+    if stat.S_ISREG(target_stat.st_mode) or stat.S_ISLNK(target_stat.st_mode):
+        return
+    raise UnsafeManagedPathError(
+        "Managed file target must be a regular file or a symbolic link"
+    )
+
+
+def _open_managed_directory(parent: Path) -> int:
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_DIRECTORY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        directory_fd = os.open(parent, flags)
+    except OSError as exc:
+        raise UnsafeManagedPathError(
+            "Managed file parent could not be opened safely"
+        ) from exc
+    directory_stat = os.fstat(directory_fd)
+    if not stat.S_ISDIR(directory_stat.st_mode):
+        os.close(directory_fd)
+        raise UnsafeManagedPathError("Managed file parent must be a real directory")
+    return directory_fd
+
+
+def _atomic_write_managed_posix(path: Path, data: bytes) -> None:
+    _, parent = _validate_managed_file_path(path)
+    directory_fd = _open_managed_directory(parent)
+    temp_name = f".{path.name}.{secrets.token_hex(12)}.tmp"
+    temp_fd: int | None = None
+    try:
+        try:
+            target_stat = os.stat(
+                path.name,
+                dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            target_stat = None
+        if target_stat is not None and not (
+            stat.S_ISREG(target_stat.st_mode) or stat.S_ISLNK(target_stat.st_mode)
+        ):
+            raise UnsafeManagedPathError(
+                "Managed file target must be a regular file or a symbolic link"
+            )
+
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        temp_fd = os.open(temp_name, flags, 0o600, dir_fd=directory_fd)
+        with os.fdopen(temp_fd, "wb", closefd=True) as file:
+            temp_fd = None
+            file.write(data)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(
+            temp_name,
+            path.name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        os.fsync(directory_fd)
+    except BaseException:
+        if temp_fd is not None:
+            os.close(temp_fd)
+        try:
+            os.unlink(temp_name, dir_fd=directory_fd)
+        except OSError:
+            pass
+        raise
+    finally:
+        os.close(directory_fd)
+
+
+def _atomic_write_managed_windows(path: Path, data: bytes) -> None:
+    target, parent = _validate_managed_file_path(path)
+    _validate_managed_target_type(target)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        dir=parent,
+    )
+    try:
+        with os.fdopen(fd, "wb") as file:
+            file.write(data)
+            file.flush()
+            os.fsync(file.fileno())
+        _, current_parent = _validate_managed_file_path(target)
+        if current_parent != parent:
+            raise UnsafeManagedPathError("Managed file parent changed during write")
+        _validate_managed_target_type(target)
+        os.replace(temp_name, target)
+    except BaseException:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def atomic_write_managed_bytes(path: str | Path, data: bytes) -> None:
+    """Replace one plugin-managed file without following file or parent links.
+
+    The parent directory must already exist and must not be a symbolic link or
+    Windows junction. An existing target link is replaced as a link; its target
+    is never opened or modified.
+    """
+
+    target = Path(path)
+    if _IS_WINDOWS:
+        _atomic_write_managed_windows(target, data)
+        return
+    _atomic_write_managed_posix(target, data)
+
+
+def atomic_write_managed_text(
+    path: str | Path,
+    text: str,
+    encoding: str = "utf-8",
+) -> None:
+    """Replace one plugin-managed text file without following links."""
+
+    atomic_write_managed_bytes(path, text.encode(encoding))
+
+
+def remove_managed_file(path: str | Path) -> bool:
+    """Remove one plugin-managed regular file or link without following it.
+
+    Returns ``True`` when an entry was removed and ``False`` when it did not
+    exist. Directories and special files are rejected.
+    """
+
+    target, parent = _validate_managed_file_path(path)
+    if _IS_WINDOWS:
+        try:
+            target_stat = os.lstat(target)
+        except FileNotFoundError:
+            return False
+        if not (stat.S_ISREG(target_stat.st_mode) or stat.S_ISLNK(target_stat.st_mode)):
+            raise UnsafeManagedPathError(
+                "Managed file target must be a regular file or a symbolic link"
+            )
+        os.unlink(target)
+        return True
+
+    directory_fd = _open_managed_directory(parent)
+    try:
+        try:
+            target_stat = os.stat(
+                target.name,
+                dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return False
+        if not (stat.S_ISREG(target_stat.st_mode) or stat.S_ISLNK(target_stat.st_mode)):
+            raise UnsafeManagedPathError(
+                "Managed file target must be a regular file or a symbolic link"
+            )
+        os.unlink(target.name, dir_fd=directory_fd)
+        os.fsync(directory_fd)
+        return True
+    finally:
+        os.close(directory_fd)
 
 
 def atomic_write_text(path: str | Path, text: str, encoding: str = "utf-8") -> None:
@@ -120,9 +326,13 @@ def append_jsonl(path: str | Path, record: Mapping[str, Any]) -> None:
 
 
 __all__ = [
+    "UnsafeManagedPathError",
     "atomic_write_text",
     "atomic_write_bytes",
+    "atomic_write_managed_bytes",
+    "atomic_write_managed_text",
     "append_jsonl",
     "append_jsonl_many",
     "file_lock",
+    "remove_managed_file",
 ]
