@@ -37,6 +37,7 @@ class SensorEventCommitter:
 
     _GOVERNED_SKIP_REASONS = frozenset(
         {
+            "memory_clear_epoch_changed",
             "source_event_forgotten",
             "time_range_forgotten",
         }
@@ -45,7 +46,17 @@ class SensorEventCommitter:
     def __init__(self, *, unified_memory: Any) -> None:
         self._unified_memory = unified_memory
 
-    async def commit(self, event: Event) -> SensorCommitReceipt:
+    def memory_operation_epoch(self) -> int:
+        """Return the current memory epoch for one sensor-ingestion batch."""
+
+        return int(self._unified_memory.memory_operation_epoch())
+
+    async def commit(
+        self,
+        event: Event,
+        *,
+        expected_epoch: int,
+    ) -> SensorCommitReceipt:
         """Commit one sensor event or raise without granting cursor progress."""
 
         if event.type != EventTypes.SENSOR_EVENT_EMITTED:
@@ -58,7 +69,10 @@ class SensorEventCommitter:
             causation_id=event.causation_id,
             trace_context=event.trace_context,
         )
-        result = await self._unified_memory.ingest_event(memory_event)
+        result = await self._unified_memory.ingest_event(
+            memory_event,
+            expected_epoch=int(expected_epoch),
+        )
         skip_reason = str(result.get("skip_reason") or "")
         if skip_reason in self._GOVERNED_SKIP_REASONS:
             return SensorCommitReceipt(

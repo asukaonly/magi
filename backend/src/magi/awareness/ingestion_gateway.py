@@ -26,7 +26,14 @@ logger = get_logger(__name__)
 class SensorMemoryCommitter(Protocol):
     """Memory-owned port that proves the terminal L1 outcome of a sensor event."""
 
-    async def commit(self, event: Event) -> SensorCommitReceipt: ...
+    def memory_operation_epoch(self) -> int: ...
+
+    async def commit(
+        self,
+        event: Event,
+        *,
+        expected_epoch: int,
+    ) -> SensorCommitReceipt: ...
 
 
 @dataclass(slots=True)
@@ -45,6 +52,11 @@ class SensorIngestionGateway:
         self._event_bus = event_bus
         self._memory_committer = memory_committer
 
+    def memory_operation_epoch(self) -> int:
+        """Capture the memory epoch that one sensor batch must retain."""
+
+        return int(self._memory_committer.memory_operation_epoch())
+
     async def ingest(
         self,
         sensor: SensorBase,
@@ -52,7 +64,13 @@ class SensorIngestionGateway:
         metadata: SensorOutputMetadata | None = None,
         *,
         allowed_edge_whitelist: list[str] | None = None,
+        expected_epoch: int | None = None,
     ) -> SensorIngestionResult:
+        captured_epoch = (
+            self.memory_operation_epoch()
+            if expected_epoch is None
+            else int(expected_epoch)
+        )
         event_id = str(ULID())
         payload = self._build_sensor_event_payload(
             sensor=sensor,
@@ -66,7 +84,10 @@ class SensorIngestionGateway:
             event_id=event_id,
             source="sensor_ingestion_gateway",
         )
-        receipt = await self._memory_committer.commit(event)
+        receipt = await self._memory_committer.commit(
+            event,
+            expected_epoch=captured_epoch,
+        )
         committed_event = replace(event, event_id=receipt.event_id)
         projection_skipped = receipt.outcome is SensorCommitOutcome.GOVERNED_SKIP
         projection_published = (

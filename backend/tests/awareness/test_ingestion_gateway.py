@@ -28,6 +28,7 @@ from magi.events.events import EventTypes
 from magi.memory.sensor_ingestion import (
     SensorCommitOutcome,
     SensorCommitReceipt,
+    SensorEventCommitter,
 )
 
 
@@ -109,8 +110,9 @@ def _make_bus() -> MagicMock:
 
 def _make_committer() -> MagicMock:
     committer = MagicMock()
+    committer.memory_operation_epoch.return_value = 0
 
-    async def _commit(event):
+    async def _commit(event, *, expected_epoch):
         return SensorCommitReceipt(
             event_id=event.event_id,
             outcome=SensorCommitOutcome.PERSISTED,
@@ -154,6 +156,22 @@ class TestSensorIngestionGatewayPublishes:
         assert payload.idempotency_key == "item-1"
         assert payload.occurred_at == 1700000000.0
         assert payload.owner_user_id == "local_user"
+        assert committer.commit.await_args.kwargs["expected_epoch"] == 0
+
+    @pytest.mark.asyncio
+    async def test_ingest_preserves_explicit_batch_memory_epoch(self):
+        bus = _make_bus()
+        committer = _make_committer()
+        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=committer)
+
+        await gateway.ingest(
+            _FakeSensor(),
+            _make_output(),
+            expected_epoch=17,
+        )
+
+        assert committer.commit.await_args.kwargs["expected_epoch"] == 17
+        committer.memory_operation_epoch.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_payload_carries_policy_dict(self):
@@ -341,6 +359,56 @@ class TestSensorIngestionGatewayPublishes:
 
         result = await gateway.ingest(_FakeSensor(), _make_output())
 
+        assert result.ingested is True
+        assert result.stats == {
+            "memory_outcome": "governed_skip",
+            "projection_published": False,
+            "projection_skipped": True,
+        }
+        bus.publish.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_stale_batch_epoch_is_terminal_without_projection_publish(self):
+        class _EpochMemory:
+            def __init__(self) -> None:
+                self.epoch = 23
+                self.expected_epochs: list[int] = []
+
+            def memory_operation_epoch(self) -> int:
+                return self.epoch
+
+            async def ingest_event(self, event, *, expected_epoch):  # type: ignore[no-untyped-def]
+                self.expected_epochs.append(int(expected_epoch))
+                if int(expected_epoch) != self.epoch:
+                    return {
+                        "event_id": event.event_id,
+                        "l1_written": False,
+                        "l1_confirmed": False,
+                        "skipped": True,
+                        "skip_reason": "memory_clear_epoch_changed",
+                    }
+                return {
+                    "event_id": event.event_id,
+                    "l1_written": True,
+                    "l1_confirmed": True,
+                }
+
+        bus = _make_bus()
+        memory = _EpochMemory()
+        gateway = SensorIngestionGateway(
+            event_bus=bus,
+            memory_committer=SensorEventCommitter(unified_memory=memory),
+        )
+        batch_epoch = gateway.memory_operation_epoch()
+        memory.epoch += 1
+
+        result = await gateway.ingest(
+            _FakeSensor(),
+            _make_output(),
+            expected_epoch=batch_epoch,
+        )
+
+        assert memory.expected_epochs == [batch_epoch]
         assert result.ingested is True
         assert result.stats == {
             "memory_outcome": "governed_skip",

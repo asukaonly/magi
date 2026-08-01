@@ -40,7 +40,10 @@ class _FakeUnifiedMemory:
     async def ingest_event(  # type: ignore[no-untyped-def]
         self,
         event,
+        *,
+        expected_epoch,
     ) -> dict:
+        assert expected_epoch == self.epoch
         self.l1.timeline_events.append(event)
         return {
             "event_id": event.event_id,

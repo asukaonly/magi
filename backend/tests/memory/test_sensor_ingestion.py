@@ -58,10 +58,15 @@ async def test_commit_returns_persisted_receipt_after_l1_confirmation() -> None:
         "l1_confirmed": True,
     }
 
-    receipt = await SensorEventCommitter(unified_memory=memory).commit(_sensor_event())
+    receipt = await SensorEventCommitter(unified_memory=memory).commit(
+        _sensor_event(),
+        expected_epoch=7,
+    )
 
     assert receipt.event_id == "sensor-event-1"
     assert receipt.outcome is SensorCommitOutcome.PERSISTED
+    memory.ingest_event.assert_awaited_once()
+    assert memory.ingest_event.await_args.kwargs["expected_epoch"] == 7
 
 
 @pytest.mark.asyncio
@@ -73,7 +78,10 @@ async def test_commit_returns_canonical_duplicate_receipt() -> None:
         "l1_confirmed": True,
     }
 
-    receipt = await SensorEventCommitter(unified_memory=memory).commit(_sensor_event())
+    receipt = await SensorEventCommitter(unified_memory=memory).commit(
+        _sensor_event(),
+        expected_epoch=7,
+    )
 
     assert receipt.event_id == "existing-event"
     assert receipt.outcome is SensorCommitOutcome.DUPLICATE
@@ -94,13 +102,16 @@ async def test_governed_skip_is_a_terminal_accepted_outcome(skip_reason: str) ->
         "skip_reason": skip_reason,
     }
 
-    receipt = await SensorEventCommitter(unified_memory=memory).commit(_sensor_event())
+    receipt = await SensorEventCommitter(unified_memory=memory).commit(
+        _sensor_event(),
+        expected_epoch=7,
+    )
 
     assert receipt.outcome is SensorCommitOutcome.GOVERNED_SKIP
 
 
 @pytest.mark.asyncio
-async def test_memory_clear_race_requires_retry() -> None:
+async def test_memory_clear_epoch_change_is_a_terminal_accepted_outcome() -> None:
     memory = AsyncMock()
     memory.ingest_event.return_value = {
         "event_id": "sensor-event-1",
@@ -110,8 +121,12 @@ async def test_memory_clear_race_requires_retry() -> None:
         "skip_reason": "memory_clear_epoch_changed",
     }
 
-    with pytest.raises(SensorCommitDeferredError, match="memory_clear_epoch_changed"):
-        await SensorEventCommitter(unified_memory=memory).commit(_sensor_event())
+    receipt = await SensorEventCommitter(unified_memory=memory).commit(
+        _sensor_event(),
+        expected_epoch=7,
+    )
+
+    assert receipt.outcome is SensorCommitOutcome.GOVERNED_SKIP
 
 
 @pytest.mark.asyncio
@@ -124,7 +139,10 @@ async def test_missing_l1_confirmation_requires_retry() -> None:
     }
 
     with pytest.raises(SensorCommitDeferredError, match="without L1 confirmation"):
-        await SensorEventCommitter(unified_memory=memory).commit(_sensor_event())
+        await SensorEventCommitter(unified_memory=memory).commit(
+            _sensor_event(),
+            expected_epoch=7,
+        )
 
 
 @pytest.mark.asyncio
@@ -133,4 +151,7 @@ async def test_l1_exception_propagates_to_sensor_job() -> None:
     memory.ingest_event.side_effect = OSError("disk unavailable")
 
     with pytest.raises(OSError, match="disk unavailable"):
-        await SensorEventCommitter(unified_memory=memory).commit(_sensor_event())
+        await SensorEventCommitter(unified_memory=memory).commit(
+            _sensor_event(),
+            expected_epoch=7,
+        )

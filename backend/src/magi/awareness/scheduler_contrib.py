@@ -91,7 +91,7 @@ class SensorSchedulerContrib:
         plugin_manager: Any,
         runtime_paths: RuntimePaths,
         get_config: Callable[[], Any],
-        ingestion_gateway: SensorIngestionGateway | None = None,
+        ingestion_gateway: SensorIngestionGateway,
     ) -> None:
         self._scheduler_service = scheduler_service
         self._sensor_registry = sensor_registry
@@ -302,6 +302,7 @@ class SensorSchedulerContrib:
         previous_language = get_plugin_current_language()
         set_plugin_current_language(preferred_language or None)
         try:
+            expected_memory_epoch = self._ingestion_gateway.memory_operation_epoch()
             pull_context = SensorSyncContext(
                 source_type=source_type,
                 manual=manual,
@@ -319,6 +320,7 @@ class SensorSchedulerContrib:
                 target_key=target_key,
                 manual=manual,
                 allowed_edge_whitelist=settings.allowed_edge_whitelist,
+                expected_memory_epoch=expected_memory_epoch,
             )
             return ScheduledExecutionResult(
                 success=True,
@@ -374,6 +376,7 @@ class SensorSchedulerContrib:
         target_key: str,
         manual: bool,
         allowed_edge_whitelist: list[str],
+        expected_memory_epoch: int,
     ) -> None:
         sorted_items = sorted(
             result.items,
@@ -389,6 +392,7 @@ class SensorSchedulerContrib:
                 target_key=target_key,
                 manual=manual,
                 allowed_edge_whitelist=allowed_edge_whitelist,
+                expected_memory_epoch=expected_memory_epoch,
             )
             await self._checkpoint_sensor_sync_cursor(
                 item=item,
@@ -407,10 +411,9 @@ class SensorSchedulerContrib:
         target_key: str,
         manual: bool,
         allowed_edge_whitelist: list[str],
+        expected_memory_epoch: int,
     ) -> None:
         fetched = await sensor.fetch_item(item)
-        if self._ingestion_gateway is None:
-            raise RuntimeError("SensorIngestionGateway is required for sensor sync")
         output = await sensor.build_output(fetched)
         metadata = await sensor.extract_metadata(fetched)
         output.provenance.update(
@@ -425,6 +428,7 @@ class SensorSchedulerContrib:
             output,
             metadata,
             allowed_edge_whitelist=allowed_edge_whitelist,
+            expected_epoch=expected_memory_epoch,
         )
         if not ingestion_result.ingested:
             raise RuntimeError(f"Sensor ingestion was not confirmed: {sensor.sensor_id}")
