@@ -36,6 +36,13 @@ def test_clear_legacy_user_content_removes_exact_retired_paths(
         "private rollback journal",
         encoding="utf-8",
     )
+    retired_orchestration_temp = runtime_paths.runtime_dir / "tmpabcd1234.tmp"
+    retired_orchestration_temp.write_text(
+        "private interrupted orchestration",
+        encoding="utf-8",
+    )
+    preserved_similar_temp = runtime_paths.runtime_dir / "tmpabcd123.tmp"
+    preserved_similar_temp.write_text("not a retired temp name", encoding="utf-8")
     preserved_memory = runtime_paths.memory_db_path
     preserved_memory.write_text("current memory store", encoding="utf-8")
     preserved_config = runtime_paths.config_dir / "settings.yaml"
@@ -44,12 +51,14 @@ def test_clear_legacy_user_content_removes_exact_retired_paths(
 
     deleted = clear_legacy_user_content(runtime_paths)
 
-    assert deleted == 6
+    assert deleted == 7
     assert list(runtime_paths.others_dir.iterdir()) == []
     assert not runtime_paths.self_memory_db_path.exists()
     assert not Path(f"{runtime_paths.self_memory_db_path}-wal").exists()
     assert not Path(f"{runtime_paths.self_memory_db_path}-shm").exists()
     assert not Path(f"{runtime_paths.self_memory_db_path}-journal").exists()
+    assert not retired_orchestration_temp.exists()
+    assert preserved_similar_temp.read_text(encoding="utf-8") == "not a retired temp name"
     assert preserved_memory.read_text(encoding="utf-8") == "current memory store"
     assert preserved_config.read_text(encoding="utf-8") == "keep: true"
 
