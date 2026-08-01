@@ -1199,11 +1199,7 @@ def test_delete_session_removes_session_row_and_related_data(tmp_path):
     assert consumed_sessions == {"s1"}
 
 
-def test_explicit_session_delete_removes_assets_when_automatic_cleanup_is_disabled(
-    tmp_path,
-    monkeypatch,
-):
-    from magi.config.models import AppConfig
+def test_explicit_session_delete_always_removes_assets(tmp_path):
     from magi.utils.runtime import RuntimePaths
 
     service = _build_service(tmp_path)
@@ -1216,10 +1212,6 @@ def test_explicit_session_delete_removes_assets_when_automatic_cleanup_is_disabl
         created_at=1000,
         updated_at=1000,
     )
-    config = AppConfig()
-    config.lifecycle.chat_assets.delete_on_session_delete = False
-    monkeypatch.setattr("magi.chat.read_service.get_config", lambda: config)
-
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     asset_path = runtime_paths.chat_files_dir / "s-delete-assets" / "turn-1" / "private.txt"
     asset_path.parent.mkdir(parents=True, exist_ok=True)
