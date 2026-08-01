@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import io
 import json
 import sqlite3
 from contextlib import asynccontextmanager
 
 import pytest
 from fastapi import HTTPException
+from starlette.datastructures import UploadFile
 
 from _shared.memory_schema import apply_memory_shared_schema
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
@@ -307,6 +309,8 @@ class _L1View:
 class _Memory:
     def __init__(self) -> None:
         self._operation_barrier = AsyncOperationBarrier()
+        self._clear_epoch = 0
+        self._clear_request_count = 0
         self._write_lock = asyncio.Lock()
         self.l1 = _L1View()
         self.fail_forget_count = 0
@@ -316,6 +320,12 @@ class _Memory:
 
     def memory_operation_guard(self):
         return self._operation_barrier.operation()
+
+    def memory_operation_epoch(self) -> int:
+        return self._clear_epoch
+
+    def memory_clear_in_progress(self) -> bool:
+        return self._clear_request_count > 0
 
     @asynccontextmanager
     async def governed_l1_write_guard(self):
@@ -470,6 +480,74 @@ def _install_stores_with_assets(
         lambda: (store, asset_store, projector, None, None, memory),
     )
     return store, memory, projector
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ("upload", "create", "update"))
+async def test_manual_entry_writes_fail_closed_while_memory_clear_is_pending(
+    monkeypatch,
+    operation,
+):
+    store, memory, _ = _install_stores(monkeypatch, _entry())
+    memory._clear_request_count = 1
+
+    with pytest.raises(HTTPException) as error:
+        if operation == "upload":
+            await routes.upload_manual_entry_asset(
+                UploadFile(filename="private.png", file=io.BytesIO(b"private"))
+            )
+        elif operation == "create":
+            await routes.create_manual_entry(
+                routes.ManualEntryCreateBody(
+                    entry_id="me-during-clear",
+                    body="private draft",
+                )
+            )
+        else:
+            await routes.update_manual_entry(
+                "manual-1",
+                routes.ManualEntryUpdateBody(body="private update"),
+            )
+
+    assert error.value.status_code == 409
+    assert error.value.detail["code"] == "memory_clear_in_progress"
+    assert store.create_calls == 0
+    assert store.update_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_manual_entry_write_does_not_resume_after_crossing_clear_epoch(
+    monkeypatch,
+):
+    store, memory, _ = _install_stores(monkeypatch, _entry())
+    guard_entered = asyncio.Event()
+    continue_guard = asyncio.Event()
+
+    @asynccontextmanager
+    async def delayed_guard():
+        guard_entered.set()
+        await continue_guard.wait()
+        yield
+
+    monkeypatch.setattr(memory, "memory_operation_guard", delayed_guard)
+    request = asyncio.create_task(
+        routes.create_manual_entry(
+            routes.ManualEntryCreateBody(
+                entry_id="me-stale-after-clear",
+                body="private draft",
+            )
+        )
+    )
+    await guard_entered.wait()
+    memory._clear_epoch += 1
+    continue_guard.set()
+
+    with pytest.raises(HTTPException) as error:
+        await request
+
+    assert error.value.status_code == 409
+    assert error.value.detail["code"] == "memory_clear_in_progress"
+    assert store.create_calls == 0
 
 
 @pytest.mark.asyncio

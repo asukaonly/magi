@@ -14,9 +14,7 @@ from .shared_clear import clear_shared_auxiliary_memory
 
 logger = logging.getLogger(__name__)
 
-_MEMORY_ARCHIVE_FILE_PATTERN = re.compile(
-    r"^\d{4}-\d{2}-\d{2}\.db(?:-wal|-shm)?$"
-)
+_MEMORY_ARCHIVE_FILE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}\.db(?:-wal|-shm)?$")
 
 
 class MemoryClearCompletedWithRecoveryError(RuntimeError):
@@ -51,6 +49,7 @@ class UnifiedMemoryLifecycleMixin:
     _write_lock: Any
     _clear_barrier: Any
     _clear_epoch: int
+    _clear_request_count: int
     _post_turn_forget_operations: set[str]
     _initialized: bool
 
@@ -107,85 +106,90 @@ class UnifiedMemoryLifecycleMixin:
     ) -> dict[str, int]:
         """Quiesce background writers, clear every layer, and resume the runtime."""
         context_count = 0
-        async with self._clear_barrier.exclusive():
-            self._clear_epoch += 1
-            async with self._write_lock:
-                pipeline_was_running = bool(
-                    self.l2_pipeline is not None
-                    and getattr(getattr(self.l2_pipeline, "_stats", None), "is_running", False)
-                )
-                edge_worker_was_running = bool(
-                    self._edge_embedding_worker is not None
-                    and getattr(self._edge_embedding_worker, "_running", False)
-                )
-                l3_embedding_was_running = self._embedding_worker_is_running(self.l3)
-                l4_embedding_was_running = self._embedding_worker_is_running(self.l4)
-                l1_embedding_was_running = bool(
-                    self.l1 is not None
-                    and getattr(self.l1, "_embedding_workers", None)
-                )
-                clear_failure: BaseException | None = None
-                clear_traceback = None
-                try:
-                    await self._quiesce_memory_writers()
-                    l2_count = await self.l2.clear() if self.l2 is not None else 0
-                    if self.l2_entity_catalog is not None:
-                        l2_count += await self.l2_entity_catalog.clear()
-                    if self.l2_pipeline is not None:
-                        await self.l2_pipeline.reset_after_clear()
-                    await clear_shared_auxiliary_memory(self.memory_db_path)
-                    l0_count = await self.l0.clear() if self.l0 is not None else 0
-                    l1_count = (
-                        await self.l1.clear(restart_workers=False)
-                        if self.l1 is not None
-                        else 0
-                    )
-                    l3_count = await self.l3.clear() if self.l3 is not None else 0
-                    l4_count = await self.l4.clear() if self.l4 is not None else 0
-                    self._clear_archived_memory_files()
-                    await self._run_auxiliary_clearers(auxiliary_clearers)
-                    if context_clearer is not None:
-                        context_result = await self._run_clearer(context_clearer)
-                        context_count = int(context_result or 0)
-                except BaseException as exc:
-                    clear_failure = exc
-                    clear_traceback = exc.__traceback__
-
-                resume_failure: BaseException | None = None
-                try:
-                    await self._resume_memory_writers(
-                        pipeline_was_running=pipeline_was_running,
-                        edge_worker_was_running=edge_worker_was_running,
-                        l1_embedding_was_running=l1_embedding_was_running,
-                        l3_embedding_was_running=l3_embedding_was_running,
-                        l4_embedding_was_running=l4_embedding_was_running,
-                    )
-                except BaseException as exc:
-                    resume_failure = exc
-
-                if clear_failure is not None:
-                    if resume_failure is not None:
-                        logger.error(
-                            "Failed to resume memory writers after clear failure",
-                            exc_info=(
-                                type(resume_failure),
-                                resume_failure,
-                                resume_failure.__traceback__,
-                            ),
+        self._clear_request_count += 1
+        try:
+            async with self._clear_barrier.exclusive():
+                self._clear_epoch += 1
+                async with self._write_lock:
+                    pipeline_was_running = bool(
+                        self.l2_pipeline is not None
+                        and getattr(
+                            getattr(self.l2_pipeline, "_stats", None),
+                            "is_running",
+                            False,
                         )
-                    raise clear_failure.with_traceback(clear_traceback)
-                if resume_failure is not None:
-                    raise MemoryClearCompletedWithRecoveryError(
-                        counts={
-                            "l0": l0_count,
-                            "l1": l1_count,
-                            "l2": l2_count,
-                            "l3": l3_count,
-                            "l4": l4_count,
-                            "chat_context": context_count,
-                        },
-                        recovery_error=resume_failure,
-                    ) from resume_failure
+                    )
+                    edge_worker_was_running = bool(
+                        self._edge_embedding_worker is not None
+                        and getattr(self._edge_embedding_worker, "_running", False)
+                    )
+                    l3_embedding_was_running = self._embedding_worker_is_running(self.l3)
+                    l4_embedding_was_running = self._embedding_worker_is_running(self.l4)
+                    l1_embedding_was_running = bool(
+                        self.l1 is not None and getattr(self.l1, "_embedding_workers", None)
+                    )
+                    clear_failure: BaseException | None = None
+                    clear_traceback = None
+                    try:
+                        await self._quiesce_memory_writers()
+                        l2_count = await self.l2.clear() if self.l2 is not None else 0
+                        if self.l2_entity_catalog is not None:
+                            l2_count += await self.l2_entity_catalog.clear()
+                        if self.l2_pipeline is not None:
+                            await self.l2_pipeline.reset_after_clear()
+                        await clear_shared_auxiliary_memory(self.memory_db_path)
+                        l0_count = await self.l0.clear() if self.l0 is not None else 0
+                        l1_count = (
+                            await self.l1.clear(restart_workers=False) if self.l1 is not None else 0
+                        )
+                        l3_count = await self.l3.clear() if self.l3 is not None else 0
+                        l4_count = await self.l4.clear() if self.l4 is not None else 0
+                        self._clear_archived_memory_files()
+                        await self._run_auxiliary_clearers(auxiliary_clearers)
+                        if context_clearer is not None:
+                            context_result = await self._run_clearer(context_clearer)
+                            context_count = int(context_result or 0)
+                    except BaseException as exc:
+                        clear_failure = exc
+                        clear_traceback = exc.__traceback__
+
+                    resume_failure: BaseException | None = None
+                    try:
+                        await self._resume_memory_writers(
+                            pipeline_was_running=pipeline_was_running,
+                            edge_worker_was_running=edge_worker_was_running,
+                            l1_embedding_was_running=l1_embedding_was_running,
+                            l3_embedding_was_running=l3_embedding_was_running,
+                            l4_embedding_was_running=l4_embedding_was_running,
+                        )
+                    except BaseException as exc:
+                        resume_failure = exc
+
+                    if clear_failure is not None:
+                        if resume_failure is not None:
+                            logger.error(
+                                "Failed to resume memory writers after clear failure",
+                                exc_info=(
+                                    type(resume_failure),
+                                    resume_failure,
+                                    resume_failure.__traceback__,
+                                ),
+                            )
+                        raise clear_failure.with_traceback(clear_traceback)
+                    if resume_failure is not None:
+                        raise MemoryClearCompletedWithRecoveryError(
+                            counts={
+                                "l0": l0_count,
+                                "l1": l1_count,
+                                "l2": l2_count,
+                                "l3": l3_count,
+                                "l4": l4_count,
+                                "chat_context": context_count,
+                            },
+                            recovery_error=resume_failure,
+                        ) from resume_failure
+        finally:
+            self._clear_request_count -= 1
         return {
             "l0": l0_count,
             "l1": l1_count,
@@ -202,6 +206,10 @@ class UnifiedMemoryLifecycleMixin:
     def memory_operation_epoch(self) -> int:
         """Return the process-local epoch used to reject stale queued work."""
         return int(self._clear_epoch)
+
+    def memory_clear_in_progress(self) -> bool:
+        """Return whether a full clear is active or waiting for admission."""
+        return self._clear_request_count > 0
 
     def _activate_post_turn_forget_epoch(self, operation_id: str) -> None:
         """Fence post-turn work admitted before one forget operation."""

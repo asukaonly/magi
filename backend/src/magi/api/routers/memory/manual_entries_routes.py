@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import replace
+from functools import wraps
 from typing import Any, Literal, Optional
 
 from fastapi import HTTPException, Query, UploadFile, status
@@ -47,6 +48,42 @@ from .dependencies import (
 from .router import memory_router
 
 logger = get_logger(__name__)
+
+
+def _memory_clear_conflict() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "memory_clear_in_progress",
+            "message": "Memory is being cleared; retry after the clear finishes",
+        },
+    )
+
+
+def _guard_manual_entry_write(handler):
+    """Reject stale manual-entry writes instead of replaying them after a clear."""
+
+    @wraps(handler)
+    async def guarded(*args, **kwargs):
+        memory = _resolve_stores()[-1]
+        if memory is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Memory system not initialized",
+            )
+        captured_epoch = memory.memory_operation_epoch()
+        if memory.memory_clear_in_progress():
+            raise _memory_clear_conflict()
+        async with memory.memory_operation_guard():
+            if (
+                memory.memory_clear_in_progress()
+                or captured_epoch != memory.memory_operation_epoch()
+            ):
+                raise _memory_clear_conflict()
+            return await handler(*args, **kwargs)
+
+    return guarded
+
 
 # ─── Request / response shapes ───────────────────────────────────────
 
@@ -532,6 +569,7 @@ def _apply_entry_update(
 
 
 @memory_router.post("/manual-entries/assets")
+@_guard_manual_entry_write
 async def upload_manual_entry_asset(file: UploadFile):
     """Upload a single image attachment.
 
@@ -551,6 +589,7 @@ async def upload_manual_entry_asset(file: UploadFile):
     "/manual-entries",
     response_model=ManualEntryCreateResponse,
 )
+@_guard_manual_entry_write
 async def create_manual_entry(body: ManualEntryCreateBody):
     """Create a new entry and project it to L1.
 
@@ -716,6 +755,7 @@ async def list_manual_entries(
 
 
 @memory_router.patch("/manual-entries/{entry_id}")
+@_guard_manual_entry_write
 async def update_manual_entry(entry_id: str, body: ManualEntryUpdateBody):
     async with _entry_mutation_lock(entry_id):
         return await _update_manual_entry_locked(entry_id, body)
@@ -862,6 +902,7 @@ async def _update_manual_entry_locked(entry_id: str, body: ManualEntryUpdateBody
 
 
 @memory_router.delete("/manual-entries/{entry_id}/weather")
+@_guard_manual_entry_write
 async def clear_manual_entry_weather(entry_id: str):
     """Drop the auto-resolved weather snapshot.
 
@@ -950,6 +991,7 @@ async def _clear_manual_entry_weather_locked(entry_id: str):
 
 
 @memory_router.delete("/manual-entries/{entry_id}")
+@_guard_manual_entry_write
 async def delete_manual_entry(entry_id: str):
     async with _entry_mutation_lock(entry_id):
         return await _delete_manual_entry_locked(entry_id)

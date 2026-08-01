@@ -223,6 +223,7 @@ class UnifiedMemoryStore(
         self._write_lock = asyncio.Lock()
         self._clear_barrier = AsyncOperationBarrier()
         self._clear_epoch = 0
+        self._clear_request_count = 0
         self._post_turn_forget_operations: set[str] = set()
         self._source_forget_owners = SourceForgetOwnerRegistry(
             required_sources=("manual_entry",),
