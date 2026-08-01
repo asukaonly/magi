@@ -136,6 +136,21 @@ class SelfMemory:
         """getcorePersonality configuration"""
         return self._personality_config or PersonalityConfig()
 
+    async def clear_learned_state(self) -> int:
+        """Clear learned behavior, emotion, and growth without deleting persona config."""
+        if not self.enable_evolution:
+            return 0
+
+        deleted = 0
+        for engine in (
+            self._behavior_engine,
+            self._emotion_engine,
+            self._growth_engine,
+        ):
+            if engine is not None:
+                deleted += int(await engine.clear_all())
+        return deleted
+
 
     async def record_task_outcome(
         self,

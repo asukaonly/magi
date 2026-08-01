@@ -228,6 +228,19 @@ def _resolve_channels_module():
     return getattr(getattr(context, "channels", None), "module", None)
 
 
+def _resolve_self_memory():
+    override = _package_override("_resolve_self_memory", _resolve_self_memory)
+    if override is not None:
+        return override()
+    try:
+        from magi.core.container import get_container
+
+        context = get_container().runtime_bootstrap_context()
+    except Exception:
+        return None
+    return getattr(getattr(context, "personality", None), "self_memory", None)
+
+
 def _resolve_orchestration_store():
     override = _package_override(
         "_resolve_orchestration_store",

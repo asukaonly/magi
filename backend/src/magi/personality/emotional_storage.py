@@ -130,5 +130,21 @@ class EmotionalStateStorageMixin:
 
         logger.info("Emotional state reset to initial values")
 
+    async def clear_all(self) -> int:
+        """Delete every learned emotional state and reset the active cache."""
+        deleted = 0
+        async with sqlite_connection_async(self._expanded_db_path) as db:
+            for table_name in ("emotional_events", "emotional_state"):
+                cursor = await db.execute(f"DELETE FROM {table_name}")
+                deleted += max(0, int(cursor.rowcount or 0))
+            await db.commit()
+
+        self._current_state = EmotionalState()
+        event_history = getattr(self, "_event_history", None)
+        if isinstance(event_history, list):
+            event_history.clear()
+        logger.info("Cleared all learned emotional state")
+        return deleted
+
 
 __all__ = ["EmotionalStateStorageMixin"]

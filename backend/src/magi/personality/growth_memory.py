@@ -38,6 +38,25 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
         """Create the database's parent directory; schema is applied lazily by stores."""
         Path(self._expanded_db_path).parent.mkdir(parents=True, exist_ok=True)
 
+    async def clear_all(self) -> int:
+        """Delete learned growth state for every persona and invalidate caches."""
+        deleted = 0
+        async with sqlite_connection_async(self._expanded_db_path) as db:
+            for table_name in (
+                "milestones",
+                "relationships",
+                "personality_evolution",
+                "growth_statistics",
+            ):
+                cursor = await db.execute(f"DELETE FROM {table_name}")
+                deleted += max(0, int(cursor.rowcount or 0))
+            await db.commit()
+
+        self._relationship_cache.clear()
+        self._milestone_cache = None
+        logger.info("Cleared all learned growth state")
+        return deleted
+
 
     async def record_milestone(
         self,

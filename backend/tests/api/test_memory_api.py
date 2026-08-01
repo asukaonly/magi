@@ -3283,6 +3283,27 @@ def test_memory_clear_purges_manual_entry_weather_cache(monkeypatch) -> None:
     weather_fetcher.clear.assert_awaited_once_with()
 
 
+def test_memory_clear_purges_learned_personality_state(monkeypatch) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    self_memory = SimpleNamespace(
+        clear_learned_state=AsyncMock(return_value=12)
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_self_memory",
+        lambda: self_memory,
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    self_memory.clear_learned_state.assert_awaited_once_with()
+
+
 def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

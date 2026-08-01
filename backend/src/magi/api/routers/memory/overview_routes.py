@@ -25,6 +25,7 @@ from .dependencies import (
     _resolve_outreach_service,
     _resolve_runtime_command_queue,
     _resolve_sensor_hub,
+    _resolve_self_memory,
     _resolve_task_agent_manager,
     _resolve_unified_memory,
     get_chat_read_service,
@@ -356,6 +357,9 @@ async def clear_memory_layers():
                         auxiliary_clearers.append(manual_entry_asset_store.clear)
                     if manual_entry_weather_fetcher is not None:
                         auxiliary_clearers.append(manual_entry_weather_fetcher.clear)
+                    self_memory = _resolve_self_memory()
+                    if self_memory is not None:
+                        auxiliary_clearers.append(self_memory.clear_learned_state)
                     async with _conversation_delivery_clear_boundary():
                         async with _resolve_mcp_resource_cache().global_data_clear_boundary():
                             try:
