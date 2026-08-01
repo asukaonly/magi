@@ -2192,6 +2192,14 @@ independent table deletes.
   L1 and chat deletion finish. Work admitted after the boundary captures the new
   generation and proceeds normally; a record read before it cannot be stamped
   with the new generation and recreate L1 afterward.
+- One-shot history import preview, confirmation, recovery, reads, and background
+  persistence acquire the global memory boundary before the import service's
+  own shared boundary. Full clear takes those boundaries in the same order,
+  then cancels and drains every import worker under the service's exclusive
+  boundary before deleting preview jobs and normalized records. A preview or
+  recovery pass admitted before clear therefore finishes before deletion, and
+  work waiting between background batches is canceled instead of recreating an
+  import row after the shared database is empty.
 - An individually deleted chat session leaves a
   `chat_cleared_session_scopes` tombstone. Session identity is compared
   case-insensitively, `chat_sessions` enforces the same case-insensitive

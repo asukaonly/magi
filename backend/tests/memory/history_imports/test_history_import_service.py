@@ -16,6 +16,7 @@ from magi.db.migrations.memory_shared.versions.v36_history_imports import (
 from magi.db.migrations.memory_shared.versions.v37_history_import_selection import (
     SCHEMA_SQL as SELECTION_SCHEMA_SQL,
 )
+from magi.core.operation_barrier import AsyncOperationBarrier
 from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
 from magi.memory.history_imports.service import (
     SOURCE_PREVIEW_MAX_CHARS,
@@ -31,6 +32,10 @@ class _MemoryStub:
         self.raw_events: list[Any] = []
         self.projected_events: list[Any] = []
         self.forgotten_event_ids: list[str] = []
+        self.operation_barrier = AsyncOperationBarrier()
+
+    def memory_operation_guard(self):
+        return self.operation_barrier.operation()
 
     def memory_operation_epoch(self) -> int:
         return self.epoch
@@ -72,6 +77,28 @@ async def history_store(tmp_path: Path) -> HistoryImportStore:
         await db.executescript(SELECTION_SCHEMA_SQL)
         await db.commit()
     return HistoryImportStore(db_path=str(db_path))
+
+
+def _build_real_memory(tmp_path: Path) -> UnifiedMemoryStore:
+    return UnifiedMemoryStore(
+        persist_dir=str(tmp_path / "memory"),
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(tmp_path / "memory.db"),
+        archive_dir_path=str(tmp_path / "archive"),
+        enable_l0=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+        tuning=MemoryStoreTuning(
+            enable_l1_vectors=False,
+            enable_l2_vectors=False,
+            enable_l3_vectors=False,
+            enable_l4_vectors=False,
+            enable_l3_llm_summary=False,
+            enable_l2_conflict_arbitration=False,
+            async_embeddings=False,
+        ),
+    )
 
 
 @pytest.mark.asyncio
@@ -254,24 +281,7 @@ async def test_confirm_writes_previewed_markdown_into_the_real_l1_store(
     tmp_path: Path,
 ) -> None:
     memory_db_path = tmp_path / "memory.db"
-    memory = UnifiedMemoryStore(
-        persist_dir=str(tmp_path / "memory"),
-        l1_db_path=str(tmp_path / "l1.db"),
-        memory_db_path=str(memory_db_path),
-        enable_l0=False,
-        enable_l2=False,
-        enable_l3=False,
-        enable_l4=False,
-        tuning=MemoryStoreTuning(
-            enable_l1_vectors=False,
-            enable_l2_vectors=False,
-            enable_l3_vectors=False,
-            enable_l4_vectors=False,
-            enable_l3_llm_summary=False,
-            enable_l2_conflict_arbitration=False,
-            async_embeddings=False,
-        ),
-    )
+    memory = _build_real_memory(tmp_path)
     await memory.initialize()
     service = HistoryImportService(
         store=HistoryImportStore(db_path=str(memory_db_path)),
@@ -308,6 +318,208 @@ async def test_confirm_writes_previewed_markdown_into_the_real_l1_store(
     finally:
         await service.stop()
         await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_full_clear_waits_for_inflight_preview_and_removes_its_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = _build_real_memory(tmp_path)
+    await memory.initialize()
+    store = HistoryImportStore(db_path=str(tmp_path / "memory.db"))
+    service = HistoryImportService(store=store, memory=memory)
+    markdown = tmp_path / "preview-during-clear.md"
+    markdown.write_text("# Private notes\n\nA detail that must be cleared.", encoding="utf-8")
+    preview_reached_store = asyncio.Event()
+    release_preview = asyncio.Event()
+    original_find = store.find_active_by_fingerprint
+
+    async def delayed_find(fingerprint: str):
+        preview_reached_store.set()
+        await release_preview.wait()
+        return await original_find(fingerprint)
+
+    monkeypatch.setattr(store, "find_active_by_fingerprint", delayed_find)
+    preview_task: asyncio.Task[Any] | None = None
+    clear_task: asyncio.Task[Any] | None = None
+    try:
+        preview_task = asyncio.create_task(
+            service.preview_markdown_paths([str(markdown)])
+        )
+        await asyncio.wait_for(preview_reached_store.wait(), timeout=1)
+
+        clear_task = asyncio.create_task(
+            memory.clear_all_memory(
+                user_content_clear_boundaries=(
+                    service.user_content_clear_boundary,
+                ),
+            )
+        )
+
+        async def wait_for_clear_request() -> None:
+            while not memory.memory_clear_in_progress():
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(wait_for_clear_request(), timeout=1)
+        assert clear_task.done() is False
+
+        release_preview.set()
+        preview = await asyncio.wait_for(preview_task, timeout=2)
+        await asyncio.wait_for(clear_task, timeout=5)
+
+        assert await store.get_job(preview.job_id) is None
+        assert await store.list_active_jobs() == []
+        assert service._tasks == {}
+        assert service._locks == {}
+    finally:
+        release_preview.set()
+        pending = [
+            task
+            for task in (preview_task, clear_task)
+            if task is not None and not task.done()
+        ]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        await service.stop()
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_full_clear_cancels_import_workers_before_shared_table_deletion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.memory import store_lifecycle
+
+    memory = _build_real_memory(tmp_path)
+    await memory.initialize()
+    service = HistoryImportService(
+        store=HistoryImportStore(db_path=str(tmp_path / "memory.db")),
+        memory=memory,
+    )
+    worker_started = asyncio.Event()
+    worker_finished = asyncio.Event()
+
+    async def pending_worker(_job_id: str) -> None:
+        worker_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0)
+            worker_finished.set()
+
+    monkeypatch.setattr(service, "_run_background", pending_worker)
+    original_clear_shared = store_lifecycle.clear_shared_auxiliary_memory
+
+    async def observed_clear_shared(*args: Any, **kwargs: Any):
+        assert worker_finished.is_set()
+        return await original_clear_shared(*args, **kwargs)
+
+    monkeypatch.setattr(
+        store_lifecycle,
+        "clear_shared_auxiliary_memory",
+        observed_clear_shared,
+    )
+    service._start_background("pending-job")
+    await asyncio.wait_for(worker_started.wait(), timeout=1)
+
+    try:
+        await asyncio.wait_for(
+            memory.clear_all_memory(
+                user_content_clear_boundaries=(
+                    service.user_content_clear_boundary,
+                ),
+            ),
+            timeout=5,
+        )
+
+        assert worker_finished.is_set()
+        assert service._tasks == {}
+        assert service._locks == {}
+    finally:
+        await service.stop()
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_clear_does_not_deadlock_between_worker_and_selection_lock_order(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    markdown = tmp_path / "lock-order.md"
+    markdown.write_text("# Notes\n\nA private detail.", encoding="utf-8")
+    memory = _MemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+    preview = await service.preview_markdown_paths([str(markdown)])
+    first_holder_ready = asyncio.Event()
+    release_first_holder = asyncio.Event()
+    second_waiter_ready = asyncio.Event()
+
+    class _PauseFirstJobLock:
+        def __init__(self) -> None:
+            self._lock = asyncio.Lock()
+            self._attempts = 0
+
+        async def __aenter__(self):
+            self._attempts += 1
+            if self._attempts == 2:
+                second_waiter_ready.set()
+            await self._lock.acquire()
+            if self._attempts == 1:
+                first_holder_ready.set()
+                await release_first_holder.wait()
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback) -> None:
+            _ = (exc_type, exc, traceback)
+            self._lock.release()
+
+    service._locks[preview.job_id] = _PauseFirstJobLock()  # type: ignore[assignment]
+    service._start_background(preview.job_id)
+    await asyncio.wait_for(first_holder_ready.wait(), timeout=1)
+    selection_task = asyncio.create_task(
+        service.update_selection(
+            job_id=preview.job_id,
+            included_files=preview.included_files,
+        )
+    )
+    await asyncio.wait_for(second_waiter_ready.wait(), timeout=1)
+
+    async def clear_service() -> None:
+        async with memory.operation_barrier.exclusive():
+            async with service.user_content_clear_boundary():
+                return
+
+    clear_task = asyncio.create_task(clear_service())
+
+    async def wait_for_exclusive_waiter() -> None:
+        while memory.operation_barrier._exclusive_waiters == 0:
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(wait_for_exclusive_waiter(), timeout=1)
+
+    try:
+        release_first_holder.set()
+        await asyncio.wait_for(selection_task, timeout=2)
+        await asyncio.wait_for(clear_task, timeout=2)
+
+        assert service._tasks == {}
+        assert service._locks == {}
+    finally:
+        release_first_holder.set()
+        pending = [
+            task
+            for task in (selection_task, clear_task)
+            if not task.done()
+        ]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        await service.stop()
 
 
 @pytest.mark.asyncio

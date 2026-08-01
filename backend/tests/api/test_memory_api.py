@@ -751,7 +751,14 @@ class _FakeUnifiedMemory:
             "l4": {"db_path": "/tmp/l4.db"},
         }
 
-    async def clear_all_memory(self, *, auxiliary_clearers=(), context_clearer=None):
+    async def clear_all_memory(
+        self,
+        *,
+        auxiliary_clearers=(),
+        context_clearer=None,
+        user_content_clear_boundaries=(),
+    ):
+        _ = user_content_clear_boundaries
         l2_count = await self.l2.clear()
         l2_count += await self.l2_entity_catalog.clear()
         for clearer in auxiliary_clearers:
@@ -2468,6 +2475,11 @@ def test_memory_clear_api_clears_all_layers(
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
     clear_order: list[str] = []
+    received_history_boundaries: list = []
+
+    @asynccontextmanager
+    async def history_import_boundary():
+        yield
 
     class _OrderedUnifiedMemory(_FakeUnifiedMemory):
         async def clear_all_memory(
@@ -2475,10 +2487,13 @@ def test_memory_clear_api_clears_all_layers(
             *,
             auxiliary_clearers=(),
             context_clearer=None,
+            user_content_clear_boundaries=(),
         ):
+            received_history_boundaries.extend(user_content_clear_boundaries)
             result = await super().clear_all_memory(
                 auxiliary_clearers=auxiliary_clearers,
                 context_clearer=context_clearer,
+                user_content_clear_boundaries=user_content_clear_boundaries,
             )
             clear_order.append("memory-finished")
             return result
@@ -2638,6 +2653,10 @@ def test_memory_clear_api_clears_all_layers(
         "magi.api.routers.memory.overview_routes._resolve_tool_registry",
         lambda: SimpleNamespace(user_content_clear_boundary=tool_content_boundary),
     )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_history_import_service",
+        lambda: SimpleNamespace(user_content_clear_boundary=history_import_boundary),
+    )
 
     client = TestClient(app)
     response = client.delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
@@ -2651,6 +2670,7 @@ def test_memory_clear_api_clears_all_layers(
     assert body["results"]["l3"]["count"] == 2
     assert body["results"]["l4"]["count"] == 1
     assert body["results"]["chat_context"]["count"] == 4
+    assert received_history_boundaries == [history_import_boundary]
     queue, _ = _isolate_user_message_clear_boundary
     assert queue.full_clear_transaction_id == FULL_CLEAR_TRANSACTION_ID
     assert queue.full_clear_completed_transaction_id == FULL_CLEAR_TRANSACTION_ID
@@ -3713,7 +3733,9 @@ def test_memory_clear_remains_pending_when_memory_writers_fail_to_resume(
             *,
             auxiliary_clearers=(),
             context_clearer=None,
+            user_content_clear_boundaries=(),
         ) -> dict[str, int]:
+            _ = user_content_clear_boundaries
             for clearer in auxiliary_clearers:
                 result = clearer()
                 if hasattr(result, "__await__"):
@@ -4187,7 +4209,9 @@ def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):
             *,
             auxiliary_clearers=(),
             context_clearer=None,
+            user_content_clear_boundaries=(),
         ) -> dict[str, int]:
+            _ = user_content_clear_boundaries
             l2_count = await self.l2.clear()
             l2_count += await self.l2_entity_catalog.clear()
             for clearer in auxiliary_clearers:

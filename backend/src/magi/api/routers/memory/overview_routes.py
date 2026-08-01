@@ -18,6 +18,7 @@ from .clear import ClearMemoryResponseModel, build_clear_memory_response
 from .dependencies import (
     _resolve_manual_entry_asset_store,
     _resolve_manual_entry_weather_fetcher,
+    _resolve_history_import_service,
     _resolve_legacy_user_content_clearer,
     _resolve_llm_usage_store,
     _resolve_llm_usage_subscriber,
@@ -506,10 +507,17 @@ async def clear_memory_layers(
                                 await content_cache_scope.enter_async_context(
                                     runtime_trace_store.plugin_ingress_global_clear_boundary()
                                 )
+                            history_import_service = _resolve_history_import_service()
+                            history_import_boundaries = (
+                                (history_import_service.user_content_clear_boundary,)
+                                if history_import_service is not None
+                                else ()
+                            )
                             try:
                                 counts = await unified_memory.clear_all_memory(
                                     auxiliary_clearers=auxiliary_clearers,
                                     context_clearer=clear_chat_runtime_state,
+                                    user_content_clear_boundaries=history_import_boundaries,
                                 )
                             except MemoryClearCompletedWithRecoveryError as exc:
                                 counts = exc.counts

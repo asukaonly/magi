@@ -9,6 +9,7 @@ import os
 import re
 import stat
 from collections.abc import Callable, Iterable
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
 
@@ -126,6 +127,7 @@ class UnifiedMemoryLifecycleMixin:
         *,
         auxiliary_clearers: Iterable[Callable[[], Any]] = (),
         context_clearer: Callable[[], Any] | None = None,
+        user_content_clear_boundaries: Iterable[Callable[[], Any]] = (),
     ) -> dict[str, int]:
         """Quiesce background writers, clear every layer, and resume the runtime."""
         context_count = 0
@@ -154,42 +156,45 @@ class UnifiedMemoryLifecycleMixin:
                     clear_failure: BaseException | None = None
                     clear_traceback = None
                     try:
-                        await self._quiesce_memory_writers()
-                        l2_count = await self.l2.clear() if self.l2 is not None else 0
-                        if self.l2_entity_catalog is not None:
-                            l2_count += await self.l2_entity_catalog.clear()
-                        if self.l2_pipeline is not None:
-                            await self.l2_pipeline.reset_after_clear()
-                        l0_count = await self.l0.clear() if self.l0 is not None else 0
-                        if self.l1 is not None:
-                            l1_count = await self.l1.clear(restart_workers=False)
-                        else:
-                            l1_count = self._clear_dormant_l1_database()
-                        l3_count = await self.l3.clear() if self.l3 is not None else 0
-                        l4_count = await self.l4.clear() if self.l4 is not None else 0
-                        shared_counts = await clear_shared_auxiliary_memory(
-                            self.memory_db_path,
-                            advance_clear_generation=self.l2 is None,
-                            dormant_vector_layers=frozenset(
-                                layer
-                                for layer, store in (
-                                    ("l2", self.l2),
-                                    ("l3", self.l3),
-                                    ("l4", self.l4),
-                                )
-                                if store is None
-                            ),
-                        )
-                        l0_count += shared_counts.l0
-                        l2_count += shared_counts.l2
-                        l3_count += shared_counts.l3
-                        l4_count += shared_counts.l4
-                        self._clear_archived_memory_files()
-                        await self._run_auxiliary_clearers(auxiliary_clearers)
-                        if context_clearer is not None:
-                            context_result = await self._run_clearer(context_clearer)
-                            context_count = int(context_result or 0)
-                        await secure_compact_sqlite(self.memory_db_path)
+                        async with AsyncExitStack() as clear_boundary_stack:
+                            for boundary in user_content_clear_boundaries:
+                                await clear_boundary_stack.enter_async_context(boundary())
+                            await self._quiesce_memory_writers()
+                            l2_count = await self.l2.clear() if self.l2 is not None else 0
+                            if self.l2_entity_catalog is not None:
+                                l2_count += await self.l2_entity_catalog.clear()
+                            if self.l2_pipeline is not None:
+                                await self.l2_pipeline.reset_after_clear()
+                            l0_count = await self.l0.clear() if self.l0 is not None else 0
+                            if self.l1 is not None:
+                                l1_count = await self.l1.clear(restart_workers=False)
+                            else:
+                                l1_count = self._clear_dormant_l1_database()
+                            l3_count = await self.l3.clear() if self.l3 is not None else 0
+                            l4_count = await self.l4.clear() if self.l4 is not None else 0
+                            shared_counts = await clear_shared_auxiliary_memory(
+                                self.memory_db_path,
+                                advance_clear_generation=self.l2 is None,
+                                dormant_vector_layers=frozenset(
+                                    layer
+                                    for layer, store in (
+                                        ("l2", self.l2),
+                                        ("l3", self.l3),
+                                        ("l4", self.l4),
+                                    )
+                                    if store is None
+                                ),
+                            )
+                            l0_count += shared_counts.l0
+                            l2_count += shared_counts.l2
+                            l3_count += shared_counts.l3
+                            l4_count += shared_counts.l4
+                            self._clear_archived_memory_files()
+                            await self._run_auxiliary_clearers(auxiliary_clearers)
+                            if context_clearer is not None:
+                                context_result = await self._run_clearer(context_clearer)
+                                context_count = int(context_result or 0)
+                            await secure_compact_sqlite(self.memory_db_path)
                     except BaseException as exc:
                         clear_failure = exc
                         clear_traceback = exc.__traceback__

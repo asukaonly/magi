@@ -19,6 +19,7 @@ from magi.core.runtime_bindings import (
 from magi.llm.provider import get_scenario_llm_pool
 from magi.memory.eval_support.answer_synthesis import synthesize_eval_answer
 from magi.memory.provider import (
+    get_history_import_service,
     get_hybrid_retrieval_service,
     get_memory_integration,
     get_unified_memory,
@@ -101,6 +102,22 @@ def _resolve_manual_entry_weather_fetcher():
         return get_manual_entry_weather_fetcher()
     except RuntimeError:
         return None
+
+
+def _resolve_history_import_service():
+    override = _package_override(
+        "_resolve_history_import_service",
+        _resolve_history_import_service,
+    )
+    if override is not None:
+        return override()
+    try:
+        service = get_history_import_service()
+    except RuntimeError:
+        return None
+    if not callable(getattr(service, "user_content_clear_boundary", None)):
+        return None
+    return service
 
 
 def _resolve_mcp_resource_cache():

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from collections import Counter
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from functools import partial
 import hashlib
@@ -14,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.logger import get_logger
+from ...core.operation_barrier import AsyncOperationBarrier
 from ...identity import CANONICAL_LOCAL_USER
 from ..event_contracts import (
     AuthorType,
@@ -75,23 +78,37 @@ class HistoryImportService:
         self._memory = memory
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._operation_barrier = AsyncOperationBarrier()
 
     async def start(self) -> None:
         """Resume imports that had already reached the quick-ready boundary."""
 
-        for job_id in await self._store.list_resumable_job_ids():
-            self._start_background(job_id)
+        async with self._operation():
+            for job_id in await self._store.list_resumable_job_ids():
+                self._start_background(job_id)
 
     async def stop(self) -> None:
-        tasks = list(self._tasks.values())
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        self._tasks.clear()
+        async with self._operation_barrier.exclusive():
+            await self._cancel_background_tasks()
+            self._locks.clear()
+
+    @asynccontextmanager
+    async def user_content_clear_boundary(self) -> AsyncIterator[None]:
+        """Seal import work and drain background tasks before durable deletion."""
+
+        async with self._operation_barrier.exclusive():
+            await self._cancel_background_tasks()
+            self._locks.clear()
+            yield
 
     async def preview_markdown_paths(self, paths: list[str]) -> HistoryImportJob:
         """Parse selected files or folders and persist a safe preview."""
+
+        async with self._operation():
+            return await self._preview_markdown_paths(paths)
+
+    async def _preview_markdown_paths(self, paths: list[str]) -> HistoryImportJob:
+        """Persist one preview while the service operation boundary is held."""
 
         files = _expand_markdown_paths(paths)
         parsed_files: list[ParsedHistoryFile] = []
@@ -161,6 +178,10 @@ class HistoryImportService:
         return await self._store.create_preview(job=job, records=records)
 
     async def get_job(self, job_id: str) -> HistoryImportJob:
+        async with self._operation():
+            return await self._get_job(job_id)
+
+    async def _get_job(self, job_id: str) -> HistoryImportJob:
         job = await self._store.get_job(job_id)
         if job is None:
             raise HistoryImportNotFoundError()
@@ -169,7 +190,8 @@ class HistoryImportService:
     async def list_jobs(self, *, limit: int = 20) -> list[HistoryImportJob]:
         """Return active imports for reader-facing progress and deletion."""
 
-        return await self._store.list_active_jobs(limit=limit)
+        async with self._operation():
+            return await self._store.list_active_jobs(limit=limit)
 
     async def get_source_preview(
         self,
@@ -179,7 +201,21 @@ class HistoryImportService:
     ) -> HistoryImportSourcePreview:
         """Return a bounded preview for one file without changing its selection."""
 
-        job = await self.get_job(job_id)
+        async with self._operation():
+            return await self._get_source_preview(
+                job_id=job_id,
+                source_name=source_name,
+            )
+
+    async def _get_source_preview(
+        self,
+        *,
+        job_id: str,
+        source_name: str,
+    ) -> HistoryImportSourcePreview:
+        """Load one source preview while the service operation boundary is held."""
+
+        job = await self._get_job(job_id)
         if source_name not in job.source_files:
             raise HistoryImportValidationError("history_import_source_not_found")
         source = next(
@@ -218,9 +254,23 @@ class HistoryImportService:
     ) -> HistoryImportJob:
         """Persist the file subset selected in the preview."""
 
+        async with self._operation():
+            return await self._update_selection(
+                job_id=job_id,
+                included_files=included_files,
+            )
+
+    async def _update_selection(
+        self,
+        *,
+        job_id: str,
+        included_files: list[str],
+    ) -> HistoryImportJob:
+        """Update selection while the service operation boundary is held."""
+
         lock = self._lock_for(job_id)
         async with lock:
-            job = await self.get_job(job_id)
+            job = await self._get_job(job_id)
             if job.quick_ready or job.imported_count > 0:
                 raise HistoryImportValidationError("history_import_selection_locked")
             normalized = _validate_included_files(
@@ -243,9 +293,27 @@ class HistoryImportService:
     ) -> HistoryImportJob:
         """Confirm identity, prepare recent raw context, and continue in order."""
 
+        async with self._operation():
+            return await self._confirm(
+                job_id=job_id,
+                self_participants=self_participants,
+                confirm_personal_writing=confirm_personal_writing,
+                included_files=included_files,
+            )
+
+    async def _confirm(
+        self,
+        *,
+        job_id: str,
+        self_participants: list[str],
+        confirm_personal_writing: bool,
+        included_files: list[str] | None = None,
+    ) -> HistoryImportJob:
+        """Confirm one import while the service operation boundary is held."""
+
         lock = self._lock_for(job_id)
         async with lock:
-            job = await self.get_job(job_id)
+            job = await self._get_job(job_id)
             if job.deleted_at is not None or job.status == "deleted":
                 raise HistoryImportNotFoundError()
             selected_files = _validate_included_files(
@@ -304,10 +372,16 @@ class HistoryImportService:
                     raise HistoryImportValidationError("memory_cleared_during_import") from exc
                 await self._store.mark_quick_ready(job_id=job_id)
             self._start_background(job_id)
-        return await self.get_job(job_id)
+        return await self._get_job(job_id)
 
     async def get_first_contact_snippet(self) -> str | None:
         """Return bounded user-authored excerpts from the latest confirmed import."""
+
+        async with self._operation():
+            return await self._get_first_contact_snippet()
+
+    async def _get_first_contact_snippet(self) -> str | None:
+        """Read first-contact excerpts while the service operation boundary is held."""
 
         records = await self._store.list_first_contact_records(limit=16)
         if not records:
@@ -338,21 +412,29 @@ class HistoryImportService:
         return "\n".join(lines) or None
 
     async def resume(self, job_id: str) -> HistoryImportJob:
-        job = await self.get_job(job_id)
+        async with self._operation():
+            return await self._resume(job_id)
+
+    async def _resume(self, job_id: str) -> HistoryImportJob:
+        job = await self._get_job(job_id)
         if not job.quick_ready:
             raise HistoryImportValidationError("history_import_not_confirmed")
         if job.status not in {"completed", "deleted"}:
             await self._store.mark_running(job_id=job_id)
             self._start_background(job_id)
-        return await self.get_job(job_id)
+        return await self._get_job(job_id)
 
     async def delete(self, job_id: str) -> None:
+        async with self._operation():
+            await self._delete(job_id)
+
+    async def _delete(self, job_id: str) -> None:
         task = self._tasks.pop(job_id, None)
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         async with self._lock_for(job_id):
-            job = await self.get_job(job_id)
+            job = await self._get_job(job_id)
             if job.status == "deleted":
                 return
             event_ids = await self._store.list_imported_event_ids(job_id=job_id)
@@ -381,52 +463,67 @@ class HistoryImportService:
 
     async def _run_background(self, job_id: str) -> None:
         try:
-            async with self._lock_for(job_id):
-                expected_epoch = self._memory.memory_operation_epoch()
-                await self._store.mark_running(job_id=job_id)
-                while True:
-                    records = await self._store.list_pending_raw_records(
-                        job_id=job_id,
-                        limit=RAW_BATCH_SIZE,
-                    )
-                    if not records:
-                        break
-                    for record in records:
-                        await self._store_raw_record(
-                            record,
-                            quick=False,
-                            expected_epoch=expected_epoch,
+            async with self._operation():
+                async with self._lock_for(job_id):
+                    expected_epoch = self._memory.memory_operation_epoch()
+                    await self._store.mark_running(job_id=job_id)
+            while True:
+                async with self._operation():
+                    async with self._lock_for(job_id):
+                        records = await self._store.list_pending_raw_records(
+                            job_id=job_id,
+                            limit=RAW_BATCH_SIZE,
                         )
-                    await asyncio.sleep(0)
+                if not records:
+                    break
+                for record in records:
+                    async with self._operation():
+                        async with self._lock_for(job_id):
+                            await self._store_raw_record(
+                                record,
+                                quick=False,
+                                expected_epoch=expected_epoch,
+                            )
+                await asyncio.sleep(0)
 
-                while True:
-                    records = await self._store.list_pending_projection_records(
-                        job_id=job_id,
-                        limit=PROJECTION_BATCH_SIZE,
-                    )
-                    if not records:
-                        break
-                    for record in records:
-                        await self._project_record(
-                            record,
-                            expected_epoch=expected_epoch,
+            while True:
+                async with self._operation():
+                    async with self._lock_for(job_id):
+                        records = await self._store.list_pending_projection_records(
+                            job_id=job_id,
+                            limit=PROJECTION_BATCH_SIZE,
                         )
-                    await asyncio.sleep(0)
-                await self._store.mark_completed(job_id=job_id)
+                if not records:
+                    break
+                for record in records:
+                    async with self._operation():
+                        async with self._lock_for(job_id):
+                            await self._project_record(
+                                record,
+                                expected_epoch=expected_epoch,
+                            )
+                await asyncio.sleep(0)
+            async with self._operation():
+                async with self._lock_for(job_id):
+                    await self._store.mark_completed(job_id=job_id)
         except asyncio.CancelledError:
             raise
         except _HistoryImportEpochChanged:
-            await self._store.mark_deleted(job_id=job_id)
+            async with self._operation():
+                async with self._lock_for(job_id):
+                    await self._store.mark_deleted(job_id=job_id)
         except Exception as exc:
             logger.exception(
                 "History import failed",
                 job_id=job_id,
                 error=repr(exc),
             )
-            await self._store.mark_failed(
-                job_id=job_id,
-                error_text=type(exc).__name__,
-            )
+            async with self._operation():
+                async with self._lock_for(job_id):
+                    await self._store.mark_failed(
+                        job_id=job_id,
+                        error_text=type(exc).__name__,
+                    )
 
     async def _store_raw_record(
         self,
@@ -477,6 +574,22 @@ class HistoryImportService:
 
     def _lock_for(self, job_id: str) -> asyncio.Lock:
         return self._locks.setdefault(job_id, asyncio.Lock())
+
+    @asynccontextmanager
+    async def _operation(self) -> AsyncIterator[None]:
+        """Keep clear-lock ordering stable across API and background entry points."""
+
+        async with self._memory.memory_operation_guard():
+            async with self._operation_barrier.operation():
+                yield
+
+    async def _cancel_background_tasks(self) -> None:
+        tasks = list(self._tasks.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._tasks.clear()
 
 
 def _expand_markdown_paths(paths: list[str]) -> list[tuple[Path, str]]:
