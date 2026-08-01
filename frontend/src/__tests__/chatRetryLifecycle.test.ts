@@ -28,6 +28,7 @@ import {
 import { useConversationStore } from '@/stores/conversation-store';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import { useChatShellStore } from '@/stores/chat-shell';
+import { useNotificationStore } from '@/stores/notifications';
 
 const { clearAllMock, listNotificationsMock } = vi.hoisted(() => ({
   clearAllMock: vi.fn(),
@@ -141,6 +142,11 @@ describe('chat retry lifecycle', () => {
     window.localStorage.clear();
     useConversationStore.getState().reset();
     useBackgroundTaskStore.getState().reset();
+    useNotificationStore.setState({
+      items: [],
+      unreadCount: 0,
+      loading: false,
+    });
     clearAllMock.mockReset();
     listNotificationsMock.mockReset().mockResolvedValue({
       items: [],
@@ -281,6 +287,21 @@ describe('chat retry lifecycle', () => {
         sparkline: [0.5],
       }],
     });
+    useNotificationStore.setState({
+      items: [{
+        id: 7,
+        kind: 'suggestion',
+        dedupe_key: 'private-suggestion',
+        title: 'Private title',
+        body: 'Private body',
+        payload: { category: 'private payload' },
+        status: 'unread',
+        created_at_ms: 1,
+        read_at_ms: null,
+      }],
+      unreadCount: 1,
+      loading: true,
+    });
     clearAllMock.mockResolvedValue(successfulClearResponse());
     const listener = vi.fn();
     window.addEventListener(APP_EVENTS.MEMORY_CLEARED, listener);
@@ -325,7 +346,10 @@ describe('chat retry lifecycle', () => {
     expect(useBackgroundTaskStore.getState().orderedIds).toEqual([]);
     expect(useChatShellStore.getState().timelinePanel.draftQuery).toBe('');
     expect(useChatShellStore.getState().timelinePanel.moodDays).toEqual([]);
-    expect(listNotificationsMock).toHaveBeenCalledTimes(1);
+    expect(useNotificationStore.getState().items).toEqual([]);
+    expect(useNotificationStore.getState().unreadCount).toBe(0);
+    expect(useNotificationStore.getState().loading).toBe(false);
+    expect(listNotificationsMock).not.toHaveBeenCalled();
     expect(listener).toHaveBeenCalledTimes(1);
     window.removeEventListener(APP_EVENTS.MEMORY_CLEARED, listener);
   });

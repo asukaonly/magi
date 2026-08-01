@@ -145,8 +145,7 @@ export const completeMemoryClear = (
   );
   useChatShellStore.getState().resetContentState();
   const notifications = useNotificationStore.getState();
-  notifications.discardMemoryConflicts();
-  void notifications.refresh();
+  notifications.clearForMemoryClear();
   runCleanup('active_chat_session', () => {
     window.localStorage.removeItem(CHAT_SESSION_KEY(DEFAULT_USER_ID));
     return window.localStorage.getItem(CHAT_SESSION_KEY(DEFAULT_USER_ID)) === null;

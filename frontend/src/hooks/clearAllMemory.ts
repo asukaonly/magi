@@ -21,13 +21,14 @@ function withWarning(
 }
 
 export const clearAllMemory = async (): Promise<ClearMemoryResponse> => {
+  const clearBoundaryAtSeconds = Date.now() / 1000;
   dispatchAppEvent.memoryClearStarted();
   let result = await memoryApi.clearAll();
   if (!result.success) {
     throw new Error('Memory clear request was not completed');
   }
   const browserCleanup = completeMemoryClear({
-    clearBoundaryAtSeconds: Date.now() / 1000,
+    clearBoundaryAtSeconds,
   });
   if (!browserCleanup.browserStateCleared) {
     result = withWarning(result, BROWSER_STATE_CLEANUP_WARNING);

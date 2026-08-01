@@ -17,6 +17,7 @@ interface NotificationState {
   dismissAll: () => Promise<void>;
   act: (id: number) => Promise<void>;
   discardMemoryConflicts: () => void;
+  clearForMemoryClear: () => void;
 }
 
 export const useNotificationStore = create<NotificationState>((set, get) => ({
@@ -69,5 +70,9 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         loading: false,
       };
     });
+  },
+  clearForMemoryClear: () => {
+    refreshRequestId += 1;
+    set({ items: [], unreadCount: 0, loading: false });
   },
 }));
