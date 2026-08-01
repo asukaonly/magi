@@ -59,11 +59,10 @@ export const ClearMemoryDialog: React.FC<ClearMemoryDialogProps> = ({
           <div className="rounded-xl border border-border/70 bg-muted/35 px-4 py-3">
             <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground/88">
               <li>{t('memory.clearConfirm.conversations')}</li>
-              <li>{t('memory.clearConfirm.events')}</li>
-              <li>{t('memory.clearConfirm.relationships')}</li>
-              <li>{t('memory.clearConfirm.summaries')}</li>
-              <li>{t('memory.clearConfirm.learnedSkills')}</li>
-              <li>{t('memory.clearConfirm.currentContext')}</li>
+              <li>{t('memory.clearConfirm.memoryAndActivity')}</li>
+              <li>{t('memory.clearConfirm.derivedUnderstanding')}</li>
+              <li>{t('memory.clearConfirm.tasksAndControl')}</li>
+              <li>{t('memory.clearConfirm.pluginContent')}</li>
               <li>{t('memory.clearConfirm.pendingNotifications')}</li>
               <li>{t('memory.clearConfirm.diagnosticLogs')}</li>
             </ol>

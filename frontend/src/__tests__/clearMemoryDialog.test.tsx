@@ -45,7 +45,7 @@ describe('ClearMemoryDialog', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the clear-dialog cancel copy and keeps the body inset from the edges', () => {
+  it('describes the complete clear scope and keeps the body inset from the edges', () => {
     render(
       <ClearMemoryDialog
         open
@@ -57,6 +57,10 @@ describe('ClearMemoryDialog', () => {
 
     expect(screen.getByRole('button', { name: 'memory.clearConfirm.cancel' })).toBeInTheDocument();
     expect(screen.getByTestId('clear-memory-dialog-body')).toHaveClass('px-6');
+    expect(screen.getByText('memory.clearConfirm.memoryAndActivity')).toBeInTheDocument();
+    expect(screen.getByText('memory.clearConfirm.derivedUnderstanding')).toBeInTheDocument();
+    expect(screen.getByText('memory.clearConfirm.tasksAndControl')).toBeInTheDocument();
+    expect(screen.getByText('memory.clearConfirm.pluginContent')).toBeInTheDocument();
     expect(screen.getByText('memory.clearConfirm.pendingNotifications')).toBeInTheDocument();
     expect(screen.getByText('memory.clearConfirm.diagnosticLogs')).toBeInTheDocument();
     expect(screen.getByText('memory.clearConfirm.preservedSettings')).toBeInTheDocument();
