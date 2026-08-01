@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -139,6 +139,15 @@ def _control_opt_in_channel_count(registry: Any) -> int:
     )
 
 
+def _validate_channel_clear_generation(clear_generation: object) -> None:
+    if (
+        isinstance(clear_generation, bool)
+        or not isinstance(clear_generation, int)
+        or clear_generation < 0
+    ):
+        raise ValueError("Channel clear generation must be a non-negative integer")
+
+
 class ChannelsModule(LifecycleModule):
     """Initialize channel plugins and the in-process chat SSE channel."""
 
@@ -221,14 +230,28 @@ class ChannelsModule(LifecycleModule):
 
     @asynccontextmanager
     async def conversation_clear_boundary(self) -> AsyncIterator[None]:
-        """Block channel restart and ask delivery while conversations clear."""
+        """Block channel work and clear local inbound state before chat deletion."""
 
         async with self._channel_operation_lock:
-            subscriber = self._ask_fanout_subscriber
-            if subscriber is None:
-                yield
-                return
-            async with subscriber.conversation_clear_boundary():
+            runtime_command_queue = require_initialized(
+                self._context.runtime_commands.runtime_command_queue,
+                "runtime command queue",
+            )
+            clear_generation = (
+                await runtime_command_queue.read_current_clear_generation()
+            )
+            async with AsyncExitStack() as stack:
+                subscriber = self._ask_fanout_subscriber
+                if subscriber is not None:
+                    await stack.enter_async_context(
+                        subscriber.conversation_clear_boundary()
+                    )
+                await stack.enter_async_context(
+                    self._external_channel_clear_boundaries(
+                        registry=self._registry,
+                        clear_generation=clear_generation,
+                    )
+                )
                 yield
 
     async def restart(self) -> None:
@@ -250,8 +273,20 @@ class ChannelsModule(LifecycleModule):
             deps=deps,
             channel_instances=channel_instances,
         )
-        await self._recover_pending_conversation_clear(startup.session_mapper)
-        await startup.registry.start_all()
+        recovered_pending_clear, excluded_channel_types = (
+            await self._recover_pending_conversation_clear(
+                registry=startup.registry,
+                session_mapper=startup.session_mapper,
+            )
+        )
+        if not recovered_pending_clear:
+            excluded_channel_types = await self._prepare_external_channels_before_start(
+                registry=startup.registry,
+                runtime_command_queue=deps.runtime_command_queue,
+            )
+        await startup.registry.start_all(
+            excluded_channel_types=excluded_channel_types,
+        )
         self._activate_channel_runtime(startup)
         control_fanout_wired = await self._wire_control_fanout_if_available(startup)
 
@@ -260,7 +295,12 @@ class ChannelsModule(LifecycleModule):
             control_fanout_wired=control_fanout_wired,
         )
 
-    async def _recover_pending_conversation_clear(self, session_mapper: Any) -> None:
+    async def _recover_pending_conversation_clear(
+        self,
+        *,
+        registry: Any,
+        session_mapper: Any,
+    ) -> tuple[bool, set[str]]:
         """Finish cross-store conversation cleanup before channels receive work."""
 
         from ..agent.orchestration import get_orchestration_store
@@ -269,7 +309,7 @@ class ChannelsModule(LifecycleModule):
             await chat_read_service.aget_interrupted_global_clear_count()
         )
         if pending_count is None:
-            return
+            return False, set()
         background_task_manager = require_initialized(
             self._context.agent_runtime.background_task_manager,
             "background task manager",
@@ -279,6 +319,15 @@ class ChannelsModule(LifecycleModule):
             "runtime command queue",
         )
         async with runtime_command_queue.user_message_global_clear_boundary():
+            clear_generation = (
+                await runtime_command_queue.read_current_clear_generation()
+            )
+            excluded_channel_types = (
+                await self._prepare_external_channels_for_generation(
+                    registry=registry,
+                    clear_generation=clear_generation,
+                )
+            )
             async with background_task_manager.conversation_scope_boundary(
                 reason="recover_global_conversation_clear"
             ):
@@ -295,6 +344,93 @@ class ChannelsModule(LifecycleModule):
             "Recovered interrupted cross-store conversation clear",
             cleared_chat_count=pending_count,
         )
+        return True, excluded_channel_types
+
+    async def _prepare_external_channels_before_start(
+        self,
+        *,
+        registry: Any,
+        runtime_command_queue: Any,
+    ) -> set[str]:
+        """Finish local clear preparation before external channels start."""
+
+        clear_generation = await runtime_command_queue.read_current_clear_generation()
+        if clear_generation == 0:
+            return set()
+        return await self._prepare_external_channels_for_generation(
+            registry=registry,
+            clear_generation=clear_generation,
+        )
+
+    async def _prepare_external_channels_for_generation(
+        self,
+        *,
+        registry: Any,
+        clear_generation: int,
+    ) -> set[str]:
+        """Run local preparation per channel without blocking other channels."""
+
+        from magi_plugin_sdk.channels import (
+            ChannelInboundClearStrategy,
+            ChannelInboundClearRequest,
+        )
+
+        _validate_channel_clear_generation(clear_generation)
+        failed_channel_types: set[str] = set()
+        for channel in registry.all_channels():
+            if (
+                channel.inbound_clear_strategy
+                is ChannelInboundClearStrategy.INTERNAL
+            ):
+                continue
+            try:
+                async with channel.inbound_clear_boundary(
+                    ChannelInboundClearRequest(
+                        channel_type=channel.channel_type,
+                        clear_generation=clear_generation,
+                    )
+                ):
+                    pass
+            except Exception:
+                failed_channel_types.add(channel.channel_type)
+                logger.exception(
+                    "Channel disabled because local clear preparation failed",
+                    channel_type=channel.channel_type,
+                )
+        return failed_channel_types
+
+    @asynccontextmanager
+    async def _external_channel_clear_boundaries(
+        self,
+        *,
+        registry: Any | None,
+        clear_generation: int,
+    ) -> AsyncIterator[None]:
+        """Enter each external channel's local-only, idempotent clear hook."""
+
+        from magi_plugin_sdk.channels import (
+            ChannelInboundClearStrategy,
+            ChannelInboundClearRequest,
+        )
+
+        _validate_channel_clear_generation(clear_generation)
+        async with AsyncExitStack() as stack:
+            channels = registry.all_channels() if registry is not None else []
+            for channel in channels:
+                if (
+                    channel.inbound_clear_strategy
+                    is ChannelInboundClearStrategy.INTERNAL
+                ):
+                    continue
+                await stack.enter_async_context(
+                    channel.inbound_clear_boundary(
+                        ChannelInboundClearRequest(
+                            channel_type=channel.channel_type,
+                            clear_generation=clear_generation,
+                        )
+                    )
+                )
+            yield
 
     @staticmethod
     async def _conversation_delivery_allowed() -> bool:
@@ -360,11 +496,8 @@ class ChannelsModule(LifecycleModule):
             registry=registry,
             channel_instances=channel_instances,
             session_mapper=session_mapper,
-            message_dispatcher=self._message_dispatcher(
-                cp_wiring=cp_wiring,
-                session_mapper=session_mapper,
-                ingress_boundary=ingress_boundary,
-            ),
+            cp_wiring=cp_wiring,
+            ingress_boundary=ingress_boundary,
             attachment_store=self._guarded_attachment_store(
                 attachment_store=deps.attachment_store,
                 ingress_boundary=ingress_boundary,
@@ -495,6 +628,7 @@ class ChannelsModule(LifecycleModule):
     def _message_dispatcher(
         self,
         *,
+        channel: Any,
         cp_wiring: Any,
         session_mapper: Any,
         ingress_boundary: Any,
@@ -502,6 +636,8 @@ class ChannelsModule(LifecycleModule):
         from .dispatcher import ChannelMessageDispatcher
 
         return ChannelMessageDispatcher(
+            channel_type=channel.channel_type,
+            inbound_clear_strategy=channel.inbound_clear_strategy,
             ingress_boundary=ingress_boundary,
             permission_registry=(cp_wiring.pending_permissions if cp_wiring else None),
             interaction_broker=(cp_wiring.broker if cp_wiring else None),
@@ -543,31 +679,39 @@ class ChannelsModule(LifecycleModule):
         registry,
         channel_instances: list[Any],
         session_mapper: Any,
-        message_dispatcher: Any,
+        cp_wiring: Any,
+        ingress_boundary: Any,
         attachment_store: Any,
         control_port: Any,
     ) -> None:
         for channel in channel_instances:
-            channel.bind_session_mapper(session_mapper)
-            channel.bind_message_dispatcher(message_dispatcher)
-            channel.bind_attachment_store(attachment_store)
-            channel.bind_control_port(control_port)
-            try:
-                registry.register(channel)
-            except ValueError:
+            if registry.get(channel.channel_type) is not None:
                 logger.warning(
                     "Duplicate channel type skipped",
                     channel_type=channel.channel_type,
                 )
+                continue
+            channel.bind_session_mapper(session_mapper)
+            channel.bind_message_dispatcher(
+                self._message_dispatcher(
+                    channel=channel,
+                    cp_wiring=cp_wiring,
+                    session_mapper=session_mapper,
+                    ingress_boundary=ingress_boundary,
+                )
+            )
+            channel.bind_attachment_store(attachment_store)
+            channel.bind_control_port(control_port)
+            registry.register(channel)
 
     def _register_chat_sse(self, *, registry, trace_store: Any) -> None:
         from .chat_sse_channel import ChatSseChannel
 
         chat_sse_channel = ChatSseChannel(trace_store=trace_store)
-        try:
-            registry.register(chat_sse_channel)
-        except ValueError:
+        if registry.get(chat_sse_channel.channel_type) is not None:
             logger.warning("chat_sse channel already registered, skipping duplicate")
+            return
+        registry.register(chat_sse_channel)
 
     def _create_chat_delivery_dispatcher(self, registry):
         from .chat_delivery_dispatcher import (

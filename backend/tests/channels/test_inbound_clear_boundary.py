@@ -12,9 +12,12 @@ from magi.channels.ingress_boundary import ChannelIngressBoundary
 from magi.channels.session_mapper import ChannelSessionMapper
 from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
 from magi_plugin_sdk.channels import (
+    ChannelCursorClearProof,
+    ChannelInboundClearStrategy,
     ChannelInboundContext,
     ChannelInboundRejectedError,
     ChannelInboundRejectionReason,
+    ChannelProviderTimeEvidence,
 )
 
 
@@ -66,6 +69,21 @@ class _RecordingDispatch:
         )
 
 
+async def _capture_provider_context(
+    boundary: ChannelIngressBoundary,
+    *,
+    channel_type: str,
+    occurred_at_ms: int = 1,
+) -> ChannelInboundContext:
+    return await boundary.capture(
+        channel_type=channel_type,
+        stream_id=f"{channel_type}-account-1",
+        evidence=ChannelProviderTimeEvidence(
+            provider_occurred_at_ms=occurred_at_ms,
+        ),
+    )
+
+
 @pytest.mark.asyncio
 async def test_stale_context_cannot_create_mapping_attachment_or_message(
     runtime_paths_with_schema,
@@ -75,7 +93,10 @@ async def test_stale_context_cannot_create_mapping_attachment_or_message(
     )
     await queue.start()
     boundary = ChannelIngressBoundary(runtime_command_queue=queue)
-    context = await boundary.capture(provider_occurred_at_ms=1)
+    context = await _capture_provider_context(
+        boundary,
+        channel_type="telegram",
+    )
     provisioner = _SessionProvisioner()
     mapper = ChannelSessionMapper(
         db_path=str(runtime_paths_with_schema.channels_db_path),
@@ -90,6 +111,8 @@ async def test_stale_context_cannot_create_mapping_attachment_or_message(
     )
     raw_dispatch = _RecordingDispatch()
     dispatcher = ChannelMessageDispatcher(
+        channel_type="telegram",
+        inbound_clear_strategy=ChannelInboundClearStrategy.PROVIDER_TIME,
         ingress_boundary=boundary,
         message_dispatcher=raw_dispatch,
     )
@@ -170,7 +193,10 @@ async def test_clear_waits_for_mapping_then_removes_it_without_empty_session_tai
     )
     await queue.start()
     boundary = ChannelIngressBoundary(runtime_command_queue=queue)
-    context = await boundary.capture(provider_occurred_at_ms=1)
+    context = await _capture_provider_context(
+        boundary,
+        channel_type="weixin",
+    )
     provisioner = _BlockingProvisioner()
     mapper = ChannelSessionMapper(
         db_path=str(runtime_paths_with_schema.channels_db_path),
@@ -230,7 +256,11 @@ async def test_host_boundary_rejects_forged_or_missing_context(
         )
 
         forged = ChannelInboundContext(
-            provider_occurred_at_ms=1,
+            channel_type="telegram",
+            stream_id="account-1",
+            admission_evidence=ChannelProviderTimeEvidence(
+                provider_occurred_at_ms=1,
+            ),
             clear_generation=-1,
         )
         with pytest.raises(ChannelInboundRejectedError) as forged_context:
@@ -253,9 +283,15 @@ async def test_dispatcher_persists_host_controlled_clear_metadata(
     )
     await queue.start()
     boundary = ChannelIngressBoundary(runtime_command_queue=queue)
-    context = await boundary.capture(provider_occurred_at_ms=1_700_000_000_123)
+    context = await _capture_provider_context(
+        boundary,
+        channel_type="telegram",
+        occurred_at_ms=1_700_000_000_123,
+    )
     raw_dispatch = _RecordingDispatch()
     dispatcher = ChannelMessageDispatcher(
+        channel_type="telegram",
+        inbound_clear_strategy=ChannelInboundClearStrategy.PROVIDER_TIME,
         ingress_boundary=boundary,
         message_dispatcher=raw_dispatch,
     )
@@ -268,6 +304,9 @@ async def test_dispatcher_persists_host_controlled_clear_metadata(
             session_id="session-1",
             metadata={
                 "provider_occurred_at_ms": 9,
+                "channel_cursor_clear_generation": 999,
+                "channel_type": "spoofed",
+                "channel_stream_id": "spoofed",
                 "channel_clear_generation": 999,
                 "external_chat_id": "chat-1",
                 "external_message_id": "message-1",
@@ -275,7 +314,175 @@ async def test_dispatcher_persists_host_controlled_clear_metadata(
         )
         metadata = raw_dispatch.calls[0]["metadata"]
         assert isinstance(metadata, dict)
-        assert metadata["provider_occurred_at_ms"] == context.provider_occurred_at_ms
+        assert metadata["provider_occurred_at_ms"] == (
+            context.admission_evidence.provider_occurred_at_ms
+        )
+        assert "channel_cursor_clear_generation" not in metadata
+        assert metadata["channel_type"] == "telegram"
+        assert metadata["channel_stream_id"] == "telegram-account-1"
         assert metadata["channel_clear_generation"] == context.clear_generation
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_cursor_proof_flows_through_every_host_mutation(
+    runtime_paths_with_schema,
+) -> None:
+    queue = SQLiteRuntimeCommandQueue(
+        db_path=str(runtime_paths_with_schema.message_queue_db_path)
+    )
+    await queue.start()
+    boundary = ChannelIngressBoundary(runtime_command_queue=queue)
+    provisioner = _SessionProvisioner()
+    mapper = ChannelSessionMapper(
+        db_path=str(runtime_paths_with_schema.channels_db_path),
+        session_provisioner=provisioner,
+        ingress_boundary=boundary,
+    )
+    await mapper.initialize()
+    raw_attachment_store = _RecordingAttachmentStore()
+    attachment_store = GuardedChannelAttachmentStore(
+        delegate=raw_attachment_store,
+        ingress_boundary=boundary,
+    )
+    raw_dispatch = _RecordingDispatch()
+    dispatcher = ChannelMessageDispatcher(
+        channel_type="weixin",
+        inbound_clear_strategy=ChannelInboundClearStrategy.DURABLE_CURSOR,
+        ingress_boundary=boundary,
+        message_dispatcher=raw_dispatch,
+    )
+    control_port = HostControlPort(ingress_boundary=boundary)
+    try:
+        async with queue.user_message_global_clear_boundary():
+            generation, _ = await queue.advance_user_message_generation_and_purge()
+        context = await boundary.capture(
+            channel_type="weixin",
+            stream_id="account-1",
+            evidence=ChannelCursorClearProof(clear_generation=generation),
+        )
+        mapping = await mapper.resolve_or_create(
+            inbound_context=context,
+            channel_type="weixin",
+            external_chat_id="chat-1",
+            external_user_id="user-1",
+        )
+        await attachment_store.store_attachment(
+            inbound_context=context,
+            session_id=mapping.magi_session_id,
+            turn_id="turn-1",
+            kind="file",
+            original_name="file.txt",
+            content=b"content",
+            mime_type="text/plain",
+        )
+        control = await control_port.handle_command(
+            inbound_context=context,
+            message="/help",
+            session_id=mapping.magi_session_id,
+            channel_type="weixin",
+            external_chat_id="chat-1",
+            external_user_id="user-1",
+        )
+        await dispatcher.dispatch_user_message(
+            inbound_context=context,
+            source="weixin",
+            user_id="local_user",
+            message="hello",
+            session_id=mapping.magi_session_id,
+            metadata={"external_chat_id": "chat-1", "external_message_id": "1"},
+        )
+
+        assert control is not None
+        assert raw_attachment_store.calls
+        metadata = raw_dispatch.calls[0]["metadata"]
+        assert isinstance(metadata, dict)
+        assert metadata["channel_cursor_clear_generation"] == generation
+        assert "provider_occurred_at_ms" not in metadata
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_inbound_context_cannot_cross_channel_types(
+    runtime_paths_with_schema,
+) -> None:
+    queue = SQLiteRuntimeCommandQueue(
+        db_path=str(runtime_paths_with_schema.message_queue_db_path)
+    )
+    await queue.start()
+    boundary = ChannelIngressBoundary(runtime_command_queue=queue)
+    context = await _capture_provider_context(
+        boundary,
+        channel_type="telegram",
+    )
+    dispatcher = ChannelMessageDispatcher(
+        channel_type="telegram",
+        inbound_clear_strategy=ChannelInboundClearStrategy.PROVIDER_TIME,
+        ingress_boundary=boundary,
+        message_dispatcher=_RecordingDispatch(),
+    )
+    try:
+        with pytest.raises(ChannelInboundRejectedError) as exc_info:
+            await dispatcher.dispatch_user_message(
+                inbound_context=context,
+                source="weixin",
+                user_id="local_user",
+                message="hello",
+            )
+        assert (
+            exc_info.value.reason
+            is ChannelInboundRejectionReason.INVALID_METADATA
+        )
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_enforces_declared_channel_evidence_strategy(
+    runtime_paths_with_schema,
+) -> None:
+    queue = SQLiteRuntimeCommandQueue(
+        db_path=str(runtime_paths_with_schema.message_queue_db_path)
+    )
+    await queue.start()
+    boundary = ChannelIngressBoundary(runtime_command_queue=queue)
+    provider_dispatcher = ChannelMessageDispatcher(
+        channel_type="weixin",
+        inbound_clear_strategy=ChannelInboundClearStrategy.PROVIDER_TIME,
+        ingress_boundary=boundary,
+        message_dispatcher=_RecordingDispatch(),
+    )
+    cursor_dispatcher = ChannelMessageDispatcher(
+        channel_type="future-poller",
+        inbound_clear_strategy=ChannelInboundClearStrategy.DURABLE_CURSOR,
+        ingress_boundary=boundary,
+        message_dispatcher=_RecordingDispatch(),
+    )
+    try:
+        for operation in (
+            provider_dispatcher.capture_inbound_context(
+                channel_type="weixin",
+                stream_id="account-1",
+                evidence=ChannelCursorClearProof(clear_generation=0),
+            ),
+            provider_dispatcher.capture_inbound_context(
+                channel_type="telegram",
+                stream_id="account-1",
+                evidence=ChannelProviderTimeEvidence(provider_occurred_at_ms=1),
+            ),
+            cursor_dispatcher.capture_inbound_context(
+                channel_type="future-poller",
+                stream_id="account-1",
+                evidence=ChannelProviderTimeEvidence(provider_occurred_at_ms=1),
+            ),
+        ):
+            with pytest.raises(ChannelInboundRejectedError) as exc_info:
+                await operation
+            assert (
+                exc_info.value.reason
+                is ChannelInboundRejectionReason.INVALID_METADATA
+            )
     finally:
         await queue.stop()

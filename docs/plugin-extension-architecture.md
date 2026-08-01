@@ -420,6 +420,22 @@ Channels are bidirectional messaging adapters that connect Magi to external plat
 
 A plugin contributes a channel by implementing `get_channel()` and `get_channel_fields()` in its `Plugin` subclass. The channel lifecycle module discovers channel plugins from `PluginManager` and starts/stops them as part of the runtime lifecycle.
 
+Every channel declares one inbound clear strategy. Host-internal delivery uses
+`internal`; external platforms with trustworthy provider event times use
+`provider_time`; polling platforms that can replay backlog without trustworthy
+event times use `durable_cursor`. Every external channel implements the SDK
+inbound clear boundary. Entering it is strictly local-only: pause ingress, clear
+buffered events and transport message maps, and durably record the requested
+host generation without contacting the provider. Provider-time channels can
+resume after the boundary. Cursor channels remain paused until a background
+reconciliation advances remote backlog and marks that generation applied. The
+host runs local preparation after advancing its generation and before deleting
+conversations, and repeats missed preparation per channel before startup.
+Failure during an active user clear aborts it; startup failure disables only the
+affected channel. Inbound capture carries the channel type, stable polling
+stream ID, and exactly one matching proof. All later host mutations revalidate
+the durable generation.
+
 Channel contributions have their own settings surface in the frontend under "接入渠道 / Channels", following the same expandable sub-nav pattern as sensors.
 
 ## Sensor Memory Integration

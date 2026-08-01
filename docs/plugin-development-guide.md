@@ -408,9 +408,13 @@ Channel plugins return a configured channel adapter from `get_channel()` and dec
 Example:
 
 ```python
+from contextlib import asynccontextmanager
+
 from magi_plugin_sdk import ExtensionFieldSpec, Plugin
 from magi_plugin_sdk.channels import (
     Channel,
+    ChannelInboundClearStrategy,
+    ChannelInboundClearRequest,
     ChannelMessageDispatcherProtocol,
     ChannelSessionMapperProtocol,
     ChannelTarget,
@@ -419,6 +423,8 @@ from magi_plugin_sdk.channels import (
 
 
 class ExampleChannel(Channel):
+    inbound_clear_strategy = ChannelInboundClearStrategy.PROVIDER_TIME
+
     def __init__(self) -> None:
         self._session_mapper: ChannelSessionMapperProtocol | None = None
         self._message_dispatcher: ChannelMessageDispatcherProtocol | None = None
@@ -445,6 +451,13 @@ class ExampleChannel(Channel):
     async def send_typing_indicator(self, target: ChannelTarget) -> None:
         _ = target
 
+    @asynccontextmanager
+    async def inbound_clear_boundary(self, request: ChannelInboundClearRequest):
+        # This example keeps no local inbound cache. Real channels pause local
+        # ingress and clear local transport state here, without network I/O.
+        _ = request
+        yield
+
 
 class ExamplePlugin(Plugin):
     def get_channel(self) -> Channel | None:
@@ -467,6 +480,13 @@ Guidelines:
 - prefer `magi_plugin_sdk.channels` for `Channel`, `ChannelTarget`, and related DTOs
 - treat the injected session mapper as a host-provided dependency and type it as `ChannelSessionMapperProtocol`
 - treat the injected inbound dispatcher as a host-provided dependency and type it as `ChannelMessageDispatcherProtocol`
+- declare exactly one `ChannelInboundClearStrategy` on every channel. Use `INTERNAL` only for host-owned channels, `PROVIDER_TIME` only when the provider supplies a trustworthy event time, and `DURABLE_CURSOR` for polling streams that can replay backlog without such a time
+- capture a host inbound context before creating mappings, handling commands, storing attachments, or dispatching chat. Capture requires the channel type, a stable account/polling-stream ID, and exactly one `ChannelProviderTimeEvidence` or `ChannelCursorClearProof`; pass the returned context unchanged to every host call for that event
+- never substitute local poll, receipt, parsing, or queue time for provider occurrence time
+- every external channel must implement `inbound_clear_boundary(request)`. Entering it must use local state only: pause ingress, clear buffered events plus transport context/message maps, and durably record `request.clear_generation`. It must never contact or wait for the provider, must be idempotent, and must keep ingress paused until at least context exit
+- provider-time channels may resume after context exit; if a provider event omits or supplies an invalid occurrence time, reject it terminally instead of substituting local time
+- durable-cursor channels must persist a local pending generation during the hook and remain paused after exit. Advance the provider-native cursor asynchronously when the provider is available, then atomically mark that generation applied; only the applied generation may be sent as `ChannelCursorClearProof`
+- before starting any external ingress loop, compare local clear state with `await dispatcher.read_current_clear_generation()` and finish missed local preparation. A cursor poller must start provider reconciliation in the background rather than block channel or application startup while offline
 - for inbound messages, pass stable transport identifiers in metadata as `external_chat_id` and `external_message_id`; also pass `account_id` when one channel type can have multiple connected accounts. The host uses these fields to make transport retries idempotent even when the adapter does not provide `client_turn_id`. If the transport has no reliable per-message identifier, omit `external_message_id` rather than inventing one.
 - an adapter-provided `client_turn_id` remains authoritative and must be stable, unique within the adapter's external message scope, and safe for storage (`A-Z`, `a-z`, `0-9`, `_`, `-`, at most 128 characters)
 - stable message identity deduplicates retries that reach the current host
@@ -474,11 +494,9 @@ Guidelines:
   deliberately removes channel mappings and delivery ledgers, so an old
   platform item delivered to Magi for the first time after that clear is
   indistinguishable from a new item by stable ID alone
-- polling and backfill channels that can replay old remote history must retain a
-  provider-native cursor, timestamp, or sequence watermark on the plugin side.
-  The current SDK does not yet give that watermark a shared clear-generation
-  contract, so plugins must not claim that local Clear All Memory prevents
-  unseen remote backlog from being imported later
+- polling and backfill channels must persist their provider-native cursor and
+  the matching host clear generation atomically; stable message IDs alone do
+  not prove that remote backlog was crossed
 - keep transport-specific SDKs inside the plugin package so the core SDK stays lightweight
 - route inbound messages through the injected dispatcher instead of importing `magi.api.services.message_dispatch_service` directly
 - legacy imports from `magi.channels.base` and `magi.channels.contracts` still work during the migration window

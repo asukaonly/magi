@@ -87,7 +87,10 @@ class ChannelSessionMapper:
         display_name: str | None = None,
     ) -> ChannelSessionMapping:
         """Look up existing mapping; if none, create a new Magi session."""
-        async with self._ingress_boundary.operation(inbound_context):
+        async with self._ingress_boundary.operation(
+            inbound_context,
+            expected_channel_type=channel_type,
+        ):
             async with self._resolve_lock:
                 existing = await self.lookup(channel_type, external_chat_id)
                 if existing is not None:

@@ -8,17 +8,23 @@ from magi.channels.control_commands import HostControlPort
 from magi.control.common.interaction_broker import InteractionBroker
 from magi.control.permission.brokered_prompter import PendingPermissionRegistry
 from magi.control.permission.contracts import PermissionRequest, RiskLevel, ToolOrigin
-from magi_plugin_sdk.channels import ChannelInboundContext, ChannelSessionMapping
+from magi_plugin_sdk.channels import (
+    ChannelInboundContext,
+    ChannelProviderTimeEvidence,
+    ChannelSessionMapping,
+)
 
 
 class _AllowingBoundary:
     @asynccontextmanager
-    async def operation(self, _context):
+    async def operation(self, _context, **_kwargs):
         yield
 
 
 _INBOUND_CONTEXT = ChannelInboundContext(
-    provider_occurred_at_ms=1,
+    channel_type="telegram",
+    stream_id="account-1",
+    admission_evidence=ChannelProviderTimeEvidence(provider_occurred_at_ms=1),
     clear_generation=0,
 )
 

@@ -6,7 +6,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, AsyncContextManager, Protocol, TypeAlias, runtime_checkable
 
 if TYPE_CHECKING:
     from .control import ControlRequest
@@ -37,15 +37,51 @@ class ChannelTarget:
     magi_user_id: str = ""
 
 
+class ChannelInboundClearStrategy(str, Enum):
+    """Declare how a channel proves that inbound work survived a clear."""
+
+    INTERNAL = "internal"
+    PROVIDER_TIME = "provider_time"
+    DURABLE_CURSOR = "durable_cursor"
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelProviderTimeEvidence:
+    """Provider-issued occurrence time for one external event."""
+
+    provider_occurred_at_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelCursorClearProof:
+    """Proof that a polling stream advanced past one host clear generation."""
+
+    clear_generation: int
+
+
+ChannelInboundEvidence: TypeAlias = (
+    ChannelProviderTimeEvidence | ChannelCursorClearProof
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelInboundClearRequest:
+    """Host request to clear one external channel's local inbound state."""
+
+    channel_type: str
+    clear_generation: int
+
+
 @dataclass(slots=True)
 class InboundMessage:
     """Normalize a message received from any external platform."""
 
     channel_type: str
+    stream_id: str
     external_chat_id: str
     external_user_id: str
     external_message_id: str
-    provider_occurred_at_ms: int
+    admission_evidence: ChannelInboundEvidence
     external_username: str | None = None
     text: str = ""
     attachments: list[dict[str, Any]] = field(default_factory=list)
@@ -89,7 +125,9 @@ class ChannelInboundContext:
     message. The same context must be passed to every host call for that event.
     """
 
-    provider_occurred_at_ms: int
+    channel_type: str
+    stream_id: str
+    admission_evidence: ChannelInboundEvidence
     clear_generation: int
 
 
@@ -234,14 +272,21 @@ class ChannelMessageDispatcherProtocol(Protocol):
     async def capture_inbound_context(
         self,
         *,
-        provider_occurred_at_ms: int,
+        channel_type: str,
+        stream_id: str,
+        evidence: ChannelInboundEvidence,
     ) -> ChannelInboundContext:
         """Admit a provider event before any host-owned state is created.
 
-        ``provider_occurred_at_ms`` must be the provider's event timestamp, not
-        the local polling or receipt time. A rejected event is terminal and must
-        not be retried.
+        ``ChannelProviderTimeEvidence`` must contain the provider's event time,
+        never the local polling or receipt time. Cursor-based channels must use
+        ``ChannelCursorClearProof`` after durably advancing their upstream
+        cursor to the same clear generation. A rejected event is terminal and
+        must not be retried.
         """
+
+    async def read_current_clear_generation(self) -> int:
+        """Read the host's current durable user-message clear generation."""
 
     async def dispatch_user_message(
         self,
@@ -315,6 +360,12 @@ class Channel(ABC):
     # MUST also flip this flag.
     supports_control_requests: bool = False
 
+    # Every registered channel must explicitly choose one ingress clear
+    # strategy. Host-internal channels use INTERNAL, timestamped external
+    # channels use PROVIDER_TIME, and polling channels without provider time use
+    # DURABLE_CURSOR.
+    inbound_clear_strategy: ChannelInboundClearStrategy | None = None
+
     @property
     @abstractmethod
     def channel_type(self) -> str:
@@ -335,6 +386,31 @@ class Channel(ABC):
     @abstractmethod
     async def send_typing_indicator(self, target: ChannelTarget) -> None:
         """Show typing or processing state on the external platform."""
+
+    def inbound_clear_boundary(
+        self,
+        request: ChannelInboundClearRequest,
+    ) -> AsyncContextManager[None]:
+        """Clear local inbound state without depending on provider availability.
+
+        Every non-internal channel must override this method. Entering the
+        returned context must pause local ingress, clear buffered inbound data
+        and message maps, and durably record ``request.clear_generation``. It
+        must use local state only and must never wait for the provider network.
+
+        Provider-time channels may resume ingress on context exit because the
+        host rejects old provider timestamps. Durable-cursor channels must keep
+        polling paused after exit while asynchronously advancing the remote
+        cursor. They may persist an applied generation and resume polling only
+        after remote backlog is crossed; only that applied generation may be
+        used in ``ChannelCursorClearProof``. The operation must be idempotent so
+        startup can finish an interrupted local clear before polling begins.
+        """
+
+        raise NotImplementedError(
+            f"External channel {type(self).__name__} did not implement "
+            "inbound_clear_boundary"
+        )
 
     async def deliver(
         self,
@@ -462,9 +538,14 @@ class Channel(ABC):
 __all__ = [
     "Channel",
     "ChannelConfig",
+    "ChannelCursorClearProof",
+    "ChannelInboundClearStrategy",
+    "ChannelInboundClearRequest",
     "ChannelInboundContext",
+    "ChannelInboundEvidence",
     "ChannelInboundRejectedError",
     "ChannelInboundRejectionReason",
+    "ChannelProviderTimeEvidence",
     "ChannelAttachmentStoreProtocol",
     "ChannelControlCommandResult",
     "ChannelControlPortProtocol",

@@ -2152,13 +2152,22 @@ independent table deletes.
   pre-clear retry drafts. This prevents an already-cleared user message from
   being resent and recreating chat or memory. Failures before the durable clear
   commit still fail normally and preserve retryability.
-- These host barriers cover messages and sessions that have already entered
-  Magi. They cannot identify an old remote-platform item that is delivered to
-  the host for the first time only after the clear. A channel that can replay
-  remote backlog still needs a provider-side cursor, sequence, or time
-  watermark that participates in the clear boundary. Until the plugin contract
-  exposes that shared watermark, full clear must not be described as erasing
-  unseen remote backlog from the external platform.
+- External channel admission uses one of two mutually exclusive proofs. A
+  timestamped channel supplies the provider-issued event time; local receipt or
+  polling time is never accepted as that proof. A polling channel without a
+  trustworthy provider time supplies a durable cursor proof for the current
+  user-message clear generation. After the generation advances and before chat
+  deletion begins, the host asks every running external channel to pause local
+  ingress, clear buffered inbound state and message maps, and durably record the
+  generation. This hook is local-only and must not depend on provider
+  availability; local persistence failure aborts the active clear. A
+  provider-time channel may resume after the host boundary closes. A cursor
+  channel stays paused while it advances the provider cursor asynchronously and
+  may resume only after it durably marks that generation applied. Startup
+  repeats missed local preparation per channel; one broken channel remains
+  disabled without blocking the desktop or other channels. Session mapping,
+  control, attachment, and dispatch calls revalidate the same generation, so a
+  pre-clear event cannot recreate local conversation state later.
 
 ### What Compression Means
 

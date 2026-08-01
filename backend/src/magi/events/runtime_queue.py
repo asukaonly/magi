@@ -42,7 +42,7 @@ class StaleUserMessageDeliveryAttemptError(RuntimeError):
 
 
 class InvalidExternalUserMessageMetadataError(ValueError):
-    """Raised when a channel event lacks a valid provider occurrence time."""
+    """Raised when a channel event lacks one valid clear-boundary proof."""
 
 
 class StaleExternalUserMessageError(RuntimeError):
@@ -522,26 +522,36 @@ class SQLiteRuntimeCommandQueue:
             raise RuntimeError("Runtime user-message generation is not initialized")
         return int(self._user_message_generation)
 
+    async def read_current_clear_generation(self) -> int:
+        """Read the current user-message generation from durable storage."""
+
+        generation, _ = await self._load_user_message_clear_state()
+        return generation
+
     async def capture_external_user_message_context(
         self,
         *,
-        provider_occurred_at_ms: int,
+        provider_occurred_at_ms: object | None = None,
+        cursor_clear_generation: object | None = None,
     ) -> int:
-        """Capture the current clear generation for one provider event.
+        """Capture the current clear generation for one external event.
 
-        The provider timestamp is checked against the durable clear time before
-        any channel-owned session, mapping, attachment, or message may be
-        created. Generation zero means no destructive clear has happened yet,
-        so initial provider backlogs remain admissible.
+        Exactly one proof is required. Provider-time channels are checked
+        against the durable clear cutoff. Cursor channels are admitted only
+        when their durably persisted clear generation exactly matches the host.
         """
 
-        normalized_occurred_at_ms = _normalize_provider_occurred_at_ms(
-            provider_occurred_at_ms
+        normalized_occurred_at_ms, normalized_cursor_generation = (
+            _normalize_external_user_message_evidence(
+                provider_occurred_at_ms=provider_occurred_at_ms,
+                cursor_clear_generation=cursor_clear_generation,
+            )
         )
         async with self.user_message_operation():
             generation, cleared_at_ms = await self._load_user_message_clear_state()
             _validate_external_user_message_boundary(
                 provider_occurred_at_ms=normalized_occurred_at_ms,
+                cursor_clear_generation=normalized_cursor_generation,
                 captured_generation=generation,
                 current_generation=generation,
                 cleared_at_ms=cleared_at_ms,
@@ -552,13 +562,17 @@ class SQLiteRuntimeCommandQueue:
     async def external_user_message_operation(
         self,
         *,
-        provider_occurred_at_ms: int,
+        provider_occurred_at_ms: object | None = None,
+        cursor_clear_generation: object | None = None,
         captured_generation: int,
     ) -> AsyncIterator[None]:
         """Validate and protect one channel-side inbound state mutation."""
 
-        normalized_occurred_at_ms = _normalize_provider_occurred_at_ms(
-            provider_occurred_at_ms
+        normalized_occurred_at_ms, normalized_cursor_generation = (
+            _normalize_external_user_message_evidence(
+                provider_occurred_at_ms=provider_occurred_at_ms,
+                cursor_clear_generation=cursor_clear_generation,
+            )
         )
         normalized_generation = _normalize_external_clear_generation(
             captured_generation
@@ -569,6 +583,7 @@ class SQLiteRuntimeCommandQueue:
             )
             _validate_external_user_message_boundary(
                 provider_occurred_at_ms=normalized_occurred_at_ms,
+                cursor_clear_generation=normalized_cursor_generation,
                 captured_generation=normalized_generation,
                 current_generation=current_generation,
                 cleared_at_ms=cleared_at_ms,
@@ -988,6 +1003,22 @@ def _normalize_provider_occurred_at_ms(value: object) -> int:
     return value
 
 
+def _normalize_external_user_message_evidence(
+    *,
+    provider_occurred_at_ms: object | None,
+    cursor_clear_generation: object | None,
+) -> tuple[int | None, int | None]:
+    has_provider_time = provider_occurred_at_ms is not None
+    has_cursor_generation = cursor_clear_generation is not None
+    if has_provider_time == has_cursor_generation:
+        raise InvalidExternalUserMessageMetadataError(
+            "Exactly one external message clear-boundary proof is required"
+        )
+    if has_provider_time:
+        return _normalize_provider_occurred_at_ms(provider_occurred_at_ms), None
+    return None, _normalize_external_clear_generation(cursor_clear_generation)
+
+
 def _normalize_external_clear_generation(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise InvalidExternalUserMessageMetadataError(
@@ -998,7 +1029,8 @@ def _normalize_external_clear_generation(value: object) -> int:
 
 def _validate_external_user_message_boundary(
     *,
-    provider_occurred_at_ms: int,
+    provider_occurred_at_ms: int | None,
+    cursor_clear_generation: int | None,
     captured_generation: int,
     current_generation: int,
     cleared_at_ms: int,
@@ -1007,7 +1039,18 @@ def _validate_external_user_message_boundary(
         raise StaleExternalUserMessageError(
             "External message crossed a destructive clear boundary"
         )
-    if current_generation > 0 and provider_occurred_at_ms <= cleared_at_ms:
+    if (
+        cursor_clear_generation is not None
+        and cursor_clear_generation != current_generation
+    ):
+        raise StaleExternalUserMessageError(
+            "External message cursor did not cross the latest destructive clear"
+        )
+    if (
+        provider_occurred_at_ms is not None
+        and current_generation > 0
+        and provider_occurred_at_ms <= cleared_at_ms
+    ):
         raise StaleExternalUserMessageError(
             "External message occurred before the latest destructive clear"
         )

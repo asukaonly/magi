@@ -39,7 +39,13 @@ from magi.channels.session_mapper import ChannelSessionMapper
 from magi.chat.read_service import ChatReadService
 from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
 from magi.utils.runtime import RuntimePaths
-from magi_plugin_sdk.channels import Channel, ChannelTarget, OutboundContent
+from magi_plugin_sdk.channels import (
+    Channel,
+    ChannelInboundClearStrategy,
+    ChannelInboundClearRequest,
+    ChannelTarget,
+    OutboundContent,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +81,7 @@ class _StubAttachmentStore:
 
 class _AllowingBoundary:
     @asynccontextmanager
-    async def operation(self, _context):
+    async def operation(self, _context, **_kwargs):
         yield
 
 
@@ -114,6 +120,11 @@ def _build_ctx(*, plugins: list[Channel], tmp_path: Path) -> RuntimeBootstrapCon
 class _FakePluginChannel(Channel):
     """Plugin-side channel that fully implements the Channel ABC."""
 
+    inbound_clear_strategy = ChannelInboundClearStrategy.PROVIDER_TIME
+
+    def __init__(self) -> None:
+        self.clear_generations: list[int] = []
+
     @property
     def channel_type(self) -> str:
         return "fake_plugin"
@@ -140,6 +151,42 @@ class _FakePluginChannel(Channel):
 
     def bind_attachment_store(self, attachment_store) -> None:  # type: ignore[override]
         return None
+
+    @asynccontextmanager
+    async def inbound_clear_boundary(
+        self,
+        request: ChannelInboundClearRequest,
+    ):
+        self.clear_generations.append(request.clear_generation)
+        yield
+
+
+class _CursorPluginChannel(_FakePluginChannel):
+    inbound_clear_strategy = ChannelInboundClearStrategy.DURABLE_CURSOR
+
+    def __init__(self, events: list[str], *, fail_clear: bool = False) -> None:
+        self._events = events
+        self._fail_clear = fail_clear
+
+    @property
+    def channel_type(self) -> str:
+        return "cursor_plugin"
+
+    async def start(self) -> None:
+        self._events.append("channel-started")
+
+    @asynccontextmanager
+    async def inbound_clear_boundary(
+        self,
+        request: ChannelInboundClearRequest,
+    ):
+        self._events.append(f"cursor-enter:{request.clear_generation}")
+        if self._fail_clear:
+            raise OSError("cursor persistence failed")
+        try:
+            yield
+        finally:
+            self._events.append("cursor-exit")
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +235,95 @@ async def test_channels_module_starts_with_plugin_channels_plus_chat_sse(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_conversation_clear_advances_cursor_channel_before_body(tmp_path):
+    from magi.channels.registry import ChannelRegistry
+
+    events: list[str] = []
+    registry = ChannelRegistry()
+    registry.register(_CursorPluginChannel(events))
+    provider_channel = _FakePluginChannel()
+    registry.register(provider_channel)
+    context = _build_ctx(plugins=[], tmp_path=tmp_path)
+    context.runtime_commands.runtime_command_queue.read_current_clear_generation = (
+        AsyncMock(return_value=4)
+    )
+    module = ChannelsModule(context)
+    module._registry = registry
+
+    async with module.conversation_clear_boundary():
+        events.append("chat-clear")
+
+    assert events == ["cursor-enter:4", "chat-clear", "cursor-exit"]
+    assert provider_channel.clear_generations == [4]
+
+
+@pytest.mark.asyncio
+async def test_conversation_clear_fails_closed_when_cursor_cannot_advance(tmp_path):
+    from magi.channels.registry import ChannelRegistry
+
+    events: list[str] = []
+    registry = ChannelRegistry()
+    registry.register(_CursorPluginChannel(events, fail_clear=True))
+    context = _build_ctx(plugins=[], tmp_path=tmp_path)
+    context.runtime_commands.runtime_command_queue.read_current_clear_generation = (
+        AsyncMock(return_value=4)
+    )
+    module = ChannelsModule(context)
+    module._registry = registry
+
+    with pytest.raises(OSError, match="cursor persistence failed"):
+        async with module.conversation_clear_boundary():
+            events.append("chat-clear")
+
+    assert events == ["cursor-enter:4"]
+
+
+@pytest.mark.asyncio
+async def test_cursor_channel_reconciles_generation_before_polling_starts(tmp_path):
+    events: list[str] = []
+    cursor_channel = _CursorPluginChannel(events)
+    ctx = _build_ctx(plugins=[cursor_channel], tmp_path=tmp_path)
+    queue = ctx.runtime_commands.runtime_command_queue
+    assert queue is not None
+    await queue.start()
+    async with queue.user_message_global_clear_boundary():
+        await queue.advance_user_message_generation_and_purge()
+    module = ChannelsModule(ctx)
+    try:
+        await module._start_channels()
+        assert events[:3] == ["cursor-enter:1", "cursor-exit", "channel-started"]
+    finally:
+        await module._stop_channels()
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_failed_local_clear_disables_only_that_channel_at_startup(tmp_path):
+    events: list[str] = []
+    failing_channel = _CursorPluginChannel(events, fail_clear=True)
+    healthy_channel = _FakePluginChannel()
+    ctx = _build_ctx(
+        plugins=[failing_channel, healthy_channel],
+        tmp_path=tmp_path,
+    )
+    queue = ctx.runtime_commands.runtime_command_queue
+    assert queue is not None
+    await queue.start()
+    async with queue.user_message_global_clear_boundary():
+        await queue.advance_user_message_generation_and_purge()
+    module = ChannelsModule(ctx)
+    try:
+        await module._start_channels()
+        assert events == ["cursor-enter:1"]
+        assert healthy_channel.clear_generations == [1]
+        assert module._registry is not None
+        assert isinstance(module._registry.get("chat_sse"), ChatSseChannel)
+    finally:
+        await module._stop_channels()
+        await queue.stop()
+
+
+@pytest.mark.asyncio
 async def test_channels_module_exposes_delivery_receipts_store(tmp_path):
     ctx = _build_ctx(plugins=[], tmp_path=tmp_path)
     module = ChannelsModule(ctx)
@@ -224,7 +360,10 @@ async def test_channels_startup_recovers_pending_conversation_clear_before_start
             events.append("orchestration-cleared")
 
     class _Registry:
-        async def start_all(self):
+        def all_channels(self):
+            return []
+
+        async def start_all(self, **_kwargs):
             events.append("registry-started")
 
     class _BackgroundTaskManager:
@@ -316,7 +455,10 @@ async def test_channels_startup_stays_closed_when_pending_clear_cannot_finalize(
             events.append("orchestration-cleared")
 
     class _Registry:
-        async def start_all(self):
+        def all_channels(self):
+            return []
+
+        async def start_all(self, **_kwargs):
             events.append("registry-started")
 
     class _BackgroundTaskManager:
@@ -500,7 +642,10 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
     context.agent_runtime.background_task_manager = background_manager
     context.runtime_commands.runtime_command_queue = runtime_command_queue
     try:
-        await ChannelsModule(context)._recover_pending_conversation_clear(mapper)
+        await ChannelsModule(context)._recover_pending_conversation_clear(
+            registry=SimpleNamespace(all_channels=lambda: []),
+            session_mapper=mapper,
+        )
     finally:
         await background_manager.stop()
         await runtime_command_queue.stop()
@@ -561,7 +706,8 @@ async def test_pending_global_clear_recovery_does_not_finalize_when_task_cleanup
 
     with pytest.raises(OSError, match="background task database unavailable"):
         await ChannelsModule(context)._recover_pending_conversation_clear(
-            _SessionMapper()
+            registry=SimpleNamespace(all_channels=lambda: []),
+            session_mapper=_SessionMapper(),
         )
 
     finalize.assert_not_awaited()

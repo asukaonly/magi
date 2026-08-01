@@ -34,7 +34,10 @@ from magi.identity import (
     LocalUserResolver,
     canonicalize_user_id,
 )
-from magi_plugin_sdk.channels import ChannelInboundContext
+from magi_plugin_sdk.channels import (
+    ChannelInboundContext,
+    ChannelProviderTimeEvidence,
+)
 
 
 _CHANNELS_SCHEMA = """
@@ -79,7 +82,7 @@ class _FakeSessionProvisioner:
 
 class _AllowingBoundary:
     @asynccontextmanager
-    async def operation(self, _context):
+    async def operation(self, _context, **_kwargs):
         yield
 
 
@@ -115,7 +118,11 @@ async def test_weixin_and_desktop_inbounds_converge_on_canonical_user(
 
     weixin_mapping = await mapper.resolve_or_create(
         inbound_context=ChannelInboundContext(
-            provider_occurred_at_ms=1,
+            channel_type="weixin",
+            stream_id="weixin-account",
+            admission_evidence=ChannelProviderTimeEvidence(
+                provider_occurred_at_ms=1,
+            ),
             clear_generation=0,
         ),
         channel_type="weixin",

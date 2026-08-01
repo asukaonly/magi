@@ -81,7 +81,10 @@ class HostControlPort:
         external_chat_id: str,
         external_user_id: str,
     ) -> ChannelControlCommandResult | None:
-        async with self._ingress_boundary.operation(inbound_context):
+        async with self._ingress_boundary.operation(
+            inbound_context,
+            expected_channel_type=channel_type,
+        ):
             return await self._handle_admitted_command(
                 message=message,
                 session_id=session_id,

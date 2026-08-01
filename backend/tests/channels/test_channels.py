@@ -15,17 +15,24 @@ from magi.channels.contracts import (
 )
 from magi.channels.registry import ChannelRegistry
 from magi.channels.session_mapper import ChannelSessionMapper as _ChannelSessionMapper
-from magi_plugin_sdk.channels import ChannelInboundContext
+from magi_plugin_sdk.channels import (
+    ChannelInboundClearStrategy,
+    ChannelInboundClearRequest,
+    ChannelInboundContext,
+    ChannelProviderTimeEvidence,
+)
 
 
 class _AllowingBoundary:
     @asynccontextmanager
-    async def operation(self, _context):
+    async def operation(self, _context, **_kwargs):
         yield
 
 
 _INBOUND_CONTEXT = ChannelInboundContext(
-    provider_occurred_at_ms=1,
+    channel_type="telegram",
+    stream_id="account-1",
+    admission_evidence=ChannelProviderTimeEvidence(provider_occurred_at_ms=1),
     clear_generation=0,
 )
 
@@ -58,6 +65,8 @@ class ChannelSessionMapper(_ChannelSessionMapper):
 class FakeChannel(Channel):
     """Minimal test-only channel implementation."""
 
+    inbound_clear_strategy = ChannelInboundClearStrategy.PROVIDER_TIME
+
     def __init__(self, name: str = "fake") -> None:
         self._name = name
         self.started = False
@@ -79,6 +88,14 @@ class FakeChannel(Channel):
 
     async def send_typing_indicator(self, target: ChannelTarget) -> None:
         pass
+
+    @asynccontextmanager
+    async def inbound_clear_boundary(
+        self,
+        request: ChannelInboundClearRequest,
+    ):
+        del request
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +119,22 @@ class TestChannelRegistry:
         reg = ChannelRegistry()
         assert reg.get("discord") is None
 
+    def test_register_rejects_channel_without_clear_strategy(self) -> None:
+        reg = ChannelRegistry()
+        channel = FakeChannel("undeclared")
+        channel.inbound_clear_strategy = None
+        with pytest.raises(ValueError, match="must declare"):
+            reg.register(channel)
+
+    def test_register_rejects_external_channel_without_clear_hook(self) -> None:
+        class _MissingClearHookChannel(FakeChannel):
+            inbound_clear_boundary = Channel.inbound_clear_boundary
+
+        reg = ChannelRegistry()
+        channel = _MissingClearHookChannel("external")
+        with pytest.raises(ValueError, match="inbound_clear_boundary"):
+            reg.register(channel)
+
     @pytest.mark.asyncio
     async def test_start_and_stop_all(self) -> None:
         reg = ChannelRegistry()
@@ -113,6 +146,21 @@ class TestChannelRegistry:
         assert ch1.started and ch2.started
         await reg.stop_all()
         assert ch1.stopped and ch2.stopped
+
+    @pytest.mark.asyncio
+    async def test_excluded_channel_is_not_exposed_as_active(self) -> None:
+        reg = ChannelRegistry()
+        blocked = FakeChannel("blocked")
+        healthy = FakeChannel("healthy")
+        reg.register(blocked)
+        reg.register(healthy)
+
+        await reg.start_all(excluded_channel_types={"blocked"})
+
+        assert blocked.started is False
+        assert reg.get("blocked") is None
+        assert reg.all_channels() == [healthy]
+        assert healthy.started is True
 
 
 # ---------------------------------------------------------------------------

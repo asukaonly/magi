@@ -20,7 +20,12 @@ from __future__ import annotations
 import time
 from typing import Any, Awaitable, Callable
 
-from magi_plugin_sdk.channels import Channel, ChannelTarget, OutboundContent
+from magi_plugin_sdk.channels import (
+    Channel,
+    ChannelInboundClearStrategy,
+    ChannelTarget,
+    OutboundContent,
+)
 from magi_plugin_sdk.delivery import DeliveryChunk, DeliveryContent, DeliveryReceipt
 
 from ..runtime_trace import RuntimeTraceStore
@@ -87,6 +92,7 @@ class ChatSseChannel(Channel):
     supports_streaming = True
     supports_attachments = True
     supports_revision = False  # SSE renders are immutable in current UI
+    inbound_clear_strategy = ChannelInboundClearStrategy.INTERNAL
 
     CHANNEL_TYPE = "chat_sse"
 

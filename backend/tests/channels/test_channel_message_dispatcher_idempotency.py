@@ -9,17 +9,23 @@ from types import SimpleNamespace
 import pytest
 
 from magi.channels.dispatcher import ChannelMessageDispatcher
-from magi_plugin_sdk.channels import ChannelInboundContext
+from magi_plugin_sdk.channels import (
+    ChannelInboundClearStrategy,
+    ChannelInboundContext,
+    ChannelProviderTimeEvidence,
+)
 
 
 class _AllowingBoundary:
     @asynccontextmanager
-    async def operation(self, _context):
+    async def operation(self, _context, **_kwargs):
         yield
 
 
 _INBOUND_CONTEXT = ChannelInboundContext(
-    provider_occurred_at_ms=1,
+    channel_type="telegram",
+    stream_id="account-1",
+    admission_evidence=ChannelProviderTimeEvidence(provider_occurred_at_ms=1),
     clear_generation=0,
 )
 
@@ -50,6 +56,8 @@ async def _forwarded_turn_id(
     metadata: dict[str, object] | None = None,
 ) -> object:
     dispatcher = ChannelMessageDispatcher(
+        channel_type=source,
+        inbound_clear_strategy=ChannelInboundClearStrategy.PROVIDER_TIME,
         ingress_boundary=_AllowingBoundary(),  # type: ignore[arg-type]
         message_dispatcher=recorder,
     )

@@ -851,8 +851,98 @@ async def test_external_message_clear_boundary_survives_restart(tmp_path: Path) 
             )
             == 1
         )
+        assert await restarted.read_current_clear_generation() == 1
+        assert (
+            await restarted.capture_external_user_message_context(
+                cursor_clear_generation=1,
+            )
+            == 1
+        )
     finally:
         await restarted.stop()
+
+
+@pytest.mark.asyncio
+async def test_external_cursor_proof_must_exactly_match_durable_generation(
+    tmp_path: Path,
+) -> None:
+    from magi.events.runtime_queue import (
+        SQLiteRuntimeCommandQueue,
+        StaleExternalUserMessageError,
+    )
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    try:
+        assert (
+            await queue.capture_external_user_message_context(
+                cursor_clear_generation=0,
+            )
+            == 0
+        )
+        async with queue.user_message_global_clear_boundary():
+            generation, _ = await queue.advance_user_message_generation_and_purge()
+        assert generation == 1
+
+        for stale_generation in (0, 2):
+            with pytest.raises(StaleExternalUserMessageError):
+                await queue.capture_external_user_message_context(
+                    cursor_clear_generation=stale_generation,
+                )
+
+        captured_generation = await queue.capture_external_user_message_context(
+            cursor_clear_generation=1,
+        )
+        async with queue.external_user_message_operation(
+            cursor_clear_generation=1,
+            captured_generation=captured_generation,
+        ):
+            pass
+
+        async with queue.user_message_global_clear_boundary():
+            await queue.advance_user_message_generation_and_purge()
+        with pytest.raises(StaleExternalUserMessageError):
+            async with queue.external_user_message_operation(
+                cursor_clear_generation=1,
+                captured_generation=captured_generation,
+            ):
+                pass
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider_time", "cursor_generation"),
+    [
+        (None, None),
+        (1, 0),
+        (None, -1),
+        (None, True),
+        (None, 1.5),
+        (None, "1"),
+    ],
+)
+async def test_external_message_context_requires_one_valid_proof(
+    tmp_path: Path,
+    provider_time: object | None,
+    cursor_generation: object | None,
+) -> None:
+    from magi.events.runtime_queue import (
+        InvalidExternalUserMessageMetadataError,
+        SQLiteRuntimeCommandQueue,
+    )
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    try:
+        with pytest.raises(InvalidExternalUserMessageMetadataError):
+            await queue.capture_external_user_message_context(
+                provider_occurred_at_ms=provider_time,
+                cursor_clear_generation=cursor_generation,
+            )
+    finally:
+        await queue.stop()
 
 
 @pytest.mark.asyncio

@@ -13,9 +13,15 @@ import hashlib
 import json
 
 from magi_plugin_sdk.channels import (
+    ChannelCursorClearProof,
+    ChannelInboundClearStrategy,
     ChannelInboundContext,
+    ChannelInboundEvidence,
+    ChannelInboundRejectedError,
+    ChannelInboundRejectionReason,
     ChannelMessageDispatcherProtocol,
     ChannelMessageDispatchOutcome,
+    ChannelProviderTimeEvidence,
 )
 
 from ..core.runtime_bindings import require_user_message_dispatcher
@@ -34,12 +40,26 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
     def __init__(
         self,
         *,
+        channel_type: str,
+        inbound_clear_strategy: ChannelInboundClearStrategy,
         ingress_boundary: ChannelIngressBoundary,
         permission_registry: object | None = None,
         interaction_broker: object | None = None,
         session_mapper: object | None = None,
         message_dispatcher: object | None = None,
     ) -> None:
+        normalized_channel_type = str(channel_type or "").strip()
+        if not normalized_channel_type:
+            raise ValueError("Channel message dispatcher requires a channel type")
+        if inbound_clear_strategy not in (
+            ChannelInboundClearStrategy.PROVIDER_TIME,
+            ChannelInboundClearStrategy.DURABLE_CURSOR,
+        ):
+            raise ValueError(
+                "External channel dispatcher requires an external clear strategy"
+            )
+        self._channel_type = normalized_channel_type
+        self._inbound_clear_strategy = inbound_clear_strategy
         self._ingress_boundary = ingress_boundary
         # Optional Phase H+2 wiring — when both are provided, inbound
         # messages are checked for /approve|/deny slash commands before
@@ -57,13 +77,42 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
     async def capture_inbound_context(
         self,
         *,
-        provider_occurred_at_ms: int,
+        channel_type: str,
+        stream_id: str,
+        evidence: ChannelInboundEvidence,
     ) -> ChannelInboundContext:
         """Capture the host clear generation before any inbound side effect."""
 
+        if str(channel_type or "").strip() != self._channel_type:
+            raise _invalid_inbound_metadata(
+                "Channel dispatcher cannot capture another channel's event"
+            )
+        if (
+            self._inbound_clear_strategy
+            is ChannelInboundClearStrategy.PROVIDER_TIME
+            and not isinstance(evidence, ChannelProviderTimeEvidence)
+        ):
+            raise _invalid_inbound_metadata(
+                "Provider-time channel requires provider occurrence evidence"
+            )
+        if (
+            self._inbound_clear_strategy
+            is ChannelInboundClearStrategy.DURABLE_CURSOR
+            and not isinstance(evidence, ChannelCursorClearProof)
+        ):
+            raise _invalid_inbound_metadata(
+                "Durable-cursor channel requires an applied cursor generation"
+            )
         return await self._ingress_boundary.capture(
-            provider_occurred_at_ms=provider_occurred_at_ms,
+            channel_type=channel_type,
+            stream_id=stream_id,
+            evidence=evidence,
         )
+
+    async def read_current_clear_generation(self) -> int:
+        """Return the current durable clear generation to a channel plugin."""
+
+        return await self._ingress_boundary.read_current_clear_generation()
 
     async def dispatch_user_message(
         self,
@@ -80,7 +129,10 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
         metadata: dict[str, object] | None = None,
         runtime_namespace: str | None = None,
     ) -> ChannelMessageDispatchOutcome:
-        async with self._ingress_boundary.operation(inbound_context):
+        async with self._ingress_boundary.operation(
+            inbound_context,
+            expected_channel_type=source,
+        ):
             command_outcome = await self._try_handle_channel_command(
                 user_id=user_id,
                 session_id=session_id,
@@ -97,12 +149,27 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
                 return dispatcher_error
 
             controlled_metadata = dict(metadata or {})
-            controlled_metadata["provider_occurred_at_ms"] = (
-                inbound_context.provider_occurred_at_ms
-            )
+            controlled_metadata.pop("provider_occurred_at_ms", None)
+            controlled_metadata.pop("channel_cursor_clear_generation", None)
+            controlled_metadata["channel_type"] = inbound_context.channel_type
+            controlled_metadata["channel_stream_id"] = inbound_context.stream_id
             controlled_metadata["channel_clear_generation"] = (
                 inbound_context.clear_generation
             )
+            if isinstance(
+                inbound_context.admission_evidence,
+                ChannelProviderTimeEvidence,
+            ):
+                controlled_metadata["provider_occurred_at_ms"] = (
+                    inbound_context.admission_evidence.provider_occurred_at_ms
+                )
+            elif isinstance(
+                inbound_context.admission_evidence,
+                ChannelCursorClearProof,
+            ):
+                controlled_metadata["channel_cursor_clear_generation"] = (
+                    inbound_context.admission_evidence.clear_generation
+                )
             outcome = await message_dispatcher(
                 source=source,
                 user_id=user_id,
@@ -204,6 +271,13 @@ def _channel_dispatch_outcome(outcome: object) -> ChannelMessageDispatchOutcome:
         error_code=outcome.error_code,
         error_message=outcome.error_message,
         queue_size=outcome.queue_size,
+    )
+
+
+def _invalid_inbound_metadata(message: str) -> ChannelInboundRejectedError:
+    return ChannelInboundRejectedError(
+        ChannelInboundRejectionReason.INVALID_METADATA,
+        message,
     )
 
 
