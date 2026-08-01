@@ -3264,6 +3264,25 @@ def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(monkeypatch):
     finalize.assert_not_awaited()
 
 
+def test_memory_clear_purges_manual_entry_weather_cache(monkeypatch) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    weather_fetcher = SimpleNamespace(clear=AsyncMock(return_value=2))
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_manual_entry_weather_fetcher",
+        lambda: weather_fetcher,
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    weather_fetcher.clear.assert_awaited_once_with()
+
+
 def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

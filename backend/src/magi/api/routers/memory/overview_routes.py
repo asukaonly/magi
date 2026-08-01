@@ -14,6 +14,7 @@ from ....memory.store_lifecycle import MemoryClearCompletedWithRecoveryError
 from .clear import ClearMemoryResponseModel, build_clear_memory_response
 from .dependencies import (
     _resolve_manual_entry_asset_store,
+    _resolve_manual_entry_weather_fetcher,
     _resolve_mcp_resource_cache,
     _resolve_memory_integration,
     _resolve_channels_module,
@@ -347,11 +348,14 @@ async def clear_memory_layers():
                     )
 
                     manual_entry_asset_store = _resolve_manual_entry_asset_store()
-                    auxiliary_clearers = (
-                        [manual_entry_asset_store.clear]
-                        if manual_entry_asset_store is not None
-                        else []
+                    manual_entry_weather_fetcher = (
+                        _resolve_manual_entry_weather_fetcher()
                     )
+                    auxiliary_clearers = []
+                    if manual_entry_asset_store is not None:
+                        auxiliary_clearers.append(manual_entry_asset_store.clear)
+                    if manual_entry_weather_fetcher is not None:
+                        auxiliary_clearers.append(manual_entry_weather_fetcher.clear)
                     async with _conversation_delivery_clear_boundary():
                         async with _resolve_mcp_resource_cache().global_data_clear_boundary():
                             try:

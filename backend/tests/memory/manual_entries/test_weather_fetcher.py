@@ -13,6 +13,7 @@ deterministic payloads. The fetcher should:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -146,6 +147,49 @@ async def test_fetch_caches_by_grid_and_hour():
 
     # Same hour but ~50km away (different 0.1° grid) → cache miss.
     await fetcher.fetch(lat=30.78, lng=120.15, event_at=event_at)
+    assert client.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_clear_drops_cached_locations():
+    event_at = _clean_hour_past(1)
+    client = _StubClient(_StubResponse(_payload_for_hour(event_at, code=3, temp_c=18.0)))
+    fetcher = WeatherFetcher(client_factory=lambda: client)
+
+    await fetcher.fetch(lat=30.27, lng=120.15, event_at=event_at)
+    assert await fetcher.clear() == 1
+    await fetcher.fetch(lat=30.27, lng=120.15, event_at=event_at)
+
+    assert client.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_clear_prevents_inflight_fetch_from_repopulating_cache():
+    event_at = _clean_hour_past(1)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class _BlockingClient(_StubClient):
+        async def get(self, url, params):
+            self.calls += 1
+            started.set()
+            await release.wait()
+            return self.response
+
+    client = _BlockingClient(
+        _StubResponse(_payload_for_hour(event_at, code=3, temp_c=18.0))
+    )
+    fetcher = WeatherFetcher(client_factory=lambda: client)
+    task = asyncio.create_task(
+        fetcher.fetch(lat=30.27, lng=120.15, event_at=event_at)
+    )
+    await started.wait()
+
+    assert await fetcher.clear() == 0
+    release.set()
+    assert await task is not None
+    await fetcher.fetch(lat=30.27, lng=120.15, event_at=event_at)
+
     assert client.calls == 2
 
 

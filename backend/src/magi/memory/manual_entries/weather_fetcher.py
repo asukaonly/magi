@@ -127,6 +127,15 @@ class WeatherFetcher:
         )
         self._cache: "OrderedDict[tuple, Optional[dict]]" = OrderedDict()
         self._lock = asyncio.Lock()
+        self._clear_generation = 0
+
+    async def clear(self) -> int:
+        """Drop cached location lookups and fence in-flight fetch results."""
+        async with self._lock:
+            cleared = len(self._cache)
+            self._clear_generation += 1
+            self._cache.clear()
+            return cleared
 
     async def fetch(
         self, *, lat: float, lng: float, event_at: float,
@@ -149,6 +158,7 @@ class WeatherFetcher:
 
         key = _cache_key(lat, lng, event_at)
         async with self._lock:
+            expected_generation = self._clear_generation
             if key in self._cache:
                 self._cache.move_to_end(key)
                 return self._cache[key]
@@ -156,6 +166,8 @@ class WeatherFetcher:
         result = await self._do_fetch(lat, lng, event_at)
 
         async with self._lock:
+            if expected_generation != self._clear_generation:
+                return result
             self._cache[key] = result
             # Bound the cache. Open-Meteo isn't a heavy server but our
             # process memory shouldn't grow unboundedly across days of
