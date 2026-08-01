@@ -30,6 +30,7 @@ from .dependencies import (
     _resolve_sensor_hub,
     _resolve_self_memory,
     _resolve_task_agent_manager,
+    _resolve_tool_registry,
     _resolve_unified_memory,
     get_chat_read_service,
     logger,
@@ -324,6 +325,9 @@ async def clear_memory_layers():
                                 reason="user_clear_all_memory",
                             )
                         )
+                    await background_scope.enter_async_context(
+                        _resolve_tool_registry().user_content_clear_boundary()
+                    )
 
                     generation, purged_commands = (
                         await runtime_command_queue.advance_user_message_generation_and_purge()

@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import time
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,6 +17,10 @@ from .registry_stats import ToolExecutionStats
 from .schema import Tool, ToolErrorCode, ToolExecutionContext, ToolResult, ToolSchema
 
 logger = logging.getLogger(__name__)
+
+_tool_invocation_lineage: contextvars.ContextVar[tuple[int, str] | None] = (
+    contextvars.ContextVar("tool_invocation_lineage", default=None)
+)
 
 
 @dataclass(frozen=True)
@@ -120,6 +128,10 @@ class ToolRegistryExecutionMixin:
 
     _tool_instances: dict[str, Tool]
     _stats: dict[str, ToolExecutionStats]
+    _user_content_clear_condition: asyncio.Condition
+    _user_content_clear_active: bool
+    _active_tool_invocations: int
+    _active_tool_invocation_lineages: dict[str, int]
 
     def get_tool(self, tool_name: str) -> Tool | None: ...
     def resolve_tool_name(self, tool_name: str) -> str: ...
@@ -144,20 +156,116 @@ class ToolRegistryExecutionMixin:
             Calling tool_registry.execute() directly bypasses ToolInvocationCompleted
             publication and breaks L4 / runtime_trace pipelines.
         """
-        requested_tool_name = _normalize_tool_name(tool_name)
-        invocation = self._build_invocation(requested_tool_name)
-        if invocation is None:
-            return _tool_not_found_result(requested_tool_name)
+        lineage_id, lineage_token = await self._enter_user_content_invocation()
+        try:
+            requested_tool_name = _normalize_tool_name(tool_name)
+            invocation = self._build_invocation(requested_tool_name)
+            if invocation is None:
+                return _tool_not_found_result(requested_tool_name)
 
-        blocked = self._check_execution_policy(invocation, tool_name, context)
-        if blocked:
-            return blocked
+            blocked = self._check_execution_policy(invocation, tool_name, context)
+            if blocked:
+                return blocked
 
-        invalid = await self._validate_invocation_parameters(invocation, parameters)
-        if invalid:
-            return invalid
+            invalid = await self._validate_invocation_parameters(invocation, parameters)
+            if invalid:
+                return invalid
 
-        return await self._run_invocation(invocation, parameters, context, tool_name)
+            return await self._run_invocation(invocation, parameters, context, tool_name)
+        finally:
+            await self._leave_user_content_invocation(
+                lineage_id=lineage_id,
+                lineage_token=lineage_token,
+            )
+
+    async def _enter_user_content_invocation(
+        self,
+    ) -> tuple[str, contextvars.Token[tuple[int, str] | None] | None]:
+        inherited = _tool_invocation_lineage.get()
+        inherited_lineage = (
+            inherited[1]
+            if inherited is not None and inherited[0] == id(self)
+            else None
+        )
+        async with self._user_content_clear_condition:
+            if (
+                inherited_lineage is None
+                or inherited_lineage not in self._active_tool_invocation_lineages
+            ):
+                await self._user_content_clear_condition.wait_for(
+                    lambda: not self._user_content_clear_active
+                )
+                lineage_id = uuid.uuid4().hex
+                lineage_token = _tool_invocation_lineage.set((id(self), lineage_id))
+            else:
+                lineage_id = inherited_lineage
+                lineage_token = None
+            self._active_tool_invocations += 1
+            self._active_tool_invocation_lineages[lineage_id] = (
+                self._active_tool_invocation_lineages.get(lineage_id, 0) + 1
+            )
+        return lineage_id, lineage_token
+
+    async def _leave_user_content_invocation(
+        self,
+        *,
+        lineage_id: str,
+        lineage_token: contextvars.Token[tuple[int, str] | None] | None,
+    ) -> None:
+        try:
+            async with self._user_content_clear_condition:
+                self._active_tool_invocations = max(
+                    0,
+                    self._active_tool_invocations - 1,
+                )
+                lineage_count = max(
+                    0,
+                    self._active_tool_invocation_lineages.get(lineage_id, 0) - 1,
+                )
+                if lineage_count == 0:
+                    self._active_tool_invocation_lineages.pop(lineage_id, None)
+                else:
+                    self._active_tool_invocation_lineages[lineage_id] = lineage_count
+                if self._active_tool_invocations == 0:
+                    self._user_content_clear_condition.notify_all()
+        finally:
+            if lineage_token is not None:
+                _tool_invocation_lineage.reset(lineage_token)
+
+    @asynccontextmanager
+    async def user_content_clear_boundary(self) -> AsyncIterator[None]:
+        """Seal tool execution and clear every registered user-content cache."""
+        async with self._user_content_clear_condition:
+            await self._user_content_clear_condition.wait_for(
+                lambda: not self._user_content_clear_active
+            )
+            self._user_content_clear_active = True
+        try:
+            async with self._user_content_clear_condition:
+                await self._user_content_clear_condition.wait_for(
+                    lambda: self._active_tool_invocations == 0
+                )
+            await self._clear_registered_user_content()
+            yield
+        finally:
+            async with self._user_content_clear_condition:
+                self._user_content_clear_active = False
+                self._user_content_clear_condition.notify_all()
+
+    async def _clear_registered_user_content(self) -> None:
+        results = await asyncio.gather(
+            *(tool.clear_user_content() for tool in self._tool_instances.values()),
+            return_exceptions=True,
+        )
+        failures = [result for result in results if isinstance(result, BaseException)]
+        if not failures:
+            return
+        first_failure = failures[0]
+        if isinstance(first_failure, asyncio.CancelledError):
+            raise first_failure
+        raise RuntimeError(
+            f"Failed to clear user content from {len(failures)} registered tool(s)"
+        ) from first_failure
 
     def _build_invocation(self, requested_tool_name: str) -> _ToolInvocation | None:
         canonical_tool_name = self.resolve_tool_name(requested_tool_name)

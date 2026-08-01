@@ -398,6 +398,12 @@ Guidelines:
 - treat tool implementations exactly like other Magi tools
 - use the plugin only as the registration container
 - if the tool needs settings, expose them through plugin contribution fields rather than custom frontend UI
+- if a long-lived tool instance keeps user queries, prompts, fetched content,
+  results, or background-run state, override `clear_user_content()` and erase
+  that state there while preserving configuration and credentials. Normal
+  `execute()` calls are sealed and drained before this hook runs, so tools must
+  not launch untracked work that can write retained content after execution
+  returns
 - legacy backend imports from `magi.tools.schema` still work during migration, but new plugin code should target `magi_plugin_sdk.tools`
 - for plugin-local logging, use `magi_plugin_sdk.get_logger` rather than `magi.core.logger`
 

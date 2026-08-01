@@ -52,6 +52,10 @@ class FindRelevantToolsTool(Tool):
         self._discovery_cache: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
         super().__init__()
 
+    async def clear_user_content(self) -> None:
+        """Discard cached discovery queries and recommendation payloads."""
+        self._discovery_cache.clear()
+
     def _init_schema(self) -> None:
         self.schema = ToolSchema(
             name="find-relevant-tools",

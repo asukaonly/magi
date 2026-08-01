@@ -2387,7 +2387,7 @@ def test_memory_clear_api_clears_all_layers(
 
     class _FakeChatReadService:
         async def aclear_all_sessions(self) -> int:
-            assert clear_order == ["background-enter"]
+            assert clear_order == ["background-enter", "tools-enter"]
             clear_order.append("chat")
             return 4
 
@@ -2399,6 +2399,15 @@ def test_memory_clear_api_clears_all_layers(
             yield
         finally:
             clear_order.append("background-exit")
+
+    @asynccontextmanager
+    async def tool_content_boundary():
+        assert clear_order == ["background-enter"]
+        clear_order.append("tools-enter")
+        try:
+            yield
+        finally:
+            clear_order.append("tools-exit")
 
     background_task_manager = SimpleNamespace(
         conversation_scope_boundary=background_scope_boundary,
@@ -2418,6 +2427,10 @@ def test_memory_clear_api_clears_all_layers(
         "magi.api.routers.memory._resolve_background_task_manager",
         lambda: background_task_manager,
     )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_tool_registry",
+        lambda: SimpleNamespace(user_content_clear_boundary=tool_content_boundary),
+    )
 
     client = TestClient(app)
     response = client.delete("/api/memory/clear")
@@ -2436,9 +2449,11 @@ def test_memory_clear_api_clears_all_layers(
     _isolate_diagnostic_log_cleanup.assert_awaited_once_with()
     assert clear_order == [
         "background-enter",
+        "tools-enter",
         "chat",
         "background-history-cleared",
         "memory-finished",
+        "tools-exit",
         "background-exit",
     ]
 

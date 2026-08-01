@@ -131,6 +131,26 @@ class WorkerAgentManager(
         if permission_gateway_provider is not None:
             self._permission_gateway_provider = permission_gateway_provider
 
+    async def clear_user_content(self) -> None:
+        """Cancel worker runs and discard their retained prompts and results."""
+        async with self._lock:
+            run_states = list(self._runs.values())
+            self._runs.clear()
+        for run_state in run_states:
+            if run_state.cancel_token is not None:
+                run_state.cancel_token.cancel("user_content_cleared")
+        live_tasks = [
+            run_state.task
+            for run_state in run_states
+            if run_state.task is not None and not run_state.task.done()
+        ]
+        for task in live_tasks:
+            task.cancel()
+        if live_tasks:
+            await asyncio.gather(*live_tasks, return_exceptions=True)
+        async with self._lock:
+            self._runs.clear()
+
     async def cancel_run_workers(
         self,
         *,

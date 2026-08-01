@@ -184,6 +184,10 @@ class WebFetchTool(MultiProviderTool):
     ) -> ToolResult:
         return await self._handle_fetch(parameters)
 
+    async def clear_user_content(self) -> None:
+        """Discard cached URLs and fetched page content."""
+        self._fetch_cache.clear()
+
     def list_config_specs(self) -> List[ToolConfigSpec]:
         return []
 

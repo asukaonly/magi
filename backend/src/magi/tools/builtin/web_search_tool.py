@@ -184,6 +184,12 @@ class WebSearchTool(MultiProviderTool):
         """Execute web search query."""
         return await self._handle_query(parameters, context)
 
+    async def clear_user_content(self) -> None:
+        """Discard cached user queries and search results."""
+        self._turn_query_cache.clear()
+        self._query_result_counts.clear()
+        self._result_cache.clear()
+
     def list_config_specs(self) -> List[ToolConfigSpec]:
         """Describe tool-scoped config entries managed by this tool."""
         specs: List[ToolConfigSpec] = [

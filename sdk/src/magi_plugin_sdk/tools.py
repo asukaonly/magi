@@ -275,6 +275,14 @@ class Tool(ABC):
         """Optional post-execution hook."""
         return result
 
+    async def clear_user_content(self) -> None:
+        """Discard user-derived runtime content retained by this tool.
+
+        Tools that keep prompts, query text, fetched content, results, or other
+        user-derived values in memory must override this hook. Configuration,
+        credentials, and provider clients should be preserved.
+        """
+
     def get_schema(self) -> ToolSchema:
         """Get tool schema."""
         return self.schema

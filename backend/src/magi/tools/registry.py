@@ -5,6 +5,7 @@ Provides tool registration, lookup, execution, and monitoring.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING
@@ -45,6 +46,10 @@ class ToolRegistry(
         self._stats: dict[str, ToolExecutionStats] = defaultdict(ToolExecutionStats)
         self._skills: dict[str, "SkillMetadata"] = {}
         self._skill_indexer = skill_indexer
+        self._user_content_clear_condition = asyncio.Condition()
+        self._user_content_clear_active = False
+        self._active_tool_invocations = 0
+        self._active_tool_invocation_lineages: dict[str, int] = {}
 
     def register(self, tool_class: type[Tool]) -> None:
         """

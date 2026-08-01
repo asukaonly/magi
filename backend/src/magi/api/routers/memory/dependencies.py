@@ -114,6 +114,18 @@ def _resolve_mcp_resource_cache():
     return get_default_cache()
 
 
+def _resolve_tool_registry():
+    override = _package_override(
+        "_resolve_tool_registry",
+        _resolve_tool_registry,
+    )
+    if override is not None:
+        return override()
+    from magi.tools import tool_registry
+
+    return tool_registry
+
+
 def _resolve_memory_integration():
     override = _package_override("_resolve_memory_integration", _resolve_memory_integration)
     if override is not None:
