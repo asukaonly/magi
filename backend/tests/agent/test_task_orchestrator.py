@@ -51,7 +51,11 @@ async def test_build_agent_tool_context_includes_workspace_and_agent_metadata() 
         parent_task_agent_type="explore",
     )
 
-    context = await orchestrator._build_agent_tool_context("user-1", "session-1")
+    context = await orchestrator._build_agent_tool_context(
+        "user-1",
+        "session-1",
+        user_message_generation=7,
+    )
 
     assert context.agent_id == "explore:user-1"
     expected_workspace = Path(task_orchestrator_module.__file__).resolve().parents[4]
@@ -66,7 +70,23 @@ async def test_build_agent_tool_context_includes_workspace_and_agent_metadata() 
         "parent_task_agent_id": "user-1",
         "run_id": "",
         "run_revision": "0",
+        "user_message_generation": "7",
     }
+
+
+def test_orchestration_state_persists_user_message_generation() -> None:
+    state = TaskOrchestrationState(
+        orchestration_id="orch-generation",
+        user_id="user-1",
+        session_id="session-1",
+        root_user_message="inspect repository",
+        planner="task_agent",
+        user_message_generation=7,
+    )
+
+    restored = TaskOrchestrationState.from_dict(state.to_dict())
+
+    assert restored.user_message_generation == 7
 
 
 @pytest.mark.asyncio
@@ -375,6 +395,7 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
         run_id=None,
         run_revision=0,
         turn_id="turn-1",
+        user_message_generation=7,
         history=[],
         history_key="user-1::session-1",
         correlation_id=None,
@@ -385,6 +406,7 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
     assert result.skip_emit is True
     assert captured["kwargs"]["workspace_root"] == "/tmp/magi"
     assert captured["saved_state"].metadata["persona_id"] == "persona-orchestration"
+    assert captured["saved_state"].user_message_generation == 7
 
 
 @pytest.mark.asyncio

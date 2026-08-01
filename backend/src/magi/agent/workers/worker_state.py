@@ -34,6 +34,7 @@ class WorkerRunState:
     created_at: float
     run_id: str | None = None
     run_revision: int = 0
+    user_message_generation: int | None = None
     status: str = "running"
     updated_at: float = 0.0
     completed_at: float | None = None

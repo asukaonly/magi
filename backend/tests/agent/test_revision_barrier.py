@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from types import SimpleNamespace
 
 import pytest
 
@@ -44,6 +43,7 @@ async def test_worker_manager_tags_result_facts_with_run_metadata() -> None:
         turn_id="turn-1",
         run_id="run-1",
         run_revision=3,
+        user_message_generation=7,
         created_at=time.time(),
     )
 
@@ -56,6 +56,7 @@ async def test_worker_manager_tags_result_facts_with_run_metadata() -> None:
     fact = manager._task_agent_manager.calls[0][2]
     assert fact.payload["run_id"] == "run-1"
     assert fact.payload["run_revision"] == 3
+    assert fact.user_message_generation == 7
 
 
 @pytest.mark.asyncio
@@ -79,6 +80,7 @@ async def test_explore_postprocess_tags_upstream_fact_with_run_metadata() -> Non
             agent_type="explore",
             agent_instance_id="user-1",
             correlation_id="corr-1",
+            user_message_generation=7,
         ),
         recent_facts=[],
         batch_facts=[],
@@ -94,6 +96,7 @@ async def test_explore_postprocess_tags_upstream_fact_with_run_metadata() -> Non
         upstream_task_agent_type="chat",
         upstream_task_agent_id="session-1",
         latest_payload=payload,
+        user_message_generation=7,
     )
 
     await service.handle(
@@ -110,6 +113,7 @@ async def test_explore_postprocess_tags_upstream_fact_with_run_metadata() -> Non
     assert fact.event_type == EXPLORE_TASK_COMPLETED
     assert fact.payload["run_id"] == "run-1"
     assert fact.payload["run_revision"] == 2
+    assert fact.user_message_generation == 7
 
 
 def test_session_run_coordinator_records_stale_result_and_drops_it_from_planning() -> None:

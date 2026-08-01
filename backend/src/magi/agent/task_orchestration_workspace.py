@@ -31,6 +31,7 @@ class TaskOrchestrationWorkspaceMixin:
         *,
         run_id: str | None = None,
         run_revision: int = 0,
+        user_message_generation: int | None = None,
     ) -> ToolExecutionContext:
         parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
         resolved_workspace = str(workspace_root or "").strip()
@@ -51,6 +52,9 @@ class TaskOrchestrationWorkspaceMixin:
                 "parent_task_agent_id": parent_task_agent_id,
                 "run_id": run_id or "",
                 "run_revision": str(run_revision),
+                "user_message_generation": (
+                    "" if user_message_generation is None else str(user_message_generation)
+                ),
             },
             permissions=["authenticated"],
             capabilities=build_tool_capabilities(),

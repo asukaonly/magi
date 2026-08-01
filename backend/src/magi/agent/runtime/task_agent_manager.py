@@ -22,6 +22,13 @@ from .types import TaskAgentType, build_task_agent_key, get_task_agent_type_valu
 
 logger = get_logger(__name__)
 
+_USER_CONTENT_AGENT_TYPES = frozenset(
+    {
+        TaskAgentType.CHAT.value,
+        TaskAgentType.EXPLORE.value,
+    }
+)
+
 
 @dataclass
 class InstanceMetadata:
@@ -76,18 +83,18 @@ class TaskAgentManager:
         self._runtime_command_acknowledger = runtime_command_acknowledger
         self._superseded_user_message_count = 0
         self._sensor_hub = None
-        self._chat_clear_lock = asyncio.Lock()
-        self._chat_work_resumed = asyncio.Event()
-        self._chat_work_resumed.set()
-        self._chat_pause_depth = 0
-        self._chat_quiesce_task: asyncio.Task[None] | None = None
+        self._user_content_clear_lock = asyncio.Lock()
+        self._user_content_work_resumed = asyncio.Event()
+        self._user_content_work_resumed.set()
+        self._user_content_pause_depth = 0
+        self._user_content_quiesce_task: asyncio.Task[None] | None = None
         self._chat_session_quiesce_events: dict[str, asyncio.Event] = {}
         self._chat_message_delete = ChatMessageDeleteCoordinator(
-            chat_clear_lock=self._chat_clear_lock,
+            chat_clear_lock=self._user_content_clear_lock,
             agents=self._agents,
             instance_metadata=self._instance_metadata,
             session_quiesce_events=self._chat_session_quiesce_events,
-            cancel_and_stop=self._cancel_and_stop_chat_agent,
+            cancel_and_stop=self._cancel_and_stop_user_content_agent,
         )
 
     async def start_all(self, event_emitter, sensor_hub=None) -> None:
@@ -120,84 +127,92 @@ class TaskAgentManager:
         self._sensor_hub = None
 
     async def pause_chat_work_and_cancel_all(self) -> int:
-        """Pause chat admission and cancel every active or queued chat run."""
-        async with self._chat_clear_lock:
-            self._chat_pause_depth += 1
-            self._chat_work_resumed.clear()
-            if self._chat_pause_depth == 1:
+        """Pause and quiesce every task agent carrying user-message content."""
+        async with self._user_content_clear_lock:
+            self._user_content_pause_depth += 1
+            self._user_content_work_resumed.clear()
+            if self._user_content_pause_depth == 1:
                 quiescing_sessions = set(self._chat_session_quiesce_events)
                 session_quiesce_events = list(
                     self._chat_session_quiesce_events.values()
                 )
-                chat_keys = [
+                user_content_keys = [
                     key
                     for key in self._agents
-                    if (
+                    if self._is_user_content_agent_type(self._parse_agent_key(key)[0])
+                    and not (
                         self._parse_agent_key(key)[0] == TaskAgentType.CHAT.value
-                        and self._parse_agent_key(key)[1] not in quiescing_sessions
+                        and self._parse_agent_key(key)[1] in quiescing_sessions
                     )
                 ]
-                agents = [self._agents.pop(key) for key in chat_keys]
-                for key in chat_keys:
+                agents = [self._agents.pop(key) for key in user_content_keys]
+                for key in user_content_keys:
                     self._instance_metadata.pop(key, None)
-                self._chat_quiesce_task = asyncio.create_task(
-                    self._quiesce_chat_agents(
+                self._user_content_quiesce_task = asyncio.create_task(
+                    self._quiesce_user_content_agents(
                         agents,
                         session_quiesce_events=session_quiesce_events,
                     ),
-                    name="task-agent-manager:memory-clear-chat-quiesce",
+                    name="task-agent-manager:memory-clear-user-content-quiesce",
                 )
-            task = self._chat_quiesce_task
-            cancelled_count = len(chat_keys) if self._chat_pause_depth == 1 else 0
+            task = self._user_content_quiesce_task
+            cancelled_count = (
+                len(user_content_keys) if self._user_content_pause_depth == 1 else 0
+            )
         if task is not None:
             await asyncio.shield(task)
         return cancelled_count
 
     async def resume_chat_work(self) -> None:
-        """Resume chat admission after a destructive memory clear."""
-        async with self._chat_clear_lock:
-            self._chat_pause_depth = max(0, self._chat_pause_depth - 1)
-            if self._chat_pause_depth > 0:
+        """Resume user-content admission after a destructive memory clear."""
+        async with self._user_content_clear_lock:
+            self._user_content_pause_depth = max(
+                0,
+                self._user_content_pause_depth - 1,
+            )
+            if self._user_content_pause_depth > 0:
                 return
-            quiesce_task = self._chat_quiesce_task
+            quiesce_task = self._user_content_quiesce_task
         if quiesce_task is not None:
             try:
                 await asyncio.shield(quiesce_task)
             except Exception:
-                logger.exception("Chat quiesce failed while resuming after memory clear")
-        async with self._chat_clear_lock:
-            if self._chat_pause_depth > 0:
+                logger.exception(
+                    "User-content quiesce failed while resuming after memory clear"
+                )
+        async with self._user_content_clear_lock:
+            if self._user_content_pause_depth > 0:
                 return
             try:
                 if self._running:
                     await self._ensure_agent_unlocked(TaskAgentType.CHAT, "default")
             finally:
-                self._chat_quiesce_task = None
-                self._chat_work_resumed.set()
+                self._user_content_quiesce_task = None
+                self._user_content_work_resumed.set()
 
-    async def _quiesce_chat_agents(
+    async def _quiesce_user_content_agents(
         self,
         agents: list[TaskAgent],
         *,
         session_quiesce_events: list[asyncio.Event] | None = None,
     ) -> None:
         initial_results = await asyncio.gather(
-            *(self._cancel_and_stop_chat_agent(agent) for agent in agents),
+            *(self._cancel_and_stop_user_content_agent(agent) for agent in agents),
             return_exceptions=True,
         )
         if session_quiesce_events:
             await asyncio.gather(*(event.wait() for event in session_quiesce_events))
-        async with self._chat_clear_lock:
+        async with self._user_content_clear_lock:
             extra_keys = [
                 key
                 for key in self._agents
-                if self._parse_agent_key(key)[0] == TaskAgentType.CHAT.value
+                if self._is_user_content_agent_type(self._parse_agent_key(key)[0])
             ]
             extra_agents = [self._agents.pop(key) for key in extra_keys]
             for key in extra_keys:
                 self._instance_metadata.pop(key, None)
         extra_results = await asyncio.gather(
-            *(self._cancel_and_stop_chat_agent(agent) for agent in extra_agents),
+            *(self._cancel_and_stop_user_content_agent(agent) for agent in extra_agents),
             return_exceptions=True,
         )
         failures = [
@@ -207,11 +222,11 @@ class TaskAgentManager:
         ]
         if failures:
             raise RuntimeError(
-                f"Failed to stop {len(failures)} chat agent(s) before memory clear"
+                f"Failed to stop {len(failures)} user-content agent(s) before memory clear"
             ) from failures[0]
 
     @staticmethod
-    async def _cancel_and_stop_chat_agent(
+    async def _cancel_and_stop_user_content_agent(
         agent: TaskAgent,
         *,
         reason: str = "memory_clear",
@@ -230,7 +245,7 @@ class TaskAgentManager:
             except BaseException as exc:
                 cancel_failure = exc
                 logger.exception(
-                    "Failed to request chat run cancellation before destructive cleanup | key=%s",
+                    "Failed to request run cancellation before destructive cleanup | key=%s",
                     agent.runtime_key,
                 )
         cancel_postprocess = getattr(
@@ -245,7 +260,7 @@ class TaskAgentManager:
                 if cancel_failure is None:
                     cancel_failure = exc
                 logger.exception(
-                    "Failed to cancel chat post-processing before destructive cleanup | key=%s",
+                    "Failed to cancel post-processing before destructive cleanup | key=%s",
                     agent.runtime_key,
                 )
         try:
@@ -253,7 +268,7 @@ class TaskAgentManager:
         except BaseException as stop_failure:
             if cancel_failure is not None:
                 logger.error(
-                    "Chat cancellation and stop both failed before destructive cleanup | key=%s",
+                    "Run cancellation and stop both failed before destructive cleanup | key=%s",
                     agent.runtime_key,
                     exc_info=(
                         type(cancel_failure),
@@ -264,7 +279,7 @@ class TaskAgentManager:
             raise stop_failure
         if cancel_failure is not None:
             raise RuntimeError(
-                "Failed to cancel chat run before destructive cleanup"
+                "Failed to cancel task-agent run before destructive cleanup"
             ) from cancel_failure
 
     async def cancel_chat_session_work(
@@ -309,21 +324,23 @@ class TaskAgentManager:
             yield hold
 
     async def ensure_agent(self, agent_type: TaskAgentType | str, agent_id: str) -> TaskAgent:
-        if get_task_agent_type_value(agent_type) == TaskAgentType.CHAT.value:
+        normalized_type = get_task_agent_type_value(agent_type)
+        if self._is_user_content_agent_type(normalized_type):
             normalized_agent_id = str(agent_id)
             while True:
-                await self._chat_work_resumed.wait()
-                session_quiesce = self._chat_session_quiesce_events.get(
-                    normalized_agent_id
+                await self._user_content_work_resumed.wait()
+                session_quiesce = (
+                    self._chat_session_quiesce_events.get(normalized_agent_id)
+                    if normalized_type == TaskAgentType.CHAT.value
+                    else None
                 )
                 if session_quiesce is not None:
                     await session_quiesce.wait()
                     continue
-                async with self._chat_clear_lock:
-                    if (
-                        self._chat_pause_depth == 0
-                        and normalized_agent_id
-                        not in self._chat_session_quiesce_events
+                async with self._user_content_clear_lock:
+                    if self._user_content_pause_depth == 0 and (
+                        normalized_type != TaskAgentType.CHAT.value
+                        or normalized_agent_id not in self._chat_session_quiesce_events
                     ):
                         return await self._ensure_agent_unlocked(agent_type, agent_id)
         return await self._ensure_agent_unlocked(agent_type, agent_id)
@@ -372,22 +389,25 @@ class TaskAgentManager:
     ) -> bool:
         """Add fact to agent, returns True if successful, False if rejected."""
         try:
-            if get_task_agent_type_value(agent_type) == TaskAgentType.CHAT.value:
+            normalized_type = get_task_agent_type_value(agent_type)
+            if self._is_user_content_agent_type(normalized_type):
                 normalized_agent_id = str(agent_id)
                 while True:
-                    await self._chat_work_resumed.wait()
-                    session_quiesce = self._chat_session_quiesce_events.get(
-                        normalized_agent_id
+                    await self._user_content_work_resumed.wait()
+                    session_quiesce = (
+                        self._chat_session_quiesce_events.get(normalized_agent_id)
+                        if normalized_type == TaskAgentType.CHAT.value
+                        else None
                     )
                     if session_quiesce is not None:
                         await session_quiesce.wait()
                         continue
-                    async with self._chat_clear_lock:
-                        if self._chat_pause_depth != 0:
+                    async with self._user_content_clear_lock:
+                        if self._user_content_pause_depth != 0:
                             continue
                         if (
-                            normalized_agent_id
-                            in self._chat_session_quiesce_events
+                            normalized_type == TaskAgentType.CHAT.value
+                            and normalized_agent_id in self._chat_session_quiesce_events
                         ):
                             continue
                         if await self._is_blocked_user_message(fact):
@@ -398,10 +418,16 @@ class TaskAgentManager:
                                 turn_id=str(fact.payload.get("turn_id") or ""),
                             )
                             return False
-                        if self._is_stale_user_message(fact):
+                        if self._is_stale_user_content_fact(
+                            fact,
+                            require_generation=(
+                                normalized_type == TaskAgentType.EXPLORE.value
+                                or fact.event_type == EventTypes.USER_MESSAGE
+                            ),
+                        ):
                             self._stale_user_message_rejected_count += 1
                             logger.info(
-                                "Rejected stale user-message fact after memory clear | "
+                                "Rejected stale user-content fact after memory clear | "
                                 "fact_generation=%s current_generation=%s",
                                 fact.user_message_generation,
                                 self.current_user_message_generation(),
@@ -483,19 +509,22 @@ class TaskAgentManager:
         }
 
     def current_user_message_generation(self) -> int | None:
-        """Return the active chat ingress generation when one is configured."""
+        """Return the active user-message lineage generation when configured."""
         if self._user_message_generation_getter is None:
             return None
         return int(self._user_message_generation_getter())
 
-    def _is_stale_user_message(self, fact: FactRecord) -> bool:
-        if fact.event_type != EventTypes.USER_MESSAGE:
-            return False
+    def _is_stale_user_content_fact(
+        self,
+        fact: FactRecord,
+        *,
+        require_generation: bool,
+    ) -> bool:
         current_generation = self.current_user_message_generation()
         if current_generation is None:
             return False
         if fact.user_message_generation is None:
-            return True
+            return require_generation
         return int(fact.user_message_generation) != current_generation
 
     async def _is_blocked_user_message(self, fact: FactRecord) -> bool:
@@ -563,6 +592,10 @@ class TaskAgentManager:
             if candidate.value == type_value:
                 return candidate
         return type_value
+
+    @staticmethod
+    def _is_user_content_agent_type(agent_type: TaskAgentType | str) -> bool:
+        return get_task_agent_type_value(agent_type) in _USER_CONTENT_AGENT_TYPES
 
     def _is_core_instance(self, agent_type: TaskAgentType | str, agent_id: str) -> bool:
         for core_type, core_id in self._core_instances:

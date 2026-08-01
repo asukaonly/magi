@@ -33,6 +33,28 @@ class _RecordingLLMPool:
 
 
 @pytest.mark.asyncio
+async def test_explore_context_preserves_worker_user_message_generation() -> None:
+    agent = ExploreTaskAgent(agent_id="user-1", llm_adapter=_FakeLLMAdapter())
+    worker_fact = FactRecord(
+        agent_id="explore:user-1",
+        event_type="WORKER_AGENT_COMPLETED",
+        payload={
+            "user_id": "user-1",
+            "session_id": "session-1",
+            "worker_id": "worker-1",
+        },
+        agent_type="explore",
+        agent_instance_id="user-1",
+        user_message_generation=7,
+    )
+
+    merged = await agent.merge_facts([worker_fact])
+    context = await agent.build_context(merged)
+
+    assert context.user_message_generation == 7
+
+
+@pytest.mark.asyncio
 async def test_explore_task_agent_repo_plan_falls_back_to_canonical_when_planner_unavailable() -> None:
     agent = ExploreTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
 

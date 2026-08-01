@@ -54,6 +54,15 @@ async def start_explore_task_agent(
         agent_instance_id=request.context.user_id,
         timestamp=time.time(),
         correlation_id=latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
+        user_message_generation=(
+            request.context.user_message_generation
+            if request.context.user_message_generation is not None
+            else (
+                latest_fact.user_message_generation
+                if isinstance(latest_fact, FactRecord)
+                else None
+            )
+        ),
     )
     manager = deps.get_task_agent_manager()
     try:

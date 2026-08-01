@@ -38,6 +38,7 @@ class TaskOrchestrationStartRequest:
     run_id: str | None
     run_revision: int
     turn_id: Optional[str]
+    user_message_generation: int | None
     history: list[dict[str, Any]]
     history_key: str
     correlation_id: Optional[str]
@@ -355,6 +356,7 @@ def _build_orchestration_state(
         session_id=request.session_id,
         root_user_message=request.user_message,
         turn_id=request.turn_id,
+        user_message_generation=request.user_message_generation,
         planner=str(request.orchestration_plan.planner or "task_agent"),
         workspace_root=workspace_root,
         status="running",

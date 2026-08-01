@@ -145,6 +145,7 @@ async def _add_worker_fact_to_target(
         agent_instance_id=run_state.target_task_agent_id,
         timestamp=timestamp,
         correlation_id=run_state.worker_id,
+        user_message_generation=run_state.user_message_generation,
     )
     await manager.add_fact_to_agent(
         run_state.target_task_agent_type,

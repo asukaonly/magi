@@ -32,6 +32,7 @@ class _WorkerStartSpec:
     target_task_agent_id: str
     run_id: str | None
     run_revision: int
+    user_message_generation: int | None
     execution_workspace: str
 
 
@@ -244,6 +245,7 @@ def _resolve_worker_start_spec(
         target_task_agent_id=str(parameters.get("target_task_agent_id") or parent_id),
         run_id=run_id,
         run_revision=run_revision,
+        user_message_generation=_resolve_user_message_generation(context),
         execution_workspace=context.workspace,
     )
 
@@ -285,6 +287,21 @@ def _resolve_run_identity(
     return run_id or None, run_revision
 
 
+def _resolve_user_message_generation(
+    context: ToolExecutionContext,
+) -> int | None:
+    raw_generation = context.env_vars.get("user_message_generation")
+    if raw_generation is None or str(raw_generation).strip() == "":
+        return None
+    if isinstance(raw_generation, bool):
+        return None
+    try:
+        generation = int(raw_generation)
+    except (TypeError, ValueError):
+        return None
+    return generation if generation >= 0 else None
+
+
 def _build_worker_run_state(spec: _WorkerStartSpec) -> WorkerRunState:
     worker_id = f"worker_{uuid.uuid4().hex[:10]}"
     created_at = time.time()
@@ -304,6 +321,7 @@ def _build_worker_run_state(spec: _WorkerStartSpec) -> WorkerRunState:
         turn_id=spec.turn_id,
         run_id=spec.run_id,
         run_revision=spec.run_revision,
+        user_message_generation=spec.user_message_generation,
         created_at=created_at,
         updated_at=created_at,
         retry_count=spec.retry_count,

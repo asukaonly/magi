@@ -126,6 +126,12 @@ class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, T
                 else classified.user_id
             ),
             latest_payload=classified.payload,
+            user_message_generation=(
+                int(latest_fact.user_message_generation)
+                if isinstance(latest_fact, FactRecord)
+                and latest_fact.user_message_generation is not None
+                else None
+            ),
         )
 
     async def match_intent(self, context: ExploreRuntimeContext) -> ExploreIntentDecision:

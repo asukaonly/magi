@@ -630,6 +630,7 @@ async def test_start_explore_task_agent_routes_upstream_to_chat_session() -> Non
                 agent_type="chat",
                 agent_instance_id="session-1",
                 correlation_id="corr-1",
+                user_message_generation=7,
             ),
             recent_facts=[],
             batch_facts=[],
@@ -673,6 +674,7 @@ async def test_start_explore_task_agent_routes_upstream_to_chat_session() -> Non
     assert agent_id == "user-1"
     assert fact.payload["upstream_task_agent_type"] == "chat"
     assert fact.payload["upstream_task_agent_id"] == "session-1"
+    assert fact.user_message_generation == 7
 
 
 @pytest.mark.asyncio
@@ -687,6 +689,7 @@ async def test_explore_completion_payload_targets_chat_session() -> None:
             agent_type="explore",
             agent_instance_id="user-1",
             correlation_id="corr-1",
+            user_message_generation=7,
         ),
         recent_facts=[],
         batch_facts=[],
@@ -702,6 +705,7 @@ async def test_explore_completion_payload_targets_chat_session() -> None:
         latest_payload=UserMessagePayload(user_id="user-1", session_id="session-1", content="analyze repo"),
         upstream_task_agent_type="chat",
         upstream_task_agent_id="session-1",
+        user_message_generation=7,
     )
 
     await service.handle(
@@ -722,6 +726,7 @@ async def test_explore_completion_payload_targets_chat_session() -> None:
     assert fact.agent_id == "chat:session-1"
     assert fact.payload["target_task_agent_type"] == "chat"
     assert fact.payload["target_task_agent_id"] == "session-1"
+    assert fact.user_message_generation == 7
 
 
 @pytest.mark.asyncio

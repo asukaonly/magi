@@ -29,7 +29,7 @@ class ExplorePostProcessService:
         correlation_id = result.correlation_id or (
             latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None
         )
-        await self._emit_upstream_fact(
+        emitted = await self._emit_upstream_fact(
             event_type=EXPLORE_TASK_COMPLETED,
             upstream_task_agent_type=context.upstream_task_agent_type,
             upstream_task_agent_id=context.upstream_task_agent_id,
@@ -45,8 +45,9 @@ class ExplorePostProcessService:
                 turn_id=result.turn_id or getattr(context.latest_payload, "turn_id", None),
             ),
             correlation_id=correlation_id,
+            user_message_generation=context.user_message_generation,
         )
-        return ExploreParseOutcome(emitted=True)
+        return ExploreParseOutcome(emitted=emitted)
 
     async def _emit_upstream_fact(
         self,
@@ -56,11 +57,24 @@ class ExplorePostProcessService:
         upstream_task_agent_id: str,
         payload: ExploreTaskCompletedPayload,
         correlation_id: Optional[str],
-    ) -> None:
+        user_message_generation: int | None,
+    ) -> bool:
         manager = self._get_task_agent_manager()
         if manager is None:
             logger.warning("Failed to deliver ExploreTaskAgent result upstream | error=task agent manager unavailable")
-            return
+            return False
+        current_generation_getter = getattr(
+            manager,
+            "current_user_message_generation",
+            None,
+        )
+        if (
+            user_message_generation is None
+            and callable(current_generation_getter)
+            and current_generation_getter() is not None
+        ):
+            logger.warning("Dropped ExploreTaskAgent result without user-message generation")
+            return False
         fact = FactRecord(
             agent_id=f"{upstream_task_agent_type}:{upstream_task_agent_id}",
             event_type=event_type,
@@ -77,5 +91,12 @@ class ExplorePostProcessService:
             agent_instance_id=upstream_task_agent_id,
             timestamp=time.time(),
             correlation_id=correlation_id,
+            user_message_generation=user_message_generation,
         )
-        await manager.add_fact_to_agent(upstream_task_agent_type, upstream_task_agent_id, fact)
+        return bool(
+            await manager.add_fact_to_agent(
+                upstream_task_agent_type,
+                upstream_task_agent_id,
+                fact,
+            )
+        )

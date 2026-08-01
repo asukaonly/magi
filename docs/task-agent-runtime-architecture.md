@@ -942,6 +942,16 @@ Current responsibilities:
 - delegate worker orchestration to `TaskOrchestrator`
 - aggregate completed worker results into a Markdown dossier
 - send the dossier back upstream to `ChatTaskAgent`
+- preserve the originating user-message generation across the request,
+  orchestration state, worker updates, and completed dossier
+
+`ChatTaskAgent` and `ExploreTaskAgent` share one destructive user-content
+boundary. A full clear pauses admission for both types, removes and stops every
+live instance of both types, and restarts only the core chat instance after the
+clear commits. `EXPLORE` facts require the active user-message generation, and
+all generation-bound facts are revalidated at task-agent admission. Therefore a
+worker update or dossier produced for a pre-clear request cannot recreate an
+Explore or Chat instance after the generation advances.
 
 ### `TaskOrchestrator`
 
@@ -1601,16 +1611,18 @@ Two rules matter here:
 - `ActionExecuted` stays execution-scoped and does not enter `L1`, even though its outcome may still update `L4` procedural memory
 - `L2` progress is tracked by durable projection jobs, while microbatching remains an in-process execution optimization
 
-Destructive memory clear adds a separate chat-admission boundary around this
+Destructive memory clear adds a separate user-content admission boundary around this
 flow. User-message dispatch holds its shared side from attachment preparation
 through chat persistence, L1 projection, and durable runtime enqueue. Clear
-takes the exclusive side first, stops active chat work, advances the durable
-message generation, discards every older queued user message, then enters the
-exclusive memory boundary. The generation is carried through command dispatch,
-the message bus, `SensorHub`, and task-agent routing; a missing or mismatched
-generation is rejected after clear. This makes a concurrent message either a
-complete pre-clear turn that is removed or a complete post-clear turn that is
-kept, never a partial turn that can later recreate deleted chat or memory.
+takes the exclusive side first, stops and removes active `CHAT` and `EXPLORE`
+work, advances the durable message generation, discards every older queued user
+message, then enters the exclusive memory boundary. The generation is carried
+through command dispatch, the message bus, `SensorHub`, task-agent routing,
+Explore orchestration state, worker execution, and the completed dossier. A
+missing required generation or any mismatch is rejected after clear. This makes
+a concurrent request either complete pre-clear work that is removed or complete
+post-clear work that is kept, never a partial turn or late Explore result that
+can recreate deleted chat or memory.
 
 Deleting one message uses a session-local admission boundary. An unconsumed
 pending target can be discarded without stopping the current root. If an active
@@ -1760,6 +1772,11 @@ For a large codebase exploration request, the path is:
 7. `ExploreAggregationService` builds a Markdown dossier
 8. `ExploreTaskAgent` emits an `ExploreTaskCompletedPayload`
 9. `ChatTaskAgent` renders the final user-facing response
+
+The originating user-message generation accompanies every handoff in this
+path. Task-agent admission checks it before creating either the Explore or Chat
+instance, so clearing data fences the whole graph rather than only the first
+chat message.
 
 ## Files To Read First
 

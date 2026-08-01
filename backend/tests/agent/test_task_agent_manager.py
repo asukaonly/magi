@@ -922,7 +922,7 @@ async def test_chat_admission_recovers_after_quiesce_failure():
     manager = TaskAgentManager(create_chat_agent=create_agent)
     await manager.start_all(event_emitter=None)
 
-    with pytest.raises(RuntimeError, match="Failed to stop 1 chat agent"):
+    with pytest.raises(RuntimeError, match="Failed to stop 1 user-content agent"):
         await manager.pause_chat_work_and_cancel_all()
 
     await manager.resume_chat_work()

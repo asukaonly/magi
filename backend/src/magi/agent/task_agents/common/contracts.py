@@ -355,6 +355,7 @@ class BaseRuntimeContext:
     latest_user_message: str
     incoming_fact_kind: IncomingFactKind
     latest_payload: TaskFactPayload = field(default_factory=GenericFactPayload)
+    user_message_generation: Optional[int] = None
 
 
 @dataclass(slots=True)

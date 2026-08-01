@@ -61,6 +61,7 @@ class TaskOrchestrationWorkerMixin:
             state.workspace_root,
             run_id=run_id,
             run_revision=run_revision,
+            user_message_generation=state.user_message_generation,
         )
         parent_task_agent_id = self._resolve_parent_task_agent_id(state.user_id, state.session_id)
         result = await self._invoke_worker_batch_launch(
@@ -131,6 +132,7 @@ class TaskOrchestrationWorkerMixin:
             state.workspace_root,
             run_id=run_id,
             run_revision=run_revision,
+            user_message_generation=state.user_message_generation,
         )
         parent_task_agent_id = self._resolve_parent_task_agent_id(state.user_id, state.session_id)
         next_attempt = subtask.attempt_count + 1

@@ -222,6 +222,7 @@ class TaskOrchestrationState:
     root_user_message: str
     planner: str
     turn_id: Optional[str] = None
+    user_message_generation: Optional[int] = None
     workspace_root: Optional[str] = None
     status: str = "running"
     retry_budget: int = 1
@@ -255,6 +256,9 @@ class TaskOrchestrationState:
             session_id=str(payload.get("session_id", "")).strip(),
             root_user_message=str(payload.get("root_user_message", "")).strip(),
             turn_id=_optional_string(payload.get("turn_id")),
+            user_message_generation=_optional_non_negative_int(
+                payload.get("user_message_generation")
+            ),
             planner=str(payload.get("planner", "task_agent")).strip() or "task_agent",
             workspace_root=_optional_string(payload.get("workspace_root")),
             status=str(payload.get("status", "running")).strip() or "running",
@@ -371,6 +375,16 @@ def _safe_int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _optional_non_negative_int(value: Any) -> Optional[int]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return None
+    return normalized if normalized >= 0 else None
 
 
 def _safe_float(value: Any, default: float) -> float:

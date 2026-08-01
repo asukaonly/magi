@@ -2083,10 +2083,12 @@ independent table deletes.
   completed and failed rows, so message bodies do not survive the
   user-requested clear. Non-chat runtime commands are preserved.
 - The generation travels with the command through the local message bus,
-  `SensorHub`, router fact, and task-agent admission. A missing or mismatched
-  generation is rejected once generation governance is active, which prevents
-  a pre-clear message already held by an in-memory queue from recreating chat or
-  memory after clear completes.
+  `SensorHub`, router fact, and task-agent admission. It also remains attached to
+  user-derived Explore orchestration state, worker updates, and the final
+  dossier returned to Chat. A missing required generation or any mismatch is
+  rejected once generation governance is active, which prevents a pre-clear
+  message or descendant result already held by an in-memory queue from
+  recreating chat or memory after clear completes.
 - Separately, the in-process message bus snapshots the current process-local
   memory epoch onto every event when the publisher hands it to the bus. Both
   event-to-memory subscribers require that reserved snapshot and pass it into
@@ -2105,8 +2107,11 @@ independent table deletes.
   installation, account authentication, enablement, binding preferences, and
   persona definitions are configuration rather than remembered user content
   and are preserved.
-- The request stops active chat work and pauses proactive outreach and
-  external ask delivery while it clears conversation-owned channel state.
+- The request stops and removes all active `CHAT` and `EXPLORE` task-agent work
+  under one admission boundary, and pauses proactive outreach and external ask
+  delivery while it clears conversation-owned channel state. Only the core Chat
+  instance is recreated after the boundary resumes. A late worker update cannot
+  recreate Explore, and a late Explore completion cannot recreate Chat.
   Proactive external delivery and ask fanout also fail closed while the
   persistent chat clear marker exists. This keeps active replies and
   notifications from racing the cross-store cleanup.

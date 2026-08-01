@@ -699,6 +699,10 @@ class ChatTaskAgent(
             latest_user_message=run_decision.planner_user_message,
             incoming_fact_kind=run_decision.planner_fact_kind,
             latest_payload=run_decision.latest_payload,
+            user_message_generation=_fact_user_message_generation(
+                run_decision.planner_fact,
+                latest_fact,
+            ),
             active_run=run_decision.active_run,
             session_run_id=(
                 run_decision.active_run.run_id if run_decision.active_run is not None else None
@@ -1068,6 +1072,13 @@ def _latest_runtime_fact(base_context: Any) -> FactRecord | None:
         return None
     latest_fact = base_context.latest_fact
     return latest_fact if isinstance(latest_fact, FactRecord) else None
+
+
+def _fact_user_message_generation(*facts: Any) -> int | None:
+    for fact in facts:
+        if isinstance(fact, FactRecord) and fact.user_message_generation is not None:
+            return int(fact.user_message_generation)
+    return None
 
 
 def _recent_runtime_facts(base_context: Any) -> list[FactRecord]:
