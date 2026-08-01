@@ -226,6 +226,18 @@ def _resolve_orchestration_store():
     return get_orchestration_store()
 
 
+def _resolve_batch_store():
+    override = _package_override(
+        "_resolve_batch_store",
+        _resolve_batch_store,
+    )
+    if override is not None:
+        return override()
+    from magi.agent.batch.store import default_batch_store
+
+    return default_batch_store()
+
+
 def _resolve_scenario_llm_pool():
     override = _package_override("_resolve_scenario_llm_pool", _resolve_scenario_llm_pool)
     if override is not None:

@@ -79,6 +79,21 @@ async def test_add_items_seeds_pending(store):
     assert all(i.attempts == 0 for i in items)
 
 
+@pytest.mark.asyncio
+async def test_clear_all_removes_jobs_and_content_payloads(store):
+    first = await _make_job(store)
+    second = await _make_job(store, origin_session_id="s2", origin_turn_id="u2")
+    await store.add_items(first.job_id, [{"secret": "first"}, {"secret": "second"}])
+    await store.add_items(second.job_id, [{"secret": "third"}])
+
+    counts = await store.clear_all()
+
+    assert counts == {"batch_items": 3, "batch_jobs": 2}
+    assert await store.get_job(first.job_id) is None
+    assert await store.get_job(second.job_id) is None
+    assert await store.list_jobs_by_status(BatchJobStatus.PLANNING) == []
+
+
 # === lease ================================================================
 
 @pytest.mark.asyncio

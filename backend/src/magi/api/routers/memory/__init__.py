@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .dependencies import (
     _resolve_background_task_manager,
+    _resolve_batch_store,
     _resolve_channels_module,
     _resolve_channel_session_mapper,
     _resolve_hybrid_retrieval_service,
@@ -53,6 +54,7 @@ __all__ = [
     "memory_router",
     "_resolve_channels_module",
     "_resolve_background_task_manager",
+    "_resolve_batch_store",
     "_resolve_channel_session_mapper",
     "_resolve_hybrid_retrieval_service",
     "_resolve_memory_integration",

@@ -313,6 +313,16 @@ class AgentRuntimeModule(LifecycleModule):
         # Batch restart-recovery: pick up RUNNING batch jobs left by a previous
         # process (manager._running is empty after restart) and refill their runs.
         from .batch.driver import BatchDriver
+        from .batch.store import default_batch_store
+        from ..chat import get_chat_read_service
+
+        if await get_chat_read_service().aget_interrupted_global_clear_count() is not None:
+            cleared = await default_batch_store().clear_all()
+            logger.info(
+                "discarded batch manifests during interrupted data clear recovery",
+                **cleared,
+            )
+            return
 
         resumed = await BatchDriver(background_wiring.manager).resume_running_jobs()
         if resumed:

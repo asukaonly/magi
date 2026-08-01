@@ -526,6 +526,28 @@ class BatchStore:
             await db.commit()
             return cur.rowcount
 
+    async def clear_all(self) -> dict[str, int]:
+        """Delete every persisted batch manifest and its content payloads."""
+        async with self._connect() as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                item_row = await (
+                    await db.execute("SELECT COUNT(*) FROM batch_item")
+                ).fetchone()
+                job_row = await (
+                    await db.execute("SELECT COUNT(*) FROM batch_job")
+                ).fetchone()
+                await db.execute("DELETE FROM batch_item")
+                await db.execute("DELETE FROM batch_job")
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        return {
+            "batch_items": int(item_row[0] if item_row else 0),
+            "batch_jobs": int(job_row[0] if job_row else 0),
+        }
+
 
 def default_batch_store() -> BatchStore:
     """Construct a BatchStore against the runtime batch DB (schema built by

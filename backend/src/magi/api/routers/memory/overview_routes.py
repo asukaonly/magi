@@ -18,6 +18,7 @@ from .dependencies import (
     _resolve_channels_module,
     _resolve_channel_session_mapper,
     _resolve_background_task_manager,
+    _resolve_batch_store,
     _resolve_orchestration_store,
     _resolve_outreach_service,
     _resolve_runtime_command_queue,
@@ -154,11 +155,28 @@ async def _clear_chat_runtime_state(
                 "clear_memory: orchestration cleanup failed after chat truth was cleared",
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
+    batch_cleanup_succeeded = True
+    try:
+        await _resolve_batch_store().clear_all()
+    except BaseException as exc:
+        batch_cleanup_succeeded = False
+        if chat_failure is not None:
+            logger.error(
+                "clear_memory: batch cleanup also failed after chat clear failed",
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
+        else:
+            warnings.append("batch_cleanup_failed")
+            logger.error(
+                "clear_memory: batch cleanup failed after chat truth was cleared",
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
     if (
         chat_failure is None
         and channel_cleanup_succeeded
         and background_cleanup_succeeded
         and orchestration_cleanup_succeeded
+        and batch_cleanup_succeeded
     ):
         finalize = getattr(chat_read_service, "acomplete_global_clear", None)
         if callable(finalize):

@@ -37,6 +37,18 @@ def _isolate_orchestration_store(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_batch_store(monkeypatch):
+    store = SimpleNamespace(
+        clear_all=AsyncMock(return_value={"batch_jobs": 0, "batch_items": 0})
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_batch_store",
+        lambda: store,
+    )
+    return store
+
+
+@pytest.fixture(autouse=True)
 def _isolate_diagnostic_log_cleanup(monkeypatch):
     cleanup = AsyncMock(
         return_value=SimpleNamespace(cleared_entries=4, failed_entries=0)
@@ -2352,6 +2364,7 @@ def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
 def test_memory_clear_api_clears_all_layers(
     monkeypatch,
     _isolate_orchestration_store,
+    _isolate_batch_store,
     _isolate_diagnostic_log_cleanup,
 ):
     app = FastAPI()
@@ -2419,6 +2432,7 @@ def test_memory_clear_api_clears_all_layers(
     assert body["results"]["l4"]["count"] == 1
     assert body["results"]["chat_context"]["count"] == 4
     _isolate_orchestration_store.clear_all.assert_awaited_once()
+    _isolate_batch_store.clear_all.assert_awaited_once()
     _isolate_diagnostic_log_cleanup.assert_awaited_once_with()
     assert clear_order == [
         "background-enter",
@@ -3213,6 +3227,41 @@ def test_memory_clear_attempts_orchestration_cleanup_when_chat_cleanup_fails(mon
 
     orchestration_store.clear_all.assert_awaited_once()
     task_agent_manager.resume_chat_work.assert_awaited_once()
+
+
+def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    finalize = AsyncMock(return_value=True)
+
+    class _FakeChatReadService:
+        async def aclear_all_sessions(self) -> int:
+            return 1
+
+        acomplete_global_clear = finalize
+
+    batch_store = SimpleNamespace(
+        clear_all=AsyncMock(side_effect=OSError("batch disk full"))
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_batch_store",
+        lambda: batch_store,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _FakeChatReadService(),
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    assert response.json()["warnings"] == ["batch_cleanup_failed"]
+    batch_store.clear_all.assert_awaited_once_with()
+    finalize.assert_not_awaited()
 
 
 def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):
