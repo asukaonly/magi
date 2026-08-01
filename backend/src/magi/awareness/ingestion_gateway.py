@@ -13,7 +13,11 @@ from ulid import ULID
 from ..core.logger import get_logger
 from ..events.events import Event, EventTypes
 from ..events.domain_payloads import SensorEventEmitted, TaskContext
-from ..memory.sensor_ingestion import SensorCommitOutcome, SensorCommitReceipt
+from ..memory.sensor_ingestion import (
+    SensorCommitOutcome,
+    SensorCommitReceipt,
+    SensorIngestionBoundary,
+)
 from ..identity import canonicalize_user_id as _canonicalize_user_id
 from ..identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .sensor_base import SensorBase
@@ -26,13 +30,16 @@ logger = get_logger(__name__)
 class SensorMemoryCommitter(Protocol):
     """Memory-owned port that proves the terminal L1 outcome of a sensor event."""
 
-    def memory_operation_epoch(self) -> int: ...
+    async def capture_ingestion_boundary(self) -> SensorIngestionBoundary: ...
 
     async def commit(
         self,
         event: Event,
         *,
         expected_epoch: int,
+        clear_generation: int,
+        clear_cutoff_at: float,
+        allow_pre_clear_events: bool,
     ) -> SensorCommitReceipt: ...
 
 
@@ -52,10 +59,10 @@ class SensorIngestionGateway:
         self._event_bus = event_bus
         self._memory_committer = memory_committer
 
-    def memory_operation_epoch(self) -> int:
-        """Capture the memory epoch that one sensor batch must retain."""
+    async def capture_ingestion_boundary(self) -> SensorIngestionBoundary:
+        """Capture the clear state that one source batch must retain."""
 
-        return int(self._memory_committer.memory_operation_epoch())
+        return await self._memory_committer.capture_ingestion_boundary()
 
     async def ingest(
         self,
@@ -64,13 +71,10 @@ class SensorIngestionGateway:
         metadata: SensorOutputMetadata | None = None,
         *,
         allowed_edge_whitelist: list[str] | None = None,
-        expected_epoch: int | None = None,
+        boundary: SensorIngestionBoundary | None = None,
+        allow_pre_clear_events: bool = False,
     ) -> SensorIngestionResult:
-        captured_epoch = (
-            self.memory_operation_epoch()
-            if expected_epoch is None
-            else int(expected_epoch)
-        )
+        captured_boundary = boundary or await self.capture_ingestion_boundary()
         event_id = str(ULID())
         payload = self._build_sensor_event_payload(
             sensor=sensor,
@@ -86,7 +90,10 @@ class SensorIngestionGateway:
         )
         receipt = await self._memory_committer.commit(
             event,
-            expected_epoch=captured_epoch,
+            expected_epoch=captured_boundary.expected_epoch,
+            clear_generation=captured_boundary.clear_generation,
+            clear_cutoff_at=captured_boundary.clear_cutoff_at,
+            allow_pre_clear_events=allow_pre_clear_events,
         )
         committed_event = replace(event, event_id=receipt.event_id)
         projection_skipped = receipt.outcome is SensorCommitOutcome.GOVERNED_SKIP
@@ -98,14 +105,17 @@ class SensorIngestionGateway:
                 sensor_id=sensor.sensor_id,
             )
         )
+        stats: dict[str, Any] = {
+            "memory_outcome": receipt.outcome.value,
+            "projection_published": projection_published,
+            "projection_skipped": projection_skipped,
+        }
+        if receipt.skip_reason:
+            stats["skip_reason"] = receipt.skip_reason
         return SensorIngestionResult(
             event_id=receipt.event_id,
             ingested=True,
-            stats={
-                "memory_outcome": receipt.outcome.value,
-                "projection_published": projection_published,
-                "projection_skipped": projection_skipped,
-            },
+            stats=stats,
         )
 
     def _build_sensor_event_payload(

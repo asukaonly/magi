@@ -44,10 +44,33 @@ async def memory_clear_generation_on_connection(db: aiosqlite.Connection) -> int
     return int(row[0])
 
 
+async def memory_clear_state_on_connection(
+    db: aiosqlite.Connection,
+) -> tuple[int, float]:
+    """Return the durable clear generation and its wall-clock boundary."""
+
+    async with db.execute(
+        f"SELECT generation, updated_at FROM {MEMORY_CLEAR_STATE_TABLE} "
+        "WHERE singleton_id = ?",
+        (MEMORY_CLEAR_STATE_ID,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row is None:
+        raise RuntimeError("Memory clear generation is not initialized")
+    return int(row[0]), float(row[1])
+
+
 async def current_memory_clear_generation(db_path: str) -> int:
     """Return the persisted clear generation for one shared-memory database."""
     async with sqlite_connection_async(db_path) as db:
         return await memory_clear_generation_on_connection(db)
+
+
+async def current_memory_clear_state(db_path: str) -> tuple[int, float]:
+    """Return the persisted generation and clear time for one memory store."""
+
+    async with sqlite_connection_async(db_path) as db:
+        return await memory_clear_state_on_connection(db)
 
 
 async def advance_memory_clear_generation(
@@ -73,6 +96,8 @@ __all__ = [
     "MEMORY_CLEAR_STATE_TABLE",
     "advance_memory_clear_generation",
     "current_memory_clear_generation",
+    "current_memory_clear_state",
     "ensure_memory_clear_state",
     "memory_clear_generation_on_connection",
+    "memory_clear_state_on_connection",
 ]

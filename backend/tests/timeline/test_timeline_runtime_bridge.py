@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 import pytest
 
@@ -16,8 +18,10 @@ from magi.awareness.sensor_output import (
     SensorOutputMetadata,
 )
 from magi.config import AppConfig
+from magi.core.sqlite import sqlite_connection_async
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.memory.event_contracts import MemoryEvent
+from magi.memory.clear_generation import ensure_memory_clear_state
 from magi.memory.sensor_ingestion import SensorEventCommitter
 from magi.timeline.handler import build_timeline_handler
 from magi.timeline.subscribers.kg_subscriber import KGSubscriber
@@ -29,10 +33,15 @@ class _FakeL1Store:
 
 
 class _FakeUnifiedMemory:
-    def __init__(self) -> None:
+    def __init__(self, memory_db_path: Path) -> None:
         self.l1 = _FakeL1Store()
         self.edges: list[dict] = []
         self.epoch = 0
+        self.memory_db_path = memory_db_path
+
+    @asynccontextmanager
+    async def memory_operation_guard(self):  # type: ignore[no-untyped-def]
+        yield
 
     def memory_operation_epoch(self) -> int:
         return self.epoch
@@ -118,9 +127,14 @@ class _FakePluginManager:
 
 
 @pytest.mark.asyncio
-async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_graph_edges() -> None:
+async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_graph_edges(
+    tmp_path: Path,
+) -> None:
     """The timeline handler commits memory before publishing graph projections."""
-    memory = _FakeUnifiedMemory()
+    memory = _FakeUnifiedMemory(tmp_path / "memory.db")
+    async with sqlite_connection_async(memory.memory_db_path) as db:
+        await ensure_memory_clear_state(db)
+        await db.commit()
     bus = InMemoryMessageBusBackend()
     await bus.start()
     bus.bind_memory_operation_epoch(memory.memory_operation_epoch)

@@ -29,6 +29,7 @@ from magi.memory.sensor_ingestion import (
     SensorCommitOutcome,
     SensorCommitReceipt,
     SensorEventCommitter,
+    SensorIngestionBoundary,
 )
 
 
@@ -110,9 +111,22 @@ def _make_bus() -> MagicMock:
 
 def _make_committer() -> MagicMock:
     committer = MagicMock()
-    committer.memory_operation_epoch.return_value = 0
+    committer.capture_ingestion_boundary = AsyncMock(
+        return_value=SensorIngestionBoundary(
+            expected_epoch=0,
+            clear_generation=0,
+            clear_cutoff_at=0.0,
+        )
+    )
 
-    async def _commit(event, *, expected_epoch):
+    async def _commit(
+        event,
+        *,
+        expected_epoch,
+        clear_generation,
+        clear_cutoff_at,
+        allow_pre_clear_events,
+    ):
         return SensorCommitReceipt(
             event_id=event.event_id,
             outcome=SensorCommitOutcome.PERSISTED,
@@ -159,19 +173,28 @@ class TestSensorIngestionGatewayPublishes:
         assert committer.commit.await_args.kwargs["expected_epoch"] == 0
 
     @pytest.mark.asyncio
-    async def test_ingest_preserves_explicit_batch_memory_epoch(self):
+    async def test_ingest_preserves_explicit_clear_boundary(self):
         bus = _make_bus()
         committer = _make_committer()
         gateway = SensorIngestionGateway(event_bus=bus, memory_committer=committer)
+        boundary = SensorIngestionBoundary(
+            expected_epoch=17,
+            clear_generation=4,
+            clear_cutoff_at=1_700_000_010.0,
+        )
 
         await gateway.ingest(
             _FakeSensor(),
             _make_output(),
-            expected_epoch=17,
+            boundary=boundary,
+            allow_pre_clear_events=True,
         )
 
         assert committer.commit.await_args.kwargs["expected_epoch"] == 17
-        committer.memory_operation_epoch.assert_not_called()
+        assert committer.commit.await_args.kwargs["clear_generation"] == 4
+        assert committer.commit.await_args.kwargs["clear_cutoff_at"] == 1_700_000_010.0
+        assert committer.commit.await_args.kwargs["allow_pre_clear_events"] is True
+        committer.capture_ingestion_boundary.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_payload_carries_policy_dict(self):
@@ -374,9 +397,6 @@ class TestSensorIngestionGatewayPublishes:
                 self.epoch = 23
                 self.expected_epochs: list[int] = []
 
-            def memory_operation_epoch(self) -> int:
-                return self.epoch
-
             async def ingest_event(self, event, *, expected_epoch):  # type: ignore[no-untyped-def]
                 self.expected_epochs.append(int(expected_epoch))
                 if int(expected_epoch) != self.epoch:
@@ -399,13 +419,18 @@ class TestSensorIngestionGatewayPublishes:
             event_bus=bus,
             memory_committer=SensorEventCommitter(unified_memory=memory),
         )
-        batch_epoch = gateway.memory_operation_epoch()
+        batch_epoch = memory.epoch
+        boundary = SensorIngestionBoundary(
+            expected_epoch=batch_epoch,
+            clear_generation=0,
+            clear_cutoff_at=0.0,
+        )
         memory.epoch += 1
 
         result = await gateway.ingest(
             _FakeSensor(),
             _make_output(),
-            expected_epoch=batch_epoch,
+            boundary=boundary,
         )
 
         assert memory.expected_epochs == [batch_epoch]
@@ -414,5 +439,6 @@ class TestSensorIngestionGatewayPublishes:
             "memory_outcome": "governed_skip",
             "projection_published": False,
             "projection_skipped": True,
+            "skip_reason": "memory_clear_epoch_changed",
         }
         bus.publish.assert_not_awaited()

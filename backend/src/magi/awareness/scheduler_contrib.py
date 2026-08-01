@@ -28,7 +28,8 @@ from ..utils.runtime import RuntimePaths
 from .sensor_sync import SensorSyncContext
 
 if TYPE_CHECKING:
-    from .ingestion_gateway import SensorIngestionGateway
+    from ..memory.sensor_ingestion import SensorIngestionBoundary
+    from .ingestion_gateway import SensorIngestionGateway, SensorIngestionResult
 
 logger = get_logger(__name__)
 
@@ -240,6 +241,7 @@ class SensorSchedulerContrib:
             manual=context.manual,
             target_state=context.target_state,
             sync_payload=context.schedule.target_payload,
+            admitted_at=context.triggered_at,
         )
 
     async def execute_sensor_sync_job(self, job: dict[str, object]) -> ScheduledExecutionResult:
@@ -254,6 +256,7 @@ class SensorSchedulerContrib:
             manual=bool(job["manual"]),
             target_state=target_state,
             sync_payload=job.get("payload") if isinstance(job.get("payload"), dict) else {},
+            admitted_at=float(job.get("created_at") or 0.0),
         )
 
     async def flush_sensor_state(self, source_type: str) -> dict[str, Any]:
@@ -279,6 +282,7 @@ class SensorSchedulerContrib:
         manual: bool,
         target_state: Any,
         sync_payload: dict[str, Any] | None = None,
+        admitted_at: float = 0.0,
     ) -> ScheduledExecutionResult:
         target = self._resolve_sensor_sync_target(source_type)
         settings = self._sensor_sync_settings(
@@ -302,7 +306,16 @@ class SensorSchedulerContrib:
         previous_language = get_plugin_current_language()
         set_plugin_current_language(preferred_language or None)
         try:
-            expected_memory_epoch = self._ingestion_gateway.memory_operation_epoch()
+            ingestion_boundary = (
+                await self._ingestion_gateway.capture_ingestion_boundary()
+            )
+            allow_pre_clear_events = bool(
+                manual
+                and (
+                    ingestion_boundary.clear_generation == 0
+                    or admitted_at > ingestion_boundary.clear_cutoff_at
+                )
+            )
             pull_context = SensorSyncContext(
                 source_type=source_type,
                 manual=manual,
@@ -313,21 +326,32 @@ class SensorSchedulerContrib:
                 plugin_settings=settings.package_settings,
             )
             result = await target.sensor.collect_items(pull_context)
-            await self._ingest_sensor_sync_items(
+            clear_boundary_crossed = await self._ingest_sensor_sync_items(
                 sensor=target.sensor,
                 result=result,
                 schedule_id=schedule_id,
                 target_key=target_key,
                 manual=manual,
                 allowed_edge_whitelist=settings.allowed_edge_whitelist,
-                expected_memory_epoch=expected_memory_epoch,
+                ingestion_boundary=ingestion_boundary,
+                allow_pre_clear_events=allow_pre_clear_events,
             )
+            stats = dict(_merge_sync_request_stats(result.stats, sync_request) or {})
+            if clear_boundary_crossed:
+                stats.update(
+                    {
+                        "memory_clear_skipped": True,
+                        "has_more": False,
+                        "continue_sync": False,
+                        "backfill_has_more": False,
+                    }
+                )
             return ScheduledExecutionResult(
                 success=True,
                 message="sensor_sync_completed",
                 next_cursor=result.next_cursor,
                 watermark_ts=result.watermark_ts,
-                stats=_merge_sync_request_stats(result.stats, sync_request),
+                stats=stats,
             )
         finally:
             set_plugin_current_language(previous_language or None)
@@ -376,24 +400,29 @@ class SensorSchedulerContrib:
         target_key: str,
         manual: bool,
         allowed_edge_whitelist: list[str],
-        expected_memory_epoch: int,
-    ) -> None:
+        ingestion_boundary: SensorIngestionBoundary,
+        allow_pre_clear_events: bool,
+    ) -> bool:
         sorted_items = sorted(
             result.items,
             key=lambda it: float(it.get("modified_at") or 0.0),
         )
         checkpoint_modified_cursor = _should_checkpoint_modified_cursor(result.stats)
         total_items = len(sorted_items)
+        clear_boundary_crossed = False
         for idx, item in enumerate(sorted_items):
-            await self._ingest_sensor_sync_item(
+            ingestion_result = await self._ingest_sensor_sync_item(
                 sensor=sensor,
                 item=item,
                 schedule_id=schedule_id,
                 target_key=target_key,
                 manual=manual,
                 allowed_edge_whitelist=allowed_edge_whitelist,
-                expected_memory_epoch=expected_memory_epoch,
+                ingestion_boundary=ingestion_boundary,
+                allow_pre_clear_events=allow_pre_clear_events,
             )
+            if ingestion_result.stats.get("skip_reason") == "memory_clear_epoch_changed":
+                clear_boundary_crossed = True
             await self._checkpoint_sensor_sync_cursor(
                 item=item,
                 item_index=idx,
@@ -401,6 +430,7 @@ class SensorSchedulerContrib:
                 target_key=target_key,
                 checkpoint_modified_cursor=checkpoint_modified_cursor,
             )
+        return clear_boundary_crossed
 
     async def _ingest_sensor_sync_item(
         self,
@@ -411,8 +441,9 @@ class SensorSchedulerContrib:
         target_key: str,
         manual: bool,
         allowed_edge_whitelist: list[str],
-        expected_memory_epoch: int,
-    ) -> None:
+        ingestion_boundary: SensorIngestionBoundary,
+        allow_pre_clear_events: bool,
+    ) -> SensorIngestionResult:
         fetched = await sensor.fetch_item(item)
         output = await sensor.build_output(fetched)
         metadata = await sensor.extract_metadata(fetched)
@@ -428,10 +459,12 @@ class SensorSchedulerContrib:
             output,
             metadata,
             allowed_edge_whitelist=allowed_edge_whitelist,
-            expected_epoch=expected_memory_epoch,
+            boundary=ingestion_boundary,
+            allow_pre_clear_events=allow_pre_clear_events,
         )
         if not ingestion_result.ingested:
             raise RuntimeError(f"Sensor ingestion was not confirmed: {sensor.sensor_id}")
+        return ingestion_result
 
     async def _checkpoint_sensor_sync_cursor(
         self,

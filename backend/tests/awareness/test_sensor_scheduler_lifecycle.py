@@ -17,6 +17,7 @@ from magi.awareness.sensor_output import (
 from magi.awareness.scheduler_contrib import SensorSchedulerContrib
 from magi.awareness.sensor_sync import PullSyncSensor, SensorSyncResult
 from magi.bootstrap.context import RuntimeBootstrapContext
+from magi.memory.sensor_ingestion import SensorIngestionBoundary
 from magi.plugins.sensors import SensorRegistry, SensorSpec
 from magi.scheduler.contracts import (
     ScheduledTargetState,
@@ -313,16 +314,25 @@ class _FakeIngestionGateway:
         self.reject_on_attempt = reject_on_attempt
         self.clear_after_attempt = clear_after_attempt
         self.memory_epoch = 11
+        self.clear_generation = 0
+        self.clear_cutoff_at = 0.0
         self.memory_epoch_capture_count = 0
         self.expected_epochs: list[int | None] = []
+        self.allow_pre_clear_events: list[bool] = []
         self.governed_skip_count = 0
 
-    def memory_operation_epoch(self) -> int:
+    async def capture_ingestion_boundary(self) -> SensorIngestionBoundary:
         self.memory_epoch_capture_count += 1
-        return self.memory_epoch
+        return SensorIngestionBoundary(
+            expected_epoch=self.memory_epoch,
+            clear_generation=self.clear_generation,
+            clear_cutoff_at=self.clear_cutoff_at,
+        )
 
     def advance_memory_epoch(self) -> None:
         self.memory_epoch += 1
+        self.clear_generation += 1
+        self.clear_cutoff_at = time.time()
         self.items.clear()
 
     async def ingest(
@@ -332,10 +342,13 @@ class _FakeIngestionGateway:
         metadata,
         *,
         allowed_edge_whitelist=None,
-        expected_epoch=None,
+        boundary=None,
+        allow_pre_clear_events=False,
     ):  # type: ignore[no-untyped-def]
         self.attempt_count += 1
-        self.expected_epochs.append(expected_epoch)
+        assert boundary is not None
+        self.expected_epochs.append(boundary.expected_epoch)
+        self.allow_pre_clear_events.append(bool(allow_pre_clear_events))
         if self.fail_on_attempt == self.attempt_count:
             raise OSError("L1 unavailable")
         if self.reject_on_attempt == self.attempt_count:
@@ -343,8 +356,13 @@ class _FakeIngestionGateway:
                 event_id=f"event-{self.attempt_count}",
                 ingested=False,
             )
-        effective_epoch = self.memory_epoch if expected_epoch is None else int(expected_epoch)
-        if effective_epoch == self.memory_epoch:
+        effective_epoch = int(boundary.expected_epoch)
+        older_than_clear = bool(
+            boundary.clear_generation > 0
+            and not allow_pre_clear_events
+            and float(output.occurred_at) <= float(boundary.clear_cutoff_at)
+        )
+        if effective_epoch == self.memory_epoch and not older_than_clear:
             self.items.append(output)
             result = SensorIngestionResult(
                 event_id=f"event-{self.attempt_count}",
@@ -353,10 +371,19 @@ class _FakeIngestionGateway:
             )
         else:
             self.governed_skip_count += 1
+            skip_reason = (
+                "memory_clear_epoch_changed"
+                if effective_epoch != self.memory_epoch
+                else "memory_clear_cutoff"
+            )
             result = SensorIngestionResult(
                 event_id=f"event-{self.attempt_count}",
                 ingested=True,
-                stats={"memory_outcome": "governed_skip", "projection_published": False},
+                stats={
+                    "memory_outcome": "governed_skip",
+                    "projection_published": False,
+                    "skip_reason": skip_reason,
+                },
             )
         if self.clear_after_attempt == self.attempt_count:
             self.advance_memory_epoch()
@@ -849,3 +876,100 @@ async def test_sensor_sync_keeps_batch_epoch_between_item_iterations(tmp_path) -
     assert ingestion_gateway.expected_epochs == [initial_epoch, initial_epoch]
     assert ingestion_gateway.governed_skip_count == 1
     assert ingestion_gateway.items == []
+
+
+@pytest.mark.asyncio
+async def test_automatic_sensor_sync_advances_past_pre_clear_history(tmp_path) -> None:
+    scheduler_service = _FakeSchedulerService()
+    ingestion_gateway = _FakeIngestionGateway()
+    ingestion_gateway.clear_generation = 2
+    ingestion_gateway.clear_cutoff_at = 1_800_000_000.0
+    contrib = SensorSchedulerContrib(
+        scheduler_service=scheduler_service,
+        sensor_registry=_build_sensor_registry_with_sensor(_PullHistorySensor()),
+        plugin_manager=_FakePluginManager(),
+        runtime_paths=RuntimePaths(tmp_path / "runtime"),
+        get_config=lambda: None,
+        ingestion_gateway=ingestion_gateway,
+    )
+
+    result = await contrib._run_sensor_sync(
+        schedule_id="sensor-sync:pull-plugin:pull_history",
+        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        source_type="pull_history",
+        manual=False,
+        target_state=ScheduledTargetState(
+            target_type=ScheduledTargetType.SENSOR_SYNC,
+            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        ),
+        admitted_at=1_800_000_001.0,
+    )
+
+    assert result.success is True
+    assert result.next_cursor == "cursor-2"
+    assert ingestion_gateway.items == []
+    assert ingestion_gateway.governed_skip_count == 1
+    assert ingestion_gateway.allow_pre_clear_events == [False]
+
+
+@pytest.mark.asyncio
+async def test_manual_sensor_sync_requested_after_clear_can_restore_history(tmp_path) -> None:
+    scheduler_service = _FakeSchedulerService()
+    ingestion_gateway = _FakeIngestionGateway()
+    ingestion_gateway.clear_generation = 2
+    ingestion_gateway.clear_cutoff_at = 1_800_000_000.0
+    contrib = SensorSchedulerContrib(
+        scheduler_service=scheduler_service,
+        sensor_registry=_build_sensor_registry_with_sensor(_PullHistorySensor()),
+        plugin_manager=_FakePluginManager(),
+        runtime_paths=RuntimePaths(tmp_path / "runtime"),
+        get_config=lambda: None,
+        ingestion_gateway=ingestion_gateway,
+    )
+
+    await contrib._run_sensor_sync(
+        schedule_id="sensor-sync-manual:pull-plugin:pull_history:test",
+        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        source_type="pull_history",
+        manual=True,
+        target_state=ScheduledTargetState(
+            target_type=ScheduledTargetType.SENSOR_SYNC,
+            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        ),
+        admitted_at=1_800_000_001.0,
+    )
+
+    assert len(ingestion_gateway.items) == 1
+    assert ingestion_gateway.allow_pre_clear_events == [True]
+
+
+@pytest.mark.asyncio
+async def test_manual_sensor_sync_queued_before_clear_cannot_restore_history(tmp_path) -> None:
+    scheduler_service = _FakeSchedulerService()
+    ingestion_gateway = _FakeIngestionGateway()
+    ingestion_gateway.clear_generation = 2
+    ingestion_gateway.clear_cutoff_at = 1_800_000_000.0
+    contrib = SensorSchedulerContrib(
+        scheduler_service=scheduler_service,
+        sensor_registry=_build_sensor_registry_with_sensor(_PullHistorySensor()),
+        plugin_manager=_FakePluginManager(),
+        runtime_paths=RuntimePaths(tmp_path / "runtime"),
+        get_config=lambda: None,
+        ingestion_gateway=ingestion_gateway,
+    )
+
+    await contrib._run_sensor_sync(
+        schedule_id="sensor-sync-manual:pull-plugin:pull_history:test",
+        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        source_type="pull_history",
+        manual=True,
+        target_state=ScheduledTargetState(
+            target_type=ScheduledTargetType.SENSOR_SYNC,
+            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        ),
+        admitted_at=1_799_999_999.0,
+    )
+
+    assert ingestion_gateway.items == []
+    assert ingestion_gateway.governed_skip_count == 1
+    assert ingestion_gateway.allow_pre_clear_events == [False]

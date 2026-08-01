@@ -9,6 +9,7 @@ from typing import Any
 from ..events.domain_payloads import SensorEventEmitted
 from ..events.events import Event, EventTypes
 from ..events.payload_helpers import expect_payload
+from .clear_generation import current_memory_clear_state
 from .sensor_event_projection import build_sensor_memory_event
 
 
@@ -26,6 +27,16 @@ class SensorCommitReceipt:
 
     event_id: str
     outcome: SensorCommitOutcome
+    skip_reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SensorIngestionBoundary:
+    """Clear state captured atomically before one source batch starts."""
+
+    expected_epoch: int
+    clear_generation: int
+    clear_cutoff_at: float
 
 
 class SensorCommitDeferredError(RuntimeError):
@@ -46,16 +57,28 @@ class SensorEventCommitter:
     def __init__(self, *, unified_memory: Any) -> None:
         self._unified_memory = unified_memory
 
-    def memory_operation_epoch(self) -> int:
-        """Return the current memory epoch for one sensor-ingestion batch."""
+    async def capture_ingestion_boundary(self) -> SensorIngestionBoundary:
+        """Capture process and durable clear state in one admitted operation."""
 
-        return int(self._unified_memory.memory_operation_epoch())
+        async with self._unified_memory.memory_operation_guard():
+            expected_epoch = int(self._unified_memory.memory_operation_epoch())
+            generation, cutoff_at = await current_memory_clear_state(
+                str(self._unified_memory.memory_db_path)
+            )
+        return SensorIngestionBoundary(
+            expected_epoch=expected_epoch,
+            clear_generation=generation,
+            clear_cutoff_at=cutoff_at,
+        )
 
     async def commit(
         self,
         event: Event,
         *,
         expected_epoch: int,
+        clear_generation: int,
+        clear_cutoff_at: float,
+        allow_pre_clear_events: bool,
     ) -> SensorCommitReceipt:
         """Commit one sensor event or raise without granting cursor progress."""
 
@@ -69,6 +92,16 @@ class SensorEventCommitter:
             causation_id=event.causation_id,
             trace_context=event.trace_context,
         )
+        if (
+            int(clear_generation) > 0
+            and not allow_pre_clear_events
+            and float(memory_event.timestamp) <= float(clear_cutoff_at)
+        ):
+            return SensorCommitReceipt(
+                event_id=str(event.event_id),
+                outcome=SensorCommitOutcome.GOVERNED_SKIP,
+                skip_reason="memory_clear_cutoff",
+            )
         result = await self._unified_memory.ingest_event(
             memory_event,
             expected_epoch=int(expected_epoch),
@@ -78,6 +111,7 @@ class SensorEventCommitter:
             return SensorCommitReceipt(
                 event_id=str(result.get("event_id") or event.event_id),
                 outcome=SensorCommitOutcome.GOVERNED_SKIP,
+                skip_reason=skip_reason,
             )
         if result.get("skipped"):
             raise SensorCommitDeferredError(
@@ -101,5 +135,6 @@ __all__ = [
     "SensorCommitDeferredError",
     "SensorCommitOutcome",
     "SensorCommitReceipt",
+    "SensorIngestionBoundary",
     "SensorEventCommitter",
 ]
