@@ -19,6 +19,7 @@ from ....personality.reference_research.ports import (
     ReferenceFetchPort,
     ReferenceSearchPort,
 )
+from ....personality.reference_research.service import clear_reference_dossier_cache
 from ...routers.personality_config_schemas import (
     PersonaGenerationIntentModel,
     PersonalityConfigModel,
@@ -54,7 +55,7 @@ def _current_personality_generation_barrier() -> AsyncOperationBarrier:
 
 @asynccontextmanager
 async def personality_generation_user_content_clear_boundary() -> AsyncIterator[None]:
-    """Cancel and erase every pre-clear personality generation job."""
+    """Erase pre-clear personality generation jobs and reference material."""
 
     async with _current_personality_generation_barrier().exclusive():
         tasks = tuple(_PERSONALITY_GENERATION_TASKS.values())
@@ -65,6 +66,7 @@ async def personality_generation_user_content_clear_boundary() -> AsyncIterator[
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        clear_reference_dossier_cache()
         yield
 
 

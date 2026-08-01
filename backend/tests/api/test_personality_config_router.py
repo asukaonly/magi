@@ -20,6 +20,8 @@ import magi.api.services.personality_generation.prompting as generation_promptin
 import magi.api.services.personality_generation.quality as generation_quality
 import magi.api.services.personality_generation.reference as generation_reference
 import magi.api.services.personality_generation.stage_pipeline as generation_stage_pipeline
+from magi.personality.reference_research import service as reference_research_service
+from magi.personality.reference_research.models import ReferenceDossier
 from magi.api.services import (
     personality_generation_prompts as generation_prompts,
 )
@@ -1468,6 +1470,26 @@ async def test_personality_generation_request_id_is_idempotent(monkeypatch) -> N
     assert second["request_id"] == "request-1"
     async with generation_jobs.personality_generation_user_content_clear_boundary():
         pass
+
+
+@pytest.mark.asyncio
+async def test_personality_generation_clear_erases_cached_reference_dossiers() -> None:
+    reference_research_service._DOSSIER_CACHE.clear()
+    reference_research_service._DOSSIER_CACHE["sensitive-reference"] = (
+        0.0,
+        ReferenceDossier(
+            reference_fingerprint="sensitive-reference",
+            identity_status="verified",
+            grounding_status="verified",
+            research_level="representative",
+            profile_dimensions={"ordinary_baseline": ["private user context"]},
+        ),
+    )
+
+    async with generation_jobs.personality_generation_user_content_clear_boundary():
+        assert reference_research_service._DOSSIER_CACHE == {}
+
+    assert reference_research_service._DOSSIER_CACHE == {}
 
 
 @pytest.mark.asyncio
