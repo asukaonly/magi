@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from types import SimpleNamespace
 
 import aiosqlite
 import pytest
+from magi_plugin_sdk.fs import UnsafeManagedPathError
 
 from _shared.sqlite_privacy import (
     assert_sqlite_fragment_absent,
@@ -585,6 +587,103 @@ async def test_unified_clear_removes_archives_and_manual_assets_only(tmp_path) -
     assert archive_dir.is_dir()
     assert keep_archive_file.read_text() == "keep"
     assert not list(archive_dir.glob("*.db*"))
+
+
+async def test_unified_clear_replaces_archive_directory_link_without_following_it(
+    tmp_path,
+) -> None:
+    external_archive = tmp_path / "external-archive"
+    external_archive.mkdir()
+    external_db = external_archive / "2026-07-15.db"
+    external_db.write_bytes(b"must remain outside managed archive")
+
+    memory_root = tmp_path / "memory"
+    memory_root.mkdir()
+    archive_dir = memory_root / "archive"
+    archive_dir.symlink_to(external_archive, target_is_directory=True)
+    unified = UnifiedMemoryStore(
+        persist_dir=str(memory_root),
+        archive_dir_path=str(archive_dir),
+        enable_l0=False,
+        enable_l1=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+    )
+
+    await unified.clear_all_memory()
+
+    assert archive_dir.is_dir()
+    assert archive_dir.is_symlink() is False
+    assert list(archive_dir.iterdir()) == []
+    assert external_db.read_bytes() == b"must remain outside managed archive"
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO is unavailable")
+async def test_unified_clear_unlinks_archive_links_and_special_files_without_opening_targets(
+    tmp_path,
+) -> None:
+    archive_dir = tmp_path / "memory" / "archive"
+    archive_dir.mkdir(parents=True)
+    external_db = tmp_path / "external.db"
+    external_db.write_bytes(b"external content must survive")
+
+    symlink_entry = archive_dir / "2026-07-16.db"
+    symlink_entry.symlink_to(external_db)
+    hardlink_entry = archive_dir / "2026-07-17.db"
+    os.link(external_db, hardlink_entry)
+    fifo_entry = archive_dir / "2026-07-18.db-wal"
+    os.mkfifo(fifo_entry)
+    unrelated = archive_dir / "README.txt"
+    unrelated.write_text("keep", encoding="utf-8")
+
+    unified = UnifiedMemoryStore(
+        persist_dir=str(tmp_path / "memory"),
+        archive_dir_path=str(archive_dir),
+        enable_l0=False,
+        enable_l1=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+    )
+
+    await unified.clear_all_memory()
+
+    assert symlink_entry.is_symlink() is False
+    assert hardlink_entry.exists() is False
+    assert fifo_entry.exists() is False
+    assert external_db.read_bytes() == b"external content must survive"
+    assert unrelated.read_text(encoding="utf-8") == "keep"
+
+
+async def test_unified_clear_rejects_linked_archive_parent_without_following_it(
+    tmp_path,
+) -> None:
+    external_root = tmp_path / "external"
+    external_archive = external_root / "archive"
+    external_archive.mkdir(parents=True)
+    external_db = external_archive / "2026-07-19.db"
+    external_db.write_bytes(b"external content must survive")
+    managed_root = tmp_path / "managed"
+    managed_root.mkdir()
+    linked_parent = managed_root / "linked"
+    linked_parent.symlink_to(external_root, target_is_directory=True)
+    archive_dir = linked_parent / "archive"
+    persist_dir = managed_root / "memory"
+    unified = UnifiedMemoryStore(
+        persist_dir=str(persist_dir),
+        archive_dir_path=str(archive_dir),
+        enable_l0=False,
+        enable_l1=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+    )
+
+    with pytest.raises(UnsafeManagedPathError):
+        await unified.clear_all_memory()
+
+    assert external_db.read_bytes() == b"external content must survive"
 
 
 async def test_unified_clear_removes_dormant_l0_rows_when_l0_is_disabled(

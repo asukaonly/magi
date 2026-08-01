@@ -5,10 +5,18 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import os
 import re
+import stat
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
+
+from magi_plugin_sdk.fs import (
+    list_managed_directory_names,
+    path_is_link,
+    remove_managed_file,
+)
 
 from ..core.sqlite import secure_compact_sqlite
 from .shared_clear import clear_shared_auxiliary_memory
@@ -272,10 +280,24 @@ class UnifiedMemoryLifecycleMixin:
         return bool(worker is not None and not worker.done())
 
     def _clear_archived_memory_files(self) -> None:
+        self._ensure_real_archive_directory()
+        for name in list_managed_directory_names(self._archive_dir):
+            if _MEMORY_ARCHIVE_FILE_PATTERN.fullmatch(name):
+                remove_managed_file(self._archive_dir / name)
+
+    def _ensure_real_archive_directory(self) -> None:
+        """Replace an archive-directory link or file without entering its target."""
+
+        try:
+            archive_stat = os.lstat(self._archive_dir)
+        except FileNotFoundError:
+            archive_stat = None
+        if archive_stat is not None:
+            if path_is_link(self._archive_dir, path_stat=archive_stat) or not stat.S_ISDIR(
+                archive_stat.st_mode
+            ):
+                remove_managed_file(self._archive_dir)
         self._archive_dir.mkdir(parents=True, exist_ok=True)
-        for path in self._archive_dir.iterdir():
-            if path.is_file() and _MEMORY_ARCHIVE_FILE_PATTERN.fullmatch(path.name):
-                path.unlink()
 
     @staticmethod
     async def _run_auxiliary_clearers(
