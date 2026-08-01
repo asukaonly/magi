@@ -19,7 +19,11 @@ from pathlib import Path
 from threading import RLock
 from typing import Tuple
 
-from magi_plugin_sdk.fs import path_is_link, remove_managed_file
+from magi_plugin_sdk.fs import (
+    list_managed_directory_names,
+    path_is_link,
+    remove_managed_file,
+)
 
 from .contracts import ChatPortraitObservation, ChatPortraitPayload
 
@@ -191,12 +195,11 @@ def clear_persisted_portrait_cache(
         return int(remove_managed_file(parent))
 
     candidates = [path]
-    with os.scandir(parent) as entries:
-        candidates.extend(
-            parent / entry.name
-            for entry in entries
-            if entry.name.startswith(".portrait-cache-") and entry.name.endswith(".json")
-        )
+    candidates.extend(
+        parent / name
+        for name in list_managed_directory_names(parent)
+        if name.startswith(".portrait-cache-") and name.endswith(".json")
+    )
     deleted = 0
     for candidate in candidates:
         if remove_managed_file(candidate):

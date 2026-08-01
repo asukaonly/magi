@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from magi_plugin_sdk.fs import UnsafeManagedPathError
 
 from magi.chat.portrait.cache import PortraitCache, clear_persisted_portrait_cache
 from magi.chat.portrait.contracts import ChatPortraitPayload
@@ -142,6 +143,31 @@ def test_clear_persisted_portrait_cache_detects_reparse_parent(
     assert parent.is_symlink() is False
     assert parent.exists() is False
     assert external_cache.read_text(encoding="utf-8") == "private"
+
+
+def test_clear_rejects_linked_parent_chain_without_touching_external_files(
+    tmp_path: Path,
+) -> None:
+    cache_root = tmp_path / "cache"
+    path = cache_root / "portrait" / "cache.json"
+    cache = PortraitCache(ttl_seconds=300, max_entries=10, persistence_path=path)
+    external_root = tmp_path / "external"
+    external_parent = external_root / "portrait"
+    external_parent.mkdir(parents=True)
+    external_cache = external_parent / "cache.json"
+    external_cache.write_text("private", encoding="utf-8")
+    external_temp = external_parent / ".portrait-cache-private.json"
+    external_temp.write_text("private temp", encoding="utf-8")
+    try:
+        cache_root.symlink_to(external_root, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory links are unavailable on this platform")
+
+    with pytest.raises(UnsafeManagedPathError):
+        cache.clear()
+
+    assert external_cache.read_text(encoding="utf-8") == "private"
+    assert external_temp.read_text(encoding="utf-8") == "private temp"
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO unsupported")
