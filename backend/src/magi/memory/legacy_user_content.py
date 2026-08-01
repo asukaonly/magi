@@ -11,15 +11,15 @@ from magi_plugin_sdk.fs import path_is_link, remove_managed_file
 from ..utils.runtime import RuntimePaths, get_runtime_paths
 
 
+_SQLITE_FILE_SUFFIXES = ("", "-wal", "-shm", "-journal")
+
+
 def clear_legacy_user_content(runtime_paths: RuntimePaths | None = None) -> int:
     """Delete retired memory files without following links outside Magi paths."""
     paths = runtime_paths or get_runtime_paths()
     deleted = _clear_managed_directory(paths.others_dir)
-    for candidate in (
-        paths.self_memory_db_path,
-        Path(f"{paths.self_memory_db_path}-wal"),
-        Path(f"{paths.self_memory_db_path}-shm"),
-    ):
+    for suffix in _SQLITE_FILE_SUFFIXES:
+        candidate = Path(f"{paths.self_memory_db_path}{suffix}")
         if remove_managed_file(candidate):
             deleted += 1
     return deleted

@@ -11,6 +11,7 @@ import pytest
 
 from magi_plugin_sdk.fs import UnsafeManagedPathError
 
+from magi.memory import legacy_user_content as legacy_user_content_module
 from magi.memory.legacy_user_content import clear_legacy_user_content
 from magi.utils.runtime import RuntimePaths
 
@@ -31,6 +32,10 @@ def test_clear_legacy_user_content_removes_exact_retired_paths(
         "private shm",
         encoding="utf-8",
     )
+    Path(f"{runtime_paths.self_memory_db_path}-journal").write_text(
+        "private rollback journal",
+        encoding="utf-8",
+    )
     preserved_memory = runtime_paths.memory_db_path
     preserved_memory.write_text("current memory store", encoding="utf-8")
     preserved_config = runtime_paths.config_dir / "settings.yaml"
@@ -39,13 +44,40 @@ def test_clear_legacy_user_content_removes_exact_retired_paths(
 
     deleted = clear_legacy_user_content(runtime_paths)
 
-    assert deleted == 5
+    assert deleted == 6
     assert list(runtime_paths.others_dir.iterdir()) == []
     assert not runtime_paths.self_memory_db_path.exists()
     assert not Path(f"{runtime_paths.self_memory_db_path}-wal").exists()
     assert not Path(f"{runtime_paths.self_memory_db_path}-shm").exists()
+    assert not Path(f"{runtime_paths.self_memory_db_path}-journal").exists()
     assert preserved_memory.read_text(encoding="utf-8") == "current memory store"
     assert preserved_config.read_text(encoding="utf-8") == "keep: true"
+
+
+def test_clear_legacy_user_content_propagates_database_cleanup_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    journal_path = Path(f"{runtime_paths.self_memory_db_path}-journal")
+    journal_path.write_text("private rollback journal", encoding="utf-8")
+    original_remove = legacy_user_content_module.remove_managed_file
+
+    def fail_journal_removal(path: str | Path) -> bool:
+        if Path(path) == journal_path:
+            raise PermissionError("rollback journal is locked")
+        return original_remove(path)
+
+    monkeypatch.setattr(
+        legacy_user_content_module,
+        "remove_managed_file",
+        fail_journal_removal,
+    )
+
+    with pytest.raises(PermissionError, match="rollback journal is locked"):
+        clear_legacy_user_content(runtime_paths)
+
+    assert journal_path.read_text(encoding="utf-8") == "private rollback journal"
 
 
 def test_clear_legacy_user_content_does_not_follow_symlinks(

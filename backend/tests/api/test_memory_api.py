@@ -4181,6 +4181,30 @@ def test_memory_clear_removes_legacy_user_content(monkeypatch) -> None:
     legacy_clearer.assert_called_once_with()
 
 
+def test_memory_clear_fails_when_legacy_user_content_cannot_be_removed(
+    monkeypatch,
+) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    legacy_clearer = Mock(side_effect=PermissionError("rollback journal is locked"))
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_legacy_user_content_clearer",
+        lambda: legacy_clearer,
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear",
+        headers=FULL_CLEAR_HEADERS,
+    )
+
+    assert response.status_code == 500
+    legacy_clearer.assert_called_once_with()
+
+
 def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
