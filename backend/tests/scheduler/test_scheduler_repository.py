@@ -515,3 +515,125 @@ async def test_update_target_cursor_preserves_watermark_when_none(tmp_path):
     )
     assert state.last_cursor == "cursor-2"
     assert state.watermark_ts == 3000.0  # preserved
+
+
+@pytest.mark.asyncio
+async def test_clear_user_data_removes_user_schedules_and_execution_content(
+    tmp_path,
+):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    user_schedule = ScheduleDefinition(
+        schedule_id="agent-task:private",
+        target_type=ScheduledTargetType.USER_AGENT_TASK,
+        target_key="agent-task:private",
+        trigger=TriggerDefinition(
+            trigger_type=TriggerType.INTERVAL,
+            config={"seconds": 300.0},
+        ),
+        target_payload={"prompt": "Summarize my private project."},
+        metadata={"display_name": "Private project summary"},
+    )
+    system_schedule = _build_sensor_schedule()
+    await repository.upsert_schedule(user_schedule)
+    await repository.upsert_schedule(system_schedule)
+    await repository.update_schedule_binding(
+        system_schedule.schedule_id,
+        job_id=system_schedule.schedule_id,
+    )
+    await repository.update_target_cursor(
+        system_schedule.target_type,
+        system_schedule.target_key,
+        cursor="source-cursor-42",
+        watermark_ts=1234.5,
+    )
+    system_execution_id = await repository.create_execution_record(
+        schedule_id=system_schedule.schedule_id,
+        target_type=system_schedule.target_type,
+        target_key=system_schedule.target_key,
+        manual=False,
+        started_at=100.0,
+    )
+    await repository.complete_execution_failure(
+        system_execution_id,
+        error="private path: /Users/example/Documents/secret.txt",
+        scheduler_job_id=system_schedule.schedule_id,
+        finished_at=101.0,
+    )
+    await repository.record_target_failure(
+        system_schedule.target_type,
+        system_schedule.target_key,
+        error="private path: /Users/example/Documents/secret.txt",
+        scheduler_job_id=system_schedule.schedule_id,
+    )
+    await _enqueue_sensor_sync(repository, system_schedule, started_at=101.5)
+    user_execution_id = await repository.create_execution_record(
+        schedule_id=user_schedule.schedule_id,
+        target_type=user_schedule.target_type,
+        target_key=user_schedule.target_key,
+        manual=False,
+        started_at=102.0,
+    )
+    await repository.complete_execution_success(
+        user_execution_id,
+        result=ScheduledExecutionResult(
+            success=True,
+            message="private task result",
+            stats={"summary": "private result details"},
+        ),
+        scheduler_job_id=user_schedule.schedule_id,
+        finished_at=103.0,
+    )
+
+    counts = await repository.clear_user_data()
+
+    schedules = await repository.list_schedules(enabled_only=False)
+    executions = await repository.list_executions(limit=20)
+    system_state = await repository.get_target_state(
+        system_schedule.target_type,
+        system_schedule.target_key,
+    )
+    connection = sqlite3.connect(db_path)
+    user_state_count = connection.execute(
+        "SELECT COUNT(*) FROM target_state WHERE target_type = ?",
+        (ScheduledTargetType.USER_AGENT_TASK.value,),
+    ).fetchone()[0]
+    connection.close()
+
+    assert counts == {
+        "user_schedules": 1,
+        "user_target_states": 1,
+        "user_jobs": 0,
+        "sensor_jobs": 1,
+        "executions": 3,
+        "sanitized_target_states": 1,
+    }
+    assert [schedule.schedule_id for schedule in schedules] == [system_schedule.schedule_id]
+    assert executions == []
+    assert user_state_count == 0
+    assert system_state.last_cursor == "source-cursor-42"
+    assert system_state.watermark_ts == 1234.5
+    assert system_state.scheduler_job_id == system_schedule.schedule_id
+    assert system_state.running is False
+    assert system_state.last_error is None
+    assert system_state.stats == {}
+    assert (
+        await repository.enqueue_sensor_sync_execution(
+            schedule=system_schedule,
+            manual=False,
+            started_at=104.0,
+        )
+        is not None
+    )
+    forbidden_fragments = (
+        b"Summarize my private project.",
+        b"private task result",
+        b"private result details",
+        b"/Users/example/Documents/secret.txt",
+    )
+    for database_file in db_path.parent.glob(f"{db_path.name}*"):
+        persisted_bytes = database_file.read_bytes()
+        assert all(
+            fragment not in persisted_bytes for fragment in forbidden_fragments
+        )

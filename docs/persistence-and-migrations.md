@@ -68,6 +68,15 @@ the next queued job plus execution row in one transaction. A failed
 continuation insert rolls back the parent success instead of leaving a
 successful record with unqueued source data.
 
+A destructive full clear treats scheduler configuration and scheduler content
+differently. It preserves system-owned schedules and each source's cursor,
+watermark, and binding, while deleting user-created agent schedules, their
+runtime jobs and target state, every execution-history row, and every queued or
+running sensor-sync job. Remaining target state keeps progress fields but loses
+error and statistics payloads. The scheduler applies SQLite secure deletion and
+truncates its WAL before reporting that this store has been cleared, so removed
+prompt, result, error, and statistics text is not left in database sidecars.
+
 The stable-context migration converts legacy free-text correction scopes into
 typed local identities. Scoped relationship IDs and uniqueness are rebuilt at
 the same boundary, and all version, correction, dependency, snapshot, profile,
@@ -200,12 +209,11 @@ those stores have also been cleared.
 
 The full-memory clear boundary holds a global background admission seal,
 cancels matching non-terminal work, and waits for its terminal listeners until
-the cross-store clear finishes. It does not delete terminal task/event audit
-rows from `background_tasks.db`. Those rows are not memory-retrieval input; the
-Tasks UI may dismiss them explicitly, and the background-task retention
-schedule removes them later. Their terminal completion intent is either already
-handled or marked discarded and scrubbed with the same task-attempt identity;
-the remaining audit row is not treated as chat transcript truth.
+the cross-store clear finishes. It then deletes every task row, event, and
+completion intent from `background_tasks.db` before releasing admission. The
+Tasks UI may still dismiss individual rows and scheduled retention still
+governs ordinary operation, but a product-wide clear does not preserve this
+audit history.
 
 Startup recovery is split across the stores. Chat recovery first finishes the
 local redaction and physical cleanup while retaining the intent. Before channel

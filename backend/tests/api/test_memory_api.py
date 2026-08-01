@@ -169,6 +169,23 @@ def _isolate_background_task_history_cleanup(monkeypatch):
     return manager
 
 
+@pytest.fixture(autouse=True)
+def _isolate_scheduler_clear_boundary(monkeypatch):
+    @asynccontextmanager
+    async def boundary():
+        yield
+
+    service = SimpleNamespace(
+        user_data_clear_boundary=boundary,
+        clear_user_data=AsyncMock(return_value={}),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_scheduler_service",
+        lambda: service,
+    )
+    return service
+
+
 class _FakeL0Store:
     checkpoint_db_path = "/tmp/l0.db"
     _sessions: dict = {}
@@ -2403,13 +2420,19 @@ def test_memory_clear_api_clears_all_layers(
 
     class _FakeChatReadService:
         async def aclear_all_sessions(self) -> int:
-            assert clear_order == ["background-enter", "tools-enter"]
+            assert clear_order == [
+                "scheduler-enter",
+                "background-enter",
+                "tools-enter",
+                "scheduler-clear",
+            ]
             clear_order.append("chat")
             return 4
 
     @asynccontextmanager
     async def background_scope_boundary(**kwargs):  # type: ignore[no-untyped-def]
         assert kwargs == {"reason": "user_clear_all_memory"}
+        assert clear_order == ["scheduler-enter"]
         clear_order.append("background-enter")
         try:
             yield
@@ -2417,8 +2440,20 @@ def test_memory_clear_api_clears_all_layers(
             clear_order.append("background-exit")
 
     @asynccontextmanager
+    async def scheduler_scope_boundary():
+        clear_order.append("scheduler-enter")
+        try:
+            yield
+        finally:
+            clear_order.append("scheduler-exit")
+
+    async def clear_scheduler_data():
+        assert clear_order == ["scheduler-enter", "background-enter", "tools-enter"]
+        clear_order.append("scheduler-clear")
+
+    @asynccontextmanager
     async def tool_content_boundary():
-        assert clear_order == ["background-enter"]
+        assert clear_order == ["scheduler-enter", "background-enter"]
         clear_order.append("tools-enter")
         try:
             yield
@@ -2431,6 +2466,10 @@ def test_memory_clear_api_clears_all_layers(
             side_effect=lambda: clear_order.append("background-history-cleared") or {}
         ),
     )
+    scheduler_service = SimpleNamespace(
+        user_data_clear_boundary=scheduler_scope_boundary,
+        clear_user_data=clear_scheduler_data,
+    )
 
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory",
@@ -2442,6 +2481,10 @@ def test_memory_clear_api_clears_all_layers(
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_background_task_manager",
         lambda: background_task_manager,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_scheduler_service",
+        lambda: scheduler_service,
     )
     monkeypatch.setattr(
         "magi.api.routers.memory.overview_routes._resolve_tool_registry",
@@ -2464,14 +2507,39 @@ def test_memory_clear_api_clears_all_layers(
     _isolate_batch_store.clear_all.assert_awaited_once()
     _isolate_diagnostic_log_cleanup.assert_awaited_once_with()
     assert clear_order == [
+        "scheduler-enter",
         "background-enter",
         "tools-enter",
+        "scheduler-clear",
         "chat",
         "background-history-cleared",
         "memory-finished",
         "tools-exit",
         "background-exit",
+        "scheduler-exit",
     ]
+
+
+def test_memory_clear_rejects_when_scheduler_is_unavailable(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    unified = _FakeUnifiedMemory()
+    unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: unified,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_scheduler_service",
+        lambda: None,
+    )
+
+    with language_context("en"):
+        response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Scheduler service not initialized"
+    unified.clear_all_memory.assert_not_awaited()
 
 
 def test_memory_clear_keeps_global_intent_when_background_history_cleanup_fails(
@@ -3517,7 +3585,9 @@ def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):
             l2_count = await self.l2.clear()
             l2_count += await self.l2_entity_catalog.clear()
             for clearer in auxiliary_clearers:
-                clearer()
+                result = clearer()
+                if hasattr(result, "__await__"):
+                    await result
             chat_context_count = context_clearer() if context_clearer is not None else 0
             if hasattr(chat_context_count, "__await__"):
                 chat_context_count = await chat_context_count

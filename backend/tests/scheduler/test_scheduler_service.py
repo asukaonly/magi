@@ -7,7 +7,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from magi.scheduler import SchedulerService, ScheduledExecutionContext, ScheduledExecutionResult, ScheduledTargetType
+from magi.scheduler import (
+    ScheduleDefinition,
+    SchedulerDataClearInProgressError,
+    SchedulerService,
+    ScheduledExecutionContext,
+    ScheduledExecutionResult,
+    ScheduledTargetType,
+    TriggerDefinition,
+    TriggerType,
+)
 
 
 @pytest.mark.asyncio
@@ -709,3 +718,183 @@ async def test_scheduler_service_recovers_from_wakeup_failure(tmp_path, monkeypa
     await service.stop()
 
     assert scheduled_waits == [0.05]
+
+
+@pytest.mark.asyncio
+async def test_user_data_clear_fences_stale_user_handler_and_preserves_system_jobs(
+    tmp_path,
+):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+    handler_started = asyncio.Event()
+    enqueue_attempts: list[str] = []
+
+    async def user_handler(
+        context: ScheduledExecutionContext,
+    ) -> ScheduledExecutionResult:
+        handler_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            pass
+
+        async def enqueue() -> None:
+            enqueue_attempts.append(context.schedule.schedule_id)
+
+        await service.run_user_agent_effect(
+            context.data_generation,
+            enqueue,
+        )
+        return ScheduledExecutionResult(success=True, message="enqueued")
+
+    service.register_handler(ScheduledTargetType.USER_AGENT_TASK, user_handler)
+    await service.start()
+    try:
+        await service.schedule(
+            ScheduleDefinition(
+                schedule_id="agent-task:stale",
+                target_type=ScheduledTargetType.USER_AGENT_TASK,
+                target_key="agent-task:stale",
+                trigger=TriggerDefinition(
+                    trigger_type=TriggerType.INTERVAL,
+                    config={"seconds": 300.0},
+                ),
+                target_payload={"prompt": "Reveal old private context."},
+            )
+        )
+        await service.schedule_interval(
+            schedule_id="system-maintenance",
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global",
+            seconds=300.0,
+            target_payload={},
+        )
+        queued = await service.execute_schedule_async("agent-task:stale")
+        await asyncio.wait_for(handler_started.wait(), timeout=2.0)
+
+        async with service.user_data_clear_boundary():
+            counts = await service.clear_user_data()
+            blocked_execution = await service.execute_schedule("system-maintenance")
+            with pytest.raises(SchedulerDataClearInProgressError):
+                await service.schedule(
+                    ScheduleDefinition(
+                        schedule_id="agent-task:during-clear",
+                        target_type=ScheduledTargetType.USER_AGENT_TASK,
+                        target_key="agent-task:during-clear",
+                        trigger=TriggerDefinition(
+                            trigger_type=TriggerType.INTERVAL,
+                            config={"seconds": 300.0},
+                        ),
+                        target_payload={"prompt": "Must not persist."},
+                    )
+                )
+            with pytest.raises(SchedulerDataClearInProgressError):
+                await service.schedule_once(
+                    schedule_id="sensor-sync-manual:during-clear",
+                    target_type=ScheduledTargetType.SENSOR_SYNC,
+                    target_key="plugin:source",
+                    run_at=time.time(),
+                    target_payload={
+                        "plugin_id": "plugin",
+                        "source_type": "source",
+                        "manual": True,
+                    },
+                )
+
+        await asyncio.sleep(0)
+        schedules = await service.repository.list_schedules(enabled_only=False)
+        executions = await service.repository.list_executions(limit=20)
+
+        assert counts["user_schedules"] == 1
+        assert queued.message == "queued"
+        assert blocked_execution.message == "data_clear_in_progress"
+        assert enqueue_attempts == []
+        assert service._background_tasks == set()
+        assert [schedule.schedule_id for schedule in schedules] == ["system-maintenance"]
+        assert service._scheduler.get_job("agent-task:stale") is None
+        assert service._scheduler.get_job("system-maintenance") is not None
+        assert executions == []
+
+        recreated = await service.schedule(
+            ScheduleDefinition(
+                schedule_id="agent-task:after-clear",
+                target_type=ScheduledTargetType.USER_AGENT_TASK,
+                target_key="agent-task:after-clear",
+                trigger=TriggerDefinition(
+                    trigger_type=TriggerType.INTERVAL,
+                    config={"seconds": 300.0},
+                ),
+                target_payload={"prompt": "New post-clear task."},
+            )
+        )
+        assert recreated.schedule_id == "agent-task:after-clear"
+        assert service._scheduler.get_job("agent-task:after-clear") is not None
+    finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_system_handler_finishing_after_clear_cannot_restore_result_content(
+    tmp_path,
+):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+    handler_started = asyncio.Event()
+    release_handler = asyncio.Event()
+
+    async def system_handler(
+        context: ScheduledExecutionContext,
+    ) -> ScheduledExecutionResult:
+        _ = context
+        handler_started.set()
+        await release_handler.wait()
+        return ScheduledExecutionResult(
+            success=True,
+            message="private maintenance result",
+            stats={"private_path": "/Users/example/Documents/secret.txt"},
+        )
+
+    service.register_handler(
+        ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        system_handler,
+    )
+    await service.start()
+    try:
+        await service.schedule_interval(
+            schedule_id="system-maintenance-stale",
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global",
+            seconds=300.0,
+            target_payload={},
+        )
+        queued = await service.execute_schedule_async("system-maintenance-stale")
+        assert queued.message == "queued"
+        background_task = next(iter(service._background_tasks))
+        await asyncio.wait_for(handler_started.wait(), timeout=2.0)
+
+        async with service.user_data_clear_boundary():
+            await service.clear_user_data()
+
+        release_handler.set()
+        await asyncio.wait_for(background_task, timeout=2.0)
+
+        state = await service.get_target_state(
+            ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            "global",
+        )
+        executions = await service.repository.list_executions(limit=20)
+        schedule = await service.repository.get_schedule("system-maintenance-stale")
+
+        assert state.running is False
+        assert state.last_error is None
+        assert state.stats == {}
+        assert executions == []
+        assert schedule is not None
+        assert service._scheduler.get_job("system-maintenance-stale") is not None
+    finally:
+        release_handler.set()
+        await service.stop()

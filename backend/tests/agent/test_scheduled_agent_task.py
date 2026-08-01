@@ -73,16 +73,29 @@ def test_build_background_spec_from_schedule() -> None:
 @pytest.mark.asyncio
 async def test_user_agent_task_contributor_enqueues_background_task() -> None:
     enqueued = []
+    admitted_generations = []
 
     class FakeBackgroundManager:
         async def enqueue(self, spec):
             enqueued.append(spec)
             return SimpleNamespace(task_id="bg_123")
 
+    class FakeScheduler:
+        def register_handler(self, target_type, handler):
+            assert target_type is ScheduledTargetType.USER_AGENT_TASK
+            self.handler = handler
+
+        async def run_user_agent_effect(self, data_generation, operation):
+            admitted_generations.append(data_generation)
+            return await operation()
+
     contributor = UserAgentTaskScheduleContributor(FakeBackgroundManager())
+    scheduler = FakeScheduler()
+    await contributor.register_schedules(scheduler)  # type: ignore[arg-type]
     result = await contributor._handle_user_agent_task(_context())
 
     assert result.success is True
     assert result.message == "background_task_enqueued"
     assert result.stats == {"background_task_id": "bg_123"}
+    assert admitted_generations == [0]
     assert enqueued[0].goal == "Summarize project state."

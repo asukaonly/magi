@@ -4,8 +4,10 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, TypeVar
 from zoneinfo import ZoneInfo
 
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -30,8 +32,13 @@ from .repository import ScheduleRepository
 logger = get_logger("magi.scheduler.service")
 
 ScheduleHandler = Callable[[ScheduledExecutionContext], Awaitable[ScheduledExecutionResult]]
+_T = TypeVar("_T")
 _BUSY_ONCE_RETRY_METADATA_KEY = "_busy_once_retry_count"
 _BUSY_ONCE_MAX_RETRY_DELAY_SECONDS = 30.0
+
+
+class SchedulerDataClearInProgressError(RuntimeError):
+    """Raised when scheduler work crosses a data-clear boundary."""
 
 
 @dataclasses.dataclass(slots=True)
@@ -48,6 +55,7 @@ class _ExecutionPrep:
     execution_id: str = ""
     effective_manual: bool = False
     started_at: float = 0.0
+    data_generation: int = 0
 
 
 async def dispatch_scheduled_job(schedule_id: str) -> None:
@@ -102,6 +110,10 @@ class SchedulerService:
         self._repository = repository or ScheduleRepository(self._db_path)
         self._handlers: dict[ScheduledTargetType, ScheduleHandler] = {}
         self._schedule_lock = asyncio.Lock()
+        self._data_clear_lock = asyncio.Lock()
+        self._data_clear_active = False
+        self._data_generation = 0
+        self._active_user_execution_tasks: set[asyncio.Task[Any]] = set()
         # Strong references to background-execution tasks spawned by
         # execute_schedule_async — without this, asyncio may GC pending
         # tasks before their handlers finish. Removed via done_callback.
@@ -162,6 +174,14 @@ class SchedulerService:
         self._handlers[target_type] = handler
 
     async def schedule(self, definition: ScheduleDefinition) -> ScheduleDefinition:
+        async with self._data_clear_lock:
+            self._assert_schedule_mutation_admitted()
+            return await self._schedule_definition(definition)
+
+    async def _schedule_definition(
+        self,
+        definition: ScheduleDefinition,
+    ) -> ScheduleDefinition:
         async with self._schedule_lock:
             existing = await self._repository.get_schedule(definition.schedule_id)
             if existing is not None and _same_schedule_definition(existing, definition):
@@ -217,8 +237,10 @@ class SchedulerService:
             target_payload=dict(target_payload),
             metadata=dict(metadata or {}),
         )
-        async with self._schedule_lock:
-            return await self._schedule_once_earliest_locked(definition)
+        async with self._data_clear_lock:
+            self._assert_schedule_mutation_admitted()
+            async with self._schedule_lock:
+                return await self._schedule_once_earliest_locked(definition)
 
     async def _schedule_once_earliest_locked(
         self,
@@ -343,19 +365,38 @@ class SchedulerService:
         For manual triggers from HTTP endpoints (where the request
         shouldn't hang for minutes), prefer ``execute_schedule_async``.
         """
-        prep = await self._prepare_execution(
-            schedule_id, manual=manual, override_payload=override_payload,
-        )
+        current_task = asyncio.current_task()
+        async with self._data_clear_lock:
+            prep = await self._prepare_execution_locked(
+                schedule_id,
+                manual=manual,
+                override_payload=override_payload,
+            )
+            tracks_user_execution = bool(
+                prep.early_result is None
+                and prep.schedule is not None
+                and prep.schedule.target_type is ScheduledTargetType.USER_AGENT_TASK
+                and current_task is not None
+            )
+            if tracks_user_execution:
+                assert current_task is not None
+                self._active_user_execution_tasks.add(current_task)
         if prep.early_result is not None:
             await self._reschedule_busy_once(schedule_id, prep.early_result)
             return prep.early_result
-        return await self._run_handler_phase(
-            schedule=prep.schedule,
-            state=prep.state,
-            execution_id=prep.execution_id,
-            manual=prep.effective_manual,
-            started_at=prep.started_at,
-        )
+        try:
+            return await self._run_handler_phase(
+                schedule=prep.schedule,
+                state=prep.state,
+                execution_id=prep.execution_id,
+                manual=prep.effective_manual,
+                started_at=prep.started_at,
+                data_generation=prep.data_generation,
+            )
+        finally:
+            if tracks_user_execution and current_task is not None:
+                async with self._data_clear_lock:
+                    self._active_user_execution_tasks.discard(current_task)
 
     async def execute_schedule_async(
         self,
@@ -375,12 +416,6 @@ class SchedulerService:
         hanging for the entire handler duration (e.g. multi-day diary
         backfills that take several minutes).
         """
-        prep = await self._prepare_execution(
-            schedule_id, manual=manual, override_payload=override_payload,
-        )
-        if prep.early_result is not None:
-            await self._reschedule_busy_once(schedule_id, prep.early_result)
-            return prep.early_result
 
         async def _runner() -> None:
             try:
@@ -390,6 +425,7 @@ class SchedulerService:
                     execution_id=prep.execution_id,
                     manual=prep.effective_manual,
                     started_at=prep.started_at,
+                    data_generation=prep.data_generation,
                 )
             except Exception as exc:  # pragma: no cover — already recorded
                 # _run_handler_phase records failure to the execution row
@@ -400,14 +436,36 @@ class SchedulerService:
                 logger.warning(
                     "background schedule execution raised", schedule_id=schedule_id, error=str(exc),
                 )
+            finally:
+                current_task = asyncio.current_task()
+                if current_task is not None:
+                    async with self._data_clear_lock:
+                        self._active_user_execution_tasks.discard(current_task)
 
-        task = asyncio.create_task(
-            _runner(),
-            name=f"schedule-run-{schedule_id}-{prep.execution_id}",
-        )
-        # Hold a reference so asyncio doesn't GC the task mid-flight
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        async with self._data_clear_lock:
+            prep = await self._prepare_execution_locked(
+                schedule_id,
+                manual=manual,
+                override_payload=override_payload,
+            )
+            if prep.early_result is not None:
+                early_result = prep.early_result
+            else:
+                early_result = None
+                task = asyncio.create_task(
+                    _runner(),
+                    name=f"schedule-run-{schedule_id}-{prep.execution_id}",
+                )
+                if (
+                    prep.schedule is not None
+                    and prep.schedule.target_type is ScheduledTargetType.USER_AGENT_TASK
+                ):
+                    self._active_user_execution_tasks.add(task)
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
+        if early_result is not None:
+            await self._reschedule_busy_once(schedule_id, early_result)
+            return early_result
 
         return ScheduledExecutionResult(
             success=True,
@@ -426,37 +484,39 @@ class SchedulerService:
         """Keep a busy one-off target durable without leaving an orphan row."""
         if result.message != "target_busy":
             return
-        async with self._schedule_lock:
-            schedule = await self._repository.get_schedule(schedule_id)
-            if schedule is None or schedule.trigger.trigger_type is not TriggerType.ONCE:
-                return
+        async with self._data_clear_lock:
+            async with self._schedule_lock:
+                schedule = await self._repository.get_schedule(schedule_id)
+                if schedule is None or schedule.trigger.trigger_type is not TriggerType.ONCE:
+                    return
+                self._assert_schedule_mutation_admitted()
 
-            retry_count = int(schedule.metadata.get(_BUSY_ONCE_RETRY_METADATA_KEY, 0)) + 1
-            delay_seconds = min(
-                _BUSY_ONCE_MAX_RETRY_DELAY_SECONDS,
-                2.0 ** min(max(0, retry_count - 1), 5),
-            )
-            replacement = dataclasses.replace(
-                schedule,
-                trigger=TriggerDefinition(
-                    TriggerType.ONCE,
-                    {"run_at": time.time() + delay_seconds},
-                ),
-                metadata={
-                    **schedule.metadata,
-                    _BUSY_ONCE_RETRY_METADATA_KEY: retry_count,
-                },
-            )
-            await self._schedule_once_earliest_locked(replacement)
+                retry_count = int(schedule.metadata.get(_BUSY_ONCE_RETRY_METADATA_KEY, 0)) + 1
+                delay_seconds = min(
+                    _BUSY_ONCE_MAX_RETRY_DELAY_SECONDS,
+                    2.0 ** min(max(0, retry_count - 1), 5),
+                )
+                replacement = dataclasses.replace(
+                    schedule,
+                    trigger=TriggerDefinition(
+                        TriggerType.ONCE,
+                        {"run_at": time.time() + delay_seconds},
+                    ),
+                    metadata={
+                        **schedule.metadata,
+                        _BUSY_ONCE_RETRY_METADATA_KEY: retry_count,
+                    },
+                )
+                await self._schedule_once_earliest_locked(replacement)
 
-    async def _prepare_execution(
+    async def _prepare_execution_locked(
         self,
         schedule_id: str,
         *,
         manual: bool,
         override_payload: dict[str, Any] | None,
     ) -> "_ExecutionPrep":
-        """Prepare an execution or return an early terminal result."""
+        """Prepare an execution while the data-clear admission lock is held."""
         schedule, early_result = await self._load_execution_schedule(
             schedule_id,
             override_payload=override_payload,
@@ -464,6 +524,8 @@ class SchedulerService:
         if early_result is not None:
             return early_result
         assert schedule is not None
+        if self._data_clear_active:
+            return self._early_execution_prep("data_clear_in_progress")
 
         effective_manual = manual or bool(schedule.metadata.get("manual", False))
         started_at = time.time()
@@ -491,6 +553,7 @@ class SchedulerService:
             execution_id=execution_id,
             effective_manual=effective_manual,
             started_at=started_at,
+            data_generation=self._data_generation,
         )
 
     async def _prepare_handler_execution(
@@ -500,6 +563,7 @@ class SchedulerService:
         execution_id: str,
         effective_manual: bool,
         started_at: float,
+        data_generation: int,
     ) -> _ExecutionPrep:
         state = await self._repository.get_target_state(
             schedule.target_type,
@@ -511,6 +575,7 @@ class SchedulerService:
             execution_id=execution_id,
             effective_manual=effective_manual,
             started_at=started_at,
+            data_generation=data_generation,
         )
 
     async def _load_execution_schedule(
@@ -592,6 +657,7 @@ class SchedulerService:
         execution_id: str,
         manual: bool,
         started_at: float,
+        data_generation: int,
     ) -> ScheduledExecutionResult:
         """Call the handler and record success/failure on the execution row.
 
@@ -609,38 +675,128 @@ class SchedulerService:
                     runtime_dir=self._runtime_dir,
                     triggered_at=started_at,
                     manual=manual,
+                    data_generation=data_generation,
                 )
             )
-            await self._repository.record_target_success(
-                schedule.target_type,
-                schedule.target_key,
-                result=result,
-                scheduler_job_id=schedule.job_id or schedule.schedule_id,
-            )
-            await self._repository.complete_execution_success(
-                execution_id,
-                result=result,
-                scheduler_job_id=schedule.job_id or schedule.schedule_id,
-                finished_at=time.time(),
-            )
+            async with self._data_clear_lock:
+                await self._assert_execution_settlement_current(
+                    schedule,
+                    data_generation,
+                )
+                await self._repository.record_target_success(
+                    schedule.target_type,
+                    schedule.target_key,
+                    result=result,
+                    scheduler_job_id=schedule.job_id or schedule.schedule_id,
+                )
+                await self._repository.complete_execution_success(
+                    execution_id,
+                    result=result,
+                    scheduler_job_id=schedule.job_id or schedule.schedule_id,
+                    finished_at=time.time(),
+                )
             if schedule.trigger.trigger_type == TriggerType.ONCE:
                 await self._consume_once_schedule(schedule)
             return result
         except Exception as exc:
-            await self._repository.record_target_failure(
-                schedule.target_type,
-                schedule.target_key,
-                error=str(exc),
-                scheduler_job_id=schedule.job_id or schedule.schedule_id,
-            )
-            await self._repository.complete_execution_failure(
-                execution_id,
-                error=str(exc),
-                scheduler_job_id=schedule.job_id or schedule.schedule_id,
-                finished_at=time.time(),
-            )
+            async with self._data_clear_lock:
+                await self._assert_execution_settlement_current(
+                    schedule,
+                    data_generation,
+                )
+                await self._repository.record_target_failure(
+                    schedule.target_type,
+                    schedule.target_key,
+                    error=str(exc),
+                    scheduler_job_id=schedule.job_id or schedule.schedule_id,
+                )
+                await self._repository.complete_execution_failure(
+                    execution_id,
+                    error=str(exc),
+                    scheduler_job_id=schedule.job_id or schedule.schedule_id,
+                    finished_at=time.time(),
+                )
             if schedule.trigger.trigger_type == TriggerType.ONCE:
                 await self._consume_once_schedule(schedule)
+            raise
+
+    @asynccontextmanager
+    async def user_data_clear_boundary(self) -> AsyncIterator[None]:
+        """Seal scheduler execution and retire stale user-task handlers."""
+
+        current_task = asyncio.current_task()
+        async with self._data_clear_lock:
+            if self._data_clear_active:
+                raise RuntimeError("Scheduler data clear is already in progress")
+            self._data_clear_active = True
+            self._data_generation += 1
+            stale_tasks = [
+                task
+                for task in self._active_user_execution_tasks
+                if task is not current_task and not task.done()
+            ]
+        try:
+            for task in stale_tasks:
+                task.cancel()
+            if stale_tasks:
+                await asyncio.gather(*stale_tasks, return_exceptions=True)
+            yield
+        finally:
+            async with self._data_clear_lock:
+                self._data_clear_active = False
+
+    async def clear_user_data(self) -> dict[str, int]:
+        """Delete scheduler-owned user content inside the clear boundary."""
+
+        async with self._data_clear_lock:
+            if not self._data_clear_active:
+                raise RuntimeError("Scheduler user data clear requires an active clear boundary")
+        async with self._schedule_lock:
+            user_schedules = [
+                schedule
+                for schedule in await self._repository.list_schedules(enabled_only=False)
+                if schedule.target_type is ScheduledTargetType.USER_AGENT_TASK
+            ]
+            for schedule in user_schedules:
+                try:
+                    self._scheduler.remove_job(schedule.job_id or schedule.schedule_id)
+                except Exception:
+                    pass
+            return await self._repository.clear_user_data()
+
+    async def run_user_agent_effect(
+        self,
+        data_generation: int,
+        operation: Callable[[], Awaitable[_T]],
+    ) -> _T:
+        """Commit one user-agent side effect only in its admitted generation."""
+
+        async with self._data_clear_lock:
+            self._assert_execution_generation(data_generation)
+            return await operation()
+
+    def _assert_schedule_mutation_admitted(self) -> None:
+        if self._data_clear_active:
+            raise SchedulerDataClearInProgressError("Scheduler data clear is in progress")
+
+    def _assert_execution_generation(self, data_generation: int) -> None:
+        if self._data_clear_active or data_generation != self._data_generation:
+            raise SchedulerDataClearInProgressError(
+                "Scheduled execution crossed a user data clear boundary"
+            )
+
+    async def _assert_execution_settlement_current(
+        self,
+        schedule: ScheduleDefinition,
+        data_generation: int,
+    ) -> None:
+        try:
+            self._assert_execution_generation(data_generation)
+        except SchedulerDataClearInProgressError:
+            await self._repository.release_target_after_data_clear(
+                schedule.target_type,
+                schedule.target_key,
+            )
             raise
 
     async def _consume_once_schedule(self, executed: ScheduleDefinition) -> None:

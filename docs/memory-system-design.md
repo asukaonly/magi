@@ -2124,12 +2124,10 @@ independent table deletes.
   unrelated sibling work remains admissible. A cancellation completion
   therefore cannot arrive after the transcript has already been removed and
   recreate a user-visible result.
-- Terminal task rows and their event history remain as a separate, visible
-  Tasks-page audit record. They are not recallable memory and are removed by
-  explicit task dismissal or the configured background-task retention window.
-  "Clear memory" therefore means clearing conversation, recall, evidence, and
-  their private files; it does not claim to erase this independent task audit
-  history.
+- Full clear deletes terminal task rows, event history, and completion intents
+  while global background admission remains sealed. Ordinary task dismissal
+  and retention still govern this audit store outside a full clear, but a
+  product-wide user-data clear leaves no task goal, result, or error behind.
 - Chat clear first commits a persistent global-clear intent together with
   public transcript redaction, then removes traces and managed files, and only
   then deletes the remaining private attachment/code-delegation retry records
@@ -2191,6 +2189,14 @@ independent table deletes.
   session and turn links, prompt-cache observations, and retained rollups.
   Scheduled usage retention joins the same write boundary and cannot recreate a
   rollup from rows that are being cleared.
+- Scheduler admission is sealed before global background-task admission. Full
+  clear cancels and drains active user-created schedule handlers, deletes every
+  `user_agent_task` definition and runtime job, and rejects stale handler
+  enqueue or settlement by execution generation. All scheduler execution
+  history and target error/statistics fields are erased because they may hold
+  user-derived result text. System maintenance and source schedules remain,
+  together with source cursors, watermarks, bindings, and configuration;
+  pending sensor-sync jobs are discarded so no pre-clear queue payload remains.
 - Full clear also removes retired user-content locations that current runtime
   code no longer reads: every entry under the managed `others/` directory and
   the reserved `self_memory_v2.db` file with its SQLite sidecars. Cleanup does

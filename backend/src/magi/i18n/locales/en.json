@@ -358,6 +358,7 @@
     "errors": {
       "invalid_date": "Invalid date value: {value}",
       "system_uninitialized": "Memory system not initialized",
+      "scheduler_uninitialized": "Scheduler service not initialized",
       "hybrid_retrieval_uninitialized": "Hybrid retrieval service not initialized",
       "l0_uninitialized": "L0 working memory not initialized",
       "session_not_found": "Session not found",

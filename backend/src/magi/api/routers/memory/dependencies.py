@@ -14,6 +14,7 @@ from magi.core.runtime_bindings import (
     get_optional_background_task_manager,
     get_optional_agent_runtime,
     require_runtime_command_queue,
+    require_scheduler_service,
 )
 from magi.llm.provider import get_scenario_llm_pool
 from magi.memory.eval_support.answer_synthesis import synthesize_eval_answer
@@ -179,6 +180,19 @@ def _resolve_runtime_command_queue():
     if override is not None:
         return override()
     return require_runtime_command_queue()
+
+
+def _resolve_scheduler_service():
+    override = _package_override(
+        "_resolve_scheduler_service",
+        _resolve_scheduler_service,
+    )
+    if override is not None:
+        return override()
+    try:
+        return require_scheduler_service()
+    except RuntimeError:
+        return None
 
 
 def _resolve_sensor_hub():

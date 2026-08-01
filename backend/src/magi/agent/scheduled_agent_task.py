@@ -68,19 +68,32 @@ class UserAgentTaskScheduleContributor:
 
     def __init__(self, background_task_manager: Any) -> None:
         self._background_task_manager = background_task_manager
+        self._scheduler: SchedulerService | None = None
 
     async def register_schedules(self, scheduler: SchedulerService) -> None:
+        self._scheduler = scheduler
         scheduler.register_handler(ScheduledTargetType.USER_AGENT_TASK, self._handle_user_agent_task)
 
     async def unregister_schedules(self, scheduler: SchedulerService) -> None:
         _ = scheduler
+        self._scheduler = None
 
     async def _handle_user_agent_task(
         self,
         context: ScheduledExecutionContext,
     ) -> ScheduledExecutionResult:
+        scheduler = self._scheduler
+        if scheduler is None:
+            raise RuntimeError("User agent task scheduler is not registered")
         spec = build_background_spec_from_schedule(context)
-        task = await self._background_task_manager.enqueue(spec)
+
+        async def enqueue() -> Any:
+            return await self._background_task_manager.enqueue(spec)
+
+        task = await scheduler.run_user_agent_effect(
+            context.data_generation,
+            enqueue,
+        )
         return ScheduledExecutionResult(
             success=True,
             message="background_task_enqueued",

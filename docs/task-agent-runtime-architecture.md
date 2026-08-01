@@ -1191,10 +1191,10 @@ arrives — no polling.
 
 Conversation deletion and full-memory clear cancel matching non-terminal
 background work and wait through its terminal listeners before removing the
-chat surface. They do not erase the terminal task/event audit rows shown in the
-Tasks UI. Those records are outside memory recall and remain available for
-manual dismissal until the configured background-task retention job removes
-them.
+chat surface. Scoped conversation deletion keeps unrelated terminal audit
+rows. Full-memory clear additionally deletes every task row, event, and
+completion intent from the Tasks store while global admission remains sealed,
+so no user-authored goal, result, or error survives the product-wide clear.
 
 ### Mid-turn detach to background
 
@@ -1532,6 +1532,7 @@ The scheduler runtime currently supports these active target families:
 - `memory_l3_summary`
 - `memory_l3_maintenance`
 - `memory_l4_maintenance`
+- `user_agent_task`
 
 The scheduler engine lives in `scheduler/service.py`. Layer-owned schedule registration is performed by:
 
@@ -1588,6 +1589,33 @@ startup, the executor immediately returns every interrupted `running` job to the
 queue because no executor from the previous process can still own it. Memory
 targets such as `memory_l2_maintenance` and `memory_l2_consolidate` keep the
 existing direct scheduler execution path and are unaffected.
+
+### Full-clear scheduler boundary
+
+An agent-created `user_agent_task` schedule is user content: its persisted
+payload may contain the user's prompt, message, goal, and originating chat
+identity. A destructive full clear therefore removes the schedule definition,
+its APScheduler job, and its target state. It also removes all scheduler
+execution history because result messages, errors, and statistics from system
+or user targets may contain user-derived content.
+
+The clear boundary enters the scheduler admission seal before the global
+background-task admission seal. This order is mandatory: a pre-clear scheduled
+agent handler may be between timing and background enqueue, so scheduler
+admission must retire or reject it before background admission begins waiting.
+While the boundary is active, new schedules and executions are rejected. Active
+`user_agent_task` handlers are cancelled and awaited, and the generation
+captured at execution admission is checked again around background enqueue and
+result settlement. A handler from an older generation therefore cannot enqueue
+work or restore scheduler content after the clear.
+
+System-owned recurring schedules and source configuration survive. The clear
+transaction preserves source cursors, watermarks, and scheduler job bindings,
+but discards pending/running sensor-sync jobs, all execution rows, and all
+target errors/statistics. This prevents a pre-clear queue item or diagnostic
+payload from surviving while allowing the next system tick to continue from
+the preserved source position. Deleted SQLite content is securely overwritten
+and the scheduler WAL is truncated before the clear reports success.
 
 ## Memory Event Flow
 

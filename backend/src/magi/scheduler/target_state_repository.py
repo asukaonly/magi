@@ -209,5 +209,27 @@ class SchedulerTargetStateRepositoryMixin:
             )
             await db.commit()
 
+    async def release_target_after_data_clear(
+        self,
+        target_type: ScheduledTargetType,
+        target_key: str,
+    ) -> None:
+        """Release a stale handler without restoring cleared result content."""
+
+        now = time.time()
+        async with self._connect() as db:
+            await db.execute(
+                """
+                UPDATE target_state
+                SET running = 0,
+                    last_error = NULL,
+                    stats_json = '{}',
+                    updated_at = ?
+                WHERE target_type = ? AND target_key = ?
+                """,
+                (now, target_type.value, target_key),
+            )
+            await db.commit()
+
 
 __all__ = ["SchedulerTargetStateRepositoryMixin"]

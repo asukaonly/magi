@@ -12,7 +12,7 @@ from .contracts import (
     build_sensor_target_key,
 )
 from .repository import ScheduleRepository
-from .service import SchedulerService
+from .service import SchedulerDataClearInProgressError, SchedulerService
 
 __all__ = [
     "ScheduleDefinition",
@@ -22,6 +22,7 @@ __all__ = [
     "ScheduledTargetState",
     "ScheduledTargetType",
     "SchedulerService",
+    "SchedulerDataClearInProgressError",
     "TriggerDefinition",
     "TriggerType",
     "build_sensor_schedule_id",

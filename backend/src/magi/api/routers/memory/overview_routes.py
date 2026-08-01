@@ -28,6 +28,7 @@ from .dependencies import (
     _resolve_orchestration_store,
     _resolve_outreach_service,
     _resolve_runtime_command_queue,
+    _resolve_scheduler_service,
     _resolve_runtime_trace_subscriber,
     _resolve_runtime_trace_store,
     _resolve_sensor_hub,
@@ -291,6 +292,16 @@ async def clear_memory_layers():
     task_agent_manager = _resolve_task_agent_manager()
     background_task_manager = _resolve_background_task_manager()
     runtime_command_queue = _resolve_runtime_command_queue()
+    scheduler_service = _resolve_scheduler_service()
+    if scheduler_service is None:
+        logger.warning("clear_memory: scheduler service not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t(
+                "memory.errors.scheduler_uninitialized",
+                "Scheduler service not initialized",
+            ),
+        )
     sensor_hub = _resolve_sensor_hub()
     rebuild_pause_started = False
     chat_pause_started = False
@@ -317,6 +328,9 @@ async def clear_memory_layers():
         async with runtime_command_queue.user_message_global_clear_boundary():
             async with AsyncExitStack() as background_scope:
                 try:
+                    await background_scope.enter_async_context(
+                        scheduler_service.user_data_clear_boundary()
+                    )
                     rebuild_pause_started = True
                     await _embedding_rebuild_manager.pause_starts_and_cancel_all()
                     if task_agent_manager is not None:
@@ -378,6 +392,7 @@ async def clear_memory_layers():
                     llm_usage_store = _resolve_llm_usage_store()
                     if llm_usage_store is not None:
                         auxiliary_clearers.append(llm_usage_store.clear_user_content)
+                    auxiliary_clearers.append(scheduler_service.clear_user_data)
                     async with _conversation_delivery_clear_boundary():
                         async with AsyncExitStack() as content_cache_scope:
                             for subscriber in (

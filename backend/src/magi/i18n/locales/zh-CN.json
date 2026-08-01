@@ -358,6 +358,7 @@
     "errors": {
       "invalid_date": "日期值无效：{value}",
       "system_uninitialized": "记忆系统未初始化",
+      "scheduler_uninitialized": "定时任务服务未初始化",
       "hybrid_retrieval_uninitialized": "混合检索服务未初始化",
       "l0_uninitialized": "L0 工作记忆未初始化",
       "session_not_found": "未找到会话",

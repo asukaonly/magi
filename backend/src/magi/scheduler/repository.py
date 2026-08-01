@@ -48,6 +48,85 @@ class ScheduleRepository(
             await db.execute("UPDATE target_state SET running = 0")
             await db.commit()
 
+    async def clear_user_data(self) -> dict[str, int]:
+        """Erase user-owned schedules and scheduler-generated content."""
+
+        now = time.time()
+        user_target_type = ScheduledTargetType.USER_AGENT_TASK.value
+        async with self._connect() as db:
+            await db.execute("PRAGMA secure_delete=ON")
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                jobs_table_cursor = await db.execute("""
+                    SELECT 1
+                    FROM sqlite_master
+                    WHERE type = 'table' AND name = 'apscheduler_jobs'
+                    LIMIT 1
+                    """)
+                has_jobs_table = await jobs_table_cursor.fetchone() is not None
+                user_jobs = 0
+                if has_jobs_table:
+                    jobs_cursor = await db.execute(
+                        """
+                        DELETE FROM apscheduler_jobs
+                        WHERE id IN (
+                            SELECT COALESCE(job_id, schedule_id)
+                            FROM schedules
+                            WHERE target_type = ?
+                        )
+                        """,
+                        (user_target_type,),
+                    )
+                    user_jobs = max(0, int(jobs_cursor.rowcount or 0))
+                sensor_jobs_cursor = await db.execute("DELETE FROM sensor_sync_jobs")
+                await db.execute(
+                    """
+                    UPDATE target_state
+                    SET running = 0,
+                        updated_at = ?
+                    WHERE target_type = ?
+                    """,
+                    (now, ScheduledTargetType.SENSOR_SYNC.value),
+                )
+                executions_cursor = await db.execute("DELETE FROM schedule_executions")
+                user_states_cursor = await db.execute(
+                    "DELETE FROM target_state WHERE target_type = ?",
+                    (user_target_type,),
+                )
+                user_schedules_cursor = await db.execute(
+                    "DELETE FROM schedules WHERE target_type = ?",
+                    (user_target_type,),
+                )
+                sanitized_states_cursor = await db.execute(
+                    """
+                    UPDATE target_state
+                    SET last_error = NULL,
+                        stats_json = '{}',
+                        updated_at = ?
+                    WHERE last_error IS NOT NULL OR stats_json != '{}'
+                    """,
+                    (now,),
+                )
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+            checkpoint_cursor = await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            checkpoint = await checkpoint_cursor.fetchone()
+            if checkpoint is not None and int(checkpoint[0] or 0) != 0:
+                raise RuntimeError("Scheduler database WAL could not be truncated after clear")
+        return {
+            "user_schedules": max(0, int(user_schedules_cursor.rowcount or 0)),
+            "user_target_states": max(0, int(user_states_cursor.rowcount or 0)),
+            "user_jobs": user_jobs,
+            "sensor_jobs": max(0, int(sensor_jobs_cursor.rowcount or 0)),
+            "executions": max(0, int(executions_cursor.rowcount or 0)),
+            "sanitized_target_states": max(
+                0,
+                int(sanitized_states_cursor.rowcount or 0),
+            ),
+        }
+
     async def upsert_schedule(self, definition: ScheduleDefinition) -> None:
         now = time.time()
         async with self._connect() as db:

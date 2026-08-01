@@ -95,6 +95,7 @@ class ScheduledExecutionContext:
     runtime_dir: Path
     triggered_at: float
     manual: bool = False
+    data_generation: int = 0
 
 
 @dataclass(slots=True)
