@@ -2097,13 +2097,14 @@ independent table deletes.
 - Chat transcripts, session summaries, session-bound runtime traces,
   orchestration payloads, channel conversation mappings, delivery receipts,
   channel notification cursors, queued proactive outreach and its delivery
-  log, L0-L4 stores, manual-entry assets, and rebuildable memory projections
-  are cleared within the same boundary. Notifications derived from memory
-  conflicts are cleared with their source claims. Channel installation,
-  account authentication, enablement, and binding preferences are
-  configuration rather than remembered conversation state and are preserved.
-  Global runtime notifications, unrelated user notifications, and non-chat
-  ingress/audit streams are also preserved.
+  log, L0-L4 stores, manual-entry assets and location lookup caches, chat
+  portrait caches, learned persona behavior/emotion/relationship state,
+  plugin ingress payloads, and rebuildable memory projections are cleared
+  within the same boundary. Notifications derived from memory conflicts and
+  persisted user notifications are cleared with their source claims. Channel
+  installation, account authentication, enablement, binding preferences, and
+  persona definitions are configuration rather than remembered user content
+  and are preserved.
 - The request stops active chat work and pauses proactive outreach and
   external ask delivery while it clears conversation-owned channel state.
   Proactive external delivery and ask fanout also fail closed while the
@@ -2168,6 +2169,14 @@ independent table deletes.
   disabled without blocking the desktop or other channels. Session mapping,
   control, attachment, and dispatch calls revalidate the same generation, so a
   pre-clear event cannot recreate local conversation state later.
+- Plugin ingress processing holds a shared boundary from queue claim through
+  handler completion. Full clear takes the matching exclusive boundary,
+  deletes every pending, claimed, completed, and failed payload, and records a
+  durable clear-time cutoff. Producers that append directly to the runtime
+  trace database cannot revive older payloads after restart: claim discards
+  any event whose source occurrence is at or before that cutoff. An unfinished
+  global conversation clear also suppresses handler dispatch until recovery
+  completes.
 
 ### What Compression Means
 

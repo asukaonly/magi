@@ -259,6 +259,25 @@ def _resolve_chat_portrait_service():
     return service
 
 
+def _resolve_runtime_trace_store():
+    override = _package_override(
+        "_resolve_runtime_trace_store",
+        _resolve_runtime_trace_store,
+    )
+    if override is not None:
+        return override()
+    try:
+        from magi.core.container import get_container
+
+        context = get_container().runtime_bootstrap_context()
+    except Exception:
+        return None
+    store = getattr(getattr(context, "runtime_trace", None), "store", None)
+    if not callable(getattr(store, "plugin_ingress_global_clear_boundary", None)):
+        return None
+    return store
+
+
 def _resolve_orchestration_store():
     override = _package_override(
         "_resolve_orchestration_store",

@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable, TypeVar
 import aiosqlite
 
 from ..core.logger import get_logger
+from ..core.operation_barrier import AsyncOperationBarrier
 from ..core.sqlite import sqlite_connection_async
 from .plugin_ingress import PluginIngressPersistenceMixin
 from .runtime_notifications import RuntimeNotificationPersistenceMixin
@@ -38,8 +39,19 @@ class RuntimeTraceStore(
 ):
     """Persist runtime trace data in a dedicated SQLite database."""
 
-    def __init__(self, *, db_path: str = "~/.magi/runtime/runtime_trace.db") -> None:
+    def __init__(
+        self,
+        *,
+        db_path: str = "~/.magi/runtime/runtime_trace.db",
+        memory_clear_state_db_path: str | None = None,
+    ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self.memory_clear_state_db_path = (
+            str(Path(memory_clear_state_db_path).expanduser())
+            if memory_clear_state_db_path
+            else None
+        )
+        self._plugin_ingress_barrier = AsyncOperationBarrier()
         self._initialized = False
 
     async def initialize(self) -> None:

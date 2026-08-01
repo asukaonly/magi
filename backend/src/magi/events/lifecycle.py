@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ..bootstrap.lifecycle import LifecycleModule
@@ -355,6 +356,7 @@ class PluginIngressProcessorModule(LifecycleModule):
         *,
         handlers: list[PluginIngressHandlerRegistration] | None = None,
         poll_interval_seconds: float = 0.1,
+        global_clear_pending: Callable[[], Awaitable[bool]] | None = None,
     ):
         super().__init__(
             name="runtime_plugin_ingress_processor",
@@ -368,6 +370,9 @@ class PluginIngressProcessorModule(LifecycleModule):
             (registration.plugin_target, registration.event_type): registration.handler
             for registration in (handlers or [])
         }
+        self._global_clear_pending = (
+            global_clear_pending or _chat_global_clear_pending
+        )
 
     async def init(self) -> None:
         plugin_manager = self._context.plugins.plugin_manager
@@ -397,12 +402,18 @@ class PluginIngressProcessorModule(LifecycleModule):
 
         while self._running:
             try:
-                event = await store.claim_next_plugin_ingress_event(consumer_name="runtime_worker")
+                async with store.plugin_ingress_operation():
+                    event = await store.claim_next_plugin_ingress_event(
+                        consumer_name="runtime_worker"
+                    )
+                    if event is not None and await self._global_clear_pending():
+                        await store.clear_plugin_ingress_events()
+                        event = None
+                    if event is not None:
+                        await self._dispatch_event(store, event)
                 if event is None:
                     await asyncio.sleep(self._poll_interval_seconds)
                     continue
-
-                await self._dispatch_event(store, event)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -436,3 +447,12 @@ class PluginIngressProcessorModule(LifecycleModule):
             return
 
         await store.complete_plugin_ingress_event(event.event_id)
+
+
+async def _chat_global_clear_pending() -> bool:
+    from ..chat.read_service import get_chat_read_service
+
+    pending_count = (
+        await get_chat_read_service().aget_interrupted_global_clear_count()
+    )
+    return pending_count is not None

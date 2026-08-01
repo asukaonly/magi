@@ -446,3 +446,82 @@ async def test_runtime_trace_store_claims_and_updates_plugin_ingress_events(tmp_
         assert failed.processed_at_ms is not None
     finally:
         await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_plugin_ingress_drops_events_at_or_before_memory_clear_cutoff(
+    tmp_path: Path,
+) -> None:
+    from magi.memory.clear_generation import (
+        advance_memory_clear_generation,
+        ensure_memory_clear_state,
+    )
+    from magi.runtime_trace import RuntimeTraceStore, StoredPluginIngressEventRecord
+    from magi.core.sqlite import sqlite_connection_async
+
+    memory_db_path = tmp_path / "memory.db"
+    async with sqlite_connection_async(str(memory_db_path)) as db:
+        await ensure_memory_clear_state(db)
+        await advance_memory_clear_generation(db, updated_at=2_000.0)
+        await db.commit()
+
+    store = RuntimeTraceStore(
+        db_path=str(tmp_path / "runtime_trace.db"),
+        memory_clear_state_db_path=str(memory_db_path),
+    )
+    await store.initialize()
+    try:
+        stale_id = await store.append_plugin_ingress_event(
+            StoredPluginIngressEventRecord(
+                event_id=0,
+                source_kind="desktop",
+                producer="old_producer",
+                plugin_target="example_target",
+                event_type="example_event",
+                occurred_at_ms=2_000_000,
+                payload_json='{"private":"old"}',
+            )
+        )
+        fresh_id = await store.append_plugin_ingress_event(
+            StoredPluginIngressEventRecord(
+                event_id=0,
+                source_kind="desktop",
+                producer="new_producer",
+                plugin_target="example_target",
+                event_type="example_event",
+                occurred_at_ms=2_000_001,
+                payload_json='{"private":"new"}',
+            )
+        )
+        async with sqlite_connection_async(str(tmp_path / "runtime_trace.db")) as db:
+            cursor = await db.execute(
+                """
+                INSERT INTO plugin_ingress_events (
+                    source_kind, producer, plugin_target, event_type,
+                    occurred_at_ms, payload_json, status, created_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "desktop",
+                    "direct_old_producer",
+                    "example_target",
+                    "example_event",
+                    1_999_999,
+                    '{"private":"direct-old"}',
+                    "pending",
+                    1,
+                ),
+            )
+            direct_stale_id = int(cursor.lastrowid)
+            await db.commit()
+
+        assert stale_id == 0
+        assert fresh_id > 0
+        claimed = await store.claim_next_plugin_ingress_event(
+            consumer_name="runtime_worker"
+        )
+        assert claimed is not None
+        assert claimed.event_id == fresh_id
+        assert await store.get_plugin_ingress_event(direct_stale_id) is None
+    finally:
+        await store.shutdown()

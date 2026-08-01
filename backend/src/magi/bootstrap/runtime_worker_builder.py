@@ -122,7 +122,10 @@ def _build_runtime_trace_module(context: RuntimeBootstrapContext) -> LifecycleMo
         runtime_paths = context.core.runtime_paths
         if runtime_paths is None:
             raise RuntimeError("runtime paths is not initialized")
-        store = RuntimeTraceStore(db_path=str(runtime_paths.runtime_trace_db_path))
+        store = RuntimeTraceStore(
+            db_path=str(runtime_paths.runtime_trace_db_path),
+            memory_clear_state_db_path=str(runtime_paths.memory_db_path),
+        )
         await store.initialize()
         context.runtime_trace.store = store
         # Eagerly register DI binding so readiness and other infra consumers

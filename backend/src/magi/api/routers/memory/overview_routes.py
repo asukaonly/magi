@@ -25,6 +25,7 @@ from .dependencies import (
     _resolve_orchestration_store,
     _resolve_outreach_service,
     _resolve_runtime_command_queue,
+    _resolve_runtime_trace_store,
     _resolve_sensor_hub,
     _resolve_self_memory,
     _resolve_task_agent_manager,
@@ -370,6 +371,11 @@ async def clear_memory_layers():
                             if portrait_service is not None:
                                 await content_cache_scope.enter_async_context(
                                     portrait_service.global_data_clear_boundary()
+                                )
+                            runtime_trace_store = _resolve_runtime_trace_store()
+                            if runtime_trace_store is not None:
+                                await content_cache_scope.enter_async_context(
+                                    runtime_trace_store.plugin_ingress_global_clear_boundary()
                                 )
                             try:
                                 counts = await unified_memory.clear_all_memory(
