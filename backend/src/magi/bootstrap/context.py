@@ -95,6 +95,7 @@ class ChatBootstrapState:
     store: ChatStore | None = None
     projector: ChatProjector | None = None
     assistant_memory_projection_service: Any | None = None
+    memory_projection_clear_lifecycle: Any | None = None
     delivery_scheduler: Any | None = None
     channel_session_provisioner: Any | None = None
     channel_attachment_store: Any | None = None

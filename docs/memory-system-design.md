@@ -2162,6 +2162,15 @@ independent table deletes.
   command processing cannot revive the cleared transcript, and external
   conversation delivery remains blocked until the second stage completes. No
   periodic retention job is needed to make a user-requested clear converge.
+- The assistant-memory outbox worker and user-turn delivery recovery also share
+  an in-process clear lifecycle tied to the durable runtime-command generation.
+  A pass captures both generations before its first claim or recovery read and
+  checks them around every memory publication and settlement. Full clear closes
+  this lifecycle before closing the runtime-command queue, drains or invalidates
+  records already held in memory, and keeps new claims and reads blocked until
+  L1 and chat deletion finish. Work admitted after the boundary captures the new
+  generation and proceeds normally; a record read before it cannot be stamped
+  with the new generation and recreate L1 afterward.
 - An individually deleted chat session leaves a
   `chat_cleared_session_scopes` tombstone. Session identity is compared
   case-insensitively, `chat_sessions` enforces the same case-insensitive

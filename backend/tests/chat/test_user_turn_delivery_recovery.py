@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from magi.chat.contracts import (
     CHAT_DELIVERY_STATE_QUEUED,
     ChatUserTurnDeliveryRecord,
 )
+from magi.chat.memory_projection_clear import ChatMemoryProjectionClearLifecycle
 from magi.chat.user_turn_delivery import (
     ChatUserTurnDeliveryRecoveryService,
     ChatUserTurnDeliveryScheduler,
@@ -33,6 +35,34 @@ class _RecordingProjector:
     async def project_user_message(self, **kwargs: Any) -> bool:
         self.calls.append(dict(kwargs))
         return True
+
+
+class _L1RecordingProjector(_RecordingProjector):
+    def __init__(self) -> None:
+        super().__init__()
+        self.message_ids: set[str] = set()
+
+    async def project_user_message(self, **kwargs: Any) -> bool:
+        await super().project_user_message(**kwargs)
+        self.message_ids.add(str(kwargs["message_id"]))
+        return True
+
+
+class _ClearGenerationState:
+    def __init__(self) -> None:
+        self.value = 0
+
+    async def read(self) -> int:
+        return self.value
+
+
+def _clear_lifecycle(
+    state: _ClearGenerationState | None = None,
+) -> ChatMemoryProjectionClearLifecycle:
+    generation = state or _ClearGenerationState()
+    return ChatMemoryProjectionClearLifecycle(
+        read_current_clear_generation=generation.read,
+    )
 
 
 class _FastAdmittingQueue:
@@ -83,6 +113,30 @@ class _ScopedReadService:
 
     def close(self) -> None:
         self._service.close()
+
+
+class _PausingReadService(_ScopedReadService):
+    def __init__(self, chat_db_path: Path) -> None:
+        super().__init__(chat_db_path)
+        self.read_started = asyncio.Event()
+        self.release_read = asyncio.Event()
+        self._paused = False
+
+    async def alist_recoverable_user_turn_deliveries(
+        self,
+        *,
+        limit: int,
+        after: ChatUserTurnDeliveryRecord | None,
+    ) -> list[ChatUserTurnDeliveryRecord]:
+        page = await super().alist_recoverable_user_turn_deliveries(
+            limit=limit,
+            after=after,
+        )
+        if page and not self._paused:
+            self._paused = True
+            self.read_started.set()
+            await self.release_read.wait()
+        return page
 
 
 def _runtime_envelope(
@@ -154,6 +208,7 @@ def _recovery_service(
     projector: _RecordingProjector,
     queue: Any,
     page_size: int = 250,
+    clear_lifecycle: ChatMemoryProjectionClearLifecycle | None = None,
 ) -> ChatUserTurnDeliveryRecoveryService:
     return ChatUserTurnDeliveryRecoveryService(
         chat_store=store,
@@ -163,6 +218,7 @@ def _recovery_service(
             chat_store=store,
             runtime_command_queue=queue,
         ),
+        clear_lifecycle=clear_lifecycle or _clear_lifecycle(),
         page_size=page_size,
     )
 
@@ -637,6 +693,86 @@ async def test_startup_recovers_projection_before_scheduling(
         assert projector.calls[0]["turn_id"] == record.turn_id
     finally:
         read_service.close()
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_read_recovery_cannot_repopulate_l1_after_full_clear(
+    runtime_paths_with_schema,
+) -> None:
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    await _create_delivery(
+        store,
+        turn_id="turn-before-clear",
+        created_at_ms=100,
+        projected=False,
+    )
+    queue = SQLiteRuntimeCommandQueue(
+        db_path=str(runtime_paths_with_schema.message_queue_db_path)
+    )
+    read_service = _PausingReadService(runtime_paths_with_schema.chat_db_path)
+    chat_clear = ChatReadService(runtime_paths=runtime_paths_with_schema)
+    projector = _L1RecordingProjector()
+    generation = _ClearGenerationState()
+    clear_lifecycle = _clear_lifecycle(generation)
+    recovery = _recovery_service(
+        store=store,
+        read_service=read_service,
+        projector=projector,
+        queue=queue,
+        clear_lifecycle=clear_lifecycle,
+    )
+
+    async def clear_all() -> None:
+        async with clear_lifecycle.user_content_clear_boundary():
+            async with queue.user_message_global_clear_boundary():
+                generation.value, _ = await queue.advance_user_message_generation_and_purge()
+                await chat_clear.aclear_all_sessions()
+                assert await chat_clear.acomplete_global_clear()
+                projector.message_ids.clear()
+
+    await queue.start()
+    processing: asyncio.Task | None = None
+    clearing: asyncio.Task | None = None
+    try:
+        processing = asyncio.create_task(recovery.retry_ready())
+        await asyncio.wait_for(read_service.read_started.wait(), timeout=1.0)
+        clearing = asyncio.create_task(clear_all())
+        while not clear_lifecycle.clear_in_progress():
+            await asyncio.sleep(0)
+        assert clearing.done() is False
+
+        read_service.release_read.set()
+        stale_stats = await asyncio.wait_for(processing, timeout=1.0)
+        await asyncio.wait_for(clearing, timeout=1.0)
+
+        assert stale_stats.projected == 0
+        assert stale_stats.scheduled == 0
+        assert projector.calls == []
+        assert projector.message_ids == set()
+
+        fresh_record = await _create_delivery(
+            store,
+            turn_id="turn-after-clear",
+            created_at_ms=200,
+            projected=False,
+        )
+        fresh_stats = await recovery.retry_ready()
+
+        assert fresh_stats.projected == 1
+        assert fresh_stats.scheduled == 1
+        assert projector.message_ids == {fresh_record.message_id}
+    finally:
+        read_service.release_read.set()
+        for task in (processing, clearing):
+            if task is not None and not task.done():
+                task.cancel()
+        await asyncio.gather(
+            *(task for task in (processing, clearing) if task is not None),
+            return_exceptions=True,
+        )
+        read_service.close()
+        chat_clear.close()
         await queue.stop()
 
 

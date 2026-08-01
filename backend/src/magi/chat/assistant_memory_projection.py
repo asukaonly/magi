@@ -10,6 +10,11 @@ from typing import Any, Protocol
 from ..core.logger import get_logger
 from ..events.events import EventTypes
 from .contracts import ChatAssistantMemoryOutboxRecord
+from .memory_projection_clear import (
+    ChatMemoryProjectionAdmission,
+    ChatMemoryProjectionClearBoundaryCrossed,
+    ChatMemoryProjectionClearLifecycle,
+)
 from .projector import CHAT_MEMORY_SOURCE, ChatProjector
 
 logger = get_logger(__name__)
@@ -51,6 +56,7 @@ class ChatAssistantMemoryProjectionService:
         outbox: _AssistantMemoryOutboxProtocol,
         projector: ChatProjector,
         unified_memory: Any,
+        clear_lifecycle: ChatMemoryProjectionClearLifecycle,
         retry_interval_seconds: float = 5.0,
         confirmation_timeout_seconds: float = 1.0,
         confirmation_poll_seconds: float = 0.02,
@@ -62,6 +68,7 @@ class ChatAssistantMemoryProjectionService:
         self._outbox = outbox
         self._projector = projector
         self._unified_memory = unified_memory
+        self._clear_lifecycle = clear_lifecycle
         self._retry_interval_seconds = max(0.05, float(retry_interval_seconds))
         self._confirmation_timeout_seconds = max(
             0.01,
@@ -115,21 +122,28 @@ class ChatAssistantMemoryProjectionService:
     async def process_ready_once(self) -> dict[str, int]:
         """Process one leased page for tests and controlled maintenance."""
 
-        rows = await self._outbox.claim_assistant_memory_projections(
-            limit=self._page_size,
-            lease_seconds=self._lease_seconds,
-        )
-        stats = {
-            "claimed": len(rows),
-            "confirmed": 0,
-            "disabled": 0,
-            "retried": 0,
-            "cancelled": 0,
-        }
-        for row in rows:
-            outcome = await self._process_claimed(row)
-            stats[outcome] += 1
-        return stats
+        async with self._clear_lifecycle.operation() as admission:
+            rows = await self._outbox.claim_assistant_memory_projections(
+                limit=self._page_size,
+                lease_seconds=self._lease_seconds,
+            )
+            stats = {
+                "claimed": len(rows),
+                "confirmed": 0,
+                "disabled": 0,
+                "retried": 0,
+                "cancelled": 0,
+            }
+            try:
+                await self._clear_lifecycle.ensure_current(admission)
+                for row in rows:
+                    outcome = await self._process_claimed(row, admission)
+                    stats[outcome] += 1
+            except ChatMemoryProjectionClearBoundaryCrossed:
+                stats["cancelled"] += len(rows) - sum(
+                    stats[name] for name in ("confirmed", "disabled", "retried", "cancelled")
+                )
+            return stats
 
     async def _run(self) -> None:
         while not self._stop_event.is_set():
@@ -158,20 +172,25 @@ class ChatAssistantMemoryProjectionService:
     async def _process_claimed(
         self,
         row: ChatAssistantMemoryOutboxRecord,
+        admission: ChatMemoryProjectionAdmission,
     ) -> str:
         projection = row.projection
         try:
+            await self._clear_lifecycle.ensure_current(admission)
             async with self._unified_memory.memory_operation_guard():
+                await self._clear_lifecycle.ensure_current(admission)
                 l1_store = self._unified_memory.l1
                 if l1_store is None:
-                    completed = await self._complete(row)
+                    completed = await self._complete(row, admission)
                     return "disabled" if completed else "cancelled"
 
                 finder = l1_store.find_event_id_by_idempotency
                 if await self._find_projection(finder, projection.canonical_message_id):
-                    completed = await self._complete(row)
+                    await self._clear_lifecycle.ensure_current(admission)
+                    completed = await self._complete(row, admission)
                     return "confirmed" if completed else "cancelled"
 
+                await self._clear_lifecycle.ensure_current(admission)
                 await self._projector.project_assistant_message(
                     message_id=projection.canonical_message_id,
                     user_id=projection.user_id,
@@ -180,16 +199,25 @@ class ChatAssistantMemoryProjectionService:
                     content=projection.content,
                     created_at_ms=projection.created_at_ms,
                 )
+                await self._clear_lifecycle.ensure_current(admission)
                 if await self._wait_for_confirmation(
                     finder,
                     projection.canonical_message_id,
+                    admission,
                 ):
-                    completed = await self._complete(row)
+                    await self._clear_lifecycle.ensure_current(admission)
+                    completed = await self._complete(row, admission)
                     return "confirmed" if completed else "cancelled"
                 raise TimeoutError("L1 did not confirm assistant-memory projection")
         except asyncio.CancelledError:
             raise
+        except ChatMemoryProjectionClearBoundaryCrossed:
+            return "cancelled"
         except Exception as exc:
+            try:
+                await self._clear_lifecycle.ensure_current(admission)
+            except ChatMemoryProjectionClearBoundaryCrossed:
+                return "cancelled"
             retry_delay_ms = int(
                 min(
                     self._retry_max_seconds,
@@ -215,20 +243,30 @@ class ChatAssistantMemoryProjectionService:
                 return "retried"
             return "cancelled"
 
-    async def _complete(self, row: ChatAssistantMemoryOutboxRecord) -> bool:
-        return await self._outbox.complete_assistant_memory_projection(
+    async def _complete(
+        self,
+        row: ChatAssistantMemoryOutboxRecord,
+        admission: ChatMemoryProjectionAdmission,
+    ) -> bool:
+        await self._clear_lifecycle.ensure_current(admission)
+        completed = await self._outbox.complete_assistant_memory_projection(
             canonical_message_id=row.projection.canonical_message_id,
             lease_token=row.lease_token,
         )
+        await self._clear_lifecycle.ensure_current(admission)
+        return completed
 
     async def _wait_for_confirmation(
         self,
         finder: Any,
         canonical_message_id: str,
+        admission: ChatMemoryProjectionAdmission,
     ) -> bool:
         deadline = time.monotonic() + self._confirmation_timeout_seconds
         while True:
+            self._clear_lifecycle.ensure_locally_current(admission)
             if await self._find_projection(finder, canonical_message_id):
+                await self._clear_lifecycle.ensure_current(admission)
                 return True
             if time.monotonic() >= deadline:
                 return False

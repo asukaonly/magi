@@ -15,6 +15,7 @@ from magi.chat.asset_gc import ChatAssetGC
 from magi.chat.assistant_memory_projection import (
     ChatAssistantMemoryProjectionService,
 )
+from magi.chat.memory_projection_clear import ChatMemoryProjectionClearLifecycle
 from magi.chat.forgetting import ChatForgettingService, ChatSurfaceFinalizer
 from magi.chat.read_service import ChatReadService
 from magi.chat.store import ChatStore
@@ -2028,10 +2029,16 @@ async def test_claimed_assistant_outbox_cannot_reproject_after_delete_barrier(
             assert result["skip_reason"] == "source_event_forgotten"
             return True
 
+    async def read_clear_generation() -> int:
+        return 0
+
     service = ChatAssistantMemoryProjectionService(
         outbox=chat_store,
         projector=_MemoryProjector(),  # type: ignore[arg-type]
         unified_memory=memory,
+        clear_lifecycle=ChatMemoryProjectionClearLifecycle(
+            read_current_clear_generation=read_clear_generation,
+        ),
         confirmation_timeout_seconds=0.02,
         confirmation_poll_seconds=0.002,
         retry_base_seconds=0.01,

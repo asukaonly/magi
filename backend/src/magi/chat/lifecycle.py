@@ -162,6 +162,7 @@ class ChatAssistantMemoryProjectionModule(LifecycleModule):
             dependencies=(
                 "runtime_chat_store",
                 "runtime_chat_projector",
+                "runtime_command_queue",
                 "runtime_memory",
                 "runtime_memory_ingestion_subscriber",
                 "runtime_chat_forgetting_recovery",
@@ -183,11 +184,22 @@ class ChatAssistantMemoryProjectionModule(LifecycleModule):
             self._context.memory.unified_memory,
             "unified memory",
         )
+        runtime_command_queue = require_initialized(
+            self._context.runtime_commands.runtime_command_queue,
+            "runtime command queue",
+        )
+        from .memory_projection_clear import ChatMemoryProjectionClearLifecycle
+
+        clear_lifecycle = ChatMemoryProjectionClearLifecycle(
+            read_current_clear_generation=(runtime_command_queue.read_current_clear_generation),
+        )
         service = ChatAssistantMemoryProjectionService(
             outbox=chat_store,
             projector=chat_projector,
             unified_memory=memory,
+            clear_lifecycle=clear_lifecycle,
         )
+        self._context.chat.memory_projection_clear_lifecycle = clear_lifecycle
         self._context.chat.assistant_memory_projection_service = service
         chat_store.set_assistant_memory_outbox_waker(service.wake)
         await service.start()
@@ -201,6 +213,7 @@ class ChatAssistantMemoryProjectionModule(LifecycleModule):
         self._context.chat.assistant_memory_projection_service = None
         if service is not None:
             await service.stop()
+        self._context.chat.memory_projection_clear_lifecycle = None
 
 
 class ChatForgettingRecoveryModule(LifecycleModule):
@@ -294,6 +307,7 @@ class ChatDeliveryRecoveryModule(LifecycleModule):
                 "runtime_command_queue",
                 "runtime_agent_core",
                 "runtime_memory_ingestion_subscriber",
+                "runtime_chat_assistant_memory_projection",
             ),
         )
         self._context = context
@@ -313,6 +327,10 @@ class ChatDeliveryRecoveryModule(LifecycleModule):
             self._context.runtime_commands.runtime_command_queue,
             "runtime command queue",
         )
+        clear_lifecycle = require_initialized(
+            self._context.chat.memory_projection_clear_lifecycle,
+            "chat memory projection clear lifecycle",
+        )
         scheduler = ChatUserTurnDeliveryScheduler(
             chat_store=chat_store,
             runtime_command_queue=runtime_command_queue,
@@ -322,6 +340,7 @@ class ChatDeliveryRecoveryModule(LifecycleModule):
             chat_read_service=get_chat_read_service(),
             chat_projector=chat_projector,
             delivery_scheduler=scheduler,
+            clear_lifecycle=clear_lifecycle,
         )
         stats = await recovery.recover_startup()
         self._context.chat.delivery_scheduler = scheduler

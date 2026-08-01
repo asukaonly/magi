@@ -420,6 +420,18 @@ forget operations before starting the assistant projection worker, and starts
 that worker before accepting runtime commands. Memory delay or failure cannot
 hide an already committed user-visible reply.
 
+Assistant projection recovery and accepted-user-turn delivery recovery share
+one full-clear lifecycle. Every pass captures the durable full-clear generation
+before it claims or reads chat records, then revalidates that generation before
+and after memory publication, projection settlement, and command scheduling.
+The destructive clear acquires this lifecycle before the runtime-command clear
+boundary: new recovery reads stop, already-read work either drains or observes
+the advanced local fence, and only then may the command generation advance and
+chat plus memory be deleted. The lifecycle remains exclusive through the whole
+clear. This lock order prevents both a stale post-clear L1 projection and a
+recovery-to-command-queue deadlock, while a later generation can recover new
+chat work normally.
+
 Important rule: the runtime message bus is process-local to `runtime_worker`. It is not a durable cross-process broker and it does not own SQLite queue persistence.
 
 Important rule: user-message runtime commands remain claimed after process-local

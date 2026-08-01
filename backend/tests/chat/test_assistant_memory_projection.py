@@ -19,6 +19,7 @@ from magi.chat import (
 from magi.chat.assistant_memory_projection import (
     ChatAssistantMemoryProjectionService,
 )
+from magi.chat.memory_projection_clear import ChatMemoryProjectionClearLifecycle
 from magi.chat.storage import assistant_memory_outbox
 
 
@@ -42,6 +43,31 @@ class _FakeL1:
         )
 
 
+class _PausingL1(_FakeL1):
+    def __init__(self) -> None:
+        super().__init__()
+        self.read_started = asyncio.Event()
+        self.release_read = asyncio.Event()
+        self._paused = False
+
+    async def find_event_id_by_idempotency(
+        self,
+        *,
+        source: str,
+        event_type: str,
+        idempotency_key: str,
+    ) -> str | None:
+        if not self._paused:
+            self._paused = True
+            self.read_started.set()
+            await self.release_read.wait()
+        return await super().find_event_id_by_idempotency(
+            source=source,
+            event_type=event_type,
+            idempotency_key=idempotency_key,
+        )
+
+
 class _FakeMemory:
     def __init__(self, l1: _FakeL1 | None) -> None:
         self.l1 = l1
@@ -51,6 +77,23 @@ class _FakeMemory:
     async def memory_operation_guard(self):
         self.guard_entries += 1
         yield
+
+
+class _ClearGenerationState:
+    def __init__(self) -> None:
+        self.value = 0
+
+    async def read(self) -> int:
+        return self.value
+
+
+def _clear_lifecycle(
+    state: _ClearGenerationState | None = None,
+) -> ChatMemoryProjectionClearLifecycle:
+    generation = state or _ClearGenerationState()
+    return ChatMemoryProjectionClearLifecycle(
+        read_current_clear_generation=generation.read,
+    )
 
 
 class _FakeProjector:
@@ -580,6 +623,7 @@ async def test_projection_worker_confirms_l1_before_removing_content(
         outbox=store,
         projector=projector,  # type: ignore[arg-type]
         unified_memory=memory,
+        clear_lifecycle=_clear_lifecycle(),
         confirmation_timeout_seconds=0.05,
     )
 
@@ -602,6 +646,77 @@ async def test_projection_worker_confirms_l1_before_removing_content(
 
 
 @pytest.mark.asyncio
+async def test_claimed_projection_cannot_repopulate_l1_after_full_clear(
+    runtime_paths_with_schema,
+) -> None:
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    await _create_unmanaged_projection(
+        store,
+        message_id="assistant-before-clear",
+        session_id="session-before-clear",
+        turn_id="turn-before-clear",
+    )
+    generation = _ClearGenerationState()
+    clear_lifecycle = _clear_lifecycle(generation)
+    l1 = _PausingL1()
+    projector = _FakeProjector(l1=l1)
+    service = ChatAssistantMemoryProjectionService(
+        outbox=store,
+        projector=projector,  # type: ignore[arg-type]
+        unified_memory=_FakeMemory(l1),
+        clear_lifecycle=clear_lifecycle,
+        confirmation_timeout_seconds=0.05,
+    )
+    chat_read_service = ChatReadService(runtime_paths=runtime_paths_with_schema)
+
+    async def clear_all() -> None:
+        async with clear_lifecycle.user_content_clear_boundary():
+            generation.value += 1
+            await chat_read_service.aclear_all_sessions()
+            assert await chat_read_service.acomplete_global_clear()
+            l1.message_ids.clear()
+
+    processing: asyncio.Task | None = None
+    clearing: asyncio.Task | None = None
+    try:
+        processing = asyncio.create_task(service.process_ready_once())
+        await asyncio.wait_for(l1.read_started.wait(), timeout=1.0)
+        clearing = asyncio.create_task(clear_all())
+        while not clear_lifecycle.clear_in_progress():
+            await asyncio.sleep(0)
+        assert clearing.done() is False
+
+        l1.release_read.set()
+        stale_stats = await asyncio.wait_for(processing, timeout=1.0)
+        await asyncio.wait_for(clearing, timeout=1.0)
+
+        assert stale_stats["cancelled"] == 1
+        assert projector.calls == []
+        assert l1.message_ids == set()
+
+        await _create_unmanaged_projection(
+            store,
+            message_id="assistant-after-clear",
+            session_id="session-after-clear",
+            turn_id="turn-after-clear",
+        )
+        fresh_stats = await service.process_ready_once()
+
+        assert fresh_stats["confirmed"] == 1
+        assert l1.message_ids == {"assistant-after-clear"}
+    finally:
+        l1.release_read.set()
+        for task in (processing, clearing):
+            if task is not None and not task.done():
+                task.cancel()
+        await asyncio.gather(
+            *(task for task in (processing, clearing) if task is not None),
+            return_exceptions=True,
+        )
+        chat_read_service.close()
+
+
+@pytest.mark.asyncio
 async def test_startup_recovery_drains_pending_projection(
     runtime_paths_with_schema,
 ) -> None:
@@ -612,6 +727,7 @@ async def test_startup_recovery_drains_pending_projection(
         outbox=store,
         projector=_FakeProjector(l1=l1),  # type: ignore[arg-type]
         unified_memory=_FakeMemory(l1),
+        clear_lifecycle=_clear_lifecycle(),
         retry_interval_seconds=0.05,
         confirmation_timeout_seconds=0.05,
     )
@@ -649,6 +765,7 @@ async def test_crash_after_publish_replays_by_confirmation_without_republish(
         outbox=store,
         projector=projector,  # type: ignore[arg-type]
         unified_memory=_FakeMemory(l1),
+        clear_lifecycle=_clear_lifecycle(),
     )
 
     stats = await service.process_ready_once()
@@ -675,6 +792,7 @@ async def test_projection_timeout_keeps_content_with_exponential_backoff(
         outbox=store,
         projector=_FakeProjector(l1=l1, confirm=False),  # type: ignore[arg-type]
         unified_memory=_FakeMemory(l1),
+        clear_lifecycle=_clear_lifecycle(),
         confirmation_timeout_seconds=0.01,
         confirmation_poll_seconds=0.002,
         retry_base_seconds=0.1,
@@ -717,6 +835,7 @@ async def test_l1_disabled_completes_outbox_without_publishing(
         outbox=store,
         projector=projector,  # type: ignore[arg-type]
         unified_memory=_FakeMemory(None),
+        clear_lifecycle=_clear_lifecycle(),
     )
 
     stats = await service.process_ready_once()
@@ -743,6 +862,7 @@ async def test_unmanaged_outcome_does_not_publish_before_outbox_worker(
         outbox=store,
         projector=projector,  # type: ignore[arg-type]
         unified_memory=_FakeMemory(l1),
+        clear_lifecycle=_clear_lifecycle(),
     )
     await service.process_ready_once()
     assert len(projector.calls) == 1

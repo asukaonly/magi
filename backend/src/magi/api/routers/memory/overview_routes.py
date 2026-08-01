@@ -24,6 +24,7 @@ from .dependencies import (
     _resolve_memory_integration,
     _resolve_channels_module,
     _resolve_channel_session_mapper,
+    _resolve_chat_memory_projection_clear,
     _resolve_control_user_content_clear,
     _resolve_plugin_user_content_clear,
     _resolve_chat_portrait_service,
@@ -337,6 +338,16 @@ async def clear_memory_layers():
                 "Plugin runtime not initialized",
             ),
         )
+    chat_memory_projection_clear = _resolve_chat_memory_projection_clear()
+    if chat_memory_projection_clear is None:
+        logger.warning("clear_memory: chat memory recovery boundary not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t(
+                "memory.errors.chat_recovery_uninitialized",
+                "Chat recovery service not initialized",
+            ),
+        )
     sensor_hub = _resolve_sensor_hub()
     rebuild_pause_started = False
     chat_pause_started = False
@@ -363,7 +374,13 @@ async def clear_memory_layers():
         )
 
     try:
-        async with runtime_command_queue.user_message_global_clear_boundary():
+        async with AsyncExitStack() as clear_scope:
+            await clear_scope.enter_async_context(
+                chat_memory_projection_clear.user_content_clear_boundary()
+            )
+            await clear_scope.enter_async_context(
+                runtime_command_queue.user_message_global_clear_boundary()
+            )
             async with AsyncExitStack() as background_scope:
                 try:
                     await background_scope.enter_async_context(

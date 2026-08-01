@@ -359,6 +359,7 @@
       "invalid_date": "Invalid date value: {value}",
       "system_uninitialized": "Memory system not initialized",
       "scheduler_uninitialized": "Scheduler service not initialized",
+      "chat_recovery_uninitialized": "Chat recovery service not initialized",
       "control_uninitialized": "Control plane not initialized",
       "hybrid_retrieval_uninitialized": "Hybrid retrieval service not initialized",
       "l0_uninitialized": "L0 working memory not initialized",

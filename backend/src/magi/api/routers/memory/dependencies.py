@@ -295,6 +295,29 @@ def _resolve_plugin_user_content_clear():
     return coordinator
 
 
+def _resolve_chat_memory_projection_clear():
+    override = _package_override(
+        "_resolve_chat_memory_projection_clear",
+        _resolve_chat_memory_projection_clear,
+    )
+    if override is not None:
+        return override()
+    try:
+        from magi.core.container import get_container
+
+        context = get_container().runtime_bootstrap_context()
+    except Exception:
+        return None
+    lifecycle = getattr(
+        getattr(context, "chat", None),
+        "memory_projection_clear_lifecycle",
+        None,
+    )
+    if not callable(getattr(lifecycle, "user_content_clear_boundary", None)):
+        return None
+    return lifecycle
+
+
 def _resolve_self_memory():
     override = _package_override("_resolve_self_memory", _resolve_self_memory)
     if override is not None:
