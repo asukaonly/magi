@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..core.logger import get_logger
+from ..utils.file_io import atomic_write_temp_prefix, atomic_write_text
 from ..utils.runtime import get_runtime_paths
 from .orchestration_models import TaskOrchestrationState, WorkerResult
 
@@ -21,6 +22,7 @@ class OrchestrationStore:
     def __init__(self, file_path: Optional[Path] = None) -> None:
         runtime_paths = get_runtime_paths()
         self._file_path = file_path or runtime_paths.task_orchestrations_path
+        self._temp_file_prefix = atomic_write_temp_prefix(self._file_path)
         self._lock = asyncio.Lock()
 
     async def save_orchestration(self, state: TaskOrchestrationState) -> None:
@@ -80,14 +82,13 @@ class OrchestrationStore:
             self._write_payload(payload)
 
     async def clear_all(self) -> dict[str, int]:
-        """Remove every persisted orchestration and worker result atomically."""
+        """Remove every persisted orchestration and worker result."""
         async with self._lock:
             payload = self._load_payload()
             orchestration_count = len(payload.get("orchestrations", {}))
             worker_result_count = len(payload.get("worker_results", {}))
-            self._write_payload_or_raise(
-                {"orchestrations": {}, "worker_results": {}}
-            )
+            self._write_payload_or_raise({"orchestrations": {}, "worker_results": {}})
+            self._remove_owned_temp_files()
         return {
             "orchestrations": orchestration_count,
             "worker_results": worker_result_count,
@@ -122,22 +123,34 @@ class OrchestrationStore:
             payload.setdefault("worker_results", {})
             return payload
         except Exception as exc:
-            logger.warning("Failed to load orchestration store | path=%s error=%s", self._file_path, exc)
+            logger.warning(
+                "Failed to load orchestration store | path=%s error=%s", self._file_path, exc
+            )
             return {"orchestrations": {}, "worker_results": {}}
 
     def _write_payload(self, payload: Dict[str, Any]) -> None:
         try:
             self._write_payload_or_raise(payload)
         except Exception as exc:
-            logger.warning("Failed to write orchestration store | path=%s error=%s", self._file_path, exc)
+            logger.warning(
+                "Failed to write orchestration store | path=%s error=%s", self._file_path, exc
+            )
 
     def _write_payload_or_raise(self, payload: Dict[str, Any]) -> None:
-        from ..utils.file_io import atomic_write_text
-
         atomic_write_text(
             self._file_path,
             json.dumps(payload, ensure_ascii=False, indent=2),
         )
+
+    def _remove_owned_temp_files(self) -> None:
+        parent = self._file_path.parent
+        if not parent.exists():
+            return
+        for candidate in parent.iterdir():
+            if candidate.name.startswith(self._temp_file_prefix) and candidate.name.endswith(
+                ".tmp"
+            ):
+                candidate.unlink()
 
 
 _orchestration_store: Optional[OrchestrationStore] = None

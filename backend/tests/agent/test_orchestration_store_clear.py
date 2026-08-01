@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -11,6 +14,135 @@ from magi.agent.orchestration import (
 )
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.task_orchestration_updates import TaskOrchestrationUpdateProcessor
+from magi.utils import file_io
+
+
+def _create_atomic_temp_file(target: Path, content: str) -> Path:
+    fd, raw_path = tempfile.mkstemp(
+        dir=target.parent,
+        prefix=file_io.atomic_write_temp_prefix(target),
+        suffix=".tmp",
+    )
+    path = Path(raw_path)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    return path
+
+
+async def test_normal_write_uses_owned_atomic_temp_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "task_orchestrations.json"
+    store = OrchestrationStore(path)
+    temp_paths: list[Path] = []
+    original_replace = file_io.os.replace
+
+    def capture_replace(source: str, destination: Path) -> None:
+        temp_paths.append(Path(source))
+        original_replace(source, destination)
+
+    monkeypatch.setattr(file_io.os, "replace", capture_replace)
+
+    await store.save_orchestration(
+        TaskOrchestrationState(
+            orchestration_id="orch-running",
+            user_id="u1",
+            session_id="s1",
+            turn_id="turn-running",
+            root_user_message="private running question",
+            planner="task_agent",
+            status="running",
+        )
+    )
+
+    assert len(temp_paths) == 1
+    assert temp_paths[0].name.startswith(file_io.atomic_write_temp_prefix(path))
+    assert temp_paths[0].name.endswith(".tmp")
+    assert not temp_paths[0].exists()
+    assert path.exists()
+
+
+async def test_clear_all_removes_crash_leftover_owned_temp_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "task_orchestrations.json"
+    store = OrchestrationStore(path)
+    await store.save_orchestration(
+        TaskOrchestrationState(
+            orchestration_id="orch-running",
+            user_id="u1",
+            session_id="s1",
+            turn_id="turn-running",
+            root_user_message="private running question",
+            planner="task_agent",
+            status="running",
+        )
+    )
+
+    with monkeypatch.context() as crash:
+
+        def simulate_crash(*_args) -> None:  # type: ignore[no-untyped-def]
+            raise OSError("crash")
+
+        crash.setattr(file_io.os, "replace", simulate_crash)
+        crash.setattr(file_io.os, "unlink", simulate_crash)
+        await store.save_worker_result(
+            worker_id="worker-crashed",
+            orchestration_id="orch-running",
+            subtask_id="subtask-1",
+            worker_result=WorkerResult(summary="private crash leftover"),
+        )
+
+    leftovers = [
+        candidate
+        for candidate in tmp_path.iterdir()
+        if candidate.name.startswith(file_io.atomic_write_temp_prefix(path))
+    ]
+    assert len(leftovers) == 1
+    assert "private crash leftover" in leftovers[0].read_text(encoding="utf-8")
+
+    await store.clear_all()
+
+    assert not leftovers[0].exists()
+
+
+async def test_clear_all_propagates_owned_temp_deletion_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "task_orchestrations.json"
+    store = OrchestrationStore(path)
+    leftover = _create_atomic_temp_file(path, "private leftover")
+    original_unlink = Path.unlink
+
+    def fail_owned_unlink(path: Path, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        if path == leftover:
+            raise PermissionError("owned temp deletion denied")
+        original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_owned_unlink)
+
+    with pytest.raises(PermissionError, match="owned temp deletion denied"):
+        await store.clear_all()
+
+    assert leftover.exists()
+
+
+async def test_clear_all_does_not_remove_other_owner_temp_file(tmp_path: Path) -> None:
+    path = tmp_path / "task_orchestrations.json"
+    store = OrchestrationStore(path)
+    owned = _create_atomic_temp_file(path, "private owned content")
+    other_owner = _create_atomic_temp_file(
+        tmp_path / "task_orchestrations.json.atomic-other-owner",
+        "other owner content",
+    )
+
+    await store.clear_all()
+
+    assert not owned.exists()
+    assert other_owner.read_text(encoding="utf-8") == "other owner content"
 
 
 async def test_clear_all_removes_running_terminal_and_worker_result_payloads(
