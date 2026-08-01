@@ -48,7 +48,7 @@ describe("onboarding progress restoration", () => {
       values: { preferences: { language: "zh" } },
       seedSlug: "ember",
       firstContextPluginIds: ["chrome-history"],
-      firstContextCountsByPluginId: { "chrome-history": 42 },
+      firstContextCountsByPluginId: {},
       customPersonas: [],
       personaCreationDraft: null,
       firstContextProgress: {

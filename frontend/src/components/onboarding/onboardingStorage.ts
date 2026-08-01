@@ -128,6 +128,7 @@ export function clearOnboardingContentState(
       : {};
     snapshot.customPersonas = [];
     snapshot.personaCreationDraft = null;
+    snapshot.firstContextCountsByPluginId = {};
     snapshot.firstContextProgress = {
       ...firstContext,
       draft: "",
@@ -151,6 +152,12 @@ export function clearOnboardingContentState(
       || !Array.isArray(persisted.customPersonas)
       || persisted.customPersonas.length !== 0
       || persisted.personaCreationDraft !== null
+      || !persisted.firstContextCountsByPluginId
+      || typeof persisted.firstContextCountsByPluginId !== "object"
+      || Array.isArray(persisted.firstContextCountsByPluginId)
+      || Object.keys(
+        persisted.firstContextCountsByPluginId as Record<string, unknown>,
+      ).length !== 0
       || !persistedFirstContext
       || typeof persistedFirstContext !== "object"
       || Array.isArray(persistedFirstContext)
