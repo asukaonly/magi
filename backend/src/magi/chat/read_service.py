@@ -560,7 +560,7 @@ class ChatReadService(
             conn.close()
 
     def _clear_all_runtime_trace_rows(self) -> None:
-        """Delete all chat execution traces and live chat notifications."""
+        """Delete execution traces and every persisted user-facing notification."""
         if not self._runtime_trace_db_path.exists():
             return
         conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
@@ -581,16 +581,9 @@ class ChatReadService(
                 if table in existing_tables:
                     conn.execute(f"DELETE FROM {table}")
             if "runtime_notifications" in existing_tables:
-                conn.execute("""
-                    DELETE FROM runtime_notifications
-                    WHERE TRIM(session_id) <> '' OR turn_id IS NOT NULL
-                    """)
+                conn.execute("DELETE FROM runtime_notifications")
             if "user_notifications" in existing_tables:
-                conn.execute("""
-                    DELETE FROM user_notifications
-                    WHERE kind = 'suggestion'
-                      AND dedupe_key LIKE 'profile_conflict:%'
-                    """)
+                conn.execute("DELETE FROM user_notifications")
             conn.commit()
         except Exception:
             conn.rollback()

@@ -480,7 +480,7 @@ def _count_table_rows(db_path: Path, table: str) -> int:
         conn.close()
 
 
-def test_clear_all_sessions_removes_chat_traces_but_preserves_other_runtime_data(
+def test_clear_all_sessions_removes_chat_traces_and_user_notifications(
     tmp_path,
     monkeypatch,
 ):
@@ -613,25 +613,9 @@ def test_clear_all_sessions_removes_chat_traces_but_preserves_other_runtime_data
         "trace_tools",
     ):
         assert _count_table_rows(service._runtime_trace_db_path, table) == 0
-    assert _count_table_rows(service._runtime_trace_db_path, "runtime_notifications") == 1
-    runtime_conn = sqlite3.connect(str(service._runtime_trace_db_path))
-    try:
-        remaining_channel = runtime_conn.execute(
-            "SELECT channel FROM runtime_notifications"
-        ).fetchone()[0]
-    finally:
-        runtime_conn.close()
-    assert remaining_channel == "global_control"
+    assert _count_table_rows(service._runtime_trace_db_path, "runtime_notifications") == 0
     assert _count_table_rows(service._runtime_trace_db_path, "plugin_ingress_events") == 1
-    assert _count_table_rows(service._runtime_trace_db_path, "user_notifications") == 1
-    notification_conn = sqlite3.connect(str(service._runtime_trace_db_path))
-    try:
-        remaining_dedupe_key = notification_conn.execute(
-            "SELECT dedupe_key FROM user_notifications"
-        ).fetchone()[0]
-    finally:
-        notification_conn.close()
-    assert remaining_dedupe_key == "keep-me"
+    assert _count_table_rows(service._runtime_trace_db_path, "user_notifications") == 0
 
 
 def test_clear_all_sessions_keeps_chat_rows_when_trace_cleanup_fails(
