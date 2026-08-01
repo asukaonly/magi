@@ -1,10 +1,13 @@
 import os
+import stat
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 
 def test_sdk_exposes_atomic_io():
+    from magi_plugin_sdk import path_is_link as public_path_is_link
     from magi_plugin_sdk.fs import (  # noqa: F401
         append_jsonl,
         append_jsonl_many,
@@ -14,8 +17,11 @@ def test_sdk_exposes_atomic_io():
         atomic_write_text,
         read_managed_bytes,
         read_managed_text,
+        path_is_link,
         remove_managed_file,
     )
+
+    assert public_path_is_link is path_is_link
 
 
 def test_atomic_write_text_roundtrip(tmp_path: Path):
@@ -124,6 +130,125 @@ def test_managed_remove_unlinks_target_link_without_touching_source(
     assert target.is_symlink() is False
     assert external.read_text(encoding="utf-8") == "external"
     assert remove_managed_file(target) is False
+
+
+def test_path_link_detection_falls_back_to_windows_reparse_attribute(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import magi_plugin_sdk.fs as sdk_fs
+
+    class WindowsStat:
+        st_file_attributes = 0x0400
+
+    monkeypatch.setattr(Path, "is_symlink", lambda _path: False)
+    monkeypatch.delattr(Path, "is_junction", raising=False)
+    monkeypatch.setattr(
+        sdk_fs.stat,
+        "FILE_ATTRIBUTE_REPARSE_POINT",
+        0x0400,
+        raising=False,
+    )
+
+    assert sdk_fs.path_is_link(tmp_path / "junction", path_stat=WindowsStat()) is True
+
+
+def _install_windows_junction_simulation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[Any, Path, Path, list[Path]]:
+    import magi_plugin_sdk.fs as sdk_fs
+
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "private.txt").write_text("external", encoding="utf-8")
+    target = managed / "state.json"
+    try:
+        target.symlink_to(external, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory links are unavailable on this platform")
+
+    original_lstat = os.lstat
+    original_rmdir = os.rmdir
+    original_unlink = os.unlink
+    junction_present = True
+    rmdir_calls: list[Path] = []
+
+    class WindowsJunctionStat:
+        st_mode = stat.S_IFDIR | 0o700
+        st_file_attributes = 0x0400
+        st_dev = 17
+        st_ino = 23
+        st_nlink = 1
+        st_size = 0
+
+    def fake_lstat(path: os.PathLike[str] | str, *args, **kwargs):
+        if Path(path) == target and junction_present:
+            return WindowsJunctionStat()
+        return original_lstat(path, *args, **kwargs)
+
+    def fake_rmdir(path: os.PathLike[str] | str, *args, **kwargs) -> None:
+        nonlocal junction_present
+        normalized = Path(path)
+        if normalized == target and junction_present:
+            rmdir_calls.append(normalized)
+            junction_present = False
+            original_unlink(path)
+            return
+        original_rmdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(sdk_fs, "_IS_WINDOWS", True)
+    monkeypatch.setattr(os, "lstat", fake_lstat)
+    monkeypatch.setattr(os, "rmdir", fake_rmdir)
+    return sdk_fs, external, target, rmdir_calls
+
+
+def test_windows_managed_read_ignores_directory_junction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    sdk_fs, external, target, rmdir_calls = _install_windows_junction_simulation(
+        monkeypatch,
+        tmp_path,
+    )
+
+    assert sdk_fs.read_managed_text(target) is None
+    assert rmdir_calls == []
+    assert (external / "private.txt").read_text(encoding="utf-8") == "external"
+
+
+def test_windows_managed_remove_unlinks_directory_junction_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    sdk_fs, external, target, rmdir_calls = _install_windows_junction_simulation(
+        monkeypatch,
+        tmp_path,
+    )
+
+    assert sdk_fs.remove_managed_file(target) is True
+    assert rmdir_calls == [target]
+    assert target.exists() is False
+    assert (external / "private.txt").read_text(encoding="utf-8") == "external"
+
+
+def test_windows_managed_write_replaces_directory_junction_atomically(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    sdk_fs, external, target, rmdir_calls = _install_windows_junction_simulation(
+        monkeypatch,
+        tmp_path,
+    )
+
+    sdk_fs.atomic_write_managed_text(target, "managed")
+
+    assert rmdir_calls == [target]
+    assert target.is_file()
+    assert target.read_text(encoding="utf-8") == "managed"
+    assert (external / "private.txt").read_text(encoding="utf-8") == "external"
 
 
 def test_managed_read_roundtrip_and_size_limit(tmp_path: Path) -> None:
@@ -344,7 +469,9 @@ def test_managed_file_operations_reject_ancestor_replaced_during_open(
             sdk_fs.remove_managed_file(managed_target)
 
     assert external_target.read_text(encoding="utf-8") == "external"
-    assert (parked_root / "nested" / "state.json").read_text(encoding="utf-8") == "managed"
+    assert (parked_root / "nested" / "state.json").read_text(
+        encoding="utf-8"
+    ) == "managed"
 
 
 @pytest.mark.parametrize("operation", ["write", "remove"])

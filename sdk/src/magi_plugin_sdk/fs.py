@@ -37,6 +37,7 @@ if _IS_WINDOWS:
             msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
         except OSError:
             pass
+
 else:
     import fcntl
 
@@ -77,11 +78,30 @@ def _atomic_write(path: Path, data: bytes) -> None:
         raise
 
 
-def _is_path_link(path: Path) -> bool:
-    if path.is_symlink():
+def path_is_link(
+    path: str | Path,
+    *,
+    path_stat: os.stat_result | Any | None = None,
+) -> bool:
+    """Detect a symbolic link or Windows reparse-point directory link.
+
+    ``Path.is_junction`` is unavailable on older supported Python versions, so
+    the file-attribute fallback keeps junction handling consistent on 3.10+.
+    """
+
+    normalized = Path(path)
+    if normalized.is_symlink():
         return True
-    is_junction = getattr(path, "is_junction", None)
-    return bool(callable(is_junction) and is_junction())
+    is_junction = getattr(normalized, "is_junction", None)
+    if callable(is_junction) and is_junction():
+        return True
+    if path_stat is None:
+        try:
+            path_stat = os.lstat(normalized)
+        except FileNotFoundError:
+            return False
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x0400)
+    return bool(getattr(path_stat, "st_file_attributes", 0) & reparse_flag)
 
 
 def _validate_managed_file_path(
@@ -100,7 +120,9 @@ def _validate_managed_file_path(
             raise UnsafeManagedPathError(
                 "Managed file parent directory does not exist"
             ) from exc
-        if _is_path_link(directory) or not stat.S_ISDIR(directory_stat.st_mode):
+        if path_is_link(directory, path_stat=directory_stat) or not stat.S_ISDIR(
+            directory_stat.st_mode
+        ):
             raise UnsafeManagedPathError(
                 "Managed file parent chain must contain only real directories"
             )
@@ -111,14 +133,17 @@ def _validate_managed_file_path(
     return target, parent, parent_identity
 
 
-def _validate_managed_target_type(path: Path) -> None:
+def _validate_managed_target_type(path: Path) -> os.stat_result | Any | None:
     try:
         target_stat = os.lstat(path)
     except FileNotFoundError:
-        return
-    if not stat.S_ISDIR(target_stat.st_mode):
-        return
-    raise UnsafeManagedPathError("Managed file target must not be a directory")
+        return None
+    if stat.S_ISDIR(target_stat.st_mode) and not path_is_link(
+        path,
+        path_stat=target_stat,
+    ):
+        raise UnsafeManagedPathError("Managed file target must not be a directory")
+    return target_stat
 
 
 def _validate_managed_read_limit(max_bytes: int) -> int:
@@ -293,7 +318,11 @@ def _atomic_write_managed_posix(path: Path, data: bytes) -> None:
             )
         except FileNotFoundError:
             target_stat = None
-        if target_stat is not None and stat.S_ISDIR(target_stat.st_mode):
+        if (
+            target_stat is not None
+            and stat.S_ISDIR(target_stat.st_mode)
+            and not path_is_link(path, path_stat=target_stat)
+        ):
             raise UnsafeManagedPathError("Managed file target must not be a directory")
 
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
@@ -339,7 +368,12 @@ def _atomic_write_managed_windows(path: Path, data: bytes) -> None:
         _, current_parent, current_identity = _validate_managed_file_path(target)
         if current_parent != parent or current_identity != parent_identity:
             raise UnsafeManagedPathError("Managed file parent changed during write")
-        _validate_managed_target_type(target)
+        target_stat = _validate_managed_target_type(target)
+        if target_stat is not None and stat.S_ISDIR(target_stat.st_mode):
+            os.rmdir(target)
+            _, current_parent, current_identity = _validate_managed_file_path(target)
+            if current_parent != parent or current_identity != parent_identity:
+                raise UnsafeManagedPathError("Managed file parent changed during write")
         os.replace(temp_name, target)
     except BaseException:
         try:
@@ -375,10 +409,12 @@ def atomic_write_managed_text(
 
 
 def remove_managed_file(path: str | Path) -> bool:
-    """Remove one plugin-managed regular file or link without following it.
+    """Remove one plugin-managed non-directory entry without following it.
 
     Returns ``True`` when an entry was removed and ``False`` when it did not
-    exist. Directories and special files are rejected.
+    exist. Regular files, hard links, symbolic links, junctions, and special
+    files are removed as directory entries without opening their targets. A
+    real directory is rejected.
     """
 
     target_path = Path(path)
@@ -392,9 +428,13 @@ def remove_managed_file(path: str | Path) -> bool:
             target_stat = os.lstat(target)
         except FileNotFoundError:
             return False
-        if stat.S_ISDIR(target_stat.st_mode):
+        target_is_link = path_is_link(target, path_stat=target_stat)
+        if stat.S_ISDIR(target_stat.st_mode) and not target_is_link:
             raise UnsafeManagedPathError("Managed file target must not be a directory")
-        os.unlink(target)
+        if stat.S_ISDIR(target_stat.st_mode):
+            os.rmdir(target)
+        else:
+            os.unlink(target)
         return True
 
     directory_fd = _open_managed_directory(
@@ -482,6 +522,7 @@ __all__ = [
     "append_jsonl",
     "append_jsonl_many",
     "file_lock",
+    "path_is_link",
     "read_managed_bytes",
     "read_managed_text",
     "remove_managed_file",
