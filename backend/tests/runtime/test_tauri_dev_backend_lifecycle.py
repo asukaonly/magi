@@ -10,7 +10,12 @@ def test_tauri_debug_prefers_python_backend_pair() -> None:
     source = source_path.read_text(encoding="utf-8")
 
     assert "let start = if cfg!(debug_assertions)" in source
-    assert "spawn_dev_backend_pair(&ipc_socket_path)" in source
+    debug_start = source.split("let start = if cfg!(debug_assertions)", 1)[1].split(
+        "} else {", 1
+    )[0]
+    assert "spawn_dev_backend_pair(" in debug_start
+    assert "&ipc_socket_path" in debug_start
+    assert "pending_full_data_clear" in debug_start
 
 
 def test_tauri_does_not_expose_session_token_to_python_backend() -> None:
