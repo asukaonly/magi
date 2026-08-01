@@ -153,4 +153,36 @@ describe('desktop chat notifications', () => {
     expect(window.localStorage.getItem('magi.desktopNotifications.sent.v1')).toBeNull();
     expect(window.localStorage.getItem('magi.desktopNotifications.preferences.v1')).not.toBeNull();
   });
+
+  it('drops a notification that finishes permission checks after a full clear', async () => {
+    let resolvePermission: ((value: string) => void) | undefined;
+    isPermissionGrantedMock.mockResolvedValueOnce(false);
+    requestPermissionMock.mockImplementationOnce(() => new Promise((resolve) => {
+      resolvePermission = resolve;
+    }));
+    const {
+      clearDesktopNotificationContentState,
+      notifyForUnreadChatMessage,
+    } = await import('@/runtime/desktop-notifications');
+
+    const pending = notifyForUnreadChatMessage({
+      sessionId: 'session-before-clear',
+      currentSessionId: 'session-a',
+      title: 'Old session',
+      body: 'old private body',
+      dedupeId: 'old-private-message-id',
+      desktopNotificationsEnabled: true,
+      desktopNotificationPreviewsEnabled: true,
+    });
+    await vi.waitFor(() => {
+      expect(requestPermissionMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(clearDesktopNotificationContentState()).toBe(true);
+    resolvePermission?.('granted');
+
+    await expect(pending).resolves.toBe(false);
+    expect(sendNotificationMock).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem('magi.desktopNotifications.sent.v1')).toBeNull();
+  });
 });

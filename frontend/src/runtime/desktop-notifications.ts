@@ -27,6 +27,7 @@ type RealtimeLikeMessage = {
 const PREFERENCES_STORAGE_KEY = 'magi.desktopNotifications.preferences.v1';
 const DEDUPE_STORAGE_KEY = 'magi.desktopNotifications.sent.v1';
 const MAX_DEDUPE_IDS = 80;
+let notificationContentGeneration = 0;
 
 const DEFAULT_PREFERENCES: DesktopNotificationPreferences = {
   desktopNotificationsEnabled: false,
@@ -121,6 +122,7 @@ const rememberNotificationSent = (dedupeId: string | null | undefined): void => 
 };
 
 export function clearDesktopNotificationContentState(): boolean {
+  notificationContentGeneration += 1;
   if (!canUseLocalStorage()) {
     return typeof window === 'undefined';
   }
@@ -168,7 +170,11 @@ export async function notifyForUnreadChatMessage(request: UnreadChatNotification
   ) {
     return false;
   }
+  const contentGeneration = notificationContentGeneration;
   if (!await ensureNotificationPermission()) {
+    return false;
+  }
+  if (contentGeneration !== notificationContentGeneration) {
     return false;
   }
 
