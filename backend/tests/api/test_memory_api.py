@@ -3304,6 +3304,41 @@ def test_memory_clear_purges_learned_personality_state(monkeypatch) -> None:
     self_memory.clear_learned_state.assert_awaited_once_with()
 
 
+def test_memory_clear_holds_chat_portrait_cache_boundary(monkeypatch) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    boundary_active = False
+
+    class _PortraitService:
+        @asynccontextmanager
+        async def global_data_clear_boundary(self):
+            nonlocal boundary_active
+            boundary_active = True
+            try:
+                yield
+            finally:
+                boundary_active = False
+
+    class _UnifiedMemory(_FakeUnifiedMemory):
+        async def clear_all_memory(self, **kwargs):  # type: ignore[no-untyped-def]
+            assert boundary_active is True
+            return await super().clear_all_memory(**kwargs)
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        _UnifiedMemory,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_chat_portrait_service",
+        _PortraitService,
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    assert boundary_active is False
+
+
 def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")

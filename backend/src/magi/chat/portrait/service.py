@@ -17,8 +17,11 @@ import hashlib
 import logging
 import random
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Callable
 
+from ...core.operation_barrier import AsyncOperationBarrier
 from ...utils.diagnostic_logging import full_content_logging_enabled
 from .cache import CacheKey, PortraitCache
 from .contracts import (
@@ -64,6 +67,8 @@ class PortraitService:
         self._rand = random.Random(random_seed)
         self._pending_jobs: dict[CacheKey, asyncio.Task] = {}
         self._pending_lock = asyncio.Lock()
+        self._request_barrier = AsyncOperationBarrier()
+        self._clear_generation = 0
 
     async def get_portrait(
         self,
@@ -79,6 +84,20 @@ class PortraitService:
         cold-start again. When the task finishes successfully, cache is
         warm and the next poll returns the real payload.
         """
+        async with self._request_barrier.operation():
+            return await self._get_portrait(
+                user_id=user_id,
+                session_id=session_id,
+                force=force,
+            )
+
+    async def _get_portrait(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        force: bool,
+    ) -> ChatPortraitPayload:
         persona_id = await self._active_persona_id()
         if not persona_id:
             return self._cold_start_no_persona(session_id)
@@ -163,6 +182,7 @@ class PortraitService:
                         persona_id=persona_id,
                         messages=messages,
                         key=key,
+                        clear_generation=self._clear_generation,
                     )
                 )
                 logger.info(
@@ -206,6 +226,7 @@ class PortraitService:
         persona_id: str,
         messages: list[dict[str, str]],
         key: CacheKey,
+        clear_generation: int,
     ) -> None:
         """Run the full pipeline. On success, write the cache. On failure,
         do nothing — the next poll (after TTL or new conversation) retries.
@@ -233,6 +254,8 @@ class PortraitService:
             if observations is None:
                 return
 
+            if clear_generation != self._clear_generation:
+                return
             self._cache_portrait_payload(
                 session_id,
                 persona_id=persona_id,
@@ -359,11 +382,35 @@ class PortraitService:
 
     async def _clear_pending_compute(self, key: CacheKey) -> None:
         async with self._pending_lock:
-            # Only pop if the task is ours (paranoid; the same key map
-            # should hold the same task).
             current = self._pending_jobs.get(key)
-            if current is not None and current.done():
+            if current is asyncio.current_task():
                 self._pending_jobs.pop(key, None)
+
+    @asynccontextmanager
+    async def global_data_clear_boundary(self) -> AsyncIterator[None]:
+        """Cancel portrait work and keep the cache empty through a full clear."""
+        async with self._request_barrier.exclusive():
+            self._clear_generation += 1
+            try:
+                await self._cancel_pending_jobs()
+                self._cache.clear()
+                yield
+            finally:
+                self._clear_generation += 1
+                await self._cancel_pending_jobs()
+                self._cache.clear()
+
+    async def _cancel_pending_jobs(self) -> None:
+        async with self._pending_lock:
+            tasks = list(self._pending_jobs.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        async with self._pending_lock:
+            for key, task in list(self._pending_jobs.items()):
+                if task.done():
+                    self._pending_jobs.pop(key, None)
 
     def invalidate_persona(self, persona_id: str) -> None:
         self._cache.invalidate_persona(persona_id)

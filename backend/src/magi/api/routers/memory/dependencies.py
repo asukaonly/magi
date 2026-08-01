@@ -241,6 +241,24 @@ def _resolve_self_memory():
     return getattr(getattr(context, "personality", None), "self_memory", None)
 
 
+def _resolve_chat_portrait_service():
+    override = _package_override(
+        "_resolve_chat_portrait_service",
+        _resolve_chat_portrait_service,
+    )
+    if override is not None:
+        return override()
+    try:
+        from magi.core.runtime_bindings import require_chat_portrait_service
+
+        service = require_chat_portrait_service()
+    except RuntimeError:
+        return None
+    if not callable(getattr(service, "global_data_clear_boundary", None)):
+        return None
+    return service
+
+
 def _resolve_orchestration_store():
     override = _package_override(
         "_resolve_orchestration_store",

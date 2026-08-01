@@ -19,6 +19,7 @@ from .dependencies import (
     _resolve_memory_integration,
     _resolve_channels_module,
     _resolve_channel_session_mapper,
+    _resolve_chat_portrait_service,
     _resolve_background_task_manager,
     _resolve_batch_store,
     _resolve_orchestration_store,
@@ -361,7 +362,15 @@ async def clear_memory_layers():
                     if self_memory is not None:
                         auxiliary_clearers.append(self_memory.clear_learned_state)
                     async with _conversation_delivery_clear_boundary():
-                        async with _resolve_mcp_resource_cache().global_data_clear_boundary():
+                        async with AsyncExitStack() as content_cache_scope:
+                            await content_cache_scope.enter_async_context(
+                                _resolve_mcp_resource_cache().global_data_clear_boundary()
+                            )
+                            portrait_service = _resolve_chat_portrait_service()
+                            if portrait_service is not None:
+                                await content_cache_scope.enter_async_context(
+                                    portrait_service.global_data_clear_boundary()
+                                )
                             try:
                                 counts = await unified_memory.clear_all_memory(
                                     auxiliary_clearers=auxiliary_clearers,

@@ -64,3 +64,18 @@ def test_disk_persistence_roundtrip(tmp_path):
     assert restored is not None
     assert restored.session_id == "s1"
     assert restored.persona_id == "p1"
+
+
+def test_clear_removes_persisted_payload_and_crash_temp_file(tmp_path):
+    path = tmp_path / "cache.json"
+    cache = PortraitCache(ttl_seconds=300, max_entries=10, persistence_path=path)
+    key = ("private-session", "private-hash", "p1")
+    cache.set(key, _payload("private-session", "p1"))
+    crash_temp = tmp_path / ".portrait-cache-orphan.json"
+    crash_temp.write_text("private portrait", encoding="utf-8")
+
+    cache.clear()
+
+    assert cache.get_stale(key) is None
+    assert not path.exists()
+    assert not crash_temp.exists()

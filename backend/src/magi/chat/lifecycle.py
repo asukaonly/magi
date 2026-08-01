@@ -234,6 +234,16 @@ class ChatForgettingRecoveryModule(LifecycleModule):
         global_clear_recovered = (
             await chat_read_service.arecover_interrupted_global_clear()
         )
+        if global_clear_recovered:
+            from .portrait.cache import clear_persisted_portrait_cache
+
+            runtime_paths = require_initialized(
+                self._context.core.runtime_paths,
+                "runtime paths",
+            )
+            clear_persisted_portrait_cache(
+                runtime_paths.cache_dir / "portrait" / "cache.json"
+            )
         chat_store = require_initialized(self._context.chat.store, "chat store")
         runtime_command_queue = require_initialized(
             self._context.runtime_commands.runtime_command_queue,

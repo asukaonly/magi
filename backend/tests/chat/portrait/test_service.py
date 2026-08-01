@@ -193,3 +193,44 @@ async def test_no_active_persona_returns_empty_cold_start(deps):
     assert payload.is_cold_start is True
     assert payload.cold_start_reason == "no_persona"
     assert payload.persona_id == ""
+
+
+@pytest.mark.asyncio
+async def test_global_clear_cancels_compute_and_keeps_cache_empty(deps):
+    compute_started = asyncio.Event()
+
+    async def render_after_cancel(**_kwargs):
+        compute_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            return [
+                ChatPortraitObservation(
+                    kind="reflection",
+                    text="old private observation",
+                    basis_count=1,
+                    basis_summary="old private basis",
+                    basis_refs=["old-memory"],
+                )
+            ]
+
+    messages = [{"role": "user", "content": "old private message"}]
+    deps["message_loader"].return_value = messages
+    deps["persona_loader"].return_value = _persona_detail()
+    deps["topic_extractor"].extract = AsyncMock(
+        return_value=TopicResult(topic="old private topic", entities=["private"])
+    )
+    deps["snippet_fetcher"].return_value = [
+        RawMemorySnippet(id="old-memory", kind="reflection", layer="L3", statement="x"),
+    ]
+    deps["renderer"].render = render_after_cancel
+    service = PortraitService(**deps, active_persona_resolver=_async_returning("p1"))
+
+    await service.get_portrait(user_id="u1", session_id="s1")
+    await compute_started.wait()
+    async with service.global_data_clear_boundary():
+        key = ("s1", service._hash_conversation(messages), "p1")
+        assert service._cache.get_stale(key) is None
+
+    assert service._pending_jobs == {}
+    assert service._cache.get_stale(key) is None

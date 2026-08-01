@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 
 @pytest.mark.asyncio
 async def test_startup_restores_barriers_before_recovering_chat_surfaces(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from magi.bootstrap.context import RuntimeBootstrapContext
     from magi.chat import forgetting as forgetting_module
@@ -97,11 +100,25 @@ async def test_startup_restores_barriers_before_recovering_chat_surfaces(
     )
 
     context = RuntimeBootstrapContext()
+    context.core.runtime_paths = type(
+        "_RuntimePaths",
+        (),
+        {"cache_dir": tmp_path / "cache"},
+    )()
     context.chat.store = object()
     context.memory.unified_memory = _Memory()
     context.runtime_commands.runtime_command_queue = object()
+    portrait_dir = tmp_path / "cache" / "portrait"
+    portrait_dir.mkdir(parents=True)
+    portrait_cache = portrait_dir / "cache.json"
+    portrait_temp = portrait_dir / ".portrait-cache-orphan.json"
+    portrait_cache.write_text("private portrait", encoding="utf-8")
+    portrait_temp.write_text("private temp portrait", encoding="utf-8")
 
     await ChatForgettingRecoveryModule(context).init()
+
+    assert not portrait_cache.exists()
+    assert not portrait_temp.exists()
 
     assert calls == [
         "list-completed-forgets",

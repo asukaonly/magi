@@ -94,7 +94,7 @@ class PortraitCache:
     def clear(self) -> None:
         with self._lock:
             self._data.clear()
-            self._save_to_disk_locked()
+            self._delete_persistence_locked()
 
     # ------------------------------------------------------------------
     # Disk persistence
@@ -163,6 +163,40 @@ class PortraitCache:
                 raise
         except Exception as exc:
             logger.warning("portrait cache save failed (%s): %s", path, exc)
+
+    def _delete_persistence_locked(self) -> None:
+        path = self._persistence_path
+        if path is None:
+            return
+        candidates = [path]
+        if path.parent.exists():
+            candidates.extend(path.parent.glob(".portrait-cache-*.json"))
+        for candidate in candidates:
+            try:
+                candidate.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("portrait cache delete failed (%s): %s", candidate, exc)
+
+
+def clear_persisted_portrait_cache(
+    persistence_path: str | os.PathLike[str],
+) -> int:
+    """Remove the persisted portrait and crash-leftover atomic-write files."""
+    path = Path(persistence_path)
+    candidates = [path]
+    if path.parent.exists():
+        candidates.extend(path.parent.glob(".portrait-cache-*.json"))
+    deleted = 0
+    for candidate in candidates:
+        try:
+            candidate.unlink(missing_ok=False)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            logger.warning("portrait cache delete failed (%s): %s", candidate, exc)
+        else:
+            deleted += 1
+    return deleted
 
 
 def _payload_from_dict(data: dict) -> ChatPortraitPayload:
