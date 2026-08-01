@@ -16,6 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from .contracts import ExtensionFieldSpec
 from .i18n import PluginI18n, get_current_language
+from .user_content import UserContentClearContext
 
 
 @dataclass(slots=True)
@@ -429,6 +430,19 @@ class SensorBase(ABC):
         """Pull-sync entry point for sensors that support active collection."""
         _ = context
         raise NotImplementedError(f"{self.sensor_id} does not implement pull sync")
+
+    async def clear_user_content(self, context: UserContentClearContext) -> None:
+        """Erase sensor-owned local user content during a full product clear.
+
+        Override this when the sensor retains collected or derived payloads,
+        pending batches, or other user content outside host stores. Preserve
+        source-only cursors and watermarks together with plugin settings,
+        credentials, and connected-account state. The hook must be local-only,
+        idempotent, and must not perform network I/O.
+
+        The default is a safe no-op for stateless sensors.
+        """
+        _ = context
 
     async def fetch_item(self, item: dict[str, Any]) -> dict[str, Any]:
         """Optional pre-processing/enrichment before build_output."""

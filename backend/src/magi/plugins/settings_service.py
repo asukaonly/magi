@@ -10,6 +10,7 @@ from typing import Any
 
 from .base import Plugin
 from .operation_execution import (
+    plugin_runtime_operation,
     run_plugin_callback_operation,
     run_plugin_lifecycle_operation,
 )
@@ -107,18 +108,19 @@ class PluginSettingsService:
     ) -> PluginSettingsActionRun:
         """Start a plugin-owned settings action and return its session envelope."""
 
-        spec, plugin_instance = await run_plugin_callback_operation(
-            lambda: self._resolve_settings_action(plugin_id, action_id)
-        )
-        session_id = secrets.token_urlsafe(18)
-        result = await self._call_settings_action_start(
-            plugin_instance,
-            action_id,
-            session_id=session_id,
-            field_values=field_values,
-        )
-        await self._persist_successful_action_updates(plugin_id, spec, result)
-        return PluginSettingsActionRun(session_id=session_id, result=result)
+        async with plugin_runtime_operation():
+            spec, plugin_instance = await run_plugin_callback_operation(
+                lambda: self._resolve_settings_action(plugin_id, action_id)
+            )
+            session_id = secrets.token_urlsafe(18)
+            result = await self._call_settings_action_start(
+                plugin_instance,
+                action_id,
+                session_id=session_id,
+                field_values=field_values,
+            )
+            await self._persist_successful_action_updates(plugin_id, spec, result)
+            return PluginSettingsActionRun(session_id=session_id, result=result)
 
     async def poll_plugin_settings_action(
         self,
@@ -130,17 +132,18 @@ class PluginSettingsService:
     ) -> PluginSettingsActionRun:
         """Poll a plugin-owned settings action session."""
 
-        spec, plugin_instance = await run_plugin_callback_operation(
-            lambda: self._resolve_settings_action(plugin_id, action_id)
-        )
-        result = await self._call_settings_action_poll(
-            plugin_instance,
-            action_id,
-            session_id=session_id,
-            field_values=field_values,
-        )
-        await self._persist_successful_action_updates(plugin_id, spec, result)
-        return PluginSettingsActionRun(session_id=session_id, result=result)
+        async with plugin_runtime_operation():
+            spec, plugin_instance = await run_plugin_callback_operation(
+                lambda: self._resolve_settings_action(plugin_id, action_id)
+            )
+            result = await self._call_settings_action_poll(
+                plugin_instance,
+                action_id,
+                session_id=session_id,
+                field_values=field_values,
+            )
+            await self._persist_successful_action_updates(plugin_id, spec, result)
+            return PluginSettingsActionRun(session_id=session_id, result=result)
 
     async def cancel_plugin_settings_action(
         self,
@@ -151,23 +154,24 @@ class PluginSettingsService:
     ) -> PluginSettingsActionRun:
         """Cancel a plugin-owned settings action session."""
 
-        plugin_instance = (
-            await run_plugin_callback_operation(
-                lambda: self._resolve_settings_action(plugin_id, action_id)
+        async with plugin_runtime_operation():
+            plugin_instance = (
+                await run_plugin_callback_operation(
+                    lambda: self._resolve_settings_action(plugin_id, action_id)
+                )
+            )[1]
+            result = await run_plugin_callback_operation(
+                lambda: plugin_instance.cancel_settings_action(
+                    action_id,
+                    session_id=session_id,
+                )
             )
-        )[1]
-        result = await run_plugin_callback_operation(
-            lambda: plugin_instance.cancel_settings_action(
-                action_id,
+            if inspect.isawaitable(result):
+                result = await result
+            return PluginSettingsActionRun(
                 session_id=session_id,
+                result=self._coerce_settings_action_result(result),
             )
-        )
-        if inspect.isawaitable(result):
-            result = await result
-        return PluginSettingsActionRun(
-            session_id=session_id,
-            result=self._coerce_settings_action_result(result),
-        )
 
     def _ensure_loaded_plugin(self, plugin_id: str) -> Plugin:
         state = self._require_package(plugin_id)

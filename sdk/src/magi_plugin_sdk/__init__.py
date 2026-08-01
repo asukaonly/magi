@@ -44,6 +44,7 @@ from .ingress import (
     PluginIngressEventRecord,
     PluginIngressHandlerRegistration,
 )
+from .user_content import UserContentClearContext, UserContentClearRequest
 from .contracts import (
     ActivationFlowSpec,
     ActivationFirstContextSpec,
@@ -179,6 +180,9 @@ __all__ = [
     "PluginIngressEventHandler",
     "PluginIngressEventRecord",
     "PluginIngressHandlerRegistration",
+    # User-content clear lifecycle
+    "UserContentClearContext",
+    "UserContentClearRequest",
     # Sensor
     "ActivityFacet",
     "ContentBlock",

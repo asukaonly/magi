@@ -154,6 +154,56 @@ Instead, lifecycle work is split across runtime services:
 - `PluginProjectionService` owns plugin-provided memory summary, extraction profile, and recall artifact projection
 - dedicated runtime modules own execution after registration, such as tool execution, sensor sync, channel delivery, memory projection, and plugin ingress processing
 
+### Full-clear lifecycle
+
+Plugin-owned files and databases participate in the product's **Clear all data**
+operation through the shared SDK `clear_user_content()` lifecycle. The host
+captures one stable snapshot of every installed non-library plugin, its sensors,
+and its settings, then calls every plugin hook followed by every sensor hook.
+Loaded plugins reuse their registered instances. Disabled plugins are
+instantiated temporarily without changing enabled state or registering any
+contribution; their sensor hooks and channel inbound-clear boundary are included
+before the temporary instance is shut down and unloaded again. Loaded channels
+remain owned by the composed channel clear boundary, avoiding nested entry of
+the same live adapter. An untrusted, broken, or
+dependency-incomplete package is reported as a failed clear target instead of
+being silently skipped. A failing
+hook does not prevent later hooks or the remaining global stores from being
+attempted; the API still reports the aggregate failure instead of claiming that
+the clear succeeded.
+
+The plugin operation boundary drains active installs, lifecycle mutations,
+callbacks, and settings actions before hooks begin and blocks new ones until the
+global clear finishes. The sensor sync executor is stopped and joined before the
+snapshot is taken. Existing full-clear boundaries continue to block runtime
+commands, scheduler claims, tool execution, channels, and plugin ingress, so
+there is one composed deletion transaction rather than an independent plugin
+clear path.
+
+The runtime command queue's shared clear generation is the only generation
+authority. `message_queue.db` stores a plugin-specific applied checkpoint; it is
+not a global clear completion ledger. The API advances this plugin checkpoint
+only after every plugin/sensor hook, every other global store, and
+diagnostic-log erasure complete. Sensor collection restarts in a paused state, the checkpoint is
+written, and only then is job claiming released, so collection cannot recreate
+content before durable completion exists. The checkpoint is not advanced on
+hook failure, cancellation, a later global-clear failure, incomplete log
+erasure, or sensor executor recovery failure. In those cases collection stays
+stopped. A later
+successful retry in the same process may resume it. After a process restart,
+the plugin lifecycle detects a pending shared generation and blocks later
+sensor, channel, scheduler, and ingress startup. It deliberately does not replay
+only plugin hooks and then claim that a possibly interrupted cross-store clear
+finished. Hooks are still required to be idempotent for the full-clear recovery
+owner that replays the complete transaction.
+
+The SDK context includes runtime paths, plugin and optional sensor identity, and
+a recursively immutable settings snapshot. Its policy is local-only deletion:
+hooks remove plugin-owned user content and pending/derived artifacts while
+preserving package files, settings, credentials, connected accounts,
+permissions, and source progress. Remote deletion or account revocation is not
+part of this lifecycle.
+
 ### Sideload Package Boundary
 
 Installing a plugin from a local archive is a two-step, single-upload flow:

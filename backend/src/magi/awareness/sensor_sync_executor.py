@@ -82,6 +82,7 @@ class SensorSyncExecutor:
         self._owner_loop: asyncio.AbstractEventLoop | None = None
         self._stop_event: asyncio.Event | None = None
         self._stop_requested: threading.Event | None = None
+        self._resume_requested: threading.Event | None = None
         self._execution_lock: asyncio.Lock | None = None
         self._post_sync_lock = threading.Lock()
         self._post_sync_sources: set[str] = set()
@@ -95,7 +96,9 @@ class SensorSyncExecutor:
             self._reap_exited_thread_locked()
             return self._state
 
-    async def start(self) -> None:
+    async def start(self, *, paused: bool = False) -> None:
+        """Start the worker, optionally keeping it unable to claim jobs."""
+
         owner_loop = asyncio.get_running_loop()
         with self._lifecycle_lock:
             self._reap_exited_thread_locked()
@@ -114,12 +117,16 @@ class SensorSyncExecutor:
                 raise RuntimeError("Previous sensor sync executor worker has not exited")
 
             stop_requested = threading.Event()
+            resume_requested = threading.Event()
+            if not paused:
+                resume_requested.set()
             self._owner_loop = owner_loop
             self._stop_requested = stop_requested
+            self._resume_requested = resume_requested
             self._ready.clear()
             thread = threading.Thread(
                 target=self._run_thread,
-                args=(stop_requested,),
+                args=(stop_requested, resume_requested),
                 name=self._worker_id,
                 daemon=True,
             )
@@ -133,12 +140,23 @@ class SensorSyncExecutor:
                     self._thread = None
                     self._owner_loop = None
                     self._stop_requested = None
+                    self._resume_requested = None
                     self._state = SensorSyncExecutorState.STOPPED
                 raise
 
         ready = await asyncio.to_thread(self._ready.wait, 5.0)
         if not ready:
             await self._handle_start_timeout(thread, stop_requested)
+
+    def resume(self) -> None:
+        """Release a successfully started paused worker to claim jobs."""
+
+        with self._lifecycle_lock:
+            self._reap_exited_thread_locked()
+            resume_requested = self._resume_requested
+            if self._state is not SensorSyncExecutorState.RUNNING or resume_requested is None:
+                raise RuntimeError("Sensor sync executor is not ready to resume")
+            resume_requested.set()
 
     async def stop(self) -> None:
         with self._lifecycle_lock:
@@ -212,10 +230,15 @@ class SensorSyncExecutor:
         self._owner_loop = None
         self._stop_event = None
         self._stop_requested = None
+        self._resume_requested = None
         self._execution_lock = None
         self._state = SensorSyncExecutorState.STOPPED
 
-    def _run_thread(self, stop_requested: threading.Event) -> None:
+    def _run_thread(
+        self,
+        stop_requested: threading.Event,
+        resume_requested: threading.Event,
+    ) -> None:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         stop_event = asyncio.Event()
@@ -231,7 +254,7 @@ class SensorSyncExecutor:
             stop_event.set()
         self._ready.set()
         try:
-            loop.run_until_complete(self._run_loop())
+            loop.run_until_complete(self._run_loop(resume_requested))
         finally:
             try:
                 loop.run_until_complete(loop.shutdown_asyncgens())
@@ -245,13 +268,19 @@ class SensorSyncExecutor:
                         self._loop = None
                         self._owner_loop = None
                         self._stop_event = None
+                        self._resume_requested = None
                         self._execution_lock = None
 
-    async def _run_loop(self) -> None:
-        await self._repository.recover_running_sensor_sync_jobs()
+    async def _run_loop(self, resume_requested: threading.Event) -> None:
         stop_event = self._stop_event
         if stop_event is None:
             raise RuntimeError("Sensor sync executor stop event was not initialized")
+        while not resume_requested.is_set():
+            if stop_event.is_set():
+                return
+            await self._wait_for_next_poll(stop_event)
+
+        await self._repository.recover_running_sensor_sync_jobs()
 
         while not stop_event.is_set():
             try:

@@ -30,6 +30,7 @@ from .sensor_state import (
 )
 from .sensor_sync import PluginRuntimePaths, PullSyncSensor, SensorSyncContext, SensorSyncResult
 from .ingestion_gateway import SensorIngestionGateway, SensorIngestionResult
+from magi_plugin_sdk import UserContentClearContext, UserContentClearRequest
 
 __all__ = [
     "SensorEvent",
@@ -57,4 +58,6 @@ __all__ = [
     "SensorSyncContext",
     "SensorSyncResult",
     "SqliteSensorStateStore",
+    "UserContentClearContext",
+    "UserContentClearRequest",
 ]

@@ -20,6 +20,7 @@ from .contracts import (
 from .ingress import PluginIngressHandlerRegistration
 from .i18n import PluginI18n, get_current_language
 from .sensors import PluginRuntimePaths, SensorSpec
+from .user_content import UserContentClearContext
 
 
 class Plugin(ABC):
@@ -91,6 +92,20 @@ class Plugin(ABC):
         multiple times. Should not raise; the host will log and continue
         if you do, but the next reload will still proceed.
         """
+
+    async def clear_user_content(self, context: UserContentClearContext) -> None:
+        """Erase plugin-owned local user content during a full product clear.
+
+        Override this when the plugin retains collected content, derived
+        content, buffered events, or unfinished user-content work outside the
+        host stores. Keep the package, settings, credentials, connected-account
+        state, and source-only cursors or watermarks. This hook must use local
+        state only, perform no network I/O, and be idempotent because recovery
+        may invoke the same generation again.
+
+        The default is a safe no-op for stateless plugins.
+        """
+        _ = context
 
     def t(
         self,

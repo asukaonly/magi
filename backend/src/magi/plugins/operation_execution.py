@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from functools import wraps
 import threading
 from typing import Any, Iterator, TypeVar
+from weakref import WeakKeyDictionary
+
+from ..core.operation_barrier import AsyncOperationBarrier
 
 _ResultT = TypeVar("_ResultT")
 MAX_CONCURRENT_PLUGIN_PREPARATIONS = 2
@@ -31,6 +34,37 @@ _PLUGIN_CALLBACK_EXECUTOR = ThreadPoolExecutor(
 )
 _PLUGIN_PREPARATION_GATE = threading.BoundedSemaphore(MAX_CONCURRENT_PLUGIN_PREPARATIONS)
 _PLUGIN_PREPARATION_LOCAL = threading.local()
+_PLUGIN_OPERATION_BARRIERS: WeakKeyDictionary[
+    asyncio.AbstractEventLoop,
+    AsyncOperationBarrier,
+] = WeakKeyDictionary()
+_PLUGIN_OPERATION_BARRIERS_LOCK = threading.Lock()
+
+
+def _current_plugin_operation_barrier() -> AsyncOperationBarrier:
+    loop = asyncio.get_running_loop()
+    with _PLUGIN_OPERATION_BARRIERS_LOCK:
+        barrier = _PLUGIN_OPERATION_BARRIERS.get(loop)
+        if barrier is None:
+            barrier = AsyncOperationBarrier()
+            _PLUGIN_OPERATION_BARRIERS[loop] = barrier
+        return barrier
+
+
+@asynccontextmanager
+async def plugin_runtime_operation() -> AsyncIterator[None]:
+    """Keep one plugin lifecycle or callback operation outside full clear."""
+
+    async with _current_plugin_operation_barrier().operation():
+        yield
+
+
+@asynccontextmanager
+async def plugin_user_content_clear_boundary() -> AsyncIterator[None]:
+    """Block new plugin lifecycle and settings work and drain admitted work."""
+
+    async with _current_plugin_operation_barrier().exclusive():
+        yield
 
 
 def serialize_plugin_archive_operation(
@@ -56,12 +90,13 @@ def _run_serialized(operation: Callable[[], _ResultT]) -> _ResultT:
 async def run_plugin_archive_operation(operation: Callable[[], _ResultT]) -> _ResultT:
     """Queue archive work on one dedicated worker without occupying the shared pool."""
 
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        _ARCHIVE_OPERATION_EXECUTOR,
-        _run_serialized,
-        operation,
-    )
+    async with plugin_runtime_operation():
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            _ARCHIVE_OPERATION_EXECUTOR,
+            _run_serialized,
+            operation,
+        )
 
 
 @contextmanager
@@ -91,12 +126,13 @@ async def run_plugin_preparation_operation(
 ) -> _ResultT:
     """Run bounded package preparation without occupying the shared pool."""
 
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        _PLUGIN_PREPARATION_EXECUTOR,
-        _run_preparation,
-        operation,
-    )
+    async with plugin_runtime_operation():
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            _PLUGIN_PREPARATION_EXECUTOR,
+            _run_preparation,
+            operation,
+        )
 
 
 async def run_plugin_lifecycle_operation(
@@ -104,11 +140,12 @@ async def run_plugin_lifecycle_operation(
 ) -> _ResultT:
     """Run a lifecycle mutation on one dedicated worker."""
 
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        _PLUGIN_LIFECYCLE_EXECUTOR,
-        operation,
-    )
+    async with plugin_runtime_operation():
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            _PLUGIN_LIFECYCLE_EXECUTOR,
+            operation,
+        )
 
 
 async def run_plugin_callback_operation(
@@ -116,16 +153,19 @@ async def run_plugin_callback_operation(
 ) -> _ResultT:
     """Run untrusted synchronous plugin callbacks outside the event loop."""
 
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        _PLUGIN_CALLBACK_EXECUTOR,
-        operation,
-    )
+    async with plugin_runtime_operation():
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            _PLUGIN_CALLBACK_EXECUTOR,
+            operation,
+        )
 
 
 __all__ = [
     "MAX_CONCURRENT_PLUGIN_PREPARATIONS",
     "plugin_preparation_slot",
+    "plugin_runtime_operation",
+    "plugin_user_content_clear_boundary",
     "run_plugin_archive_operation",
     "run_plugin_callback_operation",
     "run_plugin_lifecycle_operation",

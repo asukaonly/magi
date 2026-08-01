@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from functools import wraps
 import importlib
 import importlib.util
@@ -33,7 +34,7 @@ from .installation import PluginDirectoryInstallOutcome, PluginInstallationMixin
 from .package_integrity import package_identity_error
 from .provisional_dependencies import ProvisionalLibraryReceipt
 from .projections import PluginProjectionService
-from .sensors import SensorRegistry
+from .sensors import RegisteredSensorSnapshot, SensorRegistry
 from .settings_service import PluginSettingsActionRun, PluginSettingsService
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,34 @@ class PluginRuntimeBindings:
     plugin_manager: "PluginManager"
     plugin_projection_service: PluginProjectionService
     sensor_registry: SensorRegistry
+
+
+@dataclass(frozen=True, slots=True)
+class PluginUserContentTargetPreparationFailure:
+    """Installed plugin that could not be prepared for local deletion."""
+
+    plugin_id: str
+    error: Exception
+
+
+@dataclass(frozen=True, slots=True)
+class PluginUserContentChannelTarget:
+    """Channel created only to clear one disabled plugin's local state."""
+
+    plugin_id: str
+    channel_type: str
+    channel: Any
+
+
+@dataclass(frozen=True, slots=True)
+class PluginUserContentTargetSnapshot:
+    """Installed plugin and sensor clear targets captured atomically."""
+
+    plugins: tuple[tuple[str, Plugin, dict[str, Any]], ...]
+    sensors: tuple[RegisteredSensorSnapshot, ...]
+    channels: tuple[PluginUserContentChannelTarget, ...] = ()
+    temporary_plugin_ids: frozenset[str] = frozenset()
+    preparation_failures: tuple[PluginUserContentTargetPreparationFailure, ...] = ()
 
 
 def build_plugin_runtime(
@@ -102,6 +131,7 @@ class PluginManager(PluginInstallationMixin):
         request_sensor_schedule_refresh: Callable[[], None],
     ) -> None:
         self._search_paths = list(search_paths)
+        self._sensor_registry = sensor_registry
         self._request_sensor_schedule_refresh = request_sensor_schedule_refresh
         self._package_states: dict[str, PluginPackageState] = {}
         self._plugin_instances: dict[str, Plugin] = {}
@@ -260,6 +290,116 @@ class PluginManager(PluginInstallationMixin):
         """Return currently loaded plugin instances."""
         with self._lifecycle_write_lock:
             return list(self._plugin_instances.values())
+
+    def snapshot_user_content_clear_targets(self) -> PluginUserContentTargetSnapshot:
+        """Capture every installed non-library plugin without registering it."""
+
+        with self._lifecycle_write_lock:
+            plugins: list[tuple[str, Plugin, dict[str, Any]]] = []
+            sensors = list(self._sensor_registry.snapshot_user_content_clear_targets())
+            channels: list[PluginUserContentChannelTarget] = []
+            temporary_plugin_ids: set[str] = set()
+            preparation_failures: list[PluginUserContentTargetPreparationFailure] = []
+            for plugin_id, state in sorted(self._package_states.items()):
+                if state.manifest.kind == "library":
+                    continue
+                settings = deepcopy(state.current_settings)
+                plugin = self._plugin_instances.get(plugin_id)
+                if plugin is None:
+                    if not state.trusted and state.manifest.source != "builtin":
+                        preparation_failures.append(
+                            PluginUserContentTargetPreparationFailure(
+                                plugin_id=plugin_id,
+                                error=RuntimeError(
+                                    f"Plugin {plugin_id} is not trusted for clear execution"
+                                ),
+                            )
+                        )
+                        continue
+                    try:
+                        plugin = self._instantiate_plugin(state.manifest, settings)
+                    except Exception as exc:
+                        self._purge_plugin_modules(plugin_id)
+                        preparation_failures.append(
+                            PluginUserContentTargetPreparationFailure(
+                                plugin_id=plugin_id,
+                                error=exc,
+                            )
+                        )
+                        continue
+                    temporary_plugin_ids.add(plugin_id)
+                    try:
+                        sensor_contributions = list(plugin.get_sensors())
+                        for sensor_id, sensor, _spec in sensor_contributions:
+                            bind_plugin_context = getattr(
+                                sensor,
+                                "bind_plugin_context",
+                                None,
+                            )
+                            if callable(bind_plugin_context):
+                                bind_plugin_context(
+                                    plugin_id=plugin_id,
+                                    plugin_dir=state.manifest.plugin_dir,
+                                )
+                            sensors.append(
+                                RegisteredSensorSnapshot(
+                                    plugin_id=plugin_id,
+                                    sensor_id=sensor_id,
+                                    sensor=sensor,
+                                )
+                            )
+                    except Exception as exc:
+                        preparation_failures.append(
+                            PluginUserContentTargetPreparationFailure(
+                                plugin_id=plugin_id,
+                                error=exc,
+                            )
+                        )
+                    try:
+                        channel = plugin.get_channel()
+                        if channel is not None:
+                            channels.append(
+                                PluginUserContentChannelTarget(
+                                    plugin_id=plugin_id,
+                                    channel_type=str(channel.channel_type),
+                                    channel=channel,
+                                )
+                            )
+                    except Exception as exc:
+                        preparation_failures.append(
+                            PluginUserContentTargetPreparationFailure(
+                                plugin_id=plugin_id,
+                                error=exc,
+                            )
+                        )
+                plugins.append((plugin_id, plugin, settings))
+            return PluginUserContentTargetSnapshot(
+                plugins=tuple(plugins),
+                sensors=tuple(
+                    sorted(
+                        sensors,
+                        key=lambda item: (item.plugin_id, item.sensor_id),
+                    )
+                ),
+                channels=tuple(
+                    sorted(
+                        channels,
+                        key=lambda item: (item.plugin_id, item.channel_type),
+                    )
+                ),
+                temporary_plugin_ids=frozenset(temporary_plugin_ids),
+                preparation_failures=tuple(preparation_failures),
+            )
+
+    def release_temporary_user_content_clear_target(self, plugin_id: str) -> None:
+        """Remove modules imported only to clear one disabled plugin."""
+
+        with self._lifecycle_write_lock:
+            if plugin_id in self._plugin_instances:
+                raise RuntimeError(
+                    f"Loaded plugin {plugin_id} cannot be released as a temporary target"
+                )
+            self._purge_plugin_modules(plugin_id)
 
     @_serialized_lifecycle_mutation
     def load_plugin(self, plugin_id: str) -> PluginPackageState:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from types import SimpleNamespace
-from typing import Callable
+from typing import Any, Callable
 
 import pytest
 
@@ -13,8 +13,8 @@ from magi.plugins.lifecycle import PluginSystemModule
 
 def _patch_plugin_runtime(
     monkeypatch: pytest.MonkeyPatch,
-) -> dict[str, Callable[[], None]]:
-    captured: dict[str, Callable[[], None]] = {}
+) -> dict[str, Any]:
+    captured: dict[str, Any] = {}
 
     def build_plugin_runtime(
         *,
@@ -33,7 +33,37 @@ def _patch_plugin_runtime(
         "magi.plugins.lifecycle.build_plugin_runtime",
         build_plugin_runtime,
     )
+
+    class _ClearCoordinator:
+        def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+            captured["clear_coordinator_kwargs"] = kwargs
+
+        async def require_no_pending_generation(self) -> None:
+            captured["clear_checked"] = True
+            failure = captured.get("clear_check_failure")
+            if failure is not None:
+                raise failure
+
+    monkeypatch.setattr(
+        "magi.plugins.lifecycle.PluginUserContentClearCoordinator",
+        _ClearCoordinator,
+    )
     return captured
+
+
+def _runtime_context() -> RuntimeBootstrapContext:
+    context = RuntimeBootstrapContext()
+    context.core.runtime_paths = SimpleNamespace(
+        message_queue_db_path="/tmp/plugin-lifecycle-message-queue.db"
+    )
+
+    async def read_current_clear_generation() -> int:
+        return 0
+
+    context.runtime_commands.runtime_command_queue = SimpleNamespace(
+        read_current_clear_generation=read_current_clear_generation
+    )
+    return context
 
 
 @pytest.mark.asyncio
@@ -41,7 +71,7 @@ async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
-    context = RuntimeBootstrapContext()
+    context = _runtime_context()
     runtime_thread_id = threading.get_ident()
     refresh_called = asyncio.Event()
     refresh_thread_ids: list[int] = []
@@ -57,6 +87,9 @@ async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
         request_sensor_schedule_refresh=refresh_sensor_schedule,
     )
     await module.init()
+
+    assert "clear_checked" in captured
+    assert context.plugins.user_content_clear_coordinator is not None
 
     worker_errors: list[BaseException] = []
 
@@ -80,7 +113,7 @@ async def test_sensor_schedule_refresh_is_ignored_after_shutdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
-    context = RuntimeBootstrapContext()
+    context = _runtime_context()
     refresh_thread_ids: list[int] = []
     module = PluginSystemModule(
         context,
@@ -100,7 +133,7 @@ def test_sensor_schedule_refresh_is_ignored_after_runtime_loop_closes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
-    context = RuntimeBootstrapContext()
+    context = _runtime_context()
     refresh_thread_ids: list[int] = []
     module = PluginSystemModule(
         context,
@@ -126,3 +159,23 @@ def test_sensor_schedule_refresh_is_ignored_after_runtime_loop_closes(
     assert not worker.is_alive()
     assert worker_errors == []
     assert refresh_thread_ids == []
+
+
+@pytest.mark.asyncio
+async def test_pending_full_clear_blocks_later_runtime_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = _patch_plugin_runtime(monkeypatch)
+    captured["clear_check_failure"] = RuntimeError("full clear remains pending")
+    context = _runtime_context()
+    module = PluginSystemModule(
+        context,
+        tool_registry=object(),
+        request_sensor_schedule_refresh=lambda: None,
+    )
+
+    with pytest.raises(RuntimeError, match="full clear remains pending"):
+        await module.init()
+
+    assert captured["clear_checked"] is True
+    assert context.agent_runtime.sensor_sync_executor is None

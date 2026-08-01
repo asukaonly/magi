@@ -27,6 +27,8 @@ from magi_plugin_sdk import (  # noqa: F401
     SettingsUIBlockSpec,
     SuggestionSurfaceSpec,
     SuggestionSurfacesSpec,
+    UserContentClearContext,
+    UserContentClearRequest,
     configure_basic_logging,
     get_logger,
 )
@@ -60,6 +62,8 @@ __all__ = [
     "SettingsUIBlockSpec",
     "SuggestionSurfaceSpec",
     "SuggestionSurfacesSpec",
+    "UserContentClearContext",
+    "UserContentClearRequest",
     "configure_basic_logging",
     "get_logger",
 ]

@@ -23,6 +23,7 @@ from magi.memory.event_contracts import (
 from magi.memory.evidence import L1RetrievalScope
 from magi.memory.hybrid_retrieval import RetrievalPayload
 from magi.memory.operation_barrier import AsyncOperationBarrier
+from magi.plugins.user_content_clear import PluginUserContentClearRecoveryError
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
 
@@ -200,6 +201,32 @@ def _isolate_control_user_content_clear_boundary(monkeypatch):
         lambda: coordinator,
     )
     return coordinator
+
+
+@pytest.fixture(autouse=True)
+def _isolate_plugin_user_content_clear_boundary(monkeypatch):
+    session = SimpleNamespace(
+        mark_surrounding_clear_failed=Mock(),
+        clear_user_content=AsyncMock(
+            return_value=SimpleNamespace(
+                clear_generation=1,
+                attempted=0,
+                cleared=0,
+                failures=(),
+            )
+        )
+    )
+
+    @asynccontextmanager
+    async def boundary():
+        yield session
+
+    coordinator = SimpleNamespace(user_content_clear_boundary=boundary)
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_plugin_user_content_clear",
+        lambda: coordinator,
+    )
+    return coordinator, session
 
 
 class _FakeL0Store:
@@ -2440,7 +2467,9 @@ def test_memory_clear_api_clears_all_layers(
                 "scheduler-enter",
                 "background-enter",
                 "control-enter",
+                "plugin-enter",
                 "tools-enter",
+                "plugin-clear",
                 "scheduler-clear",
             ]
             clear_order.append("chat")
@@ -2469,7 +2498,9 @@ def test_memory_clear_api_clears_all_layers(
             "scheduler-enter",
             "background-enter",
             "control-enter",
+            "plugin-enter",
             "tools-enter",
+            "plugin-clear",
         ]
         clear_order.append("scheduler-clear")
 
@@ -2488,12 +2519,41 @@ def test_memory_clear_api_clears_all_layers(
             "scheduler-enter",
             "background-enter",
             "control-enter",
+            "plugin-enter",
         ]
         clear_order.append("tools-enter")
         try:
             yield
         finally:
             clear_order.append("tools-exit")
+
+    class _PluginClearSession:
+        def mark_surrounding_clear_failed(self, _error):  # type: ignore[no-untyped-def]
+            return None
+
+        async def clear_user_content(self, request):  # type: ignore[no-untyped-def]
+            assert request.clear_generation == 1
+            assert clear_order == [
+                "scheduler-enter",
+                "background-enter",
+                "control-enter",
+                "plugin-enter",
+                "tools-enter",
+            ]
+            clear_order.append("plugin-clear")
+
+    @asynccontextmanager
+    async def plugin_content_boundary():
+        assert clear_order == [
+            "scheduler-enter",
+            "background-enter",
+            "control-enter",
+        ]
+        clear_order.append("plugin-enter")
+        try:
+            yield _PluginClearSession()
+        finally:
+            clear_order.append("plugin-exit")
 
     background_task_manager = SimpleNamespace(
         conversation_scope_boundary=background_scope_boundary,
@@ -2528,6 +2588,12 @@ def test_memory_clear_api_clears_all_layers(
         ),
     )
     monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_plugin_user_content_clear",
+        lambda: SimpleNamespace(
+            user_content_clear_boundary=plugin_content_boundary
+        ),
+    )
+    monkeypatch.setattr(
         "magi.api.routers.memory.overview_routes._resolve_tool_registry",
         lambda: SimpleNamespace(user_content_clear_boundary=tool_content_boundary),
     )
@@ -2551,12 +2617,15 @@ def test_memory_clear_api_clears_all_layers(
         "scheduler-enter",
         "background-enter",
         "control-enter",
+        "plugin-enter",
         "tools-enter",
+        "plugin-clear",
         "scheduler-clear",
         "chat",
         "background-history-cleared",
         "memory-finished",
         "tools-exit",
+        "plugin-exit",
         "control-exit",
         "background-exit",
         "scheduler-exit",
@@ -2882,6 +2951,110 @@ def test_memory_clear_rejects_when_control_boundary_is_unavailable(monkeypatch):
     assert response.status_code == 503
     assert response.json()["detail"] == "Control plane not initialized"
     unified.clear_all_memory.assert_not_awaited()
+
+
+def test_memory_clear_rejects_when_plugin_boundary_is_unavailable(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    unified = _FakeUnifiedMemory()
+    unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: unified,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_plugin_user_content_clear",
+        lambda: None,
+    )
+
+    with language_context("en"):
+        response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Plugin runtime not initialized"
+    unified.clear_all_memory.assert_not_awaited()
+
+
+def test_plugin_clear_failure_does_not_skip_scheduler_chat_or_log_cleanup(
+    monkeypatch,
+    _isolate_scheduler_clear_boundary,
+    _isolate_diagnostic_log_cleanup,
+) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    chat_clear = AsyncMock(return_value=2)
+    chat_complete = AsyncMock(return_value=True)
+
+    class _ChatReadService:
+        aclear_all_sessions = chat_clear
+        acomplete_global_clear = chat_complete
+
+    class _FailedPluginClearSession:
+        def mark_surrounding_clear_failed(self, _error):  # type: ignore[no-untyped-def]
+            return None
+
+        async def clear_user_content(self, request):  # type: ignore[no-untyped-def]
+            assert request.clear_generation == 1
+            raise RuntimeError("plugin cache unavailable")
+
+    @asynccontextmanager
+    async def plugin_boundary():
+        yield _FailedPluginClearSession()
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        _FakeUnifiedMemory,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _ChatReadService(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_plugin_user_content_clear",
+        lambda: SimpleNamespace(user_content_clear_boundary=plugin_boundary),
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear"
+    )
+
+    assert response.status_code == 500
+    _isolate_scheduler_clear_boundary.clear_user_data.assert_awaited_once_with()
+    chat_clear.assert_awaited_once_with()
+    chat_complete.assert_awaited_once_with()
+    _isolate_diagnostic_log_cleanup.assert_awaited_once_with()
+
+
+def test_plugin_clear_recovery_failure_is_not_reported_as_success(
+    monkeypatch,
+    _isolate_diagnostic_log_cleanup,
+) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    @asynccontextmanager
+    async def plugin_boundary():
+        yield SimpleNamespace(clear_user_content=AsyncMock(return_value=None))
+        raise PluginUserContentClearRecoveryError(
+            clear_error=None,
+            recovery_error=RuntimeError("executor restart failed"),
+        )
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        _FakeUnifiedMemory,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_plugin_user_content_clear",
+        lambda: SimpleNamespace(user_content_clear_boundary=plugin_boundary),
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear"
+    )
+
+    assert response.status_code == 500
+    _isolate_diagnostic_log_cleanup.assert_awaited_once_with()
 
 
 def test_memory_clear_keeps_global_intent_when_background_history_cleanup_fails(
@@ -3222,7 +3395,7 @@ def test_memory_clear_finishes_data_clear_when_sensor_queue_cleanup_fails(
     task_agent_manager.resume_chat_work.assert_awaited_once()
 
 
-def test_memory_clear_warns_when_diagnostic_logs_cannot_be_fully_erased(
+def test_memory_clear_fails_when_diagnostic_logs_cannot_be_fully_erased(
     monkeypatch,
     _isolate_diagnostic_log_cleanup,
 ) -> None:
@@ -3236,11 +3409,29 @@ def test_memory_clear_warns_when_diagnostic_logs_cannot_be_fully_erased(
         "magi.api.routers.memory._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
     )
+    boundary_failures: list[BaseException] = []
 
-    response = TestClient(app).delete("/api/memory/clear")
+    class _LogFailureSession:
+        clear_user_content = AsyncMock(return_value=None)
 
-    assert response.status_code == 200
-    assert response.json()["warnings"] == ["diagnostic_log_cleanup_failed"]
+        def mark_surrounding_clear_failed(self, error):  # type: ignore[no-untyped-def]
+            boundary_failures.append(error)
+
+    @asynccontextmanager
+    async def plugin_boundary():
+        yield _LogFailureSession()
+
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_plugin_user_content_clear",
+        lambda: SimpleNamespace(user_content_clear_boundary=plugin_boundary),
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear"
+    )
+
+    assert response.status_code == 500
+    assert len(boundary_failures) == 1
 
 
 def test_memory_clear_reports_success_when_physical_chat_cleanup_is_pending(

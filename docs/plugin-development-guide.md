@@ -166,6 +166,50 @@ class ExamplePlugin(Plugin):
 
 The runtime will call `configure()` before registration, so `self.manifest` and `self.settings` are available inside your plugin instance.
 
+### User-content clear contract
+
+Every plugin and every `SensorBase` contribution inherits an async
+`clear_user_content(context)` hook. The default implementation is an idempotent
+no-op and is suitable only when that object retains no user content of its own.
+
+Override the hook when the plugin or sensor keeps any local copy of raw source
+items, prompts, queries, fetched bodies, generated results, derived indexes,
+temporary files, pending batches, or background-run state. The host invokes both
+the plugin-level and sensor-level hooks during **Clear all data**, including for
+installed plugins that are currently disabled, so each hook must delete only
+the files and records that object owns. A disabled plugin is instantiated only
+for deletion and then shut down; it is not enabled and none of its contributions
+are registered. If it contributes a channel, the host also enters that
+channel's existing local-only `inbound_clear_boundary`; channel plugins must
+keep that boundary idempotent and independent of provider availability.
+
+```python
+from magi_plugin_sdk import Plugin, UserContentClearContext
+
+
+class ExamplePlugin(Plugin):
+    async def clear_user_content(self, context: UserContentClearContext) -> None:
+        cache_dir = context.runtime_paths.plugin_cache_dir(context.plugin_id)
+        # Delete only this plugin's retained user-content files here.
+```
+
+The contract is deliberately narrow:
+
+- deletion is local-only; the hook must never call a provider, revoke a remote
+  account, or delete source data from the user's device or online service
+- preserve the installed package, plugin configuration, credentials, connected
+  account state, permissions, and source cursor/watermark
+- treat `context.plugin_settings` as a recursively read-only snapshot captured
+  before deletion; use it only to locate plugin-owned content
+- make the hook safe to run more than once for the same generation, because a
+  process interruption or one failing peer causes the whole generation to be
+  replayed at the next safe opportunity
+- stop or join plugin-owned background writers before returning; no task may
+  recreate deleted content after the hook completes
+
+The request's clear generation comes from the host's shared full-clear record.
+Plugins must not create, persist, or compare a separate generation counter.
+
 The `Plugin` base class also exposes safe no-op defaults for host-consumed optional hooks such as:
 
 - `get_channel()`
@@ -681,6 +725,9 @@ Sensors inheriting `SensorBase` from `magi_plugin_sdk.sensors` have access to th
 - `extract_metadata(item)`: extract `SensorOutputMetadata` containing entity hints, tags, and relation candidates
 - `collect_items(context)`: pull-sync entry point; returns `SensorSyncResult` with items, cursor, and stats
 - `fetch_item(item)`: optional pre-processing/enrichment before `build_output`
+- `clear_user_content(context)`: remove sensor-owned local raw, derived, pending,
+  and temporary content while preserving source configuration, credentials,
+  account binding, cursor, and watermark
 
 `SensorOutput` is now a source-truth contract, not a final display-string contract.
 

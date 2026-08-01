@@ -146,6 +146,39 @@ async def test_sensor_sync_executor_claims_and_completes_queued_job(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_sensor_sync_executor_paused_start_cannot_claim_before_resume(tmp_path):
+    repository = ScheduleRepository(tmp_path / "scheduler.db")
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+    run_calls = 0
+
+    async def run_job(_job_record: dict[str, object]) -> ScheduledExecutionResult:
+        nonlocal run_calls
+        run_calls += 1
+        return ScheduledExecutionResult(success=True, message="resumed")
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        poll_interval_seconds=0.01,
+    )
+    await executor.start(paused=True)
+    await asyncio.sleep(0.05)
+
+    queued_job = await repository.get_sensor_sync_job(job_id)
+    assert queued_job is not None
+    assert queued_job["status"] == "queued"
+    assert run_calls == 0
+
+    executor.resume()
+    await _wait_for_job_status(repository, job_id, "success")
+    await executor.stop()
+
+    assert run_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_sensor_sync_executor_runs_jobs_on_owner_loop(tmp_path):
     db_path = tmp_path / "scheduler.db"
     repository = ScheduleRepository(db_path)

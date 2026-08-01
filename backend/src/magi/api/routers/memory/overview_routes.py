@@ -10,6 +10,8 @@ from fastapi import HTTPException, status
 
 from ....core.log_history import clear_diagnostic_log_history
 from ....memory.store_lifecycle import MemoryClearCompletedWithRecoveryError
+from ....plugins.user_content_clear import PluginUserContentClearRecoveryError
+from magi_plugin_sdk import UserContentClearRequest
 
 from .clear import ClearMemoryResponseModel, build_clear_memory_response
 from .dependencies import (
@@ -23,6 +25,7 @@ from .dependencies import (
     _resolve_channels_module,
     _resolve_channel_session_mapper,
     _resolve_control_user_content_clear,
+    _resolve_plugin_user_content_clear,
     _resolve_chat_portrait_service,
     _resolve_background_task_manager,
     _resolve_batch_store,
@@ -43,6 +46,14 @@ from .dependencies import (
 from .helpers import memory_t
 from .router import memory_router
 from .statistics import build_layer_statistics
+
+
+class _FullClearResidualError(RuntimeError):
+    """Report local user content that remained after all clearers were attempted."""
+
+    def __init__(self, failures: tuple[Exception, ...]) -> None:
+        self.failures = failures
+        super().__init__("Full user-content clear left local content pending")
 
 
 async def _resume_clear_dependencies(
@@ -313,6 +324,16 @@ async def clear_memory_layers():
                 "Control plane not initialized",
             ),
         )
+    plugin_user_content_clear = _resolve_plugin_user_content_clear()
+    if plugin_user_content_clear is None:
+        logger.warning("clear_memory: plugin clear boundary not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t(
+                "memory.errors.plugin_runtime_uninitialized",
+                "Plugin runtime not initialized",
+            ),
+        )
     sensor_hub = _resolve_sensor_hub()
     rebuild_pause_started = False
     chat_pause_started = False
@@ -322,6 +343,9 @@ async def clear_memory_layers():
     recovery_failures: list[tuple[str, BaseException]] = []
     queue_purged = False
     chat_clear_committed = False
+    plugin_clear_failure: Exception | None = None
+    residual_clear_failure: Exception | None = None
+    plugin_clear_session = None
     warnings: list[str] = []
 
     def mark_chat_clear_committed(chat_count: int) -> None:
@@ -355,6 +379,9 @@ async def clear_memory_layers():
                         )
                     await background_scope.enter_async_context(
                         control_user_content_clear.user_content_clear_boundary()
+                    )
+                    plugin_clear_session = await background_scope.enter_async_context(
+                        plugin_user_content_clear.user_content_clear_boundary()
                     )
                     await background_scope.enter_async_context(
                         _resolve_tool_registry().user_content_clear_boundary()
@@ -406,6 +433,25 @@ async def clear_memory_layers():
                     llm_usage_store = _resolve_llm_usage_store()
                     if llm_usage_store is not None:
                         auxiliary_clearers.append(llm_usage_store.clear_user_content)
+                    plugin_clear_request = UserContentClearRequest(
+                        clear_generation=generation,
+                    )
+
+                    async def clear_plugin_user_content():
+                        nonlocal plugin_clear_failure
+                        try:
+                            return await plugin_clear_session.clear_user_content(
+                                plugin_clear_request
+                            )
+                        except Exception as exc:
+                            plugin_clear_failure = exc
+                            logger.error(
+                                "clear_memory: plugin user-content clear remains pending",
+                                exc_info=(type(exc), exc, exc.__traceback__),
+                            )
+                            return None
+
+                    auxiliary_clearers.append(clear_plugin_user_content)
                     auxiliary_clearers.append(scheduler_service.clear_user_data)
                     async with _conversation_delivery_clear_boundary():
                         async with AsyncExitStack() as content_cache_scope:
@@ -456,7 +502,33 @@ async def clear_memory_layers():
                                 sensor_cleanup_failure.__traceback__,
                             ),
                         )
+                    diagnostic_log_failure: Exception | None = None
+                    try:
+                        log_clear_result = await clear_diagnostic_log_history()
+                    except Exception as exc:
+                        diagnostic_log_failure = exc
+                    else:
+                        if log_clear_result.failed_entries:
+                            diagnostic_log_failure = RuntimeError(
+                                "Diagnostic log cleanup left "
+                                f"{log_clear_result.failed_entries} entries uncleared"
+                            )
+                    residual_failures = tuple(
+                        failure
+                        for failure in (
+                            plugin_clear_failure,
+                            diagnostic_log_failure,
+                        )
+                        if failure is not None
+                    )
+                    if residual_failures:
+                        residual_clear_failure = _FullClearResidualError(
+                            residual_failures
+                        )
+                        raise residual_clear_failure from residual_failures[0]
                 except BaseException as exc:
+                    if plugin_clear_session is not None:
+                        plugin_clear_session.mark_surrounding_clear_failed(exc)
                     primary_failure = exc
                     primary_traceback = exc.__traceback__
 
@@ -481,6 +553,8 @@ async def clear_memory_layers():
                     rebuild_pause_started=rebuild_pause_started,
                 ))
     except BaseException as exc:
+        if isinstance(exc, PluginUserContentClearRecoveryError):
+            residual_clear_failure = exc
         if primary_failure is None:
             primary_failure = exc
             primary_traceback = exc.__traceback__
@@ -495,6 +569,7 @@ async def clear_memory_layers():
         primary_failure is not None
         and chat_clear_committed
         and counts is not None
+        and residual_clear_failure is None
         and not isinstance(primary_failure, asyncio.CancelledError)
     ):
         warnings.append("clear_boundary_recovery_failed")
@@ -508,7 +583,12 @@ async def clear_memory_layers():
         )
         primary_failure = None
         primary_traceback = None
-    if primary_failure is not None:
+    deferred_residual_failure = (
+        residual_clear_failure is not None
+        and chat_clear_committed
+        and counts is not None
+    )
+    if primary_failure is not None and not deferred_residual_failure:
         raise primary_failure.with_traceback(primary_traceback)
     if recovery_failures:
         if chat_clear_committed and counts is not None:
@@ -533,18 +613,8 @@ async def clear_memory_layers():
         chat_context_count,
     )
 
-    try:
-        log_clear_result = await clear_diagnostic_log_history()
-    except Exception:
-        warnings.append("diagnostic_log_cleanup_failed")
-        logger.error("clear_memory: diagnostic log cleanup failed")
-    else:
-        if log_clear_result.failed_entries:
-            warnings.append("diagnostic_log_cleanup_failed")
-            logger.error(
-                "clear_memory: diagnostic log cleanup left %d entries uncleared",
-                log_clear_result.failed_entries,
-            )
+    if deferred_residual_failure:
+        raise residual_clear_failure
 
     return build_clear_memory_response(
         l0_count=l0_count,

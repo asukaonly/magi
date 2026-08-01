@@ -31,7 +31,7 @@ chat payloads, memory records, or plugin state.
 | `data/memory/growth_memory.db` | personality | milestones, relationships, personality evolution |
 | `runtime/scheduler.db` | scheduler | schedules, execution history, sensor sync jobs |
 | `runtime/bootstrap_state.db` | bootstrap | completed revisions, content fingerprints, attempts, and errors for versioned startup work |
-| `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups |
+| `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups, plugin/sensor full-clear completion checkpoint |
 | `runtime/sensor_state.db` | sensors | per-source cursors, fingerprints, stats |
 | `runtime/background_tasks.db` | runtime | background-task rows and event history, plus recoverable terminal-completion snapshots with frozen outreach intent/body |
 | `runtime/permission_rules.db` | runtime permissions | trust and permission rule state |
@@ -76,6 +76,23 @@ running sensor-sync job. Remaining target state keeps progress fields but loses
 error and statistics payloads. The scheduler applies SQLite secure deletion and
 truncates its WAL before reporting that this store has been cleared, so removed
 prompt, result, error, and statistics text is not left in database sidecars.
+
+Plugin- and sensor-owned user content uses the same full-clear generation stored
+by the runtime command queue. `runtime_plugin_user_content_clear_state` records
+only the latest generation whose plugin/sensor hooks may be treated as applied;
+it is not the global clear completion record and does not create a second
+generation stream. It advances only at the surrounding clear's success edge.
+The checkpoint remains behind when any hook fails, the clear
+is cancelled, a later global clearer or diagnostic-log erasure fails, or sensor
+collection cannot be resumed safely. Collection is started in a non-claiming
+paused state before the checkpoint write and released only after that write
+succeeds. Startup detects a pending shared generation after plugins load and
+fails closed before collection or other plugin ingress starts; plugin-only
+replay is not allowed to claim completion for the cross-store clear.
+Configuration, credentials,
+connected-account state, and sensor cursor/watermark are intentionally retained;
+plugin hooks delete only their locally retained raw, derived, pending, and
+temporary user content.
 
 The stable-context migration converts legacy free-text correction scopes into
 typed local identities. Scoped relationship IDs and uniqueness are rebuilt at

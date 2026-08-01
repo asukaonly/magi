@@ -1589,6 +1589,26 @@ out, shutdown reports failure and keeps ownership of the live worker; another
 worker cannot start until the original thread has actually exited. This avoids
 two executors claiming the same queue after a slow or stuck sensor call.
 
+Full clear also stops and joins this executor before invoking plugin- and
+sensor-owned content deletion hooks. Active plugin lifecycle work and settings
+actions are drained first, and new work remains blocked until the surrounding
+clear completes. The plugin clear checkpoint uses the runtime command queue's
+existing full-clear generation. It advances only after all hooks and the
+surrounding clear succeed and collection can be resumed safely. Failure or
+cancellation leaves collection stopped and the generation pending. During
+startup, `runtime_plugin_system` checks the shared generation immediately after
+plugin activation; a pending generation blocks later sensor, channel, scheduler,
+and ingress modules. The plugin module must not replay its own hooks and mark the
+generation complete because an interrupted clear may still have unfinished
+memory, chat, scheduler, attachment, or log deletion.
+
+When a running sensor executor must be restored, it first starts paused and is
+unable to recover or claim jobs. The durable completion checkpoint is written
+before the coordinator releases that pause. A start, checkpoint, or resume
+failure stops the executor again and keeps the generation pending. Diagnostic
+log erasure is inside the same success boundary, so uncleared log entries cannot
+produce a successful clear response or advance the plugin checkpoint.
+
 Post-sync memory maintenance is deliberately outside the serial sensor-sync queue. After a sync job commits success, L3 historical backfill and the L2 derive kick are queued as best-effort owner-loop maintenance so long LLM-backed summary work cannot stop later sensor-sync jobs from being claimed. This post-sync backfill is intentionally small-batch; full historical summary catch-up must run through explicit memory maintenance rather than the sensor recovery path. A continuation sync (`has_more` / `continue_sync`) is admitted durably in the parent success transaction and still defers these maintenance kicks until the final batch.
 
 Failed sensor jobs stay in the same durable execution record and are retried with

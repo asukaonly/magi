@@ -275,6 +275,26 @@ def _resolve_control_user_content_clear():
     return coordinator
 
 
+def _resolve_plugin_user_content_clear():
+    override = _package_override(
+        "_resolve_plugin_user_content_clear",
+        _resolve_plugin_user_content_clear,
+    )
+    if override is not None:
+        return override()
+    try:
+        from magi.plugins.provider import (
+            resolve_plugin_user_content_clear_coordinator,
+        )
+
+        coordinator = resolve_plugin_user_content_clear_coordinator()
+    except RuntimeError:
+        return None
+    if not callable(getattr(coordinator, "user_content_clear_boundary", None)):
+        return None
+    return coordinator
+
+
 def _resolve_self_memory():
     override = _package_override("_resolve_self_memory", _resolve_self_memory)
     if override is not None:
