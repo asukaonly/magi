@@ -79,6 +79,22 @@ def _isolate_chat_read_service(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_runtime_projection_clear_dependencies(monkeypatch):
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_runtime_trace_subscriber",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_llm_usage_subscriber",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_llm_usage_store",
+        lambda: None,
+    )
+
+
+@pytest.fixture(autouse=True)
 def _isolate_user_message_clear_boundary(monkeypatch):
     class _FakeRuntimeCommandQueue:
         def __init__(self) -> None:
@@ -3387,6 +3403,67 @@ def test_memory_clear_holds_plugin_ingress_boundary(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert boundary_active is False
+
+
+def test_memory_clear_holds_runtime_projection_boundaries_and_erases_usage(
+    monkeypatch,
+) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    runtime_trace_active = False
+    llm_usage_active = False
+
+    class _RuntimeTraceSubscriber:
+        @asynccontextmanager
+        async def user_content_clear_boundary(self):
+            nonlocal runtime_trace_active
+            runtime_trace_active = True
+            try:
+                yield
+            finally:
+                runtime_trace_active = False
+
+    class _LLMUsageSubscriber:
+        @asynccontextmanager
+        async def user_content_clear_boundary(self):
+            nonlocal llm_usage_active
+            llm_usage_active = True
+            try:
+                yield
+            finally:
+                llm_usage_active = False
+
+    async def clear_usage() -> int:
+        assert runtime_trace_active is True
+        assert llm_usage_active is True
+        return 3
+
+    llm_usage_store = SimpleNamespace(
+        clear_user_content=AsyncMock(side_effect=clear_usage)
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        _FakeUnifiedMemory,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_runtime_trace_subscriber",
+        _RuntimeTraceSubscriber,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_llm_usage_subscriber",
+        _LLMUsageSubscriber,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_llm_usage_store",
+        lambda: llm_usage_store,
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    llm_usage_store.clear_user_content.assert_awaited_once_with()
+    assert runtime_trace_active is False
+    assert llm_usage_active is False
 
 
 def test_memory_clear_removes_legacy_user_content(monkeypatch) -> None:

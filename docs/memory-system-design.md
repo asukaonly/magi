@@ -2182,6 +2182,15 @@ independent table deletes.
   any event whose source occurrence is at or before that cutoff. An unfinished
   global conversation clear also suppresses handler dispatch until recovery
   completes.
+- Runtime trace and LLM usage projections use the memory operation epoch stamped
+  when an event is published. Full clear seals both subscribers, drains work
+  already writing, and rejects both events admitted during the clear and older
+  events still queued on the in-process bus. A late completion is also rejected
+  when its span began before or during the clear, even if it is published only
+  after the boundary reopens. LLM usage clear removes raw calls, error text,
+  session and turn links, prompt-cache observations, and retained rollups.
+  Scheduled usage retention joins the same write boundary and cannot recreate a
+  rollup from rows that are being cleared.
 - Full clear also removes retired user-content locations that current runtime
   code no longer reads: every entry under the managed `others/` directory and
   the reserved `self_memory_v2.db` file with its SQLite sidecars. Cleanup does

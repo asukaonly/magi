@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from magi.events.events import Event, EventTypes
+from magi.events.events import (
+    Event,
+    EventTypes,
+    PUBLISHED_MEMORY_EPOCH_METADATA_KEY,
+)
 from magi.events.domain_payloads import SpanCompleted, ToolError
 from magi.runtime_trace.subscribers.runtime_trace_subscriber import (
     RuntimeTraceSubscriber,
 )
+from magi.runtime_trace.lifecycle import RuntimeTraceSubscriberModule
+from magi.bootstrap.context import RuntimeBootstrapContext
 
 
 def _make_payload(node_type="span", **kw):
@@ -243,3 +251,112 @@ async def test_span_preview_attributes_propagate_to_span_record(fake_bus, fake_s
     rec = fake_store.upsert_span.await_args.args[0]
     assert rec.input_preview == "User input preview"
     assert rec.output_preview == "Model output preview"
+
+
+@pytest.mark.asyncio
+async def test_clear_boundary_drains_started_projection_and_rejects_old_work(
+    fake_bus,
+    fake_store,
+):
+    epoch = 0
+    projection_started = asyncio.Event()
+    allow_projection = asyncio.Event()
+    clear_entered = asyncio.Event()
+    allow_clear_exit = asyncio.Event()
+    seen_span_ids: list[str] = []
+
+    async def record_span(record):
+        seen_span_ids.append(record.span_id)
+        if record.span_id == "started-before-clear":
+            projection_started.set()
+            await allow_projection.wait()
+
+    fake_store.upsert_span.side_effect = record_span
+    sub = RuntimeTraceSubscriber(
+        event_bus=fake_bus,
+        trace_store=fake_store,
+        memory_epoch_getter=lambda: epoch,
+    )
+    await sub.start()
+
+    def event(
+        span_id: str,
+        *,
+        published_epoch: int,
+        started_at_ms: int = 100,
+    ) -> Event:
+        return Event(
+            type=EventTypes.SPAN_COMPLETED,
+            data=_make_payload(
+                span_id=span_id,
+                started_at_ms=started_at_ms,
+                ended_at_ms=started_at_ms + 100,
+            ),
+            metadata={PUBLISHED_MEMORY_EPOCH_METADATA_KEY: published_epoch},
+        )
+
+    await sub._on_span_completed(event("started-before-clear", published_epoch=0))
+    await projection_started.wait()
+    await sub._on_span_completed(event("queued-before-clear", published_epoch=0))
+
+    async def hold_clear_boundary() -> None:
+        nonlocal epoch
+        async with sub.user_content_clear_boundary():
+            epoch = 1
+            clear_entered.set()
+            await allow_clear_exit.wait()
+
+    clear_task = asyncio.create_task(hold_clear_boundary())
+    await asyncio.sleep(0)
+    assert clear_entered.is_set() is False
+
+    allow_projection.set()
+    await clear_entered.wait()
+    await sub._on_span_completed(event("during-clear", published_epoch=1))
+    allow_clear_exit.set()
+    await clear_task
+    await sub.drain()
+
+    await sub._on_span_completed(event("old-after-clear", published_epoch=0))
+    cutoff = sub._clear_cutoff_started_at_ms
+    await sub._on_span_completed(
+        event(
+            "late-old-after-clear",
+            published_epoch=1,
+            started_at_ms=cutoff,
+        )
+    )
+    await sub._on_span_completed(
+        event(
+            "new-after-clear",
+            published_epoch=1,
+            started_at_ms=cutoff + 1,
+        )
+    )
+    await sub.drain()
+
+    assert seen_span_ids == ["started-before-clear", "new-after-clear"]
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_exposes_and_releases_clearable_subscriber(
+    fake_bus,
+    fake_store,
+):
+    context = RuntimeBootstrapContext()
+    context.message_bus.message_bus = fake_bus
+    context.runtime_trace.store = fake_store
+    memory = MagicMock()
+    memory.memory_operation_epoch.return_value = 0
+    context.memory.unified_memory = memory
+
+    module = RuntimeTraceSubscriberModule(context)
+    await module.init()
+
+    assert context.runtime_trace.subscriber is not None
+    fake_bus.subscribe.assert_awaited_once()
+
+    await module.shutdown()
+
+    assert context.runtime_trace.subscriber is None
+    fake_bus.unsubscribe.assert_awaited_once()

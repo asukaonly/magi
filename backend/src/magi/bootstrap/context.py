@@ -69,6 +69,7 @@ class LLMBootstrapState:
     scenario_llm_pool: ScenarioLLMPool | None = None
     llm_adapter: Any = None
     llm_usage_store: Any = None
+    llm_usage_subscriber: Any = None
 
 
 @dataclass
@@ -239,6 +240,7 @@ class RuntimeTraceBootstrapState:
     """Runtime trace observability state slice."""
 
     store: RuntimeTraceStore | None = None
+    subscriber: Any = None
 
 
 @dataclass

@@ -1,4 +1,6 @@
 """Tests for LLM usage storage and aggregation."""
+
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -6,6 +8,7 @@ from alembic import command
 
 from magi.db.runner import MIGRATION_TARGETS, _build_config
 from magi.llm.usage_store import LLMUsageStore
+from magi.core.sqlite import sqlite_connection_async
 
 
 def _install_llm_usage_schema(db_path: Path) -> None:
@@ -152,3 +155,93 @@ async def test_llm_usage_store_records_cache_observation_diagnostics(tmp_path: P
     assert latest["tool_names"] == ["file_read", "grep", "find-relevant-tools"]
     assert latest["cache_read_tokens"] == 700
     assert "Persona Turn Steer" not in str(latest)
+
+
+@pytest.mark.asyncio
+async def test_clear_user_content_erases_usage_diagnostics_and_rollups(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "llm_usage.db"
+    _install_llm_usage_schema(db_path)
+    store = LLMUsageStore(db_path=db_path)
+    private_marker = "private-usage-error-marker"
+
+    await store.record_call(
+        {
+            "request_id": "private-request",
+            "provider": "private-provider",
+            "model": "private-model",
+            "request_kind": "chat",
+            "success": False,
+            "error": private_marker,
+        }
+    )
+    await store.record_cache_observation(
+        {
+            "request_id": "private-cache-request",
+            "provider": "private-provider",
+            "model": "private-model",
+            "request_kind": "chat",
+            "session_id": "private-session",
+            "cache_strategy": "none",
+            "created_at": 1000.0,
+        }
+    )
+    async with sqlite_connection_async(db_path) as db:
+        await db.execute(
+            """
+            INSERT INTO llm_usage_rollups (
+                granularity, bucket_start, provider, model, request_kind,
+                success, last_rolled_up_at
+            ) VALUES ('day', '2026-01-01', ?, ?, 'chat', 0, 1000.0)
+            """,
+            ("private-provider", "private-model"),
+        )
+        await db.commit()
+
+    deleted = await store.clear_user_content()
+
+    assert deleted == 3
+    assert (await store.get_summary(days=36500))["totals"]["total_calls"] == 0
+    assert await store.list_cache_observations(days=36500) == []
+    async with sqlite_connection_async(db_path) as db:
+        for table_name in (
+            "llm_usage",
+            "llm_usage_rollups",
+            "llm_cache_observations",
+        ):
+            cursor = await db.execute(f"SELECT COUNT(*) FROM {table_name}")
+            assert int((await cursor.fetchone())[0]) == 0
+    for candidate in (
+        db_path,
+        Path(f"{db_path}-wal"),
+        Path(f"{db_path}-shm"),
+    ):
+        if candidate.exists():
+            assert private_marker.encode() not in candidate.read_bytes()
+
+
+@pytest.mark.asyncio
+async def test_clear_user_content_waits_for_active_usage_operations(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "llm_usage.db"
+    _install_llm_usage_schema(db_path)
+    store = LLMUsageStore(db_path=db_path)
+    operation_entered = asyncio.Event()
+    allow_operation_exit = asyncio.Event()
+
+    async def hold_operation() -> None:
+        async with store.user_content_operation():
+            operation_entered.set()
+            await allow_operation_exit.wait()
+
+    operation_task = asyncio.create_task(hold_operation())
+    await operation_entered.wait()
+    clear_task = asyncio.create_task(store.clear_user_content())
+    await asyncio.sleep(0)
+
+    assert clear_task.done() is False
+    allow_operation_exit.set()
+    await operation_task
+    assert await clear_task == 0

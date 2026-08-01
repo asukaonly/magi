@@ -290,6 +290,67 @@ def _resolve_runtime_trace_store():
     return store
 
 
+def _resolve_runtime_trace_subscriber():
+    override = _package_override(
+        "_resolve_runtime_trace_subscriber",
+        _resolve_runtime_trace_subscriber,
+    )
+    if override is not None:
+        return override()
+    try:
+        from magi.core.container import get_container
+
+        context = get_container().runtime_bootstrap_context()
+    except Exception:
+        return None
+    subscriber = getattr(
+        getattr(context, "runtime_trace", None),
+        "subscriber",
+        None,
+    )
+    if not callable(getattr(subscriber, "user_content_clear_boundary", None)):
+        return None
+    return subscriber
+
+
+def _resolve_llm_usage_subscriber():
+    override = _package_override(
+        "_resolve_llm_usage_subscriber",
+        _resolve_llm_usage_subscriber,
+    )
+    if override is not None:
+        return override()
+    try:
+        from magi.core.container import get_container
+
+        context = get_container().runtime_bootstrap_context()
+    except Exception:
+        return None
+    subscriber = getattr(getattr(context, "llm", None), "llm_usage_subscriber", None)
+    if not callable(getattr(subscriber, "user_content_clear_boundary", None)):
+        return None
+    return subscriber
+
+
+def _resolve_llm_usage_store():
+    override = _package_override(
+        "_resolve_llm_usage_store",
+        _resolve_llm_usage_store,
+    )
+    if override is not None:
+        return override()
+    try:
+        from magi.core.container import get_container
+
+        context = get_container().runtime_bootstrap_context()
+    except Exception:
+        return None
+    store = getattr(getattr(context, "llm", None), "llm_usage_store", None)
+    if not callable(getattr(store, "clear_user_content", None)):
+        return None
+    return store
+
+
 def _resolve_legacy_user_content_clearer():
     override = _package_override(
         "_resolve_legacy_user_content_clearer",

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,7 @@ from typing import Any
 import aiosqlite
 
 from ..core.logger import get_logger
+from ..core.operation_barrier import AsyncOperationBarrier
 from ..core.sqlite import sqlite_connection_async
 from ..utils.runtime import get_runtime_paths
 
@@ -187,6 +190,7 @@ class LLMUsageStore:
     def __init__(self, db_path: str | Path | None = None) -> None:
         runtime_paths = get_runtime_paths()
         self._db_path = Path(db_path or runtime_paths.llm_usage_db_path)
+        self._user_content_barrier = AsyncOperationBarrier()
 
     async def initialize(self) -> None:
         """Ensure parent directory exists; schema is alembic-managed."""
@@ -200,83 +204,125 @@ class LLMUsageStore:
         """No-op. Subscription lifecycle is owned by LLMUsageSubscriberModule."""
         return
 
+    @asynccontextmanager
+    async def user_content_operation(self) -> AsyncIterator[None]:
+        """Join the shared boundary used by writes, retention, and full clear."""
+        async with self._user_content_barrier.operation():
+            yield
+
+    async def clear_user_content(self) -> int:
+        """Erase raw usage, cache diagnostics, and retained usage rollups."""
+        await self.initialize()
+        async with self._user_content_barrier.exclusive():
+            async with sqlite_connection_async(
+                str(self._db_path),
+                profile="mixed",
+            ) as db:
+                await db.execute("PRAGMA secure_delete=ON")
+                await db.execute("BEGIN IMMEDIATE")
+                try:
+                    deleted = 0
+                    for table_name in (
+                        "llm_cache_observations",
+                        "llm_usage_rollups",
+                        "llm_usage",
+                    ):
+                        cursor = await db.execute(
+                            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                            (table_name,),
+                        )
+                        if await cursor.fetchone() is None:
+                            continue
+                        cursor = await db.execute(f"SELECT COUNT(*) FROM {table_name}")
+                        row = await cursor.fetchone()
+                        deleted += int(row[0] or 0)
+                        await db.execute(f"DELETE FROM {table_name}")
+                    await db.commit()
+                except BaseException:
+                    await db.rollback()
+                    raise
+                await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        return deleted
+
     async def record_call(self, payload: dict[str, Any]) -> None:
         """Persist a single normalized LLM usage event payload."""
-        await self.initialize()
-        async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
-            await db.execute(
-                """
-                INSERT INTO llm_usage (
-                    request_id,
-                    provider,
-                    model,
-                    request_kind,
-                    prompt_tokens,
-                    completion_tokens,
-                    total_tokens,
-                    cache_read_tokens,
-                    cache_write_tokens,
-                    cache_write_1h_tokens,
-                    usage_available,
-                    latency_ms,
-                    ttft_ms,
-                    cost_usd,
-                    cost_currency,
-                    success,
-                    error,
-                    correlation_id,
-                    session_id,
-                    turn_id,
-                    agent_id,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(payload.get("request_id") or ""),
-                    str(payload.get("provider") or "unknown"),
-                    str(payload.get("model") or "unknown"),
-                    str(payload.get("request_kind") or "unknown"),
-                    int(payload.get("prompt_tokens") or 0),
-                    int(payload.get("completion_tokens") or 0),
-                    int(payload.get("total_tokens") or 0),
-                    int(payload.get("cache_read_tokens") or 0),
-                    int(payload.get("cache_write_tokens") or 0),
-                    int(payload.get("cache_write_1h_tokens") or 0),
-                    1 if payload.get("usage_available") else 0,
-                    int(payload.get("latency_ms") or 0),
-                    int(payload.get("ttft_ms") or 0),
-                    # cost_usd holds the amount in cost_currency (historically USD-only);
-                    # NULL currency is the "no pricing data" sentinel.
-                    float(payload.get("cost_usd") or 0),
-                    payload.get("cost_currency"),
-                    1 if payload.get("success", True) else 0,
-                    payload.get("error"),
-                    payload.get("correlation_id"),
-                    payload.get("session_id"),
-                    payload.get("turn_id"),
-                    payload.get("agent_id"),
-                    float(payload.get("created_at") or time.time()),
-                ),
-            )
-            await db.commit()
+        async with self.user_content_operation():
+            await self.initialize()
+            async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
+                await db.execute(
+                    """
+                    INSERT INTO llm_usage (
+                        request_id,
+                        provider,
+                        model,
+                        request_kind,
+                        prompt_tokens,
+                        completion_tokens,
+                        total_tokens,
+                        cache_read_tokens,
+                        cache_write_tokens,
+                        cache_write_1h_tokens,
+                        usage_available,
+                        latency_ms,
+                        ttft_ms,
+                        cost_usd,
+                        cost_currency,
+                        success,
+                        error,
+                        correlation_id,
+                        session_id,
+                        turn_id,
+                        agent_id,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(payload.get("request_id") or ""),
+                        str(payload.get("provider") or "unknown"),
+                        str(payload.get("model") or "unknown"),
+                        str(payload.get("request_kind") or "unknown"),
+                        int(payload.get("prompt_tokens") or 0),
+                        int(payload.get("completion_tokens") or 0),
+                        int(payload.get("total_tokens") or 0),
+                        int(payload.get("cache_read_tokens") or 0),
+                        int(payload.get("cache_write_tokens") or 0),
+                        int(payload.get("cache_write_1h_tokens") or 0),
+                        1 if payload.get("usage_available") else 0,
+                        int(payload.get("latency_ms") or 0),
+                        int(payload.get("ttft_ms") or 0),
+                        # cost_usd holds the amount in cost_currency (historically USD-only);
+                        # NULL currency is the "no pricing data" sentinel.
+                        float(payload.get("cost_usd") or 0),
+                        payload.get("cost_currency"),
+                        1 if payload.get("success", True) else 0,
+                        payload.get("error"),
+                        payload.get("correlation_id"),
+                        payload.get("session_id"),
+                        payload.get("turn_id"),
+                        payload.get("agent_id"),
+                        float(payload.get("created_at") or time.time()),
+                    ),
+                )
+                await db.commit()
 
     async def record_cache_observation(self, payload: dict[str, Any]) -> None:
         """Persist lightweight prompt-cache diagnostics for one LLM call."""
-        await self.initialize()
-        context = self._cache_observation_context(payload)
-        async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            previous = await self._fetch_previous_cache_observation(
-                db,
-                provider=context.provider,
-                model=context.model,
-                request_kind=context.request_kind,
-                session_id=context.session_id,
-                created_at=context.created_at,
-            )
-            reuse = self._cache_observation_reuse(payload, context, previous)
-            await self._insert_cache_observation(db, payload, context, reuse)
-            await db.commit()
+        async with self.user_content_operation():
+            await self.initialize()
+            context = self._cache_observation_context(payload)
+            async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
+                db.row_factory = aiosqlite.Row
+                previous = await self._fetch_previous_cache_observation(
+                    db,
+                    provider=context.provider,
+                    model=context.model,
+                    request_kind=context.request_kind,
+                    session_id=context.session_id,
+                    created_at=context.created_at,
+                )
+                reuse = self._cache_observation_reuse(payload, context, previous)
+                await self._insert_cache_observation(db, payload, context, reuse)
+                await db.commit()
 
     def _cache_observation_context(
         self,

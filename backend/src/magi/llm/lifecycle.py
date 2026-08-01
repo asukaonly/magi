@@ -72,11 +72,21 @@ class LLMUsageSubscriberModule(LifecycleModule):
         if store is None:
             logger.warning("LLMUsageStore not initialized; LLMUsageSubscriber idle")
             return
-        self._subscriber = LLMUsageSubscriber(event_bus=bus, llm_usage_store=store)
+        memory = require_initialized(
+            self._context.memory.unified_memory,
+            "unified memory",
+        )
+        self._subscriber = LLMUsageSubscriber(
+            event_bus=bus,
+            llm_usage_store=store,
+            memory_epoch_getter=memory.memory_operation_epoch,
+        )
         await self._subscriber.start()
+        self._context.llm.llm_usage_subscriber = self._subscriber
         logger.info("LLMUsageSubscriber started")
 
     async def shutdown(self) -> None:
         if self._subscriber is not None:
             await self._subscriber.stop()
             self._subscriber = None
+        self._context.llm.llm_usage_subscriber = None

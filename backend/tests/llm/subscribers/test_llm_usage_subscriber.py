@@ -1,14 +1,28 @@
 """Phase 1 of D: LLMUsageSubscriber projects SpanCompleted(llm_call) → llm_usage."""
 from __future__ import annotations
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from magi.events.events import Event, EventTypes
+from magi.events.events import (
+    Event,
+    EventTypes,
+    PUBLISHED_MEMORY_EPOCH_METADATA_KEY,
+)
 from magi.events.domain_payloads import SpanCompleted, ToolError
 from magi.llm.subscribers.llm_usage_subscriber import LLMUsageSubscriber
 
 
-def _payload(*, node_type="llm_call", status="ok", error=None, attrs=None, turn_id=None):
+def _payload(
+    *,
+    node_type="llm_call",
+    status="ok",
+    error=None,
+    attrs=None,
+    turn_id=None,
+    started_at_ms=1700000000000,
+):
     return SpanCompleted(
         span_id="span-1",
         trace_id="trace-1",
@@ -16,8 +30,8 @@ def _payload(*, node_type="llm_call", status="ok", error=None, attrs=None, turn_
         node_type=node_type,
         name="claude-opus-4",
         status=status,
-        started_at_ms=1700000000000,
-        ended_at_ms=1700000001500,
+        started_at_ms=started_at_ms,
+        ended_at_ms=started_at_ms + 1500,
         duration_ms=1500,
         error=error,
         result_preview=None,
@@ -323,3 +337,88 @@ async def test_stop_unsubscribes_and_drains(fake_bus, fake_store):
     await sub.start()
     await sub.stop()
     fake_bus.unsubscribe.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_clear_boundary_drains_started_projection_and_rejects_old_work(
+    fake_bus,
+    fake_store,
+):
+    epoch = 0
+    projection_started = asyncio.Event()
+    allow_projection = asyncio.Event()
+    clear_entered = asyncio.Event()
+    allow_clear_exit = asyncio.Event()
+    seen_request_ids: list[str] = []
+
+    async def record_call(payload):
+        request_id = str(payload["request_id"])
+        seen_request_ids.append(request_id)
+        if request_id == "started-before-clear":
+            projection_started.set()
+            await allow_projection.wait()
+
+    fake_store.record_call.side_effect = record_call
+    sub = LLMUsageSubscriber(
+        event_bus=fake_bus,
+        llm_usage_store=fake_store,
+        memory_epoch_getter=lambda: epoch,
+    )
+    await sub.start()
+
+    def event(
+        request_id: str,
+        *,
+        published_epoch: int,
+        started_at_ms: int = 1700000000000,
+    ) -> Event:
+        return Event(
+            type=EventTypes.SPAN_COMPLETED,
+            data=_payload(
+                attrs={"request_id": request_id},
+                started_at_ms=started_at_ms,
+            ),
+            metadata={PUBLISHED_MEMORY_EPOCH_METADATA_KEY: published_epoch},
+        )
+
+    await sub._on_event(event("started-before-clear", published_epoch=0))
+    await projection_started.wait()
+
+    async def hold_clear_boundary() -> None:
+        nonlocal epoch
+        async with sub.user_content_clear_boundary():
+            epoch = 1
+            clear_entered.set()
+            await allow_clear_exit.wait()
+
+    clear_task = asyncio.create_task(hold_clear_boundary())
+    await asyncio.sleep(0)
+    assert clear_entered.is_set() is False
+
+    await sub._on_event(event("while-clear-waits", published_epoch=0))
+    allow_projection.set()
+    await clear_entered.wait()
+    await sub._on_event(event("during-clear", published_epoch=1))
+    allow_clear_exit.set()
+    await clear_task
+    await sub.drain()
+
+    await sub._on_event(event("old-after-clear", published_epoch=0))
+    cutoff = sub._clear_cutoff_started_at_ms
+    await sub._on_event(
+        event(
+            "late-old-after-clear",
+            published_epoch=1,
+            started_at_ms=cutoff,
+        )
+    )
+    await sub._on_event(
+        event(
+            "new-after-clear",
+            published_epoch=1,
+            started_at_ms=cutoff + 1,
+        )
+    )
+    await sub.drain()
+
+    assert seen_request_ids == ["started-before-clear", "new-after-clear"]

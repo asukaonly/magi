@@ -16,6 +16,8 @@ from .dependencies import (
     _resolve_manual_entry_asset_store,
     _resolve_manual_entry_weather_fetcher,
     _resolve_legacy_user_content_clearer,
+    _resolve_llm_usage_store,
+    _resolve_llm_usage_subscriber,
     _resolve_mcp_resource_cache,
     _resolve_memory_integration,
     _resolve_channels_module,
@@ -26,6 +28,7 @@ from .dependencies import (
     _resolve_orchestration_store,
     _resolve_outreach_service,
     _resolve_runtime_command_queue,
+    _resolve_runtime_trace_subscriber,
     _resolve_runtime_trace_store,
     _resolve_sensor_hub,
     _resolve_self_memory,
@@ -372,8 +375,19 @@ async def clear_memory_layers():
                     )
                     if legacy_user_content_clearer is not None:
                         auxiliary_clearers.append(legacy_user_content_clearer)
+                    llm_usage_store = _resolve_llm_usage_store()
+                    if llm_usage_store is not None:
+                        auxiliary_clearers.append(llm_usage_store.clear_user_content)
                     async with _conversation_delivery_clear_boundary():
                         async with AsyncExitStack() as content_cache_scope:
+                            for subscriber in (
+                                _resolve_runtime_trace_subscriber(),
+                                _resolve_llm_usage_subscriber(),
+                            ):
+                                if subscriber is not None:
+                                    await content_cache_scope.enter_async_context(
+                                        subscriber.user_content_clear_boundary()
+                                    )
                             await content_cache_scope.enter_async_context(
                                 _resolve_mcp_resource_cache().global_data_clear_boundary()
                             )

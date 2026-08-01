@@ -31,10 +31,12 @@ class RuntimeOperationalGCScheduleContrib:
         self,
         *,
         unified_memory,
+        llm_usage_store,
         get_config_func=get_config,
         runtime_paths_provider=get_runtime_paths,
     ) -> None:
         self._unified_memory = unified_memory
+        self._llm_usage_store = llm_usage_store
         self._get_config = get_config_func
         self._runtime_paths_provider = runtime_paths_provider
 
@@ -78,6 +80,7 @@ class RuntimeOperationalGCScheduleContrib:
             results = await self._unified_memory.cleanup_runtime_data()
             runtime_gc = RuntimeOperationalGC(
                 lifecycle=current_config.lifecycle,
+                llm_usage_store=self._llm_usage_store,
                 runtime_paths=runtime_paths,
             )
             results.update(await runtime_gc.run())
@@ -127,8 +130,13 @@ class RuntimeOperationalGCScheduleRegistrationModule(LifecycleModule):
             self._context.memory.unified_memory,
             "unified memory",
         )
+        llm_usage_store = require_initialized(
+            self._context.llm.llm_usage_store,
+            "LLM usage store",
+        )
         self._contrib = RuntimeOperationalGCScheduleContrib(
             unified_memory=unified_memory,
+            llm_usage_store=llm_usage_store,
         )
         await self._contrib.register_schedules(scheduler_service)
         logger.info("Runtime operational GC schedule registered")

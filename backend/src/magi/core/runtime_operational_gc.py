@@ -67,10 +67,12 @@ class RuntimeOperationalGC:
         lifecycle: Any,  # config.models.LifecycleSettings, injected by the
         # composition root (bootstrap/maintenance.py). Typed Any so this L1
         # core module does not import the higher config layer.
+        llm_usage_store: Any,
         runtime_paths: RuntimePaths | None = None,
         now: Callable[[], float] | None = None,
     ) -> None:
         self.lifecycle = lifecycle
+        self._llm_usage_store = llm_usage_store
         self.runtime_paths = runtime_paths or get_runtime_paths()
         self._now = now or time.time
 
@@ -166,6 +168,12 @@ class RuntimeOperationalGC:
 
     async def cleanup_llm_usage(self) -> dict[str, int]:
         """Roll up and delete expired raw LLM usage rows."""
+
+        async with self._llm_usage_store.user_content_operation():
+            return await self._cleanup_llm_usage_unlocked()
+
+    async def _cleanup_llm_usage_unlocked(self) -> dict[str, int]:
+        """Run retention while the shared usage-content boundary is held."""
 
         db_path = self.runtime_paths.llm_usage_db_path
         if not db_path.exists():

@@ -17,7 +17,7 @@ class RuntimeTraceSubscriberModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext) -> None:
         super().__init__(
             name="runtime_trace_subscriber",
-            dependencies=("runtime_message_bus", "runtime_trace"),
+            dependencies=("runtime_message_bus", "runtime_trace", "runtime_memory"),
         )
         self._context = context
         self._subscriber: Any = None
@@ -25,14 +25,16 @@ class RuntimeTraceSubscriberModule(LifecycleModule):
     async def init(self) -> None:
         from .subscribers.runtime_trace_subscriber import RuntimeTraceSubscriber
 
-        bus = require_initialized(
-            self._context.message_bus.message_bus, "message bus"
+        bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
+        memory = require_initialized(self._context.memory.unified_memory, "unified memory")
+        self._subscriber = RuntimeTraceSubscriber(
+            event_bus=bus,
+            trace_store=store,
+            memory_epoch_getter=memory.memory_operation_epoch,
         )
-        store = require_initialized(
-            self._context.runtime_trace.store, "runtime trace store"
-        )
-        self._subscriber = RuntimeTraceSubscriber(event_bus=bus, trace_store=store)
         await self._subscriber.start()
+        self._context.runtime_trace.subscriber = self._subscriber
         logger.info("RuntimeTraceSubscriber started")
 
     async def shutdown(self) -> None:
@@ -46,3 +48,4 @@ class RuntimeTraceSubscriberModule(LifecycleModule):
         if self._subscriber is not None:
             await self._subscriber.stop()
             self._subscriber = None
+        self._context.runtime_trace.subscriber = None

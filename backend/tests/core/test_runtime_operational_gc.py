@@ -11,6 +11,7 @@ from magi.config.models import LifecycleSettings
 from magi.core.runtime_operational_gc import RuntimeOperationalGC
 from magi.core.sqlite import sqlite_connection_async
 from magi.db.runner import MIGRATION_TARGETS, _build_config
+from magi.llm.usage_store import LLMUsageStore
 
 
 message_queue_initial = import_module("magi.db.migrations.message_queue.versions.v1_initial")
@@ -21,10 +22,12 @@ sensor_state_initial = import_module("magi.db.migrations.sensor_state.versions.v
 
 def _gc(base_dir: Path, *, now: float = 2_000_000.0, lifecycle: LifecycleSettings | None = None) -> RuntimeOperationalGC:
 	from magi.utils.runtime import RuntimePaths
+	runtime_paths = RuntimePaths(base_dir=base_dir)
 
 	return RuntimeOperationalGC(
 		lifecycle=lifecycle or LifecycleSettings(),
-		runtime_paths=RuntimePaths(base_dir=base_dir),
+		llm_usage_store=LLMUsageStore(runtime_paths.llm_usage_db_path),
+		runtime_paths=runtime_paths,
 		now=lambda: now,
 	)
 

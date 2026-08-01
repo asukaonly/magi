@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 
-from magi.events.events import Event, EventTypes
+from magi.core.operation_barrier import AsyncOperationBarrier
+from magi.events.events import Event, EventTypes, published_memory_epoch
 from magi.events.domain_payloads import SpanCompleted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
 from magi.llm.pricing import (
@@ -22,11 +26,22 @@ logger = logging.getLogger(__name__)
 class LLMUsageSubscriber:
     """Subscribe SpanCompleted; route llm_call → LLMUsageStore.record_call."""
 
-    def __init__(self, *, event_bus, llm_usage_store: LLMUsageStore) -> None:
+    def __init__(
+        self,
+        *,
+        event_bus,
+        llm_usage_store: LLMUsageStore,
+        memory_epoch_getter: Callable[[], int] | None = None,
+    ) -> None:
         self._bus = event_bus
         self._store = llm_usage_store
+        self._memory_epoch_getter = memory_epoch_getter
         self._sub_id: Optional[str] = None
         self._inflight: set[asyncio.Task] = set()
+        self._clear_barrier = AsyncOperationBarrier()
+        self._clear_generation = 0
+        self._clear_request_count = 0
+        self._clear_cutoff_started_at_ms = 0
 
     async def start(self) -> None:
         self._sub_id = await self._bus.subscribe(
@@ -48,16 +63,62 @@ class LLMUsageSubscriber:
             return
         await asyncio.gather(*list(self._inflight), return_exceptions=True)
 
+    @asynccontextmanager
+    async def user_content_clear_boundary(self) -> AsyncIterator[None]:
+        """Drain admitted projections and reject work crossing a full clear."""
+        self._clear_request_count += 1
+        self._clear_generation += 1
+        try:
+            async with self._clear_barrier.exclusive():
+                yield
+        finally:
+            self._clear_cutoff_started_at_ms = max(
+                self._clear_cutoff_started_at_ms,
+                int(time.time() * 1000),
+            )
+            self._clear_request_count -= 1
+
     async def _on_event(self, event: Event) -> None:
+        if self._clear_request_count > 0 or not self._matches_current_memory_epoch(event):
+            return
         try:
             payload = expect_payload(event, SpanCompleted)
         except PayloadTypeError:
             return
         if payload.node_type != "llm_call":
             return
-        task = asyncio.create_task(self._safe_record(event, payload))
+        if (
+            self._clear_cutoff_started_at_ms > 0
+            and payload.started_at_ms <= self._clear_cutoff_started_at_ms
+        ):
+            return
+        generation = self._clear_generation
+        task = asyncio.create_task(self._record_with_boundary(event, payload, generation))
         self._inflight.add(task)
         task.add_done_callback(self._inflight.discard)
+
+    async def _record_with_boundary(
+        self,
+        event: Event,
+        payload: SpanCompleted,
+        generation: int,
+    ) -> None:
+        async with self._clear_barrier.operation():
+            if generation != self._clear_generation:
+                return
+            await self._safe_record(event, payload)
+
+    def _matches_current_memory_epoch(self, event: Event) -> bool:
+        if self._memory_epoch_getter is None:
+            return True
+        event_epoch = published_memory_epoch(event)
+        if event_epoch is None:
+            return True
+        try:
+            return event_epoch == int(self._memory_epoch_getter())
+        except Exception:
+            logger.exception("llm_usage memory epoch resolution failed")
+            return False
 
     async def _safe_record(self, event: Event, payload: SpanCompleted) -> None:
         try:

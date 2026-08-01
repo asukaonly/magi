@@ -42,6 +42,7 @@ async def test_runtime_operational_gc_contrib_registers_handler_and_schedule() -
     config.agent.maintenance.interval_seconds = 123.0
     contrib = RuntimeOperationalGCScheduleContrib(
         unified_memory=MagicMock(),
+        llm_usage_store=MagicMock(),
         get_config_func=lambda: config,
     )
 
@@ -69,6 +70,7 @@ async def test_runtime_operational_gc_handler_runs_all_runtime_cleanup() -> None
     config.lifecycle.chat_assets.orphan_grace_hours = 7
     unified_memory = MagicMock()
     unified_memory.cleanup_runtime_data = AsyncMock(return_value={"expired_sessions": 2})
+    llm_usage_store = MagicMock()
 
     runtime_gc = MagicMock()
     runtime_gc.run = AsyncMock(return_value={"llm_usage_raw_deleted": 3})
@@ -88,6 +90,7 @@ async def test_runtime_operational_gc_handler_runs_all_runtime_cleanup() -> None
     ):
         contrib = RuntimeOperationalGCScheduleContrib(
             unified_memory=unified_memory,
+            llm_usage_store=llm_usage_store,
             get_config_func=lambda: config,
             runtime_paths_provider=lambda: SimpleNamespace(runtime_dir="/tmp/runtime"),
         )
@@ -102,7 +105,11 @@ async def test_runtime_operational_gc_handler_runs_all_runtime_cleanup() -> None
     }
     unified_memory.cleanup_runtime_data.assert_awaited_once()
     runtime_gc.run.assert_awaited_once()
-    runtime_gc_cls.assert_called_once()
+    runtime_gc_cls.assert_called_once_with(
+        lifecycle=config.lifecycle,
+        llm_usage_store=llm_usage_store,
+        runtime_paths=SimpleNamespace(runtime_dir="/tmp/runtime"),
+    )
     chat_asset_gc.sweep_orphan_assets.assert_called_once_with(
         orphan_grace_hours=7,
         delete_orphan_sessions=True,
@@ -118,6 +125,7 @@ async def test_runtime_operational_gc_still_sweeps_unowned_assets_when_session_g
     config.lifecycle.chat_assets.delete_on_clear_memory = True
     unified_memory = MagicMock()
     unified_memory.cleanup_runtime_data = AsyncMock(return_value={})
+    llm_usage_store = MagicMock()
     runtime_gc = MagicMock()
     runtime_gc.run = AsyncMock(return_value={})
     chat_asset_gc = MagicMock()
@@ -131,6 +139,7 @@ async def test_runtime_operational_gc_still_sweeps_unowned_assets_when_session_g
     ):
         contrib = RuntimeOperationalGCScheduleContrib(
             unified_memory=unified_memory,
+            llm_usage_store=llm_usage_store,
             get_config_func=lambda: config,
             runtime_paths_provider=lambda: SimpleNamespace(runtime_dir="/tmp/runtime"),
         )
