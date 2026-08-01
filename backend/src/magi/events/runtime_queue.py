@@ -756,6 +756,7 @@ class SQLiteRuntimeCommandQueue:
         await self._ensure_user_message_generation_loaded()
         now = time.time()
         async with self._write_lock, sqlite_connection_async(self.db_path) as db:
+            await db.execute("PRAGMA secure_delete=ON")
             await db.execute("BEGIN IMMEDIATE")
             try:
                 await db.execute(
@@ -790,10 +791,16 @@ class SQLiteRuntimeCommandQueue:
                 )
                 purged_count = int(cursor.rowcount or 0)
                 await db.execute("DELETE FROM runtime_user_message_idempotency")
+                await db.execute("DELETE FROM runtime_user_message_scope_blocks")
                 await db.commit()
             except BaseException:
                 await db.rollback()
                 raise
+            await db.execute("VACUUM")
+            checkpoint_cursor = await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            checkpoint = await checkpoint_cursor.fetchone()
+            if checkpoint is not None and int(checkpoint[0] or 0) != 0:
+                raise RuntimeError("Runtime clear could not truncate the WAL")
         self._user_message_generation = next_generation
         return next_generation, purged_count
 

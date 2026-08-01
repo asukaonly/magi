@@ -815,7 +815,13 @@ async def test_user_message_clear_boundary_purges_every_old_payload_and_preserve
             RefreshLLMConfigCommand(source="api", reason="keep me")
         )
 
+        private_scope_marker = "private-scope-marker-that-must-not-survive"
         async with queue.user_message_clear_boundary():
+            await queue.block_user_message_scope_and_purge(
+                user_id=private_scope_marker,
+                session_id=private_scope_marker,
+                reason="test-clear",
+            )
             generation, purged_count = await queue.advance_user_message_generation_and_purge()
 
         assert generation == 1
@@ -829,11 +835,25 @@ async def test_user_message_clear_boundary_purges_every_old_payload_and_preserve
                 "SELECT COUNT(*) FROM runtime_user_message_idempotency"
             ) as cursor:
                 receipt_count = int((await cursor.fetchone())[0])
+            async with db.execute(
+                "SELECT COUNT(*) FROM runtime_user_message_scope_blocks"
+            ) as cursor:
+                scope_block_count = int((await cursor.fetchone())[0])
         assert [(row[0], "keep me" in str(row[1])) for row in rows] == [
             (RuntimeCommandType.REFRESH_LLM_CONFIG.value, True)
         ]
         assert all("secret" not in str(row[1]) for row in rows)
         assert receipt_count == 0
+        assert scope_block_count == 0
+        queue_files = (
+            Path(queue.db_path),
+            Path(f"{queue.db_path}-wal"),
+        )
+        assert all(
+            private_scope_marker.encode() not in path.read_bytes()
+            for path in queue_files
+            if path.exists()
+        )
 
         await _enqueue("new generation")
         next_command = await queue.claim_next(

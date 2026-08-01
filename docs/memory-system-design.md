@@ -2159,12 +2159,15 @@ independent table deletes.
   command processing cannot revive the cleared transcript, and external
   conversation delivery remains blocked until the second stage completes. No
   periodic retention job is needed to make a user-requested clear converge.
-- Every deleted or globally cleared chat session also leaves a
+- An individually deleted chat session leaves a
   `chat_cleared_session_scopes` tombstone. Session identity is compared
   case-insensitively, `chat_sessions` enforces the same case-insensitive
   uniqueness, and database triggers reject both a direct session recreation
-  and late child-row writes. The tombstone outlives the transient global-clear
-  intent, so changing only the letter case cannot revive a cleared session.
+  and late child-row writes. During a full clear, those per-session and
+  per-message identifiers remain only until all old writers have drained and
+  the global barrier is ready to close. Finalization then removes them and
+  securely compacts the chat database and WAL; the generation barrier replaces
+  an unbounded permanent list of historical user identifiers.
 - Once the durable clear boundary has committed, later cleanup or writer-resume
   failures cannot turn the response back into a retryable failure. The API
   returns success with explicit warnings, and the desktop client discards its

@@ -83,6 +83,13 @@ async def test_full_clear_rejects_retried_old_turn_after_restart(
 
     restarted = ChatReadService(runtime_paths=runtime_paths)
     assert restarted.complete_global_clear() is True
+    with sqlite3.connect(runtime_paths.chat_db_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM chat_cleared_session_scopes"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM chat_cleared_message_scopes"
+        ).fetchone()[0] == 0
     restarted.close()
 
     new_session_id = "session-after-clear"
@@ -107,6 +114,42 @@ async def test_full_clear_rejects_retried_old_turn_after_restart(
         "SELECT 1 FROM chat_sessions WHERE session_id = ?",
         (new_session_id,),
     ) is not None
+
+
+def test_global_clear_removes_private_bytes_from_chat_database_and_wal(
+    tmp_path: Path,
+) -> None:
+    read_service, runtime_paths = _build_read_service(tmp_path)
+    private_marker = "private-chat-marker-that-must-not-survive"
+    connection = read_service._get_conn()
+    connection.execute(
+        """
+        INSERT INTO chat_sessions(
+            session_id, user_id, title, created_at_ms, updated_at_ms
+        ) VALUES (?, 'local_user', ?, 1, 1)
+        """,
+        (private_marker, private_marker),
+    )
+    connection.commit()
+    database_paths = (
+        runtime_paths.chat_db_path,
+        Path(f"{runtime_paths.chat_db_path}-wal"),
+    )
+    assert any(
+        private_marker.encode() in path.read_bytes()
+        for path in database_paths
+        if path.exists()
+    )
+
+    assert read_service.clear_all_sessions() == 1
+    assert read_service.complete_global_clear() is True
+
+    assert all(
+        private_marker.encode() not in path.read_bytes()
+        for path in database_paths
+        if path.exists()
+    )
+    read_service.close()
 
 
 @pytest.mark.asyncio

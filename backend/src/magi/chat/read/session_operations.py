@@ -1060,6 +1060,7 @@ class ChatSessionOperationsMixin:
             host._clear_all_chat_assets()
             return 0
         conn = host._get_conn()
+        conn.execute("PRAGMA secure_delete=ON")
         conn.execute("BEGIN IMMEDIATE")
         try:
             code_delegation_references = (
@@ -1264,6 +1265,7 @@ class ChatSessionOperationsMixin:
         if not host._chat_db_path.exists():
             return False
         conn = host._get_conn()
+        conn.execute("PRAGMA secure_delete=ON")
         conn.execute("BEGIN IMMEDIATE")
         try:
             pending = conn.execute(
@@ -1299,6 +1301,16 @@ class ChatSessionOperationsMixin:
                 raise RuntimeError(
                     "Global chat clear cannot complete while chat rows remain"
                 )
+            conn.execute(f"DELETE FROM {CHAT_CLEARED_MESSAGE_SCOPES_TABLE}")
+            conn.execute(f"DELETE FROM {CHAT_CLEARED_SESSION_SCOPES_TABLE}")
+            conn.commit()
+
+            conn.execute("VACUUM")
+            checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if checkpoint is not None and int(checkpoint[0] or 0) != 0:
+                raise RuntimeError("Global chat clear could not truncate the WAL")
+
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 f"""
                 DELETE FROM {CHAT_GLOBAL_CLEAR_INTENT_TABLE}
@@ -1306,6 +1318,9 @@ class ChatSessionOperationsMixin:
                 """
             )
             conn.commit()
+            checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if checkpoint is not None and int(checkpoint[0] or 0) != 0:
+                raise RuntimeError("Global chat clear could not finalize the WAL")
             return True
         except BaseException:
             conn.rollback()
