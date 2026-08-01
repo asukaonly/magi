@@ -7,7 +7,7 @@ from typing import Any, Callable, TypeVar
 
 import pytest
 
-from magi.core.chat_assets.mutations import run_chat_asset_mutation
+from magi.core.chat_assets.mutations import chat_asset_mutation, run_chat_asset_mutation
 from magi.chat.attachment_ingestion import LocalChatAttachmentIngestionService
 from magi.i18n import language_context
 from magi.utils.runtime import RuntimePaths
@@ -33,6 +33,58 @@ class FakeHeicPreviewConverter:
 class FailingHeicPreviewConverter:
     def convert_heic_to_jpeg(self, *, content: bytes, original_name: str) -> bytes:
         raise RuntimeError("decoder unavailable")
+
+
+@pytest.mark.asyncio
+async def test_upload_rechecks_session_after_global_asset_clear(
+    tmp_path: Path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    session_exists = True
+    clear_started = asyncio.Event()
+    release_clear = asyncio.Event()
+
+    class _ReadService:
+        calls = 0
+
+        async def aget_session_summary(self, _user_id: str, _session_id: str):
+            self.calls += 1
+            return object() if session_exists else None
+
+    read_service = _ReadService()
+    service = LocalChatAttachmentIngestionService(
+        runtime_paths=runtime_paths,
+        chat_read_service_factory=lambda: read_service,
+    )
+
+    async def hold_global_clear_boundary() -> None:
+        nonlocal session_exists
+        async with chat_asset_mutation():
+            clear_started.set()
+            await release_clear.wait()
+            session_exists = False
+
+    clear_task = asyncio.create_task(hold_global_clear_boundary())
+    await clear_started.wait()
+    upload_task = asyncio.create_task(
+        service.ingest_uploaded_attachment(
+            user_id="user-1",
+            session_id="session-1",
+            turn_id="turn-1",
+            original_name="private.txt",
+            content=b"private content",
+            mime_type="text/plain",
+        )
+    )
+    await asyncio.sleep(0)
+    assert read_service.calls == 0
+
+    release_clear.set()
+    await clear_task
+
+    assert await upload_task is None
+    assert read_service.calls == 1
+    assert list(runtime_paths.chat_resources_dir.rglob("*")) == []
 
 
 def test_ingest_text_attachment_returns_unparsed_upload_metadata(tmp_path: Path) -> None:

@@ -24,7 +24,10 @@ from ..core.chat_assets.paths import (
     resolve_chat_attachment_file,
     resolve_chat_derived_file,
 )
-from ..core.chat_assets.mutations import run_chat_asset_mutation
+from ..core.chat_assets.mutations import (
+    chat_asset_mutation,
+    run_chat_asset_mutation_held,
+)
 from .attachment_storage import LocalChatAttachmentStorage, StoredChatAttachment
 from .image_preview_conversion import HeicPreviewConverter, PillowHeicPreviewConverter
 from .pdf_attachment_parser import (
@@ -173,21 +176,22 @@ class LocalChatAttachmentIngestionService:
             label="turn_id",
         )
         async with chat_session_mutation(normalized_session_id):
-            read_service = self._resolve_chat_read_service()
-            session = await read_service.aget_session_summary(
-                user_id,
-                normalized_session_id,
-            )
-            if session is None:
-                return None
-            return await run_chat_asset_mutation(
-                self.ingest_attachment,
-                session_id=normalized_session_id,
-                turn_id=normalized_turn_id,
-                original_name=original_name,
-                content=content,
-                mime_type=mime_type,
-            )
+            async with chat_asset_mutation():
+                read_service = self._resolve_chat_read_service()
+                session = await read_service.aget_session_summary(
+                    user_id,
+                    normalized_session_id,
+                )
+                if session is None:
+                    return None
+                return await run_chat_asset_mutation_held(
+                    self.ingest_attachment,
+                    session_id=normalized_session_id,
+                    turn_id=normalized_turn_id,
+                    original_name=original_name,
+                    content=content,
+                    mime_type=mime_type,
+                )
 
     def _resolve_chat_read_service(self) -> ChatSessionReadPort:
         if self._chat_read_service_factory is not None:

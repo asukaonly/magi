@@ -101,19 +101,30 @@ async def run_chat_asset_mutation(
     """Run one blocking filesystem mutation under the async boundary."""
 
     async with chat_asset_mutation():
-        worker = asyncio.create_task(asyncio.to_thread(func, *args, **kwargs))
+        return await run_chat_asset_mutation_held(func, *args, **kwargs)
+
+
+async def run_chat_asset_mutation_held(
+    func: Callable[P, R],
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> R:
+    """Run blocking asset work after async validation inside the boundary."""
+
+    require_chat_asset_mutation()
+    worker = asyncio.create_task(asyncio.to_thread(func, *args, **kwargs))
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        # A running thread cannot be cancelled. Keep the boundary held until
+        # it has actually stopped mutating managed files, then preserve the
+        # caller's cancellation instead of exposing an unlocked background
+        # mutation to garbage collection or ownership writers.
         try:
-            return await asyncio.shield(worker)
-        except asyncio.CancelledError:
-            # A running thread cannot be cancelled. Keep the boundary held until
-            # it has actually stopped mutating managed files, then preserve the
-            # caller's cancellation instead of exposing an unlocked background
-            # mutation to garbage collection or ownership writers.
-            try:
-                await worker
-            except BaseException:
-                pass
-            raise
+            await worker
+        except BaseException:
+            pass
+        raise
 
 
 __all__ = [
@@ -122,4 +133,5 @@ __all__ = [
     "chat_asset_mutation_is_held",
     "require_chat_asset_mutation",
     "run_chat_asset_mutation",
+    "run_chat_asset_mutation_held",
 ]
