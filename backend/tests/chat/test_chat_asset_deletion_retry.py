@@ -17,6 +17,7 @@ from magi.chat.read.asset_ownership import (
     unshared_asset_references,
 )
 from magi.chat.read_service import ChatReadService
+from magi.config.models import ChatAssetsLifecycleSettings
 from magi.db.migrations.runtime_trace.versions.v1_initial import (
     SCHEMA_SQL as RUNTIME_TRACE_SCHEMA_SQL,
 )
@@ -1120,6 +1121,22 @@ def test_clear_all_asset_failure_keeps_only_private_retry_ownership(
         WHERE session_id = 'session-clear-all'
         """
     ).fetchone()[0] == 1
+    service.close()
+
+
+def test_clear_all_sessions_always_deletes_managed_assets(tmp_path: Path) -> None:
+    service, runtime_paths = _build_service(tmp_path)
+    asset_path = _seed_chat(
+        service,
+        runtime_paths,
+        session_id="session-clear-unconditional",
+        message_id="message-clear-unconditional",
+    )
+
+    assert service.clear_all_sessions() == 1
+
+    assert not asset_path.exists()
+    assert "delete_on_clear_memory" not in ChatAssetsLifecycleSettings.model_fields
     service.close()
 
 

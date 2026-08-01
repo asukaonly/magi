@@ -41,7 +41,6 @@ lifecycle:
 
   chat_assets:
     delete_on_session_delete: true
-    delete_on_clear_memory: true
     orphan_grace_hours: 24
 
   ephemeral_jobs:

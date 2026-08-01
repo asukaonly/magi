@@ -66,7 +66,6 @@ async def test_runtime_operational_gc_handler_runs_all_runtime_cleanup() -> None
 
     config = AppConfig()
     config.lifecycle.chat_assets.delete_on_session_delete = True
-    config.lifecycle.chat_assets.delete_on_clear_memory = False
     config.lifecycle.chat_assets.orphan_grace_hours = 7
     unified_memory = MagicMock()
     unified_memory.cleanup_runtime_data = AsyncMock(return_value={"expired_sessions": 2})
@@ -122,7 +121,6 @@ async def test_runtime_operational_gc_still_sweeps_unowned_assets_when_session_g
 
     config = AppConfig()
     config.lifecycle.chat_assets.delete_on_session_delete = False
-    config.lifecycle.chat_assets.delete_on_clear_memory = True
     unified_memory = MagicMock()
     unified_memory.cleanup_runtime_data = AsyncMock(return_value={})
     llm_usage_store = MagicMock()

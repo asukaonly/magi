@@ -721,7 +721,6 @@ class ChatAssetsLifecycleSettings(BaseModel):
     """Lifecycle policy for managed chat attachment resources."""
 
     delete_on_session_delete: bool = Field(default=True)
-    delete_on_clear_memory: bool = Field(default=True)
     orphan_grace_hours: int = Field(default=24, ge=0)
 
 

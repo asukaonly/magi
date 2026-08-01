@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..agent.orchestration import get_orchestration_store
-from ..config import get_config
 from ..core.logger import get_logger
 from ..core.code_agent_artifacts import (
     CodeAgentArtifactGC,
@@ -638,8 +637,6 @@ class ChatReadService(
         )
 
     def _clear_all_chat_assets(self) -> None:
-        if not get_config().lifecycle.chat_assets.delete_on_clear_memory:
-            return
         self._asset_gc.clear_all_assets()
 
     def _query_chat_message_rows(
