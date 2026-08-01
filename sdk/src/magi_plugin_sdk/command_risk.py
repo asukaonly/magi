@@ -15,7 +15,10 @@ from __future__ import annotations
 import re
 import shlex
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from magi_plugin_sdk.permissions import ClassificationResult
 
 RiskLevel = Literal["read_only", "mutating", "destructive"]
 
