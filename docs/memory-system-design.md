@@ -330,7 +330,8 @@ completion updates change lifecycle state without replacing the original
 evidence time. This prevents a later task notification from making old evidence
 look newer than its deletion cutoff. Shared per-turn cutoffs survive an
 ordinary L0 clear and are removed only by full-memory clear. Full-memory clear
-also removes dormant L0 rows even when the optional L0 store is disabled.
+removes dormant rows and vector content from every persisted memory layer even
+when that optional layer is disabled in the current runtime.
 Normal expiry and checkpoint maintenance never weaken these barriers.
 
 ### L1 — Normalized Event Facts

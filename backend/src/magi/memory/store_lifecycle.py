@@ -44,6 +44,7 @@ class UnifiedMemoryLifecycleMixin:
     """Initialize and shut down enabled L0-L4 stores."""
 
     memory_db_path: str
+    l1_db_path: str
     l0: Any
     l1: Any
     l2: Any
@@ -159,13 +160,30 @@ class UnifiedMemoryLifecycleMixin:
                             l2_count += await self.l2_entity_catalog.clear()
                         if self.l2_pipeline is not None:
                             await self.l2_pipeline.reset_after_clear()
-                        await clear_shared_auxiliary_memory(self.memory_db_path)
                         l0_count = await self.l0.clear() if self.l0 is not None else 0
-                        l1_count = (
-                            await self.l1.clear(restart_workers=False) if self.l1 is not None else 0
-                        )
+                        if self.l1 is not None:
+                            l1_count = await self.l1.clear(restart_workers=False)
+                        else:
+                            l1_count = self._clear_dormant_l1_database()
                         l3_count = await self.l3.clear() if self.l3 is not None else 0
                         l4_count = await self.l4.clear() if self.l4 is not None else 0
+                        shared_counts = await clear_shared_auxiliary_memory(
+                            self.memory_db_path,
+                            advance_clear_generation=self.l2 is None,
+                            dormant_vector_layers=frozenset(
+                                layer
+                                for layer, store in (
+                                    ("l2", self.l2),
+                                    ("l3", self.l3),
+                                    ("l4", self.l4),
+                                )
+                                if store is None
+                            ),
+                        )
+                        l0_count += shared_counts.l0
+                        l2_count += shared_counts.l2
+                        l3_count += shared_counts.l3
+                        l4_count += shared_counts.l4
                         self._clear_archived_memory_files()
                         await self._run_auxiliary_clearers(auxiliary_clearers)
                         if context_clearer is not None:
@@ -297,6 +315,13 @@ class UnifiedMemoryLifecycleMixin:
         for name in list_managed_directory_names(self._archive_dir):
             if _MEMORY_ARCHIVE_FILE_PATTERN.fullmatch(name):
                 remove_managed_file(self._archive_dir / name)
+
+    def _clear_dormant_l1_database(self) -> int:
+        """Remove a persisted L1 database even when L1 is disabled."""
+
+        for suffix in ("", "-wal", "-shm"):
+            remove_managed_file(f"{self.l1_db_path}{suffix}")
+        return 0
 
     def _ensure_real_archive_directory(self) -> None:
         """Replace an archive-directory link or file without entering its target."""

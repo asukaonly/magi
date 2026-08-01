@@ -17,6 +17,7 @@ from _shared.memory_schema import apply_memory_shared_schema
 from magi.context.user_profile_service import UserProfileService
 from magi.memory.derivation_revision import MemoryClearGenerationChangedError
 from magi.memory.embedding.embedding_service import EmbeddingResult
+from magi.memory.embedding.sqlite_vec_index import SqliteVecIndex
 from magi.memory.l2.corrections.models import (
     ApplyAssertionCorrectionCommand,
     ApplyRelationshipCorrectionCommand,
@@ -759,6 +760,97 @@ async def test_unified_clear_removes_dormant_l0_rows_when_l0_is_disabled(
         ):
             async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
                 assert await cursor.fetchone() == (0,), table
+    assert_sqlite_fragment_absent(db_path, private_marker)
+
+
+async def test_unified_clear_removes_every_dormant_memory_layer(tmp_path) -> None:
+    private_marker = "magi-dormant-memory-private-marker-that-must-not-survive"
+    memory_root = tmp_path / "memory"
+    memory_root.mkdir()
+    db_path = str(memory_root / "memory.db")
+    l1_db_path = str(memory_root / "l1_events.db")
+    await apply_memory_shared_schema(db_path)
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("PRAGMA secure_delete=OFF")
+        await db.execute(
+            """
+            INSERT INTO entity_catalog(
+                entity_id, canonical_name, entity_type, created_at, updated_at
+            ) VALUES ('private-entity', ?, 'person', 1, 1)
+            """,
+            (private_marker,),
+        )
+        await db.execute(
+            """
+            INSERT INTO summaries(
+                summary_id, summary_type, summary_category, period_start,
+                period_end, content, source_event_ids, source_event_count,
+                created_at, updated_at
+            ) VALUES ('private-summary', 'temporal', 'day', 1, 2, ?, '[]', 0, 1, 1)
+            """,
+            (private_marker,),
+        )
+        await db.execute(
+            """
+            INSERT INTO procedural_skills(
+                skill_id, skill_name, skill_category, skill_type,
+                source_event_ids, created_at, updated_at
+            ) VALUES ('private-skill', ?, 'test', 'workflow', '[]', 1, 1)
+            """,
+            (private_marker,),
+        )
+        await db.commit()
+    async with aiosqlite.connect(l1_db_path) as db:
+        await db.execute("CREATE TABLE events(content TEXT NOT NULL)")
+        await db.execute("INSERT INTO events(content) VALUES (?)", (private_marker,))
+        await db.commit()
+
+    l3_index = SqliteVecIndex(
+        db_path=db_path,
+        registry_table="l3_summary_chunk_vectors",
+        entity_column="chunk_id",
+        vec_table_prefix="l3_summary_chunk_vec",
+    )
+    await l3_index.upsert(
+        entity_id="private-summary-chunk",
+        embedding=EmbeddingResult(
+            model_name="private-test-model",
+            dimension=2,
+            vector=[1.0, 0.0],
+        ),
+    )
+    await l3_index.close()
+    assert sqlite_fragment_present(db_path, private_marker)
+
+    unified = UnifiedMemoryStore(
+        memory_db_path=db_path,
+        l1_db_path=l1_db_path,
+        persist_dir=str(memory_root),
+        enable_l0=False,
+        enable_l1=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+    )
+    counts = await unified.clear_all_memory()
+
+    assert counts["l2"] == 1
+    assert counts["l3"] == 1
+    assert counts["l4"] == 1
+    assert not os.path.lexists(l1_db_path)
+    async with aiosqlite.connect(db_path) as db:
+        for table in (
+            "entity_catalog",
+            "summaries",
+            "procedural_skills",
+            "l3_summary_chunk_vectors",
+        ):
+            async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
+                assert await cursor.fetchone() == (0,), table
+        async with db.execute(
+            "SELECT generation FROM memory_clear_state WHERE singleton_id = 1"
+        ) as cursor:
+            assert await cursor.fetchone() == (1,)
     assert_sqlite_fragment_absent(db_path, private_marker)
 
 

@@ -304,7 +304,8 @@ salience, source turn/event references, the durable accepted times of its
 source turns, optional linked entity or task attempt, and expiry metadata.
 Exact raw-turn deletion cutoffs are instead shared memory governance: they
 survive an ordinary L0 clear and are removed only by full-memory clear.
-Full-memory clear removes dormant L0 rows even when L0 is disabled. L0 does not
+Full-memory clear removes dormant rows from every persisted memory layer even
+when that layer is disabled. L0 does not
 persist current chat runs, pending interruptions, cancellation controls,
 triggers, tool results, or its pending post-turn analysis queue. The
 runtime-scoped queue is shared across chat-agent instances; only runtime

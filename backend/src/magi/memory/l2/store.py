@@ -444,7 +444,7 @@ class L2CognitionStore(
                         "memory_context_bindings",
                     }.issubset(existing_tables):
                         await clear_user_contexts(db)
-                    for table in _SHARED_USER_MEMORY_TABLES:
+                    for table in L2_USER_CONTENT_TABLES:
                         if table not in existing_tables:
                             continue
                         await db.execute(f"DELETE FROM {table}")
@@ -457,7 +457,7 @@ class L2CognitionStore(
         return count
 
 
-_SHARED_USER_MEMORY_TABLES = (
+L2_USER_CONTENT_TABLES = (
     "memory_derivation_jobs",
     "memory_derivation_dependencies",
     "memory_correction_forget_barriers",
@@ -500,4 +500,4 @@ _SHARED_USER_MEMORY_TABLES = (
 )
 
 
-__all__ = ["L2CognitionStore"]
+__all__ = ["L2CognitionStore", "L2_USER_CONTENT_TABLES"]

@@ -151,6 +151,7 @@ class UnifiedMemoryStore(
             l4=enable_l4,
         )
         self.memory_db_path = context.paths.shared_memory_db_path
+        self.l1_db_path = context.paths.l1_db_path
         self.scenario_llm_pool = scenario_llm_pool
         self._memory_config_getter = context.memory_config_getter
         self._portrait_projection_scheduler = None
