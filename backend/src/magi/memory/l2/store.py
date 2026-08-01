@@ -464,6 +464,8 @@ L2_USER_CONTENT_TABLES = (
     "memory_forget_evidence_events",
     "memory_forget_claim_rules",
     "memory_time_range_forget_barriers",
+    "memory_entity_projection_identity_blocks",
+    "memory_projection_blocks",
     "memory_forget_operation_refs",
     "memory_forget_operation_events",
     "memory_forget_operations",

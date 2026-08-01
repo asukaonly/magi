@@ -31,6 +31,7 @@ _L3_USER_TABLES = (
 )
 
 _L4_USER_TABLES = (
+    "l4_skill_event_links",
     "l4_skill_chunks",
     "l4_execution_traces",
     "l4_skills_fts",
@@ -42,6 +43,11 @@ _SHARED_AUXILIARY_USER_TABLES = (
     # cannot be relied on to exist when a user clears memory.
     "l0_attention_items",
     "l0_sessions",
+    # Retired L0 tables are included for upgraded or interrupted installations.
+    "l0_goal_stack",
+    "l0_active_entities",
+    "l0_temporary_tactics",
+    "l0_forgotten_tactic_source_refs",
     "l0_forgotten_attention_source_refs",
     "l0_forgotten_attention_entities",
     "memory_source_turn_cutoffs",

@@ -799,6 +799,41 @@ async def test_unified_clear_removes_every_dormant_memory_layer(tmp_path) -> Non
             """,
             (private_marker,),
         )
+        await db.execute(
+            """
+            INSERT INTO l4_skill_event_links(skill_id, event_id, created_at)
+            VALUES ('private-skill', ?, 1)
+            """,
+            (private_marker,),
+        )
+        await db.execute(
+            """
+            INSERT INTO memory_projection_blocks(
+                block_kind, target_id, event_id, operation_id, created_at
+            ) VALUES ('entity_projection', 'private-target', ?, 'private-operation', 1)
+            """,
+            (private_marker,),
+        )
+        await db.execute(
+            """
+            INSERT INTO memory_entity_projection_identity_blocks(
+                target_id, event_id, normalized_surface, entity_type,
+                operation_id, created_at
+            ) VALUES (
+                'private-target', 'private-event', ?, 'person',
+                'private-operation', 1
+            )
+            """,
+            (private_marker,),
+        )
+        for table in (
+            "l0_goal_stack",
+            "l0_active_entities",
+            "l0_temporary_tactics",
+            "l0_forgotten_tactic_source_refs",
+        ):
+            await db.execute(f"CREATE TABLE {table}(content TEXT NOT NULL)")
+            await db.execute(f"INSERT INTO {table}(content) VALUES (?)", (private_marker,))
         await db.commit()
     async with aiosqlite.connect(l1_db_path) as db:
         await db.execute("CREATE TABLE events(content TEXT NOT NULL)")
@@ -843,7 +878,14 @@ async def test_unified_clear_removes_every_dormant_memory_layer(tmp_path) -> Non
             "entity_catalog",
             "summaries",
             "procedural_skills",
+            "l4_skill_event_links",
+            "memory_projection_blocks",
+            "memory_entity_projection_identity_blocks",
             "l3_summary_chunk_vectors",
+            "l0_goal_stack",
+            "l0_active_entities",
+            "l0_temporary_tactics",
+            "l0_forgotten_tactic_source_refs",
         ):
             async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
                 assert await cursor.fetchone() == (0,), table
