@@ -8,7 +8,7 @@ from typing import Any, TypeVar
 
 import aiosqlite
 
-from ..core.sqlite import sqlite_connection_async
+from ..core.sqlite import secure_compact_sqlite, sqlite_connection_async
 from .contracts import PluginIngressEventRecord
 
 T = TypeVar("T")
@@ -49,6 +49,7 @@ class PluginIngressPersistenceMixin:
                 yield
             finally:
                 await self._clear_plugin_ingress_events_unlocked()
+                await secure_compact_sqlite(self.db_path, profile="hot_write")
 
     async def append_plugin_ingress_event(self, record: PluginIngressEventRecord) -> int:
         async with self.plugin_ingress_operation():

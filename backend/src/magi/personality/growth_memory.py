@@ -6,7 +6,7 @@ import logging
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
-from ..core.sqlite import sqlite_connection_async
+from ..core.sqlite import secure_compact_sqlite, sqlite_connection_async
 from .growth_models import (
     InteractionType,  # noqa: F401 - compatibility re-export
     Milestone,
@@ -51,6 +51,8 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
                 cursor = await db.execute(f"DELETE FROM {table_name}")
                 deleted += max(0, int(cursor.rowcount or 0))
             await db.commit()
+
+        await secure_compact_sqlite(self._expanded_db_path)
 
         self._relationship_cache.clear()
         self._milestone_cache = None

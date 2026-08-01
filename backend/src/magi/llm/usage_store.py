@@ -241,6 +241,7 @@ class LLMUsageStore:
                 except BaseException:
                     await db.rollback()
                     raise
+                await db.execute("VACUUM")
                 await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         return deleted
 

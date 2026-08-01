@@ -8,6 +8,7 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
+from _shared.sqlite_privacy import assert_sqlite_fragment_absent
 from magi.personality.behavior_evolution import BehaviorEvolutionEngine
 from magi.personality.emotional_state import EmotionalStateEngine
 from magi.personality.growth_memory import GrowthMemoryEngine
@@ -61,14 +62,19 @@ async def _table_count(path: Path, table_name: str) -> int:
 async def test_clear_learned_state_removes_all_persona_rows_and_caches(
     tmp_path: Path,
 ) -> None:
+    private_markers = {
+        "behavior": "magi-behavior-private-marker-that-must-not-survive",
+        "emotion": "magi-emotion-private-marker-that-must-not-survive",
+        "growth": "magi-growth-private-marker-that-must-not-survive",
+    }
     behavior_path = tmp_path / "behavior.db"
     emotional_path = tmp_path / "emotional.db"
     growth_path = tmp_path / "growth.db"
     await _prepare_database(
         behavior_path,
         BEHAVIOR_SCHEMA,
-        """
-        INSERT INTO task_interactions VALUES ('task-a');
+        f"""
+        INSERT INTO task_interactions VALUES ('{private_markers["behavior"]}');
         INSERT INTO task_interactions VALUES ('task-b');
         INSERT INTO category_statistics VALUES ('chat');
         INSERT INTO behavior_profiles VALUES ('chat');
@@ -84,15 +90,15 @@ async def test_clear_learned_state_removes_all_persona_rows_and_caches(
         INSERT INTO emotional_state VALUES (
             'current:b', '{json.dumps(EmotionalState().__dict__)}', 1.0
         );
-        INSERT INTO emotional_events (persona_id) VALUES ('a');
+        INSERT INTO emotional_events (persona_id) VALUES ('{private_markers["emotion"]}');
         INSERT INTO emotional_events (persona_id) VALUES ('b');
         """,
     )
     await _prepare_database(
         growth_path,
         GROWTH_SCHEMA,
-        """
-        INSERT INTO milestones VALUES ('milestone-a');
+        f"""
+        INSERT INTO milestones VALUES ('{private_markers["growth"]}');
         INSERT INTO relationships VALUES ('user-a');
         INSERT INTO personality_evolution DEFAULT VALUES;
         INSERT INTO growth_statistics VALUES ('total_interactions');
@@ -148,6 +154,9 @@ async def test_clear_learned_state_removes_all_persona_rows_and_caches(
     ):
         for table_name in tables:
             assert await _table_count(path, table_name) == 0
+    assert_sqlite_fragment_absent(behavior_path, private_markers["behavior"])
+    assert_sqlite_fragment_absent(emotional_path, private_markers["emotion"])
+    assert_sqlite_fragment_absent(growth_path, private_markers["growth"])
 
 
 @pytest.mark.asyncio

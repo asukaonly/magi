@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from _shared.sqlite_privacy import assert_sqlite_fragment_absent
 from magi.channels.base import Channel
 from magi.channels.contracts import (
     ChannelTarget,
@@ -360,6 +361,7 @@ class TestChannelSessionMapper:
     ) -> None:
         import aiosqlite
 
+        private_marker = "magi-channel-private-marker-that-must-not-survive"
         mapper = ChannelSessionMapper(
             db_path=mapper_db,
             session_provisioner=session_provisioner,
@@ -383,9 +385,9 @@ class TestChannelSessionMapper:
                 INSERT INTO outreach_outbox(
                     correlation_id, channel_scope, intent_fingerprint,
                     intent_json, release_at_ms, status, created_at_ms
-                ) VALUES ('task-1', 'telegram', 'fingerprint', '{"secret":true}',
-                          1, 'pending', 1)
-                """
+                ) VALUES ('task-1', 'telegram', 'fingerprint', ?, 1, 'pending', 1)
+                """,
+                (private_marker,),
             )
             await database.commit()
 
@@ -400,6 +402,7 @@ class TestChannelSessionMapper:
                     "SELECT COUNT(*) FROM channel_binding_settings"
                 )
             ).fetchone() == (1,)
+        assert_sqlite_fragment_absent(mapper_db, private_marker)
 
     async def test_lookup_nonexistent(
         self, mapper_db: str, session_provisioner

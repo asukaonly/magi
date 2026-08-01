@@ -454,6 +454,7 @@ class ChatReadService(
             return
         conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
         try:
+            conn.execute("PRAGMA secure_delete=ON")
             existing_tables = {
                 str(row[0])
                 for row in conn.execute(
@@ -587,6 +588,10 @@ class ChatReadService(
             if "user_notifications" in existing_tables:
                 conn.execute("DELETE FROM user_notifications")
             conn.commit()
+            conn.execute("VACUUM")
+            checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if checkpoint is not None and int(checkpoint[0] or 0) != 0:
+                raise RuntimeError("Runtime trace WAL could not be truncated after clear")
         except Exception:
             conn.rollback()
             logger.exception("Failed to clear runtime trace rows")

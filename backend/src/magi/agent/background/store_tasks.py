@@ -8,7 +8,7 @@ import time
 import aiosqlite
 
 from ...core.logger import get_logger
-from ...core.sqlite import sqlite_connection_async
+from ...core.sqlite import secure_compact_sqlite, sqlite_connection_async
 from .contracts import BackgroundTask, BackgroundTaskEvent, BackgroundTaskStatus
 
 logger = get_logger(__name__)
@@ -150,6 +150,7 @@ class BackgroundTaskRowStoreMixin:
             except BaseException:
                 await db.rollback()
                 raise
+        await secure_compact_sqlite(self.db_path, profile="hot_write")
         return removed
 
     async def list_tasks(

@@ -12,6 +12,7 @@ import aiosqlite
 from magi_plugin_sdk.channels import ChannelInboundContext
 
 from ..core.logger import get_logger
+from ..core.sqlite import secure_compact_sqlite
 from ..identity import CANONICAL_LOCAL_USER, ExternalIdentity, IdentityResolver
 from .contracts import ChannelSessionMapping
 from .ingress_boundary import ChannelIngressBoundary
@@ -279,6 +280,7 @@ class ChannelSessionMapper:
                 except BaseException:
                     await db.rollback()
                     raise
+            await secure_compact_sqlite(self._db_path)
         return counts
 
     # -- notification cursor --------------------------------------------------

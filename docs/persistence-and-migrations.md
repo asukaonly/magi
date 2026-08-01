@@ -77,6 +77,15 @@ error and statistics payloads. The scheduler applies SQLite secure deletion and
 truncates its WAL before reporting that this store has been cleared, so removed
 prompt, result, error, and statistics text is not left in database sidecars.
 
+A full clear applies the same physical-cleanup rule to every SQLite store from
+which it removes user content. After writers are quiesced and logical deletion
+commits, the owning boundary rebuilds the database from live rows and truncates
+its WAL before success is reported. This covers shared memory, runtime traces,
+LLM usage, background tasks, batch manifests, channel conversation state,
+scheduler history, chat, the runtime command queue, and learned persona state.
+Configuration rows intentionally retained by the product remain live; deleted
+payload bytes must not remain in free database pages or SQLite sidecars.
+
 Plugin- and sensor-owned user content uses the same full-clear generation stored
 by the runtime command queue. `runtime_plugin_user_content_clear_state` records
 only the latest generation whose plugin/sensor hooks may be treated as applied;

@@ -7,6 +7,10 @@ from types import SimpleNamespace
 import aiosqlite
 import pytest
 
+from _shared.sqlite_privacy import (
+    assert_sqlite_fragment_absent,
+    sqlite_fragment_present,
+)
 from _shared.memory_schema import apply_memory_shared_schema
 from magi.context.user_profile_service import UserProfileService
 from magi.memory.derivation_revision import MemoryClearGenerationChangedError
@@ -586,9 +590,11 @@ async def test_unified_clear_removes_archives_and_manual_assets_only(tmp_path) -
 async def test_unified_clear_removes_dormant_l0_rows_when_l0_is_disabled(
     tmp_path,
 ) -> None:
+    private_marker = "magi-memory-private-marker-that-must-not-survive"
     db_path = str(tmp_path / "memory.db")
     await apply_memory_shared_schema(db_path)
     async with aiosqlite.connect(db_path) as db:
+        await db.execute("PRAGMA secure_delete=OFF")
         await db.execute(
             """
             INSERT INTO l0_sessions(
@@ -603,10 +609,11 @@ async def test_unified_clear_removes_dormant_l0_rows_when_l0_is_disabled(
                 salience, confidence, evidence_mode,
                 first_seen_at, last_reinforced_at
             ) VALUES (
-                'old-attention', 'old-session', 'focus', 'private focus',
+                'old-attention', 'old-session', 'focus', ?,
                 'active', 0.8, 0.9, 'direct', 1, 1
             )
-            """
+            """,
+            (private_marker,),
         )
         await db.execute(
             """
@@ -630,6 +637,8 @@ async def test_unified_clear_removes_dormant_l0_rows_when_l0_is_disabled(
         )
         await db.commit()
 
+    assert sqlite_fragment_present(db_path, private_marker)
+
     unified = UnifiedMemoryStore(
         memory_db_path=db_path,
         persist_dir=str(tmp_path / "memory"),
@@ -651,6 +660,7 @@ async def test_unified_clear_removes_dormant_l0_rows_when_l0_is_disabled(
         ):
             async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
                 assert await cursor.fetchone() == (0,), table
+    assert_sqlite_fragment_absent(db_path, private_marker)
 
 
 async def test_unified_clear_restarts_pipeline_when_later_quiesce_step_fails(

@@ -9,7 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import List, Optional
 
-from ..core.sqlite import sqlite_connection_async
+from ..core.sqlite import secure_compact_sqlite, sqlite_connection_async
 from .emotional_contracts import EmotionalEvent
 from .models import EmotionalState
 
@@ -138,6 +138,8 @@ class EmotionalStateStorageMixin:
                 cursor = await db.execute(f"DELETE FROM {table_name}")
                 deleted += max(0, int(cursor.rowcount or 0))
             await db.commit()
+
+        await secure_compact_sqlite(self._expanded_db_path)
 
         self._current_state = EmotionalState()
         event_history = getattr(self, "_event_history", None)

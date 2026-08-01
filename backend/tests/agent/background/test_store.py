@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from _shared.sqlite_privacy import assert_sqlite_fragment_absent
 from magi.agent.background import (
     BackgroundTask,
     BackgroundTaskEvent,
@@ -161,7 +162,8 @@ async def test_delete_task_removes_task_and_events(store: BackgroundTaskStore) -
 async def test_clear_all_removes_tasks_events_and_completion_intents(
     store: BackgroundTaskStore,
 ) -> None:
-    task = BackgroundTask.new(_make_spec(goal="private task payload"))
+    private_marker = "magi-background-private-marker-that-must-not-survive"
+    task = BackgroundTask.new(_make_spec(goal=private_marker))
     await store.create_task(task)
     task.status = BackgroundTaskStatus.SUCCEEDED
     task.summary = "private completion summary"
@@ -187,6 +189,7 @@ async def test_clear_all_removes_tasks_events_and_completion_intents(
     assert await store.get_task(task.task_id) is None
     assert await store.list_events(task.task_id) == []
     assert await store.count_pending_completion_intents() == 0
+    assert_sqlite_fragment_absent(store.db_path, private_marker)
 
 
 # ----------------------------------------------------------------------

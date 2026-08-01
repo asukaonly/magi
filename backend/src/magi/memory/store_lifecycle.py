@@ -10,6 +10,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
+from ..core.sqlite import secure_compact_sqlite
 from .shared_clear import clear_shared_auxiliary_memory
 
 logger = logging.getLogger(__name__)
@@ -149,6 +150,7 @@ class UnifiedMemoryLifecycleMixin:
                         if context_clearer is not None:
                             context_result = await self._run_clearer(context_clearer)
                             context_count = int(context_result or 0)
+                        await secure_compact_sqlite(self.memory_db_path)
                     except BaseException as exc:
                         clear_failure = exc
                         clear_traceback = exc.__traceback__

@@ -15,6 +15,7 @@ from typing import Any, Iterable
 
 import aiosqlite
 
+from ...core.sqlite import secure_compact_sqlite
 from .contracts import (
     BatchItem,
     BatchItemStatus,
@@ -543,6 +544,7 @@ class BatchStore:
             except BaseException:
                 await db.rollback()
                 raise
+        await secure_compact_sqlite(self._db_path)
         return {
             "batch_items": int(item_row[0] if item_row else 0),
             "batch_jobs": int(job_row[0] if job_row else 0),

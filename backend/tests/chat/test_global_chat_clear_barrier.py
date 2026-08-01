@@ -8,6 +8,10 @@ from pathlib import Path
 import pytest
 
 from _shared.db_schema import apply_chain_schema
+from _shared.sqlite_privacy import (
+    assert_sqlite_fragment_absent,
+    sqlite_fragment_present,
+)
 from magi.chat.asset_gc import ChatAssetGC
 from magi.chat.contracts import ChatMessageRecord, ChatSessionRecord
 from magi.chat.read_service import ChatReadService
@@ -148,6 +152,35 @@ def test_global_clear_removes_private_bytes_from_chat_database_and_wal(
         private_marker.encode() not in path.read_bytes()
         for path in database_paths
         if path.exists()
+    )
+    read_service.close()
+
+
+def test_global_clear_removes_private_bytes_from_runtime_trace_files(
+    tmp_path: Path,
+) -> None:
+    read_service, runtime_paths = _build_read_service(tmp_path)
+    apply_chain_schema("runtime_trace", runtime_paths.runtime_trace_db_path)
+    private_marker = "magi-runtime-trace-private-marker-that-must-not-survive"
+    with sqlite3.connect(runtime_paths.runtime_trace_db_path) as connection:
+        connection.execute("PRAGMA secure_delete=OFF")
+        connection.execute(
+            """
+            INSERT INTO runtime_notifications(
+                channel, user_id, session_id, payload_json, created_at_ms
+            ) VALUES ('chat', 'local_user', 'private-session', ?, 1)
+            """,
+            (private_marker,),
+        )
+        connection.commit()
+
+    assert sqlite_fragment_present(runtime_paths.runtime_trace_db_path, private_marker)
+
+    assert read_service.clear_all_sessions() == 0
+
+    assert_sqlite_fragment_absent(
+        runtime_paths.runtime_trace_db_path,
+        private_marker,
     )
     read_service.close()
 

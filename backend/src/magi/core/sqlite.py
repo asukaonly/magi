@@ -229,6 +229,48 @@ async def sqlite_transaction_async(
         await db.close()
 
 
+async def secure_compact_sqlite(
+    db_path: str | Path,
+    *,
+    profile: str | SqliteProfile = "default",
+    timeout_seconds: float = 30.0,
+) -> None:
+    """Rewrite one SQLite file and truncate its WAL after sensitive deletion.
+
+    Callers must quiesce writers before invoking this maintenance boundary.
+    The pre-VACUUM checkpoint makes committed WAL content part of the database
+    image, VACUUM rebuilds that image from live rows only, and the final
+    checkpoint removes maintenance writes from the WAL sidecar.
+    """
+
+    expanded = Path(db_path).expanduser()
+    if not expanded.exists():
+        return
+
+    async with sqlite_connection_async(
+        expanded,
+        profile=profile,
+        timeout_seconds=timeout_seconds,
+        use_row_factory=False,
+    ) as db:
+        await db.execute("PRAGMA secure_delete=ON")
+        await _require_truncated_wal(db, db_path=expanded)
+        await db.execute("VACUUM")
+        await _require_truncated_wal(db, db_path=expanded)
+
+
+async def _require_truncated_wal(
+    db: aiosqlite.Connection,
+    *,
+    db_path: Path,
+) -> None:
+    cursor = await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    row = await cursor.fetchone()
+    await cursor.close()
+    if row is not None and int(row[0] or 0) != 0:
+        raise RuntimeError(f"SQLite WAL is busy during secure compaction: {db_path}")
+
+
 @contextmanager
 def sqlite_transaction(
     db_path: str | Path,

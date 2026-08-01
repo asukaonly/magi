@@ -6,7 +6,7 @@ import logging
 from dataclasses import asdict
 from typing import Any
 
-from ..core.sqlite import sqlite_connection_async
+from ..core.sqlite import secure_compact_sqlite, sqlite_connection_async
 from .behavior_evolution_models import CategoryStatistics
 from .models import TaskBehaviorProfile
 
@@ -33,6 +33,8 @@ class BehaviorEvolutionMaintenanceMixin:
                 cursor = await db.execute(f"DELETE FROM {table_name}")
                 deleted += max(0, int(cursor.rowcount or 0))
             await db.commit()
+
+        await secure_compact_sqlite(self._expanded_db_path)
 
         self._cache.clear()
         self._stats_cache.clear()

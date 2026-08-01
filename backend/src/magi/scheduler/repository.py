@@ -111,6 +111,7 @@ class ScheduleRepository(
             except BaseException:
                 await db.rollback()
                 raise
+            await db.execute("VACUUM")
             checkpoint_cursor = await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             checkpoint = await checkpoint_cursor.fetchone()
             if checkpoint is not None and int(checkpoint[0] or 0) != 0:

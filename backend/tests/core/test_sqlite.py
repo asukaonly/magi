@@ -14,6 +14,7 @@ from magi.core.sqlite import (
     configure_sqlite3,
     connect_aiosqlite,
     connect_sqlite,
+    secure_compact_sqlite,
     sqlite_connection_async,
     sqlite_transaction,
     sqlite_transaction_async,
@@ -427,6 +428,44 @@ async def test_sqlite_connection_async_closes_connection_after_context(tmp_path)
     async with sqlite_connection_async(db_path) as db:
         row = await (await db.execute("PRAGMA journal_mode")).fetchone()
         assert str(row[0]).lower() == "wal"
+
+
+@pytest.mark.asyncio
+async def test_secure_compact_sqlite_removes_deleted_payload_bytes(tmp_path) -> None:
+    db_path = tmp_path / "private_content.db"
+    private_marker = "magi-private-content-" + ("x" * 512)
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA journal_mode=DELETE")
+        conn.execute("PRAGMA secure_delete=OFF")
+        conn.execute("CREATE TABLE private_items (payload TEXT NOT NULL)")
+        conn.execute(
+            "INSERT INTO private_items(payload) VALUES (?)",
+            (private_marker,),
+        )
+        conn.commit()
+        conn.execute("DELETE FROM private_items")
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert private_marker.encode() in db_path.read_bytes()
+
+    await secure_compact_sqlite(db_path)
+
+    for suffix in ("", "-wal", "-shm"):
+        candidate = tmp_path / f"{db_path.name}{suffix}"
+        if candidate.exists():
+            assert private_marker.encode() not in candidate.read_bytes()
+
+
+@pytest.mark.asyncio
+async def test_secure_compact_sqlite_does_not_create_missing_database(tmp_path) -> None:
+    db_path = tmp_path / "missing.db"
+
+    await secure_compact_sqlite(db_path)
+
+    assert not db_path.exists()
 
 
 def test_sqlite_transaction_rolls_back_on_error(tmp_path) -> None:

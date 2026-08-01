@@ -2,6 +2,7 @@ import sqlite3
 
 import pytest
 
+from _shared.sqlite_privacy import assert_sqlite_fragment_absent
 from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutcome
 from magi.agent.batch.store import BatchStore
 
@@ -81,9 +82,13 @@ async def test_add_items_seeds_pending(store):
 
 @pytest.mark.asyncio
 async def test_clear_all_removes_jobs_and_content_payloads(store):
+    private_marker = "magi-batch-private-marker-that-must-not-survive"
     first = await _make_job(store)
     second = await _make_job(store, origin_session_id="s2", origin_turn_id="u2")
-    await store.add_items(first.job_id, [{"secret": "first"}, {"secret": "second"}])
+    await store.add_items(
+        first.job_id,
+        [{"secret": private_marker}, {"secret": "second"}],
+    )
     await store.add_items(second.job_id, [{"secret": "third"}])
 
     counts = await store.clear_all()
@@ -92,6 +97,7 @@ async def test_clear_all_removes_jobs_and_content_payloads(store):
     assert await store.get_job(first.job_id) is None
     assert await store.get_job(second.job_id) is None
     assert await store.list_jobs_by_status(BatchJobStatus.PLANNING) == []
+    assert_sqlite_fragment_absent(store._db_path, private_marker)
 
 
 # === lease ================================================================

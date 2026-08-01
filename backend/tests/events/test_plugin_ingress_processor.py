@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from _shared.sqlite_privacy import assert_sqlite_fragment_absent
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.runtime_trace import RuntimeTraceStore, StoredPluginIngressEventRecord
 from magi_plugin_sdk.ingress import PluginIngressEventRecord
@@ -161,6 +162,7 @@ async def test_plugin_ingress_clear_waits_for_claimed_handler_and_deletes_result
     from magi.events.lifecycle import PluginIngressProcessorModule
 
     store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+    private_marker = "magi-plugin-ingress-private-marker-that-must-not-survive"
     await store.initialize()
     handler = _BlockingHandler()
     context = RuntimeBootstrapContext()
@@ -188,7 +190,7 @@ async def test_plugin_ingress_clear_waits_for_claimed_handler_and_deletes_result
                 plugin_target="example_target",
                 event_type="example_event",
                 occurred_at_ms=1_711_523_200_000,
-                payload_json='{"private":"old"}',
+                payload_json=f'{{"private":"{private_marker}"}}',
             )
         )
         await handler.started.wait()
@@ -206,6 +208,7 @@ async def test_plugin_ingress_clear_waits_for_claimed_handler_and_deletes_result
         await clear_task
 
         assert await store.get_plugin_ingress_event(event_id) is None
+        assert_sqlite_fragment_absent(store.db_path, private_marker)
     finally:
         await processor.shutdown()
         await store.shutdown()
