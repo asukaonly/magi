@@ -728,7 +728,8 @@ Sensors inheriting `SensorBase` from `magi_plugin_sdk.sensors` have access to th
 - `clear_user_content(context)`: remove sensor-owned local raw, derived, pending,
   and temporary content while preserving settings, credentials, connected
   accounts, and source progress. For plugin-managed state files, use
-  `magi_plugin_sdk.fs.atomic_write_managed_text()` and
+  `magi_plugin_sdk.fs.read_managed_text()`,
+  `magi_plugin_sdk.fs.atomic_write_managed_text()`, and
   `magi_plugin_sdk.fs.remove_managed_file()` so clear hooks replace or remove
   links themselves instead of following them into user-owned files.
 

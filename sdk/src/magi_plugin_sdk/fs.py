@@ -7,6 +7,7 @@ magi.agent.workspace_cache.{atomic_io,locking} for back-compat.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import secrets
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import IO, Any, Iterable, Iterator, Mapping
 
 _IS_WINDOWS = sys.platform == "win32"
+_DEFAULT_MANAGED_READ_MAX_BYTES = 8 * 1024 * 1024
 
 
 class UnsafeManagedPathError(RuntimeError):
@@ -114,11 +116,139 @@ def _validate_managed_target_type(path: Path) -> None:
         target_stat = os.lstat(path)
     except FileNotFoundError:
         return
-    if stat.S_ISREG(target_stat.st_mode) or stat.S_ISLNK(target_stat.st_mode):
+    if not stat.S_ISDIR(target_stat.st_mode):
         return
-    raise UnsafeManagedPathError(
-        "Managed file target must be a regular file or a symbolic link"
+    raise UnsafeManagedPathError("Managed file target must not be a directory")
+
+
+def _validate_managed_read_limit(max_bytes: int) -> int:
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+        raise ValueError("max_bytes must be a positive integer")
+    return max_bytes
+
+
+def _managed_file_is_readable(target_stat: os.stat_result) -> bool:
+    return stat.S_ISREG(target_stat.st_mode) and target_stat.st_nlink == 1
+
+
+def _read_file_descriptor(fd: int, *, max_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    remaining = max_bytes + 1
+    while remaining > 0:
+        chunk = os.read(fd, min(remaining, 64 * 1024))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    payload = b"".join(chunks)
+    if len(payload) > max_bytes:
+        raise UnsafeManagedPathError("Managed file exceeds the safe read limit")
+    return payload
+
+
+def _read_managed_posix(path: Path, *, max_bytes: int) -> bytes | None:
+    target, parent, parent_identity = _validate_managed_file_path(path)
+    directory_fd = _open_managed_directory(
+        parent,
+        expected_identity=parent_identity,
     )
+    file_fd: int | None = None
+    try:
+        try:
+            target_stat = os.stat(
+                target.name,
+                dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return None
+        if not _managed_file_is_readable(target_stat):
+            return None
+        if target_stat.st_size > max_bytes:
+            raise UnsafeManagedPathError("Managed file exceeds the safe read limit")
+
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            file_fd = os.open(target.name, flags, dir_fd=directory_fd)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.ENXIO}:
+                return None
+            raise
+        opened_stat = os.fstat(file_fd)
+        if not _managed_file_is_readable(opened_stat) or (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
+        ) != (target_stat.st_dev, target_stat.st_ino):
+            return None
+        return _read_file_descriptor(file_fd, max_bytes=max_bytes)
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        os.close(directory_fd)
+
+
+def _read_managed_windows(path: Path, *, max_bytes: int) -> bytes | None:
+    target, _, parent_identity = _validate_managed_file_path(path)
+    try:
+        target_stat = os.lstat(target)
+    except FileNotFoundError:
+        return None
+    if not _managed_file_is_readable(target_stat):
+        return None
+    if target_stat.st_size > max_bytes:
+        raise UnsafeManagedPathError("Managed file exceeds the safe read limit")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    file_fd = os.open(target, flags)
+    try:
+        _, _, current_identity = _validate_managed_file_path(target)
+        opened_stat = os.fstat(file_fd)
+        if (
+            current_identity != parent_identity
+            or not _managed_file_is_readable(opened_stat)
+            or (opened_stat.st_dev, opened_stat.st_ino)
+            != (target_stat.st_dev, target_stat.st_ino)
+        ):
+            return None
+        return _read_file_descriptor(file_fd, max_bytes=max_bytes)
+    finally:
+        os.close(file_fd)
+
+
+def read_managed_bytes(
+    path: str | Path,
+    *,
+    max_bytes: int = _DEFAULT_MANAGED_READ_MAX_BYTES,
+) -> bytes | None:
+    """Read one bounded plugin state file without following links.
+
+    Missing files, links, hard links, directories, and special files return
+    ``None``. An unsafe parent chain or an oversized regular file fails closed.
+    """
+
+    normalized_limit = _validate_managed_read_limit(max_bytes)
+    target = Path(path)
+    try:
+        os.lstat(target.parent)
+    except FileNotFoundError:
+        return None
+    if _IS_WINDOWS:
+        return _read_managed_windows(target, max_bytes=normalized_limit)
+    return _read_managed_posix(target, max_bytes=normalized_limit)
+
+
+def read_managed_text(
+    path: str | Path,
+    *,
+    encoding: str = "utf-8",
+    max_bytes: int = _DEFAULT_MANAGED_READ_MAX_BYTES,
+) -> str | None:
+    """Read one bounded plugin-managed text file without following links."""
+
+    payload = read_managed_bytes(path, max_bytes=max_bytes)
+    return None if payload is None else payload.decode(encoding)
 
 
 def _open_managed_directory(
@@ -163,12 +293,8 @@ def _atomic_write_managed_posix(path: Path, data: bytes) -> None:
             )
         except FileNotFoundError:
             target_stat = None
-        if target_stat is not None and not (
-            stat.S_ISREG(target_stat.st_mode) or stat.S_ISLNK(target_stat.st_mode)
-        ):
-            raise UnsafeManagedPathError(
-                "Managed file target must be a regular file or a symbolic link"
-            )
+        if target_stat is not None and stat.S_ISDIR(target_stat.st_mode):
+            raise UnsafeManagedPathError("Managed file target must not be a directory")
 
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         flags |= getattr(os, "O_NOFOLLOW", 0)
@@ -255,16 +381,19 @@ def remove_managed_file(path: str | Path) -> bool:
     exist. Directories and special files are rejected.
     """
 
-    target, parent, parent_identity = _validate_managed_file_path(path)
+    target_path = Path(path)
+    try:
+        os.lstat(target_path.parent)
+    except FileNotFoundError:
+        return False
+    target, parent, parent_identity = _validate_managed_file_path(target_path)
     if _IS_WINDOWS:
         try:
             target_stat = os.lstat(target)
         except FileNotFoundError:
             return False
-        if not (stat.S_ISREG(target_stat.st_mode) or stat.S_ISLNK(target_stat.st_mode)):
-            raise UnsafeManagedPathError(
-                "Managed file target must be a regular file or a symbolic link"
-            )
+        if stat.S_ISDIR(target_stat.st_mode):
+            raise UnsafeManagedPathError("Managed file target must not be a directory")
         os.unlink(target)
         return True
 
@@ -281,10 +410,8 @@ def remove_managed_file(path: str | Path) -> bool:
             )
         except FileNotFoundError:
             return False
-        if not (stat.S_ISREG(target_stat.st_mode) or stat.S_ISLNK(target_stat.st_mode)):
-            raise UnsafeManagedPathError(
-                "Managed file target must be a regular file or a symbolic link"
-            )
+        if stat.S_ISDIR(target_stat.st_mode):
+            raise UnsafeManagedPathError("Managed file target must not be a directory")
         os.unlink(target.name, dir_fd=directory_fd)
         os.fsync(directory_fd)
         return True
@@ -355,5 +482,7 @@ __all__ = [
     "append_jsonl",
     "append_jsonl_many",
     "file_lock",
+    "read_managed_bytes",
+    "read_managed_text",
     "remove_managed_file",
 ]

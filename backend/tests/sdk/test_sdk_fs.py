@@ -12,6 +12,8 @@ def test_sdk_exposes_atomic_io():
         atomic_write_managed_bytes,
         atomic_write_managed_text,
         atomic_write_text,
+        read_managed_bytes,
+        read_managed_text,
         remove_managed_file,
     )
 
@@ -124,7 +126,114 @@ def test_managed_remove_unlinks_target_link_without_touching_source(
     assert remove_managed_file(target) is False
 
 
-@pytest.mark.parametrize("operation", ["write", "remove"])
+def test_managed_read_roundtrip_and_size_limit(tmp_path: Path) -> None:
+    from magi_plugin_sdk.fs import (
+        UnsafeManagedPathError,
+        read_managed_bytes,
+        read_managed_text,
+    )
+
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    target = managed / "state.json"
+    target.write_text("managed", encoding="utf-8")
+
+    assert read_managed_text(target) == "managed"
+    assert read_managed_bytes(target) == b"managed"
+    with pytest.raises(UnsafeManagedPathError, match="safe read limit"):
+        read_managed_bytes(target, max_bytes=3)
+
+
+@pytest.mark.parametrize("entry_kind", ["symlink", "hardlink"])
+def test_managed_read_ignores_linked_target(
+    tmp_path: Path,
+    entry_kind: str,
+) -> None:
+    from magi_plugin_sdk.fs import read_managed_text
+
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    external = tmp_path / "external.json"
+    external.write_text("external", encoding="utf-8")
+    target = managed / "state.json"
+    if entry_kind == "symlink":
+        target.symlink_to(external)
+    else:
+        os.link(external, target)
+
+    assert read_managed_text(target) is None
+    assert external.read_text(encoding="utf-8") == "external"
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO unsupported")
+def test_managed_read_ignores_fifo_without_blocking(tmp_path: Path) -> None:
+    from magi_plugin_sdk.fs import read_managed_text
+
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    target = managed / "state.json"
+    os.mkfifo(target)
+
+    assert read_managed_text(target) is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX no-follow race test")
+@pytest.mark.parametrize("replacement", ["symlink", "fifo"])
+def test_managed_read_rejects_target_replaced_during_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    replacement: str,
+) -> None:
+    from magi_plugin_sdk.fs import read_managed_text
+
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    target = managed / "state.json"
+    target.write_text("managed", encoding="utf-8")
+    external = tmp_path / "external.json"
+    external.write_text("external", encoding="utf-8")
+    original_open = os.open
+    swapped = False
+
+    def replace_target_before_open(
+        path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        if not swapped and path == target.name and dir_fd is not None:
+            swapped = True
+            target.unlink()
+            if replacement == "symlink":
+                target.symlink_to(external)
+            else:
+                os.mkfifo(target)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", replace_target_before_open)
+
+    assert read_managed_text(target) is None
+    assert external.read_text(encoding="utf-8") == "external"
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO unsupported")
+def test_managed_write_replaces_fifo_without_opening_it(tmp_path: Path) -> None:
+    from magi_plugin_sdk.fs import atomic_write_managed_text
+
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    target = managed / "state.json"
+    os.mkfifo(target)
+
+    atomic_write_managed_text(target, "managed")
+
+    assert target.is_file()
+    assert target.read_text(encoding="utf-8") == "managed"
+
+
+@pytest.mark.parametrize("operation", ["write", "remove", "read"])
 def test_managed_file_operations_reject_linked_parent(
     tmp_path: Path,
     operation: str,
@@ -132,6 +241,7 @@ def test_managed_file_operations_reject_linked_parent(
     from magi_plugin_sdk.fs import (
         UnsafeManagedPathError,
         atomic_write_managed_text,
+        read_managed_text,
         remove_managed_file,
     )
 
@@ -146,13 +256,15 @@ def test_managed_file_operations_reject_linked_parent(
     with pytest.raises(UnsafeManagedPathError):
         if operation == "write":
             atomic_write_managed_text(target, "changed")
+        elif operation == "read":
+            read_managed_text(target)
         else:
             remove_managed_file(target)
 
     assert external_target.read_text(encoding="utf-8") == "external"
 
 
-@pytest.mark.parametrize("operation", ["write", "remove"])
+@pytest.mark.parametrize("operation", ["write", "remove", "read"])
 def test_managed_file_operations_reject_linked_ancestor(
     tmp_path: Path,
     operation: str,
@@ -160,6 +272,7 @@ def test_managed_file_operations_reject_linked_ancestor(
     from magi_plugin_sdk.fs import (
         UnsafeManagedPathError,
         atomic_write_managed_text,
+        read_managed_text,
         remove_managed_file,
     )
 
@@ -175,6 +288,8 @@ def test_managed_file_operations_reject_linked_ancestor(
     with pytest.raises(UnsafeManagedPathError):
         if operation == "write":
             atomic_write_managed_text(target, "changed")
+        elif operation == "read":
+            read_managed_text(target)
         else:
             remove_managed_file(target)
 
@@ -182,7 +297,7 @@ def test_managed_file_operations_reject_linked_ancestor(
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX directory descriptor test")
-@pytest.mark.parametrize("operation", ["write", "remove"])
+@pytest.mark.parametrize("operation", ["write", "remove", "read"])
 def test_managed_file_operations_reject_ancestor_replaced_during_open(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -223,6 +338,8 @@ def test_managed_file_operations_reject_ancestor_replaced_during_open(
     with pytest.raises(sdk_fs.UnsafeManagedPathError):
         if operation == "write":
             sdk_fs.atomic_write_managed_text(managed_target, "changed")
+        elif operation == "read":
+            sdk_fs.read_managed_text(managed_target)
         else:
             sdk_fs.remove_managed_file(managed_target)
 
@@ -253,3 +370,14 @@ def test_managed_file_operations_reject_directory_target(
             remove_managed_file(target)
 
     assert target.is_dir()
+
+
+def test_managed_read_and_remove_treat_missing_parent_as_empty(
+    tmp_path: Path,
+) -> None:
+    from magi_plugin_sdk.fs import read_managed_text, remove_managed_file
+
+    target = tmp_path / "missing" / "state.json"
+
+    assert read_managed_text(target) is None
+    assert remove_managed_file(target) is False
