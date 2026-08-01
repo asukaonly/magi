@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import sqlite3
 import time
 from pathlib import Path
@@ -7,7 +8,13 @@ from pathlib import Path
 import pytest
 
 from magi.config.models import AppConfig, PluginSettings
+from magi.plugins import package_files as package_files_module
 from magi.plugins.manager import PluginManager
+from magi.plugins.package_identity import (
+    compute_installed_package_sha256,
+    compute_installed_source_sha256,
+)
+from magi.plugins.registry_client import DEFAULT_REGISTRY_URL, DEFAULT_REPO_URL
 from magi.plugins.sensors import SensorRegistry
 from magi.timeline import SensorSyncContext
 from magi.tools.registry import ToolRegistry
@@ -264,10 +271,32 @@ if not (
 
 
 def _build_manager(
-    monkeypatch: pytest.MonkeyPatch, config: AppConfig
+    monkeypatch: pytest.MonkeyPatch,
+    config: AppConfig,
+    tmp_path: Path,
 ) -> tuple[PluginManager, SensorRegistry]:
     sensor_registry = SensorRegistry()
-    manifest_path = _plugin_root() / "chrome-history" / "plugin.toml"
+    source_plugin_root = _plugin_root()
+    plugin_root = tmp_path / "installed-plugins"
+    for plugin_id in ("chrome-history", "browser_history_core"):
+        shutil.copytree(
+            source_plugin_root / plugin_id,
+            plugin_root / plugin_id,
+            ignore=shutil.ignore_patterns(
+                "__pycache__",
+                ".pytest_cache",
+                ".deps",
+                "*.pyc",
+                "*.pyo",
+                ".DS_Store",
+            ),
+        )
+    chrome_dir = plugin_root / "chrome-history"
+    library_dir = plugin_root / "browser_history_core"
+    manifest_path = chrome_dir / "plugin.toml"
+    library_manifest_path = library_dir / "plugin.toml"
+    chrome_package_sha256 = compute_installed_source_sha256(chrome_dir)
+    library_package_sha256 = compute_installed_source_sha256(library_dir)
     configured = config.plugins.packages.get("chrome-history", PluginSettings())
     if isinstance(configured, dict):
         configured = PluginSettings.model_validate(configured)
@@ -275,16 +304,41 @@ def _build_manager(
         update={
             "source": "external",
             "manifest_path": str(manifest_path),
+            "install_origin": "registry",
+            "registry_source": DEFAULT_REGISTRY_URL,
+            "registry_repo_url": DEFAULT_REPO_URL,
+            "package_sha256": chrome_package_sha256,
+            "installed_package_sha256": compute_installed_package_sha256(chrome_dir),
+            "dependency_package_sha256": {
+                "browser_history_core": library_package_sha256,
+            },
         }
     )
-    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr(
-        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
+    config.plugins.packages["browser_history_core"] = PluginSettings(
+        enabled=True,
+        trusted=True,
+        source="external",
+        manifest_path=str(library_manifest_path),
+        install_origin="registry",
+        registry_source=DEFAULT_REGISTRY_URL,
+        registry_repo_url=DEFAULT_REPO_URL,
+        package_sha256=library_package_sha256,
+        installed_package_sha256=compute_installed_package_sha256(library_dir),
     )
+
+    def save_config_updates(updates: dict[str, object]) -> bool:
+        _apply_updates(config, updates)
+        return True
+
+    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: plugin_root)
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.manager.save_config", save_config_updates)
+    monkeypatch.setattr("magi.plugins.installation.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.installation.save_config", save_config_updates)
     manager = PluginManager(
         tool_registry=ToolRegistry(),
         sensor_registry=sensor_registry,
-        search_paths=[_plugin_root()],
+        search_paths=[plugin_root],
         request_sensor_schedule_refresh=lambda: None,
     )
     return manager, sensor_registry
@@ -292,16 +346,16 @@ def _build_manager(
 
 def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_default(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     config = AppConfig()
-    manager, sensor_registry = _build_manager(monkeypatch, config)
+    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path)
 
     packages = manager.scan(persist_discovery=True)
     chrome_package = next(item for item in packages if item.manifest.plugin_id == "chrome-history")
 
     assert chrome_package.enabled is True
-    # Plugin sources moved to the sibling magi-plugins repo; the scan
-    # classifies them as external (in-repo plugins/ keeps core-tools only).
+    # The sibling-repo source is copied into a temporary managed install root.
     assert chrome_package.manifest.source == "external"
     assert chrome_package.manifest.official is True
 
@@ -330,9 +384,12 @@ def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_defa
     assert sync_interval_field.depends_on_values == ["interval"]
 
 
-def test_chrome_history_sensor_exposes_plugin_translations(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chrome_history_sensor_exposes_plugin_translations(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     config = AppConfig()
-    manager, sensor_registry = _build_manager(monkeypatch, config)
+    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path)
 
     manager.scan(persist_discovery=False)
     manager.activate_enabled_plugins()
@@ -369,7 +426,7 @@ async def test_chrome_history_sensor_collects_events_and_relations(
             }
         },
     )
-    manager, sensor_registry = _build_manager(monkeypatch, config)
+    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path)
 
     packages = manager.scan(persist_discovery=False)
     assert any(item.manifest.plugin_id == "chrome-history" for item in packages)
@@ -468,7 +525,7 @@ async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
             }
         },
     )
-    manager, sensor_registry = _build_manager(monkeypatch, config)
+    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path)
     manager.scan(persist_discovery=False)
     manager.activate_enabled_plugins()
     resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
@@ -548,7 +605,7 @@ async def test_chrome_history_sensor_merges_search_visits_despite_query_churn(
             }
         },
     )
-    manager, sensor_registry = _build_manager(monkeypatch, config)
+    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path)
     manager.scan(persist_discovery=False)
     manager.activate_enabled_plugins()
     resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
@@ -605,7 +662,7 @@ async def test_chrome_history_sensor_from_now_skips_initial_backfill(
             }
         },
     )
-    manager, sensor_registry = _build_manager(monkeypatch, config)
+    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path)
     manager.scan(persist_discovery=False)
     manager.activate_enabled_plugins()
     resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
@@ -640,7 +697,7 @@ def test_chrome_history_plugin_builds_temporal_summary_features(
         source="builtin",
         settings={},
     )
-    manager, _sensor_registry = _build_manager(monkeypatch, config)
+    manager, _sensor_registry = _build_manager(monkeypatch, config, tmp_path)
     manager.scan(persist_discovery=False)
     manager.activate_enabled_plugins()
     plugin = next(
