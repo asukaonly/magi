@@ -2110,9 +2110,12 @@ independent table deletes.
   channel notification cursors, queued proactive outreach and its delivery
   log, L0-L4 stores, manual-entry assets and location lookup caches, chat
   portrait caches, learned persona behavior/emotion/relationship state,
+  pending personality-generation jobs and their generated reference material,
   plugin ingress payloads, and rebuildable memory projections are cleared
-  within the same boundary. Notifications derived from memory conflicts and
-  persisted user notifications are cleared with their source claims. Channel
+  within the same boundary. Personality generation admission stays closed until
+  the clear finishes, and a cancelled pre-clear job cannot publish a late
+  result. Notifications derived from memory conflicts and persisted user
+  notifications are cleared with their source claims. Channel
   installation, account authentication, enablement, binding preferences, and
   persona definitions are configuration rather than remembered user content
   and are preserved.

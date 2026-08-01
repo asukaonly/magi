@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from magi.api.routers.personality_config_schemas import (
     PersonaGenerationIntentModel,
+    PersonalityConfigModel,
 )
 import magi.api.services.personality_generation.contracts as generation_contracts
 import magi.api.services.personality_generation.jobs as generation_jobs
@@ -1086,6 +1087,7 @@ def test_personality_generation_root_exposes_only_public_contract() -> None:
         "generate_personality_config",
         "generate_personality_config_result",
         "normalize_generated_personality_payload",
+        "personality_generation_user_content_clear_boundary",
         "start_personality_generation_job",
     ]
     for private_name in (
@@ -1343,19 +1345,23 @@ async def test_personality_generation_job_records_pipeline_failure(monkeypatch) 
         created_at=0,
         updated_at=0,
     )
+    generation_jobs._PERSONALITY_GENERATION_JOBS[job.job_id] = job
 
-    await generation_jobs._run_personality_generation_job(
-        job,
-        description="A stable persona",
-        target_language="English",
-        current_config=None,
-        llm_override=None,
-        intent=None,
-        adapter_resolver=lambda *args, **kwargs: object(),
-        adapter_factory=lambda *args, **kwargs: object(),
-        search_port=None,
-        fetch_port=None,
-    )
+    try:
+        await generation_jobs._run_personality_generation_job(
+            job,
+            description="A stable persona",
+            target_language="English",
+            current_config=None,
+            llm_override=None,
+            intent=None,
+            adapter_resolver=lambda *args, **kwargs: object(),
+            adapter_factory=lambda *args, **kwargs: object(),
+            search_port=None,
+            fetch_port=None,
+        )
+    finally:
+        generation_jobs._PERSONALITY_GENERATION_JOBS.pop(job.job_id, None)
 
     assert job.status == "failed"
     assert job.error == "generation stopped"
@@ -1433,12 +1439,18 @@ def test_personality_generation_prompt_includes_confirmed_reference_intent() -> 
 async def test_personality_generation_request_id_is_idempotent(monkeypatch) -> None:
     generation_jobs._PERSONALITY_GENERATION_JOBS.clear()
     generation_jobs._PERSONALITY_GENERATION_REQUEST_INDEX.clear()
+    generation_jobs._PERSONALITY_GENERATION_TASKS.clear()
+    release = asyncio.Event()
 
-    def _discard_task(coro):  # type: ignore[no-untyped-def]
-        coro.close()
-        return None
+    async def _hold_generation(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = args, kwargs
+        await release.wait()
 
-    monkeypatch.setattr(generation_jobs.asyncio, "create_task", _discard_task)
+    monkeypatch.setattr(
+        generation_jobs,
+        "_run_personality_generation_job",
+        _hold_generation,
+    )
 
     first = await generation_jobs.start_personality_generation_job(
         "一个冷静的人格",
@@ -1454,6 +1466,71 @@ async def test_personality_generation_request_id_is_idempotent(monkeypatch) -> N
     assert first["job_id"] == second["job_id"]
     assert second["draft_id"] == "draft-1"
     assert second["request_id"] == "request-1"
+    async with generation_jobs.personality_generation_user_content_clear_boundary():
+        pass
+
+
+@pytest.mark.asyncio
+async def test_personality_generation_clear_cancels_and_fences_late_result(
+    monkeypatch,
+) -> None:
+    generation_jobs._PERSONALITY_GENERATION_JOBS.clear()
+    generation_jobs._PERSONALITY_GENERATION_REQUEST_INDEX.clear()
+    generation_jobs._PERSONALITY_GENERATION_TASKS.clear()
+    started = asyncio.Event()
+    cancellation_seen = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _late_result(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = args, kwargs
+        started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            cancellation_seen.set()
+            await release.wait()
+        return generation_contracts.PersonalityGenerationResult(
+            config=PersonalityConfigModel(name="stale"),
+            stages=[],
+        )
+
+    monkeypatch.setattr(
+        generation_jobs,
+        "generate_personality_config_result",
+        _late_result,
+    )
+    snapshot = await generation_jobs.start_personality_generation_job(
+        "stale persona request",
+        request_id="request-before-clear",
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    clear_entered = asyncio.Event()
+
+    async def _clear() -> None:
+        async with generation_jobs.personality_generation_user_content_clear_boundary():
+            clear_entered.set()
+
+    clear_task = asyncio.create_task(_clear())
+    await asyncio.wait_for(cancellation_seen.wait(), timeout=1)
+    assert await generation_jobs.get_personality_generation_job(snapshot["job_id"]) is None
+
+    blocked_start = asyncio.create_task(
+        generation_jobs.start_personality_generation_job("new persona request")
+    )
+    await asyncio.sleep(0)
+    assert not blocked_start.done()
+
+    release.set()
+    await asyncio.wait_for(clear_task, timeout=1)
+    await asyncio.wait_for(clear_entered.wait(), timeout=1)
+    new_snapshot = await asyncio.wait_for(blocked_start, timeout=1)
+
+    assert new_snapshot["job_id"] != snapshot["job_id"]
+    assert await generation_jobs.get_personality_generation_job(snapshot["job_id"]) is None
+    assert "request-before-clear" not in generation_jobs._PERSONALITY_GENERATION_REQUEST_INDEX
+    async with generation_jobs.personality_generation_user_content_clear_boundary():
+        pass
 
 
 @pytest.mark.asyncio

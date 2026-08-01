@@ -300,6 +300,9 @@ async def clear_memory_layers():
 
     logger.info("clear_memory: quiescing writers and clearing all layers")
     from .embedding_routes import _embedding_rebuild_manager
+    from ...services.personality_generation import (
+        personality_generation_user_content_clear_boundary,
+    )
 
     task_agent_manager = _resolve_task_agent_manager()
     background_task_manager = _resolve_background_task_manager()
@@ -377,6 +380,9 @@ async def clear_memory_layers():
                                 reason="user_clear_all_memory",
                             )
                         )
+                    await background_scope.enter_async_context(
+                        personality_generation_user_content_clear_boundary()
+                    )
                     await background_scope.enter_async_context(
                         control_user_content_clear.user_content_clear_boundary()
                     )

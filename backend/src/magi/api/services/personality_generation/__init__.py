@@ -15,6 +15,7 @@ from .contracts import (
 )
 from .jobs import (
     get_personality_generation_job,
+    personality_generation_user_content_clear_boundary,
     start_personality_generation_job,
 )
 from .normalization import normalize_generated_personality_payload
@@ -36,5 +37,6 @@ __all__ = [
     "generate_personality_config",
     "generate_personality_config_result",
     "normalize_generated_personality_payload",
+    "personality_generation_user_content_clear_boundary",
     "start_personality_generation_job",
 ]
