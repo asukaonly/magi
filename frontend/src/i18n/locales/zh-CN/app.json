@@ -65,6 +65,10 @@
   },
   "bootstrap": {
     "startupFailed": "后端启动失败",
+    "dataClearRecoveryFailed": "数据还没有清干净",
+    "dataClearRecoveryHint": "上一次清理全部完成前，Magi 不会进入正常界面。请查看下面的错误并重试。",
+    "dataClearInProgress": "正在清空全部数据",
+    "dataClearInProgressHint": "所有数据都确认清除前，Magi 将暂时不可使用。",
     "retry": "重试",
     "starting": "正在启动 Magi 后端...",
     "initializeFailedFallback": "运行时初始化失败",
@@ -80,6 +84,7 @@
       "spawning": "正在启动后端进程...",
       "waiting_for_worker": "正在初始化运行时...",
       "connecting": "正在建立连接...",
+      "recovering_data_clear": "正在继续完成上一次数据清理...",
       "ready": "即将就绪..."
     }
   },

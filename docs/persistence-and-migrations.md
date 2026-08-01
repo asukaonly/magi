@@ -31,7 +31,7 @@ chat payloads, memory records, or plugin state.
 | `data/memory/growth_memory.db` | personality | milestones, relationships, personality evolution |
 | `runtime/scheduler.db` | scheduler | schedules, execution history, sensor sync jobs |
 | `runtime/bootstrap_state.db` | bootstrap | completed revisions, content fingerprints, attempts, and errors for versioned startup work |
-| `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups, plugin/sensor full-clear completion checkpoint |
+| `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups, plugin/sensor full-clear checkpoint, pending desktop full-clear transaction |
 | `runtime/sensor_state.db` | sensors | per-source cursors, fingerprints, stats |
 | `runtime/background_tasks.db` | runtime | background-task rows and event history, plus recoverable terminal-completion snapshots with frozen outreach intent/body |
 | `runtime/permission_rules.db` | runtime permissions | trust and permission rule state |
@@ -85,6 +85,23 @@ LLM usage, background tasks, batch manifests, channel conversation state,
 scheduler history, chat, the runtime command queue, and learned persona state.
 Configuration rows intentionally retained by the product remain live; deleted
 payload bytes must not remain in free database pages or SQLite sidecars.
+
+The desktop host coordinates crash recovery with
+`runtime/full-data-clear.pending.json`. This is not user content and contains no
+path, credential, prompt, or payload: only a marker version and an opaque,
+unique, content-free transaction ID. The file is atomically replaced and
+synced before destructive work begins. A single valid transaction-named
+temporary file is recoverable after an interrupted write even when its payload
+is incomplete; invalid names, multiple candidates, and filename/payload
+conflicts fail closed. `runtime_full_user_content_clear_state` in `message_queue.db`
+records that same ID only while the backend phase is pending. Startup adopts
+the host ID before recovering queue claims, restarting an already running
+backend when necessary. A pending backend row without the matching host marker
+fails startup. A successful backend phase securely returns the singleton row
+to `idle`, clears the ID and start time, and truncates the WAL; there is no
+retained backend completion journal. The host marker stays until browser-owned
+state and desktop logs are also clean, so a crash or ambiguous response replays
+the complete idempotent clear.
 
 Plugin- and sensor-owned user content uses the same full-clear generation stored
 by the runtime command queue. `runtime_plugin_user_content_clear_state` records
@@ -330,7 +347,7 @@ Current heads that matter to the chat-clear and delivery boundary:
 | `chat` | `v11` | accepted visible-turn context usage stored with chat truth |
 | `background_tasks` | `v2` | recoverable terminal-completion snapshots with durable delivery claims, frozen intent/body, and scoped discard during conversation deletion |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
-| `message_queue` | `v5` | explicit user-message delivery attempts |
+| `message_queue` | `v7` | pending desktop full-clear transaction adopted before command recovery; success returns to an empty idle row |
 | `memory_shared` | `v35_l0_attention_state` | replace task-shaped L0 tables with session attention while preserving source-forgetting barriers |
 
 Layout under `backend/src/magi/db/`:

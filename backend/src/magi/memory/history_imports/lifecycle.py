@@ -32,7 +32,8 @@ class HistoryImportsModule(LifecycleModule):
         )
         store = HistoryImportStore(db_path=str(runtime_paths.memory_db_path))
         service = HistoryImportService(store=store, memory=memory)
-        await service.start()
+        if not self._context.runtime_commands.full_clear_recovery_pending:
+            await service.start()
 
         self._context.history_imports.store = store
         self._context.history_imports.service = service

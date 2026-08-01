@@ -17,7 +17,11 @@ class RuntimeInitializationDeferred(LifecycleInitDeferred):
     def __init__(self, *, pending_selection: bool, cause: Exception | None = None) -> None:
         self.pending_selection = pending_selection
         self.cause = cause
-        message = "runtime_llm_selection_pending" if pending_selection else "runtime_llm_configuration_invalid"
+        message = (
+            "runtime_llm_selection_pending"
+            if pending_selection
+            else "runtime_llm_configuration_invalid"
+        )
         super().__init__(message)
 
 
@@ -32,11 +36,16 @@ class LLMRuntimeModule(LifecycleModule):
         self._context = context
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("LLM runtime held for full-clear recovery")
+            return
         config = require_initialized(self._context.core.config, "runtime config")
         try:
             self._context.llm.scenario_llm_pool = create_scenario_llm_pool(config)
             self._context.llm.scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
-            self._context.llm.llm_adapter = create_core_llm_adapter(self._context.llm.scenario_llm_pool)
+            self._context.llm.llm_adapter = create_core_llm_adapter(
+                self._context.llm.scenario_llm_pool
+            )
         except Exception as exc:
             raise RuntimeInitializationDeferred(
                 pending_selection=is_llm_selection_pending(config),
@@ -65,6 +74,9 @@ class LLMUsageSubscriberModule(LifecycleModule):
         self._subscriber = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("LLM usage subscriber held for full-clear recovery")
+            return
         from .subscribers.llm_usage_subscriber import LLMUsageSubscriber
 
         bus = require_initialized(self._context.message_bus.message_bus, "message bus")

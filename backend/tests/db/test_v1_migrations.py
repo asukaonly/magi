@@ -54,6 +54,7 @@ EXPECTED_TABLES: dict[str, set[str]] = {
     "message_queue": {
         "runtime_commands",
         "runtime_command_rollups",
+        "runtime_full_user_content_clear_state",
         "runtime_plugin_user_content_clear_state",
         "runtime_user_message_idempotency",
         "runtime_user_message_scope_blocks",
@@ -194,6 +195,7 @@ def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) ->
     with sqlite3.connect(message_queue_db_path) as conn:
         assert "runtime_user_message_clear_state" in _table_names(conn)
         assert "runtime_plugin_user_content_clear_state" in _table_names(conn)
+        assert "runtime_full_user_content_clear_state" in _table_names(conn)
         assert "user_message_generation" in _columns(conn, "runtime_commands")
         assert "runtime_user_message_idempotency" in _table_names(conn)
         assert "runtime_user_message_scope_blocks" in _table_names(conn)
@@ -202,9 +204,9 @@ def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) ->
             "runtime_user_message_idempotency",
         )
 
-    chat_db_path = next(
-        target for target in MIGRATION_TARGETS if target.name == "chat"
-    ).db_path(runtime_paths)
+    chat_db_path = next(target for target in MIGRATION_TARGETS if target.name == "chat").db_path(
+        runtime_paths
+    )
     with sqlite3.connect(chat_db_path) as conn:
         delivery_columns = _columns(conn, "chat_user_turn_delivery")
         assert {

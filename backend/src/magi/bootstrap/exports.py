@@ -54,6 +54,13 @@ class RuntimeExportsModule(LifecycleModule):
 
     async def init(self) -> None:
         container = get_container()
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            self._override_full_clear_recovery_providers(container)
+            self._override_background_task_manager(container)
+            _override_chat_providers(container)
+            self._override_optional_runtime_providers(container)
+            logger.warning("Only full-clear recovery providers registered")
+            return
         _override_required_providers(container, self._required_exports())
         self._override_background_task_manager(container)
         _override_chat_providers(container)
@@ -62,6 +69,25 @@ class RuntimeExportsModule(LifecycleModule):
         self._override_optional_runtime_providers(container)
         self._override_skill_providers(container)
         logger.info("DI container providers registered")
+
+    def _override_full_clear_recovery_providers(self, container: Any) -> None:
+        """Bind only services required to finish one pending global clear."""
+
+        required = {
+            "message_bus": self._context.message_bus.message_bus,
+            "runtime_command_queue": (self._context.runtime_commands.runtime_command_queue),
+            "chat_store": self._context.chat.store,
+            "chat_projector": self._context.chat.projector,
+            "memory_integration": self._context.memory.memory_integration,
+            "unified_memory": self._context.memory.unified_memory,
+            "plugin_manager": self._context.plugins.plugin_manager,
+            "plugin_projection_service": (self._context.plugins.plugin_projection_service),
+            "sensor_registry": self._context.plugins.sensor_registry,
+            "runtime_trace_store": self._context.runtime_trace.store,
+        }
+        for provider_name, instance in required.items():
+            resolved = require_initialized(instance, provider_name.replace("_", " "))
+            getattr(container, provider_name).override(providers.Object(resolved))
 
     def _required_exports(self) -> _RequiredRuntimeExports:
         return _RequiredRuntimeExports(

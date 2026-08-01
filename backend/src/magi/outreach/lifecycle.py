@@ -1,5 +1,6 @@
 """Bootstrap module that assembles the outreach layer and registers the
 background-completion producer + outbox-drain schedule."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -89,6 +90,9 @@ class OutreachModule(LifecycleModule):
 
     async def init(self) -> None:
         ctx = self._context
+        if ctx.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Outreach runtime held for full-clear recovery")
+            return
         runtime_deps = self._runtime_deps(ctx)
         channel_deps = self._channel_deps(ctx)
         if channel_deps is None:
@@ -178,9 +182,7 @@ class OutreachModule(LifecycleModule):
         manager: Any,
         service: OutreachService,
     ) -> None:
-        recovered_claims = (
-            await manager.store.recover_interrupted_completion_claims()
-        )
+        recovered_claims = await manager.store.recover_interrupted_completion_claims()
         if recovered_claims:
             logger.info(
                 "Recovered interrupted background completion deliveries",

@@ -14,6 +14,11 @@ export interface DesktopLogClearResult {
   failedEntries: number;
 }
 
+export interface PendingFullDataClear {
+  version: number;
+  transactionId: string;
+}
+
 type Unlisten = () => void | Promise<void>;
 
 function isTauriRuntime(): boolean {
@@ -162,6 +167,21 @@ export async function openExternalUrl(url: string): Promise<void> {
 
 export async function clearDesktopLogHistory(): Promise<DesktopLogClearResult | undefined> {
   return invokeDesktopCommand<DesktopLogClearResult>('clear_desktop_log_history');
+}
+
+export async function beginFullDataClear(): Promise<PendingFullDataClear | undefined> {
+  return invokeDesktopCommand<PendingFullDataClear>('begin_full_data_clear');
+}
+
+export async function readPendingFullDataClear(): Promise<PendingFullDataClear | null | undefined> {
+  return invokeDesktopCommand<PendingFullDataClear | null>('read_pending_full_data_clear');
+}
+
+export async function completeFullDataClear(transactionId: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error('Desktop full data clear owner is unavailable');
+  }
+  await invokeDesktopCommand('complete_full_data_clear', { transactionId });
 }
 
 export async function confirmExitApp(): Promise<void> {

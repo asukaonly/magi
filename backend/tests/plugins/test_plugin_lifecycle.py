@@ -20,9 +20,11 @@ def _patch_plugin_runtime(
         *,
         tool_registry: object,
         request_sensor_schedule_refresh: Callable[[], None],
+        activate_enabled: bool,
     ) -> SimpleNamespace:
         del tool_registry
         captured["request_sensor_schedule_refresh"] = request_sensor_schedule_refresh
+        captured["activate_enabled"] = activate_enabled
         return SimpleNamespace(
             plugin_manager=object(),
             plugin_projection_service=object(),
@@ -38,11 +40,12 @@ def _patch_plugin_runtime(
         def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
             captured["clear_coordinator_kwargs"] = kwargs
 
-        async def require_no_pending_generation(self) -> None:
+        async def has_pending_generation(self) -> bool:
             captured["clear_checked"] = True
             failure = captured.get("clear_check_failure")
             if failure is not None:
                 raise failure
+            return bool(captured.get("clear_pending", False))
 
     monkeypatch.setattr(
         "magi.plugins.lifecycle.PluginUserContentClearCoordinator",
@@ -60,8 +63,15 @@ def _runtime_context() -> RuntimeBootstrapContext:
     async def read_current_clear_generation() -> int:
         return 0
 
+    async def read_full_user_content_clear_state() -> SimpleNamespace:
+        return SimpleNamespace(
+            status="idle",
+            transaction_id=None,
+        )
+
     context.runtime_commands.runtime_command_queue = SimpleNamespace(
-        read_current_clear_generation=read_current_clear_generation
+        read_current_clear_generation=read_current_clear_generation,
+        read_full_user_content_clear_state=read_full_user_content_clear_state,
     )
     return context
 
@@ -89,6 +99,7 @@ async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
     await module.init()
 
     assert "clear_checked" in captured
+    assert captured["activate_enabled"] is True
     assert context.plugins.user_content_clear_coordinator is not None
 
     worker_errors: list[BaseException] = []
@@ -162,11 +173,11 @@ def test_sensor_schedule_refresh_is_ignored_after_runtime_loop_closes(
 
 
 @pytest.mark.asyncio
-async def test_pending_full_clear_blocks_later_runtime_startup(
+async def test_pending_plugin_clear_without_a_transaction_blocks_startup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
-    captured["clear_check_failure"] = RuntimeError("full clear remains pending")
+    captured["clear_pending"] = True
     context = _runtime_context()
     module = PluginSystemModule(
         context,
@@ -174,8 +185,41 @@ async def test_pending_full_clear_blocks_later_runtime_startup(
         request_sensor_schedule_refresh=lambda: None,
     )
 
-    with pytest.raises(RuntimeError, match="full clear remains pending"):
+    with pytest.raises(RuntimeError, match="no durable recovery owner"):
         await module.init()
 
     assert captured["clear_checked"] is True
     assert context.agent_runtime.sensor_sync_executor is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("plugin_checkpoint_pending", [False, True])
+async def test_pending_desktop_transaction_allows_runtime_to_start_for_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+    plugin_checkpoint_pending: bool,
+) -> None:
+    captured = _patch_plugin_runtime(monkeypatch)
+    captured["clear_pending"] = plugin_checkpoint_pending
+    context = _runtime_context()
+
+    async def read_pending_state() -> SimpleNamespace:
+        return SimpleNamespace(
+            status="pending",
+            transaction_id="clear-recovery-transaction",
+        )
+
+    context.runtime_commands.runtime_command_queue.read_full_user_content_clear_state = (
+        read_pending_state
+    )
+    module = PluginSystemModule(
+        context,
+        tool_registry=object(),
+        request_sensor_schedule_refresh=lambda: None,
+    )
+
+    await module.init()
+
+    assert captured["clear_checked"] is True
+    assert context.plugins.user_content_clear_coordinator is not None
+    assert captured["activate_enabled"] is False
+    assert context.runtime_commands.full_clear_recovery_pending is True

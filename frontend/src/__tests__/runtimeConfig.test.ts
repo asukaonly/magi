@@ -18,6 +18,7 @@ import {
   normalizeConnectableUrl,
   readBackendStartupDiagnostics,
   resetRuntimeInitialization,
+  restartRuntimeAfterFullDataClear,
 } from '@/runtime/config';
 
 describe('runtime config URL normalization', () => {
@@ -114,5 +115,44 @@ describe('runtime config URL normalization', () => {
     expect(runtime.apiPid).toBe(4321);
     expect(runtime.runtimeWorkerPid).toBe(5678);
     expect('__MAGI_RUNTIME__' in window).toBe(false);
+  });
+
+  it('stops and starts the backend exactly once after a recovered clear', async () => {
+    vi.useFakeTimers();
+    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+    let startCount = 0;
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'stop_backend') {
+        return { ok: true };
+      }
+      if (command === 'start_backend') {
+        startCount += 1;
+        return {
+          ok: true,
+          baseUrl: `http://127.0.0.1:${8000 + startCount}/api`,
+          sessionToken: `token-${startCount}`,
+          apiPid: 4000 + startCount,
+          runtimeWorkerPid: 5000 + startCount,
+        };
+      }
+      if (command === 'poll_backend_startup') {
+        return { ready: true, phase: 'ready' };
+      }
+      throw new Error(`Unexpected invoke command: ${command}`);
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })));
+
+    const firstStart = initializeRuntime();
+    await vi.runAllTimersAsync();
+    await firstStart;
+
+    const restart = restartRuntimeAfterFullDataClear();
+    await vi.runAllTimersAsync();
+    const runtime = await restart;
+
+    expect(invokeMock.mock.calls.filter(([command]) => command === 'stop_backend')).toHaveLength(1);
+    expect(invokeMock.mock.calls.filter(([command]) => command === 'start_backend')).toHaveLength(2);
+    expect(runtime.apiBaseUrl).toBe('http://127.0.0.1:8002/api');
+    expect(runtime.sessionToken).toBe('token-2');
   });
 });

@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from contextlib import AsyncExitStack, asynccontextmanager
+from typing import Annotated
 
-from fastapi import HTTPException, status
+from fastapi import Header, HTTPException, status
 
 from ....core.log_history import clear_diagnostic_log_history
 from ....memory.store_lifecycle import MemoryClearCompletedWithRecoveryError
@@ -93,9 +94,7 @@ def _raise_recovery_failure(failures: list[tuple[str, BaseException]]) -> None:
     first_failure = failures[0][1]
     if isinstance(first_failure, asyncio.CancelledError):
         raise first_failure
-    raise RuntimeError(
-        f"Failed to resume work after memory clear: {names}"
-    ) from first_failure
+    raise RuntimeError(f"Failed to resume work after memory clear: {names}") from first_failure
 
 
 async def _clear_chat_runtime_state(
@@ -111,9 +110,7 @@ async def _clear_chat_runtime_state(
         chat_count = await chat_read_service.aclear_all_sessions()
     except BaseException as exc:
         try:
-            pending_count = (
-                await chat_read_service.aget_interrupted_global_clear_count()
-            )
+            pending_count = await chat_read_service.aget_interrupted_global_clear_count()
         except BaseException:
             pending_count = None
         if pending_count is None:
@@ -143,9 +140,7 @@ async def _clear_chat_runtime_state(
             )
     elif chat_failure is None:
         warnings.append("channel_conversation_cleanup_pending")
-        logger.warning(
-            "clear_memory: channel conversation cleanup will resume at channel startup"
-        )
+        logger.warning("clear_memory: channel conversation cleanup will resume at channel startup")
     background_cleanup_succeeded = background_task_manager is not None
     if background_task_manager is not None:
         try:
@@ -160,9 +155,7 @@ async def _clear_chat_runtime_state(
             )
     elif chat_failure is None:
         warnings.append("background_task_history_cleanup_pending")
-        logger.warning(
-            "clear_memory: background task history cleanup will resume at startup"
-        )
+        logger.warning("clear_memory: background task history cleanup will resume at startup")
     orchestration_cleanup_succeeded = True
     try:
         await _resolve_orchestration_store().clear_all()
@@ -230,9 +223,7 @@ async def _conversation_delivery_clear_boundary():
             await stack.enter_async_context(service.conversation_clear_boundary())
         channels_module = _resolve_channels_module()
         if channels_module is not None:
-            await stack.enter_async_context(
-                channels_module.conversation_clear_boundary()
-            )
+            await stack.enter_async_context(channels_module.conversation_clear_boundary())
         yield
 
 
@@ -288,7 +279,17 @@ async def get_memory_statistics():
 
 
 @memory_router.delete("/clear", response_model=ClearMemoryResponseModel)
-async def clear_memory_layers():
+async def clear_memory_layers(
+    full_clear_transaction_id: Annotated[
+        str,
+        Header(
+            alias="X-Magi-Full-Clear-Transaction",
+            min_length=16,
+            max_length=128,
+            pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]+$",
+        ),
+    ],
+):
     """Clear user data plus every queued or active command that can recreate it."""
     logger.info("clear_memory: request received")
     unified_memory = _resolve_unified_memory()
@@ -308,6 +309,15 @@ async def clear_memory_layers():
     task_agent_manager = _resolve_task_agent_manager()
     background_task_manager = _resolve_background_task_manager()
     runtime_command_queue = _resolve_runtime_command_queue()
+    if runtime_command_queue is None:
+        logger.warning("clear_memory: runtime command queue not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t(
+                "memory.errors.runtime_queue_uninitialized",
+                "Runtime command queue not initialized",
+            ),
+        )
     scheduler_service = _resolve_scheduler_service()
     if scheduler_service is None:
         logger.warning("clear_memory: scheduler service not initialized")
@@ -361,6 +371,7 @@ async def clear_memory_layers():
     residual_clear_failure: Exception | None = None
     plugin_clear_session = None
     warnings: list[str] = []
+    generation: int | None = None
 
     def mark_chat_clear_committed(chat_count: int) -> None:
         nonlocal chat_clear_committed
@@ -372,6 +383,8 @@ async def clear_memory_layers():
             warnings=warnings,
             mark_chat_clear_committed=mark_chat_clear_committed,
         )
+
+    await runtime_command_queue.begin_full_user_content_clear(full_clear_transaction_id)
 
     try:
         async with AsyncExitStack() as clear_scope:
@@ -418,10 +431,8 @@ async def clear_memory_layers():
                     sensor_cleanup_failure: Exception | None = None
                     if sensor_hub is not None:
                         try:
-                            purged_sensor_events = (
-                                await sensor_hub.discard_stale_user_messages(
-                                    generation
-                                )
+                            purged_sensor_events = await sensor_hub.discard_stale_user_messages(
+                                generation
                             )
                         except Exception as exc:
                             sensor_cleanup_failure = exc
@@ -437,9 +448,7 @@ async def clear_memory_layers():
                     )
 
                     manual_entry_asset_store = _resolve_manual_entry_asset_store()
-                    manual_entry_weather_fetcher = (
-                        _resolve_manual_entry_weather_fetcher()
-                    )
+                    manual_entry_weather_fetcher = _resolve_manual_entry_weather_fetcher()
                     auxiliary_clearers = []
                     if manual_entry_asset_store is not None:
                         auxiliary_clearers.append(manual_entry_asset_store.clear)
@@ -448,9 +457,7 @@ async def clear_memory_layers():
                     self_memory = _resolve_self_memory()
                     if self_memory is not None:
                         auxiliary_clearers.append(self_memory.clear_learned_state)
-                    legacy_user_content_clearer = (
-                        _resolve_legacy_user_content_clearer()
-                    )
+                    legacy_user_content_clearer = _resolve_legacy_user_content_clearer()
                     if legacy_user_content_clearer is not None:
                         auxiliary_clearers.append(legacy_user_content_clearer)
                     llm_usage_store = _resolve_llm_usage_store()
@@ -545,9 +552,7 @@ async def clear_memory_layers():
                         if failure is not None
                     )
                     if residual_failures:
-                        residual_clear_failure = _FullClearResidualError(
-                            residual_failures
-                        )
+                        residual_clear_failure = _FullClearResidualError(residual_failures)
                         raise residual_clear_failure from residual_failures[0]
                 except BaseException as exc:
                     if plugin_clear_session is not None:
@@ -555,11 +560,7 @@ async def clear_memory_layers():
                     primary_failure = exc
                     primary_traceback = exc.__traceback__
 
-                if (
-                    primary_failure is not None
-                    and queue_purged
-                    and not chat_clear_committed
-                ):
+                if primary_failure is not None and queue_purged and not chat_clear_committed:
                     try:
                         reset_count = await _reset_chat_delivery_after_failed_clear()
                         logger.warning(
@@ -569,12 +570,14 @@ async def clear_memory_layers():
                     except BaseException as exc:
                         recovery_failures.append(("chat_delivery_compensation", exc))
 
-                recovery_failures.extend(await _resume_clear_dependencies(
-                    task_agent_manager=task_agent_manager,
-                    chat_pause_started=chat_pause_started,
-                    rebuild_manager=_embedding_rebuild_manager,
-                    rebuild_pause_started=rebuild_pause_started,
-                ))
+                recovery_failures.extend(
+                    await _resume_clear_dependencies(
+                        task_agent_manager=task_agent_manager,
+                        chat_pause_started=chat_pause_started,
+                        rebuild_manager=_embedding_rebuild_manager,
+                        rebuild_pause_started=rebuild_pause_started,
+                    )
+                )
     except BaseException as exc:
         if isinstance(exc, PluginUserContentClearRecoveryError):
             residual_clear_failure = exc
@@ -607,9 +610,7 @@ async def clear_memory_layers():
         primary_failure = None
         primary_traceback = None
     deferred_residual_failure = (
-        residual_clear_failure is not None
-        and chat_clear_committed
-        and counts is not None
+        residual_clear_failure is not None and chat_clear_committed and counts is not None
     )
     if primary_failure is not None and not deferred_residual_failure:
         raise primary_failure.with_traceback(primary_traceback)
@@ -639,7 +640,13 @@ async def clear_memory_layers():
     if deferred_residual_failure:
         raise residual_clear_failure
 
-    return build_clear_memory_response(
+    if warnings:
+        raise RuntimeError(
+            "Full user-content clear remains incomplete: " + ", ".join(dict.fromkeys(warnings))
+        )
+    if generation is None:
+        raise RuntimeError("Memory clear completed without a clear generation")
+    response = build_clear_memory_response(
         l0_count=l0_count,
         l1_count=l1_count,
         l2_count=l2_count,
@@ -648,3 +655,7 @@ async def clear_memory_layers():
         chat_context_count=chat_context_count,
         warnings=warnings,
     )
+    await runtime_command_queue.complete_full_user_content_clear(
+        transaction_id=full_clear_transaction_id,
+    )
+    return response

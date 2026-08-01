@@ -50,7 +50,7 @@ class L0WorkingMemoryStore(
         self._initialization_lock = asyncio.Lock()
         self._initialized = False
 
-    async def initialize(self) -> None:
+    async def initialize(self, *, restore_state: bool = True) -> None:
         """Create checkpoint schema and optionally restore previously checkpointed state."""
         async with self._initialization_lock:
             if self._initialized:
@@ -61,7 +61,7 @@ class L0WorkingMemoryStore(
                 await ensure_l0_checkpoint_schema(db)
                 await db.commit()
 
-            if self.restore_on_restart:
+            if restore_state and self.restore_on_restart:
                 await self._restore_from_checkpoint()
 
             self._initialized = True
@@ -75,9 +75,7 @@ class L0WorkingMemoryStore(
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
-        self._checkpoint_versions[session_id] = (
-            self._checkpoint_versions.get(session_id, 0) + 1
-        )
+        self._checkpoint_versions[session_id] = self._checkpoint_versions.get(session_id, 0) + 1
         existing = self._checkpoint_tasks.get(session_id)
         if existing is not None and not existing.done():
             return

@@ -106,6 +106,7 @@ export interface CompleteMemoryClearResult {
 
 export interface CompleteMemoryClearOptions {
   clearBoundaryAtSeconds?: number;
+  announce?: boolean;
 }
 
 export const completeMemoryClear = (
@@ -150,7 +151,9 @@ export const completeMemoryClear = (
     window.localStorage.removeItem(CHAT_SESSION_KEY(DEFAULT_USER_ID));
     return window.localStorage.getItem(CHAT_SESSION_KEY(DEFAULT_USER_ID)) === null;
   });
-  dispatchAppEvent.memoryCleared();
+  if (options.announce !== false) {
+    dispatchAppEvent.memoryCleared();
+  }
   return {
     browserStateCleared: failedScopes.length === 0,
     failedScopes,

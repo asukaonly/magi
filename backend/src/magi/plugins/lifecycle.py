@@ -51,44 +51,50 @@ class PluginSystemModule(LifecycleModule):
                 # The loop can close between the state check and scheduling.
                 return
 
+        runtime_command_queue = require_initialized(
+            self._context.runtime_commands.runtime_command_queue,
+            "runtime command queue",
+        )
+        transaction_state = await runtime_command_queue.read_full_user_content_clear_state()
+        full_clear_recovery_pending = transaction_state.status == "pending"
+        self._context.runtime_commands.full_clear_recovery_pending = full_clear_recovery_pending
+
         bindings = build_plugin_runtime(
             tool_registry=self._tool_registry,
             request_sensor_schedule_refresh=request_sensor_schedule_refresh,
+            activate_enabled=not full_clear_recovery_pending,
         )
         self._context.plugins.plugin_manager = bindings.plugin_manager
         self._context.plugins.plugin_projection_service = bindings.plugin_projection_service
         self._context.plugins.sensor_registry = bindings.sensor_registry
-        self._context.plugins.user_content_clear_coordinator = (
-            PluginUserContentClearCoordinator(
-                plugin_manager=bindings.plugin_manager,
-                runtime_paths=require_initialized(
+        self._context.plugins.user_content_clear_coordinator = PluginUserContentClearCoordinator(
+            plugin_manager=bindings.plugin_manager,
+            runtime_paths=require_initialized(
+                self._context.core.runtime_paths,
+                "runtime paths",
+            ),
+            get_sensor_sync_executor=lambda: (self._context.agent_runtime.sensor_sync_executor),
+            checkpoint_store=PluginUserContentClearCheckpointStore(
+                require_initialized(
                     self._context.core.runtime_paths,
                     "runtime paths",
-                ),
-                get_sensor_sync_executor=lambda: (
-                    self._context.agent_runtime.sensor_sync_executor
-                ),
-                checkpoint_store=PluginUserContentClearCheckpointStore(
-                    require_initialized(
-                        self._context.core.runtime_paths,
-                        "runtime paths",
-                    ).message_queue_db_path
-                ),
-                read_current_clear_generation=require_initialized(
-                    self._context.runtime_commands.runtime_command_queue,
-                    "runtime command queue",
-                ).read_current_clear_generation,
-            )
+                ).message_queue_db_path
+            ),
+            read_current_clear_generation=require_initialized(
+                self._context.runtime_commands.runtime_command_queue,
+                "runtime command queue",
+            ).read_current_clear_generation,
         )
-        try:
-            await (
-                self._context.plugins.user_content_clear_coordinator
-            ).require_no_pending_generation()
-        except BaseException:
-            logger.exception(
-                "Interrupted full user-content clear blocks runtime startup"
+        pending_plugin_clear = await (
+            self._context.plugins.user_content_clear_coordinator
+        ).has_pending_generation()
+        if pending_plugin_clear and not full_clear_recovery_pending:
+            raise RuntimeError("Interrupted full user-content clear has no durable recovery owner")
+        if full_clear_recovery_pending:
+            logger.warning(
+                "Interrupted full user-content clear awaits desktop recovery",
+                transaction_id=transaction_state.transaction_id,
             )
-            raise
 
     def _run_sensor_schedule_refresh(
         self,
@@ -104,3 +110,4 @@ class PluginSystemModule(LifecycleModule):
         self._context.plugins.plugin_manager = None
         self._context.plugins.plugin_projection_service = None
         self._context.plugins.sensor_registry = None
+        self._context.runtime_commands.full_clear_recovery_pending = False

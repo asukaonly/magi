@@ -18,11 +18,14 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 import {
+  beginFullDataClear,
   cancelExitRequest,
   clearDesktopLogHistory,
+  completeFullDataClear,
   confirmExitApp,
   openExternalUrl,
   registerDesktopShellHandlers,
+  readPendingFullDataClear,
   syncCloseToTrayPreference,
 } from '@/runtime/desktop';
 
@@ -99,5 +102,31 @@ describe('desktop runtime bridge', () => {
       failedEntries: 0,
     });
     expect(invokeMock).toHaveBeenCalledWith('clear_desktop_log_history');
+  });
+
+  it('persists, reads, and completes the desktop-owned full clear marker', async () => {
+    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+    const marker = { version: 1, transactionId: 'clear-transaction-1234' };
+    invokeMock
+      .mockResolvedValueOnce(marker)
+      .mockResolvedValueOnce(marker)
+      .mockResolvedValueOnce(undefined);
+
+    await expect(beginFullDataClear()).resolves.toEqual(marker);
+    await expect(readPendingFullDataClear()).resolves.toEqual(marker);
+    await expect(completeFullDataClear(marker.transactionId)).resolves.toBeUndefined();
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'begin_full_data_clear');
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'read_pending_full_data_clear');
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'complete_full_data_clear', {
+      transactionId: marker.transactionId,
+    });
+  });
+
+  it('refuses to acknowledge a full clear without the desktop owner', async () => {
+    await expect(completeFullDataClear('clear-transaction-1234')).rejects.toThrow(
+      'Desktop full data clear owner is unavailable',
+    );
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 });

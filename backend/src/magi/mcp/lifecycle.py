@@ -49,6 +49,9 @@ class MCPModule(LifecycleModule):
 
     async def _init(self) -> None:
         global _active_manager
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("MCP runtime held for full-clear recovery")
+            return
         from ..tools import tool_registry
 
         paths = get_runtime_paths()
@@ -69,10 +72,8 @@ class MCPModule(LifecycleModule):
         for cfg in configs:
             manager.add_config(cfg)
 
-        autostart_count = sum(
-            1 for c in configs if c.server.enabled and c.server.autostart
-        )
-        if autostart_count:
+        autostart_count = sum(1 for c in configs if c.server.enabled and c.server.autostart)
+        if autostart_count and not self._context.runtime_commands.full_clear_recovery_pending:
             self._autostart_task = asyncio.create_task(
                 self._run_autostart(manager), name="mcp_autostart"
             )
@@ -82,7 +83,9 @@ class MCPModule(LifecycleModule):
         logger.info(
             "MCP module initialized",
             servers=len(configs),
-            autostart_pending=autostart_count,
+            autostart_pending=(
+                0 if self._context.runtime_commands.full_clear_recovery_pending else autostart_count
+            ),
         )
 
     @staticmethod
@@ -99,9 +102,7 @@ class MCPModule(LifecycleModule):
         else:
             logger.info(
                 "MCP autostart completed",
-                running=sum(
-                    1 for c in manager.list_configs() if manager.is_running(c.server.id)
-                ),
+                running=sum(1 for c in manager.list_configs() if manager.is_running(c.server.id)),
             )
 
     async def _shutdown(self) -> None:

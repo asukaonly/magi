@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -27,6 +28,7 @@ from .runtime_queue import (
 )
 
 logger = get_logger(__name__)
+_FULL_DATA_CLEAR_TRANSACTION_ENV = "MAGI_FULL_DATA_CLEAR_TRANSACTION_ID"
 
 
 class MessageBusModule(LifecycleModule):
@@ -35,7 +37,11 @@ class MessageBusModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_message_bus",
-            dependencies=("runtime_configuration", "runtime_core_dependencies"),
+            dependencies=(
+                "runtime_configuration",
+                "runtime_core_dependencies",
+                "runtime_command_queue",
+            ),
         )
         self._context = context
 
@@ -47,8 +53,11 @@ class MessageBusModule(LifecycleModule):
             broadcast_max_concurrency=config.agent.message_bus.broadcast_max_concurrency,
             handler_timeout_seconds=config.agent.message_bus.handler_timeout_seconds,
         )
-        await self._context.message_bus.message_bus.start()
-        logger.info("MessageBus started")
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Message bus workers held for full-clear recovery")
+        else:
+            await self._context.message_bus.message_bus.start()
+            logger.info("MessageBus started")
 
     async def shutdown(self) -> None:
         if self._context.message_bus.message_bus is not None:
@@ -69,15 +78,33 @@ class RuntimeCommandQueueModule(LifecycleModule):
     async def init(self) -> None:
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
         queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths.message_queue_db_path))
-        await queue.start()
+        await queue.start(recover_claimed_commands=False)
+        desktop_transaction_id = os.environ.get(
+            _FULL_DATA_CLEAR_TRANSACTION_ENV,
+            "",
+        ).strip()
+        if desktop_transaction_id:
+            await queue.begin_full_user_content_clear(desktop_transaction_id)
+        transaction_state = await queue.read_full_user_content_clear_state()
+        recovery_pending = transaction_state.status == "pending"
+        if recovery_pending and not desktop_transaction_id:
+            await queue.stop()
+            raise RuntimeError("Pending full user-content clear requires its desktop owner marker")
+        self._context.runtime_commands.full_clear_recovery_pending = recovery_pending
+        if not recovery_pending:
+            await queue.recover_claimed_commands_after_restart()
         self._context.runtime_commands.runtime_command_queue = queue
-        logger.info("Runtime command queue started")
+        logger.info(
+            "Runtime command queue started",
+            full_clear_recovery_pending=recovery_pending,
+        )
 
     async def shutdown(self) -> None:
         queue = self._context.runtime_commands.runtime_command_queue
         if queue is not None:
             await queue.stop()
             self._context.runtime_commands.runtime_command_queue = None
+        self._context.runtime_commands.full_clear_recovery_pending = False
 
 
 class RuntimeCommandProcessorModule(LifecycleModule):
@@ -105,6 +132,12 @@ class RuntimeCommandProcessorModule(LifecycleModule):
         self._idle_event.set()
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            self._running = False
+            self._draining = True
+            self._context.runtime_commands.runtime_command_processor = self
+            logger.warning("Runtime command processor held for full-clear recovery")
+            return
         self._running = True
         self._draining = False
         self._active_commands = 0
@@ -237,8 +270,7 @@ class RuntimeCommandProcessorModule(LifecycleModule):
     ) -> None:
         if (
             command.command_type in FULL_CLEAR_SENSITIVE_COMMAND_TYPES
-            and int(command.user_message_generation)
-            != queue.current_user_message_generation()
+            and int(command.user_message_generation) != queue.current_user_message_generation()
         ):
             logger.info(
                 "Discarding stale clear-sensitive runtime command",
@@ -409,9 +441,7 @@ class PluginIngressProcessorModule(LifecycleModule):
             (registration.plugin_target, registration.event_type): registration.handler
             for registration in (handlers or [])
         }
-        self._global_clear_pending = (
-            global_clear_pending or _chat_global_clear_pending
-        )
+        self._global_clear_pending = global_clear_pending or _chat_global_clear_pending
 
     async def init(self) -> None:
         plugin_manager = self._context.plugins.plugin_manager
@@ -423,6 +453,9 @@ class PluginIngressProcessorModule(LifecycleModule):
                     self._handlers[(registration.plugin_target, registration.event_type)] = (
                         registration.handler
                     )
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Plugin ingress processor held for full-clear recovery")
+            return
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
 
@@ -491,7 +524,5 @@ class PluginIngressProcessorModule(LifecycleModule):
 async def _chat_global_clear_pending() -> bool:
     from ..chat.read_service import get_chat_read_service
 
-    pending_count = (
-        await get_chat_read_service().aget_interrupted_global_clear_count()
-    )
+    pending_count = await get_chat_read_service().aget_interrupted_global_clear_count()
     return pending_count is not None

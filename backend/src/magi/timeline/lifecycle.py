@@ -112,6 +112,9 @@ class TimelineSchedulersModule(LifecycleModule):
         self._contribs: list[Any] = []
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger_schedulers.warning("Timeline schedules held for full-clear recovery")
+            return
         deps = self._resolve_dependencies()
         if deps.scheduler_service is None:
             logger_schedulers.warning(
@@ -285,6 +288,9 @@ class TimelineSubscriberModule(LifecycleModule):
         self._subscriber: Any = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Timeline subscriber held for full-clear recovery")
+            return
         from .subscribers.timeline_subscriber import TimelineSubscriber
 
         bus = require_initialized(self._context.message_bus.message_bus, "message bus")
@@ -315,6 +321,9 @@ class KGSubscriberModule(LifecycleModule):
         self._subscriber: Any = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Knowledge graph subscriber held for full-clear recovery")
+            return
         from .subscribers.kg_subscriber import KGSubscriber
 
         bus = require_initialized(self._context.message_bus.message_bus, "message bus")

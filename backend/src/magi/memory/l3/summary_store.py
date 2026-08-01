@@ -462,10 +462,14 @@ class L3SummaryStore(
         async with self._embedding_mutation_lock:
             yield
 
-    async def initialize(self) -> None:
+    async def initialize(self, *, start_workers: bool = True) -> None:
         """Create the summaries schema."""
         if self._initialized:
-            if self._embedding_queue is not None and self._embedding_worker is None:
+            if (
+                start_workers
+                and self._embedding_queue is not None
+                and self._embedding_worker is None
+            ):
                 self._embedding_worker = asyncio.create_task(self._run_embedding_worker())
             return
 
@@ -475,7 +479,7 @@ class L3SummaryStore(
                 await self._vector_index.initialize()
             await ensure_l3_summary_schema(db)
             await db.commit()
-        if self._embedding_queue is not None and self._embedding_worker is None:
+        if start_workers and self._embedding_queue is not None and self._embedding_worker is None:
             self._embedding_worker = asyncio.create_task(self._run_embedding_worker())
         self._initialized = True
 

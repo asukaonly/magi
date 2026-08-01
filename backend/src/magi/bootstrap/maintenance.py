@@ -88,9 +88,7 @@ class RuntimeOperationalGCScheduleContrib:
             results.update(
                 await run_chat_asset_mutation(
                     chat_asset_gc.sweep_orphan_assets,
-                    orphan_grace_hours=(
-                        current_config.lifecycle.chat_assets.orphan_grace_hours
-                    ),
+                    orphan_grace_hours=(current_config.lifecycle.chat_assets.orphan_grace_hours),
                     delete_orphan_sessions=(
                         current_config.lifecycle.chat_assets.delete_on_session_delete
                     ),
@@ -122,6 +120,9 @@ class RuntimeOperationalGCScheduleRegistrationModule(LifecycleModule):
         self._contrib: RuntimeOperationalGCScheduleContrib | None = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Operational GC schedule held for full-clear recovery")
+            return
         scheduler_service = require_initialized(
             self._context.scheduler.scheduler_service,
             "scheduler service",
@@ -169,6 +170,9 @@ class OtherDependenciesModule(LifecycleModule):
         self._context.maintenance.maintenance_daemon = MaintenanceDaemon(
             config=maintenance_config,
         )
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Maintenance daemon held for full-clear recovery")
+            return
         await self._context.maintenance.maintenance_daemon.start()
         set_maintenance_daemon(self._context.maintenance.maintenance_daemon)
         logger.info("Maintenance daemon started")

@@ -5,6 +5,7 @@ mod desktop_log_history;
 mod desktop_presence;
 mod dmg_cleanup;
 mod external_url;
+mod full_data_clear;
 
 use magi_gateway::{api, ipc, notification_bridge};
 
@@ -31,6 +32,7 @@ const BACKEND_LOG_TAIL_BYTES: u64 = 64 * 1024;
 const DESKTOP_LOG_MAX_BYTES: u64 = 50 * 1024 * 1024;
 const DESKTOP_SESSION_TOKEN_ENV: &str = "MAGI_DESKTOP_SESSION_TOKEN";
 const BACKEND_LOG_FILE_ENV: &str = "MAGI_BACKEND_LOG_FILE";
+const FULL_DATA_CLEAR_TRANSACTION_ENV: &str = "MAGI_FULL_DATA_CLEAR_TRANSACTION_ID";
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -224,6 +226,17 @@ fn suppress_child_console_window(_command: &mut Command) {}
 
 fn isolate_python_worker_environment(command: &mut Command) {
     command.env_remove(DESKTOP_SESSION_TOKEN_ENV);
+    command.env_remove(FULL_DATA_CLEAR_TRANSACTION_ENV);
+}
+
+fn configure_full_data_clear_environment(command: &mut Command, transaction_id: Option<&str>) {
+    if let Some(transaction_id) = transaction_id {
+        command.env(FULL_DATA_CLEAR_TRANSACTION_ENV, transaction_id);
+    }
+}
+
+fn should_reuse_running_backend(running: bool, full_data_clear_pending: bool) -> bool {
+    running && !full_data_clear_pending
 }
 
 #[cfg(unix)]
@@ -670,6 +683,13 @@ fn desktop_log_dir() -> Result<PathBuf, String> {
     }
 }
 
+fn full_data_clear_marker_path() -> Result<PathBuf, String> {
+    Ok(home_dir()?
+        .join(".magi")
+        .join("runtime")
+        .join("full-data-clear.pending.json"))
+}
+
 fn sidecar_backend_log_path() -> Result<PathBuf, String> {
     Ok(desktop_log_dir()?.join("backend.log"))
 }
@@ -700,6 +720,7 @@ fn spawn_sidecar_role(
     role: &str,
     port: Option<u16>,
     ipc_socket_path: &str,
+    full_data_clear_transaction_id: Option<&str>,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let sidecar_path = resolve_sidecar_path(app)?;
     let plugin_python_path = resolve_plugin_python_path(app)?;
@@ -729,6 +750,7 @@ fn spawn_sidecar_role(
     let mut command = Command::new(&sidecar_path);
     suppress_child_console_window(&mut command);
     isolate_python_worker_environment(&mut command);
+    configure_full_data_clear_environment(&mut command, full_data_clear_transaction_id);
     configure_backend_log_environment(&mut command, &backend_log_path);
     command
         .arg("--role")
@@ -892,6 +914,7 @@ fn spawn_dev_backend_role(
     role: &str,
     port: Option<u16>,
     ipc_socket_path: &str,
+    full_data_clear_transaction_id: Option<&str>,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let project_root = find_project_root()?;
     let backend_dir = find_backend_dir()?;
@@ -905,6 +928,7 @@ fn spawn_dev_backend_role(
     let mut command = Command::new(&python_command);
     suppress_child_console_window(&mut command);
     isolate_python_worker_environment(&mut command);
+    configure_full_data_clear_environment(&mut command, full_data_clear_transaction_id);
     configure_backend_log_environment(&mut command, &backend_log_path);
     command
         .arg("run_server.py")
@@ -943,13 +967,28 @@ fn spawn_dev_backend_role(
 fn spawn_sidecar_backend(
     app: &AppHandle,
     ipc_socket_path: &str,
+    full_data_clear_transaction_id: Option<&str>,
 ) -> Result<ManagedBackendStart, String> {
-    let (process, pid) = spawn_sidecar_role(app, "ipc_worker", None, ipc_socket_path)?;
+    let (process, pid) = spawn_sidecar_role(
+        app,
+        "ipc_worker",
+        None,
+        ipc_socket_path,
+        full_data_clear_transaction_id,
+    )?;
     Ok(ManagedBackendStart { process, pid })
 }
 
-fn spawn_dev_backend_pair(ipc_socket_path: &str) -> Result<ManagedBackendStart, String> {
-    let (process, pid) = spawn_dev_backend_role("ipc_worker", None, ipc_socket_path)?;
+fn spawn_dev_backend_pair(
+    ipc_socket_path: &str,
+    full_data_clear_transaction_id: Option<&str>,
+) -> Result<ManagedBackendStart, String> {
+    let (process, pid) = spawn_dev_backend_role(
+        "ipc_worker",
+        None,
+        ipc_socket_path,
+        full_data_clear_transaction_id,
+    )?;
     Ok(ManagedBackendStart { process, pid })
 }
 
@@ -994,18 +1033,21 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
 fn start_backend(
     app: AppHandle,
     state: State<'_, BackendState>,
+    full_data_clear_state: State<'_, full_data_clear::FullDataClearRuntime>,
 ) -> Result<StartBackendResponse, String> {
     // Clear previous error logs
     if let Ok(mut errors) = state.recent_errors.lock() {
         errors.clear();
     }
 
-    {
+    let pending_full_data_clear = full_data_clear_state.read()?;
+    let running_backend = {
         let runtime = state
             .runtime
             .lock()
             .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
-        if runtime.base_url.is_some() {
+        let running = runtime.base_url.is_some();
+        if should_reuse_running_backend(running, pending_full_data_clear.is_some()) {
             let base_url = runtime
                 .base_url
                 .clone()
@@ -1023,9 +1065,18 @@ fn start_backend(
                 error: None,
             });
         }
+        running
+    };
+    if running_backend {
+        stop_backend_inner(&state)?;
     }
 
     if let Some(external) = parse_external_backend_config()? {
+        if pending_full_data_clear.is_some() {
+            return Err(
+                "Pending full data clear cannot recover through an external backend".to_string(),
+            );
+        }
         if !wait_for_health(&external, STARTUP_TIMEOUT) {
             return Err("External backend is not ready: /api/health check failed".to_string());
         }
@@ -1084,10 +1135,21 @@ fn start_backend(
     remove_ready_file();
 
     let start = if cfg!(debug_assertions) {
-        spawn_dev_backend_pair(&ipc_socket_path)?
+        spawn_dev_backend_pair(
+            &ipc_socket_path,
+            pending_full_data_clear
+                .as_ref()
+                .map(|marker| marker.transaction_id.as_str()),
+        )?
     } else {
         cleanup_stale_sidecar_processes(&app)?;
-        spawn_sidecar_backend(&app, &ipc_socket_path)?
+        spawn_sidecar_backend(
+            &app,
+            &ipc_socket_path,
+            pending_full_data_clear
+                .as_ref()
+                .map(|marker| marker.transaction_id.as_str()),
+        )?
     };
 
     // Store process and metadata — actual readiness is handled by poll_backend_startup.
@@ -1395,6 +1457,28 @@ fn clear_desktop_log_history(
     Ok(state.clear())
 }
 
+#[tauri::command]
+fn begin_full_data_clear(
+    state: State<'_, full_data_clear::FullDataClearRuntime>,
+) -> Result<full_data_clear::PendingFullDataClear, String> {
+    state.begin()
+}
+
+#[tauri::command]
+fn read_pending_full_data_clear(
+    state: State<'_, full_data_clear::FullDataClearRuntime>,
+) -> Result<Option<full_data_clear::PendingFullDataClear>, String> {
+    state.read()
+}
+
+#[tauri::command]
+fn complete_full_data_clear(
+    state: State<'_, full_data_clear::FullDataClearRuntime>,
+    transaction_id: String,
+) -> Result<(), String> {
+    state.complete(&transaction_id)
+}
+
 #[cfg(windows)]
 mod dwm_caption {
     use std::ffi::c_void;
@@ -1521,6 +1605,9 @@ fn main() {
         log_level,
     )
     .expect("failed to initialize desktop logging");
+    let full_data_clear_runtime = full_data_clear::FullDataClearRuntime::new(
+        full_data_clear_marker_path().expect("failed to resolve full data clear marker path"),
+    );
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::new().skip_logger().build())
@@ -1538,6 +1625,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .manage(BackendState::default())
         .manage(desktop_log_runtime)
+        .manage(full_data_clear_runtime)
         .manage(desktop_presence::DesktopPresenceState::default())
         .setup(move |app| {
             let current_version = app.package_info().version.to_string();
@@ -1600,6 +1688,9 @@ fn main() {
             cancel_exit_request,
             open_url,
             clear_desktop_log_history,
+            begin_full_data_clear,
+            read_pending_full_data_clear,
+            complete_full_data_clear,
             set_window_caption_color
         ])
         .build(tauri::generate_context!())
@@ -1619,11 +1710,13 @@ mod tests {
     #[cfg(windows)]
     use super::plugin_python_candidates_from_resource_dir;
     use super::{
-        build_external_backend_config, configure_backend_log_environment, first_existing_dir,
+        build_external_backend_config, configure_backend_log_environment,
+        configure_full_data_clear_environment, first_existing_dir,
         isolate_python_worker_environment, ordered_builtin_avatar_dirs,
         plugin_python_path_from_resource_dir, resolve_configured_log_path,
-        suppress_child_console_window, wait_for_process_stop, BackendProcess, BACKEND_LOG_FILE_ENV,
-        DESKTOP_SESSION_TOKEN_ENV,
+        should_reuse_running_backend, suppress_child_console_window, wait_for_process_stop,
+        BackendProcess, BACKEND_LOG_FILE_ENV, DESKTOP_SESSION_TOKEN_ENV,
+        FULL_DATA_CLEAR_TRANSACTION_ENV,
     };
     use std::process::{Command, Stdio};
     use std::time::Duration;
@@ -1686,6 +1779,36 @@ mod tests {
         assert!(command
             .get_envs()
             .any(|(name, value)| { name == DESKTOP_SESSION_TOKEN_ENV && value.is_none() }));
+    }
+
+    #[test]
+    fn pending_full_data_clear_is_forwarded_only_when_present() {
+        let mut pending_command = Command::new("python");
+        isolate_python_worker_environment(&mut pending_command);
+        configure_full_data_clear_environment(
+            &mut pending_command,
+            Some("clear-restart-transaction"),
+        );
+        assert!(pending_command.get_envs().any(|(name, value)| {
+            name == FULL_DATA_CLEAR_TRANSACTION_ENV
+                && value == Some(std::ffi::OsStr::new("clear-restart-transaction"))
+        }));
+
+        let mut normal_command = Command::new("python");
+        normal_command.env(FULL_DATA_CLEAR_TRANSACTION_ENV, "stale-value");
+        isolate_python_worker_environment(&mut normal_command);
+        configure_full_data_clear_environment(&mut normal_command, None);
+        assert!(normal_command
+            .get_envs()
+            .any(|(name, value)| { name == FULL_DATA_CLEAR_TRANSACTION_ENV && value.is_none() }));
+    }
+
+    #[test]
+    fn pending_full_data_clear_forces_a_running_backend_restart() {
+        assert!(should_reuse_running_backend(true, false));
+        assert!(!should_reuse_running_backend(true, true));
+        assert!(!should_reuse_running_backend(false, false));
+        assert!(!should_reuse_running_backend(false, true));
     }
 
     #[test]

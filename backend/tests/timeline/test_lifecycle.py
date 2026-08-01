@@ -13,6 +13,7 @@ async def test_init_registers_all_contributors_when_deps_present(tmp_path):
     from magi.scheduler.contracts import ScheduledTargetType
 
     context = MagicMock()
+    context.runtime_commands.full_clear_recovery_pending = False
     context.memory.unified_memory.l2 = MagicMock()
     context.memory.unified_memory.l3 = MagicMock()
     context.memory.unified_memory.memory_db_path = str(tmp_path / "memory.db")
@@ -31,9 +32,7 @@ async def test_init_registers_all_contributors_when_deps_present(tmp_path):
     module = TimelineSchedulersModule(context)
     await module.init()
 
-    registered_targets = {
-        call.args[0] for call in scheduler.register_handler.call_args_list
-    }
+    registered_targets = {call.args[0] for call in scheduler.register_handler.call_args_list}
     # Four timeline schedulers...
     assert ScheduledTargetType.TIMELINE_DIARY_NARRATIVE in registered_targets
     assert ScheduledTargetType.TIMELINE_STANDOUT_RESCORE in registered_targets
@@ -51,6 +50,7 @@ async def test_init_is_noop_when_scheduler_missing():
     from magi.timeline.lifecycle import TimelineSchedulersModule
 
     context = MagicMock()
+    context.runtime_commands.full_clear_recovery_pending = False
     context.scheduler.scheduler_service = None
 
     module = TimelineSchedulersModule(context)
@@ -62,6 +62,7 @@ async def test_shutdown_unregisters_all_contributors(tmp_path):
     from magi.timeline.lifecycle import TimelineSchedulersModule
 
     context = MagicMock()
+    context.runtime_commands.full_clear_recovery_pending = False
     context.memory.unified_memory.l2 = MagicMock()
     context.memory.unified_memory.l3 = MagicMock()
     context.memory.unified_memory.memory_db_path = str(tmp_path / "memory.db")

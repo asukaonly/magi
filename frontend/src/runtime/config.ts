@@ -36,7 +36,7 @@ const READY_CHECK_TIMEOUT_MS = 30000;
 const STARTUP_POLL_INTERVAL_MS = 500;
 const STARTUP_POLL_TIMEOUT_MS = 60000;
 
-export type StartupPhase = "spawning" | "waiting_for_worker" | "connecting" | "ready" | "error";
+export type StartupPhase = "spawning" | "waiting_for_worker" | "connecting" | "recovering_data_clear" | "ready" | "error";
 export type StartupProgressCallback = (phase: StartupPhase) => void;
 
 let runtimeConfig: RuntimeConfig = {
@@ -214,6 +214,29 @@ export async function initializeRuntime(
     initialized = true;
     throw new Error(startupError);
   }
+}
+
+export async function stopRuntimeForFullDataClearRecovery(): Promise<void> {
+  if (!isTauriRuntime()) {
+    resetRuntimeInitialization();
+    return;
+  }
+
+  try {
+    await invoke("stop_backend");
+  } finally {
+    resetRuntimeInitialization();
+  }
+}
+
+export async function restartRuntimeAfterFullDataClear(
+  onProgress?: StartupProgressCallback,
+): Promise<RuntimeConfig> {
+  if (!isTauriRuntime()) {
+    throw new Error("Desktop runtime requires Tauri shell");
+  }
+  await stopRuntimeForFullDataClearRecovery();
+  return initializeRuntime(onProgress);
 }
 
 export function resetRuntimeInitialization(): void {

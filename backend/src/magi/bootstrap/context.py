@@ -86,6 +86,7 @@ class RuntimeCommandBootstrapState:
 
     runtime_command_queue: SQLiteRuntimeCommandQueue | None = None
     runtime_command_processor: RuntimeCommandProcessorModule | None = None
+    full_clear_recovery_pending: bool = False
 
 
 @dataclass

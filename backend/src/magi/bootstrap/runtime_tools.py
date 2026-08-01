@@ -19,6 +19,7 @@ host-registered the same way, they can be wired in here.
 from __future__ import annotations
 
 from ..core.logger import get_logger
+from .context import RuntimeBootstrapContext
 from .lifecycle import LifecycleModule
 
 logger = get_logger(__name__)
@@ -53,13 +54,17 @@ class RuntimeFirstPartyToolsModule(LifecycleModule):
     ``ToolsModule`` configures the ``agent`` tool with the runtime LLM adapter.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
         super().__init__(
             name="runtime_first_party_tools",
             dependencies=("runtime_plugin_system",),
         )
+        self._context = context
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("First-party runtime tools held for full-clear recovery")
+            return
         from ..tools import tool_registry
 
         registered = register_runtime_tools(tool_registry)

@@ -26,6 +26,11 @@ from magi.memory.operation_barrier import AsyncOperationBarrier
 from magi.plugins.user_content_clear import PluginUserContentClearRecoveryError
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
+FULL_CLEAR_TRANSACTION_ID = "clear-backend-test-transaction"
+FULL_CLEAR_HEADERS = {
+    "X-Magi-Full-Clear-Transaction": FULL_CLEAR_TRANSACTION_ID,
+}
+
 
 @pytest.fixture(autouse=True)
 def _isolate_orchestration_store(monkeypatch):
@@ -41,9 +46,7 @@ def _isolate_orchestration_store(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _isolate_batch_store(monkeypatch):
-    store = SimpleNamespace(
-        clear_all=AsyncMock(return_value={"batch_jobs": 0, "batch_items": 0})
-    )
+    store = SimpleNamespace(clear_all=AsyncMock(return_value={"batch_jobs": 0, "batch_items": 0}))
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_batch_store",
         lambda: store,
@@ -53,9 +56,7 @@ def _isolate_batch_store(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _isolate_diagnostic_log_cleanup(monkeypatch):
-    cleanup = AsyncMock(
-        return_value=SimpleNamespace(cleared_entries=4, failed_entries=0)
-    )
+    cleanup = AsyncMock(return_value=SimpleNamespace(cleared_entries=4, failed_entries=0))
     monkeypatch.setattr(
         "magi.api.routers.memory.overview_routes.clear_diagnostic_log_history",
         cleanup,
@@ -104,6 +105,8 @@ def _isolate_user_message_clear_boundary(monkeypatch):
             self.barrier = AsyncOperationBarrier()
             self.generation = 0
             self.advance_calls = 0
+            self.full_clear_transaction_id: str | None = None
+            self.full_clear_completed_transaction_id: str | None = None
 
         @asynccontextmanager
         async def user_message_clear_boundary(self):  # type: ignore[no-untyped-def]
@@ -119,6 +122,19 @@ def _isolate_user_message_clear_boundary(monkeypatch):
             self.advance_calls += 1
             self.generation += 1
             return self.generation, 0
+
+        async def begin_full_user_content_clear(self, transaction_id: str) -> None:
+            self.full_clear_transaction_id = transaction_id
+            self.full_clear_completed_transaction_id = None
+
+        async def complete_full_user_content_clear(
+            self,
+            *,
+            transaction_id: str,
+        ) -> None:
+            if self.full_clear_transaction_id != transaction_id:
+                raise RuntimeError("unexpected full-clear transaction")
+            self.full_clear_completed_transaction_id = transaction_id
 
     queue = _FakeRuntimeCommandQueue()
     sensor_hub = SimpleNamespace(discard_stale_user_messages=AsyncMock(return_value=0))
@@ -147,6 +163,20 @@ def _isolate_external_conversation_clear_dependencies(monkeypatch):
         "magi.api.routers.memory._resolve_channel_session_mapper",
         lambda: _FakeChannelSessionMapper(),
     )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_chat_memory_projection_clear(monkeypatch):
+    @asynccontextmanager
+    async def boundary():
+        yield
+
+    lifecycle = SimpleNamespace(user_content_clear_boundary=boundary)
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_chat_memory_projection_clear",
+        lambda: lifecycle,
+    )
+    return lifecycle
 
 
 @pytest.fixture(autouse=True)
@@ -214,7 +244,7 @@ def _isolate_plugin_user_content_clear_boundary(monkeypatch):
                 cleared=0,
                 failures=(),
             )
-        )
+        ),
     )
 
     @asynccontextmanager
@@ -246,9 +276,7 @@ class _FakeL0Store:
     async def get_workbench(self, session_id: str):
         return {
             "session": self._sessions.get(session_id),
-            "attention_items": list(
-                self._attention_items.get(session_id, {}).values()
-            ),
+            "attention_items": list(self._attention_items.get(session_id, {}).values()),
         }
 
 
@@ -1005,9 +1033,7 @@ def test_l0_sessions_api_treats_new_session_title_as_generic(monkeypatch):
             "metadata": {},
         }
     }
-    fake_memory.l0._attention_items = {
-        "379f666d-aee9-48fb-ab88-50690496297b": {}
-    }
+    fake_memory.l0._attention_items = {"379f666d-aee9-48fb-ab88-50690496297b": {}}
 
     class _FakeChatReadService:
         async def aget_session_summaries_batch(self, user_id: str, session_ids: list):
@@ -1070,9 +1096,7 @@ def test_l0_sessions_api_filters_before_pagination(monkeypatch):
         },
     }
     fake_memory.l0.get_workbench = AsyncMock(
-        side_effect=AssertionError(
-            "The session list must use its governed index snapshot"
-        )
+        side_effect=AssertionError("The session list must use its governed index snapshot")
     )
 
     class _FakeChatReadService:
@@ -2082,10 +2106,7 @@ def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert (
-        body["l0_workbench"][0]["attention_items"][0]["kind"]
-        == "focus"
-    )
+    assert body["l0_workbench"][0]["attention_items"][0]["kind"] == "focus"
     assert body["l3_reflections"][0]["summary_id"] == "sum-1"
     assert body["trace"]["intent_source"] == "rule"
 
@@ -2442,6 +2463,7 @@ def test_memory_clear_api_clears_all_layers(
     _isolate_orchestration_store,
     _isolate_batch_store,
     _isolate_diagnostic_log_cleanup,
+    _isolate_user_message_clear_boundary,
 ):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
@@ -2464,6 +2486,7 @@ def test_memory_clear_api_clears_all_layers(
     class _FakeChatReadService:
         async def aclear_all_sessions(self) -> int:
             assert clear_order == [
+                "chat-projection-enter",
                 "scheduler-enter",
                 "background-enter",
                 "control-enter",
@@ -2478,7 +2501,7 @@ def test_memory_clear_api_clears_all_layers(
     @asynccontextmanager
     async def background_scope_boundary(**kwargs):  # type: ignore[no-untyped-def]
         assert kwargs == {"reason": "user_clear_all_memory"}
-        assert clear_order == ["scheduler-enter"]
+        assert clear_order == ["chat-projection-enter", "scheduler-enter"]
         clear_order.append("background-enter")
         try:
             yield
@@ -2487,6 +2510,7 @@ def test_memory_clear_api_clears_all_layers(
 
     @asynccontextmanager
     async def scheduler_scope_boundary():
+        assert clear_order == ["chat-projection-enter"]
         clear_order.append("scheduler-enter")
         try:
             yield
@@ -2495,6 +2519,7 @@ def test_memory_clear_api_clears_all_layers(
 
     async def clear_scheduler_data():
         assert clear_order == [
+            "chat-projection-enter",
             "scheduler-enter",
             "background-enter",
             "control-enter",
@@ -2506,7 +2531,11 @@ def test_memory_clear_api_clears_all_layers(
 
     @asynccontextmanager
     async def control_content_boundary():
-        assert clear_order == ["scheduler-enter", "background-enter"]
+        assert clear_order == [
+            "chat-projection-enter",
+            "scheduler-enter",
+            "background-enter",
+        ]
         clear_order.append("control-enter")
         try:
             yield
@@ -2516,6 +2545,7 @@ def test_memory_clear_api_clears_all_layers(
     @asynccontextmanager
     async def tool_content_boundary():
         assert clear_order == [
+            "chat-projection-enter",
             "scheduler-enter",
             "background-enter",
             "control-enter",
@@ -2534,6 +2564,7 @@ def test_memory_clear_api_clears_all_layers(
         async def clear_user_content(self, request):  # type: ignore[no-untyped-def]
             assert request.clear_generation == 1
             assert clear_order == [
+                "chat-projection-enter",
                 "scheduler-enter",
                 "background-enter",
                 "control-enter",
@@ -2545,6 +2576,7 @@ def test_memory_clear_api_clears_all_layers(
     @asynccontextmanager
     async def plugin_content_boundary():
         assert clear_order == [
+            "chat-projection-enter",
             "scheduler-enter",
             "background-enter",
             "control-enter",
@@ -2554,6 +2586,15 @@ def test_memory_clear_api_clears_all_layers(
             yield _PluginClearSession()
         finally:
             clear_order.append("plugin-exit")
+
+    @asynccontextmanager
+    async def chat_projection_boundary():
+        assert clear_order == []
+        clear_order.append("chat-projection-enter")
+        try:
+            yield
+        finally:
+            clear_order.append("chat-projection-exit")
 
     background_task_manager = SimpleNamespace(
         conversation_scope_boundary=background_scope_boundary,
@@ -2583,15 +2624,15 @@ def test_memory_clear_api_clears_all_layers(
     )
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_control_user_content_clear",
-        lambda: SimpleNamespace(
-            user_content_clear_boundary=control_content_boundary
-        ),
+        lambda: SimpleNamespace(user_content_clear_boundary=control_content_boundary),
     )
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_plugin_user_content_clear",
-        lambda: SimpleNamespace(
-            user_content_clear_boundary=plugin_content_boundary
-        ),
+        lambda: SimpleNamespace(user_content_clear_boundary=plugin_content_boundary),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_chat_memory_projection_clear",
+        lambda: SimpleNamespace(user_content_clear_boundary=chat_projection_boundary),
     )
     monkeypatch.setattr(
         "magi.api.routers.memory.overview_routes._resolve_tool_registry",
@@ -2599,7 +2640,7 @@ def test_memory_clear_api_clears_all_layers(
     )
 
     client = TestClient(app)
-    response = client.delete("/api/memory/clear")
+    response = client.delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 200
     body = response.json()
@@ -2610,10 +2651,14 @@ def test_memory_clear_api_clears_all_layers(
     assert body["results"]["l3"]["count"] == 2
     assert body["results"]["l4"]["count"] == 1
     assert body["results"]["chat_context"]["count"] == 4
+    queue, _ = _isolate_user_message_clear_boundary
+    assert queue.full_clear_transaction_id == FULL_CLEAR_TRANSACTION_ID
+    assert queue.full_clear_completed_transaction_id == FULL_CLEAR_TRANSACTION_ID
     _isolate_orchestration_store.clear_all.assert_awaited_once()
     _isolate_batch_store.clear_all.assert_awaited_once()
     _isolate_diagnostic_log_cleanup.assert_awaited_once_with()
     assert clear_order == [
+        "chat-projection-enter",
         "scheduler-enter",
         "background-enter",
         "control-enter",
@@ -2629,7 +2674,21 @@ def test_memory_clear_api_clears_all_layers(
         "control-exit",
         "background-exit",
         "scheduler-exit",
+        "chat-projection-exit",
     ]
+
+
+def test_memory_clear_requires_a_desktop_transaction_header(monkeypatch) -> None:
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -2661,9 +2720,7 @@ async def test_memory_clear_api_rejects_old_control_waiters_and_reopens(
         pending_permissions=registry,
         interaction_broker=broker,
     )
-    coordinator.bind_transcript_subscriber(
-        ControlTranscriptSubscriber(event_bus=SimpleNamespace())
-    )
+    coordinator.bind_transcript_subscriber(ControlTranscriptSubscriber(event_bus=SimpleNamespace()))
     ask_service = ControlAskService(
         session_store=store,
         interaction_broker=broker,
@@ -2708,9 +2765,7 @@ async def test_memory_clear_api_rejects_old_control_waiters_and_reopens(
         ask_service.ask(ask_request("session-old", "private question"))
     )
     old_permission = permission_request("same-id", "session-old")
-    old_permission_task = asyncio.create_task(
-        prompter(old_permission, timeout_seconds=30)
-    )
+    old_permission_task = asyncio.create_task(prompter(old_permission, timeout_seconds=30))
     await wait_until(
         lambda: store.ask_state("session-old") is not None
         and registry.get("same-id") is old_permission
@@ -2731,23 +2786,29 @@ async def test_memory_clear_api_rejects_old_control_waiters_and_reopens(
         transport=ASGITransport(app=app),
         base_url="http://test",
     ) as client:
-        response = await client.delete("/api/memory/clear")
+        response = await client.delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 200
     assert store.plan_state("session-old").active is False
     assert store.list_todos("session-old") == []
     assert store.ask_state("session-old") is None
     assert registry.snapshot(session_id="*") == []
-    assert await broker.resolve(
-        interaction_id=old_ask.request_id,
-        kind="ask",
-        response="late answer",
-    ) is False
-    assert await broker.resolve(
-        interaction_id="same-id",
-        kind="permission",
-        response={"outcome": "allowed"},
-    ) is False
+    assert (
+        await broker.resolve(
+            interaction_id=old_ask.request_id,
+            kind="ask",
+            response="late answer",
+        )
+        is False
+    )
+    assert (
+        await broker.resolve(
+            interaction_id="same-id",
+            kind="permission",
+            response={"outcome": "allowed"},
+        )
+        is False
+    )
     with pytest.raises(InteractionClosedError):
         await old_ask_task
     with pytest.raises(InteractionClosedError):
@@ -2767,9 +2828,7 @@ async def test_memory_clear_api_rejects_old_control_waiters_and_reopens(
     assert (await fresh_ask_task).answer == "yes"
 
     fresh_permission = permission_request("same-id", "session-fresh")
-    fresh_permission_task = asyncio.create_task(
-        prompter(fresh_permission, timeout_seconds=30)
-    )
+    fresh_permission_task = asyncio.create_task(prompter(fresh_permission, timeout_seconds=30))
     await wait_until(lambda: registry.get("same-id") is fresh_permission)
     assert await broker.resolve(
         interaction_id="same-id",
@@ -2798,9 +2857,7 @@ async def test_memory_clear_waits_for_sensor_command_and_purges_sensor_queue(
     from magi.events.lifecycle import RuntimeCommandProcessorModule
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
 
-    queue = SQLiteRuntimeCommandQueue(
-        db_path=str(tmp_path / "runtime_commands.db")
-    )
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
     command_started = asyncio.Event()
     release_command = asyncio.Event()
@@ -2842,9 +2899,7 @@ async def test_memory_clear_waits_for_sensor_command_and_purges_sensor_queue(
     refresh_id = await queue.enqueue_refresh_llm_config(
         RefreshLLMConfigCommand(source="api", reason="settings_saved")
     )
-    processing = asyncio.create_task(
-        processor._run_next_command(queue=queue, message_bus=object())
-    )
+    processing = asyncio.create_task(processor._run_next_command(queue=queue, message_bus=object()))
     clearing: asyncio.Task[dict] | None = None
 
     monkeypatch.setattr(
@@ -2876,7 +2931,7 @@ async def test_memory_clear_waits_for_sensor_command_and_purges_sensor_queue(
 
     try:
         await asyncio.wait_for(command_started.wait(), timeout=1)
-        clearing = asyncio.create_task(clear_memory_layers())
+        clearing = asyncio.create_task(clear_memory_layers(FULL_CLEAR_TRANSACTION_ID))
         await asyncio.sleep(0.02)
         assert memory_clear_started.is_set() is False
 
@@ -2924,7 +2979,7 @@ def test_memory_clear_rejects_when_scheduler_is_unavailable(monkeypatch):
     )
 
     with language_context("en"):
-        response = TestClient(app).delete("/api/memory/clear")
+        response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Scheduler service not initialized"
@@ -2946,7 +3001,7 @@ def test_memory_clear_rejects_when_control_boundary_is_unavailable(monkeypatch):
     )
 
     with language_context("en"):
-        response = TestClient(app).delete("/api/memory/clear")
+        response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Control plane not initialized"
@@ -2968,10 +3023,34 @@ def test_memory_clear_rejects_when_plugin_boundary_is_unavailable(monkeypatch):
     )
 
     with language_context("en"):
-        response = TestClient(app).delete("/api/memory/clear")
+        response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Plugin runtime not initialized"
+    unified.clear_all_memory.assert_not_awaited()
+
+
+def test_memory_clear_rejects_when_chat_recovery_boundary_is_unavailable(
+    monkeypatch,
+):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    unified = _FakeUnifiedMemory()
+    unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: unified,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_chat_memory_projection_clear",
+        lambda: None,
+    )
+
+    with language_context("en"):
+        response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Chat recovery service not initialized"
     unified.clear_all_memory.assert_not_awaited()
 
 
@@ -3015,7 +3094,7 @@ def test_plugin_clear_failure_does_not_skip_scheduler_chat_or_log_cleanup(
     )
 
     response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear"
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
     )
 
     assert response.status_code == 500
@@ -3050,7 +3129,7 @@ def test_plugin_clear_recovery_failure_is_not_reported_as_success(
     )
 
     response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear"
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
     )
 
     assert response.status_code == 500
@@ -3076,9 +3155,7 @@ def test_memory_clear_keeps_global_intent_when_background_history_cleanup_fails(
 
     background_task_manager = SimpleNamespace(
         conversation_scope_boundary=boundary,
-        clear_all_history=AsyncMock(
-            side_effect=OSError("background task database unavailable")
-        ),
+        clear_all_history=AsyncMock(side_effect=OSError("background task database unavailable")),
     )
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory",
@@ -3093,12 +3170,11 @@ def test_memory_clear_keeps_global_intent_when_background_history_cleanup_fails(
         lambda: background_task_manager,
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
+    )
 
-    assert response.status_code == 200
-    assert response.json()["warnings"] == [
-        "background_task_history_cleanup_failed"
-    ]
+    assert response.status_code == 500
     background_task_manager.clear_all_history.assert_awaited_once()
     finalize.assert_not_awaited()
 
@@ -3126,7 +3202,7 @@ def test_memory_clear_resumes_rebuild_starts_when_pause_fails(monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="cancel persistence failed"):
-        TestClient(app).delete("/api/memory/clear")
+        TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     pause.assert_awaited_once()
     resume.assert_awaited_once()
@@ -3159,7 +3235,7 @@ def test_memory_clear_recovers_all_dependencies_when_chat_pause_fails(monkeypatc
     )
 
     with pytest.raises(RuntimeError, match="chat pause failed"):
-        TestClient(app).delete("/api/memory/clear")
+        TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     rebuild_pause.assert_awaited_once()
     task_agent_manager.pause_chat_work_and_cancel_all.assert_awaited_once()
@@ -3198,7 +3274,7 @@ def test_memory_clear_resumes_services_when_queue_generation_advance_fails(
     )
 
     with pytest.raises(OSError, match="queue generation write failed"):
-        TestClient(app).delete("/api/memory/clear")
+        TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     unified.clear_all_memory.assert_not_awaited()
     task_agent_manager.resume_chat_work.assert_awaited_once()
@@ -3320,7 +3396,7 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
         assert initial.success is True
 
         with pytest.raises(OSError, match="memory database failed midway"):
-            await clear_memory_layers()
+            await clear_memory_layers(FULL_CLEAR_TRANSACTION_ID)
 
         with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as conn:
             assert conn.execute("""
@@ -3359,7 +3435,7 @@ def test_memory_clear_finishes_data_clear_when_sensor_queue_cleanup_fails(
 ):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
-    _, sensor_hub = _isolate_user_message_clear_boundary
+    queue, sensor_hub = _isolate_user_message_clear_boundary
     sensor_hub.discard_stale_user_messages = AsyncMock(
         side_effect=RuntimeError("sensor queue cleanup failed")
     )
@@ -3387,10 +3463,13 @@ def test_memory_clear_finishes_data_clear_when_sensor_queue_cleanup_fails(
         lambda: task_agent_manager,
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
+    )
 
-    assert response.status_code == 200
-    assert response.json()["warnings"] == ["sensor_cleanup_failed"]
+    assert response.status_code == 500
+    assert queue.full_clear_transaction_id == FULL_CLEAR_TRANSACTION_ID
+    assert queue.full_clear_completed_transaction_id is None
     unified.clear_all_memory.assert_awaited_once()
     task_agent_manager.resume_chat_work.assert_awaited_once()
 
@@ -3427,14 +3506,14 @@ def test_memory_clear_fails_when_diagnostic_logs_cannot_be_fully_erased(
     )
 
     response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear"
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
     )
 
     assert response.status_code == 500
     assert len(boundary_failures) == 1
 
 
-def test_memory_clear_reports_success_when_physical_chat_cleanup_is_pending(
+def test_memory_clear_remains_pending_when_physical_chat_cleanup_is_pending(
     monkeypatch,
 ) -> None:
     app = FastAPI()
@@ -3456,12 +3535,11 @@ def test_memory_clear_reports_success_when_physical_chat_cleanup_is_pending(
         lambda: _PendingChatClear(),
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
+    )
 
-    assert response.status_code == 200
-    assert response.json()["success"] is True
-    assert response.json()["warnings"] == ["chat_asset_cleanup_pending"]
-    assert response.json()["results"]["chat_context"]["count"] == 3
+    assert response.status_code == 500
 
 
 def test_memory_clear_blocks_outreach_and_clears_channel_conversation_state(
@@ -3538,7 +3616,7 @@ def test_memory_clear_blocks_outreach_and_clears_channel_conversation_state(
         lambda: _ChatReadService(),
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 200
     assert response.json()["results"]["chat_context"]["count"] == 2
@@ -3575,12 +3653,11 @@ def test_memory_clear_keeps_global_barrier_when_finalization_is_declined(
         lambda: _ChatReadService(),
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
+    )
 
-    assert response.status_code == 200
-    assert response.json()["warnings"] == [
-        "conversation_clear_finalization_failed"
-    ]
+    assert response.status_code == 500
     finalize.assert_awaited_once()
 
 
@@ -3614,16 +3691,15 @@ def test_memory_clear_warns_when_channel_conversation_cleanup_fails(
         lambda: _ChatReadService(),
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
+    )
 
-    assert response.status_code == 200
-    assert response.json()["warnings"] == [
-        "channel_conversation_cleanup_failed"
-    ]
+    assert response.status_code == 500
     finalize.assert_not_awaited()
 
 
-def test_memory_clear_reports_success_when_memory_writers_fail_to_resume(
+def test_memory_clear_remains_pending_when_memory_writers_fail_to_resume(
     monkeypatch,
 ) -> None:
     from magi.memory.store_lifecycle import MemoryClearCompletedWithRecoveryError
@@ -3669,11 +3745,11 @@ def test_memory_clear_reports_success_when_memory_writers_fail_to_resume(
         lambda: _FakeChatReadService(),
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
+    )
 
-    assert response.status_code == 200
-    assert response.json()["warnings"] == ["memory_writer_resume_failed"]
-    assert response.json()["results"]["chat_context"]["count"] == 2
+    assert response.status_code == 500
 
 
 def test_memory_clear_keeps_clear_error_when_both_recovery_steps_fail(monkeypatch):
@@ -3703,13 +3779,13 @@ def test_memory_clear_keeps_clear_error_when_both_recovery_steps_fail(monkeypatc
     )
 
     with pytest.raises(RuntimeError, match="clear failed"):
-        TestClient(app).delete("/api/memory/clear")
+        TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     task_agent_manager.resume_chat_work.assert_awaited_once()
     rebuild_resume.assert_awaited_once()
 
 
-def test_memory_clear_warns_when_chat_resume_fails_after_data_clear(monkeypatch):
+def test_memory_clear_remains_pending_when_chat_resume_fails(monkeypatch):
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
 
     app = FastAPI()
@@ -3731,15 +3807,16 @@ def test_memory_clear_warns_when_chat_resume_fails_after_data_clear(monkeypatch)
         lambda: task_agent_manager,
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
+    )
 
-    assert response.status_code == 200
-    assert response.json()["warnings"] == ["chat_resume_failed"]
+    assert response.status_code == 500
     task_agent_manager.resume_chat_work.assert_awaited_once()
     rebuild_resume.assert_awaited_once()
 
 
-def test_memory_clear_warns_when_rebuild_resume_fails_after_data_clear(monkeypatch):
+def test_memory_clear_remains_pending_when_rebuild_resume_fails(monkeypatch):
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
 
     app = FastAPI()
@@ -3761,15 +3838,16 @@ def test_memory_clear_warns_when_rebuild_resume_fails_after_data_clear(monkeypat
         lambda: task_agent_manager,
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
+    )
 
-    assert response.status_code == 200
-    assert response.json()["warnings"] == ["embedding_rebuild_resume_failed"]
+    assert response.status_code == 500
     task_agent_manager.resume_chat_work.assert_awaited_once()
     rebuild_resume.assert_awaited_once()
 
 
-def test_memory_clear_warns_when_orchestration_cleanup_fails(monkeypatch):
+def test_memory_clear_remains_pending_when_orchestration_cleanup_fails(monkeypatch):
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
 
     app = FastAPI()
@@ -3811,11 +3889,11 @@ def test_memory_clear_warns_when_orchestration_cleanup_fails(monkeypatch):
         lambda: _FakeChatReadService(),
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
+    )
 
-    assert response.status_code == 200
-    assert response.json()["warnings"] == ["orchestration_cleanup_failed"]
-    assert response.json()["results"]["chat_context"]["count"] == 1
+    assert response.status_code == 500
     orchestration_store.clear_all.assert_awaited_once()
     finalize.assert_not_awaited()
     task_agent_manager.resume_chat_work.assert_awaited_once()
@@ -3855,7 +3933,7 @@ def test_memory_clear_attempts_orchestration_cleanup_when_chat_cleanup_fails(mon
     )
 
     with pytest.raises(OSError, match="chat database unavailable"):
-        TestClient(app).delete("/api/memory/clear")
+        TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     orchestration_store.clear_all.assert_awaited_once()
     task_agent_manager.resume_chat_work.assert_awaited_once()
@@ -3872,9 +3950,7 @@ def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(monkeypatch):
 
         acomplete_global_clear = finalize
 
-    batch_store = SimpleNamespace(
-        clear_all=AsyncMock(side_effect=OSError("batch disk full"))
-    )
+    batch_store = SimpleNamespace(clear_all=AsyncMock(side_effect=OSError("batch disk full")))
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
@@ -3888,10 +3964,11 @@ def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(monkeypatch):
         lambda: _FakeChatReadService(),
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
+    )
 
-    assert response.status_code == 200
-    assert response.json()["warnings"] == ["batch_cleanup_failed"]
+    assert response.status_code == 500
     batch_store.clear_all.assert_awaited_once_with()
     finalize.assert_not_awaited()
 
@@ -3909,7 +3986,7 @@ def test_memory_clear_purges_manual_entry_weather_cache(monkeypatch) -> None:
         lambda: weather_fetcher,
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 200
     weather_fetcher.clear.assert_awaited_once_with()
@@ -3918,9 +3995,7 @@ def test_memory_clear_purges_manual_entry_weather_cache(monkeypatch) -> None:
 def test_memory_clear_purges_learned_personality_state(monkeypatch) -> None:
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
-    self_memory = SimpleNamespace(
-        clear_learned_state=AsyncMock(return_value=12)
-    )
+    self_memory = SimpleNamespace(clear_learned_state=AsyncMock(return_value=12))
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
@@ -3930,7 +4005,7 @@ def test_memory_clear_purges_learned_personality_state(monkeypatch) -> None:
         lambda: self_memory,
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 200
     self_memory.clear_learned_state.assert_awaited_once_with()
@@ -3965,7 +4040,7 @@ def test_memory_clear_holds_chat_portrait_cache_boundary(monkeypatch) -> None:
         _PortraitService,
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 200
     assert boundary_active is False
@@ -4000,7 +4075,7 @@ def test_memory_clear_holds_plugin_ingress_boundary(monkeypatch) -> None:
         _RuntimeTraceStore,
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 200
     assert boundary_active is False
@@ -4039,9 +4114,7 @@ def test_memory_clear_holds_runtime_projection_boundaries_and_erases_usage(
         assert llm_usage_active is True
         return 3
 
-    llm_usage_store = SimpleNamespace(
-        clear_user_content=AsyncMock(side_effect=clear_usage)
-    )
+    llm_usage_store = SimpleNamespace(clear_user_content=AsyncMock(side_effect=clear_usage))
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory",
         _FakeUnifiedMemory,
@@ -4059,7 +4132,7 @@ def test_memory_clear_holds_runtime_projection_boundaries_and_erases_usage(
         lambda: llm_usage_store,
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 200
     llm_usage_store.clear_user_content.assert_awaited_once_with()
@@ -4080,7 +4153,7 @@ def test_memory_clear_removes_legacy_user_content(monkeypatch) -> None:
         lambda: legacy_clearer,
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 200
     legacy_clearer.assert_called_once_with()
@@ -4145,7 +4218,7 @@ def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):
         lambda: _FakeChatReadService(),
     )
 
-    response = TestClient(app).delete("/api/memory/clear")
+    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 200
     assert clear_order.index("l2") < clear_order.index("l1")
@@ -4167,7 +4240,7 @@ def test_registered_memory_clear_api_is_public(monkeypatch):
     )
 
     client = TestClient(app)
-    response = client.delete("/api/memory/clear")
+    response = client.delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
 
     assert response.status_code == 200
     body = response.json()

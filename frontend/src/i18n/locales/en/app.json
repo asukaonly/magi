@@ -65,6 +65,10 @@
   },
   "bootstrap": {
     "startupFailed": "Backend startup failed",
+    "dataClearRecoveryFailed": "Data clearing is not finished",
+    "dataClearRecoveryHint": "Magi will not open your workspace until every part of the previous clear finishes. Check the error below and retry.",
+    "dataClearInProgress": "Clearing all data",
+    "dataClearInProgressHint": "Magi will remain unavailable until every copy has been removed.",
     "retry": "Retry",
     "starting": "Starting Magi backend...",
     "initializeFailedFallback": "Failed to initialize runtime",
@@ -80,6 +84,7 @@
       "spawning": "Launching backend process...",
       "waiting_for_worker": "Initializing runtime...",
       "connecting": "Establishing connection...",
+      "recovering_data_clear": "Finishing the previous data clear...",
       "ready": "Almost ready..."
     }
   },

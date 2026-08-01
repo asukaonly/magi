@@ -23,6 +23,8 @@ import { scheduleStartupUpdateCheck } from './runtime/updater';
 import { initializeTheme } from './stores/theme';
 import { persistLanguageSelection, previewLanguageSelection } from './utils/settings-helpers';
 import { shouldApplyConfigLanguagePreference } from './utils/language';
+import { finishPendingFullDataClearBeforeAppReady } from './runtime/fullDataClearBootstrap';
+import { useFullDataClearInteractionGate } from './hooks/useFullDataClearInteractionGate';
 
 initializeDesktopLogging();
 initializeTheme();
@@ -34,6 +36,9 @@ const RuntimeBootstrap: React.FC = () => {
   const [diagnostics, setDiagnostics] = useState<BackendStartupDiagnostics | null>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
   const [phase, setPhase] = useState<StartupPhase>('spawning');
+  const { gate: fullDataClearGate, markRetrying: markFullDataClearRetrying } = (
+    useFullDataClearInteractionGate()
+  );
 
   const diagnosticText = useMemo(() => {
     if (!error) {
@@ -67,18 +72,31 @@ const RuntimeBootstrap: React.FC = () => {
     }
   }, [diagnosticText]);
 
-  const bootstrap = useCallback(async () => {
+  const bootstrap = useCallback(async (
+    releaseInteractionGateWhenNotPending = false,
+  ) => {
     setError(null);
     setDiagnostics(null);
     setDiagnosticsCopied(false);
     setReady(false);
     setPhase('spawning');
     try {
-      const runtime = await initializeRuntime((p) => setPhase(p));
+      let runtime = await initializeRuntime((p) => setPhase(p));
       configureApiClient({
         baseUrl: runtime.apiBaseUrl,
         sessionToken: runtime.sessionToken,
       });
+      const restartedRuntime = await finishPendingFullDataClearBeforeAppReady(setPhase, {
+        releaseInteractionGateWhenNotPending,
+      });
+      if (restartedRuntime) {
+        runtime = restartedRuntime;
+        configureApiClient({
+          baseUrl: runtime.apiBaseUrl,
+          sessionToken: runtime.sessionToken,
+        });
+      }
+      setPhase('connecting');
       try {
         const response = await configApi.get();
         const prefs = response.data?.preferences;
@@ -129,20 +147,64 @@ const RuntimeBootstrap: React.FC = () => {
     void bootstrap();
   }, [bootstrap]);
 
+  if (ready && fullDataClearGate.status !== 'idle') {
+    const failed = fullDataClearGate.status === 'failed';
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8 text-foreground">
+        <section className="w-full max-w-xl rounded-md border border-border bg-card p-6 text-left shadow-sm">
+          <div className="space-y-2">
+            <h1 className="text-xl font-semibold">
+              {t(failed ? 'bootstrap.dataClearRecoveryFailed' : 'bootstrap.dataClearInProgress')}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {t(failed ? 'bootstrap.dataClearRecoveryHint' : 'bootstrap.dataClearInProgressHint')}
+            </p>
+          </div>
+          {failed ? (
+            <>
+              <pre className="mt-5 whitespace-pre-wrap break-words rounded-md border border-destructive/30 bg-destructive/5 p-3 font-mono text-xs leading-5 text-destructive">
+                {fullDataClearGate.message}
+              </pre>
+              <Button
+                className="mt-5"
+                type="button"
+                onClick={() => {
+                  markFullDataClearRetrying();
+                  resetRuntimeInitialization();
+                  void bootstrap(true);
+                }}
+              >
+                <RotateCw className="h-4 w-4" />
+                {t('bootstrap.retry')}
+              </Button>
+            </>
+          ) : (
+            <div className="mt-5 h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+          )}
+        </section>
+      </div>
+    );
+  }
+
   if (ready) {
     return <App />;
   }
 
   if (error) {
     const hasLogExcerpt = Boolean(diagnostics?.logExcerpt?.trim());
+    const recoveringDataClear = phase === 'recovering_data_clear';
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8 text-foreground">
         <section className="w-full max-w-4xl rounded-md border border-border bg-card p-6 text-left shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 space-y-2">
-              <h1 className="text-xl font-semibold">{t('bootstrap.startupFailed')}</h1>
-              <p className="text-sm text-muted-foreground">{t('bootstrap.diagnosticsHint')}</p>
+              <h1 className="text-xl font-semibold">
+                {t(recoveringDataClear ? 'bootstrap.dataClearRecoveryFailed' : 'bootstrap.startupFailed')}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {t(recoveringDataClear ? 'bootstrap.dataClearRecoveryHint' : 'bootstrap.diagnosticsHint')}
+              </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
               <Button

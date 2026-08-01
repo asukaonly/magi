@@ -34,7 +34,18 @@ class _FakeUnifiedMemoryStore:
     def __init__(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         self.kwargs = kwargs
 
-    async def initialize(self) -> None:
+    async def initialize(
+        self,
+        *,
+        start_workers: bool = True,
+        recover_pending: bool = True,
+        restore_runtime_state: bool = True,
+    ) -> None:
+        self.initialize_options = {
+            "start_workers": start_workers,
+            "recover_pending": recover_pending,
+            "restore_runtime_state": restore_runtime_state,
+        }
         return None
 
     async def shutdown(self) -> None:
@@ -52,7 +63,9 @@ class _FakeHybridRetrievalService:
 
 
 @pytest.mark.asyncio
-async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_memory_store_module_passes_l2_batch_flush_interval(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from magi.bootstrap.context import RuntimeBootstrapContext
     from magi.config.models import EmbeddingBackend
     from magi.memory.lifecycle import MemoryStoreModule

@@ -2072,6 +2072,22 @@ Retention policies are defined per event type and purpose, not as a global rule.
 A full user-memory clear is one runtime-wide boundary, not a collection of
 independent table deletes.
 
+- Before the desktop asks the backend to mutate data, the desktop host writes
+  and syncs a content-free pending marker under `~/.magi/runtime/`. The marker
+  contains only a format version and an opaque, unique, content-free
+  transaction ID. The backend records that same ID as pending in
+  `message_queue.db` before the first
+  destructive step. If either process exits at any later point, the host
+  forwards the same ID on the next launch and the backend adopts it before
+  recovering any previously claimed command. A running backend is restarted
+  before replay so it cannot bypass this startup fence. A backend pending row
+  without its matching desktop owner marker fails startup instead of exposing
+  a partially recovered product.
+- Marker publication uses a transaction-named temporary file. If a crash
+  leaves exactly one temporary marker with a valid content-free transaction
+  name, the host can reconstruct its canonical marker even when the payload is
+  empty or only partly written. Invalid names, multiple temporary markers, or
+  a complete payload that conflicts with its filename fail closed.
 - User-message dispatch holds a shared ingress boundary from attachment
   preparation through chat persistence, L1 projection, runtime-command enqueue,
   and the successful dispatch result.
@@ -2154,14 +2170,18 @@ independent table deletes.
   main workspace. The intent deliberately remains after `chat.db` is empty. It
   is removed only after channel conversation state and persisted orchestration
   payloads have also been cleared.
-- Startup recovery is therefore two-stage. Chat recovery first finishes local
-  transcript, trace, asset, and retry cleanup while retaining the global
-  marker. Before any channel plugin starts receiving or sending messages, the
-  channels lifecycle sees that marker, clears channel and orchestration state,
-  and releases it. Chat delivery recovery, memory projection, and runtime
-  command processing cannot revive the cleared transcript, and external
-  conversation delivery remains blocked until the second stage completes. No
-  periodic retention job is needed to make a user-requested clear converge.
+- Chat's internal recovery remains two-stage. Chat cleanup first finishes local
+  transcript, trace, asset, and retry cleanup while retaining its conversation
+  marker. The channel-owned step then clears channel and orchestration state
+  before that marker is released.
+- The desktop transaction adds a wider startup fence around that store-level
+  recovery. While its marker is pending, startup constructs only the stores and
+  clear owners needed to replay the complete operation. It does not restore
+  claimed runtime commands, activate plugins or external channels, start the
+  message bus, scheduler, sensors, background work, recovery subscribers,
+  tools, skills, MCP servers, or agent/LLM execution. The clear therefore works
+  even when model configuration is absent, and no pre-clear work can run before
+  replay completes.
 - The assistant-memory outbox worker and user-turn delivery recovery also share
   an in-process clear lifecycle tied to the durable runtime-command generation.
   A pass captures both generations before its first claim or recovery read and
@@ -2180,12 +2200,15 @@ independent table deletes.
   the global barrier is ready to close. Finalization then removes them and
   securely compacts the chat database and WAL; the generation barrier replaces
   an unbounded permanent list of historical user identifiers.
-- Once the durable clear boundary has committed, later cleanup or writer-resume
-  failures cannot turn the response back into a retryable failure. The API
-  returns success with explicit warnings, and the desktop client discards its
-  pre-clear retry drafts. This prevents an already-cleared user message from
-  being resent and recreating chat or memory. Failures before the durable clear
-  commit still fail normally and preserve retryability.
+- The product reports success only after every backend store and plugin hook is
+  clean, writers can safely resume, browser-owned retry/session state is gone,
+  backend and desktop diagnostic logs are erased, and the desktop marker is
+  durably removed. Any failure keeps the transaction pending, stops the normal
+  runtime, blocks product interaction, and makes retry replay the same
+  idempotent clear. Backend success returns its pending row to an empty `idle`
+  state and securely removes the transaction ID instead of retaining a
+  completion journal. Startup recovery restarts the normal runtime exactly
+  once after the whole transaction finishes.
 - External channel admission uses one of two mutually exclusive proofs. A
   timestamped channel supplies the provider-issued event time; local receipt or
   polling time is never accepted as that proof. A polling channel without a
@@ -2232,6 +2255,11 @@ independent table deletes.
   the reserved `self_memory_v2.db` file with its SQLite sidecars. Cleanup does
   not follow symbolic links and does not touch current stores, configuration,
   persona definitions, models, or installed packages.
+- Archive cleanup applies the same rule to the configured archive directory.
+  A linked archive directory is unlinked and replaced with a real managed
+  directory; it is never traversed. Date-named archive entries are removed as
+  directory entries without opening link targets, hard-link targets, FIFOs, or
+  other special files.
 
 ### What Compression Means
 

@@ -57,9 +57,10 @@ class MemoryStoreModule(LifecycleModule):
             "plugin projection service",
         )
 
-        scenario_llm_pool = require_initialized(
-            self._context.llm.scenario_llm_pool, "scenario llm pool"
-        )
+        recovery_pending = self._context.runtime_commands.full_clear_recovery_pending
+        scenario_llm_pool = self._context.llm.scenario_llm_pool
+        if not recovery_pending:
+            scenario_llm_pool = require_initialized(scenario_llm_pool, "scenario llm pool")
         message_bus = self._context.message_bus.message_bus
         await self._start_llm_usage_store(message_bus)
 
@@ -72,7 +73,11 @@ class MemoryStoreModule(LifecycleModule):
         )
         if self._portrait_projection_refresh_registrar is not None:
             self._portrait_projection_refresh_registrar(self._context.memory.unified_memory)
-        await self._context.memory.unified_memory.initialize()
+        await self._context.memory.unified_memory.initialize(
+            start_workers=not recovery_pending,
+            recover_pending=not recovery_pending,
+            restore_runtime_state=not recovery_pending,
+        )
         logger.info("UnifiedMemoryStore initialized (L0-L4)")
 
         if self.start_memory_integration:
@@ -82,12 +87,20 @@ class MemoryStoreModule(LifecycleModule):
             )
             logger.info("MessageBus memory operation epoch bound")
 
-        self._context.memory.hybrid_retrieval_service = self._build_hybrid_retrieval_service(
-            scenario_llm_pool
-        )
-        logger.info("HybridRetrievalService initialized")
+        if recovery_pending:
+            self._context.memory.hybrid_retrieval_service = None
+            logger.warning("Hybrid retrieval held for full-clear recovery")
+        else:
+            self._context.memory.hybrid_retrieval_service = self._build_hybrid_retrieval_service(
+                scenario_llm_pool
+            )
+            logger.info("HybridRetrievalService initialized")
 
-        await self._start_memory_integration(message_bus, memory_config)
+        await self._start_memory_integration(
+            message_bus,
+            memory_config,
+            start=not recovery_pending,
+        )
 
     async def _start_llm_usage_store(self, message_bus: Any) -> None:
         if self.start_memory_integration:
@@ -127,13 +140,16 @@ class MemoryStoreModule(LifecycleModule):
         )
 
     def _build_embedding_service(self, scenario_llm_pool: Any) -> MemoryEmbeddingService | None:
-        if not self._enable_embedding:
+        if not self._enable_embedding or self._context.runtime_commands.full_clear_recovery_pending:
             return None
         return MemoryEmbeddingService(scenario_llm_pool)
 
     def _build_store_tuning(self, memory_config: Any) -> MemoryStoreTuning:
         # When embedding is disabled (e.g. API role), skip vector index initialization entirely.
-        vectors_enabled = self._enable_embedding
+        vectors_enabled = (
+            self._enable_embedding
+            and not self._context.runtime_commands.full_clear_recovery_pending
+        )
         return MemoryStoreTuning(
             async_embeddings=memory_config.async_embeddings,
             enable_l1_vectors=memory_config.l1.vectors_enabled and vectors_enabled,
@@ -161,7 +177,13 @@ class MemoryStoreModule(LifecycleModule):
             ),
         )
 
-    async def _start_memory_integration(self, message_bus: Any, memory_config: Any) -> None:
+    async def _start_memory_integration(
+        self,
+        message_bus: Any,
+        memory_config: Any,
+        *,
+        start: bool = True,
+    ) -> None:
         if not self.start_memory_integration:
             logger.info("MemoryIntegrationModule skipped for API role")
             return
@@ -182,8 +204,11 @@ class MemoryStoreModule(LifecycleModule):
             message_bus=runtime_message_bus,
             config=memory_integration_config,
         )
-        await self._context.memory.memory_integration.start()
-        logger.info("MemoryIntegrationModule started")
+        if start:
+            await self._context.memory.memory_integration.start()
+            logger.info("MemoryIntegrationModule started")
+        else:
+            logger.warning("MemoryIntegrationModule held for full-clear recovery")
 
     async def shutdown(self) -> None:
         if self._context.memory.memory_integration is not None:
@@ -197,10 +222,7 @@ class MemoryStoreModule(LifecycleModule):
             await self._context.llm.llm_usage_store.stop()
             self._context.llm.llm_usage_store = None
 
-        if (
-            self.start_memory_integration
-            and self._context.message_bus.message_bus is not None
-        ):
+        if self.start_memory_integration and self._context.message_bus.message_bus is not None:
             self._context.message_bus.message_bus.bind_memory_operation_epoch(None)
 
         self._context.memory.unified_memory = None
@@ -219,6 +241,9 @@ class MemoryIngestionSubscriberModule(LifecycleModule):
         self._subscriber: Any = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Memory ingestion subscriber held for full-clear recovery")
+            return
         from .subscribers.memory_ingestion_subscriber import MemoryIngestionSubscriber
 
         unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
@@ -255,6 +280,9 @@ class L1MaintenanceScheduleRegistrationModule(LifecycleModule):
         self._contrib: Any = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("L1 maintenance schedule held for full-clear recovery")
+            return
         from .l1.maintenance_schedule import L1MaintenanceScheduleContrib
 
         scheduler_service = require_initialized(
@@ -288,6 +316,9 @@ class L2MaintenanceScheduleRegistrationModule(LifecycleModule):
         self._contrib: Any = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("L2 maintenance schedule held for full-clear recovery")
+            return
         from .l2.maintenance_schedule import L2MaintenanceScheduleContrib
 
         scheduler_service = require_initialized(
@@ -321,6 +352,9 @@ class L2ConsolidationScheduleRegistrationModule(LifecycleModule):
         self._contrib: Any = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("L2 consolidation schedule held for full-clear recovery")
+            return
         from .l2.consolidation_schedule import L2ConsolidationScheduleContrib
 
         scheduler_service = require_initialized(
@@ -360,6 +394,9 @@ class L2DeriveScheduleRegistrationModule(LifecycleModule):
         self._contrib: Any = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("L2 derive schedule held for full-clear recovery")
+            return
         from .l2.derive_schedule import L2DeriveScheduleContrib
 
         scheduler_service = require_initialized(
@@ -395,6 +432,9 @@ class L3SummaryScheduleRegistrationModule(LifecycleModule):
         self._contrib: Any = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("L3 summary schedule held for full-clear recovery")
+            return
         from .l3.summary_schedule import L3SummaryScheduleContrib
 
         scheduler_service = require_initialized(
@@ -428,6 +468,9 @@ class L3MaintenanceScheduleRegistrationModule(LifecycleModule):
         self._contrib: Any = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("L3 maintenance schedule held for full-clear recovery")
+            return
         from .l3.maintenance_schedule import L3MaintenanceScheduleContrib
 
         scheduler_service = require_initialized(
@@ -461,6 +504,9 @@ class L4MaintenanceScheduleRegistrationModule(LifecycleModule):
         self._contrib: Any = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("L4 maintenance schedule held for full-clear recovery")
+            return
         from .l4.maintenance_schedule import L4MaintenanceScheduleContrib
 
         scheduler_service = require_initialized(

@@ -23,6 +23,9 @@ class RuntimeTraceSubscriberModule(LifecycleModule):
         self._subscriber: Any = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Runtime trace subscriber held for full-clear recovery")
+            return
         from .subscribers.runtime_trace_subscriber import RuntimeTraceSubscriber
 
         bus = require_initialized(self._context.message_bus.message_bus, "message bus")
@@ -39,12 +42,13 @@ class RuntimeTraceSubscriberModule(LifecycleModule):
 
     async def shutdown(self) -> None:
         # Drain producer-side first to ensure events reach the bus
-        try:
-            from magi.events.tracing import drain_pending
+        if not self._context.runtime_commands.full_clear_recovery_pending:
+            try:
+                from magi.events.tracing import drain_pending
 
-            await drain_pending()
-        except Exception:
-            logger.exception("drain_pending failed during shutdown")
+                await drain_pending()
+            except Exception:
+                logger.exception("drain_pending failed during shutdown")
         if self._subscriber is not None:
             await self._subscriber.stop()
             self._subscriber = None

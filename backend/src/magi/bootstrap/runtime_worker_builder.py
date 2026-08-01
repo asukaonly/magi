@@ -244,7 +244,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         # cannot be registered by the L8 core-tools plugin). Declared before
         # ToolsModule and depended on by it, so the `agent` tool is present in
         # the registry by the time ToolsModule configures it.
-        RuntimeFirstPartyToolsModule(),
+        RuntimeFirstPartyToolsModule(context),
         ToolsModule(context),
         SkillsModule(
             context,
@@ -281,7 +281,9 @@ def _build_processing_modules(context: RuntimeBootstrapContext) -> list[Lifecycl
     ]
 
 
-def _build_exports_and_maintenance_modules(context: RuntimeBootstrapContext) -> list[LifecycleModule]:
+def _build_exports_and_maintenance_modules(
+    context: RuntimeBootstrapContext,
+) -> list[LifecycleModule]:
     """Build exports, schedule registration, and remaining maintenance modules."""
     return [
         RuntimeExportsModule(context),

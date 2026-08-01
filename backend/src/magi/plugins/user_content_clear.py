@@ -60,9 +60,11 @@ class PluginUserContentClearError(RuntimeError):
             (
                 f"sensor:{failure.plugin_id}/{failure.sensor_id}"
                 if failure.sensor_id is not None
-                else f"channel:{failure.plugin_id}/{failure.channel_type}"
-                if failure.channel_type is not None
-                else f"plugin:{failure.plugin_id}"
+                else (
+                    f"channel:{failure.plugin_id}/{failure.channel_type}"
+                    if failure.channel_type is not None
+                    else f"plugin:{failure.plugin_id}"
+                )
             )
             for failure in report.failures
         )
@@ -186,8 +188,7 @@ class PluginUserContentClearSession:
             causes.append(cause)
 
         settings_by_plugin_id = {
-            plugin_id: settings
-            for plugin_id, _plugin, settings in self._targets.plugins
+            plugin_id: settings for plugin_id, _plugin, settings in self._targets.plugins
         }
 
         for plugin_id, plugin, plugin_settings in self._targets.plugins:
@@ -295,10 +296,7 @@ class PluginUserContentClearSession:
     async def restore_completed_generation_pending(self) -> None:
         """Restore the prior checkpoint if a paused executor cannot resume."""
 
-        if (
-            self._completed_generation is None
-            or self._previous_applied_generation is None
-        ):
+        if self._completed_generation is None or self._previous_applied_generation is None:
             return
         await self._checkpoint_store.restore_pending(
             clear_generation=self._completed_generation,
@@ -336,9 +334,7 @@ class PluginUserContentClearSession:
                 causes.append(exc)
             finally:
                 try:
-                    self._plugin_manager.release_temporary_user_content_clear_target(
-                        plugin_id
-                    )
+                    self._plugin_manager.release_temporary_user_content_clear_target(plugin_id)
                 except Exception as exc:
                     failures.append(
                         PluginUserContentClearFailure(
@@ -519,9 +515,7 @@ class PluginUserContentClearCoordinator:
                 if close_failures:
                     close_error = RuntimeError(
                         "Temporary plugin cleanup failed for: "
-                        + ", ".join(
-                            failure.plugin_id for failure in close_failures
-                        )
+                        + ", ".join(failure.plugin_id for failure in close_failures)
                     )
                     if clear_error is None:
                         clear_error = close_error
@@ -554,11 +548,7 @@ class PluginUserContentClearCoordinator:
                                 await executor.stop()
                             except BaseException as stop_exc:
                                 quiesce_error = stop_exc
-                if (
-                    recovery_error is None
-                    and executor is not None
-                    and restart_executor
-                ):
+                if recovery_error is None and executor is not None and restart_executor:
                     try:
                         executor.resume()
                     except BaseException as exc:
@@ -586,11 +576,7 @@ class PluginUserContentClearCoordinator:
                 and (clear_error is not None or recovery_error is not None or pending_generation)
             ):
                 self._suspended_executor = executor
-            elif (
-                executor is not None
-                and restart_executor
-                and session.completed_generation is None
-            ):
+            elif executor is not None and restart_executor and session.completed_generation is None:
                 try:
                     await executor.start()
                     if self._suspended_executor is executor:
@@ -634,16 +620,19 @@ class PluginUserContentClearCoordinator:
     async def require_no_pending_generation(self) -> None:
         """Fail closed instead of mistaking plugin-only replay for global recovery."""
 
+        if await self.has_pending_generation():
+            raise RuntimeError("Interrupted full user-content clear remains pending")
+
+    async def has_pending_generation(self) -> bool:
+        """Return whether plugin state still trails the shared full-clear generation."""
+
         current_generation = await self._read_current_clear_generation()
         applied_generation = await self._checkpoint_store.read_applied_generation()
         if applied_generation > current_generation:
             raise RuntimeError(
                 "Plugin user-content clear checkpoint is ahead of the shared generation"
             )
-        if applied_generation < current_generation:
-            raise RuntimeError(
-                "Interrupted full user-content clear remains pending"
-            )
+        return applied_generation < current_generation
 
     @staticmethod
     def _executor_needs_restart(executor: Any | None) -> bool:

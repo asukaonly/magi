@@ -23,7 +23,7 @@ class HooksModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_hooks",
-            dependencies=("runtime_configuration",),
+            dependencies=("runtime_configuration", "runtime_command_queue"),
         )
         self._context = context
 
@@ -41,6 +41,9 @@ class HooksModule(LifecycleModule):
         container.hook_registry.override(providers.Object(registry))
         container.hook_gateway.override(providers.Object(gateway))
 
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("User hook loading held for full-clear recovery")
+            return
         await self._load_user_settings_handlers(registry)
         logger.info("Hooks runtime initialized handlers=%d", registry.total())
 

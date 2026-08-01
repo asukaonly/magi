@@ -12,6 +12,10 @@
 export const APP_EVENTS = {
   /** Dispatched before the durable clear request to retire in-flight writes. */
   MEMORY_CLEAR_STARTED: 'magi-memory-clear-started',
+  /** Dispatched when a durable clear remains pending and the product must stay blocked. */
+  MEMORY_CLEAR_FAILED: 'magi-memory-clear-failed',
+  /** Releases only the interaction gate after a retry confirms no marker exists. */
+  MEMORY_CLEAR_RECOVERY_RELEASED: 'magi-memory-clear-recovery-released',
   /** Dispatched when memory is cleared */
   MEMORY_CLEARED: 'magi-memory-cleared',
   /** Dispatched after one chat session is durably deleted */
@@ -39,6 +43,12 @@ export const APP_EVENTS = {
 
 export interface MemoryClearedEvent extends CustomEvent {
   type: typeof APP_EVENTS.MEMORY_CLEARED;
+}
+
+export interface MemoryClearFailedEvent extends CustomEvent<{
+  message: string;
+}> {
+  type: typeof APP_EVENTS.MEMORY_CLEAR_FAILED;
 }
 
 export interface ChatSessionDeletedEvent extends CustomEvent<{
@@ -94,6 +104,13 @@ export function subscribeToAppEvent(
 
 export const dispatchAppEvent = {
   memoryClearStarted: () => dispatchCustomAppEvent(APP_EVENTS.MEMORY_CLEAR_STARTED),
+  memoryClearFailed: (message: string) => dispatchCustomAppEvent(
+    APP_EVENTS.MEMORY_CLEAR_FAILED,
+    { message },
+  ),
+  memoryClearRecoveryReleased: () => dispatchCustomAppEvent(
+    APP_EVENTS.MEMORY_CLEAR_RECOVERY_RELEASED,
+  ),
   memoryCleared: () => dispatchCustomAppEvent(APP_EVENTS.MEMORY_CLEARED),
   chatSessionDeleted: (sessionId: string) => dispatchCustomAppEvent(
     APP_EVENTS.CHAT_SESSION_DELETED,

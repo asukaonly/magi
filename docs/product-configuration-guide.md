@@ -470,10 +470,16 @@ The destructive **Clear All Memory** action is broader than L0-L4:
   conversation content
 - the confirmation and completion copy must describe this real scope rather
   than saying only “L0-L4”
-- once transcript redaction has committed, the action is reported as complete
-  even if later physical or cross-store cleanup needs startup recovery; the UI
-  should surface that recovery is pending and must discard every pre-clear
-  retry draft instead of offering to resend it
+- before deletion starts, the desktop records a durable pending operation. If
+  the app or backend exits, the next launch enters a restricted recovery screen
+  and repeats the same safe clear before ordinary product interaction is
+  available
+- partial cleanup is never presented as success. Any remaining store, plugin,
+  browser state, or diagnostic-log failure keeps the operation pending and the
+  product blocked until retry succeeds
+- success is shown only after backend data, browser-owned retry/session state,
+  backend logs, and the desktop-owned log are all clean. The pending marker is
+  then removed and crash recovery performs one clean runtime restart
 - a clear action is exclusive with turn submission: it waits for an admitted
   send to settle, blocks new sends during the boundary, and releases the
   composer only after success or failure is known
@@ -525,7 +531,7 @@ Current storage implementation notes:
 - `llm_usage.db` lives under `~/.magi/runtime/`.
 - `llm_usage.db` may include bounded prompt-cache diagnostic rows controlled by `lifecycle.llm_usage.cache_observability`; disabling that setting removes those rows during lifecycle cleanup.
 - `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery; raw trace data defaults to a 7-day retention window.
-- managed chat attachment and derived text files live under `~/.magi/data/resources/chat/`; an explicit user message/session/history deletion makes the content inaccessible before file cleanup begins. Shared files remain while another visible message owns them. **Clear all data** always deletes every managed chat attachment and derived file; there is no retention override for that destructive action. If private file cleanup is interrupted, the product reports the deletion as complete with a recovery warning and startup safely finishes the remaining local cleanup. `lifecycle.chat_assets.delete_on_session_delete` controls only the separate periodic orphan sweep for session directories that no longer have active chat rows.
+- managed chat attachment and derived text files live under `~/.magi/data/resources/chat/`; an explicit user message/session/history deletion makes the content inaccessible before file cleanup begins. Shared files remain while another visible message owns them. **Clear all data** always deletes every managed chat attachment and derived file; there is no retention override for that destructive action. If private file cleanup is interrupted, the full clear remains pending and startup finishes the cleanup before normal use resumes. `lifecycle.chat_assets.delete_on_session_delete` controls only the separate periodic orphan sweep for session directories that no longer have active chat rows.
 - runtime logs are governed by size-based rotation limits rather than lifecycle
   row retention; the destructive Clear All Memory action is the explicit user
   boundary that erases their existing contents.

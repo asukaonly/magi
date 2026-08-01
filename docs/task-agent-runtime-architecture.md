@@ -168,6 +168,32 @@ The modules that are expected to remain usable in deferred mode are:
 
 This is why onboarding and early settings screens can still function before the full agent runtime is online.
 
+## Full-Clear Recovery Startup Mode
+
+The desktop host owns a durable marker for a product-wide data clear. On every
+managed backend launch it passes the marker's transaction ID to the worker. The
+runtime command queue adopts that transaction before ordinary claimed-command
+recovery, so a crash after the desktop marker but before the clear API begins
+cannot revive old work.
+
+While the transaction is pending, bootstrap is deliberately clear-only:
+
+- schema migration, configuration, and the persistence owners required by the
+  clear are initialized
+- the command queue does not return prior claims to pending work
+- plugins are discovered without activation, and temporary trusted instances
+  are created only inside the bounded user-content clear hook
+- the message bus, recovery subscribers, runtime processors, scheduler
+  activation, sensors, external channels, outreach, tools, skills, MCP servers,
+  background execution, task agents, and LLM execution do not start
+- the desktop blocks the application surface and calls only the authenticated
+  clear flow
+
+The replay is idempotent and does not require a configured model. A backend
+success resets its pending transaction row to empty `idle`; browser and
+desktop-log cleanup then complete under the host marker. The host removes that
+marker only at the final success edge and restarts the normal runtime once.
+
 ## Readiness States
 
 The runtime now exposes two layers of state:
@@ -434,19 +460,23 @@ chat work normally.
 
 Important rule: the runtime message bus is process-local to `runtime_worker`. It is not a durable cross-process broker and it does not own SQLite queue persistence.
 
-Important rule: user-message runtime commands remain claimed after process-local
+Important rule: on normal startup, user-message runtime commands remain claimed after process-local
 bus publication and are acknowledged only after task-agent admission. The
 stable correlation ID identifies the logical turn; the delivery attempt number
 and runtime command ID identify one physical handoff. Repeating the same attempt
 returns the existing command, an older attempt is stale, and only an explicitly
 higher attempt creates another command. Lease expiry or acknowledgement failure
-may replay the same physical command and attempt. On process startup, the queue
+may replay the same physical command and attempt. On an ordinary process startup, the queue
 first restores claimed rows, then chat delivery recovery verifies durable
 terminal surfaces. Any remaining pre-restart non-terminal attempt is superseded
 by a higher attempt and scheduled with a new command ID while preserving the
 stable turn ID and runtime envelope. The durable chat delivery record rejects
 an already admitted or superseded replay before it can enter the agent again,
 then acknowledges that physical command.
+
+If a desktop full-clear marker is pending, this normal recovery order is
+suppressed: the queue first adopts the clear transaction and leaves every old
+claim fenced until the clear deletes it.
 
 The delivery ledger becomes terminal only after chat truth exposes a durable
 terminal result: a complete visible final response, every expected visible

@@ -30,8 +30,17 @@ import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import { useChatShellStore } from '@/stores/chat-shell';
 import { useNotificationStore } from '@/stores/notifications';
 
-const { clearAllMock, listNotificationsMock } = vi.hoisted(() => ({
+const {
+  beginFullDataClearMock,
+  clearAllMock,
+  clearDesktopLogHistoryMock,
+  completeFullDataClearMock,
+  listNotificationsMock,
+} = vi.hoisted(() => ({
+  beginFullDataClearMock: vi.fn(),
   clearAllMock: vi.fn(),
+  clearDesktopLogHistoryMock: vi.fn(),
+  completeFullDataClearMock: vi.fn(),
   listNotificationsMock: vi.fn(),
 }));
 const xhrOpenSpy = vi.spyOn(XMLHttpRequest.prototype, 'open');
@@ -58,6 +67,13 @@ vi.mock('@/api/modules/notifications', async (importOriginal) => {
     listNotifications: listNotificationsMock,
   };
 });
+
+vi.mock('@/runtime/desktop', () => ({
+  beginFullDataClear: beginFullDataClearMock,
+  clearDesktopLogHistory: clearDesktopLogHistoryMock,
+  completeFullDataClear: completeFullDataClearMock,
+  readPendingFullDataClear: vi.fn(),
+}));
 
 const buildComposerOperation = (
   sessionId: string,
@@ -148,6 +164,15 @@ describe('chat retry lifecycle', () => {
       loading: false,
     });
     clearAllMock.mockReset();
+    beginFullDataClearMock.mockReset().mockResolvedValue({
+      version: 1,
+      transactionId: 'clear-chat-retry-test',
+    });
+    clearDesktopLogHistoryMock.mockReset().mockResolvedValue({
+      clearedEntries: 2,
+      failedEntries: 0,
+    });
+    completeFullDataClearMock.mockReset().mockResolvedValue(undefined);
     listNotificationsMock.mockReset().mockResolvedValue({
       items: [],
       unread_count: 0,

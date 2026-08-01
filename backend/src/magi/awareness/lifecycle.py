@@ -67,6 +67,9 @@ class SensorScheduleRegistrationModule(LifecycleModule):
         self._contrib: SensorSchedulerContrib | None = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Sensor schedule registration held for full-clear recovery")
+            return
         scheduler_service = require_initialized(
             self._context.scheduler.scheduler_service, "scheduler service"
         )
@@ -137,16 +140,14 @@ class SensorSyncExecutorModule(LifecycleModule):
         self._executor: SensorSyncExecutor | None = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Sensor sync executor held for full-clear recovery")
+            return
         previous_executor = self._executor
         if previous_executor is not None:
             if previous_executor.state is not SensorSyncExecutorState.STOPPED:
-                raise RuntimeError(
-                    "Previous sensor sync executor worker has not stopped"
-                )
-            if (
-                self._context.agent_runtime.sensor_sync_executor
-                is previous_executor
-            ):
+                raise RuntimeError("Previous sensor sync executor worker has not stopped")
+            if self._context.agent_runtime.sensor_sync_executor is previous_executor:
                 self._context.agent_runtime.sensor_sync_executor = None
             self._executor = None
 
@@ -186,6 +187,9 @@ class SensorStateUpdateSubscriberModule(LifecycleModule):
         self._subscriber: Any = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Sensor state subscriber held for full-clear recovery")
+            return
         from .subscribers.sensor_state_update_subscriber import SensorStateUpdateSubscriber
 
         bus = require_initialized(self._context.message_bus.message_bus, "message bus")

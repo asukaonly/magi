@@ -30,10 +30,14 @@ class L4ProceduralLifecycleMixin:
         """Bind the unified clear barrier used by embedding batches."""
         self._operation_guard_factory = factory
 
-    async def initialize(self) -> None:
+    async def initialize(self, *, start_workers: bool = True) -> None:
         """Create the procedural memory schema."""
         if self._initialized:
-            if self._embedding_queue is not None and self._embedding_worker is None:
+            if (
+                start_workers
+                and self._embedding_queue is not None
+                and self._embedding_worker is None
+            ):
                 import asyncio
 
                 self._embedding_worker = asyncio.create_task(
@@ -46,7 +50,7 @@ class L4ProceduralLifecycleMixin:
             if self._vector_index is not None and self._embedding_service is not None:
                 await self._vector_index.initialize()
             await db.commit()
-        if self._embedding_queue is not None and self._embedding_worker is None:
+        if start_workers and self._embedding_queue is not None and self._embedding_worker is None:
             import asyncio
 
             self._embedding_worker = asyncio.create_task(getattr(self, "_run_embedding_worker")())

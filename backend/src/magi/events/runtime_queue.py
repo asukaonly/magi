@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import time
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
@@ -30,6 +31,8 @@ STATUS_COMPLETED = "completed"
 STATUS_FAILED = "failed"
 
 _USER_MESSAGE_CLEAR_STATE_ID = 1
+_FULL_USER_CONTENT_CLEAR_STATE_ID = 1
+_FULL_CLEAR_TRANSACTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$")
 DEFAULT_CLAIM_LEASE_SECONDS = 60.0
 
 FULL_CLEAR_SENSITIVE_COMMAND_TYPES = frozenset(
@@ -55,6 +58,19 @@ class InvalidExternalUserMessageMetadataError(ValueError):
 
 class StaleExternalUserMessageError(RuntimeError):
     """Raised when a channel event belongs to an earlier clear boundary."""
+
+
+class FullUserContentClearConflictError(RuntimeError):
+    """Raised when another durable desktop clear transaction is still pending."""
+
+
+@dataclass(frozen=True, slots=True)
+class FullUserContentClearState:
+    """Durable in-progress state for the desktop-owned clear transaction."""
+
+    transaction_id: str | None
+    status: str
+    started_at: float | None
 
 
 class UserMessageScheduleOutcome(str, Enum):
@@ -102,11 +118,12 @@ class SQLiteRuntimeCommandQueue:
         self._user_message_generation_load_lock = asyncio.Lock()
         self._user_message_clear_owner: asyncio.Task[object] | None = None
 
-    async def start(self) -> None:
+    async def start(self, *, recover_claimed_commands: bool = True) -> None:
         if self._started:
             return
         await self._initialize()
-        await self._recover_claimed_commands_after_restart()
+        if recover_claimed_commands:
+            await self.recover_claimed_commands_after_restart()
         await self._ensure_user_message_generation_loaded()
         self._started = True
 
@@ -287,9 +304,7 @@ class SQLiteRuntimeCommandQueue:
             existing = await cursor.fetchone()
             if existing is not None:
                 if str(existing[0]) != payload_fingerprint:
-                    raise ValueError(
-                        "User-message correlation id was reused for different input"
-                    )
+                    raise ValueError("User-message correlation id was reused for different input")
                 current_attempt_no = int(existing[1])
                 current_command_id = int(existing[2])
                 if delivery_attempt_no < current_attempt_no:
@@ -616,13 +631,9 @@ class SQLiteRuntimeCommandQueue:
                 cursor_clear_generation=cursor_clear_generation,
             )
         )
-        normalized_generation = _normalize_external_clear_generation(
-            captured_generation
-        )
+        normalized_generation = _normalize_external_clear_generation(captured_generation)
         async with self.user_message_operation():
-            current_generation, cleared_at_ms = (
-                await self._load_user_message_clear_state()
-            )
+            current_generation, cleared_at_ms = await self._load_user_message_clear_state()
             _validate_external_user_message_boundary(
                 provider_occurred_at_ms=normalized_occurred_at_ms,
                 cursor_clear_generation=normalized_cursor_generation,
@@ -785,8 +796,7 @@ class SQLiteRuntimeCommandQueue:
                     WHERE command_type IN (?, ?, ?)
                     """,
                     tuple(
-                        command_type.value
-                        for command_type in FULL_CLEAR_SENSITIVE_COMMAND_TYPES
+                        command_type.value for command_type in FULL_CLEAR_SENSITIVE_COMMAND_TYPES
                     ),
                 )
                 purged_count = int(cursor.rowcount or 0)
@@ -803,6 +813,112 @@ class SQLiteRuntimeCommandQueue:
                 raise RuntimeError("Runtime clear could not truncate the WAL")
         self._user_message_generation = next_generation
         return next_generation, purged_count
+
+    async def begin_full_user_content_clear(self, transaction_id: str) -> None:
+        """Persist backend participation before the clear mutates any user content."""
+
+        normalized_id = _normalize_full_clear_transaction_id(transaction_id)
+        await self._initialize()
+        now = time.time()
+        async with self._write_lock, sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await db.execute(
+                    """
+                    SELECT transaction_id, status
+                    FROM runtime_full_user_content_clear_state
+                    WHERE singleton_id = ?
+                    """,
+                    (_FULL_USER_CONTENT_CLEAR_STATE_ID,),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    raise RuntimeError("Full user-content clear state is missing")
+                current_transaction_id = str(row[0]) if row[0] is not None else None
+                current_status = str(row[1])
+                if current_status == "pending" and current_transaction_id != normalized_id:
+                    raise FullUserContentClearConflictError(
+                        "Another full user-content clear transaction is pending"
+                    )
+                await db.execute(
+                    """
+                    UPDATE runtime_full_user_content_clear_state
+                    SET transaction_id = ?,
+                        status = 'pending',
+                        started_at = ?
+                    WHERE singleton_id = ?
+                    """,
+                    (
+                        normalized_id,
+                        now,
+                        _FULL_USER_CONTENT_CLEAR_STATE_ID,
+                    ),
+                )
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+
+    async def complete_full_user_content_clear(
+        self,
+        *,
+        transaction_id: str,
+    ) -> None:
+        """Acknowledge the backend phase only after every backend clearer succeeds."""
+
+        normalized_id = _normalize_full_clear_transaction_id(transaction_id)
+        await self._initialize()
+        async with self._write_lock, sqlite_connection_async(self.db_path) as db:
+            await db.execute("PRAGMA secure_delete=ON")
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await db.execute(
+                    """
+                    UPDATE runtime_full_user_content_clear_state
+                    SET transaction_id = NULL,
+                        status = 'idle',
+                        started_at = NULL
+                    WHERE singleton_id = ?
+                      AND transaction_id = ?
+                      AND status = 'pending'
+                    """,
+                    (
+                        _FULL_USER_CONTENT_CLEAR_STATE_ID,
+                        normalized_id,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise RuntimeError("Full user-content clear transaction is not pending")
+                await db.commit()
+                checkpoint_cursor = await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                checkpoint = await checkpoint_cursor.fetchone()
+                if checkpoint is not None and int(checkpoint[0] or 0) != 0:
+                    raise RuntimeError("Full user-content clear state could not truncate the WAL")
+            except BaseException:
+                await db.rollback()
+                raise
+
+    async def read_full_user_content_clear_state(self) -> FullUserContentClearState:
+        """Return the durable backend full-clear transaction state."""
+
+        await self._initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT transaction_id, status, started_at
+                FROM runtime_full_user_content_clear_state
+                WHERE singleton_id = ?
+                """,
+                (_FULL_USER_CONTENT_CLEAR_STATE_ID,),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            raise RuntimeError("Full user-content clear state is missing")
+        return FullUserContentClearState(
+            transaction_id=str(row[0]) if row[0] is not None else None,
+            status=str(row[1]),
+            started_at=float(row[2]) if row[2] is not None else None,
+        )
 
     async def seal_external_user_message_clear_cutoff(self) -> int:
         """Move the provider-event cutoff to the end of a completed clear.
@@ -930,7 +1046,7 @@ class SQLiteRuntimeCommandQueue:
     async def _initialize(self) -> None:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    async def _recover_claimed_commands_after_restart(self) -> int:
+    async def recover_claimed_commands_after_restart(self) -> int:
         """Return prior-process claims to pending before this worker starts."""
         now = time.time()
         async with self._write_lock, sqlite_connection_async(self.db_path) as db:
@@ -1039,11 +1155,16 @@ def _normalize_delivery_attempt_no(value: object) -> int:
     try:
         normalized = int(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "Delivery attempt number must be a non-negative integer"
-        ) from exc
+        raise ValueError("Delivery attempt number must be a non-negative integer") from exc
     if normalized < 0:
         raise ValueError("Delivery attempt number must be a non-negative integer")
+    return normalized
+
+
+def _normalize_full_clear_transaction_id(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not _FULL_CLEAR_TRANSACTION_ID_PATTERN.fullmatch(normalized):
+        raise ValueError("Full user-content clear transaction ID is invalid")
     return normalized
 
 
@@ -1088,13 +1209,8 @@ def _validate_external_user_message_boundary(
     cleared_at_ms: int,
 ) -> None:
     if captured_generation != current_generation:
-        raise StaleExternalUserMessageError(
-            "External message crossed a destructive clear boundary"
-        )
-    if (
-        cursor_clear_generation is not None
-        and cursor_clear_generation != current_generation
-    ):
+        raise StaleExternalUserMessageError("External message crossed a destructive clear boundary")
+    if cursor_clear_generation is not None and cursor_clear_generation != current_generation:
         raise StaleExternalUserMessageError(
             "External message cursor did not cross the latest destructive clear"
         )
@@ -1190,6 +1306,8 @@ async def _matching_user_message_command_ids(
 
 
 __all__ = [
+    "FullUserContentClearConflictError",
+    "FullUserContentClearState",
     "InvalidExternalUserMessageMetadataError",
     "SQLiteRuntimeCommandQueue",
     "StaleExternalUserMessageError",

@@ -37,6 +37,9 @@ class SkillsModule(LifecycleModule):
         self._engine_run_input_factory = engine_run_input_factory
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Skills runtime held for full-clear recovery")
+            return
         config = require_initialized(self._context.core.config, "runtime config")
         if not config.features.enable_skills:
             return

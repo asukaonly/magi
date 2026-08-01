@@ -1160,8 +1160,12 @@ export const memoryApi = {
   },
 
   // Clear
-  clearAll: async (): Promise<ClearMemoryResponse> =>
-    unwrapMemoryResponse(await api.delete<ClearMemoryResponse>('/memory/clear')),
+  clearAll: async (transactionId: string): Promise<ClearMemoryResponse> =>
+    unwrapMemoryResponse(await api.delete<ClearMemoryResponse>('/memory/clear', {
+      headers: {
+        'X-Magi-Full-Clear-Transaction': transactionId,
+      },
+    })),
 };
 
 export default memoryApi;

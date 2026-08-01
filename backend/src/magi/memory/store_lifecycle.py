@@ -62,7 +62,13 @@ class UnifiedMemoryLifecycleMixin:
     _post_turn_forget_operations: set[str]
     _initialized: bool
 
-    async def initialize(self) -> None:
+    async def initialize(
+        self,
+        *,
+        start_workers: bool = True,
+        recover_pending: bool = True,
+        restore_runtime_state: bool = True,
+    ) -> None:
         """Initialize enabled stores."""
         if self._initialized:
             return
@@ -70,22 +76,29 @@ class UnifiedMemoryLifecycleMixin:
         for store in (self.l0, self.l1, self.l2, self.l2_entity_catalog, self.l3, self.l4):
             if store is None:
                 continue
-            await store.initialize()
-        recovery = await self.resume_pending_forget_operations(
-            force=True,
-            fail_on_barrier_error=True,
-        )
-        if recovery["found"]:
-            logger.info(
-                "Recovered durable forget operations before memory writers started: %s",
-                recovery,
+            if store is self.l0:
+                await store.initialize(restore_state=restore_runtime_state)
+            elif store in (self.l1, self.l3, self.l4):
+                await store.initialize(start_workers=start_workers)
+            else:
+                await store.initialize()
+        if recover_pending:
+            recovery = await self.resume_pending_forget_operations(
+                force=True,
+                fail_on_barrier_error=True,
             )
-        if self.l2_pipeline is not None:
+            if recovery["found"]:
+                logger.info(
+                    "Recovered durable forget operations before memory writers started: %s",
+                    recovery,
+                )
+        if start_workers and self.l2_pipeline is not None:
             await self.l2_pipeline.start()
 
         # Start the L2 edge-embedding drain only when vectors are enabled.
         if (
-            self._edge_embedding_worker is not None
+            start_workers
+            and self._edge_embedding_worker is not None
             and self.l2_entity_catalog is not None
             and self.l2_entity_catalog.embedding_service is not None
         ):

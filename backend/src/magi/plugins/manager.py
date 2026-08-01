@@ -91,6 +91,7 @@ def build_plugin_runtime(
     tool_registry: Any,
     request_sensor_schedule_refresh: Callable[[], None],
     sensor_registry: SensorRegistry | None = None,
+    activate_enabled: bool = True,
 ) -> PluginRuntimeBindings:
     """Build plugin runtime services for the current runtime instance.
 
@@ -107,8 +108,9 @@ def build_plugin_runtime(
         search_paths=_resolve_search_paths(),
         request_sensor_schedule_refresh=request_sensor_schedule_refresh,
     )
-    plugin_manager.scan(persist_discovery=True)
-    plugin_manager.activate_enabled_plugins()
+    plugin_manager.scan(persist_discovery=activate_enabled)
+    if activate_enabled:
+        plugin_manager.activate_enabled_plugins()
     plugin_projection_service = PluginProjectionService(
         iter_loaded_plugins=plugin_manager.iter_loaded_plugins,
     )

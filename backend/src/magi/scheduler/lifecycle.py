@@ -16,9 +16,7 @@ class SchedulerModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_scheduler",
-            dependencies=(
-                "runtime_core_dependencies",
-            ),
+            dependencies=("runtime_core_dependencies",),
         )
         self._context = context
 
@@ -69,5 +67,10 @@ class SchedulerActivationModule(LifecycleModule):
             self._context.scheduler.scheduler_service,
             "scheduler service",
         )
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning(
+                "Scheduler remains paused until desktop full-clear recovery restarts runtime"
+            )
+            return
         scheduler_service.activate()
         logger.info("Scheduler service activated")

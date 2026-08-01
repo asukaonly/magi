@@ -51,9 +51,7 @@ async def _reconcile_completed_chat_forget_barriers(
             if operation.selector.kind == "chat_session":
                 session_ids.append(session_id)
             elif operation.selector.kind == "chat_message":
-                message_scopes.append(
-                    (session_id, str(payload.get("message_id") or ""))
-                )
+                message_scopes.append((session_id, str(payload.get("message_id") or "")))
             elif operation.selector.kind == "chat_history":
                 message_scopes.extend(
                     (session_id, str(message_id or ""))
@@ -77,7 +75,11 @@ class ChatStoreModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext) -> None:
         super().__init__(
             name="runtime_chat_store",
-            dependencies=("runtime_configuration", "runtime_core_dependencies"),
+            dependencies=(
+                "runtime_configuration",
+                "runtime_core_dependencies",
+                "runtime_command_queue",
+            ),
         )
         self._context = context
         # Phase F: lifecycle-owned conversation log + its consumed-events
@@ -94,10 +96,12 @@ class ChatStoreModule(LifecycleModule):
             runtime_paths=runtime_paths,
         )
         await store.initialize()
-        claimed_workspace_count = await asyncio.to_thread(
-            claim_existing_session_workspaces,
-            chat_db_path,
-        )
+        claimed_workspace_count = 0
+        if not self._context.runtime_commands.full_clear_recovery_pending:
+            claimed_workspace_count = await asyncio.to_thread(
+                claim_existing_session_workspaces,
+                chat_db_path,
+            )
         self._context.chat.store = store
         self._context.chat.channel_session_provisioner = ChatChannelSessionProvisioner(
             chat_store=store,
@@ -201,9 +205,12 @@ class ChatAssistantMemoryProjectionModule(LifecycleModule):
         )
         self._context.chat.memory_projection_clear_lifecycle = clear_lifecycle
         self._context.chat.assistant_memory_projection_service = service
-        chat_store.set_assistant_memory_outbox_waker(service.wake)
-        await service.start()
-        logger.info("Assistant-memory projection recovery started")
+        if not self._context.runtime_commands.full_clear_recovery_pending:
+            chat_store.set_assistant_memory_outbox_waker(service.wake)
+            await service.start()
+            logger.info("Assistant-memory projection recovery started")
+        else:
+            logger.warning("Assistant-memory projection held for full-clear recovery")
 
     async def shutdown(self) -> None:
         chat_store = self._context.chat.store
@@ -231,6 +238,9 @@ class ChatForgettingRecoveryModule(LifecycleModule):
         self._context = context
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Chat forgetting recovery held for full-clear recovery")
+            return
         from .forgetting import ChatForgettingRecoveryService
         from .read_service import get_chat_read_service
         from .runtime_forgetting import ChatRuntimeForgettingCoordinator
@@ -244,9 +254,7 @@ class ChatForgettingRecoveryModule(LifecycleModule):
             memory=memory,
             chat_read_service=chat_read_service,
         )
-        global_clear_recovered = (
-            await chat_read_service.arecover_interrupted_global_clear()
-        )
+        global_clear_recovered = await chat_read_service.arecover_interrupted_global_clear()
         if global_clear_recovered:
             from ..memory.legacy_user_content import clear_legacy_user_content
             from .portrait.cache import clear_persisted_portrait_cache
@@ -255,9 +263,7 @@ class ChatForgettingRecoveryModule(LifecycleModule):
                 self._context.core.runtime_paths,
                 "runtime paths",
             )
-            clear_persisted_portrait_cache(
-                runtime_paths.cache_dir / "portrait" / "cache.json"
-            )
+            clear_persisted_portrait_cache(runtime_paths.cache_dir / "portrait" / "cache.json")
             clear_legacy_user_content(runtime_paths)
         chat_store = require_initialized(self._context.chat.store, "chat store")
         runtime_command_queue = require_initialized(
@@ -342,9 +348,12 @@ class ChatDeliveryRecoveryModule(LifecycleModule):
             delivery_scheduler=scheduler,
             clear_lifecycle=clear_lifecycle,
         )
-        stats = await recovery.recover_startup()
         self._context.chat.delivery_scheduler = scheduler
         self._recovery = recovery
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Chat delivery recovery held for full-clear recovery")
+            return
+        stats = await recovery.recover_startup()
         self._stop_event.clear()
         self._retry_task = asyncio.create_task(
             self._retry_loop(),
@@ -435,9 +444,12 @@ class ControlTranscriptSubscriberModule(LifecycleModule):
             event_bus=message_bus,
             memory_epoch_getter=memory.memory_operation_epoch,
         )
-        await self._subscriber.start()
         self._clear_coordinator.bind_transcript_subscriber(self._subscriber)
-        logger.info("ControlTranscriptSubscriber started")
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Control transcript delivery held for full-clear recovery")
+        else:
+            await self._subscriber.start()
+            logger.info("ControlTranscriptSubscriber started")
 
     async def shutdown(self) -> None:
         if self._subscriber is not None:

@@ -79,11 +79,16 @@ class AgentRuntimeModule(LifecycleModule):
         )
         self._context = context
         self._background_wiring = None
+        self._full_clear_background_owner = None
         self._create_chat_agent_factory = create_chat_agent_factory
         self._chat_read_service_factory = chat_read_service_factory
         self._build_timeline_handler = build_timeline_handler
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            await self._prepare_full_clear_dependencies()
+            logger.warning("Agent runtime held for full-clear recovery")
+            return
         deps = _load_agent_runtime_dependencies(self._context)
         post_turn_understanding_service = PostTurnUnderstandingService(
             unified_memory=deps.unified_memory,
@@ -116,6 +121,25 @@ class AgentRuntimeModule(LifecycleModule):
         self._publish_agent_runtime(task_agent_manager, agent_runtime)
         self._configure_agent_tool(deps, task_agent_manager)
         await self._start_runtime_services(deps, agent_runtime, background_wiring)
+
+    async def _prepare_full_clear_dependencies(self) -> None:
+        """Expose durable clear ownership without constructing execution services."""
+
+        from .background import BackgroundTaskStore
+        from .background.full_clear import BackgroundTaskFullClearOwner
+
+        runtime_paths = require_initialized(
+            self._context.core.runtime_paths,
+            "runtime paths",
+        )
+        owner = BackgroundTaskFullClearOwner(
+            store=BackgroundTaskStore(
+                db_path=str(runtime_paths.background_tasks_db_path),
+            )
+        )
+        await owner.start()
+        self._full_clear_background_owner = owner
+        self._context.agent_runtime.background_task_manager = owner
 
     def _build_background_wiring(
         self,
@@ -295,6 +319,9 @@ class AgentRuntimeModule(LifecycleModule):
         agent_runtime: AgentRuntime,
         background_wiring: BackgroundTaskWiring,
     ) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Agent and background task execution held for full-clear recovery")
+            return
         await agent_runtime.start()
         background_wiring.manager.add_listener(broadcast_background_task_state_changed)
         await background_wiring.manager.start()
@@ -343,6 +370,10 @@ class AgentRuntimeModule(LifecycleModule):
         )
 
     async def shutdown(self) -> None:
+        if self._full_clear_background_owner is not None:
+            await self._full_clear_background_owner.stop()
+            self._full_clear_background_owner = None
+            self._context.agent_runtime.background_task_manager = None
         if self._background_wiring is not None:
             await self._background_wiring.manager.stop()
             self._background_wiring = None
@@ -422,6 +453,9 @@ class AgentScheduleRegistrationModule(LifecycleModule):
         self._background_retention_contrib = None
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Agent schedule registration held for full-clear recovery")
+            return
         scheduler_service = require_initialized(
             self._context.scheduler.scheduler_service, "scheduler service"
         )

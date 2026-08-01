@@ -87,11 +87,15 @@ class ManualEntriesModule(LifecycleModule):
                 source_forget_owner,
             )
             owner_registered = True
-            forget_recovery = await memory.resume_pending_forget_operations(
-                force=True,
-                fail_on_barrier_error=True,
-            )
-            recovery_stats = await recovery_service.start()
+            if self._context.runtime_commands.full_clear_recovery_pending:
+                forget_recovery = {"found": 0}
+                recovery_stats = None
+            else:
+                forget_recovery = await memory.resume_pending_forget_operations(
+                    force=True,
+                    fail_on_barrier_error=True,
+                )
+                recovery_stats = await recovery_service.start()
         except BaseException:
             if owner_registered:
                 memory.unregister_source_forget_owner(_SOURCE_FORGET_OWNER_NAME)
@@ -105,7 +109,7 @@ class ManualEntriesModule(LifecycleModule):
         logger.info(
             "Manual-entries subsystem initialized",
             forget_recovery=forget_recovery,
-            recovery=recovery_stats.to_dict(),
+            recovery=(recovery_stats.to_dict() if recovery_stats is not None else None),
         )
 
     async def shutdown(self) -> None:

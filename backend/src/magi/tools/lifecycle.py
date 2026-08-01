@@ -27,6 +27,9 @@ class ToolsModule(LifecycleModule):
         self._context = context
 
     async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            logger.warning("Runtime tool configuration held for full-clear recovery")
+            return
         llm_adapter = require_initialized(self._context.llm.llm_adapter, "llm adapter")
 
         from . import tool_registry
