@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
@@ -170,15 +171,26 @@ class ConfigLoaderFileOpsMixin:
             data, default_flow_style=False, allow_unicode=True, sort_keys=False
         )
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_name(f"{path.name}.tmp")
+        tmp_path: Path | None = None
+        tmp_fd: int | None = None
         try:
-            with open(tmp_path, 'w', encoding='utf-8') as f:
+            tmp_fd, tmp_name = tempfile.mkstemp(
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+            )
+            tmp_path = Path(tmp_name)
+            with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+                tmp_fd = None
                 f.write(text)
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, path)
         finally:
-            tmp_path.unlink(missing_ok=True)
+            if tmp_fd is not None:
+                os.close(tmp_fd)
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
 
     def _load_yaml(self) -> Dict[str, Any]:
         """Load and parse YAML configuration file."""

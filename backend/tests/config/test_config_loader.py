@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import enum
 import importlib
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict
 
@@ -9,6 +11,7 @@ import pytest
 import yaml
 
 from magi.config import loader as config_loader
+from magi.config import loader_file_ops
 from magi.utils.diagnostic_logging import (
     full_content_logging_enabled,
     set_full_content_logging_enabled,
@@ -584,3 +587,63 @@ def test_write_yaml_file_preserves_original_when_serialization_fails(
         loader._write_yaml_file(target, {"poisoned": _Unrepresentable.VALUE})
 
     assert target.read_text(encoding="utf-8") == original
+
+
+def test_write_yaml_file_uses_independent_temp_files_for_concurrent_writers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+    target = tmp_path / "config" / "agent.yaml"
+    loaders = (ConfigLoader(), ConfigLoader())
+    payloads = ({"writer": "first"}, {"writer": "second"})
+    replace_barrier = threading.Barrier(2)
+    replace_sources: list[Path] = []
+    sources_lock = threading.Lock()
+    original_replace = loader_file_ops.os.replace
+
+    def synchronized_replace(source: Path, destination: Path) -> None:
+        with sources_lock:
+            replace_sources.append(Path(source))
+        replace_barrier.wait(timeout=5)
+        original_replace(source, destination)
+
+    monkeypatch.setattr(loader_file_ops.os, "replace", synchronized_replace)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(loader._write_yaml_file, target, payload)
+            for loader, payload in zip(loaders, payloads, strict=True)
+        ]
+        for future in futures:
+            future.result(timeout=5)
+
+    assert len(set(replace_sources)) == 2
+    assert yaml.safe_load(target.read_text(encoding="utf-8")) in payloads
+    assert not list(target.parent.glob(f".{target.name}.*.tmp"))
+
+
+def test_write_yaml_file_cleans_only_its_temp_file_when_replace_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _patch_config_paths(monkeypatch, tmp_path)
+    loader = ConfigLoader()
+    target = tmp_path / "config" / "agent.yaml"
+    loader._write_yaml_file(target, {"keep": "original"})
+    original = target.read_text(encoding="utf-8")
+    unrelated_temp = target.parent / f".{target.name}.other-writer.tmp"
+    unrelated_temp.write_text("owned elsewhere", encoding="utf-8")
+    staged_paths: list[Path] = []
+
+    def fail_replace(source: Path, _destination: Path) -> None:
+        staged_paths.append(Path(source))
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(loader_file_ops.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        loader._write_yaml_file(target, {"new": "value"})
+
+    assert target.read_text(encoding="utf-8") == original
+    assert len(staged_paths) == 1
+    assert not staged_paths[0].exists()
+    assert unrelated_temp.read_text(encoding="utf-8") == "owned elsewhere"
