@@ -133,6 +133,52 @@ def _validate_managed_file_path(
     return target, parent, parent_identity
 
 
+def _managed_directory_parent_chain_exists(path: Path) -> bool:
+    parent = path.parent
+    missing_ancestor = False
+    for directory in reversed([parent, *parent.parents]):
+        try:
+            directory_stat = os.lstat(directory)
+        except FileNotFoundError:
+            missing_ancestor = True
+            continue
+        if missing_ancestor:
+            raise UnsafeManagedPathError(
+                "Managed directory parent chain changed during validation"
+            )
+        if path_is_link(directory, path_stat=directory_stat) or not stat.S_ISDIR(
+            directory_stat.st_mode
+        ):
+            raise UnsafeManagedPathError(
+                "Managed directory parent chain must contain only real directories"
+            )
+    return not missing_ancestor
+
+
+def _managed_directory_identity(path: Path) -> tuple[int, int] | None:
+    if path.name in {"", ".", ".."}:
+        raise UnsafeManagedPathError("Managed directory path must name one directory")
+    if not _managed_directory_parent_chain_exists(path):
+        return None
+    try:
+        directory_stat = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    if path_is_link(path, path_stat=directory_stat) or not stat.S_ISDIR(
+        directory_stat.st_mode
+    ):
+        raise UnsafeManagedPathError("Managed directory must be a real directory")
+    _, validated_directory, identity = _validate_managed_file_path(
+        path / ".magi-managed-directory-validation"
+    )
+    if validated_directory != path or identity != (
+        directory_stat.st_dev,
+        directory_stat.st_ino,
+    ):
+        raise UnsafeManagedPathError("Managed directory changed during validation")
+    return identity
+
+
 def _validate_managed_target_type(path: Path) -> os.stat_result | Any | None:
     try:
         target_stat = os.lstat(path)
@@ -274,6 +320,31 @@ def read_managed_text(
 
     payload = read_managed_bytes(path, max_bytes=max_bytes)
     return None if payload is None else payload.decode(encoding)
+
+
+def list_managed_directory_names(path: str | Path) -> list[str]:
+    """List names in one real managed directory without following links.
+
+    A missing directory returns an empty list. Linked parents, directory links,
+    junctions, and non-directory entries fail closed.
+    """
+
+    target = Path(path)
+    identity = _managed_directory_identity(target)
+    if identity is None:
+        return []
+    if _IS_WINDOWS:
+        with os.scandir(target) as entries:
+            names = [entry.name for entry in entries]
+        if _managed_directory_identity(target) != identity:
+            raise UnsafeManagedPathError("Managed directory changed while listing")
+        return sorted(names)
+
+    directory_fd = _open_managed_directory(target, expected_identity=identity)
+    try:
+        return sorted(str(name) for name in os.listdir(directory_fd))
+    finally:
+        os.close(directory_fd)
 
 
 def _open_managed_directory(
@@ -522,6 +593,7 @@ __all__ = [
     "append_jsonl",
     "append_jsonl_many",
     "file_lock",
+    "list_managed_directory_names",
     "path_is_link",
     "read_managed_bytes",
     "read_managed_text",

@@ -79,7 +79,7 @@ from .i18n import (
     set_current_language,
 )
 from .logging import configure_basic_logging, get_logger
-from .fs import path_is_link
+from .fs import list_managed_directory_names, path_is_link
 from .package_identity import (
     CanonicalPackagePath,
     ConflictingPackageIdentityPathError,
@@ -251,6 +251,7 @@ __all__ = [
     "configure_basic_logging",
     "get_logger",
     # Managed filesystem safety
+    "list_managed_directory_names",
     "path_is_link",
     # Subprocess management (crash-resistant child process lifecycle)
     "ManagedSubprocess",
