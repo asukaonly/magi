@@ -2767,6 +2767,12 @@
         "body": "Connect calendar, browsing, photos, or terminal activity so Magi can begin forming memories from real experience.",
         "privacy": "Source data stays on this device."
       },
+      "ongoingEmpty": {
+        "title": "Add an ongoing source",
+        "body": "Connect calendar, browsing, photos, or another source so new activity keeps flowing into Magi.",
+        "bodyWithHistory": "Your imported history is ready to use. Connect calendar, browsing, photos, or another source so new activity keeps flowing into Magi.",
+        "action": "Browse sources"
+      },
       "pulseEmpty": "No source activity yet today. New memory intake will appear here.",
       "localOnly": "Data stays on this device",
       "neverSynced": "Never synced",

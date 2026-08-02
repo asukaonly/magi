@@ -26,7 +26,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
-import HistoryImportsSection from '@/components/history-imports/HistoryImportsSection';
+import HistoryImportsSection, {
+  type HistoryImportsAvailability,
+} from '@/components/history-imports/HistoryImportsSection';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import {
   SourceBackfillDialog,
@@ -532,6 +534,49 @@ function SourceEmptyState({ onSourceConnected }: { onSourceConnected: () => void
   );
 }
 
+function OngoingSourceEmptyState({
+  hasHistoryImports,
+  onBrowseSources,
+}: {
+  hasHistoryImports: boolean;
+  onBrowseSources: () => void;
+}) {
+  const { t } = useTranslation('app');
+
+  return (
+    <section
+      className={cn(
+        MEMORY_SECTION_SURFACE_CLASS,
+        'flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between'
+      )}
+      data-testid="memory-sources-ongoing-empty"
+    >
+      <div className="min-w-0 space-y-1.5">
+        <h2 className="text-lg font-semibold tracking-[-0.015em] text-[hsl(var(--memory-title))]">
+          {t('memory.sourcesPage.ongoingEmpty.title')}
+        </h2>
+        <p className="max-w-2xl text-sm leading-6 text-[hsl(var(--memory-body))]">
+          {t(
+            hasHistoryImports
+              ? 'memory.sourcesPage.ongoingEmpty.bodyWithHistory'
+              : 'memory.sourcesPage.ongoingEmpty.body'
+          )}
+        </p>
+      </div>
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        className="shrink-0 rounded-lg px-4"
+        onClick={onBrowseSources}
+      >
+        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+        {t('memory.sourcesPage.ongoingEmpty.action')}
+      </Button>
+    </section>
+  );
+}
+
 function SourcePulseSection({
   rows,
   dashboard,
@@ -820,6 +865,8 @@ export const MemorySourcesPage = () => {
   const [todayEvents, setTodayEvents] = useState<L1Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [historyImportsAvailability, setHistoryImportsAvailability] =
+    useState<HistoryImportsAvailability>('loading');
   const [sourceRefreshVersion, setSourceRefreshVersion] = useState(0);
   const notifiedBackfillJobsRef = useRef(new Set<string>());
 
@@ -934,13 +981,20 @@ export const MemorySourcesPage = () => {
     <MemoryPageFrame title={t('memory.sourcesPage.title')} description={t('memory.sourcesPage.subtitle')} hideHeader>
       <div className="space-y-6">
         <h1 className="sr-only">{t('memory.sourcesPage.title')}</h1>
-        {loading ? (
+        {loading || (rows.length === 0 && historyImportsAvailability === 'loading') ? (
           <MemorySourcesLoading />
         ) : error ? (
           <MemorySourcesError />
         ) : rows.length === 0 ? (
           <>
-            <SourceEmptyState onSourceConnected={() => setSourceRefreshVersion((version) => version + 1)} />
+            {historyImportsAvailability === 'empty' ? (
+              <SourceEmptyState onSourceConnected={() => setSourceRefreshVersion((version) => version + 1)} />
+            ) : (
+              <OngoingSourceEmptyState
+                hasHistoryImports={historyImportsAvailability === 'available'}
+                onBrowseSources={openSourceMarketplace}
+              />
+            )}
             <SourcePulseSection
               rows={rows}
               dashboard={dashboard}
@@ -963,7 +1017,7 @@ export const MemorySourcesPage = () => {
             />
           </>
         )}
-        <HistoryImportsSection />
+        <HistoryImportsSection onAvailabilityChange={setHistoryImportsAvailability} />
       </div>
     </MemoryPageFrame>
   );

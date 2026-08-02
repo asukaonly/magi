@@ -27,6 +27,16 @@ import HistoryImportFlow from "./HistoryImportFlow";
 
 const ACTIVE_IMPORT_STATUSES = new Set(["ready", "running"]);
 
+export type HistoryImportsAvailability =
+  | "loading"
+  | "empty"
+  | "available"
+  | "error";
+
+interface HistoryImportsSectionProps {
+  onAvailabilityChange?: (availability: HistoryImportsAvailability) => void;
+}
+
 function jobProgress(job: HistoryImportJob): number {
   return Math.min(
     100,
@@ -44,7 +54,9 @@ function jobLabel(job: HistoryImportJob, fallback: string): string {
     : first;
 }
 
-export default function HistoryImportsSection(): JSX.Element {
+export default function HistoryImportsSection({
+  onAvailabilityChange,
+}: HistoryImportsSectionProps = {}): JSX.Element {
   const { t, i18n } = useTranslation("app");
   const [jobs, setJobs] = useState<HistoryImportJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,6 +81,18 @@ export default function HistoryImportsSection(): JSX.Element {
   useEffect(() => {
     void loadJobs();
   }, [loadJobs]);
+
+  const availability: HistoryImportsAvailability = loading
+    ? "loading"
+    : error
+      ? "error"
+      : jobs.length > 0
+        ? "available"
+        : "empty";
+
+  useEffect(() => {
+    onAvailabilityChange?.(availability);
+  }, [availability, onAvailabilityChange]);
 
   const activeKey = useMemo(
     () =>

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { toast } from 'sonner';
 
+import { historyImportsApi, type HistoryImportJob } from '@/api/modules/historyImports';
 import { memoryApi } from '@/api/modules/memory';
 import { pluginsApi } from '@/api/modules/plugins';
 import { sensorsApi } from '@/api/modules/sensors';
@@ -31,6 +32,10 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.empty.title': '连接第一个来源',
         'memory.sourcesPage.empty.body': '把日历、浏览、照片或终端活动接入 Magi，记忆会从这些真实经历中逐渐形成。',
         'memory.sourcesPage.empty.privacy': '来源数据只保存在本机。',
+        'memory.sourcesPage.ongoingEmpty.title': '添加持续来源',
+        'memory.sourcesPage.ongoingEmpty.body': '连接日历、浏览、照片等来源，让新的生活记录持续进入 Magi。',
+        'memory.sourcesPage.ongoingEmpty.bodyWithHistory': '历史内容已经可以使用。连接日历、浏览、照片等来源，让新的生活记录持续进入 Magi。',
+        'memory.sourcesPage.ongoingEmpty.action': '浏览来源',
         'timeline.emptyState.sourcePageHeading': '可以从这些来源开始',
         'timeline.emptyState.connect': '启用',
         'timeline.emptyState.installAndConnect': '安装并启用',
@@ -139,7 +144,7 @@ vi.mock('@/api/modules/plugins', () => ({
 
 vi.mock('@/api/modules/historyImports', () => ({
   historyImportsApi: {
-    list: vi.fn().mockResolvedValue([]),
+    list: vi.fn(),
     get: vi.fn(),
     previewMarkdown: vi.fn(),
     updateSelection: vi.fn(),
@@ -305,6 +310,31 @@ const LocationProbe = () => {
   return <div data-testid="location">{location.pathname}</div>;
 };
 
+const completedHistoryImport = (): HistoryImportJob => ({
+  job_id: 'him-1',
+  source_type: 'markdown',
+  source_files: ['一次旅行后的复盘.md'],
+  included_files: ['一次旅行后的复盘.md'],
+  detected_kind: 'document',
+  status: 'completed',
+  total_records: 1,
+  meaningful_records: 1,
+  quick_target_records: 200,
+  quick_max_records: 500,
+  quick_imported_count: 1,
+  imported_count: 1,
+  projected_count: 1,
+  self_participants: ['__document_author__'],
+  warnings: [],
+  quick_ready: true,
+  error_code: null,
+  created_at: 1_800_000_000,
+  updated_at: 1_800_000_100,
+  participants: [],
+  sources: [],
+  preview_records: [],
+});
+
 const buildEvent = (index: number, overrides: Record<string, unknown> = {}) => ({
   event_id: `evt-${index}`,
   event_type: 'SENSOR_EVENT',
@@ -320,6 +350,7 @@ const buildEvent = (index: number, overrides: Record<string, unknown> = {}) => (
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(historyImportsApi.list).mockResolvedValue([]);
   mockUseInstallableSensors.mockReturnValue({
     items: [{
       plugin_id: 'calendar',
@@ -460,6 +491,58 @@ describe('MemorySourcesPage', () => {
 
     await waitFor(() => expect(memoryApi.getDashboard).toHaveBeenCalledTimes(2));
     expect(sensorsApi.getStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows a compact ongoing-source prompt when history has already been imported', async () => {
+    const user = userEvent.setup();
+    vi.mocked(historyImportsApi.list).mockResolvedValue([completedHistoryImport()]);
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({
+      ...dashboardPayload,
+      source_counts: [{
+        source: 'history_import_markdown',
+        event_count: 1,
+        avg_importance: 0.6,
+        first_event_at: 1_800_000_000,
+        last_event_at: 1_800_000_000,
+      }],
+      processing_backlog: { total_pending: 0, all_idle: true },
+      deltas: {
+        ...dashboardPayload.deltas,
+        today: { ...dashboardPayload.deltas.today, l1_events: 0 },
+      },
+    } as never);
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as never);
+    vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue({
+      ...todayPayload,
+      sources: [],
+    } as never);
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 500,
+      offset: 0,
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={['/memory/sources']}>
+        <Routes>
+          <Route path="/memory/sources" element={<MemorySourcesPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByTestId('memory-sources-ongoing-empty')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '添加持续来源' })).toBeInTheDocument();
+    expect(screen.getByText('历史内容已经可以使用。连接日历、浏览、照片等来源，让新的生活记录持续进入 Magi。')).toBeInTheDocument();
+    expect(screen.getByText('一次旅行后的复盘.md')).toBeInTheDocument();
+    expect(screen.queryByTestId('memory-sources-empty')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '连接第一个来源' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '浏览来源' }));
+    expect(useChatShellStore.getState()).toMatchObject({
+      activePanel: 'settings',
+      settingsNavigationIntent: { section: 'pluginsMarketplace' },
+    });
   });
 
   it('keeps the pulse visible when work is still waiting despite no source activity', async () => {

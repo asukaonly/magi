@@ -129,4 +129,15 @@ describe("HistoryImportsSection", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("reports whether any history imports are available", async () => {
+    const onAvailabilityChange = vi.fn();
+    render(
+      <HistoryImportsSection onAvailabilityChange={onAvailabilityChange} />,
+    );
+
+    await screen.findByText("journal/2026-07-01.md +1");
+    expect(onAvailabilityChange).toHaveBeenCalledWith("loading");
+    expect(onAvailabilityChange).toHaveBeenCalledWith("available");
+  });
 });
