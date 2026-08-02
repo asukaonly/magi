@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from functools import partial
 import hashlib
+import os
 import re
 import time
 import uuid
@@ -47,6 +48,7 @@ RAW_BATCH_SIZE = 100
 PROJECTION_BATCH_SIZE = 40
 SOURCE_PREVIEW_MAX_RECORDS = 200
 SOURCE_PREVIEW_MAX_CHARS = 48_000
+HISTORY_IMPORT_SOURCE = "history_import_markdown"
 
 
 class HistoryImportError(RuntimeError):
@@ -84,7 +86,14 @@ class HistoryImportService:
         """Resume imports that had already reached the quick-ready boundary."""
 
         async with self._operation():
-            for job_id in await self._store.list_resumable_job_ids():
+            await self._log_integrity_audit(checkpoint="startup")
+            resumable_job_ids = await self._store.list_resumable_job_ids()
+            logger.info(
+                "History import service started",
+                process_id=os.getpid(),
+                resumable_job_count=len(resumable_job_ids),
+            )
+            for job_id in resumable_job_ids:
                 self._start_background(job_id)
 
     async def stop(self) -> None:
@@ -352,6 +361,15 @@ class HistoryImportService:
                 and set(job.self_participants) != set(selected)
             ):
                 raise HistoryImportValidationError("self_participant_locked_after_import")
+            logger.info(
+                "History import confirmation started",
+                process_id=os.getpid(),
+                job_id=job_id,
+                selected_file_count=len(selected_files),
+                total_record_count=job.total_records,
+                imported_count=job.imported_count,
+                quick_ready=job.quick_ready,
+            )
             if not job.quick_ready:
                 await self._store.set_scope(
                     job_id=job_id,
@@ -371,6 +389,12 @@ class HistoryImportService:
                     await self._store.mark_deleted(job_id=job_id)
                     raise HistoryImportValidationError("memory_cleared_during_import") from exc
                 await self._store.mark_quick_ready(job_id=job_id)
+                quick_ready_job = await self._get_job(job_id)
+                await self._log_job_checkpoint(
+                    checkpoint="quick_ready",
+                    job=quick_ready_job,
+                )
+                await self._log_integrity_audit(checkpoint="quick_ready")
             self._start_background(job_id)
         return await self._get_job(job_id)
 
@@ -438,6 +462,12 @@ class HistoryImportService:
             if job.status == "deleted":
                 return
             event_ids = await self._store.list_imported_event_ids(job_id=job_id)
+            logger.info(
+                "History import deletion started",
+                process_id=os.getpid(),
+                job_id=job_id,
+                imported_event_count=len(event_ids),
+            )
             if event_ids:
                 await self._memory.forget_known_source_events(
                     event_ids,
@@ -445,6 +475,7 @@ class HistoryImportService:
                     block_source_item=False,
                 )
             await self._store.mark_deleted(job_id=job_id)
+            await self._log_integrity_audit(checkpoint="deleted")
 
     def _start_background(self, job_id: str) -> None:
         existing = self._tasks.get(job_id)
@@ -467,6 +498,11 @@ class HistoryImportService:
                 async with self._lock_for(job_id):
                     expected_epoch = self._memory.memory_operation_epoch()
                     await self._store.mark_running(job_id=job_id)
+                    running_job = await self._get_job(job_id)
+                    await self._log_job_checkpoint(
+                        checkpoint="background_started",
+                        job=running_job,
+                    )
             while True:
                 async with self._operation():
                     async with self._lock_for(job_id):
@@ -484,6 +520,14 @@ class HistoryImportService:
                                 quick=False,
                                 expected_epoch=expected_epoch,
                             )
+                async with self._operation():
+                    async with self._lock_for(job_id):
+                        raw_job = await self._get_job(job_id)
+                        await self._log_job_checkpoint(
+                            checkpoint="raw_batch_completed",
+                            job=raw_job,
+                            batch_record_count=len(records),
+                        )
                 await asyncio.sleep(0)
 
             while True:
@@ -502,13 +546,37 @@ class HistoryImportService:
                                 record,
                                 expected_epoch=expected_epoch,
                             )
+                async with self._operation():
+                    async with self._lock_for(job_id):
+                        projection_job = await self._get_job(job_id)
+                        await self._log_job_checkpoint(
+                            checkpoint="projection_batch_completed",
+                            job=projection_job,
+                            batch_record_count=len(records),
+                        )
                 await asyncio.sleep(0)
             async with self._operation():
                 async with self._lock_for(job_id):
                     await self._store.mark_completed(job_id=job_id)
+                    completed_job = await self._get_job(job_id)
+                    await self._log_job_checkpoint(
+                        checkpoint="completed",
+                        job=completed_job,
+                    )
+                    await self._log_integrity_audit(checkpoint="completed")
         except asyncio.CancelledError:
+            logger.info(
+                "History import background task cancelled",
+                process_id=os.getpid(),
+                job_id=job_id,
+            )
             raise
         except _HistoryImportEpochChanged:
+            logger.warning(
+                "History import stopped because the memory clear epoch changed",
+                process_id=os.getpid(),
+                job_id=job_id,
+            )
             async with self._operation():
                 async with self._lock_for(job_id):
                     await self._store.mark_deleted(job_id=job_id)
@@ -538,6 +606,14 @@ class HistoryImportService:
                 raise _HistoryImportEpochChanged
             stored_event_id = await self._memory.store_governed_l1_event_under_write_lock(event)
         if stored_event_id is None:
+            logger.warning(
+                "History import raw event was not stored",
+                process_id=os.getpid(),
+                job_id=record.job_id,
+                record_id=record.record_id,
+                event_id=event.event_id,
+                quick=quick,
+            )
             await self._store.mark_raw_skipped(
                 job_id=record.job_id,
                 record_id=record.record_id,
@@ -562,6 +638,14 @@ class HistoryImportService:
         if result.get("skip_reason") == "memory_clear_epoch_changed":
             raise _HistoryImportEpochChanged
         if result.get("skipped") or not result.get("l2_job_enqueued"):
+            logger.warning(
+                "History import projection was skipped",
+                process_id=os.getpid(),
+                job_id=record.job_id,
+                record_id=record.record_id,
+                event_id=record.event_id,
+                skip_reason=result.get("skip_reason"),
+            )
             await self._store.mark_projection_skipped(
                 job_id=record.job_id,
                 record_id=record.record_id,
@@ -571,6 +655,79 @@ class HistoryImportService:
             job_id=record.job_id,
             record_id=record.record_id,
         )
+
+    async def _log_job_checkpoint(
+        self,
+        *,
+        checkpoint: str,
+        job: HistoryImportJob,
+        batch_record_count: int | None = None,
+    ) -> None:
+        """Log progress counters without recording imported names or content."""
+
+        l1_event_count = await self._l1_history_event_count()
+        logger.info(
+            "History import checkpoint",
+            process_id=os.getpid(),
+            checkpoint=checkpoint,
+            job_id=job.job_id,
+            status=job.status,
+            total_record_count=job.total_records,
+            quick_imported_count=job.quick_imported_count,
+            imported_count=job.imported_count,
+            projected_count=job.projected_count,
+            quick_ready=job.quick_ready,
+            batch_record_count=batch_record_count,
+            l1_history_event_count=l1_event_count,
+        )
+
+    async def _log_integrity_audit(self, *, checkpoint: str) -> None:
+        """Compare the import ledger with active L1 rows without logging content."""
+
+        try:
+            jobs = await self._store.list_active_jobs(limit=100)
+            ledger_imported_count = sum(job.imported_count for job in jobs)
+            l1_event_count = await self._l1_history_event_count()
+            audit_truncated = len(jobs) == 100
+            consistent = (
+                None
+                if l1_event_count is None or audit_truncated
+                else ledger_imported_count == l1_event_count
+            )
+            log = logger.warning if consistent is False else logger.info
+            log(
+                "History import integrity audit",
+                process_id=os.getpid(),
+                checkpoint=checkpoint,
+                active_job_count=len(jobs),
+                completed_job_count=sum(1 for job in jobs if job.status == "completed"),
+                ledger_imported_count=ledger_imported_count,
+                l1_history_event_count=l1_event_count,
+                consistent=consistent,
+                audit_truncated=audit_truncated,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "History import integrity audit unavailable",
+                process_id=os.getpid(),
+                checkpoint=checkpoint,
+                error_type=type(exc).__name__,
+            )
+
+    async def _l1_history_event_count(self) -> int | None:
+        l1 = getattr(self._memory, "l1", None)
+        counter = getattr(l1, "count_events", None)
+        if not callable(counter):
+            return None
+        try:
+            return int(await counter(source_filters=[HISTORY_IMPORT_SOURCE]))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "History import L1 count unavailable",
+                process_id=os.getpid(),
+                error_type=type(exc).__name__,
+            )
+            return None
 
     def _lock_for(self, job_id: str) -> asyncio.Lock:
         return self._locks.setdefault(job_id, asyncio.Lock())
@@ -729,7 +886,7 @@ def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
         timestamp=float(record.event_at),
         created_at=now,
         event_type=f"history_import.{source_kind}",
-        source="history_import_markdown",
+        source=HISTORY_IMPORT_SOURCE,
         source_item_id=record.record_id,
         memory_domain=(MemoryDomain.USER_AUTHORED if is_user else MemoryDomain.INTERACTION),
         ingest_target=IngestTarget.L1_ONLY,

@@ -90,6 +90,40 @@ def _log_recovery_failures(failures: list[tuple[str, BaseException]]) -> None:
         )
 
 
+async def _collect_post_clear_diagnostics(
+    *,
+    unified_memory,
+    history_import_service,
+) -> tuple[int | None, int | None, int | None]:
+    """Read non-content counters after log erasure so the clear remains auditable."""
+
+    l1_remaining_count: int | None = None
+    history_job_count: int | None = None
+    history_ledger_count: int | None = None
+    l1 = getattr(unified_memory, "l1", None)
+    count_events = getattr(l1, "count_events", None)
+    if callable(count_events):
+        try:
+            l1_remaining_count = int(await count_events())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "clear_memory: post-clear L1 audit unavailable. error_type=%s",
+                type(exc).__name__,
+            )
+    list_jobs = getattr(history_import_service, "list_jobs", None)
+    if callable(list_jobs):
+        try:
+            jobs = await list_jobs(limit=100)
+            history_job_count = len(jobs)
+            history_ledger_count = sum(int(job.imported_count) for job in jobs)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "clear_memory: post-clear history-import audit unavailable. error_type=%s",
+                type(exc).__name__,
+            )
+    return l1_remaining_count, history_job_count, history_ledger_count
+
+
 def _raise_recovery_failure(failures: list[tuple[str, BaseException]]) -> None:
     names = ", ".join(name for name, _ in failures)
     first_failure = failures[0][1]
@@ -371,6 +405,7 @@ async def clear_memory_layers(
     plugin_clear_failure: Exception | None = None
     residual_clear_failure: Exception | None = None
     plugin_clear_session = None
+    history_import_service = None
     warnings: list[str] = []
     generation: int | None = None
 
@@ -635,14 +670,29 @@ async def clear_memory_layers(
     l3_count = counts["l3"]
     l4_count = counts["l4"]
     chat_context_count = counts["chat_context"]
+    (
+        l1_remaining_count,
+        history_import_job_count,
+        history_import_ledger_count,
+    ) = await _collect_post_clear_diagnostics(
+        unified_memory=unified_memory,
+        history_import_service=history_import_service,
+    )
     logger.info(
-        "clear_memory: complete. l0=%d l1=%d l2=%d l3=%d l4=%d chat=%d",
+        "clear_memory: complete. l0=%d l1=%d l2=%d l3=%d l4=%d chat=%d "
+        "l1_remaining=%s history_jobs_remaining=%s history_records_remaining=%s "
+        "generation=%s transaction_id=%s",
         l0_count,
         l1_count,
         l2_count,
         l3_count,
         l4_count,
         chat_context_count,
+        l1_remaining_count,
+        history_import_job_count,
+        history_import_ledger_count,
+        generation,
+        full_clear_transaction_id,
     )
 
     if deferred_residual_failure:

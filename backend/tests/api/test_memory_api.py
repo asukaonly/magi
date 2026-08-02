@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router, register_api_routes
 from magi.api.routers.memory import memory_router
+from magi.api.routers.memory.overview_routes import _collect_post_clear_diagnostics
 from magi.i18n import language_context
 from magi.memory.event_contracts import (
     IngestTarget,
@@ -30,6 +31,22 @@ FULL_CLEAR_TRANSACTION_ID = "clear-backend-test-transaction"
 FULL_CLEAR_HEADERS = {
     "X-Magi-Full-Clear-Transaction": FULL_CLEAR_TRANSACTION_ID,
 }
+
+
+@pytest.mark.asyncio
+async def test_post_clear_diagnostics_report_remaining_non_content_counts() -> None:
+    l1 = SimpleNamespace(count_events=AsyncMock(return_value=0))
+    jobs = [SimpleNamespace(imported_count=0), SimpleNamespace(imported_count=0)]
+    history_import_service = SimpleNamespace(list_jobs=AsyncMock(return_value=jobs))
+
+    result = await _collect_post_clear_diagnostics(
+        unified_memory=SimpleNamespace(l1=l1),
+        history_import_service=history_import_service,
+    )
+
+    assert result == (0, 2, 0)
+    l1.count_events.assert_awaited_once_with()
+    history_import_service.list_jobs.assert_awaited_once_with(limit=100)
 
 
 @pytest.fixture(autouse=True)

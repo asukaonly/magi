@@ -16,8 +16,9 @@ the high-level ``op.add_column`` / ``op.create_index`` APIs.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 from alembic import command
 from alembic.config import Config
@@ -98,7 +99,48 @@ def run_upgrade_head(
     selected = tuple(targets) if targets is not None else MIGRATION_TARGETS
     for target in selected:
         db_path = target.db_path(runtime_paths)
+        before = _database_file_snapshot(db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
         cfg = _build_config(target, db_path)
-        logger.info("alembic upgrade head: %s -> %s", target.name, db_path)
+        logger.info(
+            "Database migration started",
+            process_id=os.getpid(),
+            target=target.name,
+            db_path=str(db_path),
+            existed_before=before["exists"],
+            identity_before=before["identity"],
+        )
         command.upgrade(cfg, "head")
+        after = _database_file_snapshot(db_path)
+        logger.info(
+            "Database migration completed",
+            process_id=os.getpid(),
+            target=target.name,
+            db_path=str(db_path),
+            identity_after=after["identity"],
+            size_bytes=after["size_bytes"],
+        )
+
+
+def _database_file_snapshot(db_path: Path) -> dict[str, Any]:
+    """Return non-content file identity fields for startup diagnostics."""
+
+    try:
+        details = db_path.stat()
+    except FileNotFoundError:
+        return {
+            "exists": False,
+            "identity": None,
+            "size_bytes": None,
+        }
+    except OSError:
+        return {
+            "exists": None,
+            "identity": None,
+            "size_bytes": None,
+        }
+    return {
+        "exists": True,
+        "identity": f"{details.st_dev}:{details.st_ino}",
+        "size_bytes": int(details.st_size),
+    }

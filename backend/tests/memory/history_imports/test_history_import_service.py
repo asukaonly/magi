@@ -6,6 +6,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import aiosqlite
 import pytest
@@ -18,6 +19,7 @@ from magi.db.migrations.memory_shared.versions.v37_history_import_selection impo
 )
 from magi.core.operation_barrier import AsyncOperationBarrier
 from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
+from magi.memory.history_imports import service as history_import_service_module
 from magi.memory.history_imports.service import (
     SOURCE_PREVIEW_MAX_CHARS,
     HistoryImportService,
@@ -99,6 +101,18 @@ def _build_real_memory(tmp_path: Path) -> UnifiedMemoryStore:
             async_embeddings=False,
         ),
     )
+
+
+async def _wait_for_completed_job(
+    service: HistoryImportService,
+    job_id: str,
+) -> None:
+    for _ in range(100):
+        current = await service.get_job(job_id)
+        if current.status == "completed":
+            return
+        await asyncio.sleep(0.01)
+    pytest.fail("History import did not complete")
 
 
 @pytest.mark.asyncio
@@ -317,6 +331,73 @@ async def test_confirm_writes_previewed_markdown_into_the_real_l1_store(
         ]
     finally:
         await service.stop()
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_trace_import_and_detect_a_missing_l1_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = Mock()
+    monkeypatch.setattr(history_import_service_module, "logger", logger)
+    memory_db_path = tmp_path / "memory.db"
+    memory = _build_real_memory(tmp_path)
+    await memory.initialize()
+    store = HistoryImportStore(db_path=str(memory_db_path))
+    service = HistoryImportService(store=store, memory=memory)
+    markdown = tmp_path / "private-diary.md"
+    private_content = "I took the quiet route home and listened to a private demo."
+    markdown.write_text(private_content, encoding="utf-8")
+
+    restarted_service: HistoryImportService | None = None
+    try:
+        await service.start()
+        preview = await service.preview_markdown_paths([str(markdown)])
+        await service.confirm(
+            job_id=preview.job_id,
+            self_participants=[],
+            confirm_personal_writing=True,
+            included_files=preview.included_files,
+        )
+        await _wait_for_completed_job(service, preview.job_id)
+
+        checkpoint_calls = [
+            call
+            for call in logger.info.call_args_list
+            if call.args and call.args[0] == "History import checkpoint"
+        ]
+        checkpoints = {call.kwargs["checkpoint"]: call.kwargs for call in checkpoint_calls}
+        assert checkpoints["quick_ready"]["imported_count"] == 1
+        assert checkpoints["quick_ready"]["l1_history_event_count"] == 1
+        assert checkpoints["completed"]["projected_count"] == 0
+        assert private_content not in repr(logger.method_calls)
+        assert markdown.name not in repr(logger.method_calls)
+
+        await service.stop()
+        await memory.l1.clear(restart_workers=False)
+        logger.reset_mock()
+
+        restarted_service = HistoryImportService(store=store, memory=memory)
+        await restarted_service.start()
+
+        mismatch_calls = [
+            call
+            for call in logger.warning.call_args_list
+            if call.args and call.args[0] == "History import integrity audit"
+        ]
+        assert len(mismatch_calls) == 1
+        assert mismatch_calls[0].kwargs["checkpoint"] == "startup"
+        assert mismatch_calls[0].kwargs["ledger_imported_count"] == 1
+        assert mismatch_calls[0].kwargs["l1_history_event_count"] == 0
+        assert mismatch_calls[0].kwargs["consistent"] is False
+        assert private_content not in repr(logger.method_calls)
+        assert markdown.name not in repr(logger.method_calls)
+    finally:
+        if restarted_service is not None:
+            await restarted_service.stop()
+        else:
+            await service.stop()
         await memory.shutdown()
 
 

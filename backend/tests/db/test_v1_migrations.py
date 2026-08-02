@@ -6,6 +6,7 @@ import importlib.util
 import sqlite3
 from pathlib import Path
 from types import ModuleType
+from unittest.mock import Mock
 
 from alembic import command
 import pytest
@@ -64,6 +65,53 @@ EXPECTED_TABLES: dict[str, set[str]] = {
     "identity": {"user_identity_bindings"},
     "batch": {"batch_job", "batch_item"},
 }
+
+
+def test_migration_diagnostics_distinguish_new_and_existing_database(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.db import runner as runner_module
+
+    logger = Mock()
+    monkeypatch.setattr(runner_module, "logger", logger)
+    runtime_paths = RuntimePaths(base_dir=tmp_path)
+    l1_target = next(target for target in MIGRATION_TARGETS if target.name == "l1")
+
+    run_upgrade_head(runtime_paths, targets=(l1_target,))
+
+    first_started = next(
+        call
+        for call in logger.info.call_args_list
+        if call.args and call.args[0] == "Database migration started"
+    )
+    first_completed = next(
+        call
+        for call in logger.info.call_args_list
+        if call.args and call.args[0] == "Database migration completed"
+    )
+    assert first_started.kwargs["target"] == "l1"
+    assert first_started.kwargs["existed_before"] is False
+    assert first_started.kwargs["identity_before"] is None
+    first_identity = first_completed.kwargs["identity_after"]
+    assert first_identity is not None
+
+    logger.reset_mock()
+    run_upgrade_head(runtime_paths, targets=(l1_target,))
+
+    second_started = next(
+        call
+        for call in logger.info.call_args_list
+        if call.args and call.args[0] == "Database migration started"
+    )
+    second_completed = next(
+        call
+        for call in logger.info.call_args_list
+        if call.args and call.args[0] == "Database migration completed"
+    )
+    assert second_started.kwargs["existed_before"] is True
+    assert second_started.kwargs["identity_before"] == first_identity
+    assert second_completed.kwargs["identity_after"] == first_identity
 
 
 def _revision_files(target_name: str) -> list[Path]:
