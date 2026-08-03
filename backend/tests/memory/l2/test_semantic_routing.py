@@ -189,6 +189,23 @@ def test_birth_date_rejects_invalid_typed_values(value: str) -> None:
     assert decision.reason_code == "invalid_typed_value"
 
 
+@pytest.mark.parametrize(
+    ("predicate", "value"),
+    [
+        ("BIRTH_YEAR", "፩፱፱፯"),
+        ("STATED_AGE", "፫፬"),
+    ],
+)
+def test_integer_literals_reject_non_ascii_digit_scripts_without_raising(
+    predicate: str,
+    value: str,
+) -> None:
+    decision = derive_semantic_route(_route_input(predicate, object_value=value))
+
+    assert decision.disposition is RouteDisposition.UNROUTED
+    assert decision.reason_code == "invalid_typed_value"
+
+
 def test_predicate_catalog_aliases_match_canonicalizer() -> None:
     catalog_aliases = {alias: spec.canonical for spec in ALL_SPECS for alias in spec.aliases}
 

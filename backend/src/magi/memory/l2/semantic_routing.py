@@ -103,6 +103,8 @@ _STATED_AGE_SPEC = _RouteSpec(
     frozenset({"explicit_fact"}),
 )
 
+_ASCII_INTEGER = re.compile(r"[0-9]+")
+
 
 _LITERAL_SPECS: dict[str, _RouteSpec] = {
     "REAL_NAME": _RouteSpec(
@@ -616,12 +618,12 @@ def _canonical_literal(predicate: str, value: Any) -> Any | None:
             return f"{year:04d}-{month:02d}-{day:02d}"
         return f"{month:02d}-{day:02d}"
     if predicate == "BIRTH_YEAR":
-        if not text.isdigit():
+        if _ASCII_INTEGER.fullmatch(text) is None:
             return None
         year = int(text)
         return year if 1900 <= year <= 2200 else None
     if predicate in {"AGE", "STATED_AGE"}:
-        if not text.isdigit():
+        if _ASCII_INTEGER.fullmatch(text) is None:
             return None
         age = int(text)
         return age if 0 <= age <= 130 else None
