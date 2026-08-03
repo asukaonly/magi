@@ -515,17 +515,21 @@ def _evidence_locator(
     event_type: str = "",
 ) -> dict[str, Any]:
     quote = str(evidence_text or "")
-    if event_type == HISTORY_DOCUMENT_EVENT_TYPE:
+    is_history_document = event_type == HISTORY_DOCUMENT_EVENT_TYPE
+    if is_history_document:
         occurrence = find_history_document_author_occurrence(content, quote)
         start, end = occurrence if occurrence is not None else (-1, -1)
     else:
         start = str(content or "").find(quote) if quote else -1
         end = start + len(quote) if start >= 0 else -1
-    return {
+    locator = {
         "start": start if start >= 0 else None,
         "end": end if end >= 0 else None,
         "quote_hash": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
     }
+    if is_history_document:
+        locator["attribution"] = "author_prose" if start >= 0 else None
+    return locator
 
 
 def _route_outcome_details(decision: SemanticRouteDecision) -> dict[str, Any]:

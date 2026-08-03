@@ -141,10 +141,7 @@ def _event_has_grounded_evidence_occurrence(
 ) -> bool:
     if event.event_type != HISTORY_DOCUMENT_EVENT_TYPE:
         return normalized_evidence_text in _normalize_evidence_text(content)
-    return (
-        find_history_document_author_occurrence(content, raw_evidence_text)
-        is not None
-    )
+    return find_history_document_author_occurrence(content, raw_evidence_text) is not None
 
 
 def normalize_phase1_claim_contract(
@@ -170,9 +167,11 @@ def normalize_phase1_claim_contract(
             normalizations.append(f"fact_claims[{index}]: dropped non-object candidate")
             continue
         candidate = dict(claim)
-        candidate["evidence_mode"] = str(
-            candidate.get("evidence_mode") or L2ClaimEvidenceMode.DIRECT.value
-        ).strip().casefold()
+        candidate["evidence_mode"] = (
+            str(candidate.get("evidence_mode") or L2ClaimEvidenceMode.DIRECT.value)
+            .strip()
+            .casefold()
+        )
         if not isinstance(candidate.get("supporting_event_ids"), list):
             candidate["supporting_event_ids"] = []
         if not isinstance(candidate.get("antecedent_event_ids"), list):
@@ -187,8 +186,7 @@ def normalize_phase1_claim_contract(
         if missing_semantic_field is not None:
             rejected_count += 1
             normalizations.append(
-                f"fact_claims[{index}]: dropped candidate "
-                f"(missing {missing_semantic_field})"
+                f"fact_claims[{index}]: dropped candidate " f"(missing {missing_semantic_field})"
             )
             continue
         grounded_event_ids = _grounded_event_ids(
@@ -207,9 +205,7 @@ def normalize_phase1_claim_contract(
         )
         if rejection_reason:
             rejected_count += 1
-            normalizations.append(
-                f"fact_claims[{index}]: dropped candidate ({rejection_reason})"
-            )
+            normalizations.append(f"fact_claims[{index}]: dropped candidate ({rejection_reason})")
             continue
         if typed_claim.evidence_mode is not L2ClaimEvidenceMode.DIRECT:
             candidate["confidence"] = min(
@@ -263,10 +259,7 @@ def normalize_phase1_claim_temporal_cues(
         grounded_cues = _temporal_cues_in_text(evidence) if isinstance(evidence, str) else set()
         if normalized_cue in valid_cues and (
             L2TemporalCue(normalized_cue) in grounded_cues
-            or (
-                normalized_cue == L2TemporalCue.UNSPECIFIED.value
-                and not grounded_cues
-            )
+            or (normalized_cue == L2TemporalCue.UNSPECIFIED.value and not grounded_cues)
         ):
             claim["temporal_cue"] = normalized_cue
             continue
@@ -396,11 +389,7 @@ def _required_clarification_antecedent_ids(
     if last_message["role"] != "assistant":
         return []
     prior_user = next(
-        (
-            message
-            for message in reversed(context_frame[:-1])
-            if message["role"] == "user"
-        ),
+        (message for message in reversed(context_frame[:-1]) if message["role"] == "user"),
         None,
     )
     if prior_user is None:
@@ -423,7 +412,9 @@ def _eligible_evidence_events(
     return [
         (
             event,
-            window_texts[index] if texts_are_aligned else event.content,
+            event.content
+            if event.event_type == HISTORY_DOCUMENT_EVENT_TYPE or not texts_are_aligned
+            else window_texts[index],
         )
         for index, event in enumerate(events)
         if _is_evidence_event(event)
