@@ -678,12 +678,7 @@ async def redact_grounded_claims_for_source_events(
         {str(event_id).strip() for event_id in event_ids if str(event_id).strip()}
     )
     if not normalized_ids:
-        return {
-            "l2_claim_evidence": 0,
-            "l2_claim_entity_refs": 0,
-            "l2_grounded_claims": 0,
-            "l2_claim_projection_outcomes": 0,
-        }
+        return _empty_claim_redaction_counts()
     event_json = canonical_json(normalized_ids)
     async with db.execute(
         """
@@ -702,19 +697,54 @@ async def redact_grounded_claims_for_source_events(
         (event_json,),
     )
 
+    counts = await redact_grounded_claims_by_ids(
+        db,
+        claim_ids=affected_claim_ids,
+        reason=reason,
+        invalidated_reason="source_event_forgotten",
+        now=now,
+    )
+    counts["l2_claim_evidence"] += max(int(deleted.rowcount or 0), 0)
+    return counts
+
+
+async def redact_grounded_claims_by_ids(
+    db: aiosqlite.Connection,
+    *,
+    claim_ids: Iterable[str],
+    reason: str,
+    invalidated_reason: str,
+    now: float,
+) -> dict[str, int]:
+    """Irreversibly redact active Claims while retaining opaque tombstones."""
+
+    normalized_claim_ids = sorted(
+        {str(claim_id).strip() for claim_id in claim_ids if str(claim_id).strip()}
+    )
+    if not normalized_claim_ids:
+        return _empty_claim_redaction_counts()
+
     redacted = 0
-    invalidated_outcomes = 0
-    invalidated_entity_refs = 0
-    deleted_evidence = max(int(deleted.rowcount or 0), 0)
-    for claim_id in affected_claim_ids:
+    scrubbed_outcomes = 0
+    deleted_entity_refs = 0
+    deleted_evidence = 0
+    normalized_reason = _required_text(reason, field_name="reason")
+    normalized_invalidated_reason = _required_text(
+        invalidated_reason,
+        field_name="invalidated_reason",
+    )
+    for claim_id in normalized_claim_ids:
         async with db.execute(
-            "SELECT identity_key FROM l2_grounded_claims WHERE claim_id = ?",
+            """
+            SELECT identity_key FROM l2_grounded_claims
+            WHERE claim_id = ? AND availability = 'active'
+            """,
             (claim_id,),
         ) as cursor:
             claim_row = await cursor.fetchone()
         if claim_row is None:
             continue
-        tombstone_material = f"{claim_row[0]}:{reason}"
+        tombstone_material = f"{claim_row[0]}:{normalized_reason}"
         tombstone_key = hashlib.sha256(tombstone_material.encode("utf-8")).hexdigest()
         remaining_evidence = await db.execute(
             "DELETE FROM l2_claim_evidence WHERE claim_id = ?",
@@ -725,12 +755,12 @@ async def redact_grounded_claims_for_source_events(
             "DELETE FROM l2_claim_entity_refs WHERE claim_id = ?",
             (claim_id,),
         )
-        invalidated_entity_refs += max(int(entity_refs.rowcount or 0), 0)
+        deleted_entity_refs += max(int(entity_refs.rowcount or 0), 0)
         async with db.execute(
             """
             SELECT outcome_id, target_id, target_slot_key
             FROM l2_claim_projection_outcomes
-            WHERE claim_id = ? AND invalidated_at IS NULL
+            WHERE claim_id = ?
             """,
             (claim_id,),
         ) as cursor:
@@ -755,12 +785,19 @@ async def redact_grounded_claims_for_source_events(
                 """
                 UPDATE l2_claim_projection_outcomes
                 SET target_id = ?, target_slot_key = ?, details_json = NULL,
-                    invalidated_at = ?, invalidated_reason = 'source_event_forgotten'
-                WHERE outcome_id = ? AND invalidated_at IS NULL
+                    invalidated_at = COALESCE(invalidated_at, ?),
+                    invalidated_reason = COALESCE(invalidated_reason, ?)
+                WHERE outcome_id = ?
                 """,
-                (redacted_target, redacted_slot, now, outcome_id),
+                (
+                    redacted_target,
+                    redacted_slot,
+                    now,
+                    normalized_invalidated_reason,
+                    outcome_id,
+                ),
             )
-            invalidated_outcomes += max(int(cursor.rowcount or 0), 0)
+            scrubbed_outcomes += max(int(cursor.rowcount or 0), 0)
         cursor = await db.execute(
             """
             UPDATE l2_grounded_claims
@@ -781,13 +818,23 @@ async def redact_grounded_claims_for_source_events(
         redacted += max(int(cursor.rowcount or 0), 0)
     return {
         "l2_claim_evidence": deleted_evidence,
-        "l2_claim_entity_refs": invalidated_entity_refs,
+        "l2_claim_entity_refs": deleted_entity_refs,
         "l2_grounded_claims": redacted,
-        "l2_claim_projection_outcomes": invalidated_outcomes,
+        "l2_claim_projection_outcomes": scrubbed_outcomes,
+    }
+
+
+def _empty_claim_redaction_counts() -> dict[str, int]:
+    return {
+        "l2_claim_evidence": 0,
+        "l2_claim_entity_refs": 0,
+        "l2_grounded_claims": 0,
+        "l2_claim_projection_outcomes": 0,
     }
 
 
 __all__ = [
     "L2GroundedClaimStoreMixin",
+    "redact_grounded_claims_by_ids",
     "redact_grounded_claims_for_source_events",
 ]

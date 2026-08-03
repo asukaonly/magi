@@ -196,24 +196,24 @@ async def _list_reprojection_candidates(
                 WHERE outcomes.target_kind = 'route'
                   AND outcomes.invalidated_at IS NULL
             ),
-            latest_object_refs AS (
+            latest_entity_refs AS (
                 SELECT
                     refs.claim_id,
+                    refs.ref_role,
                     refs.entity_id,
                     refs.resolution_version,
                     ROW_NUMBER() OVER (
-                        PARTITION BY refs.claim_id
+                        PARTITION BY refs.claim_id, refs.ref_role
                         ORDER BY refs.resolution_version DESC,
                                  refs.created_at DESC,
                                  refs.entity_id
                     ) AS row_number
                 FROM l2_claim_entity_refs AS refs
-                WHERE refs.ref_role = 'object'
-                  AND refs.invalidated_at IS NULL
+                WHERE refs.invalidated_at IS NULL
             )
             SELECT
                 claims.claim_id,
-                claims.subject_ref,
+                COALESCE(subject_refs.entity_id, claims.subject_ref) AS subject_ref,
                 claims.subject_type,
                 claims.canonical_predicate,
                 claims.fact_kind,
@@ -225,13 +225,20 @@ async def _list_reprojection_candidates(
                 claims.target_to,
                 claims.raw_time_frame_json,
                 object_refs.entity_id AS object_entity_id,
+                COALESCE(subject_refs.resolution_version, 0)
+                    AS subject_resolution_version,
                 COALESCE(object_refs.resolution_version, 0) AS object_resolution_version
             FROM l2_grounded_claims AS claims
             LEFT JOIN latest_route_outcomes AS latest
               ON latest.claim_id = claims.claim_id
              AND latest.row_number = 1
-            LEFT JOIN latest_object_refs AS object_refs
+            LEFT JOIN latest_entity_refs AS subject_refs
+              ON subject_refs.claim_id = claims.claim_id
+             AND subject_refs.ref_role = 'subject'
+             AND subject_refs.row_number = 1
+            LEFT JOIN latest_entity_refs AS object_refs
               ON object_refs.claim_id = claims.claim_id
+             AND object_refs.ref_role = 'object'
              AND object_refs.row_number = 1
             WHERE claims.availability = 'active'
               AND (
@@ -242,7 +249,14 @@ async def _list_reprojection_candidates(
                         AND latest.outcome = 'unrouted'
                         AND latest.attempt_key != (
                             'route-reproject:v' || CAST(? AS TEXT)
-                            || ':r' || CAST(
+                            || ':' || CASE
+                                WHEN COALESCE(subject_refs.resolution_version, 0) > 0
+                                THEN 's' || CAST(
+                                    subject_refs.resolution_version AS TEXT
+                                ) || ':'
+                                ELSE ''
+                            END
+                            || 'r' || CAST(
                                 COALESCE(object_refs.resolution_version, 0) AS TEXT
                             )
                             || ':' || claims.claim_id
@@ -304,13 +318,22 @@ def _route_outcome(
     route_contract_version: int,
 ) -> ProjectionOutcomeInput:
     predicate = str(candidate["canonical_predicate"]).strip().upper()
-    resolution_version = max(0, int(candidate.get("object_resolution_version") or 0))
+    subject_resolution = max(
+        0,
+        int(candidate.get("subject_resolution_version") or 0),
+    )
+    object_resolution = max(
+        0,
+        int(candidate.get("object_resolution_version") or 0),
+    )
+    resolution_key = (
+        f"s{subject_resolution}:r{object_resolution}"
+        if subject_resolution > 0
+        else f"r{object_resolution}"
+    )
     return ProjectionOutcomeInput(
         claim_id=decision.claim_id,
-        attempt_key=(
-            f"route-reproject:v{route_contract_version}:"
-            f"r{resolution_version}:{decision.claim_id}"
-        ),
+        attempt_key=f"route-reproject:v{route_contract_version}:{resolution_key}:{decision.claim_id}",
         target_kind="route",
         target_id=decision.route_key or f"predicate:{predicate}",
         target_slot_key=decision.slot_key,
@@ -324,6 +347,7 @@ def _route_outcome(
             "object_role": decision.object_role.value,
             "value_fingerprint": decision.value_fingerprint,
             "target_entity_type": decision.target_entity_type,
+            "target_window_key": decision.target_window_key,
             "scope_key": decision.scope_key,
         },
     )

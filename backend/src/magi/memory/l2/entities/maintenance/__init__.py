@@ -227,8 +227,8 @@ class L2EntityMaintenance(
             consolidate_episodes=consolidate_episodes,
         )
         stats = L2EntityMaintenanceStats()
-        await self._run_claim_route_steps(stats)
         await self._run_entity_cleanup_steps(plan, stats)
+        await self._run_claim_route_steps(stats)
         await self._run_assertion_decay_steps(plan, stats)
         await self._run_snapshot_reconciliation_steps(plan, stats)
         await self._run_edge_cleanup_steps(plan, stats)

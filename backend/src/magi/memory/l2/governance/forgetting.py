@@ -13,6 +13,7 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
+from ..claims.repository import redact_grounded_claims_by_ids
 from ..corrections.cache_signals import mark_subject_changed
 from ..corrections.evidence_ledger import (
     claim_evidence_records_for_claims,
@@ -278,6 +279,28 @@ class L2StoreForgettingMixin:
                 db,
                 "entity_id = ? OR target_entity_id = ?",
                 (entity_id, entity_id),
+            )
+            async with db.execute(
+                """
+                SELECT DISTINCT claims.claim_id
+                FROM l2_grounded_claims AS claims
+                LEFT JOIN l2_claim_entity_refs AS refs
+                  ON refs.claim_id = claims.claim_id
+                WHERE claims.availability = 'active'
+                  AND (claims.subject_ref = ? OR refs.entity_id = ?)
+                ORDER BY claims.claim_id
+                """,
+                (entity_id, entity_id),
+            ) as cursor:
+                grounded_claim_ids = [str(row[0]) for row in await cursor.fetchall()]
+            counts.update(
+                await redact_grounded_claims_by_ids(
+                    db,
+                    claim_ids=grounded_claim_ids,
+                    reason=f"forget_entity:{entity_id}",
+                    invalidated_reason="entity_forgotten",
+                    now=now,
+                )
             )
             cursor = await db.execute(
                 """
