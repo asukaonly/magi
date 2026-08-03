@@ -619,14 +619,19 @@ class L2Phase2FlowMixin:
             graph_candidates,
             occurrence_stats_by_key,
         )
+        host_graph_edges, host_assertions = await self._load_host_conflict_context(
+            graph_candidates=graph_candidates,
+            assertion_candidates=assertion_candidates,
+            semantic_routes=phase1_flow.semantic_routes,
+        )
         validated_assessments, rejected_assessment_count = self._validate_phase2_claim_assessments(
             phase1_result=phase1_flow.phase1_result,
             semantic_routes=phase1_flow.semantic_routes,
             graph_candidates=graph_candidates,
             assertion_candidates=assertion_candidates,
             assessments=phase2_result.claim_assessments,
-            existing_graph_edges=phase2_context.existing_graph_edges,
-            existing_assertions=phase2_context.existing_assertions,
+            existing_graph_edges=host_graph_edges,
+            existing_assertions=host_assertions,
             graph_conflict_rules=phase2_context.graph_conflict_rules,
             arbitration_min_confidence=self._conflict_arbitration_min_confidence,
         )
