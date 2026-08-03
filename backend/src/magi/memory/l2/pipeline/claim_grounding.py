@@ -13,6 +13,10 @@ from ..models import (
     L2Phase1Result,
 )
 from ..phase1_models import L2TemporalCue
+from .history_markdown import (
+    HISTORY_DOCUMENT_EVENT_TYPE,
+    find_history_document_author_occurrence,
+)
 
 _CONTEXTUAL_CLAIM_CONFIDENCE_CAP = 0.75
 _EXPLICIT_CONFIRMATIONS = frozenset(
@@ -119,8 +123,28 @@ def _grounded_event_ids(
     return [
         event.event_id
         for event, content in eligible_events
-        if evidence_text in _normalize_evidence_text(content)
+        if _event_has_grounded_evidence_occurrence(
+            event=event,
+            content=content,
+            normalized_evidence_text=evidence_text,
+            raw_evidence_text=claim.evidence_text,
+        )
     ]
+
+
+def _event_has_grounded_evidence_occurrence(
+    *,
+    event: L2BatchEvent,
+    content: str,
+    normalized_evidence_text: str,
+    raw_evidence_text: str,
+) -> bool:
+    if event.event_type != HISTORY_DOCUMENT_EVENT_TYPE:
+        return normalized_evidence_text in _normalize_evidence_text(content)
+    return (
+        find_history_document_author_occurrence(content, raw_evidence_text)
+        is not None
+    )
 
 
 def normalize_phase1_claim_contract(

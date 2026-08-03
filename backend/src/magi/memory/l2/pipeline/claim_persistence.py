@@ -25,6 +25,10 @@ from ..semantic_routing import (
     derive_semantic_route,
 )
 from .extraction_contracts import ClaimProjectionOutcomeDraft, _PreparedExtractionBatch
+from .history_markdown import (
+    HISTORY_DOCUMENT_EVENT_TYPE,
+    find_history_document_author_occurrence,
+)
 from .temporal_claims import resolve_claim_temporal_fields
 
 logger = get_logger("magi.memory.l2.pipeline")
@@ -411,7 +415,11 @@ def _claim_event_links(
                 evidence_class=(
                     classification.evidence_class if classification is not None else None
                 ),
-                evidence_locator=_evidence_locator(batch_event.content, claim.evidence_text),
+                evidence_locator=_evidence_locator(
+                    batch_event.content,
+                    claim.evidence_text,
+                    event_type=batch_event.event_type,
+                ),
             )
         )
     for event_id in claim.antecedent_event_ids:
@@ -500,12 +508,22 @@ def _event_memory_domain(batch: _PreparedExtractionBatch, event_id: str) -> str 
     return None
 
 
-def _evidence_locator(content: str, evidence_text: str) -> dict[str, Any]:
+def _evidence_locator(
+    content: str,
+    evidence_text: str,
+    *,
+    event_type: str = "",
+) -> dict[str, Any]:
     quote = str(evidence_text or "")
-    start = str(content or "").find(quote) if quote else -1
+    if event_type == HISTORY_DOCUMENT_EVENT_TYPE:
+        occurrence = find_history_document_author_occurrence(content, quote)
+        start, end = occurrence if occurrence is not None else (-1, -1)
+    else:
+        start = str(content or "").find(quote) if quote else -1
+        end = start + len(quote) if start >= 0 else -1
     return {
         "start": start if start >= 0 else None,
-        "end": start + len(quote) if start >= 0 else None,
+        "end": end if end >= 0 else None,
         "quote_hash": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
     }
 
