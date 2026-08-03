@@ -15,6 +15,7 @@ from magi.memory.l2.claims.reprojection import (
     reproject_stale_claim_routes,
 )
 from magi.memory.l2.entities.maintenance import L2EntityMaintenance
+from magi.memory.l2.semantic_routing import ROUTE_CONTRACT_VERSION
 
 
 async def _seed_claim(
@@ -499,6 +500,6 @@ async def test_maintenance_reports_structured_unrouted_backlog(
     maintenance_logger.info.assert_any_call(
         "L2 unrouted Claim backlog",
         total_claims=1,
-        route_contract_version=1,
+        route_contract_version=ROUTE_CONTRACT_VERSION,
         groups=stats.unrouted_claim_backlog,
     )

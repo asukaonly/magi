@@ -36,6 +36,7 @@ _ROUTED_PREDICATES = frozenset(
         "FEELS",
         "HAS_METRIC",
         "MAINTAINS",
+        "PLANS_TO",
         "PREFERRED_COMMUNICATION_STYLE",
         "PREFERRED_FORM_OF_ADDRESS",
         "REAL_NAME",
@@ -52,7 +53,6 @@ _DEFERRED_PREDICATES = frozenset(
         "FOLLOWS",
         "LISTENED",
         "MERGED",
-        "PLANS_TO",
         "REBASED",
         "USED",
         "USES",
@@ -107,8 +107,12 @@ def _route_input(predicate: str, **overrides: object) -> SemanticRouteInput:
     elif predicate == "HAS_METRIC":
         object_type = "health_metric"
         object_value = "stress"
+    elif predicate == "PLANS_TO":
+        fact_kind = "future_intent"
+        object_type = "activity"
+        object_entity_id = "entity:target"
     elif predicate in _DEFERRED_PREDICATES:
-        fact_kind = "future_intent" if predicate == "PLANS_TO" else "interaction_evidence"
+        fact_kind = "interaction_evidence"
         object_entity_id = "entity:target"
 
     values: dict[str, object] = {
@@ -121,6 +125,11 @@ def _route_input(predicate: str, **overrides: object) -> SemanticRouteInput:
         "object_value": object_value,
         "object_entity_id": object_entity_id,
         "temporal_cue": "current",
+        "specificity": "concrete",
+        "target_from": None,
+        "target_to": None,
+        "raw_time_expression": "",
+        "time_resolution": "unscheduled",
     }
     values.update(overrides)
     return SemanticRouteInput(**values)  # type: ignore[arg-type]
@@ -237,6 +246,32 @@ def test_target_route_never_falls_back_to_object_surface() -> None:
         assert decision.slot_key is None
         assert decision.canonical_value is None
         assert not decision.can_project_assertion
+
+
+def test_goal_route_requires_concrete_resolved_target_and_keys_time_window() -> None:
+    unscheduled = derive_semantic_route(_route_input("PLANS_TO"))
+    scheduled = derive_semantic_route(
+        _route_input(
+            "PLANS_TO",
+            claim_id="claim:scheduled",
+            target_from=1_800_000_000.0,
+            target_to=1_800_086_400.0,
+            raw_time_expression="2027-01-15",
+            time_resolution="exact",
+        )
+    )
+
+    assert unscheduled.disposition is RouteDisposition.ROUTED
+    assert unscheduled.family == "goal_profile"
+    assert unscheduled.trait_code == "goal.intent"
+    assert unscheduled.target_window_key
+    assert scheduled.slot_key != unscheduled.slot_key
+    assert scheduled.target_window_key != unscheduled.target_window_key
+
+    unresolved = derive_semantic_route(_route_input("PLANS_TO", object_entity_id=None))
+    vague = derive_semantic_route(_route_input("PLANS_TO", specificity="underspecified"))
+    assert unresolved.reason_code == "unresolved_target"
+    assert vague.reason_code == "goal_target_not_concrete"
 
 
 def test_unknown_predicate_remains_visible_as_unrouted() -> None:

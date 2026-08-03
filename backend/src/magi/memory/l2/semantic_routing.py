@@ -14,7 +14,7 @@ from .claims.identity import canonical_json
 from .ontology import PROFILE_SIGNAL_PREDICATES
 from .predicate_catalog import SPEC_BY_CANONICAL
 
-ROUTE_CONTRACT_VERSION = 1
+ROUTE_CONTRACT_VERSION = 2
 SLOT_SCHEMA_VERSION = 1
 
 
@@ -49,6 +49,11 @@ class SemanticRouteInput:
     object_value: Any | None
     object_entity_id: str | None
     temporal_cue: str
+    specificity: str
+    target_from: float | None
+    target_to: float | None
+    raw_time_expression: str
+    time_resolution: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +75,7 @@ class SemanticRouteDecision:
     subject_type: str | None = None
     target_entity_id: str | None = None
     target_entity_type: str | None = None
+    target_window_key: str | None = None
     scope_key: str = "global"
 
     @property
@@ -227,6 +233,15 @@ _FEELS_SPEC = _RouteSpec(
     frozenset({"explicit_fact"}),
 )
 
+_GOAL_SPEC = _RouteSpec(
+    "goal.intent",
+    "goal_profile",
+    "goal.intent",
+    ObjectRole.TARGET_IDENTITY,
+    frozenset({"future_intent"}),
+    canonical_value="planned",
+)
+
 _METRIC_SPECS: dict[str, _RouteSpec] = {
     "stress": _RouteSpec(
         "state.stress.level",
@@ -294,7 +309,7 @@ _ROUTE_DISPOSITION_BY_PREDICATE: dict[str, RouteDisposition] = {
     ),
     "FEELS": RouteDisposition.ROUTED,
     "HAS_METRIC": RouteDisposition.ROUTED,
-    "PLANS_TO": RouteDisposition.DEFERRED,
+    "PLANS_TO": RouteDisposition.ROUTED,
 }
 
 # Public, immutable coverage table. Adding a catalog predicate or profile
@@ -348,16 +363,30 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
     object_type = _required(route_input.object_type).casefold()
 
     if predicate == "PLANS_TO":
-        reason = (
-            "goal_contract_pending"
-            if fact_kind == "future_intent"
-            else "predicate_fact_kind_mismatch"
-        )
-        return _non_routed(
+        if fact_kind not in _GOAL_SPEC.allowed_fact_kinds:
+            return _mismatch(route_input, _GOAL_SPEC)
+        if str(route_input.specificity or "").strip().casefold() != "concrete":
+            return _non_routed(
+                route_input,
+                disposition=RouteDisposition.UNROUTED,
+                reason_code="goal_target_not_concrete",
+                object_role=_GOAL_SPEC.object_role,
+            )
+        target_id = str(route_input.object_entity_id or "").strip()
+        if not target_id:
+            return _non_routed(
+                route_input,
+                disposition=RouteDisposition.UNROUTED,
+                reason_code="unresolved_target",
+                object_role=_GOAL_SPEC.object_role,
+            )
+        return _routed(
             route_input,
-            disposition=RouteDisposition.DEFERRED,
-            reason_code=reason,
-            object_role=ObjectRole.STRUCTURED_TARGET_AND_VALUE,
+            spec=_GOAL_SPEC,
+            canonical_value=_GOAL_SPEC.canonical_value,
+            target_entity_id=target_id,
+            target_entity_type=object_type,
+            target_window_key=_goal_target_window_key(route_input),
         )
 
     if predicate == "FEELS":
@@ -489,11 +518,12 @@ def _routed(
     canonical_value: Any,
     target_entity_id: str | None,
     target_entity_type: str | None,
+    target_window_key: str | None = None,
 ) -> SemanticRouteDecision:
     subject_id = _required(route_input.subject_id)
     subject_type = _required(route_input.subject_type)
     scope_key = "global"
-    identity = {
+    identity: dict[str, Any] = {
         "route_contract_version": ROUTE_CONTRACT_VERSION,
         "subject_type": subject_type,
         "subject_id": subject_id,
@@ -503,18 +533,23 @@ def _routed(
         "object_identity_or_typed_value": target_entity_id or canonical_value,
         "scope_key": scope_key,
     }
+    if target_window_key is not None:
+        identity["target_window_key"] = target_window_key
     route_key = _opaque_key("srk", identity)
+    slot_identity: dict[str, Any] = {
+        "slot_schema_version": SLOT_SCHEMA_VERSION,
+        "subject_type": subject_type,
+        "subject_id": subject_id,
+        "family": spec.family,
+        "trait_code": spec.trait_code,
+        "target_entity_id": target_entity_id or "",
+        "scope_key": scope_key,
+    }
+    if target_window_key is not None:
+        slot_identity["target_window_key"] = target_window_key
     slot_key = _opaque_key(
         "slt",
-        {
-            "slot_schema_version": SLOT_SCHEMA_VERSION,
-            "subject_type": subject_type,
-            "subject_id": subject_id,
-            "family": spec.family,
-            "trait_code": spec.trait_code,
-            "target_entity_id": target_entity_id or "",
-            "scope_key": scope_key,
-        },
+        slot_identity,
     )
     return SemanticRouteDecision(
         claim_id=_required(route_input.claim_id),
@@ -539,7 +574,22 @@ def _routed(
         subject_type=subject_type,
         target_entity_id=target_entity_id,
         target_entity_type=target_entity_type,
+        target_window_key=target_window_key,
         scope_key=scope_key,
+    )
+
+
+def _goal_target_window_key(route_input: SemanticRouteInput) -> str:
+    resolution = str(route_input.time_resolution or "unscheduled").strip().casefold()
+    raw = str(route_input.raw_time_expression or "").strip()
+    return _opaque_key(
+        "twk",
+        {
+            "resolution": resolution,
+            "target_from": route_input.target_from,
+            "target_to": route_input.target_to,
+            "raw": raw if route_input.target_from is None and route_input.target_to is None else "",
+        },
     )
 
 

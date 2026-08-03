@@ -34,6 +34,7 @@ PORTRAIT_ASSERTION_FAMILIES = (
     "mood",
     "stress",
     "engagement",
+    "goal_profile",
 )
 WORLD_GROUP_IDS = PORTRAIT_WORLD_GROUP_IDS
 _INTERNAL_SOURCE_KEYS = {
@@ -42,6 +43,8 @@ _INTERNAL_SOURCE_KEYS = {
     "photo_library_apple_photos",
     "photo_library_directory",
 }
+_MAX_PROMPT_SUMMARY_LINES = 4
+_MAX_PROTECTED_GOAL_LINES = 2
 
 
 class UserPortraitLLMClient(Protocol):
@@ -96,12 +99,14 @@ class UserPortraitProjectionBuilder:
             assertions=assertions,
         )
         tentative_lines = [candidate.prompt_line for candidate in tentative_claims[:2]]
+        protected_goal_lines = _goal_prompt_lines(recent)
         # Keep main-model context grounded in governed assertions, explicit profile
         # fields, and deterministic Claim material.
         prompt_summary = self._rule_prompt_summary(
             world=world,
             recent=recent,
             tentative_lines=tentative_lines,
+            protected_goal_lines=protected_goal_lines,
         )
         selected_tentative_claims = [
             candidate
@@ -138,7 +143,10 @@ class UserPortraitProjectionBuilder:
         llm_payload = await self._llm_overrides(material)
         llm_summary = _string_list(llm_payload.get("prompt_summary"))
         if llm_summary and not selected_tentative_claims:
-            prompt_summary = llm_summary[:4]
+            prompt_summary = _merge_protected_prompt_lines(
+                llm_summary,
+                protected_goal_lines,
+            )
             generated_by = "llm"
 
         await derivation_revision.ensure_current(self._l2_store)
@@ -315,6 +323,7 @@ class UserPortraitProjectionBuilder:
         world: dict[str, Any],
         recent: dict[str, Any],
         tentative_lines: list[str],
+        protected_goal_lines: list[str],
     ) -> list[str]:
         groups = {
             group["id"]: list(group.get("items", []))
@@ -337,10 +346,16 @@ class UserPortraitProjectionBuilder:
             if len(lines) >= 4:
                 break
             lines.append(line)
-        recent_items = _item_texts(list(recent.get("items", [])))[:2]
-        if recent_items and len(lines) < 4:
+        recent_items = _item_texts(
+            [
+                item
+                for item in list(recent.get("items", []))
+                if _text(item.get("trait_family")).casefold() != "goal_profile"
+            ]
+        )[:2]
+        if recent_items and len(lines) < _MAX_PROMPT_SUMMARY_LINES:
             lines.append(f"近期线索：{'、'.join(recent_items)}；不要直接当成长期结论。")
-        return lines[:4]
+        return _merge_protected_prompt_lines(lines, protected_goal_lines)
 
     async def _llm_overrides(self, material: dict[str, Any]) -> dict[str, Any]:
         if self._llm_client is None:
@@ -379,6 +394,8 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
     text = _display_value(assertion.get("trait_value"))
     if not text:
         return None
+    if _text(assertion.get("trait_family")).casefold() == "goal_profile":
+        text = f"近期计划：{text}"
     assertion_id = _text(assertion.get("assertion_id"))
     raw_source_key = _text(assertion.get("source_domain"))
     source_key = None if raw_source_key in _INTERNAL_SOURCE_KEYS else (raw_source_key or None)
@@ -404,6 +421,7 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
         "basis_count": _evidence_count(assertion),
         "basis_refs": refs,
         "claim_kind": decision.claim_kind,
+        "trait_family": _text(assertion.get("trait_family")),
         "updated_at": _optional_float(
             assertion.get("updated_at")
             or assertion.get("last_validated_at")
@@ -480,6 +498,34 @@ def _item_score(item: dict[str, Any]) -> tuple[int, int, int]:
 
 def _item_texts(items: list[dict[str, Any]]) -> list[str]:
     return [_text(item.get("text")) for item in items if _text(item.get("text"))]
+
+
+def _goal_prompt_lines(recent: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for item in list(recent.get("items", [])):
+        if _text(item.get("trait_family")).casefold() != "goal_profile":
+            continue
+        text = _text(item.get("text"))
+        if text and text not in lines:
+            lines.append(text)
+    return lines[:_MAX_PROTECTED_GOAL_LINES]
+
+
+def _merge_protected_prompt_lines(
+    candidate_lines: list[str],
+    protected_lines: list[str],
+) -> list[str]:
+    """Keep deterministic goal lines while sharing the four-line prompt budget."""
+
+    protected = list(dict.fromkeys(_string_list(protected_lines)))[:_MAX_PROMPT_SUMMARY_LINES]
+    protected_keys = {line.casefold() for line in protected}
+    candidates = [
+        line
+        for line in dict.fromkeys(_string_list(candidate_lines))
+        if line.casefold() not in protected_keys
+    ]
+    candidate_budget = _MAX_PROMPT_SUMMARY_LINES - len(protected)
+    return [*candidates[:candidate_budget], *protected]
 
 
 def _evidence_count(assertion: dict[str, Any]) -> int:

@@ -207,24 +207,29 @@ def _phase1_only_result_payload(
     batch: _PreparedExtractionBatch,
     phase1_flow: _Phase1ExtractionFlow,
     candidates: list[dict[str, Any]],
+    assertion_candidates: list[dict[str, Any]],
     *,
     relation_count: int,
+    assertion_count: int,
     rejected_graph_candidate_count: int,
+    rejected_assertion_candidate_count: int,
 ) -> dict[str, Any]:
     touched_entity_ids = pipeline._collect_touched_entities(
         candidates + batch.direct_write_candidates,
-        [],
+        assertion_candidates,
     )
     touched_place_ids, touched_topic_keys = pipeline._derive_place_and_topic_hints(
         touched_entity_ids
     )
     return {
         "relation_count": relation_count,
-        "assertion_count": 0,
+        "assertion_count": assertion_count,
         "touched_entity_ids": touched_entity_ids,
         "touched_place_ids": touched_place_ids,
         "touched_topic_keys": touched_topic_keys,
-        "event_entity_map": build_event_entity_map(candidates + batch.direct_write_candidates),
+        "event_entity_map": build_event_entity_map(
+            candidates + batch.direct_write_candidates + assertion_candidates
+        ),
         "snapshot_refresh_entity_ids": [],
         "skipped": False,
         "evidence_class": batch.classification.evidence_class,
@@ -232,10 +237,10 @@ def _phase1_only_result_payload(
         "mention_count": len(phase1_flow.phase1_result.entities),
         "direct_write_count": batch.direct_write_count,
         "graph_candidate_count": len(candidates),
-        "assertion_candidate_count": 0,
+        "assertion_candidate_count": len(assertion_candidates),
         "claim_assessment_count": 0,
         "rejected_graph_candidate_count": rejected_graph_candidate_count,
-        "rejected_assertion_candidate_count": 0,
+        "rejected_assertion_candidate_count": rejected_assertion_candidate_count,
         "rejected_claim_assessment_count": 0,
         "contradiction_hint_count": 0,
         "conflict_arbitration_decision": None,
@@ -456,19 +461,43 @@ class L2Phase2FlowMixin:
         rejected_graph_count: int,
     ) -> dict[str, Any]:
         await self._assert_current_projection_attempt(batch)
+        assertion_candidates, rejected_assertion_count = (
+            await self._validate_host_goal_assertions(
+                batch=batch,
+                phase1_flow=phase1_flow,
+                graph_candidates=graph_candidates,
+            )
+        )
         relation_count = await self._upsert_knowledge_edges_with_outcomes(
             graph_candidates,
             attempt_key=batch.attempt_key,
             route_contract_version=ROUTE_CONTRACT_VERSION,
             projection_leases=batch.projection_leases,
         )
+        facet_count = await self._upsert_structured_facets(batch)
+        _, _, assertion_count = await self._persist_extraction_outputs(
+            graph_candidates=[],
+            direct_write_candidates=[],
+            facet_candidates=[],
+            assertion_candidates=assertion_candidates,
+            contradiction_hints=[],
+            attempt_key=batch.attempt_key,
+            route_contract_version=ROUTE_CONTRACT_VERSION,
+            projection_leases=batch.projection_leases,
+        )
+        atomic_assertion_claim_ids = {
+            normalized_claim_id
+            for candidate in assertion_candidates
+            for claim_id in candidate.get("supporting_claim_ids", [])
+            if (normalized_claim_id := str(claim_id or "").strip())
+        }
         _ensure_assertion_outcomes(
             phase1_flow,
             reason_code=(
                 "phase2_degraded" if _degraded_stages(phase1_flow) else "phase2_not_required"
             ),
+            atomically_completed_claim_ids=atomic_assertion_claim_ids,
         )
-        facet_count = await self._upsert_structured_facets(batch)
         await self._persist_claim_projection_outcomes(batch, phase1_flow.claim_outcomes)
         logger.info(
             "L2 Phase 1 persisted without Phase 2 inference",
@@ -478,14 +507,18 @@ class L2Phase2FlowMixin:
             rejected_graph_candidate_count=rejected_graph_count,
             direct_write_count=batch.direct_write_count,
             facet_count=facet_count,
+            assertion_count=assertion_count,
         )
         return _phase1_only_result_payload(
             self,
             batch,
             phase1_flow,
             graph_candidates,
+            assertion_candidates,
             relation_count=relation_count,
+            assertion_count=assertion_count,
             rejected_graph_candidate_count=rejected_graph_count,
+            rejected_assertion_candidate_count=rejected_assertion_count,
         )
 
     async def _persist_degraded_phase1(
@@ -514,6 +547,38 @@ class L2Phase2FlowMixin:
         )
         result["fast_tracked"] = False
         return result
+
+    async def _validate_host_goal_assertions(
+        self: Any,
+        *,
+        batch: _PreparedExtractionBatch,
+        phase1_flow: _Phase1ExtractionFlow,
+        graph_candidates: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Validate host-owned goals without depending on optional Phase 2 output."""
+
+        if not any(
+            route.family == "goal_profile" and route.can_project_assertion
+            for route in phase1_flow.semantic_routes.values()
+        ):
+            return [], 0
+        occurrence_stats_by_key = await self._load_phase2_occurrence_stats(phase1_flow)
+        assertion_context = self._merge_graph_candidates(
+            graph_candidates,
+            batch.direct_write_candidates,
+        )
+        return self._validate_phase2_assertions(
+            event=batch.stored_event,
+            profile=batch.extraction_profile,
+            policy=batch.policy,
+            graph_candidates=assertion_context,
+            default_event_ids=batch.batch_event_ids,
+            semantic_routes=phase1_flow.semantic_routes,
+            occurrence_stats_by_key=occurrence_stats_by_key,
+            phase1_result=phase1_flow.phase1_result,
+            phase2_assertions=[],
+            claim_outcomes=phase1_flow.claim_outcomes,
+        )
 
     async def _run_phase2_integration(
         self: Any,

@@ -220,6 +220,10 @@ async def _list_reprojection_candidates(
                 claims.object_type,
                 claims.object_value_json,
                 claims.temporal_cue,
+                claims.specificity,
+                claims.target_from,
+                claims.target_to,
+                claims.raw_time_frame_json,
                 object_refs.entity_id AS object_entity_id,
                 COALESCE(object_refs.resolution_version, 0) AS object_resolution_version
             FROM l2_grounded_claims AS claims
@@ -259,6 +263,8 @@ async def _list_reprojection_candidates(
 
 
 def _derive_candidate_route(candidate: dict[str, Any]) -> SemanticRouteDecision:
+    raw_time_frame = _decode_json(candidate.get("raw_time_frame_json"))
+    temporal_payload = raw_time_frame if isinstance(raw_time_frame, dict) else {}
     return derive_semantic_route(
         SemanticRouteInput(
             claim_id=str(candidate["claim_id"]),
@@ -274,6 +280,19 @@ def _derive_candidate_route(candidate: dict[str, Any]) -> SemanticRouteDecision:
                 else None
             ),
             temporal_cue=str(candidate["temporal_cue"]),
+            specificity=str(candidate["specificity"]),
+            target_from=(
+                float(candidate["target_from"])
+                if candidate.get("target_from") is not None
+                else None
+            ),
+            target_to=(
+                float(candidate["target_to"])
+                if candidate.get("target_to") is not None
+                else None
+            ),
+            raw_time_expression=str(temporal_payload.get("raw") or ""),
+            time_resolution=str(temporal_payload.get("resolution") or "unscheduled"),
         )
     )
 

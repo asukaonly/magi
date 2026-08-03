@@ -245,6 +245,11 @@ def test_assertion_compatibility_uses_host_route_target_scope_and_typed_value() 
             object_value="topic:jazz",
             object_entity_id="topic:jazz",
             temporal_cue="stable",
+            specificity="concrete",
+            target_from=None,
+            target_to=None,
+            raw_time_expression="",
+            time_resolution="unscheduled",
         )
     )
     record = {

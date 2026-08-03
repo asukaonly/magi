@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from typing import Any, Protocol, cast
 
 from ....core.logger import get_logger
@@ -24,10 +25,11 @@ from ..semantic_routing import (
     derive_semantic_route,
 )
 from .extraction_contracts import ClaimProjectionOutcomeDraft, _PreparedExtractionBatch
+from .temporal_claims import resolve_claim_temporal_fields
 
 logger = get_logger("magi.memory.l2.pipeline")
 
-EXTRACTOR_CONTRACT_VERSION = 1
+EXTRACTOR_CONTRACT_VERSION = 2
 EVIDENCE_RULE_VERSION = 1
 ENTITY_RESOLUTION_VERSION = 1
 
@@ -127,7 +129,19 @@ class L2ClaimPersistenceMixin:
             canonical_predicate = (
                 canonicalize_predicate(claim.predicate) or str(claim.predicate or "").strip()
             )
+            fact_kind = str(getattr(claim.fact_kind, "value", claim.fact_kind) or "explicit_fact")
             evidence_mode = str(getattr(claim.evidence_mode, "value", claim.evidence_mode))
+            temporal = resolve_claim_temporal_fields(
+                raw_expression=claim.raw_time_expression,
+                future_intent=fact_kind == "future_intent",
+                evidence=event_links,
+                local_timezone=datetime.now().astimezone().tzinfo,
+            )
+            claim.fact_valid_from = temporal.fact_valid_from
+            claim.fact_valid_to = temporal.fact_valid_to
+            claim.target_from = temporal.target_from
+            claim.target_to = temporal.target_to
+            claim.raw_time_frame = temporal.raw_time_frame
             identity_key = derive_claim_identity_key(
                 extractor_contract_version=EXTRACTOR_CONTRACT_VERSION,
                 evidence_rule_version=EVIDENCE_RULE_VERSION,
@@ -135,11 +149,16 @@ class L2ClaimPersistenceMixin:
                 subject_ref=subject_ref,
                 subject_type=str(claim.subject_type or "user"),
                 canonical_predicate=canonical_predicate,
-                fact_kind=str(claim.fact_kind or "explicit_fact"),
+                fact_kind=fact_kind,
                 object_type=str(claim.object_type or "entity"),
                 polarity=str(claim.polarity or "positive"),
                 specificity=str(claim.specificity or "concrete"),
                 temporal_cue=str(getattr(claim.temporal_cue, "value", claim.temporal_cue)),
+                fact_valid_from=claim.fact_valid_from,
+                fact_valid_to=claim.fact_valid_to,
+                target_from=claim.target_from,
+                target_to=claim.target_to,
+                raw_time_frame=claim.raw_time_frame,
                 evidence_mode=evidence_mode,
                 object_surface=str(claim.object_ref or ""),
                 object_value=str(claim.object_ref or ""),
@@ -157,7 +176,7 @@ class L2ClaimPersistenceMixin:
                     subject_ref=subject_ref,
                     subject_type=str(claim.subject_type or "user"),
                     canonical_predicate=canonical_predicate,
-                    fact_kind=str(claim.fact_kind or "explicit_fact"),
+                    fact_kind=fact_kind,
                     object_type=str(claim.object_type or "entity"),
                     polarity=str(claim.polarity or "positive"),
                     specificity=str(claim.specificity or "concrete"),
@@ -165,6 +184,11 @@ class L2ClaimPersistenceMixin:
                     object_value=str(claim.object_ref or ""),
                     object_surface=str(claim.object_ref or ""),
                     temporal_cue=str(getattr(claim.temporal_cue, "value", claim.temporal_cue)),
+                    fact_valid_from=claim.fact_valid_from,
+                    fact_valid_to=claim.fact_valid_to,
+                    target_from=claim.target_from,
+                    target_to=claim.target_to,
+                    raw_time_frame=claim.raw_time_frame,
                 ),
                 evidence=event_links,
                 projection_leases=batch.projection_leases,
@@ -269,6 +293,15 @@ class L2ClaimPersistenceMixin:
                     object_value=claim.object_ref,
                     object_entity_id=object_ref[0] if object_ref is not None else None,
                     temporal_cue=str(getattr(claim.temporal_cue, "value", claim.temporal_cue)),
+                    specificity=str(claim.specificity or "concrete"),
+                    target_from=claim.target_from,
+                    target_to=claim.target_to,
+                    raw_time_expression=claim.raw_time_expression,
+                    time_resolution=(
+                        str(claim.raw_time_frame.get("resolution") or "")
+                        if claim.raw_time_frame is not None
+                        else "unscheduled"
+                    ),
                 )
             )
             stored = await host._cognition_store.append_claim_projection_outcome(
@@ -439,17 +472,23 @@ def _timestamp_provenance(
 ) -> tuple[str, str, str | None]:
     history = metadata.get("history_import") if isinstance(metadata, dict) else None
     history_payload = history if isinstance(history, dict) else {}
-    source = str(
-        history_payload.get("timestamp_confidence")
-        or metadata.get("timestamp_confidence")
-        or "exact"
-    ).strip()
-    if source in {"file_mtime", "unknown"}:
-        quality = "low"
-    elif source in {"file_order", "source_order"}:
+    source = (
+        str(
+            history_payload.get("timestamp_confidence")
+            or metadata.get("timestamp_confidence")
+            or ("unknown" if isinstance(history, dict) else "exact")
+        )
+        .strip()
+        .casefold()
+    )
+    if source == "exact":
+        quality = "exact"
+    elif source in {"frontmatter", "source_name", "document_heading", "calendar_anchor"}:
+        quality = "calendar_anchor"
+    elif source in {"file_order", "source_order", "derived_order"}:
         quality = "derived_order"
     else:
-        quality = "exact"
+        quality = "low"
     anchor = str(history_payload.get("timestamp_anchor_source") or "").strip() or None
     return source, quality, anchor
 
@@ -479,6 +518,7 @@ def _route_outcome_details(decision: SemanticRouteDecision) -> dict[str, Any]:
         "object_role": decision.object_role.value,
         "value_fingerprint": decision.value_fingerprint,
         "target_entity_type": decision.target_entity_type,
+        "target_window_key": decision.target_window_key,
         "scope_key": decision.scope_key,
     }
 

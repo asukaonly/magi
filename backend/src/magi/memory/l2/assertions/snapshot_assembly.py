@@ -103,6 +103,8 @@ class L2SnapshotAssemblyMixin:
             )
 
         for trait_name, assertion in stable_by_trait.items():
+            if str(assertion.get("trait_family") or "").strip().casefold() == "goal_profile":
+                continue
             if trait_name.startswith("preference."):
                 preference_key = trait_name.split(".", 1)[1]
                 profile.preferences[preference_key] = assertion["trait_value"]

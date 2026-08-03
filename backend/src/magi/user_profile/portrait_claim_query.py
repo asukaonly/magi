@@ -133,11 +133,24 @@ async def latest_portrait_claim_change_at(l2_store: Any, *, user_id: str) -> flo
                 FROM l2_grounded_claims
                 WHERE availability = 'forgotten'
                 UNION ALL
+                SELECT outcomes.created_at AS changed_at
+                FROM l2_claim_projection_outcomes AS outcomes
+                JOIN l2_grounded_claims AS claims
+                  ON claims.claim_id = outcomes.claim_id
+                WHERE claims.user_id = ?
+                UNION ALL
+                SELECT outcomes.invalidated_at AS changed_at
+                FROM l2_claim_projection_outcomes AS outcomes
+                JOIN l2_grounded_claims AS claims
+                  ON claims.claim_id = outcomes.claim_id
+                WHERE claims.user_id = ?
+                  AND outcomes.invalidated_at IS NOT NULL
+                UNION ALL
                 SELECT created_at AS changed_at
                 FROM memory_source_event_tombstones
             )
             """,
-            (str(user_id).strip(),),
+            (str(user_id).strip(), str(user_id).strip(), str(user_id).strip()),
         ) as cursor:
             row = await cursor.fetchone()
     return _float(row[0] if row is not None else None)

@@ -43,7 +43,9 @@ class TentativePortraitClaimDecision:
 
 PORTRAIT_WORLD_STATES = frozenset({"stable", "confirmed", "corroborated", "validated"})
 PORTRAIT_REVIEW_STATES = frozenset({"tentative", "contradicted"})
-PORTRAIT_RECENT_FAMILIES = frozenset({"state_profile", "mood", "stress", "engagement"})
+PORTRAIT_RECENT_FAMILIES = frozenset(
+    {"goal_profile", "state_profile", "mood", "stress", "engagement"}
+)
 PORTRAIT_RECENT_TEMPORAL_SCOPES = frozenset(
     {"momentary", "session", "daily", "weekly", "recent"}
 )
@@ -286,6 +288,8 @@ def _claim_kind_for_assertion(*, family: str, trait_name: str) -> PortraitClaimK
         ("project.", "current_project", "focus_project", "focus.")
     ):
         return "active_work"
+    if family == "goal_profile" and trait_name == "goal.intent":
+        return "recent_context"
     if family == "routine_profile":
         if trait_name.startswith(("routine.tool.", "routine.app.")):
             return "inventory_signal"

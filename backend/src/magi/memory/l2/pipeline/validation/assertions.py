@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol
 
 from ....event_contracts import MemoryEvent
 from ...context_bundle import ResolvedContextRef
 from ...extraction_profiles import ExtractionProfile
-from ...models import L2AssertionCandidate, L2Phase1FactClaim, L2Phase1Result
+from ...models import (
+    L2AssertionCandidate,
+    L2Phase1FactClaim,
+    L2Phase1Result,
+    L2Phase2AssertionCandidate,
+)
 from ...assertion_family_policy import get_assertion_family_policy
 from ...assertions.occurrence_stats import (
     ClaimOccurrenceStats,
@@ -40,6 +46,7 @@ _SEMANTIC_DECAY_POLICIES = {"none", "evidence_only", ""}
 _PROFILE_FAMILIES = frozenset(
     {
         "communication_profile",
+        "goal_profile",
         "identity_profile",
         "interest_profile",
         "preference_profile",
@@ -104,6 +111,46 @@ def _known_supporting_claims(
         seen.add(claim_id)
         known.append(claims_by_id[claim_id])
     return known
+
+
+def _with_host_goal_candidates(
+    phase2_assertions: list[Any],
+    *,
+    claims_by_id: dict[str, L2Phase1FactClaim],
+    semantic_routes: dict[str, SemanticRouteDecision],
+) -> list[Any]:
+    """Replace model-owned Goal candidates with one host candidate per Claim."""
+
+    goal_claim_ids = {
+        claim_id
+        for claim_id in claims_by_id
+        if (route := semantic_routes.get(claim_id)) is not None and route.family == "goal_profile"
+    }
+    candidates = [
+        candidate
+        for candidate in phase2_assertions
+        if not goal_claim_ids.intersection(
+            {
+                str(claim_id or "").strip()
+                for claim_id in getattr(candidate, "supporting_claim_ids", [])
+                if str(claim_id or "").strip()
+            }
+        )
+    ]
+    for claim_id, claim in claims_by_id.items():
+        route = semantic_routes.get(claim_id)
+        if route is None or route.family != "goal_profile" or not route.can_project_assertion:
+            continue
+        candidates.append(
+            L2Phase2AssertionCandidate(
+                entity_ref=route.subject_id or claim.subject_ref,
+                entity_type=route.subject_type or claim.subject_type,
+                trait_value="",
+                natural_summary="",
+                supporting_claim_ids=[claim_id],
+            )
+        )
+    return candidates
 
 
 def _append_assertion_rejection_outcomes(
@@ -223,6 +270,7 @@ def _shared_semantic_route(
             route.subject_type,
             route.target_entity_id,
             route.target_entity_type,
+            route.target_window_key,
             route.scope_key,
         )
         for route in typed_routes
@@ -328,6 +376,69 @@ def _occurrence_stats_for_route(
     return stats
 
 
+def _goal_projection_reason(
+    *,
+    event: MemoryEvent,
+    route: SemanticRouteDecision,
+    supporting_claims: list[L2Phase1FactClaim],
+    occurrence_stats: ClaimOccurrenceStats,
+) -> str | None:
+    """Return a review/expiry reason when a routed goal is not current-safe."""
+
+    if route.family != "goal_profile":
+        return None
+    if any(
+        str(getattr(claim.evidence_mode, "value", claim.evidence_mode)).casefold() != "direct"
+        for claim in supporting_claims
+    ):
+        return "goal_requires_direct_self_report"
+    trusted_event_ids = set(occurrence_stats.trusted_event_ids)
+    supporting_event_ids = {
+        event_id for claim in supporting_claims for event_id in claim.supporting_event_ids
+    }
+    if not supporting_event_ids or not supporting_event_ids.issubset(trusted_event_ids):
+        return "goal_low_time_confidence"
+    for claim in supporting_claims:
+        frame = claim.raw_time_frame or {}
+        resolution = str(frame.get("resolution") or "unscheduled").strip().casefold()
+        if claim.raw_time_expression and resolution == "low":
+            return "goal_low_time_confidence"
+        if claim.raw_time_expression and resolution not in {"exact", "calendar_anchor"}:
+            return "goal_ambiguous_time"
+    current_time = time.time()
+    target_ends = [
+        float(claim.target_to) for claim in supporting_claims if claim.target_to is not None
+    ]
+    if target_ends:
+        if min(target_ends) <= current_time:
+            return "goal_target_expired"
+    elif float(event.timestamp) + 30 * 24 * 60 * 60 <= current_time:
+        return "goal_target_expired"
+    return None
+
+
+def _low_time_confidence_reason(
+    *,
+    supporting_claims: list[L2Phase1FactClaim],
+    occurrence_stats: ClaimOccurrenceStats,
+) -> str | None:
+    """Block only current/recent semantics that lack trusted calendar evidence."""
+
+    if not any(
+        L2TemporalCue.from_value(claim.temporal_cue) is L2TemporalCue.RECENT
+        for claim in supporting_claims
+    ):
+        return None
+    supporting_event_ids = {
+        event_id for claim in supporting_claims for event_id in claim.supporting_event_ids
+    }
+    if supporting_event_ids and supporting_event_ids.issubset(
+        set(occurrence_stats.trusted_event_ids)
+    ):
+        return None
+    return "low_time_confidence"
+
+
 class _L2AssertionHostProtocol(Protocol):
     def _resolve_self_entity_id(self, event: MemoryEvent) -> str | None: ...
 
@@ -370,7 +481,11 @@ class L2AssertionValidationMixin:
         """Validate Phase 2 assertion candidates."""
         claims_by_id = _claims_by_id(phase1_result)
         outcome_drafts = claim_outcomes if claim_outcomes is not None else []
-        raw_assertions = list(phase2_assertions or [])
+        raw_assertions = _with_host_goal_candidates(
+            list(phase2_assertions or []),
+            claims_by_id=claims_by_id,
+            semantic_routes=semantic_routes,
+        )
         if not policy.allow_assertion_write or not profile.allow_assertion:
             for assertion in raw_assertions:
                 _append_assertion_rejection_outcomes(
@@ -462,6 +577,13 @@ class L2AssertionValidationMixin:
             if route.object_role is ObjectRole.STRUCTURED_TARGET_AND_VALUE
             else route.canonical_value
         )
+        if trait_family == "goal_profile":
+            goal_values = {
+                str(claim.object_ref or "").strip()
+                for claim in supporting_claims
+                if str(claim.object_ref or "").strip()
+            }
+            trait_value = next(iter(goal_values)) if len(goal_values) == 1 else None
         if trait_value is None or not str(trait_value).strip():
             _append_assertion_rejection_outcomes(
                 context.claim_outcomes,
@@ -504,17 +626,55 @@ class L2AssertionValidationMixin:
                 reason_code="missing_grounded_support",
             )
             return None
+        occurrence_stats = _occurrence_stats_for_route(
+            route,
+            context.occurrence_stats_by_key,
+        )
+        temporal_reason = _low_time_confidence_reason(
+            supporting_claims=supporting_claims,
+            occurrence_stats=occurrence_stats,
+        )
+        if temporal_reason is not None:
+            for claim in supporting_claims:
+                context.claim_outcomes.append(
+                    ClaimProjectionOutcomeDraft(
+                        claim_id=claim.claim_id,
+                        target_kind="assertion",
+                        target_id=f"slot:{route.slot_key}",
+                        target_slot_key=route.slot_key,
+                        outcome="review",
+                        reason_code=temporal_reason,
+                    )
+                )
+            return None
         promotion_decision = self._evaluate_phase2_assertion_promotion(
             event=context.event,
             profile=context.profile,
             trait_family=trait_family,
             trait_name=trait_name,
             supporting_claims=supporting_claims,
-            occurrence_stats=_occurrence_stats_for_route(
-                route,
-                context.occurrence_stats_by_key,
-            ),
+            occurrence_stats=occurrence_stats,
         )
+        goal_reason = _goal_projection_reason(
+            event=context.event,
+            route=route,
+            supporting_claims=supporting_claims,
+            occurrence_stats=occurrence_stats,
+        )
+        if goal_reason is not None:
+            goal_outcome = "expired" if goal_reason == "goal_target_expired" else "review"
+            for claim in supporting_claims:
+                context.claim_outcomes.append(
+                    ClaimProjectionOutcomeDraft(
+                        claim_id=claim.claim_id,
+                        target_kind="assertion",
+                        target_id=f"slot:{route.slot_key}",
+                        target_slot_key=route.slot_key,
+                        outcome=goal_outcome,
+                        reason_code=goal_reason,
+                    )
+                )
+            return None
         if (
             trait_family in _PROFILE_FAMILIES
             and promotion_decision.horizon is PromotionHorizon.EVENT_ONLY
@@ -592,6 +752,15 @@ class L2AssertionValidationMixin:
         expires_at = (
             event.timestamp + expiry.ttl_seconds if expiry.ttl_seconds is not None else None
         )
+        if trait_family == "goal_profile":
+            target_ends = {
+                float(claim.target_to) for claim in supporting_claims if claim.target_to is not None
+            }
+            expires_at = (
+                next(iter(target_ends))
+                if len(target_ends) == 1
+                else event.timestamp + 30 * 24 * 60 * 60
+            )
         return {
             "entity_id": entity_ref or self_entity_id or "",
             "entity_type": route.subject_type or "user",

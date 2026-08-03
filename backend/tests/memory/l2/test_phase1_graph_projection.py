@@ -61,6 +61,10 @@ def test_phase1_claim_projects_directly_to_graph_candidate() -> None:
         evidence_text="我喜欢 DIIV",
         supporting_event_ids=["evt-diiv"],
         confidence=0.8,
+        fact_valid_from=1_699_900_000.0,
+        fact_valid_to=1_700_100_000.0,
+        target_from=1_800_000_000.0,
+        target_to=1_800_100_000.0,
     )
 
     candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
@@ -88,8 +92,45 @@ def test_phase1_claim_projects_directly_to_graph_candidate() -> None:
             "extraction_method": "llm_phase1_grounded",
             "evidence_text": "我喜欢 DIIV",
             "evidence_class": None,
+            "valid_from": 1_699_900_000.0,
+            "valid_to": 1_700_100_000.0,
         }
     ]
+
+
+def test_future_plan_is_assertion_only_and_never_uses_target_window_as_fact_validity() -> None:
+    claim = L2Phase1FactClaim(
+        claim_id="claim:goal",
+        subject_ref="user:u1",
+        predicate="PLANS_TO",
+        object_ref="activity:beach-trip",
+        object_type="activity",
+        fact_kind="future_intent",
+        evidence_text="我明天去海边",
+        supporting_event_ids=["evt-goal"],
+        target_from=1_800_000_000.0,
+        target_to=1_800_086_400.0,
+    )
+    profile = ExtractionProfile(
+        profile_id="chat.user_message",
+        allowed_entity_types=frozenset({"activity"}),
+        allowed_predicates=frozenset({"PLANS_TO"}),
+        structured_allowed_entity_types=frozenset({"activity"}),
+        structured_allowed_predicates=frozenset({"PLANS_TO"}),
+    )
+
+    candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
+        phase1_result=L2Phase1Result(fact_claims=[claim]),
+        event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
+        evidence_event_ids=["evt-goal"],
+        resolved_mentions=[],
+        profile=profile,
+    )
+
+    assert candidates == []
+    assert len(outcomes) == 1
+    assert outcomes[0].outcome == "skipped"
+    assert outcomes[0].reason_code == "goal_assertion_only"
 
 
 def test_phase1_graph_projection_rejects_missing_support() -> None:

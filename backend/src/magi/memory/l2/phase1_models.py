@@ -125,6 +125,7 @@ class L2Phase1FactClaim:
     object_type: str = ""
     fact_kind: L2FactKind | str = L2FactKind.EXPLICIT_FACT
     temporal_cue: L2TemporalCue | str = L2TemporalCue.UNSPECIFIED
+    raw_time_expression: str = ""
     polarity: str = "positive"
     specificity: str = "concrete"
     evidence_text: str = ""
@@ -132,6 +133,11 @@ class L2Phase1FactClaim:
     supporting_event_ids: list[str] = field(default_factory=list)
     evidence_mode: L2ClaimEvidenceMode | str = L2ClaimEvidenceMode.DIRECT
     antecedent_event_ids: list[str] = field(default_factory=list)
+    fact_valid_from: float | None = None
+    fact_valid_to: float | None = None
+    target_from: float | None = None
+    target_to: float | None = None
+    raw_time_frame: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "L2Phase1FactClaim":
@@ -144,6 +150,7 @@ class L2Phase1FactClaim:
             object_type=payload.get("object_type", ""),
             fact_kind=payload.get("fact_kind", L2FactKind.EXPLICIT_FACT.value),
             temporal_cue=payload.get("temporal_cue", L2TemporalCue.UNSPECIFIED.value),
+            raw_time_expression=payload.get("raw_time_expression", ""),
             polarity=payload.get("polarity", "positive"),
             specificity=payload.get("specificity", "concrete"),
             evidence_text=payload.get("evidence_text", ""),
@@ -165,6 +172,7 @@ class L2Phase1FactClaim:
         self.object_type = _optional_text(self.object_type) or ""
         self.fact_kind = L2FactKind.from_value(self.fact_kind)
         self.temporal_cue = L2TemporalCue.from_value(self.temporal_cue)
+        self.raw_time_expression = _optional_text(self.raw_time_expression) or ""
         self.polarity = _optional_text(self.polarity) or "positive"
         self.specificity = _optional_text(self.specificity) or "concrete"
         self.evidence_text = _optional_text(self.evidence_text) or ""

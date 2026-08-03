@@ -131,6 +131,7 @@ def normalize_phase1_claim_contract(
 ) -> list[str]:
     """Normalize safe metadata and drop invalid claims without failing the batch."""
     normalizations = normalize_phase1_claim_temporal_cues(payload)
+    normalizations.extend(normalize_phase1_claim_raw_time_expressions(payload))
     raw_claims = payload.get("fact_claims")
     if not isinstance(raw_claims, list):
         return normalizations
@@ -260,6 +261,32 @@ def normalize_phase1_claim_temporal_cues(
         normalizations.append(
             f"fact_claims[{index}].temporal_cue: {previous} -> {corrected_cue.value}"
         )
+    return normalizations
+
+
+def normalize_phase1_claim_raw_time_expressions(
+    payload: dict[str, object],
+) -> list[str]:
+    """Keep only raw time expressions copied exactly from Claim evidence."""
+
+    raw_claims = payload.get("fact_claims")
+    if not isinstance(raw_claims, list):
+        return []
+    normalizations: list[str] = []
+    for index, claim in enumerate(raw_claims):
+        if not isinstance(claim, dict):
+            continue
+        raw = claim.get("raw_time_expression")
+        expression = raw if isinstance(raw, str) else ""
+        evidence = claim.get("evidence_text")
+        evidence_text = evidence if isinstance(evidence, str) else ""
+        if expression and expression in evidence_text:
+            continue
+        claim["raw_time_expression"] = ""
+        if expression:
+            normalizations.append(
+                f"fact_claims[{index}].raw_time_expression: rejected non-evidence substring"
+            )
     return normalizations
 
 
@@ -413,4 +440,5 @@ __all__ = [
     "ground_phase1_fact_claims",
     "normalize_phase1_claim_contract",
     "normalize_phase1_claim_temporal_cues",
+    "normalize_phase1_claim_raw_time_expressions",
 ]

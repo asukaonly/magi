@@ -33,6 +33,8 @@ async def portrait_projection_is_stale(
     assertions: list[dict[str, Any]] = []
     if l2_store is not None:
         assertions = await _current_portrait_assertions(l2_store, entity_id)
+        if _cached_assertion_is_no_longer_current(projection, assertions):
+            return True
         newest_input_at = max(
             newest_input_at,
             _records_timestamp(assertions, ("updated_at", "last_validated_at", "created_at")),
@@ -50,6 +52,36 @@ async def portrait_projection_is_stale(
         _float_value(projection.updated_at),
     )
     return newest_input_at > projection_at + 0.000001
+
+
+def _cached_assertion_is_no_longer_current(
+    projection: UserPortraitProjection,
+    assertions: list[dict[str, Any]],
+) -> bool:
+    cached_ids: set[str] = set()
+    for group in (projection.world or {}).get("groups") or []:
+        if isinstance(group, dict):
+            cached_ids.update(_assertion_ids(group.get("items")))
+    cached_ids.update(_assertion_ids((projection.review or {}).get("items")))
+    cached_ids.update(_assertion_ids((projection.recent or {}).get("items")))
+    if not cached_ids:
+        return False
+    current_ids = {
+        str(assertion.get("assertion_id") or "").strip()
+        for assertion in assertions
+        if str(assertion.get("assertion_id") or "").strip()
+    }
+    return not cached_ids.issubset(current_ids)
+
+
+def _assertion_ids(items: Any) -> set[str]:
+    if not isinstance(items, list):
+        return set()
+    return {
+        assertion_id
+        for item in items
+        if isinstance(item, dict) and (assertion_id := str(item.get("assertion_id") or "").strip())
+    }
 
 
 def _missing_correction_version_metadata(projection: UserPortraitProjection) -> bool:

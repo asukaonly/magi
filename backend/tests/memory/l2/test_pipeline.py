@@ -243,6 +243,11 @@ def _semantic_routes_for_phase1(phase1_result):  # type: ignore[no-untyped-def]
                 object_value=claim.object_ref,
                 object_entity_id=object_entity_id,
                 temporal_cue=str(claim.temporal_cue),
+                specificity=str(claim.specificity or "concrete"),
+                target_from=claim.target_from,
+                target_to=claim.target_to,
+                raw_time_expression=claim.raw_time_expression,
+                time_resolution="unscheduled",
             )
         )
         routes[claim.claim_id] = route
@@ -1592,6 +1597,116 @@ async def test_optional_inference_failure_persists_phase1_and_completes(
                 and edge["object_id"] == "place:shanghai"
                 for edge in relationships
             )
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_phase2_json_failure_still_persists_host_owned_goal_assertion():
+    event_time = time.time()
+    phase1_response = json.dumps(
+        {
+            "entities": [
+                {
+                    "surface": "去海边",
+                    "normalized_name": "海边旅行",
+                    "entity_type": "activity",
+                    "specificity": "concrete",
+                    "resolved_id": "activity:beach-trip",
+                    "is_new": False,
+                    "alias_signals": ["去海边"],
+                    "confidence": 0.96,
+                }
+            ],
+            "fact_claims": [
+                {
+                    "subject_ref": "user:self",
+                    "predicate": "PLANS_TO",
+                    "object_ref": "去海边",
+                    "object_type": "activity",
+                    "fact_kind": "future_intent",
+                    "temporal_cue": "unspecified",
+                    "raw_time_expression": "",
+                    "polarity": "positive",
+                    "specificity": "concrete",
+                    "evidence_text": "我计划去海边",
+                    "evidence_mode": "direct",
+                    "confidence": 0.96,
+                    "supporting_event_ids": ["evt-goal-phase2-degraded"],
+                }
+            ],
+            "resolved_refs": [],
+            "diagnostics": {"entity_status": "found"},
+        },
+        ensure_ascii=False,
+    )
+    adapter = _FakeAdapter([phase1_response, "not-json", "still-not-json"])
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            assert store.l2 is not None
+            assert store.l2_entity_catalog is not None
+            await store.l2_entity_catalog.upsert_entity(
+                entity_id="activity:beach-trip",
+                canonical_name="海边旅行",
+                entity_type="activity",
+            )
+            await store.l2_entity_catalog.add_alias(
+                entity_id="activity:beach-trip",
+                alias_text="去海边",
+                confidence=0.98,
+            )
+
+            await store.ingest_event(
+                {
+                    "id": "evt-goal-phase2-degraded",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": event_time,
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s-goal-phase2-degraded",
+                        "content": "我计划去海边",
+                    },
+                }
+            )
+
+            for _ in range(400):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 1 and stats["assertions_written"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
+            assert len(assertions) == 1
+            assert assertions[0]["trait_family"] == "goal_profile"
+            assert assertions[0]["trait_name"] == "goal.intent"
+            assert assertions[0]["trait_value"] == "去海边"
+            assert assertions[0]["temporal_scope"] == "recent"
+            assert assertions[0]["expires_at"] == pytest.approx(
+                event_time + 30 * 24 * 60 * 60
+            )
+
+            claims = await store.l2.list_grounded_claims()
+            outcomes = await store.l2.list_claim_projection_outcomes(
+                claim_id=claims[0]["claim_id"]
+            )
+            assertion_outcomes = [
+                outcome for outcome in outcomes if outcome["target_kind"] == "assertion"
+            ]
+            assert [outcome["outcome"] for outcome in assertion_outcomes] == ["projected"]
+            assert store.get_l2_pipeline_stats()["extract_failed"] == 0
+            assert len(adapter.calls) == 3
         finally:
             await store.shutdown()
 

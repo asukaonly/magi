@@ -61,6 +61,7 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
     - `clarification`: the current short reply adds a concrete detail to the immediately preceding user statement, optionally through the immediately following assistant question. Cite the nearest user event and the immediately preceding assistant event, in chronological order, in `antecedent_event_ids`.
    Recent Context is interpretation context, not standalone evidence. Never use older context, History Context, or assistant wording without explicit current user confirmation. If the current message does not authorize the claim under one of these modes, omit it.
 15. Every fact claim must include `temporal_cue`, grounded in explicit wording only: `one_off` for explicitly single-use wording, `recent` for wording such as recently/currently/these days, `recurring` for often/every week/repeatedly, `stable` for always/for years/long-term, and `unspecified` when no linguistic time cue is present. Do not infer a stable cue from the predicate or fact kind. Do not use temporal_cue to choose retention, expiry, or lifecycle; the host owns that policy.
+16. Every fact claim must include `raw_time_expression`. Copy only the exact time phrase from `evidence_text` (for example `明天`, `2026-08-15`, or `next month`), preserving its original text. Use an empty string when the evidence has no explicit time phrase. Never calculate dates, add a year, or rewrite a relative expression; the host owns deterministic resolution.
 
 ## Output Format
 Return JSON only:
@@ -87,6 +88,7 @@ Return JSON only:
       "object_type": "enum from allowed types",
       "fact_kind": "explicit_fact|stable_preference|public_topology|future_intent|interaction_evidence",
       "temporal_cue": "one_off|recent|recurring|stable|unspecified",
+      "raw_time_expression": "exact evidence substring or empty string",
       "polarity": "positive|negative",
       "specificity": "concrete|underspecified",
       "evidence_text": "supporting quote",

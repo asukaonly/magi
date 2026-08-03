@@ -10,6 +10,7 @@ import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
 from magi.memory.l2.store import L2CognitionStore
+from magi.memory.l2.semantic_routing import ROUTE_CONTRACT_VERSION
 from magi.user_profile.portrait_claim_query import list_tentative_portrait_claims
 from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from magi.user_profile.portrait_projection_freshness import portrait_projection_is_stale
@@ -140,7 +141,7 @@ def _seed_route_outcome(
             outcome_id, claim_id, attempt_key, target_kind, target_id,
             target_slot_key, route_contract_version, outcome, reason_code,
             details_json, created_at
-        ) VALUES (?, ?, ?, 'route', ?, ?, 1, ?, 'route_supported', ?, ?)
+        ) VALUES (?, ?, ?, 'route', ?, ?, ?, ?, 'route_supported', ?, ?)
         """,
         (
             outcome_id,
@@ -148,6 +149,7 @@ def _seed_route_outcome(
             f"attempt:{outcome_id}",
             f"route:{claim_id}",
             slot_key,
+            ROUTE_CONTRACT_VERSION,
             outcome,
             json.dumps(
                 _route_details(
@@ -176,13 +178,14 @@ def _seed_assertion_outcome(
             INSERT INTO l2_claim_projection_outcomes(
                 outcome_id, claim_id, attempt_key, target_kind, target_id,
                 target_slot_key, route_contract_version, outcome, created_at
-            ) VALUES (?, ?, ?, 'assertion', ?, NULL, 1, 'projected', ?)
+            ) VALUES (?, ?, ?, 'assertion', ?, NULL, ?, 'projected', ?)
             """,
             (
                 f"assertion:{claim_id}:{assertion_id}",
                 claim_id,
                 f"attempt:assertion:{claim_id}",
                 assertion_id,
+                ROUTE_CONTRACT_VERSION,
                 created_at,
             ),
         )
@@ -247,7 +250,7 @@ def test_tentative_claim_renderer_uses_only_typed_claim_and_route_fields(
         {
             "target_kind": "route",
             "target_slot_key": "slt_contract",
-            "route_contract_version": 1,
+            "route_contract_version": ROUTE_CONTRACT_VERSION,
             "outcome": "routed",
             "details": _route_details(
                 family=family,
@@ -275,7 +278,7 @@ def test_tentative_claim_policy_rejects_non_profile_and_stale_routes() -> None:
     project_route = {
         "target_kind": "route",
         "target_slot_key": "slt_project",
-        "route_contract_version": 1,
+        "route_contract_version": ROUTE_CONTRACT_VERSION,
         "outcome": "routed",
         "details": _route_details(
             family="project_profile",

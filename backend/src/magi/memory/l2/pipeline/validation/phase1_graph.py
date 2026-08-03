@@ -45,16 +45,21 @@ class L2Phase1GraphProjectionMixin:
                 classification=classification,
             )
             if candidate is None:
+                outcome = (
+                    "skipped"
+                    if reason_code == "goal_assertion_only"
+                    else (
+                        "unresolved_entity"
+                        if reason_code in {"unresolved_object", "unresolved_subject"}
+                        else "rejected"
+                    )
+                )
                 rejected_outcomes.append(
                     ClaimProjectionOutcomeDraft(
                         claim_id=str(getattr(claim, "claim_id", "") or ""),
                         target_kind="relationship",
                         target_id=f"predicate:{str(getattr(claim, 'predicate', '') or '').strip().upper()}",
-                        outcome=(
-                            "unresolved_entity"
-                            if reason_code in {"unresolved_object", "unresolved_subject"}
-                            else "rejected"
-                        ),
+                        outcome=outcome,
                         reason_code=reason_code or "graph_candidate_rejected",
                     )
                 )
@@ -85,6 +90,9 @@ class L2Phase1GraphProjectionMixin:
         if not supporting_event_ids:
             return None, "missing_grounded_support"
         predicate = self._normalize_predicate(claim.predicate)  # type: ignore[attr-defined]
+        fact_kind = self._non_empty_text(claim.fact_kind) or "explicit_fact"  # type: ignore[attr-defined]
+        if predicate == "PLANS_TO" and fact_kind == "future_intent":
+            return None, "goal_assertion_only"
         object_type = self._normalize_entity_type(claim.object_type)  # type: ignore[attr-defined]
         if not self._phase1_graph_shape_allowed(
             predicate=predicate,
@@ -122,7 +130,7 @@ class L2Phase1GraphProjectionMixin:
             "predicate": predicate,
             "object_id": object_id,
             "object_type": object_type,
-            "fact_kind": self._non_empty_text(claim.fact_kind) or "explicit_fact",  # type: ignore[attr-defined]
+            "fact_kind": fact_kind,
             "evidence_event_ids": supporting_event_ids,
             "confidence": claim.confidence,
             "observed_at": event.timestamp,
@@ -132,6 +140,8 @@ class L2Phase1GraphProjectionMixin:
             "evidence_class": (
                 classification.evidence_class if classification is not None else None
             ),
+            "valid_from": getattr(claim, "fact_valid_from", None),
+            "valid_to": getattr(claim, "fact_valid_to", None),
         }, None
 
     @staticmethod

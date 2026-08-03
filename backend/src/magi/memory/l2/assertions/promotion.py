@@ -213,7 +213,22 @@ def evaluate_assertion_promotion(
             ttl_seconds=evidence.baseline_ttl_seconds,
         )
 
-    if evidence.fact_kind in {"public_topology", "future_intent"}:
+    if evidence.fact_kind == "future_intent":
+        if (
+            evidence.trait_family == "goal_profile"
+            and evidence.predicate == "PLANS_TO"
+            and _resolved_source_strength(evidence) is SourceStrengthPreset.DIRECT_USER
+        ):
+            return _recent(
+                "direct_goal_intent",
+                trait_family=evidence.trait_family,
+                temporal_scope=evidence.baseline_temporal_scope,
+                decay_policy=evidence.baseline_decay_policy,
+                ttl_seconds=evidence.baseline_ttl_seconds,
+            )
+        return _event_only("unsupported_future_intent")
+
+    if evidence.fact_kind == "public_topology":
         return _event_only("non_profile_fact_kind")
 
     if evidence.temporal_cue is L2TemporalCue.ONE_OFF:
