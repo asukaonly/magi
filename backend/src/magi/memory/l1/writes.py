@@ -16,6 +16,11 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...events.events import EventTypes
 from ...utils.diagnostic_logging import full_content_logging_enabled
+from ...utils.calendar_timezone import (
+    calendar_timezone_id_from_metadata,
+    local_calendar_timezone_id,
+    with_calendar_timezone,
+)
 from ..embedding.sqlite_vec_index import SqliteVecIndex
 from ..evidence import (
     EVIDENCE_RULE_VERSION,
@@ -152,6 +157,13 @@ class L1EventWriteMixin:
         )
         merged_metadata = _merge_evidence_into_metadata(
             event.metadata_json, evidence_values.get("reason_code")
+        )
+        calendar_timezone_id = calendar_timezone_id_from_metadata(event.metadata_json)
+        if calendar_timezone_id is None:
+            calendar_timezone_id = local_calendar_timezone_id()
+        merged_metadata = with_calendar_timezone(
+            merged_metadata,
+            calendar_timezone_id=calendar_timezone_id,
         )
         result = await self._store_event_transaction(
             host=host,
