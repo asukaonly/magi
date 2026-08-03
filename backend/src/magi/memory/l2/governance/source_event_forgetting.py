@@ -6,6 +6,7 @@ import json
 import math
 import time
 from collections.abc import Iterable, Mapping
+from datetime import datetime
 from typing import Any, Protocol, cast
 
 import aiosqlite
@@ -17,10 +18,31 @@ from ...source_event_governance import (
     source_event_tombstone_ids,
     tombstone_source_event_ids,
 )
+from ..assertion_family_policy import get_assertion_family_policy
+from ..assertions.occurrence_stats import (
+    ClaimOccurrenceStats,
+    ClaimRouteValueKey,
+    load_routed_claim_occurrence_stats_on_connection,
+)
+from ..assertions.promotion import (
+    AssertionPromotionDecision,
+    AssertionPromotionInput,
+    PromotionHorizon,
+    evaluate_assertion_promotion,
+)
+from ..assertions.settings import momentary_ttl_seconds
 from ..assertions.state_machine import (
     ACTIVE_VALIDATION_STATES,
     compute_confidence,
     derive_validation_state,
+)
+from ..claims.route_selection import (
+    CURRENT_ENTITY_REF_VERSIONS_CTE,
+    LATEST_ROUTE_ORDER_SQL,
+)
+from ..claims.outcomes import (
+    ClaimTargetOutcomeContext,
+    append_claim_target_outcomes_on_connection,
 )
 from ..corrections.cache_signals import mark_subject_changed
 from ..claims.repository import redact_grounded_claims_for_source_events
@@ -87,14 +109,16 @@ class L2StoreSourceEventForgettingMixin:
         *,
         reason: str,
     ) -> int:
-        """Block source events and redact Claim content in the same transaction."""
+        """Block source events and reconcile Claim-backed assertions atomically."""
         host = cast(_SourceEventForgettingHostProtocol, self)
         await host.initialize()
         normalized = normalize_source_event_ids(event_ids)
         if not normalized:
             return 0
+        affected_subjects: dict[str, int] = {}
         async with host.memory_correction_job_guard():
             async with sqlite_connection_async(host.db_path) as db:
+                db.row_factory = aiosqlite.Row
                 await db.execute("BEGIN IMMEDIATE")
                 try:
                     now = time.time()
@@ -111,16 +135,35 @@ class L2StoreSourceEventForgettingMixin:
                         event_ids=normalized,
                         now=now,
                     )
+                    assertion_route_keys = await _assertion_route_keys_for_source_events(
+                        db,
+                        event_ids=normalized,
+                    )
                     await redact_grounded_claims_for_source_events(
                         db,
                         event_ids=normalized,
                         reason=reason,
                         now=now,
                     )
+                    reconciled_assertions = await _reconcile_assertion_promotion_after_forget(
+                        db,
+                        route_keys_by_assertion=assertion_route_keys,
+                        now=now,
+                    )
+                    affected_subjects = await invalidate_forgotten_derivations(
+                        db,
+                        repository=MemoryCorrectionRepository(host.db_path),
+                        forgotten_assertions=reconciled_assertions,
+                        forgotten_edges={},
+                        now=now,
+                    )
                     await db.commit()
                 except Exception:
                     await db.rollback()
                     raise
+        for subject_key in affected_subjects:
+            mark_subject_changed(host.db_path, subject_key)
+        await rebuild_forgotten_subject_views(host=host, revisions=affected_subjects)
         return inserted
 
     async def forget_source_events(
@@ -156,6 +199,10 @@ class L2StoreSourceEventForgettingMixin:
                         db,
                         event_ids=normalized,
                         now=now,
+                    )
+                    assertion_route_keys = await _assertion_route_keys_for_source_events(
+                        db,
+                        event_ids=normalized,
                     )
                     result.update(
                         await redact_grounded_claims_for_source_events(
@@ -226,21 +273,32 @@ class L2StoreSourceEventForgettingMixin:
                         event_ids=normalized,
                         now=now,
                     )
+                    reconciled_assertions = await _reconcile_assertion_promotion_after_forget(
+                        db,
+                        route_keys_by_assertion=assertion_route_keys,
+                        now=now,
+                    )
+                    result["tom_trait_assertions"] = max(
+                        result["tom_trait_assertions"],
+                        len(reconciled_assertions),
+                    )
 
+                    forgotten_assertions = _claims_by_record_id(assertion_claims)
+                    forgotten_assertions.update(reconciled_assertions)
                     affected_subjects = await invalidate_forgotten_derivations(
                         db,
                         repository=MemoryCorrectionRepository(host.db_path),
-                        forgotten_assertions=_claims_by_record_id(assertion_claims),
+                        forgotten_assertions=forgotten_assertions,
                         forgotten_edges=_claims_by_record_id(edge_claims),
                         now=now,
                         explicit_subject_keys=correction_subjects,
                     )
-                    result["event_entity_links"] = (
-                        await host._stage_source_event_link_forget_on_connection(
-                            db,
-                            event_ids=normalized,
-                            reason=reason,
-                        )
+                    result[
+                        "event_entity_links"
+                    ] = await host._stage_source_event_link_forget_on_connection(
+                        db,
+                        event_ids=normalized,
+                        reason=reason,
                     )
                     await db.commit()
                 except Exception:
@@ -282,6 +340,723 @@ def _empty_result() -> dict[str, int]:
         "experience_seeds": 0,
         "affected_subjects": 0,
     }
+
+
+async def _assertion_route_keys_for_source_events(
+    db: aiosqlite.Connection,
+    *,
+    event_ids: tuple[str, ...],
+) -> dict[str, set[ClaimRouteValueKey]]:
+    """Capture current Claim-owned assertion identities before Claim redaction."""
+
+    event_json = _event_json(event_ids)
+    async with db.execute(
+        f"""
+        WITH affected_claims AS (
+            SELECT DISTINCT evidence.claim_id
+            FROM l2_claim_evidence AS evidence
+            JOIN l2_grounded_claims AS claims
+              ON claims.claim_id = evidence.claim_id
+             AND claims.availability = 'active'
+            WHERE evidence.event_id IN (
+                SELECT CAST(value AS TEXT) FROM json_each(?)
+            )
+        ),
+        {CURRENT_ENTITY_REF_VERSIONS_CTE},
+        latest_routes AS (
+            SELECT
+                outcomes.claim_id,
+                outcomes.attempt_key,
+                outcomes.target_slot_key,
+                outcomes.route_contract_version,
+                outcomes.outcome,
+                CAST(
+                    json_extract(outcomes.details_json, '$.value_fingerprint')
+                    AS TEXT
+                ) AS value_fingerprint,
+                ROW_NUMBER() OVER (
+                    PARTITION BY outcomes.claim_id
+                    ORDER BY {LATEST_ROUTE_ORDER_SQL}
+                ) AS route_rank
+            FROM l2_claim_projection_outcomes AS outcomes
+            LEFT JOIN current_entity_ref_versions AS route_refs
+              ON route_refs.claim_id = outcomes.claim_id
+            WHERE outcomes.target_kind = 'route'
+              AND outcomes.invalidated_at IS NULL
+        ),
+        affected_route_keys AS (
+            SELECT DISTINCT
+                latest_routes.target_slot_key,
+                latest_routes.value_fingerprint
+            FROM affected_claims
+            JOIN latest_routes
+              ON latest_routes.claim_id = affected_claims.claim_id
+             AND latest_routes.route_rank = 1
+             AND latest_routes.outcome = 'routed'
+            WHERE latest_routes.target_slot_key IS NOT NULL
+              AND latest_routes.value_fingerprint IS NOT NULL
+        ),
+        material_assertion_candidates AS (
+            SELECT
+                receipts.target_id AS assertion_id,
+                current_routes.target_slot_key,
+                current_routes.value_fingerprint,
+                assertions.scope_key,
+                assertions.status,
+                assertions.updated_at,
+                MAX(receipts.created_at) AS receipt_created_at
+            FROM affected_route_keys
+            JOIN latest_routes AS current_routes
+              ON current_routes.target_slot_key = affected_route_keys.target_slot_key
+             AND current_routes.value_fingerprint = affected_route_keys.value_fingerprint
+             AND current_routes.route_rank = 1
+             AND current_routes.outcome = 'routed'
+            JOIN l2_grounded_claims AS current_claims
+              ON current_claims.claim_id = current_routes.claim_id
+             AND current_claims.availability = 'active'
+            JOIN l2_claim_projection_outcomes AS receipts
+              ON receipts.claim_id = current_routes.claim_id
+             AND receipts.attempt_key = current_routes.attempt_key
+             AND receipts.route_contract_version = current_routes.route_contract_version
+             AND receipts.target_kind = 'assertion'
+             AND receipts.outcome = 'projected'
+             AND receipts.invalidated_at IS NULL
+            JOIN tom_trait_assertions AS assertions
+              ON assertions.assertion_id = receipts.target_id
+             AND assertions.slot_key = current_routes.target_slot_key
+             AND (
+                    assertions.status IN ('tentative', 'corroborated', 'stable')
+                    OR (
+                        assertions.status = 'archived'
+                        AND assertions.authority_ref = 'forget:event'
+                    )
+             )
+            GROUP BY receipts.target_id, current_routes.target_slot_key,
+                     current_routes.value_fingerprint, assertions.scope_key,
+                     assertions.status, assertions.updated_at
+        ),
+        ranked_material_assertions AS (
+            SELECT
+                assertion_id,
+                target_slot_key,
+                value_fingerprint,
+                ROW_NUMBER() OVER (
+                    PARTITION BY target_slot_key, value_fingerprint, scope_key
+                    ORDER BY
+                        CASE
+                            WHEN status IN ('tentative', 'corroborated', 'stable')
+                                THEN 0
+                            ELSE 1
+                        END,
+                        updated_at DESC,
+                        receipt_created_at DESC,
+                        assertion_id DESC
+                ) AS assertion_rank
+            FROM material_assertion_candidates
+        )
+        SELECT assertion_id, target_slot_key, value_fingerprint
+        FROM ranked_material_assertions
+        WHERE assertion_rank = 1
+        ORDER BY assertion_id, target_slot_key, value_fingerprint
+        """,
+        (event_json,),
+    ) as cursor:
+        rows = await cursor.fetchall()
+
+    result: dict[str, set[ClaimRouteValueKey]] = {}
+    for row in rows:
+        assertion_id = str(row["assertion_id"] or "").strip()
+        if not assertion_id:
+            continue
+        result.setdefault(assertion_id, set()).add(
+            ClaimRouteValueKey(
+                target_slot_key=str(row["target_slot_key"]),
+                value_fingerprint=str(row["value_fingerprint"]),
+            )
+        )
+    return result
+
+
+async def _reconcile_assertion_promotion_after_forget(
+    db: aiosqlite.Connection,
+    *,
+    route_keys_by_assertion: Mapping[str, set[ClaimRouteValueKey]],
+    now: float,
+) -> dict[str, ForgottenClaim]:
+    """Recompute materialized assertion horizons from the surviving Claim ledger."""
+
+    if not route_keys_by_assertion:
+        return {}
+    route_keys = {key for keys in route_keys_by_assertion.values() for key in keys}
+    stats_by_key = await load_routed_claim_occurrence_stats_on_connection(
+        db,
+        keys=route_keys,
+        now=now,
+        local_timezone=datetime.now().astimezone().tzinfo,
+    )
+    assertion_json = json.dumps(
+        sorted(route_keys_by_assertion),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    async with db.execute(
+        """
+        SELECT assertion_id, entity_id, entity_type, target_entity_id,
+               trait_family, trait_name, trait_value, status, slot_key, scope_key,
+               claim_fingerprint,
+               validation_state, confidence_score, evidence_events,
+               first_inferred_at, last_validated_at, temporal_scope,
+               decay_policy, decay_anchor_at, expires_at, memory_subdomain,
+               authority_ref, user_feedback
+        FROM tom_trait_assertions
+        WHERE assertion_id IN (
+            SELECT CAST(value AS TEXT) FROM json_each(?)
+        )
+        """,
+        (assertion_json,),
+    ) as cursor:
+        assertion_rows = {str(row["assertion_id"]): dict(row) for row in await cursor.fetchall()}
+
+    changed: dict[str, ForgottenClaim] = {}
+    for assertion_id in sorted(route_keys_by_assertion):
+        row = assertion_rows.get(assertion_id)
+        if row is None or _assertion_status_is_terminal(row.get("status")):
+            continue
+        if (
+            str(row.get("status") or "").strip().casefold() == "archived"
+            and str(row.get("authority_ref") or "") != "forget:event"
+        ):
+            continue
+        if await _has_independent_assertion_authority(
+            db,
+            authority_ref=row.get("authority_ref"),
+            user_feedback=row.get("user_feedback"),
+        ):
+            continue
+        keys = route_keys_by_assertion[assertion_id]
+        stats = stats_by_key.get(next(iter(keys))) if len(keys) == 1 else None
+        decision = _promotion_after_forget(row=row, stats=stats) if stats is not None else None
+        if (
+            decision is not None
+            and stats is not None
+            and str(row.get("trait_family") or "").strip().casefold() == "goal_profile"
+            and not await _goal_claims_remain_projectable(
+                db,
+                stats=stats,
+                now=now,
+            )
+        ):
+            decision = None
+        if decision is None or decision.horizon is PromotionHorizon.EVENT_ONLY:
+            updated = await _archive_assertion_after_promotion_loss(
+                db,
+                assertion_id=assertion_id,
+                row=row,
+                stats=stats,
+                decision=decision,
+                now=now,
+            )
+            if updated:
+                changed[assertion_id] = _reconciled_assertion_claim(row)
+            continue
+        if str(
+            row.get("status") or ""
+        ).strip().casefold() == "archived" and await _slot_has_other_active_assertion(
+            db,
+            assertion_id=assertion_id,
+            slot_key=str(row.get("slot_key") or ""),
+            scope_key=str(row.get("scope_key") or "global"),
+        ):
+            continue
+        await _bind_surviving_claims_to_assertion(
+            db,
+            assertion_id=assertion_id,
+            stats=stats,
+            now=now,
+        )
+        updated = await _apply_recomputed_assertion_lifecycle(
+            db,
+            assertion_id=assertion_id,
+            row=row,
+            stats=stats,
+            decision=decision,
+            now=now,
+        )
+        if updated:
+            changed[assertion_id] = _reconciled_assertion_claim(row)
+    return changed
+
+
+async def _slot_has_other_active_assertion(
+    db: aiosqlite.Connection,
+    *,
+    assertion_id: str,
+    slot_key: str,
+    scope_key: str,
+) -> bool:
+    async with db.execute(
+        """
+        SELECT 1
+        FROM tom_trait_assertions
+        WHERE slot_key = ? AND scope_key = ? AND assertion_id != ?
+          AND status IN ('tentative', 'corroborated', 'stable')
+        LIMIT 1
+        """,
+        (slot_key, scope_key, assertion_id),
+    ) as cursor:
+        return await cursor.fetchone() is not None
+
+
+def _reconciled_assertion_claim(row: Mapping[str, Any]) -> ForgottenClaim:
+    assertion_id = str(row.get("assertion_id") or "")
+    slot_key = str(row.get("slot_key") or "")
+    entity_id = str(row.get("entity_id") or "").strip()
+    target_entity_id = str(row.get("target_entity_id") or "").strip()
+    evidence_event_ids, malformed = decode_evidence_event_ids(row.get("evidence_events"))
+    return ForgottenClaim(
+        record_id=assertion_id,
+        claim_fingerprint=str(row.get("claim_fingerprint") or ""),
+        semantic_fingerprint=assertion_claim_fingerprint(
+            slot_key_value=slot_key,
+            trait_value=row.get("trait_value"),
+        ),
+        evidence_event_ids=evidence_event_ids,
+        evidence_fail_closed=malformed,
+        subject_keys=tuple(
+            value
+            for value in (
+                entity_id,
+                target_entity_id if ":" in target_entity_id else "",
+            )
+            if value
+        ),
+    )
+
+
+async def _bind_surviving_claims_to_assertion(
+    db: aiosqlite.Connection,
+    *,
+    assertion_id: str,
+    stats: ClaimOccurrenceStats,
+    now: float,
+) -> None:
+    """Persist collective-promotion provenance for Claims without target receipts."""
+
+    claim_json = json.dumps(stats.claim_ids, ensure_ascii=False, separators=(",", ":"))
+    async with db.execute(
+        f"""
+        WITH requested_claims AS (
+            SELECT CAST(value AS TEXT) AS claim_id FROM json_each(?)
+        ),
+        {CURRENT_ENTITY_REF_VERSIONS_CTE},
+        latest_routes AS (
+            SELECT
+                outcomes.claim_id,
+                outcomes.attempt_key,
+                outcomes.target_slot_key,
+                outcomes.route_contract_version,
+                outcomes.outcome,
+                CAST(
+                    json_extract(outcomes.details_json, '$.value_fingerprint')
+                    AS TEXT
+                ) AS value_fingerprint,
+                ROW_NUMBER() OVER (
+                    PARTITION BY outcomes.claim_id
+                    ORDER BY {LATEST_ROUTE_ORDER_SQL}
+                ) AS route_rank
+            FROM l2_claim_projection_outcomes AS outcomes
+            JOIN requested_claims
+              ON requested_claims.claim_id = outcomes.claim_id
+            LEFT JOIN current_entity_ref_versions AS route_refs
+              ON route_refs.claim_id = outcomes.claim_id
+            WHERE outcomes.target_kind = 'route'
+              AND outcomes.invalidated_at IS NULL
+        )
+        SELECT claim_id, attempt_key, route_contract_version
+        FROM latest_routes
+        WHERE route_rank = 1
+          AND outcome = 'routed'
+          AND target_slot_key = ?
+          AND value_fingerprint = ?
+          AND NOT EXISTS (
+                SELECT 1
+                FROM l2_claim_projection_outcomes AS target
+                WHERE target.claim_id = latest_routes.claim_id
+                  AND target.attempt_key = latest_routes.attempt_key
+                  AND target.route_contract_version = latest_routes.route_contract_version
+                  AND target.target_kind = 'assertion'
+                  AND target.outcome = 'projected'
+                  AND target.invalidated_at IS NULL
+          )
+        ORDER BY claim_id
+        """,
+        (
+            claim_json,
+            stats.key.target_slot_key,
+            stats.key.value_fingerprint,
+        ),
+    ) as cursor:
+        rows = await cursor.fetchall()
+    for row in rows:
+        await append_claim_target_outcomes_on_connection(
+            db,
+            context=ClaimTargetOutcomeContext.for_claim(
+                claim_id=str(row[0]),
+                attempt_key=str(row[1]),
+                route_contract_version=int(row[2]),
+            ),
+            target_kind="assertion",
+            target_id=assertion_id,
+            target_slot_key=stats.key.target_slot_key,
+            outcome="projected",
+            reason_code="promotion_reconciled_after_forget",
+            created_at=now,
+        )
+
+
+def _promotion_after_forget(
+    *,
+    row: Mapping[str, Any],
+    stats: ClaimOccurrenceStats,
+) -> AssertionPromotionDecision | None:
+    if str(stats.temporal_cue or "").strip().casefold() == "recent":
+        policy_event_ids = set(stats.recent_policy_event_ids)
+        if not policy_event_ids or not policy_event_ids.issubset(set(stats.trusted_event_ids)):
+            return None
+    family = str(row.get("trait_family") or "").strip().casefold()
+    trait_name = str(row.get("trait_name") or "").strip().casefold()
+    policy = get_assertion_family_policy(family)
+    if trait_name in {"annoyance", "irritation", "frustration"}:
+        baseline_scope = "momentary"
+        baseline_decay = "fast_decay"
+        baseline_ttl = momentary_ttl_seconds()
+    else:
+        baseline_scope = policy.default_temporal_scope if policy is not None else None
+        baseline_decay = policy.default_decay_policy if policy is not None else None
+        baseline_ttl = policy.default_ttl_seconds if policy is not None else None
+    decision = evaluate_assertion_promotion(
+        AssertionPromotionInput(
+            trait_family=family,
+            **stats.promotion_fields(),
+            baseline_temporal_scope=baseline_scope,
+            baseline_decay_policy=baseline_decay,
+            baseline_ttl_seconds=baseline_ttl,
+        )
+    )
+    if decision.horizon is PromotionHorizon.RECENT and stats.last_observed_at is None:
+        return None
+    return decision
+
+
+async def _archive_assertion_after_promotion_loss(
+    db: aiosqlite.Connection,
+    *,
+    assertion_id: str,
+    row: Mapping[str, Any],
+    stats: ClaimOccurrenceStats | None,
+    decision: AssertionPromotionDecision | None,
+    now: float,
+) -> int:
+    expiry = decision.expiry if decision is not None else None
+    evidence_event_ids = _bounded_claim_evidence_ids(stats)
+    first_inferred_at, last_validated_at, validation_state, confidence = (
+        _recomputed_assertion_evidence(row=row, stats=stats)
+    )
+    anchor = stats.last_observed_at if stats is not None else None
+    anchor = anchor or now
+    expires_at = (
+        anchor + float(expiry.ttl_seconds)
+        if expiry is not None and expiry.ttl_seconds is not None
+        else now
+    )
+    temporal_scope = expiry.temporal_scope if expiry is not None else "momentary"
+    decay_policy = expiry.decay_policy if expiry is not None else "fast_decay"
+    cursor = await db.execute(
+        """
+        UPDATE tom_trait_assertions
+        SET status = 'archived', validation_state = ?, confidence_score = ?,
+            evidence_events = ?, first_inferred_at = ?, last_validated_at = ?,
+            temporal_scope = ?, decay_policy = ?, decay_anchor_at = ?,
+            expires_at = ?, memory_subdomain = ?,
+            authority_ref = CASE
+                WHEN COALESCE(authority_ref, '') = '' THEN 'forget:event'
+                ELSE authority_ref
+            END,
+            updated_at = ?
+        WHERE assertion_id = ?
+          AND (
+                status IN ('tentative', 'corroborated', 'stable')
+                OR (status = 'archived' AND authority_ref = 'forget:event')
+          )
+        """,
+        (
+            validation_state,
+            confidence,
+            json.dumps(evidence_event_ids, ensure_ascii=False),
+            first_inferred_at,
+            last_validated_at,
+            temporal_scope,
+            decay_policy,
+            anchor,
+            expires_at,
+            _memory_subdomain(
+                temporal_scope=temporal_scope,
+                decay_policy=decay_policy,
+            ),
+            now,
+            assertion_id,
+        ),
+    )
+    return max(int(cursor.rowcount or 0), 0)
+
+
+async def _apply_recomputed_assertion_lifecycle(
+    db: aiosqlite.Connection,
+    *,
+    assertion_id: str,
+    row: Mapping[str, Any],
+    stats: ClaimOccurrenceStats,
+    decision: AssertionPromotionDecision,
+    now: float,
+) -> int:
+    expiry = decision.expiry
+    anchor = stats.last_observed_at
+    if decision.horizon is PromotionHorizon.RECENT:
+        assert anchor is not None
+        if str(row.get("trait_family") or "").strip().casefold() == "goal_profile":
+            expires_at = await _remaining_goal_target_end(
+                db,
+                claim_ids=stats.claim_ids,
+            )
+            if expires_at is None:
+                expires_at = anchor + float(expiry.ttl_seconds or 0.0)
+        else:
+            expires_at = anchor + float(expiry.ttl_seconds or 0.0)
+    else:
+        expires_at = None
+        anchor = stats.last_observed_at or _safe_float(row.get("decay_anchor_at")) or now
+    evidence_event_ids = _bounded_claim_evidence_ids(stats)
+    first_inferred_at, last_validated_at, validation_state, confidence = (
+        _recomputed_assertion_evidence(row=row, stats=stats)
+    )
+    if expires_at is not None and expires_at <= now:
+        next_status = "expired"
+    elif str(row.get("status") or "") == "archived":
+        next_status = validation_state
+    else:
+        next_status = validation_state
+    persisted_validation_state = "expired" if next_status == "expired" else validation_state
+    memory_subdomain = _memory_subdomain(
+        temporal_scope=expiry.temporal_scope,
+        decay_policy=expiry.decay_policy,
+    )
+    cursor = await db.execute(
+        """
+        UPDATE tom_trait_assertions
+        SET status = ?, validation_state = ?, confidence_score = ?, evidence_events = ?,
+            first_inferred_at = ?, last_validated_at = ?,
+            temporal_scope = ?, decay_policy = ?, decay_anchor_at = ?,
+            expires_at = ?, memory_subdomain = ?,
+            authority_ref = CASE
+                WHEN authority_ref = 'forget:event' THEN NULL
+                ELSE authority_ref
+            END,
+            updated_at = ?
+        WHERE assertion_id = ?
+        """,
+        (
+            next_status,
+            persisted_validation_state,
+            confidence,
+            json.dumps(evidence_event_ids, ensure_ascii=False),
+            first_inferred_at,
+            last_validated_at,
+            expiry.temporal_scope,
+            expiry.decay_policy,
+            anchor,
+            expires_at,
+            memory_subdomain,
+            now,
+            assertion_id,
+        ),
+    )
+    return max(int(cursor.rowcount or 0), 0)
+
+
+def _bounded_claim_evidence_ids(stats: ClaimOccurrenceStats | None) -> list[str]:
+    if stats is None:
+        return []
+    return sorted(set(stats.supporting_event_ids))[-max_evidence_event_ids() :]
+
+
+def _recomputed_assertion_evidence(
+    *,
+    row: Mapping[str, Any],
+    stats: ClaimOccurrenceStats | None,
+) -> tuple[float, float, str, float]:
+    evidence_event_ids = _bounded_claim_evidence_ids(stats)
+    first_inferred_at = (stats.first_observed_at if stats is not None else None) or _safe_float(
+        row.get("first_inferred_at")
+    )
+    last_validated_at = (stats.last_observed_at if stats is not None else None) or _safe_float(
+        row.get("last_validated_at")
+    )
+    current_confidence = _safe_float(row.get("confidence_score"))
+    confidence = min(current_confidence, compute_confidence(len(evidence_event_ids)))
+    validation_state, confidence, _ = derive_validation_state(
+        current_state=str(row.get("validation_state") or "tentative"),
+        current_confidence=confidence,
+        evidence_count=len(evidence_event_ids),
+        time_span_hours=max(0.0, (last_validated_at - first_inferred_at) / 3600.0),
+        trait_name=str(row.get("trait_name") or ""),
+        user_feedback=None,
+    )
+    return first_inferred_at, last_validated_at, validation_state, confidence
+
+
+async def _remaining_goal_target_end(
+    db: aiosqlite.Connection,
+    *,
+    claim_ids: tuple[str, ...],
+) -> float | None:
+    if not claim_ids:
+        return None
+    claim_json = json.dumps(claim_ids, ensure_ascii=False, separators=(",", ":"))
+    async with db.execute(
+        """
+        SELECT MIN(target_to)
+        FROM l2_grounded_claims
+        WHERE availability = 'active'
+          AND target_to IS NOT NULL
+          AND claim_id IN (
+              SELECT CAST(value AS TEXT) FROM json_each(?)
+          )
+        """,
+        (claim_json,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    return float(row[0]) if row is not None and row[0] is not None else None
+
+
+async def _goal_claims_remain_projectable(
+    db: aiosqlite.Connection,
+    *,
+    stats: ClaimOccurrenceStats,
+    now: float,
+) -> bool:
+    """Reapply the goal-specific safety gates to the surviving Claim ledger."""
+
+    supporting_event_ids = set(stats.supporting_event_ids)
+    if not supporting_event_ids or not supporting_event_ids.issubset(set(stats.trusted_event_ids)):
+        return False
+    claim_json = json.dumps(stats.claim_ids, ensure_ascii=False, separators=(",", ":"))
+    async with db.execute(
+        """
+        SELECT claims.claim_id, claims.target_to, claims.raw_time_frame_json,
+               evidence.event_id, evidence.evidence_mode
+        FROM l2_grounded_claims AS claims
+        JOIN l2_claim_evidence AS evidence
+          ON evidence.claim_id = claims.claim_id
+         AND evidence.link_role = 'supporting'
+        WHERE claims.availability = 'active'
+          AND claims.claim_id IN (
+              SELECT CAST(value AS TEXT) FROM json_each(?)
+          )
+        ORDER BY claims.claim_id, evidence.event_id
+        """,
+        (claim_json,),
+    ) as cursor:
+        rows = await cursor.fetchall()
+    if not rows:
+        return False
+    if any(str(row[4] or "").strip().casefold() != "direct" for row in rows):
+        return False
+
+    target_ends: list[float] = []
+    frames_by_claim: dict[str, Mapping[str, Any]] = {}
+    for row in rows:
+        claim_id = str(row[0])
+        if row[1] is not None:
+            target_ends.append(float(row[1]))
+        frames_by_claim.setdefault(claim_id, _safe_json_mapping(row[2]))
+    for frame in frames_by_claim.values():
+        raw_expression = str(frame.get("raw") or "").strip()
+        resolution = str(frame.get("resolution") or "unscheduled").strip().casefold()
+        if raw_expression and resolution not in {"exact", "calendar_anchor"}:
+            return False
+    if target_ends:
+        return min(target_ends) > now
+    last_observed_at = stats.last_observed_at
+    return bool(last_observed_at is not None and last_observed_at + 30 * 24 * 60 * 60 > now)
+
+
+def _safe_json_mapping(value: Any) -> Mapping[str, Any]:
+    try:
+        decoded = json.loads(value) if isinstance(value, str) else value
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
+
+
+async def _has_independent_assertion_authority(
+    db: aiosqlite.Connection,
+    *,
+    authority_ref: Any,
+    user_feedback: Any,
+    forgotten_event_ids: Iterable[str] = (),
+) -> bool:
+    authority = str(authority_ref or "").strip()
+    if authority.startswith("correction:"):
+        correction_id = authority.removeprefix("correction:").strip()
+        if not correction_id:
+            return False
+        async with db.execute(
+            """
+            SELECT state, source_event_id
+            FROM memory_corrections
+            WHERE correction_id = ?
+            """,
+            (correction_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None or str(row[0] or "").strip().casefold() != "active":
+            return False
+        forgotten = {str(event_id).strip() for event_id in forgotten_event_ids}
+        source_event_id = str(row[1] or "").strip()
+        return not source_event_id or source_event_id not in forgotten
+    if str(user_feedback or "").strip().casefold() == "confirmed":
+        return True
+    if not authority or authority.startswith("forget:"):
+        return False
+    return True
+
+
+def _assertion_status_is_terminal(value: Any) -> bool:
+    return str(value or "").strip().casefold() in {
+        "contradicted",
+        "expired",
+        "invalidated",
+        "shadow",
+        "superseded",
+        "user_rejected",
+    }
+
+
+def _memory_subdomain(*, temporal_scope: str, decay_policy: str) -> str:
+    if temporal_scope in {"persistent", "stable", ""} and decay_policy in {
+        "none",
+        "evidence_only",
+        "",
+    }:
+        return "semantic"
+    return "state"
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 async def _forget_entity_evidence(
@@ -1363,10 +2138,7 @@ async def _forgotten_events_by_claim(
     )
     linked_by_claim: dict[str, set[str]] = {}
     for key, claim in claims.items():
-        linked = {
-            record.event_id
-            for record in evidence_by_claim.get(claim.claim_fingerprint, ())
-        }
+        linked = {record.event_id for record in evidence_by_claim.get(claim.claim_fingerprint, ())}
         linked.update(claim.evidence_event_ids)
         if claim.correction_ids:
             placeholders = ", ".join("?" for _ in claim.correction_ids)
@@ -1388,11 +2160,7 @@ async def _forgotten_events_by_claim(
 
     tombstoned_event_ids = await source_event_tombstone_ids(
         db,
-        (
-            event_id
-            for linked in linked_by_claim.values()
-            for event_id in linked
-        ),
+        (event_id for linked in linked_by_claim.values() for event_id in linked),
     )
     governed_event_ids = target_ids | tombstoned_event_ids
     result: dict[str, tuple[str, ...]] = {}
@@ -1425,7 +2193,7 @@ async def _remove_assertion_evidence(
             """
             SELECT evidence_events, first_inferred_at, last_validated_at,
                    confidence_score, validation_state, status, trait_name,
-                   user_feedback, valid_from, valid_to
+                   user_feedback, authority_ref, valid_from, valid_to
             FROM tom_trait_assertions
             WHERE assertion_id = ? AND claim_fingerprint = ?
             """,
@@ -1438,8 +2206,8 @@ async def _remove_assertion_evidence(
         records = _records_for_segment(
             evidence_by_claim.get(claim.claim_fingerprint, ()),
             raw_event_ids=set(raw_ids),
-            segment_start=float(row[8]) if row[8] is not None else float(row[1]),
-            segment_end=float(row[9]) if row[9] is not None else math.inf,
+            segment_start=float(row[9]) if row[9] is not None else float(row[1]),
+            segment_end=float(row[10]) if row[10] is not None else math.inf,
         )
         retained_records = [record for record in records if record.event_id not in forgotten]
         retained_ids = _bounded_retained_ids(
@@ -1447,19 +2215,34 @@ async def _remove_assertion_evidence(
             + [event_id for event_id in raw_ids if event_id not in forgotten]
         )
         if malformed or not retained_ids:
-            cursor = await db.execute(
-                """
-                UPDATE tom_trait_assertions
-                SET status = 'archived', evidence_events = '[]',
-                    authority_ref = CASE
-                        WHEN authority_ref = 'forget:entity' THEN authority_ref
-                        ELSE 'forget:event'
-                    END,
-                    updated_at = ?
-                WHERE assertion_id = ?
-                """,
-                (now, claim.record_id),
-            )
+            if await _has_independent_assertion_authority(
+                db,
+                authority_ref=row[8],
+                user_feedback=row[7],
+                forgotten_event_ids=forgotten,
+            ):
+                cursor = await db.execute(
+                    """
+                    UPDATE tom_trait_assertions
+                    SET evidence_events = '[]', updated_at = ?
+                    WHERE assertion_id = ?
+                    """,
+                    (now, claim.record_id),
+                )
+            else:
+                cursor = await db.execute(
+                    """
+                    UPDATE tom_trait_assertions
+                    SET status = 'archived', evidence_events = '[]',
+                        authority_ref = CASE
+                            WHEN authority_ref = 'forget:entity' THEN authority_ref
+                            ELSE 'forget:event'
+                        END,
+                        updated_at = ?
+                    WHERE assertion_id = ?
+                    """,
+                    (now, claim.record_id),
+                )
         else:
             first_at, last_at = _retained_bounds(
                 retained_records,

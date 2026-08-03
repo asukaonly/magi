@@ -359,6 +359,25 @@ async def load_routed_claim_occurrence_stats(
     now: float | None = None,
     local_timezone: tzinfo | None = None,
 ) -> dict[ClaimRouteValueKey, ClaimOccurrenceStats]:
+    """Open the ledger and recompute promotion statistics for routed values."""
+
+    async with sqlite_connection_async(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        return await load_routed_claim_occurrence_stats_on_connection(
+            db,
+            keys=keys,
+            now=now,
+            local_timezone=local_timezone,
+        )
+
+
+async def load_routed_claim_occurrence_stats_on_connection(
+    db: aiosqlite.Connection,
+    *,
+    keys: Iterable[ClaimRouteValueKey],
+    now: float | None = None,
+    local_timezone: tzinfo | None = None,
+) -> dict[ClaimRouteValueKey, ClaimOccurrenceStats]:
     """Recompute promotion counts from active Claims and their latest valid route.
 
     Occurrence and evidence counts include all distinct grounded Claims and
@@ -388,69 +407,75 @@ async def load_routed_claim_occurrence_stats(
         separators=(",", ":"),
         sort_keys=True,
     )
-    async with sqlite_connection_async(db_path) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            f"""
-            WITH requested_keys AS (
-                SELECT
-                    CAST(json_extract(value, '$.target_slot_key') AS TEXT)
-                        AS target_slot_key,
-                    CAST(json_extract(value, '$.value_fingerprint') AS TEXT)
-                        AS value_fingerprint
-                FROM json_each(?)
-            ),
-            {CURRENT_ENTITY_REF_VERSIONS_CTE},
-            latest_route_outcomes AS (
-                SELECT
-                    outcomes.claim_id,
-                    outcomes.target_slot_key,
-                    outcomes.outcome,
-                    CAST(
-                        json_extract(outcomes.details_json, '$.value_fingerprint')
-                        AS TEXT
-                    ) AS value_fingerprint,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY outcomes.claim_id
-                        ORDER BY {LATEST_ROUTE_ORDER_SQL}
-                    ) AS row_number
-                FROM l2_claim_projection_outcomes AS outcomes
-                LEFT JOIN current_entity_ref_versions AS route_refs
-                  ON route_refs.claim_id = outcomes.claim_id
-                WHERE outcomes.target_kind = 'route'
-                  AND outcomes.invalidated_at IS NULL
-            )
+    db.row_factory = aiosqlite.Row
+    async with db.execute(
+        f"""
+        WITH requested_keys AS (
             SELECT
-                latest.target_slot_key,
-                latest.value_fingerprint,
-                claims.claim_id,
-                claims.fact_kind,
-                claims.canonical_predicate,
-                claims.temporal_cue,
-                evidence.event_id,
-                evidence.event_time,
-                evidence.timestamp_quality,
-                evidence.evidence_class,
-                evidence.source_domain,
-                evidence.author_type
-            FROM latest_route_outcomes AS latest
-            JOIN requested_keys AS requested
-              ON requested.target_slot_key = latest.target_slot_key
-             AND requested.value_fingerprint = latest.value_fingerprint
-            JOIN l2_grounded_claims AS claims
-              ON claims.claim_id = latest.claim_id
-             AND claims.availability = 'active'
-            JOIN l2_claim_evidence AS evidence
-              ON evidence.claim_id = claims.claim_id
-             AND evidence.link_role = 'supporting'
-            WHERE latest.row_number = 1
-              AND latest.outcome = 'routed'
-            ORDER BY latest.target_slot_key, latest.value_fingerprint,
-                     claims.claim_id, evidence.event_id
-            """,
-            (query_keys_json,),
-        ) as cursor:
-            rows = await cursor.fetchall()
+                CAST(json_extract(value, '$.target_slot_key') AS TEXT)
+                    AS target_slot_key,
+                CAST(json_extract(value, '$.value_fingerprint') AS TEXT)
+                    AS value_fingerprint
+            FROM json_each(?)
+        ),
+        {CURRENT_ENTITY_REF_VERSIONS_CTE},
+        latest_route_outcomes AS (
+            SELECT
+                outcomes.claim_id,
+                outcomes.target_slot_key,
+                outcomes.outcome,
+                CAST(
+                    json_extract(outcomes.details_json, '$.value_fingerprint')
+                    AS TEXT
+                ) AS value_fingerprint,
+                ROW_NUMBER() OVER (
+                    PARTITION BY outcomes.claim_id
+                    ORDER BY {LATEST_ROUTE_ORDER_SQL}
+                ) AS row_number
+            FROM l2_claim_projection_outcomes AS outcomes
+            LEFT JOIN current_entity_ref_versions AS route_refs
+              ON route_refs.claim_id = outcomes.claim_id
+            WHERE outcomes.target_kind = 'route'
+              AND outcomes.invalidated_at IS NULL
+        )
+        SELECT
+            latest.target_slot_key,
+            latest.value_fingerprint,
+            claims.claim_id,
+            claims.fact_kind,
+            claims.canonical_predicate,
+            claims.temporal_cue,
+            evidence.event_id,
+            evidence.event_time,
+            evidence.timestamp_quality,
+            evidence.evidence_class,
+            evidence.source_domain,
+            evidence.author_type
+        FROM latest_route_outcomes AS latest
+        JOIN requested_keys AS requested
+          ON requested.target_slot_key = latest.target_slot_key
+         AND requested.value_fingerprint = latest.value_fingerprint
+        JOIN l2_grounded_claims AS claims
+          ON claims.claim_id = latest.claim_id
+         AND claims.availability = 'active'
+        JOIN l2_claim_evidence AS evidence
+          ON evidence.claim_id = claims.claim_id
+         AND evidence.link_role = 'supporting'
+        WHERE latest.row_number = 1
+          AND latest.outcome = 'routed'
+          AND NOT EXISTS (
+                SELECT 1
+                FROM l2_claim_evidence AS governed_evidence
+                JOIN memory_source_event_tombstones AS tombstones
+                  ON tombstones.event_id = governed_evidence.event_id
+                WHERE governed_evidence.claim_id = claims.claim_id
+          )
+        ORDER BY latest.target_slot_key, latest.value_fingerprint,
+                 claims.claim_id, evidence.event_id
+        """,
+        (query_keys_json,),
+    ) as cursor:
+        rows = await cursor.fetchall()
 
     resolved_now = float(time.time() if now is None else now)
     claims_by_key: dict[ClaimRouteValueKey, set[str]] = defaultdict(set)
@@ -534,5 +559,6 @@ __all__ = [
     "MAX_FUTURE_CLOCK_SKEW_SECONDS",
     "OccurrenceTimelineStats",
     "load_routed_claim_occurrence_stats",
+    "load_routed_claim_occurrence_stats_on_connection",
     "summarize_occurrence_times",
 ]
