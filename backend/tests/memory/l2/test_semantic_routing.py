@@ -178,8 +178,11 @@ def test_birth_date_accepts_real_calendar_dates(value: str) -> None:
     assert decision.canonical_value == value
 
 
-@pytest.mark.parametrize("value", ["2021-02-29", "2020-02-31", "04-31", "13-01"])
-def test_birth_date_rejects_impossible_calendar_dates(value: str) -> None:
+@pytest.mark.parametrize(
+    "value",
+    ["2021-02-29", "2020-02-31", "04-31", "13-01", "٢٠٢٠-02-29"],
+)
+def test_birth_date_rejects_invalid_typed_values(value: str) -> None:
     decision = derive_semantic_route(_route_input("BIRTH_DATE", object_value=value))
 
     assert decision.disposition is RouteDisposition.UNROUTED

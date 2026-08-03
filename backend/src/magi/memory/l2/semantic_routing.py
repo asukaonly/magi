@@ -334,7 +334,8 @@ def _validate_route_disposition_table() -> None:
 _validate_route_disposition_table()
 
 _BIRTH_DATE = re.compile(
-    r"^(?:(?P<year>\d{4})-)?(?P<month>0[1-9]|1[0-2])-(?P<day>0[1-9]|[12]\d|3[01])$"
+    r"^(?:(?P<year>[0-9]{4})-)?"
+    r"(?P<month>0[1-9]|1[0-2])-(?P<day>0[1-9]|[12][0-9]|3[01])$"
 )
 
 
@@ -603,12 +604,17 @@ def _canonical_literal(predicate: str, value: Any) -> Any | None:
         match = _BIRTH_DATE.fullmatch(text)
         if match is None:
             return None
-        year = int(match.group("year") or 2000)
+        year_text = match.group("year")
+        year = int(year_text or 2000)
+        month = int(match.group("month"))
+        day = int(match.group("day"))
         try:
-            date(year, int(match.group("month")), int(match.group("day")))
+            date(year, month, day)
         except ValueError:
             return None
-        return text
+        if year_text is not None:
+            return f"{year:04d}-{month:02d}-{day:02d}"
+        return f"{month:02d}-{day:02d}"
     if predicate == "BIRTH_YEAR":
         if not text.isdigit():
             return None
