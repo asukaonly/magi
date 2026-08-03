@@ -12,6 +12,7 @@ from magi.memory.l2.claims.reprojection import reproject_stale_claim_routes
 from magi.memory.l2.claims.identity import projection_outcome_id
 from magi.memory.l2.entities.catalog import L2EntityCatalog
 from magi.memory.l2.entities.maintenance import L2EntityMaintenance
+from magi.memory.l2.governance import forgetting as forgetting_module
 from magi.memory.l2.semantic_routing import (
     ROUTE_CONTRACT_VERSION,
     SemanticRouteInput,
@@ -508,6 +509,214 @@ async def test_entity_merge_and_forget_converge_without_claim_target_leaks(
         assert await store.list_current_assertions(entity_id="user:u1") == []
         portrait = await UserPortraitProjectionBuilder(store).build("u1")
         assert f"assertion:{target['target_id']}" not in portrait.evidence_refs
+    else:
+        assert await store.list_current_relationships(subject_id="user:u1") == []
+
+
+@pytest.mark.parametrize("target_kind", ["assertion", "relationship"])
+async def test_source_and_entity_forget_converge_to_same_public_state(
+    l2_store_with_schema,
+    target_kind: str,
+) -> None:
+    store = l2_store_with_schema
+    terminal_states: dict[str, dict[str, object]] = {}
+
+    for operation_order in ("source_then_entity", "entity_then_source"):
+        entity_id = f"topic:private:{operation_order}"
+        claim_id = f"claim:{target_kind}:{operation_order}"
+        event_id = _claim_event_id(claim_id)
+        await _seed_claim(store, claim_id=claim_id, object_entity_id=entity_id)
+        await _seed_claim_target(
+            store,
+            claim_id=claim_id,
+            object_entity_id=entity_id,
+            target_kind=target_kind,
+        )
+
+        if operation_order == "source_then_entity":
+            await store.forget_source_events([event_id], reason="user_request")
+            await store.forget_entity(entity_id=entity_id)
+        else:
+            await store.forget_entity(entity_id=entity_id)
+            await store.forget_source_events([event_id], reason="user_request")
+
+        claim, refs, outcomes, evidence_count = await _claim_rows(store, claim_id)
+        target = await _target_row_for_entity(
+            store,
+            target_kind=target_kind,
+            entity_id=entity_id,
+        )
+        async with sqlite_connection_async(store.db_path) as db:
+            async with db.execute(
+                """
+                SELECT COUNT(*) FROM memory_source_event_tombstones
+                WHERE event_id = ?
+                """,
+                (event_id,),
+            ) as cursor:
+                tombstone_count = int((await cursor.fetchone())[0])
+
+        if target_kind == "assertion":
+            visible_targets = await store.list_current_assertions(entity_id="user:u1")
+            portrait = await UserPortraitProjectionBuilder(store).build("u1")
+            portrait_exposes_target = f"assertion:{target['target_id']}" in portrait.evidence_refs
+        else:
+            visible_targets = await store.list_current_relationships(subject_id="user:u1")
+            portrait_exposes_target = False
+
+        terminal_states[operation_order] = {
+            "claim_availability": claim["availability"],
+            "claim_ref_count": len(refs),
+            "claim_evidence_count": evidence_count,
+            "projection_receipt_count": len(outcomes),
+            "projection_targets_redacted": all(
+                str(row["target_id"]).startswith("redacted:") for row in outcomes
+            ),
+            "projection_details_removed": all(row["details_json"] is None for row in outcomes),
+            "projection_receipts_invalidated": all(
+                row["invalidated_at"] is not None for row in outcomes
+            ),
+            "canonical_target_status": target["status"],
+            "source_event_tombstone_count": tombstone_count,
+            "visible_projection_count": len(visible_targets),
+            "portrait_exposes_target": portrait_exposes_target,
+        }
+
+    expected_terminal_state = {
+        "claim_availability": "forgotten",
+        "claim_ref_count": 0,
+        "claim_evidence_count": 0,
+        "projection_receipt_count": 3,
+        "projection_targets_redacted": True,
+        "projection_details_removed": True,
+        "projection_receipts_invalidated": True,
+        "canonical_target_status": "archived",
+        "source_event_tombstone_count": 1,
+        "visible_projection_count": 0,
+        "portrait_exposes_target": False,
+    }
+    assert terminal_states["source_then_entity"] == expected_terminal_state
+    assert terminal_states["entity_then_source"] == expected_terminal_state
+
+
+@pytest.mark.parametrize("target_kind", ["assertion", "relationship"])
+async def test_entity_forget_rolls_back_then_retries_after_mid_transaction_failure(
+    l2_store_with_schema,
+    monkeypatch,
+    target_kind: str,
+) -> None:
+    store = l2_store_with_schema
+    winner_id = "topic:winner"
+    loser_id = "topic:loser"
+    claim_id = f"claim:{target_kind}:rollback"
+    catalog = L2EntityCatalog(db_path=store.db_path, vector_enabled=False)
+    for entity_id in (winner_id, loser_id):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Jazz",
+            entity_type="topic",
+        )
+    await _seed_claim(store, claim_id=claim_id, object_entity_id=loser_id)
+    await _seed_claim_target(
+        store,
+        claim_id=claim_id,
+        object_entity_id=loser_id,
+        target_kind=target_kind,
+    )
+    await L2EntityMaintenance(db_path=store.db_path)._merge_entity_into(
+        winner_id,
+        loser_id,
+    )
+    reprojection = await reproject_stale_claim_routes(store)
+    assert reprojection.outcomes_appended == 1
+
+    claim_before, refs_before, outcomes_before, evidence_before = await _claim_rows(
+        store,
+        claim_id,
+    )
+    target_before = await _target_row_for_entity(
+        store,
+        target_kind=target_kind,
+        entity_id=winner_id,
+    )
+    current_routes_before = [
+        row
+        for row in outcomes_before
+        if row["target_kind"] == "route" and row["invalidated_at"] is None
+    ]
+    target_outcome_ids_before = {
+        str(row["outcome_id"]) for row in outcomes_before if row["target_kind"] == target_kind
+    }
+    assert len(current_routes_before) == 1
+    assert target_outcome_ids_before
+    assert target_before["status"] != "archived"
+
+    original_barrier = forgetting_module.apply_correction_forget_barriers
+
+    async def fail_after_target_retirement(*_args, **_kwargs) -> None:
+        raise RuntimeError("injected entity forget failure")
+
+    monkeypatch.setattr(
+        forgetting_module,
+        "apply_correction_forget_barriers",
+        fail_after_target_retirement,
+    )
+    with pytest.raises(RuntimeError, match="injected entity forget failure"):
+        await store.forget_entity(entity_id=loser_id)
+
+    (
+        claim_after_failure,
+        refs_after_failure,
+        outcomes_after_failure,
+        evidence_after_failure,
+    ) = await _claim_rows(store, claim_id)
+    target_after_failure = await _target_row_for_entity(
+        store,
+        target_kind=target_kind,
+        entity_id=winner_id,
+    )
+    assert claim_after_failure == claim_before
+    assert refs_after_failure == refs_before
+    assert outcomes_after_failure == outcomes_before
+    assert evidence_after_failure == evidence_before == 1
+    assert target_after_failure == target_before
+    if target_kind == "assertion":
+        current = await store.list_current_assertions(entity_id="user:u1")
+        assert [row["assertion_id"] for row in current] == [target_before["target_id"]]
+    else:
+        current = await store.list_current_relationships(subject_id="user:u1")
+        assert [row["triple_id"] for row in current] == [target_before["target_id"]]
+
+    monkeypatch.setattr(
+        forgetting_module,
+        "apply_correction_forget_barriers",
+        original_barrier,
+    )
+    await store.forget_entity(entity_id=loser_id)
+
+    (
+        claim_after_retry,
+        refs_after_retry,
+        outcomes_after_retry,
+        evidence_after_retry,
+    ) = await _claim_rows(store, claim_id)
+    target_after_retry = await _target_row_for_entity(
+        store,
+        target_kind=target_kind,
+        entity_id=winner_id,
+    )
+    target_outcome_ids_after_retry = {
+        str(row["outcome_id"]) for row in outcomes_after_retry if row["target_kind"] == target_kind
+    }
+    assert claim_after_retry["availability"] == "forgotten"
+    assert refs_after_retry == []
+    assert evidence_after_retry == 0
+    assert target_outcome_ids_after_retry == target_outcome_ids_before
+    assert all(str(row["target_id"]).startswith("redacted:") for row in outcomes_after_retry)
+    assert all(row["invalidated_at"] is not None for row in outcomes_after_retry)
+    assert target_after_retry["status"] == "archived"
+    if target_kind == "assertion":
+        assert await store.list_current_assertions(entity_id="user:u1") == []
     else:
         assert await store.list_current_relationships(subject_id="user:u1") == []
 
