@@ -13,6 +13,22 @@ different `RuntimePaths` instance, but the shipped Settings UI does not
 currently support moving an existing runtime directory. The runtime keeps
 state across multiple SQLite files, grouped by lifecycle ownership:
 
+The runtime root is a private operating-system account boundary. Before the
+desktop host opens logs or starts Python, it creates or repairs the complete
+`~/.magi` tree so only the current account can access it. On Unix-like systems,
+directories use owner-only access and files use owner-only read/write access
+while preserving the owner's executable bit where required. On Windows, the
+tree uses a protected access policy for the current account and the operating
+system. The Python worker repeats the Unix protection when it starts outside
+the desktop host.
+
+Startup rejects a runtime root or descendant that is a symbolic link, Windows
+reparse point, externally hard-linked file, or an entry owned by another
+account. It fails before normal runtime startup instead of following the entry
+or weakening an external target. This policy applies only to the Magi-owned
+runtime root. User-selected workspaces, repositories, photo libraries, and
+other external source directories are never traversed or modified by it.
+
 Desktop gateway session credentials and private-resource tickets are deliberately
 absent from this layout. They exist only in process memory, expire with the
 gateway process, and must not enter SQLite, YAML configuration, logs, backups,

@@ -1,7 +1,11 @@
 """Runtime directory management for durable and operational local storage."""
+
 import logging
+import os
 from pathlib import Path
 from typing import Optional
+
+from .private_data import protect_private_data_tree
 
 # Use standard logging to avoid circular imports
 logger = logging.getLogger(__name__)
@@ -23,6 +27,7 @@ class RuntimePaths:
             base_dir = home / ".magi"
 
         self.base_dir = Path(base_dir)
+        protect_private_data_tree(self.base_dir)
         self._ensure_directories()
 
     def _ensure_directories(self):
@@ -45,10 +50,14 @@ class RuntimePaths:
             self.plugins_cache_dir,
             self.others_dir,
             self.logs_dir,
+            self.config_dir,
+            self.mcp_config_dir,
         ]
 
         for directory in directories:
-            directory.mkdir(parents=True, exist_ok=True)
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if os.name != "nt":
+                directory.chmod(0o700)
 
         logger.info(f"Runtime directory: {self.base_dir}")
 

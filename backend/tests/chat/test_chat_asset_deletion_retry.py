@@ -1852,7 +1852,7 @@ def test_message_delete_respects_canonical_alias_owner(
     assert shared_path.exists()
     service.close()
 
-    recovered_service, _ = _build_service(tmp_path)
+    recovered_service = _reopen_service(runtime_paths)
     assert recovered_service.forget_message_artifacts(
         "u1",
         "session-payload",

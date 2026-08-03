@@ -60,6 +60,14 @@ environment before runtime and plugins start. This rule is identical for Unix
 sockets and Windows loopback TCP; the credential remains memory-only and is
 never exposed to the WebView, plugins, files, URLs, or logs.
 
+The desktop host also protects Magi's local data before it opens any log or
+starts the Python worker. Existing files under `~/.magi` are repaired on every
+launch so other operating-system accounts cannot read or change them. Links,
+foreign-owned entries, and files with aliases outside the tree stop startup
+instead of causing Magi to change an external target. This boundary covers only
+Magi-owned storage; it never changes permissions on user-selected workspaces or
+source libraries.
+
 Every desktop gateway process creates a strong random session credential and
 returns it only to the Magi WebView. The credential stays in process memory: it
 is not passed to Python or plugins, written to disk, logged, or placed in a URL.

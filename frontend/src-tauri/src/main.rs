@@ -6,6 +6,7 @@ mod desktop_presence;
 mod dmg_cleanup;
 mod external_url;
 mod full_data_clear;
+mod private_data;
 
 use magi_gateway::{api, ipc, notification_bridge};
 
@@ -1621,6 +1622,12 @@ fn disable_native_window_decorations(app: &AppHandle) {
 }
 
 fn main() {
+    let magi_data_root = home_dir()
+        .expect("failed to resolve Magi data directory")
+        .join(".magi");
+    private_data::protect_magi_data_root(&magi_data_root)
+        .expect("failed to protect Magi private data");
+
     let log_dir = desktop_log_dir().expect("failed to resolve desktop log directory");
     let backend_log_path =
         current_backend_log_path().expect("failed to resolve backend log file path");

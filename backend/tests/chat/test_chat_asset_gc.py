@@ -239,27 +239,16 @@ def test_chat_asset_gc_rejects_retargeted_root_for_delete_scan_and_clear(
     assert outside_file.read_text(encoding="utf-8") == "private"
 
 
-def test_chat_asset_gc_accepts_canonical_roots_under_symlinked_runtime_base(
+def test_runtime_paths_rejects_symlinked_runtime_base(
     tmp_path: Path,
 ) -> None:
     actual_runtime = tmp_path / "actual-runtime"
     actual_runtime.mkdir()
     linked_runtime = tmp_path / "linked-runtime"
     linked_runtime.symlink_to(actual_runtime, target_is_directory=True)
-    runtime_paths = RuntimePaths(base_dir=linked_runtime)
-    asset = _write_asset(
-        runtime_paths.chat_files_dir,
-        "session-1",
-        "turn-1",
-        "private.txt",
-    )
 
-    result = ChatAssetGC(runtime_paths=runtime_paths).delete_session_assets(
-        "session-1"
-    )
-
-    assert result["chat_asset_files_deleted"] == 1
-    assert not asset.exists()
+    with pytest.raises(RuntimeError, match="root must be a real directory"):
+        RuntimePaths(base_dir=linked_runtime)
 
 
 @pytest.mark.asyncio

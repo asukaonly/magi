@@ -44,6 +44,17 @@ def test_tauri_does_not_expose_session_token_to_python_backend() -> None:
     assert "command.env_remove(INTERNAL_IPC_TOKEN_ENV)" in isolation_section
 
 
+def test_tauri_protects_private_data_before_opening_logs() -> None:
+    """Verify access protection is installed before any desktop log file is opened."""
+    source_path = Path(__file__).resolve().parents[3] / "frontend" / "src-tauri" / "src" / "main.rs"
+    source = source_path.read_text(encoding="utf-8")
+    main_section = source.split("fn main()", 1)[1]
+
+    protection_index = main_section.index("private_data::protect_magi_data_root")
+    logging_index = main_section.index("DesktopLogRuntime::install")
+    assert protection_index < logging_index
+
+
 def test_tauri_webview_has_a_restrictive_content_policy() -> None:
     """Verify packaged pages cannot execute or connect to arbitrary origins."""
     config_path = Path(__file__).resolve().parents[3] / "frontend" / "src-tauri" / "tauri.conf.json"
