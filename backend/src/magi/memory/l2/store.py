@@ -39,6 +39,7 @@ from .corrections.repository import (
     MemoryCorrectionRepository,
 )
 from .corrections.cache_signals import mark_all_subjects_changed, mark_subject_changed
+from .claims.repository import L2GroundedClaimStoreMixin
 from .projection.queue import ProjectionJobQueue
 from .assertions.contradictions import L2StoreContradictionMixin
 from .assertions.feedback import L2StoreFeedbackMixin
@@ -68,6 +69,7 @@ logger = get_logger(__name__)
 
 
 class L2CognitionStore(
+    L2GroundedClaimStoreMixin,
     L2EntityFacetStoreMixin,
     L2EpisodeStoreMixin,
     L2ExperienceStoreMixin,
@@ -458,6 +460,10 @@ class L2CognitionStore(
 
 
 L2_USER_CONTENT_TABLES = (
+    "l2_claim_projection_outcomes",
+    "l2_claim_entity_refs",
+    "l2_claim_evidence",
+    "l2_grounded_claims",
     "memory_derivation_jobs",
     "memory_derivation_dependencies",
     "memory_correction_forget_barriers",

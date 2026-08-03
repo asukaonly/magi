@@ -59,6 +59,7 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "v35_l0_attention_state.py",
     "v36_history_imports.py",
     "v37_history_import_selection.py",
+    "v38_l2_grounded_claims.py",
 )
 
 

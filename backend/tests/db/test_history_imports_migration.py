@@ -33,7 +33,8 @@ def test_history_import_migration_creates_job_and_record_tables() -> None:
         db.close()
 
 
-def test_history_import_migration_is_the_release_head() -> None:
-    assert MEMORY_SHARED_MIGRATIONS[-1] == "v37_history_import_selection.py"
+def test_history_import_selection_precedes_the_release_head() -> None:
+    assert MEMORY_SHARED_MIGRATIONS[-1] == "v38_l2_grounded_claims.py"
+    assert MEMORY_SHARED_MIGRATIONS[-2] == "v37_history_import_selection.py"
     assert revision == "v37_history_import_selection"
     assert "CREATE TABLE IF NOT EXISTS history_import_jobs" in (schema_sql_for_fresh_database())

@@ -15,7 +15,7 @@ from magi.db.runner import MIGRATION_TARGETS, _build_config
 
 V18_REVISION = "v18_persistent_forget_governance"
 V19_REVISION = "v19_claim_evidence_ledger"
-MEMORY_HEAD_REVISION = "v37_history_import_selection"
+MEMORY_HEAD_REVISION = "v38_l2_grounded_claims"
 
 
 def _memory_config(db_path: Path):

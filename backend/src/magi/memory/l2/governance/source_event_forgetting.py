@@ -23,6 +23,7 @@ from ..assertions.state_machine import (
     derive_validation_state,
 )
 from ..corrections.cache_signals import mark_subject_changed
+from ..claims.repository import redact_grounded_claims_for_source_events
 from ..corrections.evidence_ledger import claim_evidence_records_for_claims
 from ..corrections.fingerprints import (
     assertion_claim_fingerprint,
@@ -141,6 +142,14 @@ class L2StoreSourceEventForgettingMixin:
                         event_ids=normalized,
                         now=now,
                     )
+                    result.update(
+                        await redact_grounded_claims_for_source_events(
+                            db,
+                            event_ids=normalized,
+                            reason=reason,
+                            now=now,
+                        )
+                    )
                     assertion_claims = await _assertion_claims_for_events(db, normalized)
                     edge_claims = await _relationship_claims_for_events(db, normalized)
                     assertion_events = await _forgotten_events_by_claim(
@@ -233,6 +242,10 @@ def _empty_result() -> dict[str, int]:
     return {
         "source_event_tombstones": 0,
         "projection_jobs": 0,
+        "l2_claim_evidence": 0,
+        "l2_claim_entity_refs": 0,
+        "l2_grounded_claims": 0,
+        "l2_claim_projection_outcomes": 0,
         "tom_trait_assertions": 0,
         "knowledge_graph": 0,
         "entity_mentions": 0,
