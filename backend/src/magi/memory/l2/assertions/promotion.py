@@ -253,7 +253,7 @@ def evaluate_assertion_promotion(
     if evidence.temporal_cue is L2TemporalCue.RECENT:
         return _recent("explicit_recent", trait_family=evidence.trait_family)
 
-    if _is_explicit_durable_fact(evidence, strength):
+    if evidence.durable_permitted and _is_explicit_durable_fact(evidence, strength):
         return _durable("explicit_durable_fact")
 
     if strength in {
@@ -271,6 +271,7 @@ def evaluate_assertion_promotion(
 
     if (
         strength is SourceStrengthPreset.DIRECT_USER
+        and evidence.durable_permitted
         and evidence.temporal_cue is L2TemporalCue.STABLE
     ):
         return _durable("explicit_stable_wording")

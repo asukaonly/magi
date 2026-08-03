@@ -18,10 +18,8 @@ from magi.memory.l2.assertions.occurrence_stats import (
 from magi.memory.l2.assertions.promotion import (
     AssertionPromotionInput,
     PromotionHorizon,
-    SourceStrengthPreset,
     evaluate_assertion_promotion,
 )
-from magi.memory.l2.phase1_models import L2TemporalCue
 
 
 async def _seed_claim(
@@ -36,6 +34,11 @@ async def _seed_claim(
     predicate: str = "INTERESTED_IN",
     fact_kind: str = "explicit_fact",
     object_type: str = "topic",
+    temporal_cue: str = "recurring",
+    evidence_class: str = "user_self_report",
+    source_type: str = "chat",
+    source_domain: str = "user_authored",
+    author_type: str = "user",
 ) -> None:
     async with sqlite_connection_async(db_path) as db:
         await db.execute(
@@ -49,7 +52,7 @@ async def _seed_claim(
                 availability, created_at, updated_at
             ) VALUES (?, ?, 1, 1, ?, 'chat.user_message', 'u1', 'user:u1',
                       'user', ?, ?, ?,
-                      'positive', 'concrete', 0.9, ?, 'music', 'recurring',
+                      'positive', 'concrete', 0.9, ?, 'music', ?,
                       'active', ?, ?)
             """,
             (
@@ -60,6 +63,7 @@ async def _seed_claim(
                 fact_kind,
                 object_type,
                 json.dumps("music"),
+                temporal_cue,
                 created_at,
                 created_at,
             ),
@@ -71,8 +75,8 @@ async def _seed_claim(
                 event_time, timestamp_confidence, timestamp_quality,
                 evidence_rule_version, evidence_mode, source_type,
                 source_domain, author_type, evidence_class, created_at
-            ) VALUES (?, ?, 'supporting', 1, ?, ?, ?, 1, 'direct', 'chat',
-                      'user_authored', 'user', 'user_self_report', ?)
+            ) VALUES (?, ?, 'supporting', 1, ?, ?, ?, 1, 'direct', ?,
+                      ?, ?, ?, ?)
             """,
             (
                 claim_id,
@@ -80,6 +84,10 @@ async def _seed_claim(
                 event_time,
                 "exact" if timestamp_quality == "exact" else "inferred",
                 timestamp_quality,
+                source_type,
+                source_domain,
+                author_type,
+                evidence_class,
                 created_at,
             ),
         )
@@ -265,6 +273,141 @@ async def test_replay_does_not_increase_claim_or_evidence_counts(
 
 
 @pytest.mark.asyncio
+async def test_direct_policy_survives_weak_replay_and_restart_recomputation(
+    l2_store_with_schema,
+) -> None:
+    from magi.memory.l2.store import L2CognitionStore
+
+    key = ClaimRouteValueKey("slot:preference", "value:like:jazz")
+    now = 1_900_000_000.0
+    await _seed_claim(
+        l2_store_with_schema.db_path,
+        claim_id="claim:direct",
+        event_id="event:direct",
+        key=key,
+        event_time=now - 86_400,
+        created_at=1.0,
+        predicate="LIKES",
+        fact_kind="stable_preference",
+        temporal_cue="stable",
+    )
+    await _seed_claim(
+        l2_store_with_schema.db_path,
+        claim_id="claim:weak-replay",
+        event_id="event:weak-replay",
+        key=key,
+        event_time=now,
+        created_at=2.0,
+        predicate="LIKES",
+        fact_kind="explicit_fact",
+        temporal_cue="one_off",
+        evidence_class="external_observation",
+        source_type="browser-history",
+        source_domain="external_activity",
+        author_type="system",
+    )
+
+    initial = (
+        await load_routed_claim_occurrence_stats(
+            l2_store_with_schema.db_path,
+            keys=[key],
+            now=now,
+            local_timezone=UTC,
+        )
+    )[key]
+    initial_decision = evaluate_assertion_promotion(
+        AssertionPromotionInput(
+            trait_family="preference_profile",
+            **initial.promotion_fields(),
+        )
+    )
+
+    assert initial.fact_kind == "stable_preference"
+    assert initial.canonical_predicate == "LIKES"
+    assert initial.temporal_cue == "stable"
+    assert initial.evidence_class == "user_self_report"
+    assert initial.source_strength == "direct_user"
+    assert initial.durable_permitted is True
+    assert initial_decision.horizon is PromotionHorizon.DURABLE
+
+    restarted_store = L2CognitionStore(db_path=l2_store_with_schema.db_path)
+    await restarted_store.initialize()
+    recomputed = (
+        await load_routed_claim_occurrence_stats(
+            restarted_store.db_path,
+            keys=[key],
+            now=now,
+            local_timezone=UTC,
+        )
+    )[key]
+    assert recomputed == initial
+
+    await l2_store_with_schema.forget_source_events(
+        ["event:direct"],
+        reason="user_request",
+    )
+    after_forget = (
+        await load_routed_claim_occurrence_stats(
+            restarted_store.db_path,
+            keys=[key],
+            now=now,
+            local_timezone=UTC,
+        )
+    )[key]
+    downgraded = evaluate_assertion_promotion(
+        AssertionPromotionInput(
+            trait_family="preference_profile",
+            **after_forget.promotion_fields(),
+        )
+    )
+    assert after_forget.source_strength == "passive_exposure"
+    assert after_forget.durable_permitted is False
+    assert after_forget.temporal_cue == "one_off"
+    assert downgraded.horizon is PromotionHorizon.EVENT_ONLY
+
+
+@pytest.mark.asyncio
+async def test_structured_fact_cannot_invent_durable_permission(
+    l2_store_with_schema,
+) -> None:
+    key = ClaimRouteValueKey("slot:form-of-address", "value:doctor")
+    now = 1_900_000_000.0
+    await _seed_claim(
+        l2_store_with_schema.db_path,
+        claim_id="claim:structured",
+        event_id="event:structured",
+        key=key,
+        event_time=now,
+        predicate="PREFERRED_FORM_OF_ADDRESS",
+        fact_kind="explicit_fact",
+        temporal_cue="stable",
+        evidence_class="structured_record",
+        source_type="history-import",
+        source_domain="imported_document",
+        author_type="unknown",
+    )
+
+    stats = (
+        await load_routed_claim_occurrence_stats(
+            l2_store_with_schema.db_path,
+            keys=[key],
+            now=now,
+            local_timezone=UTC,
+        )
+    )[key]
+    decision = evaluate_assertion_promotion(
+        AssertionPromotionInput(
+            trait_family="identity_profile",
+            **stats.promotion_fields(),
+        )
+    )
+
+    assert stats.source_strength == "structured_source"
+    assert stats.durable_permitted is False
+    assert decision.horizon is PromotionHorizon.EVENT_ONLY
+
+
+@pytest.mark.asyncio
 async def test_low_trust_times_count_evidence_without_inventing_timeline(
     l2_store_with_schema,
 ) -> None:
@@ -360,6 +503,12 @@ async def test_third_day_history_reaches_recent_promotion(l2_store_with_schema) 
             key=key,
             event_time=now - days_ago * 86_400,
             created_at=float(index + 1),
+            predicate="VIEWED",
+            fact_kind="interaction_evidence",
+            evidence_class="external_observation",
+            source_type="browser-history",
+            source_domain="external_activity",
+            author_type="system",
         )
     stats = (
         await load_routed_claim_occurrence_stats(
@@ -373,11 +522,6 @@ async def test_third_day_history_reaches_recent_promotion(l2_store_with_schema) 
     decision = evaluate_assertion_promotion(
         AssertionPromotionInput(
             trait_family="interest_profile",
-            fact_kind="interaction_evidence",
-            predicate="VIEWED",
-            evidence_class="external_observation",
-            source_strength=SourceStrengthPreset.PASSIVE_EXPOSURE,
-            temporal_cue=L2TemporalCue.RECURRING,
             **stats.promotion_fields(),
         )
     )
@@ -386,7 +530,7 @@ async def test_third_day_history_reaches_recent_promotion(l2_store_with_schema) 
 
 
 @pytest.mark.asyncio
-async def test_six_claims_spanning_fourteen_days_reach_durable_gates(
+async def test_sustained_claims_remain_recent_without_direct_durable_permission(
     l2_store_with_schema,
 ) -> None:
     key = ClaimRouteValueKey("slot:durable", "value:durable")
@@ -400,7 +544,12 @@ async def test_six_claims_spanning_fourteen_days_reach_durable_gates(
             event_time=now - days_ago * 86_400,
             created_at=float(index + 1),
             predicate="CONTRIBUTES_TO",
+            fact_kind="interaction_evidence",
             object_type="project",
+            evidence_class="external_observation",
+            source_type="git-activity",
+            source_domain="external_activity",
+            author_type="system",
         )
     stats = (
         await load_routed_claim_occurrence_stats(
@@ -414,12 +563,6 @@ async def test_six_claims_spanning_fourteen_days_reach_durable_gates(
     decision = evaluate_assertion_promotion(
         AssertionPromotionInput(
             trait_family="project_profile",
-            fact_kind="interaction_evidence",
-            predicate="CONTRIBUTES_TO",
-            evidence_class="external_observation",
-            source_strength=SourceStrengthPreset.SUSTAINED_ENGAGEMENT,
-            temporal_cue=L2TemporalCue.RECURRING,
-            durable_permitted=True,
             **stats.promotion_fields(),
         )
     )
@@ -427,4 +570,6 @@ async def test_six_claims_spanning_fourteen_days_reach_durable_gates(
     assert stats.evidence_count == 6
     assert stats.distinct_days == 6
     assert stats.span_days == pytest.approx(14.0)
-    assert decision.horizon is PromotionHorizon.DURABLE
+    assert stats.source_strength == "sustained_engagement"
+    assert stats.durable_permitted is False
+    assert decision.horizon is PromotionHorizon.RECENT

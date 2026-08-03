@@ -265,6 +265,7 @@ def _synthetic_occurrence_stats_for_phase1(phase1_result):  # type: ignore[no-un
     routes = _semantic_routes_for_phase1(phase1_result)
     claims_by_key = {}
     events_by_key = {}
+    policy_claims_by_key = {}
     for claim in phase1_result.fact_claims:
         route = routes.get(claim.claim_id)
         if route is None or not route.can_project_assertion or not route.value_fingerprint:
@@ -272,9 +273,28 @@ def _synthetic_occurrence_stats_for_phase1(phase1_result):  # type: ignore[no-un
         key = ClaimRouteValueKey(str(route.slot_key), str(route.value_fingerprint))
         claims_by_key.setdefault(key, set()).add(claim.claim_id)
         events_by_key.setdefault(key, set()).update(claim.supporting_event_ids)
+        policy_claims_by_key.setdefault(key, []).append(claim)
     return {
         key: ClaimOccurrenceStats(
             key=key,
+            fact_kind=_single_phase1_claim_field(
+                policy_claims_by_key[key],
+                "fact_kind",
+                "explicit_fact",
+            ),
+            canonical_predicate=_single_phase1_claim_field(
+                policy_claims_by_key[key],
+                "predicate",
+                "",
+            ).upper(),
+            temporal_cue=_single_phase1_claim_field(
+                policy_claims_by_key[key],
+                "temporal_cue",
+                "unspecified",
+            ),
+            evidence_class="user_self_report",
+            source_strength="direct_user",
+            durable_permitted=True,
             claim_ids=tuple(sorted(claim_ids)),
             supporting_event_ids=tuple(sorted(events_by_key[key])),
             trusted_event_ids=tuple(sorted(events_by_key[key])),
@@ -288,6 +308,16 @@ def _synthetic_occurrence_stats_for_phase1(phase1_result):  # type: ignore[no-un
         )
         for key, claim_ids in claims_by_key.items()
     }
+
+
+def _single_phase1_claim_field(claims, field_name, fallback):  # type: ignore[no-untyped-def]
+    values = {
+        str(getattr(raw, "value", raw) or "").strip().casefold()
+        for claim in claims
+        for raw in [getattr(claim, field_name, "")]
+    }
+    values.discard("")
+    return next(iter(values)) if len(values) == 1 else fallback
 
 
 def test_reconcile_job_accepts_multiple_entities():

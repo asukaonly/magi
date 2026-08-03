@@ -25,7 +25,6 @@ from ...assertions.promotion import (
     AssertionPromotionDecision,
     AssertionPromotionInput,
     PromotionHorizon,
-    SourceStrengthPreset,
     evaluate_assertion_promotion,
 )
 from ...assertions.settings import momentary_ttl_seconds
@@ -54,12 +53,6 @@ _PROFILE_FAMILIES = frozenset(
         "routine_profile",
         "state_profile",
     }
-)
-_PROJECT_ENGAGEMENT_PREDICATES = frozenset(
-    {"CONTRIBUTES_TO", "CREATES", "DEVELOPS", "MAINTAINS", "WORKS_ON"}
-)
-_SUSTAINED_ENGAGEMENT_PREDICATES = frozenset(
-    {*_PROJECT_ENGAGEMENT_PREDICATES, "ATTENDED", "MEMBER_OF", "OWNS", "USES"}
 )
 
 
@@ -278,80 +271,6 @@ def _shared_semantic_route(
     if len(route_identities) != 1:
         return None
     return typed_routes[0]
-
-
-def _promotion_fact_kind(claims: list[L2Phase1FactClaim]) -> str:
-    fact_kinds = {str(claim.fact_kind or "").strip().casefold() for claim in claims}
-    if len(fact_kinds) == 1:
-        return next(iter(fact_kinds))
-    if "interaction_evidence" in fact_kinds:
-        return "interaction_evidence"
-    return "explicit_fact"
-
-
-def _promotion_predicate(claims: list[L2Phase1FactClaim]) -> str:
-    predicates = {canonicalize_predicate(str(claim.predicate or "")) or "" for claim in claims}
-    return next(iter(predicates)) if len(predicates) == 1 else ""
-
-
-def _promotion_temporal_cue(claims: list[L2Phase1FactClaim]) -> L2TemporalCue:
-    cues = {L2TemporalCue.from_value(getattr(claim, "temporal_cue", None)) for claim in claims}
-    if len(cues) == 1:
-        return next(iter(cues))
-    if L2TemporalCue.RECENT in cues:
-        return L2TemporalCue.RECENT
-    if L2TemporalCue.UNSPECIFIED in cues:
-        return L2TemporalCue.UNSPECIFIED
-    if L2TemporalCue.RECURRING in cues:
-        return L2TemporalCue.RECURRING
-    return L2TemporalCue.UNSPECIFIED
-
-
-def _event_evidence_class(event: MemoryEvent) -> str:
-    metadata = getattr(event, "metadata_json", None)
-    if isinstance(metadata, dict):
-        annotated = str(metadata.get("evidence_class") or "").strip().casefold()
-        if annotated:
-            return annotated
-    memory_domain = getattr(event, "memory_domain", None)
-    domain = str(getattr(memory_domain, "label", memory_domain) or "").strip().casefold()
-    if domain == "user_authored":
-        return "user_self_report"
-    if domain == "external_activity":
-        return "external_observation"
-    if domain == "runtime_telemetry":
-        return "system_runtime"
-    return "unknown"
-
-
-def _source_strength_for_claims(
-    event: MemoryEvent,
-    claims: list[L2Phase1FactClaim],
-) -> SourceStrengthPreset:
-    if _event_evidence_class(event) == "user_self_report":
-        return SourceStrengthPreset.DIRECT_USER
-    predicates = {canonicalize_predicate(str(claim.predicate or "")) or "" for claim in claims}
-    if predicates & _SUSTAINED_ENGAGEMENT_PREDICATES:
-        return SourceStrengthPreset.SUSTAINED_ENGAGEMENT
-    if _event_evidence_class(event) == "external_observation":
-        return SourceStrengthPreset.PASSIVE_EXPOSURE
-    return SourceStrengthPreset.STRUCTURED_SOURCE
-
-
-def _profile_permits_durable(
-    event: MemoryEvent,
-    profile: ExtractionProfile,
-    trait_family: str,
-) -> bool:
-    if _event_evidence_class(event) == "user_self_report":
-        return True
-    allowed = getattr(profile, "durable_assertion_families", None)
-    if allowed == "all":
-        return True
-    if allowed is None:
-        return False
-    values = [allowed] if isinstance(allowed, str) else allowed
-    return trait_family in {str(value or "").strip().casefold() for value in values}
 
 
 def _occurrence_stats_for_route(
@@ -648,11 +567,8 @@ class L2AssertionValidationMixin:
                 )
             return None
         promotion_decision = self._evaluate_phase2_assertion_promotion(
-            event=context.event,
-            profile=context.profile,
             trait_family=trait_family,
             trait_name=trait_name,
-            supporting_claims=supporting_claims,
             occurrence_stats=occurrence_stats,
         )
         goal_reason = _goal_projection_reason(
@@ -794,14 +710,11 @@ class L2AssertionValidationMixin:
     def _evaluate_phase2_assertion_promotion(
         self,
         *,
-        event: MemoryEvent,
-        profile: ExtractionProfile,
         trait_family: str,
         trait_name: str,
-        supporting_claims: list[L2Phase1FactClaim],
         occurrence_stats: ClaimOccurrenceStats,
     ) -> AssertionPromotionDecision:
-        """Derive host-owned horizon and expiry from grounded evidence."""
+        """Derive horizon only from the complete active Claim ledger snapshot."""
         name_lower = trait_name.casefold()
         policy = get_assertion_family_policy(trait_family)
         baseline_scope: str | None
@@ -815,18 +728,10 @@ class L2AssertionValidationMixin:
             baseline_scope = policy.default_temporal_scope if policy is not None else None
             baseline_decay = policy.default_decay_policy if policy is not None else None
             baseline_ttl = policy.default_ttl_seconds if policy is not None else None
-        fact_kind = _promotion_fact_kind(supporting_claims)
-        predicate = _promotion_predicate(supporting_claims)
         return evaluate_assertion_promotion(
             AssertionPromotionInput(
                 trait_family=trait_family,
-                fact_kind=fact_kind,
-                predicate=predicate,
-                evidence_class=_event_evidence_class(event),
-                source_strength=_source_strength_for_claims(event, supporting_claims),
-                temporal_cue=_promotion_temporal_cue(supporting_claims),
                 **occurrence_stats.promotion_fields(),
-                durable_permitted=_profile_permits_durable(event, profile, trait_family),
                 baseline_temporal_scope=baseline_scope,
                 baseline_decay_policy=baseline_decay,
                 baseline_ttl_seconds=baseline_ttl,

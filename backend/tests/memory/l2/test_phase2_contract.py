@@ -28,13 +28,30 @@ from magi.memory.l2.pipeline.validation.claim_assessments import (
 )
 from magi.memory.l2.semantic_routing import SemanticRouteInput, derive_semantic_route
 
+_SUSTAINED_TEST_PREDICATES = frozenset(
+    {
+        "ATTENDED",
+        "CONTRIBUTES_TO",
+        "CREATES",
+        "DEVELOPS",
+        "MAINTAINS",
+        "MEMBER_OF",
+        "OWNS",
+        "USES",
+        "WORKS_ON",
+    }
+)
+
 
 class _AssertionHarness(L2AssertionValidationMixin):
     def _validate_phase2_assertions(self, **kwargs):  # type: ignore[no-untyped-def]
         phase1_result = kwargs.get("phase1_result")
         kwargs.setdefault(
             "occurrence_stats_by_key",
-            _synthetic_occurrence_stats(phase1_result),
+            _synthetic_occurrence_stats(
+                phase1_result,
+                event=kwargs.get("event"),
+            ),
         )
         return super()._validate_phase2_assertions(**kwargs)
 
@@ -81,6 +98,8 @@ def _routes_for(phase1_result: L2Phase1Result):  # type: ignore[no-untyped-def]
 
 def _synthetic_occurrence_stats(
     phase1_result: L2Phase1Result | None,
+    *,
+    event: Any,
 ) -> dict[ClaimRouteValueKey, ClaimOccurrenceStats]:
     """Build explicit unit-test statistics without invoking durable storage."""
 
@@ -89,6 +108,7 @@ def _synthetic_occurrence_stats(
     routes = _routes_for(phase1_result)
     claim_ids_by_key: dict[ClaimRouteValueKey, set[str]] = {}
     event_ids_by_key: dict[ClaimRouteValueKey, set[str]] = {}
+    claims_by_key: dict[ClaimRouteValueKey, list[L2Phase1FactClaim]] = {}
     for claim in phase1_result.fact_claims:
         route = routes.get(claim.claim_id)
         if route is None or not route.can_project_assertion or not route.value_fingerprint:
@@ -96,9 +116,45 @@ def _synthetic_occurrence_stats(
         key = ClaimRouteValueKey(str(route.slot_key), str(route.value_fingerprint))
         claim_ids_by_key.setdefault(key, set()).add(claim.claim_id)
         event_ids_by_key.setdefault(key, set()).update(claim.supporting_event_ids)
+        claims_by_key.setdefault(key, []).append(claim)
+    domain = str(
+        getattr(getattr(event, "memory_domain", None), "label", "unknown") or "unknown"
+    ).casefold()
     return {
         key: ClaimOccurrenceStats(
             key=key,
+            fact_kind=_single_claim_value(claims_by_key[key], "fact_kind", "explicit_fact"),
+            canonical_predicate=_single_claim_value(
+                claims_by_key[key],
+                "predicate",
+                "",
+            ).upper(),
+            temporal_cue=_single_claim_value(
+                claims_by_key[key],
+                "temporal_cue",
+                "unspecified",
+            ),
+            evidence_class=(
+                "user_self_report"
+                if domain == "user_authored"
+                else "external_observation"
+                if domain == "external_activity"
+                else "unknown"
+            ),
+            source_strength=(
+                "direct_user"
+                if domain == "user_authored"
+                else "sustained_engagement"
+                if any(
+                    str(claim.predicate or "").strip().upper()
+                    in _SUSTAINED_TEST_PREDICATES
+                    for claim in claims_by_key[key]
+                )
+                else "passive_exposure"
+                if domain == "external_activity"
+                else "structured_source"
+            ),
+            durable_permitted=domain == "user_authored",
             claim_ids=tuple(sorted(claim_ids)),
             supporting_event_ids=tuple(sorted(event_ids_by_key[key])),
             trusted_event_ids=tuple(sorted(event_ids_by_key[key])),
@@ -112,6 +168,38 @@ def _synthetic_occurrence_stats(
         )
         for key, claim_ids in claim_ids_by_key.items()
     }
+
+
+def _single_claim_value(
+    claims: list[L2Phase1FactClaim],
+    field_name: str,
+    fallback: str,
+) -> str:
+    values = {
+        str(getattr(raw, "value", raw) or "").strip().casefold()
+        for claim in claims
+        for raw in [getattr(claim, field_name, "")]
+    }
+    values.discard("")
+    if len(values) == 1:
+        return next(iter(values))
+    if field_name == "temporal_cue":
+        if "one_off" in values:
+            return "recent"
+        for candidate in ("recent", "unspecified", "recurring", "stable"):
+            if candidate in values:
+                return candidate
+    if field_name == "fact_kind":
+        for candidate in (
+            "public_topology",
+            "future_intent",
+            "interaction_evidence",
+            "explicit_fact",
+            "stable_preference",
+        ):
+            if candidate in values:
+                return candidate
+    return fallback
 
 
 def test_phase2_result_contains_only_claim_assessments_and_assertions() -> None:
@@ -287,6 +375,12 @@ def test_host_goal_projection_does_not_depend_on_phase2_candidate(
     route_key = ClaimRouteValueKey(str(route.slot_key), str(route.value_fingerprint))
     occurrence_stats = ClaimOccurrenceStats(
         key=route_key,
+        fact_kind="future_intent",
+        canonical_predicate="PLANS_TO",
+        temporal_cue="unspecified",
+        evidence_class="user_self_report",
+        source_strength="direct_user",
+        durable_permitted=True,
         claim_ids=("claim:goal",),
         supporting_event_ids=("evt-goal",),
         trusted_event_ids=("evt-goal",),
@@ -387,6 +481,12 @@ def test_host_goal_rejects_ambiguous_or_expired_target_time(
     route_key = ClaimRouteValueKey(str(route.slot_key), str(route.value_fingerprint))
     occurrence_stats = ClaimOccurrenceStats(
         key=route_key,
+        fact_kind="future_intent",
+        canonical_predicate="PLANS_TO",
+        temporal_cue="unspecified",
+        evidence_class="user_self_report",
+        source_strength="direct_user",
+        durable_permitted=True,
         claim_ids=(claim.claim_id,),
         supporting_event_ids=("evt-timed-goal",),
         trusted_event_ids=("evt-timed-goal",),
@@ -460,6 +560,12 @@ def test_low_quality_history_time_only_blocks_recent_current_projection(
     key = ClaimRouteValueKey(str(route.slot_key), str(route.value_fingerprint))
     stats = ClaimOccurrenceStats(
         key=key,
+        fact_kind="stable_preference",
+        canonical_predicate="LIKES",
+        temporal_cue=temporal_cue.value,
+        evidence_class="user_self_report",
+        source_strength="direct_user",
+        durable_permitted=True,
         claim_ids=(claim.claim_id,),
         supporting_event_ids=("evt-history",),
         trusted_event_ids=(),
@@ -578,6 +684,12 @@ def test_phase2_uses_full_ledger_counts_for_passive_promotion() -> None:
     key = ClaimRouteValueKey(str(route.slot_key), str(route.value_fingerprint))
     occurrence_stats = ClaimOccurrenceStats(
         key=key,
+        fact_kind="explicit_fact",
+        canonical_predicate="INTERESTED_IN",
+        temporal_cue="recurring",
+        evidence_class="external_observation",
+        source_strength="passive_exposure",
+        durable_permitted=False,
         claim_ids=("claim:day-1", "claim:day-2", "claim:current"),
         supporting_event_ids=("evt-day-1", "evt-day-2", "evt-current"),
         trusted_event_ids=("evt-day-1", "evt-day-2", "evt-current"),
@@ -623,6 +735,76 @@ def test_phase2_uses_full_ledger_counts_for_passive_promotion() -> None:
 
     assert rejected == 0
     assert prepared[0]["temporal_scope"] == "recent"
+
+
+def test_phase2_uses_ledger_policy_instead_of_current_weak_replay() -> None:
+    phase1_result = L2Phase1Result(
+        fact_claims=[
+            L2Phase1FactClaim(
+                claim_id="claim:weak-replay",
+                subject_ref="user:u1",
+                predicate="LIKES",
+                object_ref="topic:jazz",
+                object_type="topic",
+                fact_kind="explicit_fact",
+                temporal_cue=L2TemporalCue.ONE_OFF,
+                confidence=0.6,
+                supporting_event_ids=["evt-weak-replay"],
+            )
+        ]
+    )
+    route = _routes_for(phase1_result)["claim:weak-replay"]
+    key = ClaimRouteValueKey(str(route.slot_key), str(route.value_fingerprint))
+    stats = ClaimOccurrenceStats(
+        key=key,
+        fact_kind="stable_preference",
+        canonical_predicate="LIKES",
+        temporal_cue="stable",
+        evidence_class="user_self_report",
+        source_strength="direct_user",
+        durable_permitted=True,
+        claim_ids=("claim:direct", "claim:weak-replay"),
+        supporting_event_ids=("evt-direct", "evt-weak-replay"),
+        trusted_event_ids=("evt-direct", "evt-weak-replay"),
+        observation_count=2,
+        evidence_count=2,
+        distinct_days=2,
+        first_observed_at=1_699_913_600.0,
+        last_observed_at=1_700_000_000.0,
+        span_days=1.0,
+        recency_days=0.0,
+    )
+
+    prepared, rejected = _AssertionHarness()._validate_phase2_assertions(
+        event=SimpleNamespace(
+            event_id="evt-weak-replay",
+            timestamp=1_700_000_000.0,
+            source="browser-history",
+            user_id="u1",
+            memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+            tom_depth=TomDepth.TOPOLOGY_ONLY,
+        ),
+        profile=SimpleNamespace(
+            allow_assertion=True,
+            assertion_mode="phase2_candidate",
+            allowed_assertion_families=frozenset({"preference_profile"}),
+            allowed_assertion_traits="all",
+        ),
+        policy=SimpleNamespace(allow_assertion_write=True, assertion_scope="full"),
+        graph_candidates=[],
+        default_event_ids=["evt-weak-replay"],
+        semantic_routes={"claim:weak-replay": route},
+        occurrence_stats_by_key={key: stats},
+        phase1_result=phase1_result,
+        phase2_assertions=[
+            L2Phase2AssertionCandidate(supporting_claim_ids=["claim:weak-replay"])
+        ],
+    )
+
+    assert rejected == 0
+    assert prepared[0]["temporal_scope"] == "stable"
+    assert prepared[0]["decay_policy"] == "evidence_only"
+    assert prepared[0]["expires_at"] is None
 
 
 def test_phase2_does_not_fabricate_counts_when_ledger_stats_are_missing() -> None:
