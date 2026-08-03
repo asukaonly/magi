@@ -352,6 +352,14 @@ async def test_clear_waits_for_running_l2_pipeline_writeback(tmp_path) -> None:
         estimated_tokens=1,
         projection_leases=[L2ProjectionLease.from_dict(claimed[0])],
     )
+    assert (
+        await store.bind_projection_job_batch(
+            job.projection_leases,
+            consumer_name="test-consumer",
+            attempt_key=job.attempt_key,
+        )
+        == 1
+    )
     started = asyncio.Event()
     release = asyncio.Event()
 
