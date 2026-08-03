@@ -62,15 +62,12 @@ def test_batch_descriptor_migration_recovers_unbound_in_flight_rows(tmp_path: Pa
         assert rows[0][:5] == ("event-queued", "pending", None, None, None)
         assert rows[0][5] is not None
         assert rows[0][6] is None
-        assert rows[0][7] == "projection_attempt_recovered_during_batch_descriptor_upgrade"
+        assert rows[0][7] == "projection_attempt_recovered_during_batch_descriptor_migration"
         assert rows[0][8:] == (None, None, None)
-        assert rows[1][:5] == ("event-running", "failed", None, None, None)
-        assert rows[1][5] is None
-        assert rows[1][6] is not None
-        assert (
-            rows[1][7]
-            == "projection_attempt_budget_exhausted_during_batch_descriptor_upgrade"
-        )
+        assert rows[1][:5] == ("event-running", "pending", None, None, None)
+        assert rows[1][5] is not None
+        assert rows[1][6] is None
+        assert rows[1][7] == "projection_attempt_recovered_during_batch_descriptor_migration"
         assert rows[1][8:] == (None, None, None)
         assert rows[2][:5] == ("event-z-replay", "pending", None, None, None)
         assert rows[2][5] is None
@@ -84,6 +81,17 @@ def test_batch_descriptor_migration_recovers_unbound_in_flight_rows(tmp_path: Pa
             WHERE event_id = 'event-z-replay'
             """
         ).fetchone() == (0, 0)
+        assert connection.execute(
+            """
+            SELECT event_id, attempt_count, max_attempts
+            FROM l2_projection_jobs
+            WHERE event_id IN ('event-queued', 'event-running')
+            ORDER BY event_id
+            """
+        ).fetchall() == [
+            ("event-queued", 0, 5),
+            ("event-running", 4, 5),
+        ]
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(
                 """
@@ -107,6 +115,22 @@ def test_batch_descriptor_migration_downgrades_without_losing_jobs(tmp_path: Pat
             ) VALUES ('event-retained', 'chat', 'UserMessage', 'pending', 0, 1.0, 1.0)
             """
         )
+        descriptor = '{"descriptor_version":1,"leases":[]}'
+        connection.executemany(
+            """
+            INSERT INTO l2_projection_jobs(
+                event_id, source, event_type, status, attempt_count,
+                max_attempts, lease_token, claimed_by, claimed_at, started_at,
+                batch_attempt_key, batch_descriptor_json, batch_bound_at,
+                created_at, updated_at
+            ) VALUES (?, 'chat', 'UserMessage', 'running', 5, 5, ?,
+                      'worker', 2.0, 3.0, 'l2pa_bound', ?, 4.0, 1.0, 4.0)
+            """,
+            [
+                ("event-bound-a", "lease-a", descriptor),
+                ("event-bound-b", "lease-b", descriptor),
+            ],
+        )
         connection.commit()
 
     command.downgrade(config, V41_REVISION)
@@ -118,5 +142,14 @@ def test_batch_descriptor_migration_downgrades_without_losing_jobs(tmp_path: Pat
         assert "batch_descriptor_json" not in columns
         assert "batch_bound_at" not in columns
         assert connection.execute(
-            "SELECT event_id, status FROM l2_projection_jobs"
-        ).fetchall() == [("event-retained", "pending")]
+            """
+            SELECT event_id, status, attempt_count, lease_token,
+                   claimed_by, claimed_at, started_at, terminal_at
+            FROM l2_projection_jobs
+            ORDER BY event_id
+            """
+        ).fetchall() == [
+            ("event-bound-a", "pending", 4, None, None, None, None, None),
+            ("event-bound-b", "pending", 4, None, None, None, None, None),
+            ("event-retained", "pending", 0, None, None, None, None, None),
+        ]

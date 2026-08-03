@@ -39,10 +39,7 @@ async def _bind(
     *,
     consumer_name: str,
 ) -> None:
-    assert (
-        await store.bind_projection_job_batch(leases, consumer_name=consumer_name)
-        == len(leases)
-    )
+    assert await store.bind_projection_job_batch(leases, consumer_name=consumer_name) == len(leases)
 
 
 @pytest.mark.asyncio
@@ -145,10 +142,12 @@ async def test_failed_attempt_respects_backoff_and_terminal_budget(tmp_path) -> 
     assert await store.fail_projection_jobs([second], error_text="still broken", requeue=True) == 1
 
     async with aiosqlite.connect(store.db_path) as db:
-        row = await (await db.execute("""
+        row = await (
+            await db.execute("""
                 SELECT status, next_retry_at, terminal_at, last_error
                 FROM l2_projection_jobs WHERE event_id = 'event-retry'
-                """)).fetchone()
+                """)
+        ).fetchone()
     assert row[0] == "failed"
     assert row[1] is None
     assert row[2] is not None
@@ -218,12 +217,14 @@ async def test_replay_requested_during_an_active_attempt_runs_after_it_finishes(
     assert await store.complete_projection_jobs([active]) == 1
 
     async with aiosqlite.connect(store.db_path) as db:
-        row = await (await db.execute("""
+        row = await (
+            await db.execute("""
                 SELECT status, attempt_count, replay_requested, lease_token,
                        completed_at, next_retry_at
                 FROM l2_projection_jobs
                 WHERE event_id = 'event-active-replay'
-                """)).fetchone()
+                """)
+        ).fetchone()
     assert row == ("pending", 0, 0, None, None, None)
 
     replay = _lease((await store.claim_projection_jobs(consumer_name="worker", limit=1))[0])
@@ -259,23 +260,27 @@ async def test_explicit_replay_clears_pending_backoff_and_resets_attempt_budget(
     )
 
     async with aiosqlite.connect(store.db_path) as db:
-        pending = await (await db.execute("""
+        pending = await (
+            await db.execute("""
                 SELECT attempt_count, next_retry_at
                 FROM l2_projection_jobs
                 WHERE event_id = 'event-pending-replay'
-                """)).fetchone()
+                """)
+        ).fetchone()
     assert pending is not None
     assert pending[0] == 1
     assert pending[1] is not None
 
     assert await store.request_projection_replay("event-pending-replay") is True
     async with aiosqlite.connect(store.db_path) as db:
-        replayed = await (await db.execute("""
+        replayed = await (
+            await db.execute("""
                 SELECT status, attempt_count, max_attempts, next_retry_at,
                        terminal_at, lease_token, claimed_by, last_error
                 FROM l2_projection_jobs
                 WHERE event_id = 'event-pending-replay'
-                """)).fetchone()
+                """)
+        ).fetchone()
     assert replayed == ("pending", 0, 2, None, None, None, None, None)
 
     replay = _lease((await store.claim_projection_jobs(consumer_name="worker", limit=1))[0])
@@ -336,14 +341,16 @@ async def test_startup_recovery_releases_only_foreign_active_attempts(tmp_path) 
     assert await store.recover_foreign_projection_jobs(consumer_name="current-worker") == 3
     async with aiosqlite.connect(store.db_path) as db:
         db.row_factory = aiosqlite.Row
-        rows = await (await db.execute("""
+        rows = await (
+            await db.execute("""
                 SELECT event_id, status, attempt_count, lease_token,
                        batch_attempt_key, batch_descriptor_json, batch_bound_at,
                        lease_heartbeat_at, next_retry_at, terminal_at,
                        claimed_by, claimed_at, started_at, last_error
                 FROM l2_projection_jobs
                 ORDER BY event_id
-                """)).fetchall()
+                """)
+        ).fetchall()
     by_event = {str(row["event_id"]): dict(row) for row in rows}
 
     for lease in (foreign_queued, foreign_running):
@@ -385,6 +392,146 @@ async def test_startup_recovery_releases_only_foreign_active_attempts(tmp_path) 
         "event-foreign-running",
     }
     assert {int(row["attempt_count"]) for row in reclaimed} == {2}
+
+
+@pytest.mark.asyncio
+async def test_startup_recovery_does_not_consume_an_unbound_claim(tmp_path) -> None:
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    await _enqueue(store, "event-unbound-startup")
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute(
+            "UPDATE l2_projection_jobs SET max_attempts = 1 WHERE event_id = ?",
+            ("event-unbound-startup",),
+        )
+        await db.commit()
+
+    claimed = await store.claim_projection_jobs(consumer_name="old-worker", limit=1)
+    assert len(claimed) == 1
+    assert claimed[0]["batch_attempt_key"] is None
+
+    assert await store.recover_foreign_projection_jobs(consumer_name="new-worker") == 1
+    async with aiosqlite.connect(store.db_path) as db:
+        state = await (
+            await db.execute(
+                """
+                SELECT status, attempt_count, lease_token, terminal_at
+                FROM l2_projection_jobs
+                WHERE event_id = ?
+                """,
+                ("event-unbound-startup",),
+            )
+        ).fetchone()
+    assert state == ("pending", 0, None, None)
+    reclaimed = await store.claim_projection_jobs(consumer_name="new-worker", limit=1)
+    assert len(reclaimed) == 1
+    assert int(reclaimed[0]["attempt_count"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_stale_recovery_does_not_consume_an_unbound_claim(tmp_path) -> None:
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    await _enqueue(store, "event-unbound-stale")
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute(
+            "UPDATE l2_projection_jobs SET max_attempts = 1 WHERE event_id = ?",
+            ("event-unbound-stale",),
+        )
+        await db.commit()
+
+    claimed = await store.claim_projection_jobs(consumer_name="old-worker", limit=1)
+    assert len(claimed) == 1
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute(
+            """
+            UPDATE l2_projection_jobs
+            SET claimed_at = 0, updated_at = 0
+            WHERE event_id = ?
+            """,
+            ("event-unbound-stale",),
+        )
+        await db.commit()
+
+    assert (
+        await store.requeue_stale_projection_jobs(
+            queued_timeout_seconds=1,
+            running_timeout_seconds=1,
+        )
+        == 1
+    )
+    async with aiosqlite.connect(store.db_path) as db:
+        state = await (
+            await db.execute(
+                """
+                SELECT status, attempt_count, lease_token, terminal_at
+                FROM l2_projection_jobs
+                WHERE event_id = ?
+                """,
+                ("event-unbound-stale",),
+            )
+        ).fetchone()
+    assert state == ("pending", 0, None, None)
+    reclaimed = await store.claim_projection_jobs(consumer_name="new-worker", limit=1)
+    assert len(reclaimed) == 1
+    assert int(reclaimed[0]["attempt_count"]) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recovery_path", ["startup", "stale"])
+async def test_unbound_replay_resets_attempt_budget(
+    tmp_path,
+    recovery_path: str,
+) -> None:
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    event_id = f"event-unbound-replay-{recovery_path}"
+    await _enqueue(store, event_id)
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute(
+            """
+            UPDATE l2_projection_jobs
+            SET attempt_count = 3, max_attempts = 5
+            WHERE event_id = ?
+            """,
+            (event_id,),
+        )
+        await db.commit()
+
+    claimed = await store.claim_projection_jobs(consumer_name="old-worker", limit=1)
+    assert len(claimed) == 1
+    assert int(claimed[0]["attempt_count"]) == 4
+    assert await store.request_projection_replay(event_id) is True
+
+    if recovery_path == "startup":
+        assert await store.recover_foreign_projection_jobs(consumer_name="new-worker") == 1
+    else:
+        async with aiosqlite.connect(store.db_path) as db:
+            await db.execute(
+                "UPDATE l2_projection_jobs SET claimed_at = 0 WHERE event_id = ?",
+                (event_id,),
+            )
+            await db.commit()
+        assert (
+            await store.requeue_stale_projection_jobs(
+                queued_timeout_seconds=1,
+                running_timeout_seconds=1,
+            )
+            == 1
+        )
+
+    async with aiosqlite.connect(store.db_path) as db:
+        state = await (
+            await db.execute(
+                """
+                SELECT status, attempt_count, replay_requested, last_error
+                FROM l2_projection_jobs
+                WHERE event_id = ?
+                """,
+                (event_id,),
+            )
+        ).fetchone()
+    assert state == ("pending", 0, 0, None)
 
 
 @pytest.mark.asyncio
@@ -566,9 +713,7 @@ async def test_retry_and_clear_invalidate_old_batch_descriptor(tmp_path) -> None
 
     await store.clear()
     async with aiosqlite.connect(store.db_path) as db:
-        remaining = await (
-            await db.execute("SELECT COUNT(*) FROM l2_projection_jobs")
-        ).fetchone()
+        remaining = await (await db.execute("SELECT COUNT(*) FROM l2_projection_jobs")).fetchone()
     assert remaining == (0,)
     assert await store.mark_projection_jobs_running(second, consumer_name="worker") == 0
 

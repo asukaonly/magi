@@ -229,9 +229,13 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                 for rows, descriptor_valid in groups:
                     leases = tuple(_lease_from_active_row(row) for row in rows)
                     batch_replay = any(bool(row["replay_requested"]) for row in rows)
-                    terminal = descriptor_valid and not batch_replay and any(
-                        int(row["attempt_count"] or 0) >= int(row["max_attempts"] or 1)
-                        for row in rows
+                    terminal = (
+                        descriptor_valid
+                        and not batch_replay
+                        and any(
+                            int(row["attempt_count"] or 0) >= int(row["max_attempts"] or 1)
+                            for row in rows
+                        )
                     )
                     if terminal and terminal_callback is not None:
                         await terminal_callback(db, leases)
@@ -239,8 +243,12 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                         attempt_count = int(row["attempt_count"] or 0)
                         if not descriptor_valid:
                             next_status = "pending"
-                            next_attempt_count = max(0, attempt_count - 1)
-                            last_error = "projection_attempt_descriptor_invalid_on_startup"
+                            next_attempt_count = 0 if batch_replay else max(0, attempt_count - 1)
+                            last_error = (
+                                None
+                                if batch_replay
+                                else "projection_attempt_descriptor_invalid_on_startup"
+                            )
                         elif terminal:
                             next_status = "failed"
                             next_attempt_count = attempt_count
@@ -621,9 +629,13 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                 for rows, descriptor_valid in groups:
                     leases = tuple(_lease_from_active_row(row) for row in rows)
                     batch_replay = any(bool(row["replay_requested"]) for row in rows)
-                    terminal = descriptor_valid and not batch_replay and any(
-                        int(row["attempt_count"] or 0) >= int(row["max_attempts"] or 1)
-                        for row in rows
+                    terminal = (
+                        descriptor_valid
+                        and not batch_replay
+                        and any(
+                            int(row["attempt_count"] or 0) >= int(row["max_attempts"] or 1)
+                            for row in rows
+                        )
                     )
                     if terminal and terminal_callback is not None:
                         await terminal_callback(db, leases)
@@ -631,9 +643,13 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                         attempt_count = int(row["attempt_count"] or 0)
                         if not descriptor_valid:
                             next_status = "pending"
-                            next_attempt_count = max(0, attempt_count - 1)
+                            next_attempt_count = 0 if batch_replay else max(0, attempt_count - 1)
                             next_retry_at = None
-                            last_error = "projection_attempt_descriptor_invalid_when_stale"
+                            last_error = (
+                                None
+                                if batch_replay
+                                else "projection_attempt_descriptor_invalid_when_stale"
+                            )
                         elif terminal:
                             next_status = "failed"
                             next_attempt_count = attempt_count
@@ -763,17 +779,14 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                         int(row["max_attempts"] or 1),
                         bool(row["replay_requested"]),
                     )
-                batch_replay_requested = any(
-                    state[1] for state in attempt_state_by_event.values()
-                )
+                batch_replay_requested = any(state[1] for state in attempt_state_by_event.values())
                 terminal = (
                     not completed
                     and not batch_replay_requested
                     and (
                         not requeue
                         or any(
-                            lease.attempt_count
-                            >= attempt_state_by_event[lease.event_id][0]
+                            lease.attempt_count >= attempt_state_by_event[lease.event_id][0]
                             for lease in normalized_leases
                         )
                     )
@@ -915,6 +928,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
             "updated_at": float(row["updated_at"]),
         }
 
+
 def _normalized_leases(leases: Iterable[L2ProjectionLease]) -> list[L2ProjectionLease]:
     normalized: list[L2ProjectionLease] = []
     seen: set[str] = set()
@@ -982,10 +996,10 @@ async def _recovery_groups(
         rows = sorted(grouped[group_key], key=lambda row: str(row["event_id"]))
         attempt_key = str(rows[0]["batch_attempt_key"] or "").strip()
         if not attempt_key:
-            descriptor_valid = all(
-                row["batch_attempt_key"] is None and row["batch_descriptor_json"] is None
-                for row in rows
-            )
+            # A claimed row is not an attempt until the final worker batch has
+            # been bound. Recovery must release this lease without consuming
+            # retry budget or inventing singleton terminal lineage.
+            descriptor_valid = False
         else:
             try:
                 await assert_bound_projection_attempt(

@@ -2056,9 +2056,7 @@ async def test_mark_projection_jobs_running_only_transitions_queued(tmp_path):
     claimed = await store.claim_projection_jobs(consumer_name="w1", limit=1)
     assert len(claimed) == 1
     lease = _projection_lease(claimed[0])
-    assert (
-        await store.bind_projection_job_batch([lease], consumer_name="w1") == 1
-    )
+    assert await store.bind_projection_job_batch([lease], consumer_name="w1") == 1
 
     await store.mark_projection_jobs_running([lease], consumer_name="w1")
     await store.stage_event_entity_link_projections(
@@ -2125,16 +2123,31 @@ async def test_l2_projection_jobs_support_fail_and_stale_requeue(tmp_path):
     )
     assert [item["event_id"] for item in claimed] == ["evt-proj-stale"]
     assert claimed[0]["status"] == "queued"
+    stale_lease = _projection_lease(claimed[0])
+    assert (
+        await store.bind_projection_job_batch(
+            [stale_lease],
+            consumer_name="runtime_worker",
+        )
+        == 1
+    )
+    assert (
+        await store.mark_projection_jobs_running(
+            [stale_lease],
+            consumer_name="runtime_worker",
+        )
+        == 1
+    )
 
     async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
         await db.execute(
             """
             UPDATE l2_projection_jobs
-            SET status = ?, claimed_at = ?, started_at = ?, updated_at = ?
+            SET claimed_at = ?, started_at = ?, lease_heartbeat_at = ?, updated_at = ?
             WHERE event_id = ?
             """,
             (
-                "running",
+                time.time() - 7200,
                 time.time() - 7200,
                 time.time() - 7200,
                 time.time() - 7200,
