@@ -47,6 +47,7 @@ async def list_tentative_portrait_claims(
         return []
     await _initialize_store(l2_store)
     at = float(effective_at if effective_at is not None else time.time())
+    bounded_limit = max(1, min(int(limit), 500))
     current_ids = _normalized_ids(current_assertion_ids)
     visible_ids = _normalized_ids(visible_assertion_ids)
 
@@ -56,22 +57,16 @@ async def list_tentative_portrait_claims(
             db,
             user_id=user_id,
             effective_at=at,
-            limit=max(1, min(int(limit), 500)),
         )
         claims_with_current_assertions = await _claim_ids_for_assertions(db, current_ids)
         visible_route_value_keys = await _route_value_keys_for_assertions(db, visible_ids)
 
     grouped = _group_candidate_rows(rows)
     event_ids = sorted(
-        {
-            event_id
-            for candidate in grouped.values()
-            for event_id in candidate["event_ids"]
-        }
+        {event_id for candidate in grouped.values() for event_id in candidate["event_ids"]}
     )
     visible_event_ids = await _visible_l1_event_ids(l2_store, event_ids)
-    candidates: list[TentativePortraitClaim] = []
-    seen_route_values: set[tuple[str, str]] = set(visible_route_value_keys)
+    provisional: list[TentativePortraitClaim] = []
 
     for candidate in grouped.values():
         claim_id = str(candidate["claim_id"])
@@ -83,21 +78,15 @@ async def list_tentative_portrait_claims(
         )
         if decision is None:
             continue
-        route_value_key = (decision.slot_key, decision.value_fingerprint)
-        if route_value_key in seen_route_values:
-            continue
         basis_event_ids = [
-            event_id
-            for event_id in candidate["event_ids"]
-            if event_id in visible_event_ids
+            event_id for event_id in candidate["event_ids"] if event_id in visible_event_ids
         ][:3]
         if not basis_event_ids:
             continue
         prompt_line = tentative_portrait_prompt_line(decision.statement)
         if not prompt_line:
             continue
-        seen_route_values.add(route_value_key)
-        candidates.append(
+        provisional.append(
             TentativePortraitClaim(
                 claim_id=claim_id,
                 slot_key=decision.slot_key,
@@ -110,6 +99,28 @@ async def list_tentative_portrait_claims(
                 ),
             )
         )
+
+    values_by_slot: dict[str, set[str]] = {}
+    for slot_key, value_fingerprint in visible_route_value_keys:
+        values_by_slot.setdefault(slot_key, set()).add(value_fingerprint)
+    for candidate in provisional:
+        values_by_slot.setdefault(candidate.slot_key, set()).add(candidate.value_fingerprint)
+    conflicted_slots = {
+        slot_key
+        for slot_key, value_fingerprints in values_by_slot.items()
+        if len(value_fingerprints) > 1
+    }
+
+    candidates: list[TentativePortraitClaim] = []
+    seen_route_values = set(visible_route_value_keys)
+    for candidate in provisional:
+        route_value_key = (candidate.slot_key, candidate.value_fingerprint)
+        if candidate.slot_key in conflicted_slots or route_value_key in seen_route_values:
+            continue
+        seen_route_values.add(route_value_key)
+        candidates.append(candidate)
+        if len(candidates) >= bounded_limit:
+            break
     return candidates
 
 
@@ -161,7 +172,6 @@ async def _candidate_rows(
     *,
     user_id: str,
     effective_at: float,
-    limit: int,
 ) -> list[aiosqlite.Row]:
     async with db.execute(
         """
@@ -200,8 +210,6 @@ async def _candidate_rows(
               AND (claims.fact_valid_to IS NULL OR claims.fact_valid_to > ?)
               AND (claims.target_from IS NULL OR claims.target_from <= ?)
               AND (claims.target_to IS NULL OR claims.target_to > ?)
-            ORDER BY routes.created_at DESC, claims.created_at DESC, claims.claim_id DESC
-            LIMIT ?
         )
         SELECT
             candidates.*,
@@ -229,7 +237,6 @@ async def _candidate_rows(
             effective_at,
             effective_at,
             effective_at,
-            limit,
         ),
     ) as cursor:
         return list(await cursor.fetchall())
@@ -267,27 +274,18 @@ async def _route_value_keys_for_assertions(
     payload = json.dumps(assertion_ids, ensure_ascii=False, separators=(",", ":"))
     async with db.execute(
         """
-        WITH latest_route_outcomes AS (
-            SELECT
-                outcomes.claim_id,
-                outcomes.target_slot_key,
-                outcomes.details_json,
-                ROW_NUMBER() OVER (
-                    PARTITION BY outcomes.claim_id
-                    ORDER BY outcomes.created_at DESC, outcomes.outcome_id DESC
-                ) AS route_rank
-            FROM l2_claim_projection_outcomes AS outcomes
-            WHERE outcomes.target_kind = 'route'
-              AND outcomes.outcome = 'routed'
-              AND outcomes.invalidated_at IS NULL
-        )
         SELECT DISTINCT
             routes.target_slot_key,
             CAST(json_extract(routes.details_json, '$.value_fingerprint') AS TEXT)
         FROM l2_claim_projection_outcomes AS assertion_outcomes
-        JOIN latest_route_outcomes AS routes
+        JOIN l2_claim_projection_outcomes AS routes
           ON routes.claim_id = assertion_outcomes.claim_id
-         AND routes.route_rank = 1
+         AND routes.attempt_key = assertion_outcomes.attempt_key
+         AND routes.target_kind = 'route'
+         AND routes.outcome = 'routed'
+         AND routes.invalidated_at IS NULL
+         AND routes.target_slot_key = assertion_outcomes.target_slot_key
+         AND routes.route_contract_version = assertion_outcomes.route_contract_version
         WHERE assertion_outcomes.target_kind = 'assertion'
           AND assertion_outcomes.outcome = 'projected'
           AND assertion_outcomes.invalidated_at IS NULL
@@ -353,11 +351,7 @@ async def _visible_l1_event_ids(l2_store: Any, event_ids: list[str]) -> set[str]
     if not isinstance(resolved, Mapping):
         return set()
     requested = set(event_ids)
-    return {
-        str(event_id)
-        for event_id in resolved
-        if str(event_id) in requested
-    }
+    return {str(event_id) for event_id in resolved if str(event_id) in requested}
 
 
 async def _initialize_store(l2_store: Any) -> None:

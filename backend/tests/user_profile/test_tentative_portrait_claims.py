@@ -111,6 +111,7 @@ def _seed_claim(
             db,
             claim_id=claim_id,
             outcome_id=f"route:{claim_id}:1",
+            attempt_key=f"attempt:{claim_id}",
             outcome="routed",
             family=family,
             trait_code=trait_code,
@@ -127,6 +128,7 @@ def _seed_route_outcome(
     *,
     claim_id: str,
     outcome_id: str,
+    attempt_key: str | None = None,
     outcome: str,
     family: str,
     trait_code: str,
@@ -146,7 +148,7 @@ def _seed_route_outcome(
         (
             outcome_id,
             claim_id,
-            f"attempt:{outcome_id}",
+            attempt_key or f"attempt:{outcome_id}",
             f"route:{claim_id}",
             slot_key,
             ROUTE_CONTRACT_VERSION,
@@ -170,7 +172,9 @@ def _seed_assertion_outcome(
     *,
     claim_id: str,
     assertion_id: str,
+    slot_key: str,
     created_at: float,
+    attempt_key: str | None = None,
 ) -> None:
     with sqlite3.connect(db_path) as db:
         db.execute(
@@ -178,13 +182,14 @@ def _seed_assertion_outcome(
             INSERT INTO l2_claim_projection_outcomes(
                 outcome_id, claim_id, attempt_key, target_kind, target_id,
                 target_slot_key, route_contract_version, outcome, created_at
-            ) VALUES (?, ?, ?, 'assertion', ?, NULL, ?, 'projected', ?)
+            ) VALUES (?, ?, ?, 'assertion', ?, ?, ?, 'projected', ?)
             """,
             (
                 f"assertion:{claim_id}:{assertion_id}",
                 claim_id,
-                f"attempt:assertion:{claim_id}",
+                attempt_key or f"attempt:{claim_id}",
                 assertion_id,
+                slot_key,
                 ROUTE_CONTRACT_VERSION,
                 created_at,
             ),
@@ -195,9 +200,7 @@ def _seed_assertion_outcome(
 def _store(db_path: str, *, visible_event_ids: set[str]) -> L2CognitionStore:
     async def resolve(event_ids: list[str]) -> dict[str, float]:
         return {
-            event_id: 1_700_000_000.0
-            for event_id in event_ids
-            if event_id in visible_event_ids
+            event_id: 1_700_000_000.0 for event_id in event_ids if event_id in visible_event_ids
         }
 
     return L2CognitionStore(
@@ -297,14 +300,17 @@ def test_tentative_claim_policy_rejects_non_profile_and_stale_routes() -> None:
     }
 
     assert classify_tentative_portrait_claim(claim, project_route) is None
-    assert classify_tentative_portrait_claim(
-        {
-            "availability": "active",
-            "canonical_predicate": "LIKES",
-            "object_value": "Magi",
-        },
-        stale_route,
-    ) is None
+    assert (
+        classify_tentative_portrait_claim(
+            {
+                "availability": "active",
+                "canonical_predicate": "LIKES",
+                "object_value": "Magi",
+            },
+            stale_route,
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
@@ -395,9 +401,7 @@ async def test_builder_limits_visible_self_reports_and_preserves_them_from_llm_o
             )
             return {"prompt_summary": ["模型覆盖了确定性自述行"]}
 
-    projection = await UserPortraitProjectionBuilder(store, llm_client=_LLM()).build(
-        "local_user"
-    )
+    projection = await UserPortraitProjectionBuilder(store, llm_client=_LLM()).build("local_user")
 
     assert projection.prompt_summary == [
         "用户曾自述：喜欢「没有人声的音乐」（尚未形成长期结论）",
@@ -436,12 +440,14 @@ async def test_query_uses_latest_route_and_dedupes_current_portrait_assertions(t
         db_path,
         claim_id="claim-world",
         assertion_id="assert-world",
+        slot_key="slt_music",
         created_at=130.0,
     )
     _seed_assertion_outcome(
         db_path,
         claim_id="claim-current-review",
         assertion_id="assert-review",
+        slot_key="slt_music",
         created_at=131.0,
     )
     _seed_claim(
@@ -487,6 +493,217 @@ async def test_query_uses_latest_route_and_dedupes_current_portrait_assertions(t
     )
 
     assert candidates == []
+
+
+@pytest.mark.asyncio
+async def test_query_applies_limit_after_all_tentative_claim_eligibility_filters(
+    tmp_path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    visible_event_ids = {"event-valid"}
+    for index in range(100):
+        mode = index % 3
+        claim_id = f"claim-invalid-{index:03d}"
+        event_id = f"event-invalid-{index:03d}"
+        passive = mode == 0
+        non_profile = mode == 1
+        if non_profile:
+            visible_event_ids.add(event_id)
+        _seed_claim(
+            db_path,
+            claim_id=claim_id,
+            event_id=event_id,
+            predicate="WORKS_ON" if non_profile else "LIKES",
+            object_value="Magi" if non_profile else f"无效内容 {index}",
+            family="project_profile" if non_profile else "preference_profile",
+            trait_code=("project.engagement.active" if non_profile else "preference.affinity"),
+            slot_key=f"slt_invalid_{index:03d}",
+            value_fingerprint=f"val_invalid_{index:03d}",
+            created_at=1_000.0 - index,
+            author_type="external" if passive else "user",
+            evidence_class=("external_observation" if passive else "user_self_report"),
+        )
+    _seed_claim(
+        db_path,
+        claim_id="claim-valid",
+        event_id="event-valid",
+        predicate="LIKES",
+        object_value="有效自述",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_valid",
+        value_fingerprint="val_valid",
+        created_at=1.0,
+    )
+
+    candidates = await list_tentative_portrait_claims(
+        _store(db_path, visible_event_ids=visible_event_ids),
+        user_id="local_user",
+        limit=1,
+    )
+
+    assert [candidate.claim_id for candidate in candidates] == ["claim-valid"]
+
+
+@pytest.mark.asyncio
+async def test_query_quarantines_conflicting_slot_and_dedupes_same_value(
+    tmp_path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    seeds = (
+        (
+            "claim-conflict-like",
+            "event-conflict-like",
+            "LIKES",
+            "咖啡",
+            "slt_conflict",
+            "val_like",
+            400.0,
+        ),
+        (
+            "claim-conflict-dislike",
+            "event-conflict-dislike",
+            "DISLIKES",
+            "咖啡",
+            "slt_conflict",
+            "val_dislike",
+            390.0,
+        ),
+        (
+            "claim-same-newer",
+            "event-same-newer",
+            "LIKES",
+            "纯音乐",
+            "slt_same",
+            "val_same",
+            300.0,
+        ),
+        (
+            "claim-same-older",
+            "event-same-older",
+            "LIKES",
+            "纯音乐",
+            "slt_same",
+            "val_same",
+            290.0,
+        ),
+        (
+            "claim-safe",
+            "event-safe",
+            "INTERESTED_IN",
+            "本地 AI",
+            "slt_safe",
+            "val_safe",
+            200.0,
+        ),
+    )
+    for claim_id, event_id, predicate, value, slot_key, fingerprint, created_at in seeds:
+        _seed_claim(
+            db_path,
+            claim_id=claim_id,
+            event_id=event_id,
+            predicate=predicate,
+            object_value=value,
+            family=("interest_profile" if predicate == "INTERESTED_IN" else "preference_profile"),
+            trait_code=(
+                "interest.attention" if predicate == "INTERESTED_IN" else "preference.affinity"
+            ),
+            slot_key=slot_key,
+            value_fingerprint=fingerprint,
+            created_at=created_at,
+        )
+
+    candidates = await list_tentative_portrait_claims(
+        _store(db_path, visible_event_ids={seed[1] for seed in seeds}),
+        user_id="local_user",
+    )
+
+    assert [candidate.claim_id for candidate in candidates] == [
+        "claim-same-newer",
+        "claim-safe",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_assertion_dedupe_uses_its_original_route_attempt(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    _seed_claim(
+        db_path,
+        claim_id="claim-asserted",
+        event_id="event-asserted",
+        predicate="LIKES",
+        object_value="原始值",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_original",
+        value_fingerprint="val_original",
+        created_at=100.0,
+    )
+    _seed_claim(
+        db_path,
+        claim_id="claim-original-duplicate",
+        event_id="event-original-duplicate",
+        predicate="LIKES",
+        object_value="原始值",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_original",
+        value_fingerprint="val_original",
+        created_at=90.0,
+    )
+    _seed_claim(
+        db_path,
+        claim_id="claim-new-route-value",
+        event_id="event-new-route-value",
+        predicate="LIKES",
+        object_value="重路由后的值",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_reprojected",
+        value_fingerprint="val_reprojected",
+        created_at=80.0,
+    )
+    _seed_assertion_outcome(
+        db_path,
+        claim_id="claim-asserted",
+        assertion_id="assert-original",
+        slot_key="slt_original",
+        attempt_key="attempt:claim-asserted",
+        created_at=150.0,
+    )
+    with sqlite3.connect(db_path) as db:
+        _seed_route_outcome(
+            db,
+            claim_id="claim-asserted",
+            outcome_id="route:claim-asserted:reprojected",
+            attempt_key="route-reproject:v-current:claim-asserted",
+            outcome="routed",
+            family="preference_profile",
+            trait_code="preference.affinity",
+            slot_key="slt_reprojected",
+            value_fingerprint="val_reprojected",
+            created_at=200.0,
+        )
+        db.commit()
+
+    candidates = await list_tentative_portrait_claims(
+        _store(
+            db_path,
+            visible_event_ids={
+                "event-asserted",
+                "event-original-duplicate",
+                "event-new-route-value",
+            },
+        ),
+        user_id="local_user",
+        current_assertion_ids={"assert-original"},
+        visible_assertion_ids={"assert-original"},
+    )
+
+    assert [candidate.claim_id for candidate in candidates] == ["claim-new-route-value"]
 
 
 @pytest.mark.asyncio
@@ -551,10 +768,13 @@ async def test_tombstone_and_expiry_remove_cached_tentative_lines_immediately(
     visible = await UserPortraitProjectionBuilder(store).build("local_user")
     assert "旅行摄影" in "\n".join(visible.prompt_summary)
 
-    assert await store.tombstone_source_events(
-        ["event-forgotten"],
-        reason="user_request",
-    ) == 1
+    assert (
+        await store.tombstone_source_events(
+            ["event-forgotten"],
+            reason="user_request",
+        )
+        == 1
+    )
     assert await portrait_projection_is_stale(
         visible,
         user_id="local_user",
