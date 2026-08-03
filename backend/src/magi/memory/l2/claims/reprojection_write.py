@@ -236,6 +236,7 @@ def _derive_candidate_route(candidate: Mapping[str, Any]) -> SemanticRouteDecisi
             ),
             raw_time_expression=str(temporal_payload.get("raw") or ""),
             time_resolution=str(temporal_payload.get("resolution") or "unscheduled"),
+            time_frame=temporal_payload,
         )
     )
 

@@ -15,7 +15,7 @@ from .claims.identity import canonical_json
 from .ontology import PROFILE_SIGNAL_PREDICATES
 from .predicate_catalog import SPEC_BY_CANONICAL
 
-ROUTE_CONTRACT_VERSION = 3
+ROUTE_CONTRACT_VERSION = 4
 SLOT_SCHEMA_VERSION = 1
 
 
@@ -55,6 +55,7 @@ class SemanticRouteInput:
     target_to: float | None
     raw_time_expression: str
     time_resolution: str
+    time_frame: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -557,13 +558,25 @@ def _routed(
 def _goal_target_window_key(route_input: SemanticRouteInput) -> str:
     resolution = str(route_input.time_resolution or "unscheduled").strip().casefold()
     raw = str(route_input.raw_time_expression or "").strip()
+    calendar = None
+    if isinstance(route_input.time_frame, Mapping):
+        raw_calendar = route_input.time_frame.get("calendar")
+        if isinstance(raw_calendar, Mapping):
+            calendar = {
+                key: raw_calendar.get(key)
+                for key in (
+                    "timezone_id",
+                    "precision",
+                    "civil_start",
+                    "civil_end_exclusive",
+                )
+            }
     return _opaque_key(
         "twk",
         {
             "resolution": resolution,
-            "target_from": route_input.target_from,
-            "target_to": route_input.target_to,
-            "raw": raw if route_input.target_from is None and route_input.target_to is None else "",
+            "raw": raw if calendar is None else "",
+            "calendar": calendar,
         },
     )
 

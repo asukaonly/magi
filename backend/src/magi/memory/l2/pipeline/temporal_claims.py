@@ -6,14 +6,16 @@ import calendar
 import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone, tzinfo
+from datetime import date, datetime, timedelta
 from typing import Iterable
+from zoneinfo import ZoneInfo
 
+from ....utils.calendar_timezone import canonical_timezone_id
 from ..claims.models import ClaimEvidenceInput
 from ..temporal_trust import normalized_event_timestamp, trusted_event_timestamp
 
-_CHINESE_DATE = re.compile(r"^(\d{4})年(\d{1,2})月(\d{1,2})日$")
-_CHINESE_MONTH = re.compile(r"^(\d{4})年(\d{1,2})月$")
+_CHINESE_DATE = re.compile(r"^([0-9]{4})年([0-9]{1,2})月([0-9]{1,2})日$")
+_CHINESE_MONTH = re.compile(r"^([0-9]{4})年([0-9]{1,2})月$")
 _RELATIVE_DAYS = {
     "昨天": -1,
     "今天": 0,
@@ -38,12 +40,42 @@ class ClaimTemporalResolution:
     raw_time_frame: dict[str, object] | None
 
 
+@dataclass(frozen=True, slots=True)
+class _CalendarRange:
+    """One timezone-bound civil range and its stable calendar descriptor."""
+
+    start: datetime
+    end: datetime
+    precision: str
+    operator: str
+
+    @property
+    def epochs(self) -> tuple[float, float]:
+        return self.start.timestamp(), self.end.timestamp()
+
+    def descriptor(
+        self,
+        *,
+        timezone_id: str,
+        anchor_event_ids: Iterable[str] = (),
+    ) -> dict[str, object]:
+        return {
+            "timezone_id": timezone_id,
+            "precision": self.precision,
+            "civil_start": self.start.date().isoformat(),
+            "civil_end_exclusive": self.end.date().isoformat(),
+            "operator": self.operator,
+            "anchor_event_ids": sorted(
+                {str(event_id).strip() for event_id in anchor_event_ids if str(event_id).strip()}
+            ),
+        }
+
+
 def resolve_claim_temporal_fields(
     *,
     raw_expression: str,
     future_intent: bool,
     evidence: Iterable[ClaimEvidenceInput],
-    local_timezone: tzinfo | None = None,
     now: float | None = None,
 ) -> ClaimTemporalResolution:
     """Resolve a closed set of exact or calendar-anchored time expressions."""
@@ -52,14 +84,34 @@ def resolve_claim_temporal_fields(
     if not raw:
         return ClaimTemporalResolution(None, None, None, None, None)
 
-    resolved_timezone = local_timezone or datetime.now().astimezone().tzinfo or timezone.utc
+    supporting = [item for item in evidence if item.link_role == "supporting"]
+    timezone_ids = {
+        timezone_id
+        for item in supporting
+        if (timezone_id := canonical_timezone_id(item.calendar_timezone_id)) is not None
+    }
+    if not supporting or len(timezone_ids) != 1 or any(
+        canonical_timezone_id(item.calendar_timezone_id) is None for item in supporting
+    ):
+        return _unresolved(
+            raw,
+            future_intent=future_intent,
+            quality="ambiguous" if len(timezone_ids) > 1 else "low",
+        )
+    timezone_id = next(iter(timezone_ids))
+    resolved_timezone = ZoneInfo(timezone_id)
+
     absolute = _absolute_range(raw, local_timezone=resolved_timezone)
     if absolute is not None:
-        start, end = absolute
-        return _result(raw, future_intent=future_intent, start=start, end=end, quality="exact")
+        return _result(
+            raw,
+            future_intent=future_intent,
+            calendar_range=absolute,
+            timezone_id=timezone_id,
+            quality="calendar_anchor",
+        )
 
-    supporting = [item for item in evidence if item.link_role == "supporting"]
-    if not supporting or any(
+    if any(
         item.event_time is None or item.timestamp_quality not in _TRUSTED_ANCHOR_QUALITIES
         for item in supporting
     ):
@@ -80,7 +132,7 @@ def resolve_claim_temporal_fields(
             quality="low",
         )
 
-    anchored_ranges = {
+    anchored_ranges: set[_CalendarRange] = {
         resolved
         for item in supporting
         if item.event_time is not None
@@ -95,12 +147,12 @@ def resolve_claim_temporal_fields(
     }
     if len(anchored_ranges) != 1:
         return _unresolved(raw, future_intent=future_intent, quality="ambiguous")
-    start, end = next(iter(anchored_ranges))
     return _result(
         raw,
         future_intent=future_intent,
-        start=start,
-        end=end,
+        calendar_range=next(iter(anchored_ranges)),
+        timezone_id=timezone_id,
+        anchor_event_ids=(item.event_id for item in supporting),
         quality="calendar_anchor",
     )
 
@@ -109,15 +161,21 @@ def _result(
     raw: str,
     *,
     future_intent: bool,
-    start: float,
-    end: float,
+    calendar_range: _CalendarRange,
+    timezone_id: str,
     quality: str,
+    anchor_event_ids: Iterable[str] = (),
 ) -> ClaimTemporalResolution:
+    start, end = calendar_range.epochs
     frame = {
         "raw": raw,
         "kind": "target" if future_intent else "fact_validity",
         "resolution": quality,
         "resolved_range": [start, end],
+        "calendar": calendar_range.descriptor(
+            timezone_id=timezone_id,
+            anchor_event_ids=anchor_event_ids,
+        ),
     }
     if future_intent:
         return ClaimTemporalResolution(None, None, start, end, frame)
@@ -144,10 +202,10 @@ def _unresolved(
     )
 
 
-def _absolute_range(raw: str, *, local_timezone: tzinfo) -> tuple[float, float] | None:
+def _absolute_range(raw: str, *, local_timezone: ZoneInfo) -> _CalendarRange | None:
     day = _absolute_day(raw)
     if day is not None:
-        return _day_range(day, local_timezone=local_timezone)
+        return _day_range(day, local_timezone=local_timezone, operator="absolute")
     month = _absolute_month(raw)
     if month is not None:
         year, month_number = month
@@ -157,7 +215,12 @@ def _absolute_range(raw: str, *, local_timezone: tzinfo) -> tuple[float, float] 
             if month_number == 12
             else datetime(year, month_number + 1, 1, tzinfo=local_timezone)
         )
-        return start.timestamp(), end.timestamp()
+        return _CalendarRange(
+            start=start,
+            end=end,
+            precision="month",
+            operator="absolute",
+        )
     return None
 
 
@@ -180,7 +243,7 @@ def _absolute_month(raw: str) -> tuple[int, int] | None:
         year, month = (int(value) for value in chinese.groups())
     else:
         parts = raw.replace("/", "-").split("-")
-        if len(parts) != 2 or not all(part.isdigit() for part in parts):
+        if len(parts) != 2 or not all(part.isascii() and part.isdigit() for part in parts):
             return None
         year, month = (int(value) for value in parts)
     if year < 1 or month < 1 or month > 12:
@@ -192,8 +255,8 @@ def _calendar_anchored_range(
     raw: str,
     anchor_timestamp: float,
     *,
-    local_timezone: tzinfo,
-) -> tuple[float, float] | None:
+    local_timezone: ZoneInfo,
+) -> _CalendarRange | None:
     normalized = raw.strip().casefold()
     anchor = datetime.fromtimestamp(anchor_timestamp, tz=local_timezone)
     day_offset = _RELATIVE_DAYS.get(normalized)
@@ -201,41 +264,92 @@ def _calendar_anchored_range(
         return _day_range(
             (anchor + timedelta(days=day_offset)).date(),
             local_timezone=local_timezone,
+            operator=normalized,
         )
     if normalized in {"本周", "这周", "this week"}:
         start_day = anchor.date() - timedelta(days=anchor.weekday())
-        return _bounded_days(start_day, 7, local_timezone=local_timezone)
+        return _bounded_days(
+            start_day,
+            7,
+            local_timezone=local_timezone,
+            operator=normalized,
+            precision="week",
+        )
     if normalized in {"下周", "next week"}:
         start_day = anchor.date() - timedelta(days=anchor.weekday()) + timedelta(days=7)
-        return _bounded_days(start_day, 7, local_timezone=local_timezone)
+        return _bounded_days(
+            start_day,
+            7,
+            local_timezone=local_timezone,
+            operator=normalized,
+            precision="week",
+        )
     if normalized in {"本月", "这个月", "this month"}:
-        return _month_range(anchor.year, anchor.month, local_timezone=local_timezone)
+        return _month_range(
+            anchor.year,
+            anchor.month,
+            local_timezone=local_timezone,
+            operator=normalized,
+        )
     if normalized in {"下个月", "next month"}:
         year = anchor.year + (1 if anchor.month == 12 else 0)
         month = 1 if anchor.month == 12 else anchor.month + 1
-        return _month_range(year, month, local_timezone=local_timezone)
+        return _month_range(
+            year,
+            month,
+            local_timezone=local_timezone,
+            operator=normalized,
+        )
     return None
 
 
-def _day_range(value: date, *, local_timezone: tzinfo) -> tuple[float, float]:
+def _day_range(
+    value: date,
+    *,
+    local_timezone: ZoneInfo,
+    operator: str,
+) -> _CalendarRange:
     start = datetime(value.year, value.month, value.day, tzinfo=local_timezone)
-    return start.timestamp(), (start + timedelta(days=1)).timestamp()
+    return _CalendarRange(
+        start=start,
+        end=start + timedelta(days=1),
+        precision="day",
+        operator=operator,
+    )
 
 
 def _bounded_days(
     start_day: date,
     count: int,
     *,
-    local_timezone: tzinfo,
-) -> tuple[float, float]:
+    local_timezone: ZoneInfo,
+    operator: str,
+    precision: str,
+) -> _CalendarRange:
     start = datetime(start_day.year, start_day.month, start_day.day, tzinfo=local_timezone)
-    return start.timestamp(), (start + timedelta(days=count)).timestamp()
+    return _CalendarRange(
+        start=start,
+        end=start + timedelta(days=count),
+        precision=precision,
+        operator=operator,
+    )
 
 
-def _month_range(year: int, month: int, *, local_timezone: tzinfo) -> tuple[float, float]:
+def _month_range(
+    year: int,
+    month: int,
+    *,
+    local_timezone: ZoneInfo,
+    operator: str,
+) -> _CalendarRange:
     start = datetime(year, month, 1, tzinfo=local_timezone)
     day_count = calendar.monthrange(year, month)[1]
-    return start.timestamp(), (start + timedelta(days=day_count)).timestamp()
+    return _CalendarRange(
+        start=start,
+        end=start + timedelta(days=day_count),
+        precision="month",
+        operator=operator,
+    )
 
 
 __all__ = ["ClaimTemporalResolution", "resolve_claim_temporal_fields"]

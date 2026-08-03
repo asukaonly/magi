@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from collections.abc import Mapping
 from typing import Any, Protocol, cast
 
 from ....core.logger import get_logger
+from ....utils.calendar_timezone import calendar_timezone_id_from_metadata
 from ...evidence import EvidenceClassification, classify_event_evidence
 from ...event_contracts import MemoryEvent
 from ..claims.identity import derive_claim_identity_key
@@ -33,7 +34,7 @@ from .temporal_claims import resolve_claim_temporal_fields
 
 logger = get_logger("magi.memory.l2.pipeline")
 
-EXTRACTOR_CONTRACT_VERSION = 2
+EXTRACTOR_CONTRACT_VERSION = 3
 EVIDENCE_RULE_VERSION = 1
 ENTITY_RESOLUTION_VERSION = 1
 
@@ -139,7 +140,6 @@ class L2ClaimPersistenceMixin:
                 raw_expression=claim.raw_time_expression,
                 future_intent=fact_kind == "future_intent",
                 evidence=event_links,
-                local_timezone=datetime.now().astimezone().tzinfo,
             )
             claim.fact_valid_from = temporal.fact_valid_from
             claim.fact_valid_to = temporal.fact_valid_to
@@ -201,6 +201,14 @@ class L2ClaimPersistenceMixin:
                 blocked_count += 1
                 continue
             claim.claim_id = str(stored["claim_id"])
+            claim.fact_valid_from = _optional_float(stored.get("fact_valid_from"))
+            claim.fact_valid_to = _optional_float(stored.get("fact_valid_to"))
+            claim.target_from = _optional_float(stored.get("target_from"))
+            claim.target_to = _optional_float(stored.get("target_to"))
+            stored_time_frame = stored.get("raw_time_frame")
+            claim.raw_time_frame = (
+                dict(stored_time_frame) if isinstance(stored_time_frame, Mapping) else None
+            )
             retained_claims.append(claim)
             if batch.self_entity_id and subject_ref == batch.self_entity_id:
                 await host._cognition_store.upsert_claim_entity_ref(
@@ -306,6 +314,7 @@ class L2ClaimPersistenceMixin:
                         if claim.raw_time_frame is not None
                         else "unscheduled"
                     ),
+                    time_frame=claim.raw_time_frame,
                 )
             )
             stored = await host._cognition_store.append_claim_projection_outcome(
@@ -420,6 +429,9 @@ def _claim_event_links(
                     claim.evidence_text,
                     event_type=batch_event.event_type,
                 ),
+                calendar_timezone_id=calendar_timezone_id_from_metadata(
+                    batch_event.metadata_json
+                ),
             )
         )
     for event_id in claim.antecedent_event_ids:
@@ -445,9 +457,21 @@ def _claim_event_links(
                 source_domain=antecedent_event.memory_domain.label,
                 author_type=antecedent_event.author_type,
                 evidence_class=classification.evidence_class,
+                calendar_timezone_id=calendar_timezone_id_from_metadata(
+                    antecedent_event.metadata_json
+                ),
             )
         )
     return links
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 async def _load_antecedent_events(

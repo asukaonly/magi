@@ -52,6 +52,7 @@ class ClaimEvidenceInput:
     timestamp_anchor_source: str | None = None
     evidence_class: str | None = None
     evidence_locator: Mapping[str, Any] | None = None
+    calendar_timezone_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

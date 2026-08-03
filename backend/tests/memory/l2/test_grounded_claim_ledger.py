@@ -176,6 +176,98 @@ async def test_grounded_claim_replay_is_idempotent(l2_store_with_schema) -> None
 
 
 @pytest.mark.asyncio
+async def test_temporal_claim_replay_keeps_the_first_durable_calendar_projection(
+    l2_store_with_schema,
+) -> None:
+    leases = await _running_leases(l2_store_with_schema, ["evt-temporal"])
+    frames = (
+        {
+            "raw": "2027-01-15",
+            "kind": "target",
+            "resolution": "calendar_anchor",
+            "resolved_range": [1_800_000_000.0, 1_800_086_400.0],
+            "calendar": {"timezone_id": "UTC"},
+        },
+        {
+            "raw": "2027-01-15",
+            "kind": "target",
+            "resolution": "calendar_anchor",
+            "resolved_range": [1_799_971_200.0, 1_800_057_600.0],
+            "calendar": {"timezone_id": "Asia/Shanghai"},
+        },
+    )
+
+    def claim_for(frame: dict[str, object]) -> GroundedClaimInput:
+        resolved_range = frame["resolved_range"]
+        assert isinstance(resolved_range, list)
+        target_from, target_to = (float(value) for value in resolved_range)
+        identity_key = derive_claim_identity_key(
+            extractor_contract_version=3,
+            evidence_rule_version=1,
+            user_id=None,
+            subject_ref="user:self",
+            subject_type="user",
+            canonical_predicate="PLANS_TO",
+            fact_kind="future_intent",
+            object_type="activity",
+            polarity="positive",
+            specificity="concrete",
+            temporal_cue="one_off",
+            fact_valid_from=None,
+            fact_valid_to=None,
+            target_from=target_from,
+            target_to=target_to,
+            raw_time_frame=frame,
+            evidence_mode="direct",
+            object_surface="beach trip",
+            object_value="beach trip",
+            supporting_event_ids=["evt-temporal"],
+            antecedent_event_ids=[],
+        )
+        return GroundedClaimInput(
+            identity_key=identity_key,
+            extractor_contract_version=3,
+            evidence_rule_version=1,
+            origin_attempt_key=derive_projection_attempt_key(leases),
+            profile_id="chat.user_message",
+            user_id=None,
+            subject_ref="user:self",
+            subject_type="user",
+            canonical_predicate="PLANS_TO",
+            fact_kind="future_intent",
+            object_type="activity",
+            polarity="positive",
+            specificity="concrete",
+            confidence=0.9,
+            object_value="beach trip",
+            object_surface="beach trip",
+            temporal_cue="one_off",
+            target_from=target_from,
+            target_to=target_to,
+            raw_time_frame=frame,
+        )
+
+    first = await l2_store_with_schema.upsert_grounded_claim(
+        claim=claim_for(frames[0]),
+        evidence=[_evidence("evt-temporal")],
+        projection_leases=leases,
+    )
+    replay = await l2_store_with_schema.upsert_grounded_claim(
+        claim=claim_for(frames[1]),
+        evidence=[_evidence("evt-temporal")],
+        projection_leases=leases,
+    )
+
+    assert first["identity_key"] == replay["identity_key"]
+    assert replay["created"] is False
+    first_range = frames[0]["resolved_range"]
+    assert isinstance(first_range, list)
+    assert replay["target_from"] == first_range[0]
+    assert replay["raw_time_frame"]["calendar"]["timezone_id"] == "UTC"
+    assert len(await l2_store_with_schema.list_grounded_claims()) == 1
+
+
+@pytest.mark.asyncio
 async def test_concurrent_grounded_claim_upsert_has_one_identity(l2_store_with_schema) -> None:
     identity_key = _identity(supporting_event_ids=["evt-concurrent"])
     leases = await _running_leases(l2_store_with_schema, ["evt-concurrent"])

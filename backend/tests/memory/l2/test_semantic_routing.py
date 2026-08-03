@@ -306,7 +306,17 @@ def test_goal_route_requires_concrete_resolved_target_and_keys_time_window() -> 
             target_from=1_800_000_000.0,
             target_to=1_800_086_400.0,
             raw_time_expression="2027-01-15",
-            time_resolution="exact",
+            time_resolution="calendar_anchor",
+            time_frame={
+                "calendar": {
+                    "timezone_id": "Asia/Shanghai",
+                    "precision": "day",
+                    "civil_start": "2027-01-15",
+                    "civil_end_exclusive": "2027-01-16",
+                    "operator": "absolute",
+                    "anchor_event_ids": [],
+                }
+            },
         )
     )
 
@@ -321,6 +331,78 @@ def test_goal_route_requires_concrete_resolved_target_and_keys_time_window() -> 
     vague = derive_semantic_route(_route_input("PLANS_TO", specificity="underspecified"))
     assert unresolved.reason_code == "unresolved_target"
     assert vague.reason_code == "goal_target_not_concrete"
+
+
+def test_goal_window_identity_uses_civil_descriptor_instead_of_runtime_epoch() -> None:
+    frame = {
+        "calendar": {
+            "timezone_id": "Asia/Shanghai",
+            "precision": "day",
+            "civil_start": "2027-01-15",
+            "civil_end_exclusive": "2027-01-16",
+            "operator": "absolute",
+            "anchor_event_ids": [],
+        }
+    }
+    first = derive_semantic_route(
+        _route_input(
+            "PLANS_TO",
+            target_from=1_800_000_000.0,
+            target_to=1_800_086_400.0,
+            raw_time_expression="2027-01-15",
+            time_resolution="calendar_anchor",
+            time_frame=frame,
+        )
+    )
+    shifted_epoch = derive_semantic_route(
+        _route_input(
+            "PLANS_TO",
+            claim_id="claim:shifted-runtime",
+            target_from=1_800_028_800.0,
+            target_to=1_800_115_200.0,
+            raw_time_expression="2027-01-15",
+            time_resolution="calendar_anchor",
+            time_frame=frame,
+        )
+    )
+    synonymous_expression = derive_semantic_route(
+        _route_input(
+            "PLANS_TO",
+            claim_id="claim:synonymous-expression",
+            target_from=1_800_000_000.0,
+            target_to=1_800_086_400.0,
+            raw_time_expression="tomorrow",
+            time_resolution="calendar_anchor",
+            time_frame={
+                "calendar": {
+                    **frame["calendar"],
+                    "operator": "tomorrow",
+                    "anchor_event_ids": ["evt-2"],
+                }
+            },
+        )
+    )
+    different_day = derive_semantic_route(
+        _route_input(
+            "PLANS_TO",
+            claim_id="claim:different-day",
+            raw_time_expression="2027-01-16",
+            time_resolution="calendar_anchor",
+            time_frame={
+                "calendar": {
+                    **frame["calendar"],
+                    "civil_start": "2027-01-16",
+                    "civil_end_exclusive": "2027-01-17",
+                }
+            },
+        )
+    )
+
+    assert first.target_window_key == shifted_epoch.target_window_key
+    assert first.slot_key == shifted_epoch.slot_key
+    assert first.target_window_key == synonymous_expression.target_window_key
+    assert first.slot_key == synonymous_expression.slot_key
+    assert different_day.target_window_key != first.target_window_key
 
 
 def test_unknown_predicate_remains_visible_as_unrouted() -> None:

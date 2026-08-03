@@ -22,6 +22,7 @@ def _evidence(
     event_id: str = "evt-1",
     event_time: float = 1_775_400_000.0,
     timestamp_quality: str = "exact",
+    calendar_timezone_id: str | None = "Asia/Shanghai",
 ) -> ClaimEvidenceInput:
     return ClaimEvidenceInput(
         event_id=event_id,
@@ -35,6 +36,7 @@ def _evidence(
         source_type="chat",
         source_domain="user_authored",
         author_type="user",
+        calendar_timezone_id=calendar_timezone_id,
     )
 
 
@@ -61,13 +63,20 @@ def test_chinese_absolute_date_uses_local_calendar_boundaries() -> None:
         raw_expression="2026年8月3日",
         future_intent=True,
         evidence=[_evidence()],
-        local_timezone=timezone,
     )
 
     assert resolution.target_from == datetime(2026, 8, 3, tzinfo=timezone).timestamp()
     assert resolution.target_to == datetime(2026, 8, 4, tzinfo=timezone).timestamp()
     assert resolution.raw_time_frame is not None
-    assert resolution.raw_time_frame["resolution"] == "exact"
+    assert resolution.raw_time_frame["resolution"] == "calendar_anchor"
+    assert resolution.raw_time_frame["calendar"] == {
+        "timezone_id": "Asia/Shanghai",
+        "precision": "day",
+        "civil_start": "2026-08-03",
+        "civil_end_exclusive": "2026-08-04",
+        "operator": "absolute",
+        "anchor_event_ids": [],
+    }
 
 
 def test_relative_day_anchors_to_each_evidence_in_local_timezone() -> None:
@@ -77,7 +86,6 @@ def test_relative_day_anchors_to_each_evidence_in_local_timezone() -> None:
         raw_expression="明天",
         future_intent=True,
         evidence=[_evidence(event_time=anchor)],
-        local_timezone=timezone,
     )
 
     assert resolution.target_from == datetime(2026, 8, 4, tzinfo=timezone).timestamp()
@@ -110,7 +118,6 @@ def test_untrusted_or_underanchored_time_stays_raw_for_review(
         raw_expression=raw,
         future_intent=True,
         evidence=evidence,
-        local_timezone=ZoneInfo("Asia/Shanghai"),
     )
 
     assert resolution.target_from is None
@@ -143,7 +150,6 @@ def test_relative_time_rejects_evidence_beyond_future_clock_skew(
                 timestamp_quality=timestamp_quality,
             )
         ],
-        local_timezone=ZoneInfo("Asia/Shanghai"),
         now=now,
     )
 
@@ -163,7 +169,6 @@ def test_relative_time_accepts_evidence_at_future_clock_skew_boundary() -> None:
         evidence=[
             _evidence(event_time=now + MAX_FUTURE_CLOCK_SKEW_SECONDS),
         ],
-        local_timezone=ZoneInfo("Asia/Shanghai"),
         now=now,
     )
 
@@ -185,7 +190,6 @@ def test_one_future_supporting_anchor_makes_relative_time_unresolved() -> None:
                 event_time=now + MAX_FUTURE_CLOCK_SKEW_SECONDS + 1,
             ),
         ],
-        local_timezone=ZoneInfo("Asia/Shanghai"),
         now=now,
     )
 
@@ -241,3 +245,77 @@ def test_claim_identity_includes_temporal_semantics() -> None:
     )
 
     assert first != second
+
+
+def test_claim_identity_excludes_runtime_calendar_epoch_projection() -> None:
+    base = dict(
+        extractor_contract_version=3,
+        evidence_rule_version=1,
+        user_id="u1",
+        subject_ref="user:u1",
+        subject_type="user",
+        canonical_predicate="PLANS_TO",
+        fact_kind="future_intent",
+        object_type="activity",
+        polarity="positive",
+        specificity="concrete",
+        temporal_cue="one_off",
+        evidence_mode="direct",
+        object_surface="去海边",
+        object_value="去海边",
+        supporting_event_ids=["evt-1"],
+        antecedent_event_ids=[],
+    )
+    utc = resolve_claim_temporal_fields(
+        raw_expression="2026-08-04",
+        future_intent=True,
+        evidence=[_evidence(calendar_timezone_id="UTC")],
+    )
+    shanghai = resolve_claim_temporal_fields(
+        raw_expression="2026-08-04",
+        future_intent=True,
+        evidence=[_evidence(calendar_timezone_id="Asia/Shanghai")],
+    )
+
+    assert utc.target_from != shanghai.target_from
+    first = derive_claim_identity_key(
+        **base,
+        fact_valid_from=utc.fact_valid_from,
+        fact_valid_to=utc.fact_valid_to,
+        target_from=utc.target_from,
+        target_to=utc.target_to,
+        raw_time_frame=utc.raw_time_frame,
+    )
+    second = derive_claim_identity_key(
+        **base,
+        fact_valid_from=shanghai.fact_valid_from,
+        fact_valid_to=shanghai.fact_valid_to,
+        target_from=shanghai.target_from,
+        target_to=shanghai.target_to,
+        raw_time_frame=shanghai.raw_time_frame,
+    )
+
+    assert first == second
+
+
+def test_temporal_resolution_requires_one_persisted_iana_timezone() -> None:
+    missing = resolve_claim_temporal_fields(
+        raw_expression="明天",
+        future_intent=True,
+        evidence=[_evidence(calendar_timezone_id=None)],
+    )
+    conflicting = resolve_claim_temporal_fields(
+        raw_expression="明天",
+        future_intent=True,
+        evidence=[
+            _evidence(event_id="evt-1", calendar_timezone_id="UTC"),
+            _evidence(event_id="evt-2", calendar_timezone_id="Asia/Shanghai"),
+        ],
+    )
+
+    assert missing.target_from is None
+    assert missing.raw_time_frame is not None
+    assert missing.raw_time_frame["resolution"] == "low"
+    assert conflicting.target_from is None
+    assert conflicting.raw_time_frame is not None
+    assert conflicting.raw_time_frame["resolution"] == "ambiguous"

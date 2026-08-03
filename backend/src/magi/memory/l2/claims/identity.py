@@ -45,6 +45,13 @@ def derive_claim_identity_key(
 ) -> str:
     """Hash semantic Claim material and its normalized evidence occurrence set."""
 
+    temporal_identity = _temporal_identity_material(
+        fact_valid_from=fact_valid_from,
+        fact_valid_to=fact_valid_to,
+        target_from=target_from,
+        target_to=target_to,
+        raw_time_frame=raw_time_frame,
+    )
     payload = {
         "extractor_contract_version": int(extractor_contract_version),
         "evidence_rule_version": int(evidence_rule_version),
@@ -57,11 +64,7 @@ def derive_claim_identity_key(
         "polarity": str(polarity),
         "specificity": str(specificity),
         "temporal_cue": str(temporal_cue),
-        "fact_valid_from": fact_valid_from,
-        "fact_valid_to": fact_valid_to,
-        "target_from": target_from,
-        "target_to": target_to,
-        "raw_time_frame": raw_time_frame,
+        "temporal_identity": temporal_identity,
         "evidence_mode": str(evidence_mode),
         "object_surface": str(object_surface or ""),
         "object_value": object_value,
@@ -81,6 +84,34 @@ def derive_claim_identity_key(
         ),
     }
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _temporal_identity_material(
+    *,
+    fact_valid_from: float | None,
+    fact_valid_to: float | None,
+    target_from: float | None,
+    target_to: float | None,
+    raw_time_frame: Mapping[str, Any] | None,
+) -> Mapping[str, Any]:
+    """Keep host calendar projections out of immutable Claim identity."""
+
+    if isinstance(raw_time_frame, Mapping):
+        raw = str(raw_time_frame.get("raw") or "").strip()
+        if raw:
+            return {
+                "raw": raw,
+                "kind": str(raw_time_frame.get("kind") or "").strip().casefold(),
+                "resolution": str(raw_time_frame.get("resolution") or "")
+                .strip()
+                .casefold(),
+            }
+    return {
+        "fact_valid_from": fact_valid_from,
+        "fact_valid_to": fact_valid_to,
+        "target_from": target_from,
+        "target_to": target_to,
+    }
 
 
 def projection_outcome_id(
