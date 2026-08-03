@@ -47,6 +47,17 @@ class L2EventEntityLinkOutboxBatch:
     items: tuple[L2EventEntityLinkOutboxItem, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _AuthoritativeEntityLinkRevision:
+    """Latest consumable or applied desired set for one event."""
+
+    event_id: str
+    revision: int
+    batch_key: str
+    state: str
+    desired_links: tuple[DesiredEntityLink, ...]
+
+
 class _L2EventEntityLinkOutboxHostProtocol(Protocol):
     db_path: str
 
@@ -71,9 +82,7 @@ class L2EventEntityLinkOutboxMixin:
             raise ValueError("desired entity links must cover the complete projection lease set")
 
         normalized_by_event = {
-            lease.event_id: normalize_desired_entity_links(
-                desired_links_by_event[lease.event_id]
-            )
+            lease.event_id: normalize_desired_entity_links(desired_links_by_event[lease.event_id])
             for lease in leases
         }
         batch_key = projection_entity_link_batch_key(leases)
@@ -229,9 +238,7 @@ class L2EventEntityLinkOutboxMixin:
 
         if not batch.items or any(item.batch_key != batch.batch_key for item in batch.items):
             raise ValueError("entity-link outbox batch must be complete and consistent")
-        expected = {
-            item.event_id: (item.revision, item.clear_generation) for item in batch.items
-        }
+        expected = {item.event_id: (item.revision, item.clear_generation) for item in batch.items}
         if len(expected) != len(batch.items):
             raise ValueError("entity-link outbox batch must contain unique event IDs")
         host = cast(_L2EventEntityLinkOutboxHostProtocol, self)
@@ -259,9 +266,11 @@ class L2EventEntityLinkOutboxMixin:
                     for row in rows
                 }
                 clear_generation = await memory_clear_generation_on_connection(db)
-                if actual != expected or any(
-                    str(row["state"]) not in {"ready", "applied"} for row in rows
-                ) or any(item.clear_generation != clear_generation for item in batch.items):
+                if (
+                    actual != expected
+                    or any(str(row["state"]) not in {"ready", "applied"} for row in rows)
+                    or any(item.clear_generation != clear_generation for item in batch.items)
+                ):
                     await db.rollback()
                     return False
                 await db.execute(
@@ -306,8 +315,7 @@ class L2EventEntityLinkOutboxMixin:
             str(row["state"]) != "pending"
             or int(row["clear_generation"]) != clear_generation
             or str(row["lease_token"]) != lease_by_event[str(row["event_id"])].lease_token
-            or int(row["attempt_count"])
-            != lease_by_event[str(row["event_id"])].attempt_count
+            or int(row["attempt_count"]) != lease_by_event[str(row["event_id"])].attempt_count
             for row in rows
         ):
             raise RuntimeError("projection completion entity-link batch is not pending")
@@ -322,7 +330,9 @@ class L2EventEntityLinkOutboxMixin:
         )
         finalized = max(int(cursor.rowcount or 0), 0)
         if finalized != len(normalized):
-            raise RuntimeError("projection completion did not publish its complete entity-link batch")
+            raise RuntimeError(
+                "projection completion did not publish its complete entity-link batch"
+            )
         return finalized
 
     async def _stage_source_event_link_forget_on_connection(
@@ -332,36 +342,52 @@ class L2EventEntityLinkOutboxMixin:
         event_ids: Sequence[str],
         reason: str,
     ) -> int:
-        """Append a ready empty-set batch for retained-L1 source forgetting."""
+        """Append an empty revision and irreversibly redact forgotten event links."""
 
         normalized = tuple(sorted({str(event_id).strip() for event_id in event_ids if event_id}))
         if not normalized:
             return 0
         clear_generation = await memory_clear_generation_on_connection(db)
         event_set = set(normalized)
+        latest = await _latest_authoritative_link_revisions(
+            db,
+            clear_generation=clear_generation,
+        )
+        ready_batch_keys = await _ready_batch_keys_touching_source_events(
+            db,
+            normalized,
+            clear_generation=clear_generation,
+        )
+        desired: dict[str, tuple[DesiredEntityLink, ...]] = {
+            event_id: ()
+            for event_id in normalized
+            if event_id in latest and latest[event_id].desired_links
+        }
+        _add_ready_batch_compensations(
+            desired,
+            latest=latest,
+            discarded_batch_keys=ready_batch_keys,
+        )
+        appended = await _append_forget_governance_batch(
+            db,
+            prefix="forget:event",
+            operation_key=reason,
+            clear_generation=clear_generation,
+            desired_links_by_event=desired,
+            latest=latest,
+        )
         await _discard_pending_batches_touching_events(
             db,
             event_set,
             clear_generation=clear_generation,
         )
-        authoritative = await _events_with_authoritative_link_revisions(
+        await _discard_ready_batches(
             db,
-            normalized,
+            ready_batch_keys,
             clear_generation=clear_generation,
         )
-        if not authoritative:
-            return 0
-        batch_key = _governance_batch_key(
-            "forget:event",
-            reason,
-            (clear_generation, authoritative),
-        )
-        desired = {event_id: () for event_id in authoritative}
-        return await _append_ready_governance_batch(
-            db,
-            batch_key=batch_key,
-            desired_links_by_event=desired,
-        )
+        await _redact_source_event_link_payloads(db, normalized)
+        return appended
 
     async def _stage_entity_link_forget_on_connection(
         self,
@@ -370,55 +396,61 @@ class L2EventEntityLinkOutboxMixin:
         entity_id: str,
         operation_key: str,
     ) -> int:
-        """Append a ready revision that removes only one projected entity."""
+        """Append filtered revisions and irreversibly redact one entity ID."""
 
         normalized_entity_id = str(entity_id or "").strip()
         if not normalized_entity_id:
             return 0
         clear_generation = await memory_clear_generation_on_connection(db)
-        async with db.execute(
-            """
-            SELECT DISTINCT batch_key
-            FROM l2_event_entity_link_outbox,
-                 json_each(l2_event_entity_link_outbox.desired_links_json) AS link
-            WHERE state = 'pending' AND clear_generation = ?
-              AND json_extract(link.value, '$.entity_id') = ?
-            """,
-            (clear_generation, normalized_entity_id),
-        ) as cursor:
-            blocked_batches = [str(row[0]) for row in await cursor.fetchall()]
-        now = time.time()
-        for batch_key in blocked_batches:
-            await db.execute(
-                """
-                UPDATE l2_event_entity_link_outbox
-                SET state = 'discarded', updated_at = ?
-                WHERE batch_key = ? AND state = 'pending'
-                """,
-                (now, batch_key),
-            )
-
-        latest = await _latest_authoritative_desired_links(
+        latest = await _latest_authoritative_link_revisions(
             db,
             clear_generation=clear_generation,
         )
         desired: dict[str, tuple[DesiredEntityLink, ...]] = {}
-        for event_id, links in latest.items():
-            filtered = tuple(link for link in links if link[0] != normalized_entity_id)
-            if len(filtered) != len(links):
+        for event_id, authoritative in latest.items():
+            filtered = tuple(
+                link for link in authoritative.desired_links if link[0] != normalized_entity_id
+            )
+            if len(filtered) != len(authoritative.desired_links):
                 desired[event_id] = filtered
-        if not desired:
-            return 0
-        batch_key = _governance_batch_key(
-            "forget:entity",
-            operation_key,
-            (clear_generation, desired),
-        )
-        return await _append_ready_governance_batch(
+        pending_batch_keys = await _batch_keys_containing_entity(
             db,
-            batch_key=batch_key,
-            desired_links_by_event=desired,
+            normalized_entity_id,
+            state="pending",
+            clear_generation=clear_generation,
         )
+        ready_batch_keys = await _batch_keys_containing_entity(
+            db,
+            normalized_entity_id,
+            state="ready",
+            clear_generation=clear_generation,
+        )
+        _add_ready_batch_compensations(
+            desired,
+            latest=latest,
+            discarded_batch_keys=ready_batch_keys,
+        )
+        appended = await _append_forget_governance_batch(
+            db,
+            prefix="forget:entity",
+            operation_key=operation_key,
+            clear_generation=clear_generation,
+            desired_links_by_event=desired,
+            latest=latest,
+        )
+        await _discard_batches_by_state(
+            db,
+            pending_batch_keys,
+            state="pending",
+            clear_generation=clear_generation,
+        )
+        await _discard_ready_batches(
+            db,
+            ready_batch_keys,
+            clear_generation=clear_generation,
+        )
+        await _redact_entity_link_payloads(db, normalized_entity_id)
+        return appended
 
 
 async def begin_event_entity_link_projection_clear(db_path: str) -> int:
@@ -512,13 +544,11 @@ async def _clear_projection_recovery_on_connection(
 
 
 async def _projection_recovery_tables(db: aiosqlite.Connection) -> set[str]:
-    async with db.execute(
-        """
+    async with db.execute("""
         SELECT name FROM sqlite_master
         WHERE type = 'table'
           AND name IN ('l2_event_entity_link_outbox', 'l2_projection_jobs')
-        """
-    ) as cursor:
+        """) as cursor:
         return {str(row[0]) for row in await cursor.fetchall()}
 
 
@@ -561,34 +591,58 @@ async def _discard_pending_batches_touching_events(
         )
 
 
-async def _events_with_authoritative_link_revisions(
+async def _ready_batch_keys_touching_source_events(
     db: aiosqlite.Connection,
     event_ids: Sequence[str],
     *,
     clear_generation: int,
-) -> tuple[str, ...]:
+) -> set[str]:
+    if not event_ids:
+        return set()
     placeholders = ", ".join("?" for _ in event_ids)
     async with db.execute(
         f"""
-        SELECT DISTINCT event_id
+        SELECT DISTINCT batch_key
         FROM l2_event_entity_link_outbox
-        WHERE event_id IN ({placeholders}) AND state IN ('ready', 'applied')
-          AND clear_generation = ?
-        ORDER BY event_id
+        WHERE event_id IN ({placeholders}) AND state = 'ready'
+          AND clear_generation = ? AND json_array_length(desired_links_json) > 0
         """,
         (*event_ids, clear_generation),
     ) as cursor:
-        return tuple(str(row[0]) for row in await cursor.fetchall())
+        return {str(row[0]) for row in await cursor.fetchall()}
 
 
-async def _latest_authoritative_desired_links(
+async def _batch_keys_containing_entity(
+    db: aiosqlite.Connection,
+    entity_id: str,
+    *,
+    state: str,
+    clear_generation: int,
+) -> set[str]:
+    if state not in {"pending", "ready"}:
+        raise ValueError("entity-link outbox state must be pending or ready")
+    async with db.execute(
+        """
+        SELECT DISTINCT outbox.batch_key
+        FROM l2_event_entity_link_outbox AS outbox,
+             json_each(outbox.desired_links_json) AS link
+        WHERE outbox.state = ? AND outbox.clear_generation = ?
+          AND json_extract(link.value, '$.entity_id') = ?
+        """,
+        (state, clear_generation, entity_id),
+    ) as cursor:
+        return {str(row[0]) for row in await cursor.fetchall()}
+
+
+async def _latest_authoritative_link_revisions(
     db: aiosqlite.Connection,
     *,
     clear_generation: int,
-) -> dict[str, tuple[DesiredEntityLink, ...]]:
+) -> dict[str, _AuthoritativeEntityLinkRevision]:
     async with db.execute(
         """
-        SELECT outbox.event_id, outbox.desired_links_json
+        SELECT outbox.event_id, outbox.revision, outbox.batch_key,
+               outbox.state, outbox.desired_links_json
         FROM l2_event_entity_link_outbox AS outbox
         JOIN (
             SELECT event_id, MAX(revision) AS revision
@@ -604,11 +658,163 @@ async def _latest_authoritative_desired_links(
     ) as cursor:
         rows = await cursor.fetchall()
     return {
-        str(row["event_id"]): desired_entity_links_from_json(
-            str(row["desired_links_json"])
+        str(row["event_id"]): _AuthoritativeEntityLinkRevision(
+            event_id=str(row["event_id"]),
+            revision=int(row["revision"]),
+            batch_key=str(row["batch_key"]),
+            state=str(row["state"]),
+            desired_links=desired_entity_links_from_json(str(row["desired_links_json"])),
         )
         for row in rows
     }
+
+
+def _add_ready_batch_compensations(
+    desired_links_by_event: dict[str, tuple[DesiredEntityLink, ...]],
+    *,
+    latest: Mapping[str, _AuthoritativeEntityLinkRevision],
+    discarded_batch_keys: set[str],
+) -> None:
+    """Preserve unrelated latest desired sets from discarded atomic batches."""
+
+    for event_id, authoritative in latest.items():
+        if (
+            authoritative.state == "ready"
+            and authoritative.batch_key in discarded_batch_keys
+            and event_id not in desired_links_by_event
+        ):
+            desired_links_by_event[event_id] = authoritative.desired_links
+
+
+async def _append_forget_governance_batch(
+    db: aiosqlite.Connection,
+    *,
+    prefix: str,
+    operation_key: str,
+    clear_generation: int,
+    desired_links_by_event: Mapping[str, Sequence[DesiredEntityLink]],
+    latest: Mapping[str, _AuthoritativeEntityLinkRevision],
+) -> int:
+    if not desired_links_by_event:
+        return 0
+    predecessor_material = tuple(
+        (
+            event_id,
+            latest[event_id].revision if event_id in latest else 0,
+            (
+                desired_entity_links_json(latest[event_id].desired_links)
+                if event_id in latest
+                else "[]"
+            ),
+        )
+        for event_id in sorted(desired_links_by_event)
+    )
+    desired_material = tuple(
+        (
+            event_id,
+            desired_entity_links_json(desired_links_by_event[event_id]),
+        )
+        for event_id in sorted(desired_links_by_event)
+    )
+    batch_key = _governance_batch_key(
+        prefix,
+        operation_key,
+        (clear_generation, predecessor_material, desired_material),
+    )
+    return await _append_ready_governance_batch(
+        db,
+        batch_key=batch_key,
+        desired_links_by_event=desired_links_by_event,
+    )
+
+
+async def _discard_ready_batches(
+    db: aiosqlite.Connection,
+    batch_keys: set[str],
+    *,
+    clear_generation: int,
+) -> None:
+    await _discard_batches_by_state(
+        db,
+        batch_keys,
+        state="ready",
+        clear_generation=clear_generation,
+    )
+
+
+async def _discard_batches_by_state(
+    db: aiosqlite.Connection,
+    batch_keys: set[str],
+    *,
+    state: str,
+    clear_generation: int,
+) -> None:
+    if state not in {"pending", "ready"}:
+        raise ValueError("entity-link outbox state must be pending or ready")
+    if not batch_keys:
+        return
+    now = time.time()
+    placeholders = ", ".join("?" for _ in batch_keys)
+    await db.execute(
+        f"""
+        UPDATE l2_event_entity_link_outbox
+        SET state = 'discarded', updated_at = ?
+        WHERE state = ? AND clear_generation = ?
+          AND batch_key IN ({placeholders})
+        """,
+        (now, state, clear_generation, *sorted(batch_keys)),
+    )
+
+
+async def _redact_source_event_link_payloads(
+    db: aiosqlite.Connection,
+    event_ids: Sequence[str],
+) -> None:
+    if not event_ids:
+        return
+    placeholders = ", ".join("?" for _ in event_ids)
+    await db.execute(
+        f"""
+        UPDATE l2_event_entity_link_outbox
+        SET desired_links_json = '[]', updated_at = ?
+        WHERE event_id IN ({placeholders}) AND desired_links_json != '[]'
+        """,
+        (time.time(), *event_ids),
+    )
+
+
+async def _redact_entity_link_payloads(
+    db: aiosqlite.Connection,
+    entity_id: str,
+) -> None:
+    async with db.execute(
+        """
+        SELECT DISTINCT outbox.event_id, outbox.revision, outbox.desired_links_json
+        FROM l2_event_entity_link_outbox AS outbox,
+             json_each(outbox.desired_links_json) AS link
+        WHERE json_extract(link.value, '$.entity_id') = ?
+        ORDER BY outbox.event_id, outbox.revision
+        """,
+        (entity_id,),
+    ) as cursor:
+        rows = await cursor.fetchall()
+    now = time.time()
+    for row in rows:
+        links = desired_entity_links_from_json(str(row["desired_links_json"]))
+        filtered = tuple(link for link in links if link[0] != entity_id)
+        await db.execute(
+            """
+            UPDATE l2_event_entity_link_outbox
+            SET desired_links_json = ?, updated_at = ?
+            WHERE event_id = ? AND revision = ?
+            """,
+            (
+                desired_entity_links_json(filtered),
+                now,
+                str(row["event_id"]),
+                int(row["revision"]),
+            ),
+        )
 
 
 async def _append_ready_governance_batch(
@@ -687,9 +893,7 @@ def _outbox_batches_from_rows(
                 lease_token=str(row["lease_token"]),
                 attempt_count=int(row["attempt_count"]),
                 clear_generation=int(row["clear_generation"]),
-                desired_links=desired_entity_links_from_json(
-                    str(row["desired_links_json"])
-                ),
+                desired_links=desired_entity_links_from_json(str(row["desired_links_json"])),
             )
         )
     return [

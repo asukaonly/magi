@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import sqlite3
 from types import SimpleNamespace
@@ -120,15 +121,28 @@ def _job(lease: L2ProjectionLease) -> L2BatchJob:
 
 def _outbox_states(db_path: str) -> list[tuple[str, int, str]]:
     with sqlite3.connect(db_path) as db:
-        return [
-            (str(row[0]), int(row[1]), str(row[2]))
-            for row in db.execute(
-                """
+        return [(str(row[0]), int(row[1]), str(row[2])) for row in db.execute("""
                 SELECT event_id, revision, state
                 FROM l2_event_entity_link_outbox
                 ORDER BY event_id, revision
-                """
-            ).fetchall()
+                """).fetchall()]
+
+
+def _outbox_rows(db_path: str) -> list[tuple[str, int, str, str, list[dict[str, object]]]]:
+    with sqlite3.connect(db_path) as db:
+        return [
+            (
+                str(row[0]),
+                int(row[1]),
+                str(row[2]),
+                str(row[3]),
+                json.loads(str(row[4])),
+            )
+            for row in db.execute("""
+                SELECT event_id, revision, state, batch_key, desired_links_json
+                FROM l2_event_entity_link_outbox
+                ORDER BY event_id, revision
+                """).fetchall()
         ]
 
 
@@ -267,9 +281,7 @@ async def test_completed_ready_batch_survives_crash_and_startup_drains_it(
     await restarted.start()
     try:
         assert (await l1.get_event_entity_ids([event_id]))[event_id] == ["entity:durable"]
-        assert _outbox_states(l2_store_with_schema.db_path) == [
-            (event_id, 1, "applied")
-        ]
+        assert _outbox_states(l2_store_with_schema.db_path) == [(event_id, 1, "applied")]
     finally:
         await restarted.shutdown()
 
@@ -291,9 +303,7 @@ async def test_multi_event_completion_missing_one_stage_rolls_back_queue_transit
         projection_leases=leases,
     )
     with sqlite3.connect(l2_store_with_schema.db_path) as db:
-        db.execute(
-            "DELETE FROM l2_event_entity_link_outbox WHERE event_id = 'evt-b'"
-        )
+        db.execute("DELETE FROM l2_event_entity_link_outbox WHERE event_id = 'evt-b'")
         db.commit()
 
     with pytest.raises(RuntimeError, match="missing staged"):
@@ -344,9 +354,7 @@ async def test_partial_supersession_applies_remaining_batch_and_acks_whole_batch
     links = await l1.get_event_entity_ids(["evt-a", "evt-b"])
     assert links["evt-a"] == ["entity:a-newer"]
     assert links["evt-b"] == ["entity:b"]
-    assert {state for _, _, state in _outbox_states(l2_store_with_schema.db_path)} == {
-        "applied"
-    }
+    assert {state for _, _, state in _outbox_states(l2_store_with_schema.db_path)} == {"applied"}
 
 
 @pytest.mark.asyncio
@@ -359,9 +367,7 @@ async def test_outbox_rejects_non_canonical_confidence(
 
     with pytest.raises(ValueError, match="confidence"):
         await l2_store_with_schema.stage_event_entity_link_projections(
-            desired_links_by_event={
-                "evt-invalid": [("entity:a", "topic", confidence)]
-            },
+            desired_links_by_event={"evt-invalid": [("entity:a", "topic", confidence)]},
             projection_leases=[lease],
         )
 
@@ -379,16 +385,12 @@ async def test_schema_rejects_invalid_json_and_does_not_cascade_with_job_delete(
     )
     with sqlite3.connect(l2_store_with_schema.db_path) as db:
         with pytest.raises(sqlite3.IntegrityError):
-            db.execute(
-                """
+            db.execute("""
                 UPDATE l2_event_entity_link_outbox
                 SET desired_links_json = 'not-json'
                 WHERE event_id = 'evt-a'
-                """
-            )
-        foreign_keys = db.execute(
-            "PRAGMA foreign_key_list(l2_event_entity_link_outbox)"
-        ).fetchall()
+                """)
+        foreign_keys = db.execute("PRAGMA foreign_key_list(l2_event_entity_link_outbox)").fetchall()
         db.execute("DELETE FROM l2_projection_jobs WHERE event_id = 'evt-a'")
         db.commit()
         remaining = db.execute(
@@ -423,6 +425,13 @@ async def test_source_forget_discards_running_replay_and_clears_projected_only(
         reason="test_forget",
     )
     assert result["event_entity_links"] == 1
+    rows_before_drain = _outbox_rows(l2_store_with_schema.db_path)
+    assert [row[2] for row in rows_before_drain] == [
+        "applied",
+        "discarded",
+        "ready",
+    ]
+    assert all(row[4] == [] for row in rows_before_drain)
     assert await l2_store_with_schema.complete_projection_jobs([replay]) == 0
     assert await pipeline._drain_event_entity_link_outbox(raise_on_error=True) == 1
 
@@ -432,6 +441,58 @@ async def test_source_forget_discards_running_replay_and_clears_projected_only(
         "discarded",
         "applied",
     ]
+
+
+@pytest.mark.asyncio
+async def test_source_forget_replaces_ready_batch_and_restart_preserves_other_event(
+    l2_store_with_schema,
+    tmp_path,
+) -> None:
+    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    await l1.initialize(start_workers=False)
+    leases = await _running_leases(
+        l2_store_with_schema,
+        ["evt-forgotten", "evt-retained"],
+        "worker-1",
+    )
+    original = await l2_store_with_schema.stage_event_entity_link_projections(
+        desired_links_by_event={
+            "evt-forgotten": [("entity:private", "topic", 0.9)],
+            "evt-retained": [("entity:keep", "topic", 0.8)],
+        },
+        projection_leases=leases,
+    )
+    assert await l2_store_with_schema.complete_projection_jobs(leases) == 2
+    assert len(await l2_store_with_schema.prepare_event_entity_link_outbox()) == 1
+
+    result = await l2_store_with_schema.forget_source_events(
+        ["evt-forgotten"],
+        reason="user_delete_event",
+    )
+    assert result["event_entity_links"] == 2
+    rows = _outbox_rows(l2_store_with_schema.db_path)
+    original_rows = [row for row in rows if row[3] == original.batch_key]
+    assert {row[2] for row in original_rows} == {"discarded"}
+    assert all(row[4] == [] for row in rows if row[0] == "evt-forgotten")
+    assert "entity:private" not in json.dumps(rows)
+    assert sum(row[2] == "ready" for row in rows) == 2
+
+    restarted = _pipeline(l2_store_with_schema, l1)
+    restarted._extract_worker_count = 0
+    await restarted.start()
+    try:
+        links = await l1.get_event_entity_ids(["evt-forgotten", "evt-retained"])
+        assert links["evt-forgotten"] == []
+        assert links["evt-retained"] == ["entity:keep"]
+        row_count = len(_outbox_rows(l2_store_with_schema.db_path))
+        repeated = await l2_store_with_schema.forget_source_events(
+            ["evt-forgotten"],
+            reason="user_delete_event",
+        )
+        assert repeated["event_entity_links"] == 0
+        assert len(_outbox_rows(l2_store_with_schema.db_path)) == row_count
+    finally:
+        await restarted.shutdown()
 
 
 @pytest.mark.asyncio
@@ -465,6 +526,10 @@ async def test_entity_forget_removes_target_projected_link_and_preserves_others(
         operation_key="forget-op-1",
     )
     assert result["event_entity_links"] == 1
+    rows_before_drain = _outbox_rows(l2_store_with_schema.db_path)
+    assert {row[2] for row in rows_before_drain} == {"applied", "ready"}
+    assert "entity:target" not in json.dumps(rows_before_drain)
+    assert "entity:keep" in json.dumps(rows_before_drain)
     assert await pipeline._drain_event_entity_link_outbox(raise_on_error=True) == 1
 
     with sqlite3.connect(l1.db_path) as db:
@@ -484,6 +549,54 @@ async def test_entity_forget_removes_target_projected_link_and_preserves_others(
         ).fetchall()
     assert projected == [("entity:keep",)]
     assert manual == [("entity:manual",), ("entity:target",)]
+    row_count = len(_outbox_rows(l2_store_with_schema.db_path))
+    repeated = await l2_store_with_schema.forget_entity(
+        entity_id="entity:target",
+        operation_key="forget-op-1",
+    )
+    assert repeated["event_entity_links"] == 0
+    assert len(_outbox_rows(l2_store_with_schema.db_path)) == row_count
+
+
+@pytest.mark.asyncio
+async def test_entity_forget_replaces_ready_batch_without_losing_unrelated_links(
+    l2_store_with_schema,
+    tmp_path,
+) -> None:
+    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    await l1.initialize(start_workers=False)
+    pipeline = _pipeline(l2_store_with_schema, l1)
+    leases = await _running_leases(
+        l2_store_with_schema,
+        ["evt-a", "evt-b"],
+        "worker-1",
+    )
+    original = await l2_store_with_schema.stage_event_entity_link_projections(
+        desired_links_by_event={
+            "evt-a": [
+                ("entity:target", "topic", 0.9),
+                ("entity:a-keep", "topic", 0.8),
+            ],
+            "evt-b": [("entity:b-keep", "topic", 0.7)],
+        },
+        projection_leases=leases,
+    )
+    assert await l2_store_with_schema.complete_projection_jobs(leases) == 2
+
+    result = await l2_store_with_schema.forget_entity(
+        entity_id="entity:target",
+        operation_key="forget-ready-batch",
+    )
+    assert result["event_entity_links"] == 2
+    rows = _outbox_rows(l2_store_with_schema.db_path)
+    assert {row[2] for row in rows if row[3] == original.batch_key} == {"discarded"}
+    assert "entity:target" not in json.dumps(rows)
+    assert sum(row[2] == "ready" for row in rows) == 2
+
+    assert await pipeline._drain_event_entity_link_outbox(raise_on_error=True) == 2
+    links = await l1.get_event_entity_ids(["evt-a", "evt-b"])
+    assert links["evt-a"] == ["entity:a-keep"]
+    assert links["evt-b"] == ["entity:b-keep"]
 
 
 @pytest.mark.asyncio
@@ -561,6 +674,9 @@ async def test_entity_forget_discards_entire_running_replay_batch(
         ).fetchall()
     assert replay_states == [("discarded",)]
     assert job_states == [("running",), ("running",)]
+    outbox_rows = _outbox_rows(l2_store_with_schema.db_path)
+    assert "entity:target" not in json.dumps(outbox_rows)
+    assert "entity:b-unpublished" in json.dumps(outbox_rows)
 
 
 @pytest.mark.asyncio
@@ -585,9 +701,7 @@ async def test_clear_generation_fences_old_outbox_and_direct_l2_clear_is_blocked
     assert (await l1.get_event_entity_ids([event_id]))[event_id] == ["entity:old"]
     assert _outbox_states(l2_store_with_schema.db_path) == [(event_id, 1, "applied")]
 
-    clear_generation = await begin_event_entity_link_projection_clear(
-        l2_store_with_schema.db_path
-    )
+    clear_generation = await begin_event_entity_link_projection_clear(l2_store_with_schema.db_path)
     # Simulate the first unified-clear attempt failing before it can wipe L1.
     assert await pipeline._drain_event_entity_link_outbox() == 0
     assert (await l1.get_event_entity_ids([event_id]))[event_id] == ["entity:old"]
@@ -621,9 +735,7 @@ async def test_old_prepared_applier_cannot_restore_links_after_l1_clear_fence(
     assert len(prepared) == 1
     stale_batch = prepared[0]
 
-    clear_generation = await begin_event_entity_link_projection_clear(
-        l2_store_with_schema.db_path
-    )
+    clear_generation = await begin_event_entity_link_projection_clear(l2_store_with_schema.db_path)
     await l1.align_entity_link_projection_clear_generation(clear_generation)
 
     accepted = await l1.replace_projected_event_entities_batch(
@@ -670,9 +782,9 @@ async def test_unified_clear_l1_failure_restart_and_retry_converges(
     monkeypatch.setattr(memory.l1, "clear", fail_l1_clear)
     with pytest.raises(RuntimeError, match="injected L1 clear failure"):
         await memory.clear_all_memory()
-    assert (await memory.l1.get_event_entity_ids(["evt-clear-retry"]))[
-        "evt-clear-retry"
-    ] == ["entity:old"]
+    assert (await memory.l1.get_event_entity_ids(["evt-clear-retry"]))["evt-clear-retry"] == [
+        "entity:old"
+    ]
     await memory.shutdown()
 
     restarted = _unified_memory(tmp_path)
