@@ -83,6 +83,15 @@ def _make_event(*, source: str, content: str = "hello"):
     return normalize_runtime_event(event)
 
 
+def _make_history_import_event(*, event_type: str = "history_import.document"):
+    event = _make_event(
+        source="history_import_markdown",
+        content="# Notes\n\nI keep a weekly pottery practice.",
+    )
+    event.event_type = event_type
+    return event
+
+
 def test_default_chat_profile_exposes_full_allowlists():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
     from magi.memory.l2.ontology import ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
@@ -125,6 +134,49 @@ def test_timeline_source_falls_back_to_chat_profile():
     profile = resolve_extraction_profile(_make_event(source="timeline", content="Visited GitHub today"))
 
     assert profile.profile_id == "chat.user_message"
+
+
+def test_history_document_requires_matching_source_and_event_type():
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
+
+    document_profile = resolve_extraction_profile(_make_history_import_event())
+    imported_chat_profile = resolve_extraction_profile(
+        _make_history_import_event(event_type="history_import.chat")
+    )
+    wrong_source = _make_history_import_event()
+    wrong_source.source = "chat"
+    wrong_source_profile = resolve_extraction_profile(wrong_source)
+
+    assert document_profile.profile_id == "history_import.document"
+    assert document_profile.source_types == frozenset({"history_import_markdown"})
+    assert document_profile.event_types == frozenset({"history_import.document"})
+    assert document_profile.phase1_instructions is not None
+    assert "historical documents, not live chat turns" in document_profile.phase1_instructions
+    assert imported_chat_profile.profile_id == "chat.user_message"
+    assert wrong_source_profile.profile_id == "chat.user_message"
+
+
+def test_event_specific_profile_wins_before_source_only_profile():
+    from magi.memory.l2.extraction_profiles import (
+        ExtractionProfile,
+        get_extraction_profiles,
+        resolve_extraction_profile,
+    )
+
+    registry = {
+        "source.history_import_generic": ExtractionProfile(
+            profile_id="source.history_import_generic",
+            source_types=frozenset({"history_import_markdown"}),
+        ),
+        **get_extraction_profiles(),
+    }
+
+    profile = resolve_extraction_profile(
+        _make_history_import_event(),
+        profile_registry=registry,
+    )
+
+    assert profile.profile_id == "history_import.document"
 
 
 def test_calendar_source_uses_calendar_profile_restrictions():

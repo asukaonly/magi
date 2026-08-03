@@ -129,10 +129,10 @@ class AssertionScope(_LabeledIntEnum):
         }
 
 
-# NOTE: CJK spoken-question detection was strengthened in #49 without bumping
-# this version, so previously-classified rows are NOT auto-reclassified by the
-# backfill sweep. Historical re-classification is a deliberate follow-up.
-EVIDENCE_RULE_VERSION = 4
+# Version 5 recognizes the exact user-authored history-document contract before
+# conversational question/request heuristics. The bump reclassifies existing
+# imported documents that may otherwise be excluded from L2 projection.
+EVIDENCE_RULE_VERSION = 5
 
 
 @dataclass(slots=True)

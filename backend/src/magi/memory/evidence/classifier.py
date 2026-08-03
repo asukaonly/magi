@@ -162,6 +162,8 @@ _FIRST_CONTEXT_LOW_SIGNAL_VALUES = {
     "随便",
 }
 _CLAUSE_SPLIT_RE = re.compile(r"[，,。；;！？!?]+")
+_HISTORY_IMPORT_DOCUMENT_EVENT_TYPE = "history_import.document"
+_HISTORY_IMPORT_MARKDOWN_SOURCE = "history_import_markdown"
 
 
 @dataclass(frozen=True)
@@ -180,6 +182,7 @@ class _ClassificationContext:
     memory_domain: MemoryDomain
     interaction_kind: str | None
     user_intent: str | None  # "question" | "request" | None, only computed for user
+    user_authored_history_document: bool
     first_context_low_signal: bool
     first_context_has_self_report: bool
 
@@ -229,6 +232,11 @@ EVIDENCE_RULES: tuple[_EvidenceRule, ...] = (
         name="external_source",
         evidence_class=EvidenceClass.EXTERNAL_OBSERVATION,
         matches=lambda ctx: ctx.author_role in {"external", "sensor"},
+    ),
+    _EvidenceRule(
+        name="user_authored_history_document",
+        evidence_class=EvidenceClass.USER_SELF_REPORT,
+        matches=lambda ctx: ctx.user_authored_history_document,
     ),
     _EvidenceRule(
         name="user_recall_feedback_interaction",
@@ -314,12 +322,34 @@ def _build_context(event: MemoryEvent) -> _ClassificationContext:
         memory_domain=event.memory_domain,
         interaction_kind=interaction_kind,
         user_intent=user_intent,
+        user_authored_history_document=_is_user_authored_history_document(
+            event,
+            metadata=metadata,
+            author_role=author_role,
+        ),
         first_context_low_signal=(
             bool(is_first_context and _is_first_context_low_signal(event.content))
         ),
         first_context_has_self_report=(
             bool(is_first_context and _has_first_context_self_report_clause(event.content))
         ),
+    )
+
+
+def _is_user_authored_history_document(
+    event: MemoryEvent,
+    *,
+    metadata: dict[str, object],
+    author_role: str | None,
+) -> bool:
+    history_import = metadata.get("history_import")
+    history_metadata = history_import if isinstance(history_import, dict) else {}
+    return bool(
+        author_role == "user"
+        and event.memory_domain == MemoryDomain.USER_AUTHORED
+        and _normalized(event.source) == _HISTORY_IMPORT_MARKDOWN_SOURCE
+        and _normalized(event.event_type) == _HISTORY_IMPORT_DOCUMENT_EVENT_TYPE
+        and history_metadata.get("historical") is True
     )
 
 

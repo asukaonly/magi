@@ -255,7 +255,47 @@ async def test_personal_markdown_headings_import_as_one_source_event(
 
     assert ready.quick_imported_count == 1
     assert len(memory.raw_events) == 1
-    assert memory.raw_events[0].content == preview.preview_records[0].content
+    event = memory.raw_events[0]
+    assert event.content == preview.preview_records[0].content
+    assert event.source == "history_import_markdown"
+    assert event.event_type == "history_import.document"
+    assert event.author_type == "user"
+    assert event.memory_domain.label == "user_authored"
+    assert event.metadata_json["history_import"]["historical"] is True
+    assert (
+        event.metadata_json["history_import"]["timestamp_confidence"]
+        == preview.preview_records[0].timestamp_confidence
+    )
+
+    from magi.memory.evidence import classify_event_evidence
+    from magi.memory.l2.batch_models import L2BatchEvent, L2EventWindow
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
+    from magi.memory.l2.pipeline.claim_persistence import _timestamp_provenance
+    from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
+
+    classification = classify_event_evidence(event)
+    profile = resolve_extraction_profile(event)
+    batch_event = L2BatchEvent.from_dict(event.to_dict())
+    prompt = render_phase1_extract_prompt(
+        event_window=L2EventWindow(events=[batch_event]),
+        focal_subject={"entity_ref": "user:local-user", "entity_type": "user"},
+        extraction_instructions=profile.phase1_instructions,
+    )
+
+    assert classification.reason_code == "user_authored_history_document"
+    assert profile.profile_id == "history_import.document"
+    assert (
+        batch_event.metadata_json["history_import"]["timestamp_confidence"]
+        == preview.preview_records[0].timestamp_confidence
+    )
+    timestamp_source, timestamp_quality, timestamp_anchor = _timestamp_provenance(
+        batch_event.metadata_json
+    )
+    assert timestamp_source == preview.preview_records[0].timestamp_confidence
+    assert timestamp_quality == "low"
+    assert timestamp_anchor is None
+    assert prompt.count(event.content) == 1
+    assert "historical documents, not live chat turns" in prompt
     await service.stop()
 
 
