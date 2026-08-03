@@ -186,6 +186,26 @@ def test_ground_phase1_claim_uses_frozen_window_text() -> None:
             id="timestamped_speaker_turn",
         ),
         pytest.param(
+            "Alice (10:42): 我很喜欢 DIIV。\n",
+            id="speaker_with_parenthesized_timestamp",
+        ),
+        pytest.param(
+            "Alice [2026-08-03 10:42]: 我很喜欢 DIIV。\n",
+            id="speaker_with_trailing_timestamp",
+        ),
+        pytest.param(
+            "A note copied from Alice:\n我很喜欢 DIIV。\n",
+            id="copied_note_attribution",
+        ),
+        pytest.param(
+            "Quote from Alice:\n我很喜欢 DIIV。\n",
+            id="cross_line_quote_from_attribution",
+        ),
+        pytest.param(
+            "以下内容复制自 Alice：\n我很喜欢 DIIV。\n",
+            id="chinese_copied_attribution",
+        ),
+        pytest.param(
             "Alice — 我很喜欢 DIIV。\n",
             id="speaker_dash_turn",
         ),

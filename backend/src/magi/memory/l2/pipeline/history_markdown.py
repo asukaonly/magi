@@ -52,10 +52,27 @@ _ATTRIBUTION_LEAD_RE = re.compile(
 _ATTRIBUTION_LEAD_ZH_RE = re.compile(
     r"^.+?(?:说|写道|问道|回答|表示|提到|声称|的原话(?:是)?)[ \t]*[:：][ \t]*$"
 )
+_COPIED_ATTRIBUTION_LEAD_RE = re.compile(
+    r"^(?:(?:(?:a|the)[ \t]+)?"
+    r"(?:note|message|email|text|excerpt|quote)[ \t]+)?"
+    r"(?:copied|pasted|forwarded|quoted|excerpted)[ \t]+from[ \t]+.+?[:：][ \t]*$|"
+    r"^(?:quote|excerpt)[ \t]+from[ \t]+.+?[:：][ \t]*$",
+    re.IGNORECASE,
+)
+_COPIED_ATTRIBUTION_LEAD_ZH_RE = re.compile(
+    r"^(?:(?:以下|这(?:段|条))(?:内容|消息|文本)?[ \t]*)?"
+    r"(?:复制|粘贴|转发|引用|摘录)自[ \t]*.+?[:：][ \t]*$"
+)
 _SELF_ATTRIBUTION_LEAD_RE = re.compile(
     r"^(?:I[ \t]+(?:said|wrote|asked|replied|noted|mentioned)|"
     r"我(?:说|写道|问|回答|表示|提到))[ \t]*[:：][ \t]*$",
     re.IGNORECASE,
+)
+_TRAILING_TIMESTAMP_SPEAKER_RE = re.compile(
+    r"^(?P<label>.+?)[ \t]*(?:"
+    r"\((?P<paren>[0-9][0-9./: +\-T年月日时分秒]{1,38})\)|"
+    r"\[(?P<bracket>[0-9][0-9./: +\-T年月日时分秒]{1,38})\]"
+    r")[ \t]*[:：][ \t]*(?P<message>\S.*)$"
 )
 _POST_ATTRIBUTION_RE = re.compile(
     r"^[ \t]*(?:(?:—{1,2}|–{1,2}|-{1,2})[ \t]+"
@@ -512,7 +529,10 @@ def _classify_pasted_dialogue_line(line: str) -> _PastedDialogueKind:
     if not text:
         return _PastedDialogueKind.NONE
     if not _SELF_ATTRIBUTION_LEAD_RE.match(text) and (
-        _ATTRIBUTION_LEAD_RE.match(text) or _ATTRIBUTION_LEAD_ZH_RE.match(text)
+        _ATTRIBUTION_LEAD_RE.match(text)
+        or _ATTRIBUTION_LEAD_ZH_RE.match(text)
+        or _COPIED_ATTRIBUTION_LEAD_RE.match(text)
+        or _COPIED_ATTRIBUTION_LEAD_ZH_RE.match(text)
     ):
         return _PastedDialogueKind.ATTRIBUTION_LEAD
     timestamped = False
@@ -539,6 +559,14 @@ def _classify_pasted_dialogue_line(line: str) -> _PastedDialogueKind:
                 is not _PastedDialogueKind.NONE
             ):
                 return _PastedDialogueKind.PARAGRAPH
+    trailing_timestamp = _TRAILING_TIMESTAMP_SPEAKER_RE.match(text)
+    if trailing_timestamp is not None:
+        kind = _speaker_label_kind(
+            trailing_timestamp.group("label"),
+            timestamped=True,
+        )
+        if kind is not _PastedDialogueKind.NONE:
+            return kind
     colon_positions = [position for marker in (":", "：") if 0 < (position := text.find(marker))]
     if colon_positions:
         colon = min(colon_positions)
