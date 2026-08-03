@@ -27,6 +27,10 @@ const { i18nMock, localStorageMock, navigateMock, streamChatPreviewMock } =
 
 import { apiClient } from "@/api/client";
 import { configApi, DEFAULT_SYSTEM_CONFIG } from "@/api/modules/config";
+import {
+  historyImportsApi,
+  type HistoryImportJob,
+} from "@/api/modules/historyImports";
 import { messagesApi } from "@/api/modules/messages";
 import { personasApi } from "@/api/modules/personas";
 import * as systemSuggestions from "@/api/modules/systemSuggestions";
@@ -34,6 +38,7 @@ import OnboardingFlow from "@/components/onboarding/OnboardingFlow";
 import { FIRST_CONTEXT_QUESTION_IDS } from "@/domain/chat/first-context";
 import { useConversationStore } from "@/stores/conversation-store";
 import { usePluginInstallPanelStore } from "@/stores/pluginInstallPanel";
+import * as desktopRuntime from "@/runtime/desktop";
 
 vi.mock("react-i18next", () => ({
   initReactI18next: {
@@ -181,6 +186,62 @@ const stubSeedPreviews = () => [
 ];
 
 const CUSTOM_PERSONA_ID = "11111111-1111-4111-8111-111111111111";
+
+const stubHistoryImportJob = (quickReady = false): HistoryImportJob => ({
+  job_id: "him-onboarding",
+  source_type: "markdown",
+  source_files: ["journal.md"],
+  included_files: ["journal.md"],
+  detected_kind: "document",
+  status: quickReady ? "ready" : "preview_ready",
+  total_records: 1,
+  meaningful_records: 1,
+  quick_target_records: 200,
+  quick_max_records: 500,
+  quick_imported_count: quickReady ? 1 : 0,
+  imported_count: quickReady ? 1 : 0,
+  projected_count: 0,
+  self_participants: [],
+  warnings: [],
+  quick_ready: quickReady,
+  error_code: null,
+  created_at: 1_800_000_000,
+  updated_at: 1_800_000_000,
+  participants: [
+    {
+      name: "__document_author__",
+      is_document_author: true,
+      message_count: 1,
+      meaningful_count: 1,
+      sample: "A quiet Sunday.",
+    },
+  ],
+  sources: [
+    {
+      source_name: "journal.md",
+      detected_kind: "document",
+      record_count: 1,
+      meaningful_count: 1,
+      first_event_at: 1_800_000_000,
+      last_event_at: 1_800_000_000,
+      timestamp_confidence: "file_mtime",
+      sample: "A quiet Sunday.",
+      included: true,
+    },
+  ],
+  preview_records: [
+    {
+      source_name: "journal.md",
+      session_id: "journal.md",
+      session_seq: 0,
+      speaker_name: "__document_author__",
+      is_document_author: true,
+      content: "# Sunday\n\nA quiet Sunday.",
+      event_at: 1_800_000_000,
+      timestamp_confidence: "file_mtime",
+    },
+  ],
+});
 
 const generatedPersonaConfig = () => ({
   name: "Sage",
@@ -735,6 +796,106 @@ describe("OnboardingFlow (linear 5-step)", () => {
         draft: "叫我小夏就好",
       }),
     );
+  });
+
+  it("confirms a selected history import from the onboarding footer before continuing", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.spyOn(desktopRuntime, "pickMarkdownFiles").mockResolvedValue([
+      "/tmp/journal.md",
+    ]);
+    const previewImport = vi
+      .spyOn(historyImportsApi, "previewMarkdown")
+      .mockResolvedValue(stubHistoryImportJob());
+    const confirmImport = vi
+      .spyOn(historyImportsApi, "confirm")
+      .mockResolvedValue(stubHistoryImportJob(true));
+    vi.spyOn(historyImportsApi, "delete").mockResolvedValue(undefined);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await openFirstContextHistory(user);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.picker.files",
+      }),
+    );
+    expect(await screen.findByTestId("history-import-preview")).toBeInTheDocument();
+    expect(previewImport).toHaveBeenCalledWith(["/tmp/journal.md"]);
+    expect(
+      screen.queryByRole("button", { name: "actions.skipContext" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "actions.abandonImport" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", {
+        name: "firstContext.history.preview.confirm",
+      }),
+    ).toHaveLength(1);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.preview.confirm",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(confirmImport).toHaveBeenCalledWith("him-onboarding", {
+        selfParticipants: [],
+        confirmPersonalWriting: true,
+        includedFiles: ["journal.md"],
+      }),
+    );
+    expect(await screen.findByTestId("history-import-ready")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "actions.abandonImport" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "actions.finishContext" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "actions.enterApp" }),
+    ).toBeInTheDocument();
+  });
+
+  it("requires an explicit discard before leaving an unconfirmed history import", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.spyOn(desktopRuntime, "pickMarkdownFiles").mockResolvedValue([
+      "/tmp/journal.md",
+    ]);
+    vi.spyOn(historyImportsApi, "previewMarkdown").mockResolvedValue(
+      stubHistoryImportJob(),
+    );
+    const discardImport = vi
+      .spyOn(historyImportsApi, "delete")
+      .mockResolvedValue(undefined);
+    const confirmImport = vi.spyOn(historyImportsApi, "confirm");
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await openFirstContextHistory(user);
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.picker.files",
+      }),
+    );
+    await screen.findByTestId("history-import-preview");
+
+    await user.click(
+      screen.getByRole("button", { name: "actions.abandonImport" }),
+    );
+
+    await waitFor(() =>
+      expect(discardImport).toHaveBeenCalledWith("him-onboarding"),
+    );
+    expect(confirmImport).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole("button", { name: "actions.enterApp" }),
+    ).toBeInTheDocument();
   });
 
   it("keeps the history route anchored at the top as its content grows", async () => {

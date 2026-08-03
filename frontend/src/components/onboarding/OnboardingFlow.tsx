@@ -44,6 +44,10 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { PluginInstallDoneInfo } from "../../stores/pluginInstallPanel";
 import type { HistoryImportJob } from "@/api/modules/historyImports";
+import type {
+  HistoryImportFlowActionState,
+  HistoryImportFlowHandle,
+} from "@/components/history-imports/HistoryImportFlow";
 import {
   ONBOARDING_PRIMARY_ACTION_CLASS,
   ONBOARDING_SECONDARY_ACTION_CLASS,
@@ -128,6 +132,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   } = onboardingProgress;
   const [saving, setSaving] = useState(false);
   const [finishingRuntime, setFinishingRuntime] = useState(false);
+  const [firstContextHistoryJob, setFirstContextHistoryJob] =
+    useState<HistoryImportJob | null>(null);
+  const [historyImportActionState, setHistoryImportActionState] =
+    useState<HistoryImportFlowActionState>({
+      canConfirm: false,
+      busy: false,
+    });
+  const historyImportFlowRef = useRef<HistoryImportFlowHandle | null>(null);
   const finishInFlightRef = useRef(false);
   const [renderLanguage, setRenderLanguage] = useState(() =>
     toI18nLanguage(
@@ -452,6 +464,28 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     markFirstContextHandled();
   };
 
+  const handleHistoryImportActionStateChange = useCallback(
+    (state: HistoryImportFlowActionState) => {
+      setHistoryImportActionState((currentState) =>
+        currentState.canConfirm === state.canConfirm &&
+        currentState.busy === state.busy
+          ? currentState
+          : state,
+      );
+    },
+    [],
+  );
+
+  const abandonHistoryImport = async (): Promise<void> => {
+    if (historyImportActionState.busy) {
+      return;
+    }
+    const discarded = await historyImportFlowRef.current?.discard();
+    if (discarded) {
+      finishFirstContextStep();
+    }
+  };
+
   const handleFirstContextConnectDone = (
     pluginId: string,
     info?: PluginInstallDoneInfo,
@@ -674,6 +708,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         await firstContextSubmission.submit();
         return;
       }
+      if (firstContextProgress.route === "history") {
+        if (historyImportRestoring || historyImportActionState.busy) {
+          return;
+        }
+        if (historyImportAwaitingConfirmation) {
+          await historyImportFlowRef.current?.confirm();
+          return;
+        }
+      }
       finishFirstContextStep();
       return;
     }
@@ -706,6 +749,25 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const isFirstContextQuestionRoute =
     current === FIRST_CONTEXT_STEP &&
     firstContextProgress.route === "question";
+  const isFirstContextHistoryRoute =
+    current === FIRST_CONTEXT_STEP &&
+    firstContextProgress.route === "history";
+  const historyImportRestoring = Boolean(
+    isFirstContextHistoryRoute &&
+      firstContextProgress.historyImportJobId &&
+      firstContextHistoryJob?.job_id !==
+        firstContextProgress.historyImportJobId,
+  );
+  const historyImportAwaitingConfirmation = Boolean(
+    isFirstContextHistoryRoute &&
+      firstContextHistoryJob &&
+      !firstContextHistoryJob.quick_ready,
+  );
+  const historyImportPreparingSelection = Boolean(
+    isFirstContextHistoryRoute &&
+      !firstContextHistoryJob &&
+      historyImportActionState.busy,
+  );
   const previousLabel =
     current === FIRST_CONTEXT_STEP && firstContextProgress.route !== "choose"
       ? t("firstContext.routes.back")
@@ -719,10 +781,16 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           ? t("firstContext.story.retryEntering")
           : t("firstContext.story.submit")
       : current === FIRST_CONTEXT_STEP
-      ? firstContextPluginIds.length > 0 ||
-        firstContextProgress.historyPreparedCount > 0
-        ? t("actions.finishContext")
-        : t("actions.skipContext")
+      ? historyImportRestoring || historyImportPreparingSelection
+        ? t("firstContext.history.loading")
+        : historyImportAwaitingConfirmation
+          ? historyImportActionState.busy
+            ? t("firstContext.history.preview.importing")
+            : t("firstContext.history.preview.confirm")
+          : firstContextPluginIds.length > 0 ||
+              firstContextProgress.historyPreparedCount > 0
+            ? t("actions.finishContext")
+            : t("actions.skipContext")
       : t("actions.next");
   const previousDisabled =
     saving ||
@@ -739,6 +807,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     llmConnectionConfigPending ||
     llmConnectionTestState.loading ||
     (current === LLM_SETUP_STEP && !llmValid) ||
+    historyImportRestoring ||
+    historyImportPreparingSelection ||
+    (historyImportAwaitingConfirmation &&
+      (!historyImportActionState.canConfirm || historyImportActionState.busy)) ||
     (current === PERSONA_STEP && (personaGenerating || personaConfirming));
 
   const renderStepContent = () => {
@@ -823,7 +895,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           storySubmitted={firstContextSubmission.submitted}
           storyError={firstContextStoryError}
           historyImportJobId={firstContextProgress.historyImportJobId}
+          historyImportFlowRef={historyImportFlowRef}
           onHistoryImportUpdate={(job: HistoryImportJob | null) => {
+            setFirstContextHistoryJob(job);
             updateFirstContextProgress({
               historyImportJobId: job?.job_id ?? null,
               historyPreparedCount: job?.quick_ready
@@ -831,6 +905,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 : 0,
             });
           }}
+          onHistoryImportActionStateChange={
+            handleHistoryImportActionStateChange
+          }
           onRouteChange={firstContextSubmission.changeRoute}
           onQuestionChange={firstContextSubmission.changeQuestion}
           onStoryDraftChange={firstContextSubmission.changeDraft}
@@ -939,28 +1016,42 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                   {previousLabel}
                 </Button>
-                <Button
-                  size="lg"
-                  data-testid={
-                    isFirstContextQuestionRoute
-                      ? "first-context-story-submit"
-                      : undefined
-                  }
-                  className={ONBOARDING_PRIMARY_ACTION_CLASS}
-                  onClick={handleNext}
-                  disabled={nextDisabled}
-                >
-                  {current === LLM_SETUP_STEP && llmConnectionTestState.loading
-                    ? t("llm.actions.testingConnection")
-                    : current === PERSONA_STEP && personaConfirming
-                      ? t("actions.activatingPersona")
-                      : saving
-                        ? finishingRuntime
-                          ? t("actions.startingRuntime")
-                          : t("actions.saving")
-                        : nextLabel}
-                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  {historyImportAwaitingConfirmation ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="lg"
+                      className={ONBOARDING_SECONDARY_ACTION_CLASS}
+                      onClick={() => void abandonHistoryImport()}
+                      disabled={historyImportActionState.busy}
+                    >
+                      {t("actions.abandonImport")}
+                    </Button>
+                  ) : null}
+                  <Button
+                    size="lg"
+                    data-testid={
+                      isFirstContextQuestionRoute
+                        ? "first-context-story-submit"
+                        : undefined
+                    }
+                    className={ONBOARDING_PRIMARY_ACTION_CLASS}
+                    onClick={handleNext}
+                    disabled={nextDisabled}
+                  >
+                    {current === LLM_SETUP_STEP && llmConnectionTestState.loading
+                      ? t("llm.actions.testingConnection")
+                      : current === PERSONA_STEP && personaConfirming
+                        ? t("actions.activatingPersona")
+                        : saving
+                          ? finishingRuntime
+                            ? t("actions.startingRuntime")
+                            : t("actions.saving")
+                          : nextLabel}
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
               </div>
             )
           }

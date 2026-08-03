@@ -22,6 +22,7 @@
     "startingRuntime": "Starting runtime...",
     "enterApp": "Enter Magi",
     "skipContext": "Skip and continue",
+    "abandonImport": "Discard import and continue",
     "finishContext": "Done and continue",
     "enableL1": "Enable L1"
   },

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type Ref } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertCircle,
@@ -26,7 +26,10 @@ import {
   type FirstContextQuestionId,
 } from "@/domain/chat/first-context";
 import { getMemoryModelStatus } from "./memoryModelStatus";
-import HistoryImportFlow from "@/components/history-imports/HistoryImportFlow";
+import HistoryImportFlow, {
+  type HistoryImportFlowActionState,
+  type HistoryImportFlowHandle,
+} from "@/components/history-imports/HistoryImportFlow";
 import type { HistoryImportJob } from "@/api/modules/historyImports";
 import {
   ONBOARDING_FIELD_CLASS,
@@ -127,7 +130,11 @@ interface FirstContextStepProps {
   onStoryDraftChange: (value: string) => void;
   onStoryContinueWithoutConfirmation: () => void;
   historyImportJobId?: string | null;
+  historyImportFlowRef?: Ref<HistoryImportFlowHandle>;
   onHistoryImportUpdate: (job: HistoryImportJob | null) => void;
+  onHistoryImportActionStateChange?: (
+    state: HistoryImportFlowActionState,
+  ) => void;
   installableItems?: InstallableItem[];
   installableCatalogMode?: InstallableCatalogMode | null;
   installableLoading?: boolean;
@@ -152,7 +159,9 @@ export function FirstContextStep({
   onStoryDraftChange,
   onStoryContinueWithoutConfirmation,
   historyImportJobId = null,
+  historyImportFlowRef,
   onHistoryImportUpdate,
+  onHistoryImportActionStateChange,
   installableItems,
   installableCatalogMode,
   installableLoading,
@@ -269,8 +278,11 @@ export function FirstContextStep({
         <p className={BODY_CLASS}>{t("firstContext.history.body")}</p>
       </div>
       <HistoryImportFlow
+        ref={historyImportFlowRef}
         initialJobId={historyImportJobId}
         onJobUpdate={onHistoryImportUpdate}
+        confirmationPlacement="footer"
+        onActionStateChange={onHistoryImportActionStateChange}
       />
     </div>
   );

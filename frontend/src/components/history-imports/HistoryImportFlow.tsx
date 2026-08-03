@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -37,6 +45,18 @@ import { pickDirectory, pickMarkdownFiles } from "@/runtime/desktop";
 interface HistoryImportFlowProps {
   initialJobId?: string | null;
   onJobUpdate: (job: HistoryImportJob | null) => void;
+  confirmationPlacement?: "inline" | "footer";
+  onActionStateChange?: (state: HistoryImportFlowActionState) => void;
+}
+
+export interface HistoryImportFlowHandle {
+  confirm: () => Promise<boolean>;
+  discard: () => Promise<boolean>;
+}
+
+export interface HistoryImportFlowActionState {
+  canConfirm: boolean;
+  busy: boolean;
 }
 
 const SELF_ALIASES = new Set([
@@ -68,10 +88,18 @@ function errorReason(error: unknown): string {
   return "unknown";
 }
 
-export function HistoryImportFlow({
-  initialJobId = null,
-  onJobUpdate,
-}: HistoryImportFlowProps): JSX.Element {
+export const HistoryImportFlow = forwardRef<
+  HistoryImportFlowHandle,
+  HistoryImportFlowProps
+>(function HistoryImportFlow(
+  {
+    initialJobId = null,
+    onJobUpdate,
+    confirmationPlacement = "inline",
+    onActionStateChange,
+  },
+  ref,
+): JSX.Element {
   const { t, i18n } = useTranslation("onboarding");
   const [job, setJob] = useState<HistoryImportJob | null>(null);
   const [loading, setLoading] = useState(Boolean(initialJobId));
@@ -311,9 +339,16 @@ export function HistoryImportFlow({
       !selectionBusy,
   );
 
-  const confirmImport = async (): Promise<void> => {
+  useEffect(() => {
+    onActionStateChange?.({
+      canConfirm,
+      busy: action !== null || selectionBusy !== null,
+    });
+  }, [action, canConfirm, onActionStateChange, selectionBusy]);
+
+  const confirmImport = useCallback(async (): Promise<boolean> => {
     if (!job || !canConfirm) {
-      return;
+      return false;
     }
     setAction("confirm");
     setError(null);
@@ -325,12 +360,20 @@ export function HistoryImportFlow({
           includedFiles: job.included_files,
         }),
       );
+      return true;
     } catch (confirmError) {
       setError(errorReason(confirmError));
+      return false;
     } finally {
       setAction(null);
     }
-  };
+  }, [
+    applyJob,
+    canConfirm,
+    job,
+    requiresWritingConfirmation,
+    selectedParticipants,
+  ]);
 
   const resumeImport = async (): Promise<void> => {
     if (!job) {
@@ -347,9 +390,9 @@ export function HistoryImportFlow({
     }
   };
 
-  const chooseAgain = async (): Promise<void> => {
+  const chooseAgain = useCallback(async (): Promise<boolean> => {
     if (!job) {
-      return;
+      return false;
     }
     setAction("delete");
     setError(null);
@@ -360,12 +403,23 @@ export function HistoryImportFlow({
       setPreviewSource(null);
       setSourcePreview(null);
       onJobUpdateRef.current(null);
+      return true;
     } catch (deleteError) {
       setError(errorReason(deleteError));
+      return false;
     } finally {
       setAction(null);
     }
-  };
+  }, [job]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      confirm: confirmImport,
+      discard: chooseAgain,
+    }),
+    [chooseAgain, confirmImport],
+  );
 
   const chatParticipants = useMemo(
     () => job?.participants.filter((participant) => !participant.is_document_author) ?? [],
@@ -739,21 +793,23 @@ export function HistoryImportFlow({
             )}
             {t("firstContext.history.preview.chooseAgain")}
           </Button>
-          <Button
-            type="button"
-            size="lg"
-            onClick={() => void confirmImport()}
-            disabled={!canConfirm || action !== null}
-          >
-            {action === "confirm" ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-            )}
-            {action === "confirm"
-              ? t("firstContext.history.preview.importing")
-              : t("firstContext.history.preview.confirm")}
-          </Button>
+          {confirmationPlacement === "inline" ? (
+            <Button
+              type="button"
+              size="lg"
+              onClick={() => void confirmImport()}
+              disabled={!canConfirm || action !== null}
+            >
+              {action === "confirm" ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+              )}
+              {action === "confirm"
+                ? t("firstContext.history.preview.importing")
+                : t("firstContext.history.preview.confirm")}
+            </Button>
+          ) : null}
         </div>
       </div>
       <Sheet
@@ -850,6 +906,6 @@ export function HistoryImportFlow({
       </Sheet>
     </>
   );
-}
+});
 
 export default HistoryImportFlow;

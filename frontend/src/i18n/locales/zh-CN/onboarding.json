@@ -22,6 +22,7 @@
     "startingRuntime": "正在启动运行时...",
     "enterApp": "进入 Magi",
     "skipContext": "跳过，继续",
+    "abandonImport": "放弃导入并继续",
     "finishContext": "完成并继续",
     "enableL1": "一键启用 L1"
   },
