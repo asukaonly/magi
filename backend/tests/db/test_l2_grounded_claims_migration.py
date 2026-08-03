@@ -12,7 +12,14 @@ from magi.db.migrations.memory_shared.versions.v38_l2_grounded_claims import (
 
 
 def test_grounded_claim_migration_precedes_release_head() -> None:
-    assert MEMORY_SHARED_MIGRATIONS[-4] == "v38_l2_grounded_claims.py"
+    claim_index = MEMORY_SHARED_MIGRATIONS.index("v38_l2_grounded_claims.py")
+    assert MEMORY_SHARED_MIGRATIONS[claim_index : claim_index + 5] == (
+        "v38_l2_grounded_claims.py",
+        "v39_l2_projection_leases.py",
+        "v40_l2_entity_link_outbox.py",
+        "v41_l2_claim_subject_revisions.py",
+        "v42_l2_projection_batch_descriptors.py",
+    )
     assert revision == "v38_l2_grounded_claims"
 
 
