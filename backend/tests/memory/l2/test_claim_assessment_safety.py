@@ -407,6 +407,51 @@ def test_host_synthesizes_assertion_conflict_when_model_omits_assessment() -> No
     assert validated[0].hint is not None
 
 
+def test_host_completes_assertion_conflicts_after_partial_model_assessment() -> None:
+    claim = _claim(predicate="LIKES", object_ref="topic:jazz")
+    route = _assertion_route(claim)
+    reported = _assertion_record(route, assertion_id="assert:reported")
+    omitted = _assertion_record(route, assertion_id="assert:omitted")
+    unrelated = _assertion_record(
+        route,
+        assertion_id="assert:unrelated",
+        slot_key="slt_unrelated",
+    )
+
+    validated, rejected = L2ClaimAssessmentValidationMixin()._validate_phase2_claim_assessments(
+        phase1_result=L2Phase1Result(fact_claims=[claim]),
+        semantic_routes={claim.claim_id: route},
+        graph_candidates=[],
+        assertion_candidates=[
+            _assertion_candidate(claim, slot_key=route.slot_key),
+        ],
+        assessments=[
+            L2Phase2ClaimAssessment(
+                claim_id=claim.claim_id,
+                relationship="contradicts",
+                related_record_id="assert:reported",
+            )
+        ],
+        existing_graph_edges=[],
+        existing_assertions=[reported, omitted, unrelated],
+        graph_conflict_rules=[],
+        arbitration_min_confidence=0.85,
+    )
+
+    assert rejected == 0
+    assert {item.related_record_id for item in validated} == {
+        "assert:reported",
+        "assert:omitted",
+    }
+    assert all(
+        item.compatibility == "assertion_same_slot"
+        and item.action_eligibility is AssessmentActionEligibility.PENDING_ARBITRATION
+        and item.candidate_scope == AssessmentCandidateScope((), (0,))
+        and item.hint is not None
+        for item in validated
+    )
+
+
 @pytest.mark.parametrize(
     ("event_ids", "expected_action"),
     [
