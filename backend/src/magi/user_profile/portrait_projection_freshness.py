@@ -9,7 +9,10 @@ from .portrait_claim_query import (
     latest_portrait_claim_change_at,
     list_tentative_portrait_claims,
 )
-from .portrait_projection_builder import PORTRAIT_ASSERTION_FAMILIES
+from .portrait_projection_builder import (
+    PORTRAIT_ASSERTION_FAMILIES,
+    render_portrait_rule_prompt_summary,
+)
 from .portrait_signal_policy import assertion_portrait_role
 
 
@@ -40,7 +43,7 @@ async def portrait_projection_is_stale(
             _records_timestamp(assertions, ("updated_at", "last_validated_at", "created_at")),
             await latest_portrait_claim_change_at(l2_store, user_id=user_id),
         )
-        if await _cached_tentative_line_is_no_longer_current(
+        if await _tentative_prompt_selection_changed(
             projection,
             l2_store=l2_store,
             user_id=user_id,
@@ -140,20 +143,18 @@ async def _current_portrait_assertions(
     ]
 
 
-async def _cached_tentative_line_is_no_longer_current(
+async def _tentative_prompt_selection_changed(
     projection: UserPortraitProjection,
     *,
     l2_store: Any,
     user_id: str,
     assertions: list[dict[str, Any]],
 ) -> bool:
-    cached_lines = {
+    cached_lines = [
         str(line).strip()
         for line in projection.prompt_summary
         if str(line).strip().startswith("用户曾自述：")
-    }
-    if not cached_lines:
-        return False
+    ]
     current_assertion_ids = {
         str(assertion.get("assertion_id") or "").strip()
         for assertion in assertions
@@ -171,8 +172,18 @@ async def _cached_tentative_line_is_no_longer_current(
         current_assertion_ids=current_assertion_ids,
         visible_assertion_ids=visible_assertion_ids,
     )
-    current_lines = {candidate.prompt_line for candidate in candidates}
-    return not cached_lines.issubset(current_lines)
+    current_candidate_lines = [candidate.prompt_line for candidate in candidates[:2]]
+    current_summary = render_portrait_rule_prompt_summary(
+        world=projection.world,
+        recent=projection.recent,
+        tentative_lines=current_candidate_lines,
+    )
+    current_lines = [
+        str(line).strip()
+        for line in current_summary
+        if str(line).strip().startswith("用户曾自述：")
+    ]
+    return cached_lines != current_lines
 
 
 async def _source_revision_changed(

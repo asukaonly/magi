@@ -102,11 +102,10 @@ class UserPortraitProjectionBuilder:
         protected_goal_lines = _goal_prompt_lines(recent)
         # Keep main-model context grounded in governed assertions, explicit profile
         # fields, and deterministic Claim material.
-        prompt_summary = self._rule_prompt_summary(
+        prompt_summary = render_portrait_rule_prompt_summary(
             world=world,
             recent=recent,
             tentative_lines=tentative_lines,
-            protected_goal_lines=protected_goal_lines,
         )
         selected_tentative_claims = [
             candidate
@@ -317,46 +316,6 @@ class UserPortraitProjectionBuilder:
                 items.append(item)
         return {"items": _dedupe_items_in_order(items)[:6]}
 
-    def _rule_prompt_summary(
-        self,
-        *,
-        world: dict[str, Any],
-        recent: dict[str, Any],
-        tentative_lines: list[str],
-        protected_goal_lines: list[str],
-    ) -> list[str]:
-        groups = {
-            group["id"]: list(group.get("items", []))
-            for group in world.get("groups", [])
-        }
-        lines: list[str] = []
-        identity = _item_texts(groups.get("identity", []))[:3]
-        if identity:
-            lines.append(f"用户资料：{'；'.join(identity)}。")
-        projects = _item_texts(groups.get("projects", []))[:3]
-        if projects:
-            lines.append(f"用户长期推进或反复关注：{'、'.join(projects)}。")
-        preferences = _item_texts(groups.get("preferences", []))[:4]
-        if preferences:
-            lines.append(f"用户关注或偏好：{'、'.join(preferences)}。")
-        work_style = _item_texts(groups.get("work_style", []))[:4]
-        if work_style:
-            lines.append(f"用户的工作和沟通方式：{'、'.join(work_style)}。")
-        for line in tentative_lines[:2]:
-            if len(lines) >= 4:
-                break
-            lines.append(line)
-        recent_items = _item_texts(
-            [
-                item
-                for item in list(recent.get("items", []))
-                if _text(item.get("trait_family")).casefold() != "goal_profile"
-            ]
-        )[:2]
-        if recent_items and len(lines) < _MAX_PROMPT_SUMMARY_LINES:
-            lines.append(f"近期线索：{'、'.join(recent_items)}；不要直接当成长期结论。")
-        return _merge_protected_prompt_lines(lines, protected_goal_lines)
-
     async def _llm_overrides(self, material: dict[str, Any]) -> dict[str, Any]:
         if self._llm_client is None:
             return {}
@@ -388,6 +347,44 @@ class UserPortraitProjectionBuilder:
             source = _text(assertion.get("source_domain")) or "unknown"
             counts[source] = counts.get(source, 0) + 1
         return counts
+
+
+def render_portrait_rule_prompt_summary(
+    *,
+    world: dict[str, Any],
+    recent: dict[str, Any],
+    tentative_lines: list[str],
+) -> list[str]:
+    """Render the deterministic prompt summary used by build and freshness checks."""
+
+    groups = {group["id"]: list(group.get("items", [])) for group in world.get("groups", [])}
+    lines: list[str] = []
+    identity = _item_texts(groups.get("identity", []))[:3]
+    if identity:
+        lines.append(f"用户资料：{'；'.join(identity)}。")
+    projects = _item_texts(groups.get("projects", []))[:3]
+    if projects:
+        lines.append(f"用户长期推进或反复关注：{'、'.join(projects)}。")
+    preferences = _item_texts(groups.get("preferences", []))[:4]
+    if preferences:
+        lines.append(f"用户关注或偏好：{'、'.join(preferences)}。")
+    work_style = _item_texts(groups.get("work_style", []))[:4]
+    if work_style:
+        lines.append(f"用户的工作和沟通方式：{'、'.join(work_style)}。")
+    for line in tentative_lines[:2]:
+        if len(lines) >= _MAX_PROMPT_SUMMARY_LINES:
+            break
+        lines.append(line)
+    recent_items = _item_texts(
+        [
+            item
+            for item in list(recent.get("items", []))
+            if _text(item.get("trait_family")).casefold() != "goal_profile"
+        ]
+    )[:2]
+    if recent_items and len(lines) < _MAX_PROMPT_SUMMARY_LINES:
+        lines.append(f"近期线索：{'、'.join(recent_items)}；不要直接当成长期结论。")
+    return _merge_protected_prompt_lines(lines, _goal_prompt_lines(recent))
 
 
 def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
@@ -555,4 +552,8 @@ def _optional_float(value: Any) -> float | None:
         return None
 
 
-__all__ = ["UserPortraitLLMClient", "UserPortraitProjectionBuilder"]
+__all__ = [
+    "UserPortraitLLMClient",
+    "UserPortraitProjectionBuilder",
+    "render_portrait_rule_prompt_summary",
+]

@@ -11,8 +11,12 @@ import pytest
 from _shared.memory_schema import apply_memory_shared_schema
 from magi.memory.l2.store import L2CognitionStore
 from magi.memory.l2.semantic_routing import ROUTE_CONTRACT_VERSION
+from magi.user_profile.models import UserPortraitProjection
 from magi.user_profile.portrait_claim_query import list_tentative_portrait_claims
-from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
+from magi.user_profile.portrait_projection_builder import (
+    UserPortraitProjectionBuilder,
+    render_portrait_rule_prompt_summary,
+)
 from magi.user_profile.portrait_projection_freshness import portrait_projection_is_stale
 from magi.user_profile.portrait_signal_policy import (
     classify_tentative_portrait_claim,
@@ -207,6 +211,14 @@ def _store(db_path: str, *, visible_event_ids: set[str]) -> L2CognitionStore:
         db_path=db_path,
         evidence_timestamp_resolver=resolve,
     )
+
+
+def _patch_portrait_clock(monkeypatch, clock: list[float]) -> None:
+    def now() -> float:
+        return clock[0]
+
+    monkeypatch.setattr("magi.user_profile.portrait_claim_query.time.time", now)
+    monkeypatch.setattr("magi.user_profile.portrait_projection_builder.time.time", now)
 
 
 @pytest.mark.parametrize(
@@ -795,10 +807,7 @@ async def test_tombstone_and_expiry_remove_cached_tentative_lines_immediately(
     db_path = str(tmp_path / "memory.db")
     await apply_memory_shared_schema(db_path)
     clock = [150.0]
-    monkeypatch.setattr(
-        "magi.user_profile.portrait_claim_query.time.time",
-        lambda: clock[0],
-    )
+    _patch_portrait_clock(monkeypatch, clock)
     _seed_claim(
         db_path,
         claim_id="claim-expiring",
@@ -863,3 +872,293 @@ async def test_tombstone_and_expiry_remove_cached_tentative_lines_immediately(
     )
     forgotten = await UserPortraitProjectionBuilder(store).build("local_user")
     assert "旅行摄影" not in "\n".join(forgotten.prompt_summary)
+
+
+@pytest.mark.asyncio
+async def test_expiry_reveals_remaining_conflicted_value_and_invalidates_cache(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    clock = [150.0]
+    _patch_portrait_clock(monkeypatch, clock)
+    _seed_claim(
+        db_path,
+        claim_id="claim-retained",
+        event_id="event-retained",
+        predicate="LIKES",
+        object_value="纯音乐",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_music",
+        value_fingerprint="val_retained",
+        created_at=100.0,
+    )
+    _seed_claim(
+        db_path,
+        claim_id="claim-expiring-conflict",
+        event_id="event-expiring-conflict",
+        predicate="DISLIKES",
+        object_value="纯音乐",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_music",
+        value_fingerprint="val_expiring_conflict",
+        created_at=120.0,
+        fact_valid_to=200.0,
+    )
+    store = _store(
+        db_path,
+        visible_event_ids={"event-retained", "event-expiring-conflict"},
+    )
+
+    conflicted = await UserPortraitProjectionBuilder(store).build("local_user")
+    assert conflicted.prompt_summary == []
+
+    clock[0] = 250.0
+    assert await portrait_projection_is_stale(
+        conflicted,
+        user_id="local_user",
+        l2_store=store,
+    )
+    rebuilt = await UserPortraitProjectionBuilder(store).build("local_user")
+    assert rebuilt.prompt_summary == ["用户曾自述：喜欢「纯音乐」（尚未形成长期结论）"]
+    assert not await portrait_projection_is_stale(
+        rebuilt,
+        user_id="local_user",
+        l2_store=store,
+    )
+
+
+@pytest.mark.asyncio
+async def test_future_validity_start_invalidates_empty_tentative_cache(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    clock = [150.0]
+    _patch_portrait_clock(monkeypatch, clock)
+    _seed_claim(
+        db_path,
+        claim_id="claim-future-valid",
+        event_id="event-future-valid",
+        predicate="INTERESTED_IN",
+        object_value="旅行摄影",
+        family="interest_profile",
+        trait_code="interest.attention",
+        slot_key="slt_future_valid",
+        value_fingerprint="val_future_valid",
+        created_at=100.0,
+        fact_valid_from=200.0,
+    )
+    store = _store(db_path, visible_event_ids={"event-future-valid"})
+
+    before_start = await UserPortraitProjectionBuilder(store).build("local_user")
+    assert before_start.prompt_summary == []
+
+    clock[0] = 250.0
+    assert await portrait_projection_is_stale(
+        before_start,
+        user_id="local_user",
+        l2_store=store,
+    )
+    after_start = await UserPortraitProjectionBuilder(store).build("local_user")
+    assert after_start.prompt_summary == ["用户曾自述：对「旅行摄影」感兴趣（尚未形成长期结论）"]
+    assert not await portrait_projection_is_stale(
+        after_start,
+        user_id="local_user",
+        l2_store=store,
+    )
+
+
+@pytest.mark.asyncio
+async def test_candidate_crossing_before_projection_timestamp_invalidates_empty_cache(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    clock = [250.0]
+    _patch_portrait_clock(monkeypatch, clock)
+    _seed_claim(
+        db_path,
+        claim_id="claim-crossed-before-stamp",
+        event_id="event-crossed-before-stamp",
+        predicate="LIKES",
+        object_value="纯音乐",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_crossed_before_stamp",
+        value_fingerprint="val_crossed_before_stamp",
+        created_at=100.0,
+        fact_valid_from=200.0,
+    )
+    store = _store(db_path, visible_event_ids={"event-crossed-before-stamp"})
+    projection = UserPortraitProjection(
+        user_id="local_user",
+        entity_id="user:local_user",
+        prompt_summary=[],
+        source_revision=await store.current_subject_revision("user:local_user"),
+        source_generation=await store.current_clear_generation(),
+        generated_at=clock[0],
+    )
+
+    assert await portrait_projection_is_stale(
+        projection,
+        user_id="local_user",
+        l2_store=store,
+    )
+
+
+@pytest.mark.asyncio
+async def test_future_candidate_displaced_by_protected_goals_keeps_cache_fresh(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    clock = [150.0]
+    _patch_portrait_clock(monkeypatch, clock)
+    _seed_claim(
+        db_path,
+        claim_id="claim-displaced",
+        event_id="event-displaced",
+        predicate="LIKES",
+        object_value="纯音乐",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_displaced",
+        value_fingerprint="val_displaced",
+        created_at=100.0,
+        fact_valid_from=200.0,
+    )
+    store = _store(db_path, visible_event_ids={"event-displaced"})
+    world = {
+        "groups": [
+            {"id": "identity", "items": [{"text": "昵称是小明"}]},
+            {"id": "projects", "items": [{"text": "Magi"}]},
+        ]
+    }
+    recent = {
+        "items": [
+            {"text": "完成记忆迁移", "trait_family": "goal_profile"},
+            {"text": "验证桌面发布", "trait_family": "goal_profile"},
+        ]
+    }
+    cached_summary = render_portrait_rule_prompt_summary(
+        world=world,
+        recent=recent,
+        tentative_lines=[],
+    )
+    projection = UserPortraitProjection(
+        user_id="local_user",
+        entity_id="user:local_user",
+        world=world,
+        recent=recent,
+        prompt_summary=cached_summary,
+        source_revision=await store.current_subject_revision("user:local_user"),
+        source_generation=await store.current_clear_generation(),
+        generated_at=clock[0],
+    )
+
+    clock[0] = 250.0
+    candidates = await list_tentative_portrait_claims(
+        store,
+        user_id="local_user",
+    )
+    assert [candidate.claim_id for candidate in candidates] == ["claim-displaced"]
+    assert not await portrait_projection_is_stale(
+        projection,
+        user_id="local_user",
+        l2_store=store,
+    )
+    assert projection.prompt_summary == cached_summary
+
+
+@pytest.mark.asyncio
+async def test_unrelated_slot_expiry_does_not_invalidate_unchanged_prompt_selection(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    clock = [150.0]
+    _patch_portrait_clock(monkeypatch, clock)
+    for claim_id, event_id, value, slot_key, created_at in (
+        ("claim-primary-a", "event-primary-a", "纯音乐", "slt_primary_a", 140.0),
+        ("claim-primary-b", "event-primary-b", "本地 AI", "slt_primary_b", 130.0),
+    ):
+        _seed_claim(
+            db_path,
+            claim_id=claim_id,
+            event_id=event_id,
+            predicate="LIKES",
+            object_value=value,
+            family="preference_profile",
+            trait_code="preference.affinity",
+            slot_key=slot_key,
+            value_fingerprint=f"val_{claim_id}",
+            created_at=created_at,
+        )
+    _seed_claim(
+        db_path,
+        claim_id="claim-secondary-retained",
+        event_id="event-secondary-retained",
+        predicate="LIKES",
+        object_value="咖啡",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_secondary",
+        value_fingerprint="val_secondary_retained",
+        created_at=110.0,
+    )
+    _seed_claim(
+        db_path,
+        claim_id="claim-secondary-expiring",
+        event_id="event-secondary-expiring",
+        predicate="DISLIKES",
+        object_value="咖啡",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_secondary",
+        value_fingerprint="val_secondary_expiring",
+        created_at=120.0,
+        fact_valid_to=200.0,
+    )
+    store = _store(
+        db_path,
+        visible_event_ids={
+            "event-primary-a",
+            "event-primary-b",
+            "event-secondary-retained",
+            "event-secondary-expiring",
+        },
+    )
+
+    projection = await UserPortraitProjectionBuilder(store).build("local_user")
+    original_summary = list(projection.prompt_summary)
+    assert len(original_summary) == 2
+    assert [
+        candidate.claim_id
+        for candidate in await list_tentative_portrait_claims(
+            store,
+            user_id="local_user",
+        )
+    ] == ["claim-primary-a", "claim-primary-b"]
+
+    clock[0] = 250.0
+    assert [
+        candidate.claim_id
+        for candidate in await list_tentative_portrait_claims(
+            store,
+            user_id="local_user",
+        )
+    ] == ["claim-primary-a", "claim-primary-b", "claim-secondary-retained"]
+    assert not await portrait_projection_is_stale(
+        projection,
+        user_id="local_user",
+        l2_store=store,
+    )
+    assert projection.prompt_summary == original_summary
