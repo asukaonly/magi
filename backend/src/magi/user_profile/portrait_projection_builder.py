@@ -12,6 +12,10 @@ from .models import (
     UserPortraitProjection,
     UserProfileProjection,
 )
+from .portrait_claim_query import (
+    TentativePortraitClaim,
+    list_tentative_portrait_claims,
+)
 from .portrait_signal_policy import (
     PORTRAIT_WORLD_GROUP_IDS,
     PORTRAIT_SOURCE_STRENGTH as SOURCE_STRENGTH,
@@ -87,10 +91,32 @@ class UserPortraitProjectionBuilder:
         recent = self._build_recent(
             assertions=assertions,
         )
-        evidence_refs = self._evidence_refs(assertions=assertions)
+        tentative_claims = await self._list_tentative_claims(
+            user_id=user_id,
+            assertions=assertions,
+        )
+        tentative_lines = [candidate.prompt_line for candidate in tentative_claims[:2]]
+        # Keep main-model context grounded in governed assertions, explicit profile
+        # fields, and deterministic Claim material.
+        prompt_summary = self._rule_prompt_summary(
+            world=world,
+            recent=recent,
+            tentative_lines=tentative_lines,
+        )
+        selected_tentative_claims = [
+            candidate
+            for candidate in tentative_claims[:2]
+            if candidate.prompt_line in prompt_summary
+        ]
+        evidence_refs = self._evidence_refs(
+            assertions=assertions,
+            tentative_claims=selected_tentative_claims,
+        )
         source_counts = self._source_counts(assertions)
-        # Keep main-model context grounded in governed assertions and explicit profile fields.
-        prompt_summary = self._rule_prompt_summary(world=world, recent=recent)
+        if selected_tentative_claims:
+            source_counts["user_authored"] = source_counts.get("user_authored", 0) + len(
+                selected_tentative_claims
+            )
         generated_by = "rule"
 
         material = {
@@ -100,10 +126,18 @@ class UserPortraitProjectionBuilder:
             "prompt_summary": prompt_summary,
             "evidence_refs": evidence_refs,
             "source_counts": source_counts,
+            "tentative_claims": [
+                {
+                    "claim_id": candidate.claim_id,
+                    "prompt_line": candidate.prompt_line,
+                    "basis_refs": list(candidate.basis_refs),
+                }
+                for candidate in selected_tentative_claims
+            ],
         }
         llm_payload = await self._llm_overrides(material)
         llm_summary = _string_list(llm_payload.get("prompt_summary"))
-        if llm_summary:
+        if llm_summary and not selected_tentative_claims:
             prompt_summary = llm_summary[:4]
             generated_by = "llm"
 
@@ -139,7 +173,31 @@ class UserPortraitProjectionBuilder:
             assertion
             for assertion in assertions
             if assertion.get("trait_family") in PORTRAIT_ASSERTION_FAMILIES
-        ][:200]
+        ]
+
+    async def _list_tentative_claims(
+        self,
+        *,
+        user_id: str,
+        assertions: list[dict[str, Any]],
+    ) -> list[TentativePortraitClaim]:
+        current_assertion_ids = [
+            assertion_id
+            for assertion in assertions
+            if (assertion_id := _text(assertion.get("assertion_id")))
+        ]
+        visible_assertion_ids = [
+            assertion_id
+            for assertion in assertions
+            if assertion_portrait_role(assertion) in {"world", "recent"}
+            and (assertion_id := _text(assertion.get("assertion_id")))
+        ]
+        return await list_tentative_portrait_claims(
+            self._l2_store,
+            user_id=user_id,
+            current_assertion_ids=current_assertion_ids,
+            visible_assertion_ids=visible_assertion_ids,
+        )
 
     def _build_world(
         self,
@@ -251,7 +309,13 @@ class UserPortraitProjectionBuilder:
                 items.append(item)
         return {"items": _dedupe_items_in_order(items)[:6]}
 
-    def _rule_prompt_summary(self, *, world: dict[str, Any], recent: dict[str, Any]) -> list[str]:
+    def _rule_prompt_summary(
+        self,
+        *,
+        world: dict[str, Any],
+        recent: dict[str, Any],
+        tentative_lines: list[str],
+    ) -> list[str]:
         groups = {
             group["id"]: list(group.get("items", []))
             for group in world.get("groups", [])
@@ -269,6 +333,10 @@ class UserPortraitProjectionBuilder:
         work_style = _item_texts(groups.get("work_style", []))[:4]
         if work_style:
             lines.append(f"用户的工作和沟通方式：{'、'.join(work_style)}。")
+        for line in tentative_lines[:2]:
+            if len(lines) >= 4:
+                break
+            lines.append(line)
         recent_items = _item_texts(list(recent.get("items", [])))[:2]
         if recent_items and len(lines) < 4:
             lines.append(f"近期线索：{'、'.join(recent_items)}；不要直接当成长期结论。")
@@ -287,12 +355,15 @@ class UserPortraitProjectionBuilder:
     def _evidence_refs(
         *,
         assertions: list[dict[str, Any]],
+        tentative_claims: list[TentativePortraitClaim],
     ) -> list[str]:
         refs: list[str] = []
         for assertion in assertions:
             assertion_id = _text(assertion.get("assertion_id"))
             if assertion_id:
                 refs.append(f"assertion:{assertion_id}")
+        for candidate in tentative_claims:
+            refs.extend(candidate.basis_refs)
         return list(dict.fromkeys(refs))
 
     @staticmethod

@@ -6,6 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from ..memory.l2.semantic_routing import ROUTE_CONTRACT_VERSION
+from .portrait_values import display_value
+
 PortraitAssertionRole = Literal["world", "review", "recent", "skip"]
 PortraitClaimKind = Literal[
     "identity_fact",
@@ -25,6 +28,18 @@ class PortraitSignalDecision:
     role: PortraitAssertionRole
     claim_kind: PortraitClaimKind
     world_group: PortraitWorldGroup | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TentativePortraitClaimDecision:
+    """A routed self-report that may enter the portrait prompt tentatively."""
+
+    family: str
+    trait_code: str
+    slot_key: str
+    value_fingerprint: str
+    statement: str
+
 
 PORTRAIT_WORLD_STATES = frozenset({"stable", "confirmed", "corroborated", "validated"})
 PORTRAIT_REVIEW_STATES = frozenset({"tentative", "contradicted"})
@@ -82,6 +97,27 @@ _WORLD_FAMILY_EXACT_TRAITS = {
     "routine_profile": frozenset({"routine", "habit", "workflow"}),
 }
 
+TENTATIVE_PORTRAIT_CLAIM_FAMILIES = frozenset(
+    {
+        "communication_profile",
+        "identity_profile",
+        "interest_profile",
+        "preference_profile",
+    }
+)
+
+_IDENTITY_CLAIM_LABELS = {
+    "identity.real_name": "真实姓名是",
+    "identity.birth_date": "生日是",
+    "identity.birth_year": "出生年份是",
+    "identity.age.stated": "年龄是",
+}
+_COMMUNICATION_CLAIM_LABELS = {
+    "communication.address.preferred": "希望被称呼为",
+    "communication.address.disallowed": "不希望被称呼为",
+    "communication.response_style.preferred": "偏好的沟通方式是",
+}
+
 
 def assertion_portrait_role(assertion: Mapping[str, Any]) -> PortraitAssertionRole:
     """Return how an assertion may participate in the product-facing portrait."""
@@ -120,6 +156,60 @@ def assertion_is_portrait_world_ready(assertion: Mapping[str, Any]) -> bool:
     return classify_assertion_portrait(assertion).role == "world"
 
 
+def classify_tentative_portrait_claim(
+    claim: Mapping[str, Any],
+    route_outcome: Mapping[str, Any],
+) -> TentativePortraitClaimDecision | None:
+    """Admit and render one Claim using only typed Claim and host route fields."""
+
+    if _text(claim.get("availability")).casefold() != "active":
+        return None
+    if _text(route_outcome.get("target_kind")).casefold() != "route":
+        return None
+    if _text(route_outcome.get("outcome")).casefold() != "routed":
+        return None
+    try:
+        route_contract_version = int(route_outcome.get("route_contract_version") or 0)
+    except (TypeError, ValueError):
+        return None
+    if route_contract_version != ROUTE_CONTRACT_VERSION:
+        return None
+
+    details = route_outcome.get("details")
+    if not isinstance(details, Mapping):
+        return None
+    family = _text(details.get("family")).casefold()
+    if family not in TENTATIVE_PORTRAIT_CLAIM_FAMILIES:
+        return None
+    trait_code = _text(details.get("trait_code")).casefold()
+    slot_key = _text(route_outcome.get("target_slot_key"))
+    value_fingerprint = _text(details.get("value_fingerprint"))
+    if not slot_key.startswith("slt_") or not value_fingerprint.startswith("val_"):
+        return None
+
+    statement = _tentative_claim_statement(
+        claim,
+        family=family,
+        trait_code=trait_code,
+    )
+    if not statement:
+        return None
+    return TentativePortraitClaimDecision(
+        family=family,
+        trait_code=trait_code,
+        slot_key=slot_key,
+        value_fingerprint=value_fingerprint,
+        statement=statement,
+    )
+
+
+def tentative_portrait_prompt_line(statement: str) -> str:
+    """Wrap one deterministic statement in the product uncertainty contract."""
+
+    clean = " ".join(_text(statement).split())
+    return f"用户曾自述：{clean}（尚未形成长期结论）" if clean else ""
+
+
 def _assertion_is_portrait_world_ready(
     assertion: Mapping[str, Any],
     *,
@@ -145,6 +235,42 @@ def _assertion_is_portrait_world_ready(
         return False
 
     return True
+
+
+def _tentative_claim_statement(
+    claim: Mapping[str, Any],
+    *,
+    family: str,
+    trait_code: str,
+) -> str:
+    predicate = _text(claim.get("canonical_predicate")).upper()
+    value = _claim_display_value(claim)
+    if not value:
+        return ""
+    quoted = f"「{value}」"
+
+    if family == "preference_profile" and trait_code == "preference.affinity":
+        if predicate == "LIKES":
+            return f"喜欢{quoted}"
+        if predicate == "DISLIKES":
+            return f"不喜欢{quoted}"
+        return ""
+    if family == "interest_profile" and trait_code == "interest.attention":
+        return f"对{quoted}感兴趣" if predicate == "INTERESTED_IN" else ""
+    if family == "identity_profile":
+        label = _IDENTITY_CLAIM_LABELS.get(trait_code)
+        return f"{label}{quoted}" if label else ""
+    if family == "communication_profile":
+        label = _COMMUNICATION_CLAIM_LABELS.get(trait_code)
+        return f"{label}{quoted}" if label else ""
+    return ""
+
+
+def _claim_display_value(claim: Mapping[str, Any]) -> str:
+    value = display_value(claim.get("object_value"))
+    if not value:
+        value = display_value(claim.get("object_surface"))
+    return " ".join(value.split())[:200]
 
 
 def _claim_kind_for_assertion(*, family: str, trait_name: str) -> PortraitClaimKind:
@@ -212,11 +338,15 @@ __all__ = [
     "PORTRAIT_WORLD_STATES",
     "PORTRAIT_WORLD_TEMPORAL_SCOPES",
     "PORTRAIT_WORLD_GROUP_IDS",
+    "TENTATIVE_PORTRAIT_CLAIM_FAMILIES",
     "PortraitAssertionRole",
     "PortraitClaimKind",
     "PortraitSignalDecision",
     "PortraitWorldGroup",
+    "TentativePortraitClaimDecision",
     "assertion_is_portrait_world_ready",
     "assertion_portrait_role",
+    "classify_tentative_portrait_claim",
     "classify_assertion_portrait",
+    "tentative_portrait_prompt_line",
 ]
