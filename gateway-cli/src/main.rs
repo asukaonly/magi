@@ -58,6 +58,13 @@ fn required_session_token(value: Option<String>) -> Result<String, String> {
         .ok_or_else(|| "MAGI_DESKTOP_SESSION_TOKEN is required".to_string())
 }
 
+fn required_ipc_auth_token(value: Option<String>) -> Result<String, String> {
+    value
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "MAGI_IPC_AUTH_TOKEN is required".to_string())
+}
+
 fn resolve_user_avatar_dir(home: &std::path::Path) -> Option<PathBuf> {
     let dir = home.join(".magi").join("personalities").join("avatar");
     let _ = std::fs::create_dir_all(&dir);
@@ -71,6 +78,7 @@ fn resolve_user_avatar_dir(home: &std::path::Path) -> Option<PathBuf> {
 ///   MAGI_GATEWAY_PORT      — HTTP/WS listen port (default 19080)
 ///   MAGI_IPC_SOCKET        — Path to the Python IPC worker socket
 ///   MAGI_DESKTOP_SESSION_TOKEN — required session token for authentication
+///   MAGI_IPC_AUTH_TOKEN    — required credential for the Python IPC worker
 #[tokio::main]
 async fn main() {
     let port: u16 = env::var("MAGI_GATEWAY_PORT")
@@ -91,9 +99,14 @@ async fn main() {
             eprintln!("{error}");
             std::process::exit(2);
         });
+    let ipc_auth_token = required_ipc_auth_token(env::var("MAGI_IPC_AUTH_TOKEN").ok())
+        .unwrap_or_else(|error| {
+            eprintln!("{error}");
+            std::process::exit(2);
+        });
 
     eprintln!("Connecting to IPC worker at {ipc_socket}");
-    let (ipc_client, _event_rx) = ipc::IpcClient::connect(&ipc_socket)
+    let (ipc_client, _event_rx) = ipc::IpcClient::connect(&ipc_socket, &ipc_auth_token)
         .await
         .unwrap_or_else(|e| {
             eprintln!("Failed to connect to IPC worker: {e}");
@@ -152,7 +165,9 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{home_dir_from_values, required_session_token, resolve_ipc_socket};
+    use super::{
+        home_dir_from_values, required_ipc_auth_token, required_session_token, resolve_ipc_socket,
+    };
     use std::ffi::OsStr;
     use std::path::{Path, PathBuf};
 
@@ -202,5 +217,15 @@ mod tests {
         );
         assert!(required_session_token(None).is_err());
         assert!(required_session_token(Some("  ".to_string())).is_err());
+    }
+
+    #[test]
+    fn ipc_auth_token_is_required_and_trimmed() {
+        assert_eq!(
+            required_ipc_auth_token(Some("  internal-secret  ".to_string())).unwrap(),
+            "internal-secret"
+        );
+        assert!(required_ipc_auth_token(None).is_err());
+        assert!(required_ipc_auth_token(Some("  ".to_string())).is_err());
     }
 }

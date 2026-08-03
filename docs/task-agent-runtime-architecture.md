@@ -1818,10 +1818,16 @@ future collector integration must introduce its own paired and narrowly scoped
 ingestion authority.
 
 On macOS and Linux the Python IPC channel is a Unix Domain Socket. On Windows it
-is loopback TCP; HTTP gateway authentication does not itself authenticate that
-inner connection, so the Python worker must remain process-private and a future
-multi-client IPC design requires a separate first-frame authentication
-contract.
+is loopback TCP. Every managed launch creates a second high-entropy credential
+for this inner connection; it is separate from the WebView session credential.
+The launcher passes it only to the Python worker, which removes it from the
+process environment before runtime and plugin startup. The first NDJSON frame
+must authenticate with the matching credential before any business request is
+parsed or dispatched. Missing or incorrect credentials are disconnected, and
+only one authenticated gateway connection may be active. The credential stays
+in process memory and is never written to disk, placed in a URL, or logged. A
+headless launcher must provide the same private IPC credential independently of
+its HTTP session credential.
 
 Transport-related Python code lives in `backend/src/magi/ipc/` and `backend/src/magi/transport/`:
 

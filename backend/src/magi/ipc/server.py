@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import secrets
 import sys
 from typing import Any
 
@@ -17,12 +18,21 @@ from magi.ipc.protocol import IpcError, IpcNotify, IpcRequest, IpcResponse, pars
 logger = structlog.get_logger(__name__)
 
 IPC_STREAM_LIMIT_BYTES = 16 * 1024 * 1024
+IPC_AUTH_FRAME_LIMIT_BYTES = 8 * 1024
+IPC_AUTH_TIMEOUT_SECONDS = 3.0
+IPC_AUTH_METHOD = "ipc.authenticate"
 
 
 class IpcServer:
     """NDJSON IPC server that accepts a single persistent connection from the Rust gateway."""
 
-    def __init__(self, *, asgi_app: Any = None) -> None:
+    def __init__(self, *, auth_token: str, asgi_app: Any = None) -> None:
+        normalized_auth_token = auth_token.strip()
+        if not normalized_auth_token:
+            raise ValueError("IPC authentication token must not be empty")
+
+        self._auth_token = normalized_auth_token
+        self._authenticated_client_active = False
         self._dispatcher = Dispatcher()
         self._dispatcher.register("ping", handle_ping)
         self._server: asyncio.AbstractServer | None = None
@@ -30,6 +40,7 @@ class IpcServer:
 
         if asgi_app is not None:
             from magi.ipc.handlers import ApiForwardHandler, RuntimeReadyHandler
+
             self._api_forward = ApiForwardHandler(asgi_app)
             self._dispatcher.register("api.forward", self._api_forward.handle)
             self._dispatcher.register("runtime.ready", RuntimeReadyHandler(asgi_app).handle)
@@ -77,10 +88,27 @@ class IpcServer:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         peer = writer.get_extra_info("peername") or "unix"
-        logger.info("ipc_client_connected", peer=peer)
+        authenticated = False
         write_lock = asyncio.Lock()
         tasks: set[asyncio.Task] = set()
         try:
+            auth_request_id = await self._read_auth_request(reader)
+            if auth_request_id is None:
+                return
+            if self._authenticated_client_active:
+                logger.warning("ipc_authentication_failed", reason="connection_already_active")
+                return
+
+            self._authenticated_client_active = True
+            authenticated = True
+            auth_response = IpcResponse(
+                id=auth_request_id,
+                result={"authenticated": True},
+            )
+            writer.write(auth_response.to_line().encode("utf-8"))
+            await writer.drain()
+            logger.info("ipc_client_authenticated", peer=peer)
+
             while True:
                 raw = await reader.readline()
                 if not raw:
@@ -96,6 +124,8 @@ class IpcServer:
         except Exception:
             logger.exception("ipc_connection_error")
         finally:
+            if authenticated:
+                self._authenticated_client_active = False
             writer.close()
             try:
                 await writer.wait_closed()
@@ -103,7 +133,52 @@ class IpcServer:
                 pass
             logger.info("ipc_client_disconnected", peer=peer)
 
-    async def _process_line(self, line: str, writer: asyncio.StreamWriter, write_lock: asyncio.Lock) -> None:
+    async def _read_auth_request(self, reader: asyncio.StreamReader) -> str | None:
+        try:
+            raw = await asyncio.wait_for(
+                reader.readline(),
+                timeout=IPC_AUTH_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning("ipc_authentication_failed", reason="timeout")
+            return None
+        except (ValueError, UnicodeError):
+            logger.warning("ipc_authentication_failed", reason="invalid_frame")
+            return None
+
+        if not raw or len(raw) > IPC_AUTH_FRAME_LIMIT_BYTES:
+            logger.warning("ipc_authentication_failed", reason="invalid_frame")
+            return None
+
+        try:
+            msg = parse_inbound(raw.decode("utf-8").strip())
+        except Exception:
+            logger.warning("ipc_authentication_failed", reason="invalid_frame")
+            return None
+
+        if (
+            not isinstance(msg, IpcRequest)
+            or not isinstance(msg.id, str)
+            or not msg.id
+            or msg.method != IPC_AUTH_METHOD
+            or not isinstance(msg.params, dict)
+        ):
+            logger.warning("ipc_authentication_failed", reason="invalid_frame")
+            return None
+
+        candidate = msg.params.get("token")
+        if not isinstance(candidate, str) or not secrets.compare_digest(
+            candidate,
+            self._auth_token,
+        ):
+            logger.warning("ipc_authentication_failed", reason="invalid_token")
+            return None
+
+        return msg.id
+
+    async def _process_line(
+        self, line: str, writer: asyncio.StreamWriter, write_lock: asyncio.Lock
+    ) -> None:
         try:
             msg = parse_inbound(line)
         except Exception:

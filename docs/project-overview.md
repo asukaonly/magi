@@ -52,6 +52,14 @@ Magi is a desktop-only application:
 
 The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, identity-validated streaming chat attachment downloads, config file I/O, task CRUD, and lightweight chat-session creation/title/workspace updates natively in Rust. Governed message, session, and history deletion is forwarded to Python because it also owns memory, trace, file, delivery, and runtime cleanup. Chat attachment uploads are size-bounded and streamed into temporary staging by the gateway; IPC passes the staging reference, and Python streams the body into its in-memory API so it can own the final managed-file mutation, parsing, and message ownership without repeated whole-body copies. Other requests that require the Python runtime (message send, LLM calls, agent execution) use the same IPC channel, with Unix Domain Sockets on Unix-like systems and loopback TCP on Windows. The Python process runs no public HTTP server; FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
 
+The gateway-to-Python channel has its own random per-launch credential, separate
+from the WebView session credential. The Python worker accepts no business
+request until the gateway authenticates in the first IPC frame, allows only one
+authenticated connection, and removes the launch credential from its process
+environment before runtime and plugins start. This rule is identical for Unix
+sockets and Windows loopback TCP; the credential remains memory-only and is
+never exposed to the WebView, plugins, files, URLs, or logs.
+
 Every desktop gateway process creates a strong random session credential and
 returns it only to the Magi WebView. The credential stays in process memory: it
 is not passed to Python or plugins, written to disk, logged, or placed in a URL.

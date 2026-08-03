@@ -31,6 +31,7 @@ const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const BACKEND_LOG_TAIL_BYTES: u64 = 64 * 1024;
 const DESKTOP_LOG_MAX_BYTES: u64 = 50 * 1024 * 1024;
 const DESKTOP_SESSION_TOKEN_ENV: &str = "MAGI_DESKTOP_SESSION_TOKEN";
+const INTERNAL_IPC_TOKEN_ENV: &str = "MAGI_IPC_AUTH_TOKEN";
 const BACKEND_LOG_FILE_ENV: &str = "MAGI_BACKEND_LOG_FILE";
 const FULL_DATA_CLEAR_TRANSACTION_ENV: &str = "MAGI_FULL_DATA_CLEAR_TRANSACTION_ID";
 
@@ -50,6 +51,7 @@ struct BackendRuntime {
     bridge_shutdown: Option<tokio::sync::watch::Sender<bool>>,
     base_url: Option<String>,
     session_token: Option<String>,
+    ipc_auth_token: Option<String>,
     python_pid: Option<u32>,
     /// Stored between start_backend and poll_backend_startup.
     ipc_socket_path: Option<String>,
@@ -226,7 +228,12 @@ fn suppress_child_console_window(_command: &mut Command) {}
 
 fn isolate_python_worker_environment(command: &mut Command) {
     command.env_remove(DESKTOP_SESSION_TOKEN_ENV);
+    command.env_remove(INTERNAL_IPC_TOKEN_ENV);
     command.env_remove(FULL_DATA_CLEAR_TRANSACTION_ENV);
+}
+
+fn configure_ipc_auth_environment(command: &mut Command, auth_token: &str) {
+    command.env(INTERNAL_IPC_TOKEN_ENV, auth_token);
 }
 
 fn configure_full_data_clear_environment(command: &mut Command, transaction_id: Option<&str>) {
@@ -720,6 +727,7 @@ fn spawn_sidecar_role(
     role: &str,
     port: Option<u16>,
     ipc_socket_path: &str,
+    ipc_auth_token: &str,
     full_data_clear_transaction_id: Option<&str>,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let sidecar_path = resolve_sidecar_path(app)?;
@@ -750,6 +758,7 @@ fn spawn_sidecar_role(
     let mut command = Command::new(&sidecar_path);
     suppress_child_console_window(&mut command);
     isolate_python_worker_environment(&mut command);
+    configure_ipc_auth_environment(&mut command, ipc_auth_token);
     configure_full_data_clear_environment(&mut command, full_data_clear_transaction_id);
     configure_backend_log_environment(&mut command, &backend_log_path);
     command
@@ -914,6 +923,7 @@ fn spawn_dev_backend_role(
     role: &str,
     port: Option<u16>,
     ipc_socket_path: &str,
+    ipc_auth_token: &str,
     full_data_clear_transaction_id: Option<&str>,
 ) -> Result<(BackendProcess, Option<u32>), String> {
     let project_root = find_project_root()?;
@@ -928,6 +938,7 @@ fn spawn_dev_backend_role(
     let mut command = Command::new(&python_command);
     suppress_child_console_window(&mut command);
     isolate_python_worker_environment(&mut command);
+    configure_ipc_auth_environment(&mut command, ipc_auth_token);
     configure_full_data_clear_environment(&mut command, full_data_clear_transaction_id);
     configure_backend_log_environment(&mut command, &backend_log_path);
     command
@@ -967,6 +978,7 @@ fn spawn_dev_backend_role(
 fn spawn_sidecar_backend(
     app: &AppHandle,
     ipc_socket_path: &str,
+    ipc_auth_token: &str,
     full_data_clear_transaction_id: Option<&str>,
 ) -> Result<ManagedBackendStart, String> {
     let (process, pid) = spawn_sidecar_role(
@@ -974,6 +986,7 @@ fn spawn_sidecar_backend(
         "ipc_worker",
         None,
         ipc_socket_path,
+        ipc_auth_token,
         full_data_clear_transaction_id,
     )?;
     Ok(ManagedBackendStart { process, pid })
@@ -981,12 +994,14 @@ fn spawn_sidecar_backend(
 
 fn spawn_dev_backend_pair(
     ipc_socket_path: &str,
+    ipc_auth_token: &str,
     full_data_clear_transaction_id: Option<&str>,
 ) -> Result<ManagedBackendStart, String> {
     let (process, pid) = spawn_dev_backend_role(
         "ipc_worker",
         None,
         ipc_socket_path,
+        ipc_auth_token,
         full_data_clear_transaction_id,
     )?;
     Ok(ManagedBackendStart { process, pid })
@@ -1022,6 +1037,7 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
     remove_ready_file();
     runtime.base_url = None;
     runtime.session_token = None;
+    runtime.ipc_auth_token = None;
     runtime.python_pid = None;
     runtime.ipc_socket_path = None;
     runtime.main_port = None;
@@ -1088,6 +1104,7 @@ fn start_backend(
         runtime.python_process = None;
         runtime.base_url = Some(external.base_url.clone());
         runtime.session_token = Some(external.session_token.clone());
+        runtime.ipc_auth_token = None;
         runtime.python_pid = None;
         runtime.gateway_ready = true;
 
@@ -1103,6 +1120,7 @@ fn start_backend(
 
     let main_port = pick_open_port()?;
     let session_token = api::security::generate_session_token();
+    let ipc_auth_token = api::security::generate_session_token();
     let base_url = format!("http://{}:{}/api", BACKEND_HOST, main_port);
 
     // Compute IPC socket address.
@@ -1137,6 +1155,7 @@ fn start_backend(
     let start = if cfg!(debug_assertions) {
         spawn_dev_backend_pair(
             &ipc_socket_path,
+            &ipc_auth_token,
             pending_full_data_clear
                 .as_ref()
                 .map(|marker| marker.transaction_id.as_str()),
@@ -1146,6 +1165,7 @@ fn start_backend(
         spawn_sidecar_backend(
             &app,
             &ipc_socket_path,
+            &ipc_auth_token,
             pending_full_data_clear
                 .as_ref()
                 .map(|marker| marker.transaction_id.as_str()),
@@ -1160,6 +1180,7 @@ fn start_backend(
     runtime.python_process = Some(start.process);
     runtime.base_url = Some(base_url.clone());
     runtime.session_token = Some(session_token.clone());
+    runtime.ipc_auth_token = Some(ipc_auth_token);
     runtime.python_pid = start.pid;
     runtime.ipc_socket_path = Some(ipc_socket_path);
     runtime.main_port = Some(main_port);
@@ -1244,10 +1265,16 @@ fn poll_backend_startup(
     let main_port = runtime
         .main_port
         .ok_or_else(|| "Missing main port".to_string())?;
+    let ipc_auth_token = runtime
+        .ipc_auth_token
+        .clone()
+        .ok_or_else(|| "Missing IPC authentication token".to_string())?;
 
     // Connect IPC client to Python worker (required)
-    let ipc_client = match tauri::async_runtime::block_on(ipc::IpcClient::connect(&ipc_socket_path))
-    {
+    let ipc_client = match tauri::async_runtime::block_on(ipc::IpcClient::connect(
+        &ipc_socket_path,
+        &ipc_auth_token,
+    )) {
         Ok((client, _event_rx)) => std::sync::Arc::new(client),
         Err(e) => {
             // Kill the process on IPC failure.
@@ -1256,7 +1283,10 @@ fn poll_backend_startup(
             }
             runtime.base_url = None;
             runtime.session_token = None;
+            runtime.ipc_auth_token = None;
             runtime.python_pid = None;
+            runtime.ipc_socket_path = None;
+            runtime.main_port = None;
             return Ok(PollStartupResponse {
                 ready: false,
                 phase: "error".to_string(),
@@ -1327,6 +1357,7 @@ fn poll_backend_startup(
 
     runtime.axum_shutdown = Some(shutdown_tx);
     runtime.bridge_shutdown = Some(bridge_shutdown_tx);
+    runtime.ipc_auth_token = None;
     runtime.gateway_ready = true;
 
     Ok(PollStartupResponse {
@@ -1711,12 +1742,12 @@ mod tests {
     use super::plugin_python_candidates_from_resource_dir;
     use super::{
         build_external_backend_config, configure_backend_log_environment,
-        configure_full_data_clear_environment, first_existing_dir,
+        configure_full_data_clear_environment, configure_ipc_auth_environment, first_existing_dir,
         isolate_python_worker_environment, ordered_builtin_avatar_dirs,
         plugin_python_path_from_resource_dir, resolve_configured_log_path,
         should_reuse_running_backend, suppress_child_console_window, wait_for_process_stop,
         BackendProcess, BACKEND_LOG_FILE_ENV, DESKTOP_SESSION_TOKEN_ENV,
-        FULL_DATA_CLEAR_TRANSACTION_ENV,
+        FULL_DATA_CLEAR_TRANSACTION_ENV, INTERNAL_IPC_TOKEN_ENV,
     };
     use std::process::{Command, Stdio};
     use std::time::Duration;
@@ -1774,11 +1805,30 @@ mod tests {
     fn python_worker_command_explicitly_removes_desktop_session_token() {
         let mut command = Command::new("python");
         command.env(DESKTOP_SESSION_TOKEN_ENV, "must-not-leak");
+        command.env(INTERNAL_IPC_TOKEN_ENV, "stale-internal-token");
         isolate_python_worker_environment(&mut command);
 
         assert!(command
             .get_envs()
             .any(|(name, value)| { name == DESKTOP_SESSION_TOKEN_ENV && value.is_none() }));
+        assert!(command
+            .get_envs()
+            .any(|(name, value)| { name == INTERNAL_IPC_TOKEN_ENV && value.is_none() }));
+    }
+
+    #[test]
+    fn python_worker_receives_only_the_explicit_internal_ipc_token() {
+        let mut command = Command::new("python");
+        command.env(DESKTOP_SESSION_TOKEN_ENV, "desktop-token");
+        isolate_python_worker_environment(&mut command);
+        configure_ipc_auth_environment(&mut command, "internal-token");
+
+        assert!(command
+            .get_envs()
+            .any(|(name, value)| { name == DESKTOP_SESSION_TOKEN_ENV && value.is_none() }));
+        assert!(command.get_envs().any(|(name, value)| {
+            name == INTERNAL_IPC_TOKEN_ENV && value == Some(std::ffi::OsStr::new("internal-token"))
+        }));
     }
 
     #[test]

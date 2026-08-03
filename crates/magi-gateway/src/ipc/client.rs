@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 use super::protocol::{self, InboundMessage, IpcError, IpcNotify, IpcRequest};
@@ -19,6 +19,8 @@ use super::protocol::{self, InboundMessage, IpcError, IpcNotify, IpcRequest};
 /// can take a couple of minutes; we err on the side of "wait, but not
 /// forever". Override via the `MAGI_IPC_REQUEST_TIMEOUT_SECS` env var.
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 300;
+const IPC_AUTH_TIMEOUT: Duration = Duration::from_secs(3);
+const IPC_AUTH_METHOD: &str = "ipc.authenticate";
 
 fn default_request_timeout() -> Duration {
     let secs = std::env::var("MAGI_IPC_REQUEST_TIMEOUT_SECS")
@@ -56,22 +58,89 @@ impl IpcClient {
     /// Connect to the IPC socket at `path` (Unix) and spawn the read/write loops.
     /// Returns the client handle and an event receiver for unsolicited events.
     #[cfg(unix)]
-    pub async fn connect(path: &str) -> Result<(Self, mpsc::Receiver<(String, Value)>), String> {
+    pub async fn connect(
+        path: &str,
+        auth_token: &str,
+    ) -> Result<(Self, mpsc::Receiver<(String, Value)>), String> {
         let stream = tokio::net::UnixStream::connect(path)
             .await
             .map_err(|e| format!("IPC connect failed: {e}"))?;
         let (reader, writer) = stream.into_split();
-        Self::start(BufReader::new(reader), writer)
+        let mut reader = BufReader::new(reader);
+        let mut writer = writer;
+        Self::authenticate(&mut reader, &mut writer, auth_token).await?;
+        Self::start(reader, writer)
     }
 
     /// Connect to the IPC socket via TCP loopback (Windows fallback).
     #[cfg(not(unix))]
-    pub async fn connect(addr: &str) -> Result<(Self, mpsc::Receiver<(String, Value)>), String> {
+    pub async fn connect(
+        addr: &str,
+        auth_token: &str,
+    ) -> Result<(Self, mpsc::Receiver<(String, Value)>), String> {
         let stream = tokio::net::TcpStream::connect(addr)
             .await
             .map_err(|e| format!("IPC connect failed: {e}"))?;
         let (reader, writer) = stream.into_split();
-        Self::start(BufReader::new(reader), writer)
+        let mut reader = BufReader::new(reader);
+        let mut writer = writer;
+        Self::authenticate(&mut reader, &mut writer, auth_token).await?;
+        Self::start(reader, writer)
+    }
+
+    async fn authenticate<R, W>(
+        reader: &mut R,
+        writer: &mut W,
+        auth_token: &str,
+    ) -> Result<(), String>
+    where
+        R: AsyncBufRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
+        if auth_token.trim().is_empty() {
+            return Err("IPC authentication failed".to_string());
+        }
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let request = IpcRequest {
+            id: id.clone(),
+            method: IPC_AUTH_METHOD.to_string(),
+            params: Some(serde_json::json!({"token": auth_token})),
+        };
+        let mut line =
+            serde_json::to_string(&request).map_err(|_| "IPC authentication failed".to_string())?;
+        line.push('\n');
+
+        writer
+            .write_all(line.as_bytes())
+            .await
+            .map_err(|_| "IPC authentication failed".to_string())?;
+        writer
+            .flush()
+            .await
+            .map_err(|_| "IPC authentication failed".to_string())?;
+
+        let mut response_line = String::new();
+        let bytes_read =
+            tokio::time::timeout(IPC_AUTH_TIMEOUT, reader.read_line(&mut response_line))
+                .await
+                .map_err(|_| "IPC authentication failed".to_string())?
+                .map_err(|_| "IPC authentication failed".to_string())?;
+        if bytes_read == 0 {
+            return Err("IPC authentication failed".to_string());
+        }
+
+        match protocol::parse_inbound(response_line.trim()) {
+            Ok(InboundMessage::Response {
+                id: response_id,
+                result,
+            }) if response_id == id
+                && result.get("authenticated").and_then(Value::as_bool) == Some(true) =>
+            {
+                Ok(())
+            }
+            _ => Err("IPC authentication failed".to_string()),
+        }
     }
 
     fn start<R, W>(
@@ -244,5 +313,87 @@ impl IpcClient {
                 message: "IPC connection closed".to_string(),
             }));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{duplex, split};
+
+    #[tokio::test]
+    async fn authentication_sends_the_credential_as_the_first_frame() {
+        let (client_stream, server_stream) = duplex(4096);
+        let server = tokio::spawn(async move {
+            let (reader, mut writer) = split(server_stream);
+            let mut lines = BufReader::new(reader).lines();
+            let line = lines.next_line().await.unwrap().unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], IPC_AUTH_METHOD);
+            assert_eq!(request["params"]["token"], "internal-secret");
+
+            let response = serde_json::json!({
+                "id": request["id"],
+                "result": {"authenticated": true},
+            });
+            writer
+                .write_all(format!("{response}\n").as_bytes())
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+        });
+
+        let (reader, mut writer) = split(client_stream);
+        let mut reader = BufReader::new(reader);
+        IpcClient::authenticate(&mut reader, &mut writer, "internal-secret")
+            .await
+            .unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn authentication_rejects_an_error_response() {
+        let (client_stream, server_stream) = duplex(4096);
+        let server = tokio::spawn(async move {
+            let (reader, mut writer) = split(server_stream);
+            let mut lines = BufReader::new(reader).lines();
+            let line = lines.next_line().await.unwrap().unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            let response = serde_json::json!({
+                "id": request["id"],
+                "error": {"code": -1, "message": "denied"},
+            });
+            writer
+                .write_all(format!("{response}\n").as_bytes())
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+        });
+
+        let (reader, mut writer) = split(client_stream);
+        let mut reader = BufReader::new(reader);
+        let error = IpcClient::authenticate(&mut reader, &mut writer, "wrong-secret")
+            .await
+            .unwrap_err();
+        assert_eq!(error, "IPC authentication failed");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn authentication_rejects_a_closed_connection() {
+        let (client_stream, server_stream) = duplex(4096);
+        let server = tokio::spawn(async move {
+            let (reader, _writer) = split(server_stream);
+            let mut lines = BufReader::new(reader).lines();
+            let _ = lines.next_line().await.unwrap();
+        });
+
+        let (reader, mut writer) = split(client_stream);
+        let mut reader = BufReader::new(reader);
+        let error = IpcClient::authenticate(&mut reader, &mut writer, "internal-secret")
+            .await
+            .unwrap_err();
+        assert_eq!(error, "IPC authentication failed");
+        server.await.unwrap();
     }
 }

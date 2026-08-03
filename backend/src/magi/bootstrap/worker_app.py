@@ -29,6 +29,7 @@ logger = get_logger(__name__, category="WORKER")
 
 DEFAULT_RUNTIME_MONITOR_INTERVAL_SECONDS = 2.0
 DEFAULT_RUNTIME_DRAIN_TIMEOUT_SECONDS = 5.0
+IPC_AUTH_TOKEN_ENV = "MAGI_IPC_AUTH_TOKEN"
 
 
 @dataclass(slots=True)
@@ -59,13 +60,14 @@ async def _noop_lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 async def _run_worker() -> None:
     """Main async worker loop."""
+    ipc_auth_token = _consume_ipc_auth_token()
     worker_t0 = time.monotonic()
     runtime_paths = get_runtime_paths()
     configure_worker_logging()
     logger.info("IPC worker starting")
 
     app = await _initialize_worker_transport_app()
-    ipc_server = await _start_ipc_server(app)
+    ipc_server = await _start_ipc_server(app, auth_token=ipc_auth_token)
     runtime_monitor = _start_runtime_monitor()
     health_file = _write_worker_ready_file(runtime_paths)
     _log_worker_ready(worker_t0, runtime_monitor.startup_state)
@@ -93,16 +95,31 @@ async def _initialize_worker_transport_app() -> FastAPI:
     return create_transport_app(lifespan=_noop_lifespan)
 
 
-async def _start_ipc_server(app: FastAPI) -> Any | None:
+def _consume_ipc_auth_token() -> str | None:
+    """Remove the IPC credential from the process environment before runtime startup."""
+    ipc_socket = os.environ.get("MAGI_IPC_SOCKET")
+    raw_token = os.environ.pop(IPC_AUTH_TOKEN_ENV, None)
+    if not ipc_socket:
+        return None
+
+    auth_token = (raw_token or "").strip()
+    if not auth_token:
+        raise RuntimeError(f"{IPC_AUTH_TOKEN_ENV} is required when MAGI_IPC_SOCKET is set")
+    return auth_token
+
+
+async def _start_ipc_server(app: FastAPI, *, auth_token: str | None) -> Any | None:
     ipc_socket = os.environ.get("MAGI_IPC_SOCKET")
     if not ipc_socket:
         logger.warning("MAGI_IPC_SOCKET not set — worker has no IPC transport")
         return None
+    if auth_token is None:
+        raise RuntimeError(f"{IPC_AUTH_TOKEN_ENV} is required when MAGI_IPC_SOCKET is set")
 
     from ..ipc import IpcServer
 
     t0 = time.monotonic()
-    ipc_server = IpcServer(asgi_app=app)
+    ipc_server = IpcServer(asgi_app=app, auth_token=auth_token)
     await ipc_server.start()
     logger.info(
         "IPC server started on %s",

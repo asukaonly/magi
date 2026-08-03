@@ -10,9 +10,9 @@ def test_tauri_debug_prefers_python_backend_pair() -> None:
     source = source_path.read_text(encoding="utf-8")
 
     assert "let start = if cfg!(debug_assertions)" in source
-    debug_start = source.split("let start = if cfg!(debug_assertions)", 1)[1].split(
-        "} else {", 1
-    )[0]
+    debug_start = source.split("let start = if cfg!(debug_assertions)", 1)[1].split("} else {", 1)[
+        0
+    ]
     assert "spawn_dev_backend_pair(" in debug_start
     assert "&ipc_socket_path" in debug_start
     assert "pending_full_data_clear" in debug_start
@@ -23,9 +23,9 @@ def test_tauri_does_not_expose_session_token_to_python_backend() -> None:
     source_path = Path(__file__).resolve().parents[3] / "frontend" / "src-tauri" / "src" / "main.rs"
     source = source_path.read_text(encoding="utf-8")
 
-    sidecar_section = source.split("fn spawn_sidecar_role", 1)[1].split(
-        "fn find_project_root", 1
-    )[0]
+    sidecar_section = source.split("fn spawn_sidecar_role", 1)[1].split("fn find_project_root", 1)[
+        0
+    ]
     dev_section = source.split("fn spawn_dev_backend_role", 1)[1].split(
         "fn spawn_sidecar_backend", 1
     )[0]
@@ -35,19 +35,18 @@ def test_tauri_does_not_expose_session_token_to_python_backend() -> None:
 
     for python_spawn_section in (sidecar_section, dev_section):
         assert "isolate_python_worker_environment(&mut command)" in python_spawn_section
+        assert (
+            "configure_ipc_auth_environment(&mut command, ipc_auth_token)" in python_spawn_section
+        )
         assert "MAGI_DESKTOP_SESSION_TOKEN" not in python_spawn_section
         assert "session_token: &str" not in python_spawn_section
     assert "command.env_remove(DESKTOP_SESSION_TOKEN_ENV)" in isolation_section
+    assert "command.env_remove(INTERNAL_IPC_TOKEN_ENV)" in isolation_section
 
 
 def test_tauri_webview_has_a_restrictive_content_policy() -> None:
     """Verify packaged pages cannot execute or connect to arbitrary origins."""
-    config_path = (
-        Path(__file__).resolve().parents[3]
-        / "frontend"
-        / "src-tauri"
-        / "tauri.conf.json"
-    )
+    config_path = Path(__file__).resolve().parents[3] / "frontend" / "src-tauri" / "tauri.conf.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
     policy = config["app"]["security"]["csp"]
 
@@ -64,7 +63,9 @@ def test_tauri_dev_backend_does_not_discard_logs() -> None:
     source_path = Path(__file__).resolve().parents[3] / "frontend" / "src-tauri" / "src" / "main.rs"
     source = source_path.read_text(encoding="utf-8")
 
-    spawn_dev_section = source.split("fn spawn_dev_backend_role", 1)[1].split("fn spawn_sidecar_backend", 1)[0]
+    spawn_dev_section = source.split("fn spawn_dev_backend_role", 1)[1].split(
+        "fn spawn_sidecar_backend", 1
+    )[0]
     assert ".stdout(Stdio::null())" not in spawn_dev_section
     assert ".stderr(Stdio::null())" not in spawn_dev_section
 
@@ -84,12 +85,7 @@ def test_tauri_spawns_unified_role() -> None:
 def test_axum_native_routes_cover_read_endpoints() -> None:
     """Verify Axum router registers native Rust routes for all read-only endpoints."""
     mod_path = (
-        Path(__file__).resolve().parents[3]
-        / "crates"
-        / "magi-gateway"
-        / "src"
-        / "api"
-        / "mod.rs"
+        Path(__file__).resolve().parents[3] / "crates" / "magi-gateway" / "src" / "api" / "mod.rs"
     )
     source = mod_path.read_text(encoding="utf-8")
 

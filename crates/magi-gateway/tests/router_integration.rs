@@ -13,12 +13,33 @@ use http_body_util::BodyExt;
 use hyper::Request;
 use magi_gateway::{api, db, ipc};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader, Lines};
 use tower::ServiceExt;
 
 static TEST_COUNTER: AtomicU32 = AtomicU32::new(0);
 static HOME_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 const TEST_SESSION_TOKEN: &str = "test-desktop-session-token";
+const TEST_IPC_AUTH_TOKEN: &str = "test-internal-ipc-auth-token";
+
+async fn accept_test_ipc_auth<R, W>(lines: &mut Lines<R>, writer: &mut W)
+where
+    R: AsyncBufRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let line = lines.next_line().await.unwrap().unwrap();
+    let request: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(request["method"], "ipc.authenticate");
+    assert_eq!(request["params"]["token"], TEST_IPC_AUTH_TOKEN);
+    let response = serde_json::json!({
+        "id": request["id"],
+        "result": {"authenticated": true},
+    });
+    writer
+        .write_all(format!("{response}\n").as_bytes())
+        .await
+        .unwrap();
+    writer.flush().await.unwrap();
+}
 
 fn test_security() -> Arc<api::security::GatewaySecurity> {
     Arc::new(api::security::GatewaySecurity::with_policy(
@@ -129,9 +150,12 @@ async fn test_state() -> api::state::ApiState {
     // Spawn a dummy server that accepts but never responds
     tokio::spawn(async move {
         loop {
-            if let Ok((mut stream, _)) = listener.accept().await {
+            if let Ok((stream, _)) = listener.accept().await {
                 tokio::spawn(async move {
-                    let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut [0u8; 1024]).await;
+                    let (reader, mut writer) = stream.into_split();
+                    let mut lines = BufReader::new(reader).lines();
+                    accept_test_ipc_auth(&mut lines, &mut writer).await;
+                    let _ = lines.next_line().await;
                 });
             }
         }
@@ -139,9 +163,10 @@ async fn test_state() -> api::state::ApiState {
 
     tokio::task::yield_now().await;
 
-    let (ipc_client, _event_rx) = ipc::IpcClient::connect(sock_path.to_str().unwrap())
-        .await
-        .expect("Connect to test IPC socket");
+    let (ipc_client, _event_rx) =
+        ipc::IpcClient::connect(sock_path.to_str().unwrap(), TEST_IPC_AUTH_TOKEN)
+            .await
+            .expect("Connect to test IPC socket");
 
     api::state::ApiState::new(Arc::new(ipc_client), test_security())
 }
@@ -161,6 +186,7 @@ async fn test_state_with_runtime_ready_response(result: Value) -> api::state::Ap
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.into_split();
                     let mut lines = BufReader::new(reader).lines();
+                    accept_test_ipc_auth(&mut lines, &mut writer).await;
                     while let Ok(Some(line)) = lines.next_line().await {
                         let request: Value = serde_json::from_str(&line).unwrap();
                         assert_eq!(request["method"], "runtime.ready");
@@ -181,9 +207,10 @@ async fn test_state_with_runtime_ready_response(result: Value) -> api::state::Ap
 
     tokio::task::yield_now().await;
 
-    let (ipc_client, _event_rx) = ipc::IpcClient::connect(sock_path.to_str().unwrap())
-        .await
-        .expect("Connect to test IPC socket");
+    let (ipc_client, _event_rx) =
+        ipc::IpcClient::connect(sock_path.to_str().unwrap(), TEST_IPC_AUTH_TOKEN)
+            .await
+            .expect("Connect to test IPC socket");
 
     api::state::ApiState::new(Arc::new(ipc_client), test_security())
 }
@@ -207,6 +234,7 @@ async fn test_state_with_api_forward_response(
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.into_split();
                     let mut lines = BufReader::new(reader).lines();
+                    accept_test_ipc_auth(&mut lines, &mut writer).await;
                     while let Ok(Some(line)) = lines.next_line().await {
                         let request: Value = serde_json::from_str(&line).unwrap();
                         observed.lock().unwrap().push(request.clone());
@@ -226,9 +254,10 @@ async fn test_state_with_api_forward_response(
     });
 
     tokio::task::yield_now().await;
-    let (ipc_client, _event_rx) = ipc::IpcClient::connect(sock_path.to_str().unwrap())
-        .await
-        .expect("Connect to test IPC socket");
+    let (ipc_client, _event_rx) =
+        ipc::IpcClient::connect(sock_path.to_str().unwrap(), TEST_IPC_AUTH_TOKEN)
+            .await
+            .expect("Connect to test IPC socket");
     (
         api::state::ApiState::new(Arc::new(ipc_client), test_security()),
         requests,
@@ -244,9 +273,12 @@ async fn test_state() -> api::state::ApiState {
     // Spawn a dummy server that accepts but never responds.
     tokio::spawn(async move {
         loop {
-            if let Ok((mut stream, _)) = listener.accept().await {
+            if let Ok((stream, _)) = listener.accept().await {
                 tokio::spawn(async move {
-                    let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut [0u8; 1024]).await;
+                    let (reader, mut writer) = stream.into_split();
+                    let mut lines = BufReader::new(reader).lines();
+                    accept_test_ipc_auth(&mut lines, &mut writer).await;
+                    let _ = lines.next_line().await;
                 });
             }
         }
@@ -254,7 +286,7 @@ async fn test_state() -> api::state::ApiState {
 
     tokio::task::yield_now().await;
 
-    let (ipc_client, _event_rx) = ipc::IpcClient::connect(&addr.to_string())
+    let (ipc_client, _event_rx) = ipc::IpcClient::connect(&addr.to_string(), TEST_IPC_AUTH_TOKEN)
         .await
         .expect("Connect to test IPC socket");
 
@@ -273,6 +305,7 @@ async fn test_state_with_runtime_ready_response(result: Value) -> api::state::Ap
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.into_split();
                     let mut lines = BufReader::new(reader).lines();
+                    accept_test_ipc_auth(&mut lines, &mut writer).await;
                     while let Ok(Some(line)) = lines.next_line().await {
                         let request: Value = serde_json::from_str(&line).unwrap();
                         assert_eq!(request["method"], "runtime.ready");
@@ -293,7 +326,7 @@ async fn test_state_with_runtime_ready_response(result: Value) -> api::state::Ap
 
     tokio::task::yield_now().await;
 
-    let (ipc_client, _event_rx) = ipc::IpcClient::connect(&addr.to_string())
+    let (ipc_client, _event_rx) = ipc::IpcClient::connect(&addr.to_string(), TEST_IPC_AUTH_TOKEN)
         .await
         .expect("Connect to test IPC socket");
 
@@ -316,6 +349,7 @@ async fn test_state_with_api_forward_response(
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.into_split();
                     let mut lines = BufReader::new(reader).lines();
+                    accept_test_ipc_auth(&mut lines, &mut writer).await;
                     while let Ok(Some(line)) = lines.next_line().await {
                         let request: Value = serde_json::from_str(&line).unwrap();
                         observed.lock().unwrap().push(request.clone());
@@ -335,7 +369,7 @@ async fn test_state_with_api_forward_response(
     });
 
     tokio::task::yield_now().await;
-    let (ipc_client, _event_rx) = ipc::IpcClient::connect(&addr.to_string())
+    let (ipc_client, _event_rx) = ipc::IpcClient::connect(&addr.to_string(), TEST_IPC_AUTH_TOKEN)
         .await
         .expect("Connect to test IPC socket");
     (
