@@ -31,6 +31,7 @@ from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
 from magi.memory.l3.models import L3Candidate
 from magi.memory.l3.storage.operations import ForgottenSummarySourceEventError
 from magi.memory.l2.episodes.crud import ForgottenEpisodeTimeRangeError
+from magi.memory.l2.models import L2ProjectionLease
 from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
 
 
@@ -2137,7 +2138,23 @@ async def test_entity_forget_promotes_raced_target_lineage_before_cleanup(
         source="chat",
         event_type="UserMessage",
     )
-    assert await memory.l2.complete_projection_jobs([event_id]) == 1
+    claimed = await memory.l2.claim_projection_jobs(
+        consumer_name="forget-race-test",
+        limit=1,
+    )
+    lease = L2ProjectionLease(
+        event_id=event_id,
+        lease_token=str(claimed[0]["lease_token"]),
+        attempt_count=int(claimed[0]["attempt_count"]),
+    )
+    assert (
+        await memory.l2.mark_projection_jobs_running(
+            [lease],
+            consumer_name="forget-race-test",
+        )
+        == 1
+    )
+    assert await memory.l2.complete_projection_jobs([lease]) == 1
     summary = await memory.l3.upsert_candidate(
         candidate=L3Candidate(
             summary_type="thematic",

@@ -8,7 +8,12 @@ from typing import Any, Protocol
 from ....core.logger import get_logger
 from ...event_contracts import MemoryEvent
 from ...l1.event_store import L1EventStore
-from ..models import L2BatchJob, L2PendingBatchBucket, build_l2_batch_bucket_key
+from ..models import (
+    L2BatchJob,
+    L2PendingBatchBucket,
+    L2ProjectionLease,
+    build_l2_batch_bucket_key,
+)
 from ..store import L2CognitionStore
 
 logger = get_logger(__name__)
@@ -17,7 +22,7 @@ logger = get_logger(__name__)
 @dataclass
 class _ProjectionBatchBuildState:
     jobs: list[L2BatchJob] = field(default_factory=list)
-    missing_event_ids: list[str] = field(default_factory=list)
+    missing_leases: list[L2ProjectionLease] = field(default_factory=list)
     buckets: dict[str, L2PendingBatchBucket] = field(default_factory=dict)
 
 
@@ -80,16 +85,16 @@ class L2PipelineProjectionMixin:
                 str(item.get("event_id", "")),
             ),
         )
-        jobs, missing_event_ids = await self._build_extract_jobs_from_projection_rows(claimed_rows)
-        if missing_event_ids:
+        jobs, missing_leases = await self._build_extract_jobs_from_projection_rows(claimed_rows)
+        if missing_leases:
             await host._cognition_store.fail_projection_jobs(
-                missing_event_ids,
+                missing_leases,
                 error_text="l1_event_not_found",
                 requeue=False,
             )
             logger.warning(
                 "L2 projection jobs referenced missing L1 events",
-                event_ids=missing_event_ids,
+                event_ids=[lease.event_id for lease in missing_leases],
             )
 
         for job in jobs:
@@ -99,7 +104,7 @@ class L2PipelineProjectionMixin:
     async def _build_extract_jobs_from_projection_rows(
         self,
         rows: list[dict[str, Any]],
-    ) -> tuple[list[L2BatchJob], list[str]]:
+    ) -> tuple[list[L2BatchJob], list[L2ProjectionLease]]:
         host = self._projection_host()
         state = _ProjectionBatchBuildState()
 
@@ -113,12 +118,12 @@ class L2PipelineProjectionMixin:
                 else None
             )
             if event is None:
-                state.missing_event_ids.append(event_id)
+                state.missing_leases.append(_projection_lease(row))
                 continue
             self._add_projection_event_to_batch_state(state, row=row, event=event)
 
         self._flush_remaining_projection_buckets(state)
-        return state.jobs, state.missing_event_ids
+        return state.jobs, state.missing_leases
 
     def _add_projection_event_to_batch_state(
         self,
@@ -136,7 +141,7 @@ class L2PipelineProjectionMixin:
             owner_key=normalized_owner_key,
         )
         if bucket_key is None:
-            state.jobs.append(self._build_direct_projection_job(event))
+            state.jobs.append(self._build_direct_projection_job(event, row=row))
             return
 
         bucket = state.buckets.get(bucket_key)
@@ -154,6 +159,7 @@ class L2PipelineProjectionMixin:
             estimated_tokens=host._estimate_event_tokens(event.content),
             max_events=max_events,
             max_estimated_tokens=max_estimated_tokens,
+            projection_lease=_projection_lease(row),
         )
         flush_reason = host._flush_reason_for_bucket(bucket)
         if flush_reason is None:
@@ -161,7 +167,12 @@ class L2PipelineProjectionMixin:
         state.jobs.append(self._build_projection_bucket_job(bucket, flush_reason=flush_reason))
         state.buckets.pop(bucket_key, None)
 
-    def _build_direct_projection_job(self, event: MemoryEvent) -> L2BatchJob:
+    def _build_direct_projection_job(
+        self,
+        event: MemoryEvent,
+        *,
+        row: dict[str, Any],
+    ) -> L2BatchJob:
         host = self._projection_host()
         job = L2BatchJob(
             job_id=f"projection:{event.event_id}",
@@ -171,6 +182,7 @@ class L2PipelineProjectionMixin:
             estimated_tokens=host._estimate_event_tokens(event.content),
             session_id=event.session_id,
             user_id=event.user_id,
+            projection_leases=[_projection_lease(row)],
         )
         host._record_batch_flush(job, flush_reason=job.flush_reason)
         return job
@@ -207,6 +219,14 @@ def _projection_owner_key(row: dict[str, Any], event: MemoryEvent) -> str | None
     if owner_key is None:
         owner_key = row.get("batch_owner")
     return str(owner_key) if owner_key is not None else None
+
+
+def _projection_lease(row: dict[str, Any]) -> L2ProjectionLease:
+    return L2ProjectionLease(
+        event_id=str(row.get("event_id") or ""),
+        lease_token=str(row.get("lease_token") or ""),
+        attempt_count=int(row.get("attempt_count") or 0),
+    )
 
 
 __all__ = ["L2PipelineProjectionMixin"]

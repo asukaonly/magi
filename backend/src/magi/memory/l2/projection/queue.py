@@ -7,17 +7,20 @@ pending → queued → running → completed/failed.
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List
+from collections.abc import Iterable
+from typing import Any, Dict
 
 import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
 from .claiming import ProjectionQueueClaimingMixin
-from .governance import active_projection_event_predicate
+from ..batch_models import L2ProjectionLease
+from .governance import active_projection_event_predicate, ready_projection_job_predicate
 
 DEFAULT_L2_CATCH_UP_PENDING_THRESHOLD = 300
 DEFAULT_L2_STEADY_STATE_MAX_WAIT_SECONDS = 45.0
+DEFAULT_L2_PROJECTION_MAX_ATTEMPTS = 5
 
 logger = get_logger(__name__)
 
@@ -79,6 +82,11 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                     max_wait_seconds,
                     status,
                     attempt_count,
+                    lease_token,
+                    lease_heartbeat_at,
+                    next_retry_at,
+                    max_attempts,
+                    terminal_at,
                     claimed_by,
                     claimed_at,
                     started_at,
@@ -88,7 +96,8 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                     updated_at
                 )
                 SELECT ?, ?, ?, ?, ?, ?, ?, ?,
-                       'pending', 0, NULL, NULL, NULL, NULL, NULL, ?, ?
+                       'pending', 0, NULL, NULL, NULL, ?, NULL,
+                       NULL, NULL, NULL, NULL, NULL, ?, ?
                 WHERE {active_projection_event_predicate('?')}
                 """,
                 (
@@ -100,6 +109,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                     max_events,
                     min_ready_events,
                     max_wait_seconds,
+                    DEFAULT_L2_PROJECTION_MAX_ATTEMPTS,
                     now,
                     now,
                     normalized_event_id,
@@ -123,6 +133,11 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                 f"""
                 UPDATE l2_projection_jobs
                 SET status = 'queued',
+                    attempt_count = attempt_count + 1,
+                    lease_token = lower(hex(randomblob(16))),
+                    lease_heartbeat_at = NULL,
+                    next_retry_at = NULL,
+                    terminal_at = NULL,
                     claimed_by = ?,
                     claimed_at = ?,
                     started_at = NULL,
@@ -130,7 +145,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                 WHERE event_id IN (
                     SELECT event_id
                     FROM l2_projection_jobs AS jobs
-                    WHERE jobs.status = 'pending'
+                    WHERE {ready_projection_job_predicate('jobs')}
                       AND {active_projection_event_predicate('jobs.event_id')}
                     ORDER BY created_at ASC
                     LIMIT ?
@@ -150,68 +165,68 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
 
     async def mark_running(
         self,
-        event_ids: List[str],
+        leases: Iterable[L2ProjectionLease],
         *,
         consumer_name: str,
     ) -> int:
         """Mark a complete claimed batch running, or requeue its active rows."""
-        normalized_event_ids = list(
-            dict.fromkeys(str(event_id).strip() for event_id in event_ids if str(event_id).strip())
-        )
-        if not normalized_event_ids:
+        normalized_leases = _normalized_leases(leases)
+        if not normalized_leases:
             return 0
-        placeholders = ", ".join("?" for _ in normalized_event_ids)
         now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
-                async with db.execute(
-                    f"""
-                    SELECT COUNT(*)
-                    FROM l2_projection_jobs AS jobs
-                    WHERE jobs.event_id IN ({placeholders})
-                      AND jobs.status = 'queued'
-                      AND jobs.claimed_by = ?
-                      AND {active_projection_event_predicate('jobs.event_id')}
-                    """,
-                    (*normalized_event_ids, consumer_name),
-                ) as cursor:
-                    row = await cursor.fetchone()
-                ready_count = int(row[0]) if row is not None else 0
-                if ready_count != len(normalized_event_ids):
-                    await db.execute(
+                for lease in normalized_leases:
+                    async with db.execute(
+                        f"""
+                        SELECT 1 FROM l2_projection_jobs AS jobs
+                        WHERE jobs.event_id = ? AND jobs.status = 'queued'
+                          AND jobs.claimed_by = ? AND jobs.lease_token = ?
+                          AND jobs.attempt_count = ?
+                          AND {active_projection_event_predicate('jobs.event_id')}
+                        """,
+                        (
+                            lease.event_id,
+                            consumer_name,
+                            lease.lease_token,
+                            lease.attempt_count,
+                        ),
+                    ) as cursor:
+                        if await cursor.fetchone() is None:
+                            await self._release_queued_attempts(
+                                db,
+                                leases=normalized_leases,
+                                consumer_name=consumer_name,
+                                now=now,
+                            )
+                            await db.commit()
+                            return 0
+
+                transitioned = 0
+                for lease in normalized_leases:
+                    cursor = await db.execute(
                         f"""
                         UPDATE l2_projection_jobs
-                        SET status = 'pending',
-                            claimed_by = NULL,
-                            claimed_at = NULL,
-                            started_at = NULL,
-                            updated_at = ?
-                        WHERE event_id IN ({placeholders})
-                          AND status = 'queued'
-                          AND claimed_by = ?
+                        SET status = 'running', started_at = ?,
+                            lease_heartbeat_at = ?, updated_at = ?
+                        WHERE event_id = ? AND status = 'queued'
+                          AND claimed_by = ? AND lease_token = ?
+                          AND attempt_count = ?
                           AND {active_projection_event_predicate('l2_projection_jobs.event_id')}
                         """,
-                        (now, *normalized_event_ids, consumer_name),
+                        (
+                            now,
+                            now,
+                            now,
+                            lease.event_id,
+                            consumer_name,
+                            lease.lease_token,
+                            lease.attempt_count,
+                        ),
                     )
-                    await db.commit()
-                    return 0
-
-                cursor = await db.execute(
-                    f"""
-                    UPDATE l2_projection_jobs
-                    SET status = 'running',
-                        started_at = ?,
-                        updated_at = ?
-                    WHERE event_id IN ({placeholders})
-                      AND status = 'queued'
-                      AND claimed_by = ?
-                      AND {active_projection_event_predicate('l2_projection_jobs.event_id')}
-                    """,
-                    (now, now, *normalized_event_ids, consumer_name),
-                )
-                transitioned = int(cursor.rowcount or 0)
-                if transitioned != len(normalized_event_ids):
+                    transitioned += max(int(cursor.rowcount or 0), 0)
+                if transitioned != len(normalized_leases):
                     await db.rollback()
                     return 0
                 await db.commit()
@@ -220,31 +235,75 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                 await db.rollback()
                 raise
 
-    async def complete(self, event_ids: List[str]) -> int:
-        """Mark projection jobs as completed."""
-        return await self._update_status(
-            event_ids=event_ids,
-            status="completed",
-            clear_claim=True,
-            completed_at=time.time(),
-        )
+    async def complete(self, leases: Iterable[L2ProjectionLease]) -> int:
+        """Complete only the running attempts that still own their leases."""
+
+        return await self._finish_attempts(leases, completed=True)
+
+    async def touch_running(self, leases: Iterable[L2ProjectionLease]) -> int:
+        """Refresh a complete running lease set, or fence the whole batch out."""
+
+        normalized_leases = _normalized_leases(leases)
+        if not normalized_leases:
+            return 0
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                for lease in normalized_leases:
+                    async with db.execute(
+                        f"""
+                        SELECT 1 FROM l2_projection_jobs AS jobs
+                        WHERE jobs.event_id = ? AND jobs.status = 'running'
+                          AND jobs.lease_token = ? AND jobs.attempt_count = ?
+                          AND {active_projection_event_predicate('jobs.event_id')}
+                        """,
+                        (lease.event_id, lease.lease_token, lease.attempt_count),
+                    ) as cursor:
+                        if await cursor.fetchone() is None:
+                            await db.rollback()
+                            return 0
+                transitioned = 0
+                for lease in normalized_leases:
+                    cursor = await db.execute(
+                        """
+                        UPDATE l2_projection_jobs
+                        SET lease_heartbeat_at = ?, updated_at = ?
+                        WHERE event_id = ? AND status = 'running'
+                          AND lease_token = ? AND attempt_count = ?
+                        """,
+                        (
+                            now,
+                            now,
+                            lease.event_id,
+                            lease.lease_token,
+                            lease.attempt_count,
+                        ),
+                    )
+                    transitioned += max(int(cursor.rowcount or 0), 0)
+                if transitioned != len(normalized_leases):
+                    await db.rollback()
+                    return 0
+                await db.commit()
+                return transitioned
+            except BaseException:
+                await db.rollback()
+                raise
 
     async def fail(
         self,
-        event_ids: List[str],
+        leases: Iterable[L2ProjectionLease],
         *,
         error_text: str | None = None,
         requeue: bool,
     ) -> int:
-        """Mark projection jobs as failed or return them to pending."""
-        next_status = "pending" if requeue else "failed"
-        return await self._update_status(
-            event_ids=event_ids,
-            status=next_status,
-            clear_claim=True,
-            completed_at=None,
+        """Fail only attempts that still own their queued/running leases."""
+
+        return await self._finish_attempts(
+            leases,
+            completed=False,
             error_text=error_text,
-            increment_attempt_count=True,
+            requeue=requeue,
         )
 
     async def requeue_stale(
@@ -258,32 +317,57 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
         queued_cutoff = now - float(queued_timeout_seconds)
         running_cutoff = now - float(running_timeout_seconds)
         async with sqlite_connection_async(self.db_path) as db:
-            cursor = await db.execute(
-                f"""
-                UPDATE l2_projection_jobs
-                SET status = 'pending',
-                    attempt_count = attempt_count + 1,
-                    claimed_by = NULL,
-                    claimed_at = NULL,
-                    started_at = NULL,
-                    updated_at = ?
-                WHERE (
-                    (
-                        status = 'queued'
-                        AND claimed_at IS NOT NULL
-                        AND claimed_at < ?
-                    ) OR (
-                        status = 'running'
-                        AND started_at IS NOT NULL
-                        AND started_at < ?
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    f"""
+                    SELECT event_id, attempt_count, max_attempts
+                    FROM l2_projection_jobs
+                    WHERE (
+                        (status = 'queued' AND claimed_at IS NOT NULL AND claimed_at < ?)
+                        OR
+                        (
+                            status = 'running'
+                            AND COALESCE(lease_heartbeat_at, started_at) IS NOT NULL
+                            AND COALESCE(lease_heartbeat_at, started_at) < ?
+                        )
                     )
-                )
-                AND {active_projection_event_predicate('l2_projection_jobs.event_id')}
-                """,
-                (now, queued_cutoff, running_cutoff),
-            )
-            await db.commit()
-        return int(cursor.rowcount or 0)
+                    AND {active_projection_event_predicate('l2_projection_jobs.event_id')}
+                    """,
+                    (queued_cutoff, running_cutoff),
+                ) as cursor:
+                    stale_rows = await cursor.fetchall()
+                transitioned = 0
+                for row in stale_rows:
+                    attempt_count = int(row["attempt_count"] or 0)
+                    terminal = attempt_count >= int(row["max_attempts"] or 1)
+                    cursor = await db.execute(
+                        """
+                        UPDATE l2_projection_jobs
+                        SET status = ?, lease_token = NULL, lease_heartbeat_at = NULL,
+                            claimed_by = NULL,
+                            claimed_at = NULL, started_at = NULL,
+                            next_retry_at = ?, terminal_at = ?,
+                            last_error = 'projection_attempt_stale', updated_at = ?
+                        WHERE event_id = ? AND status IN ('queued', 'running')
+                          AND attempt_count = ?
+                        """,
+                        (
+                            "failed" if terminal else "pending",
+                            None if terminal else now + _retry_delay_seconds(attempt_count),
+                            now if terminal else None,
+                            now,
+                            str(row["event_id"]),
+                            attempt_count,
+                        ),
+                    )
+                    transitioned += max(int(cursor.rowcount or 0), 0)
+                await db.commit()
+                return transitioned
+            except BaseException:
+                await db.rollback()
+                raise
 
     async def get_backlog_stats(self, *, source_filter: str | None = None) -> Dict[str, int]:
         """Return counts for durable projection jobs by status."""
@@ -312,48 +396,97 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
     # Private helpers
     # ------------------------------------------------------------------
 
-    async def _update_status(
+    async def _finish_attempts(
         self,
+        leases: Iterable[L2ProjectionLease],
         *,
-        event_ids: List[str],
-        status: str,
-        clear_claim: bool,
-        completed_at: float | None,
+        completed: bool,
         error_text: str | None = None,
-        increment_attempt_count: bool = False,
+        requeue: bool = False,
     ) -> int:
-        if not event_ids:
+        normalized_leases = _normalized_leases(leases)
+        if not normalized_leases:
             return 0
-        placeholders = ", ".join("?" for _ in event_ids)
         now = time.time()
-        attempt_clause = "attempt_count = attempt_count + 1," if increment_attempt_count else ""
         async with sqlite_connection_async(self.db_path) as db:
-            cursor = await db.execute(
-                f"""
-                UPDATE l2_projection_jobs
-                SET status = ?,
-                    {attempt_clause}
-                    claimed_by = ?,
-                    claimed_at = ?,
-                    started_at = ?,
-                    completed_at = ?,
-                    last_error = ?,
-                    updated_at = ?
-                WHERE event_id IN ({placeholders})
-                """,
-                (
-                    status,
-                    None if clear_claim else "runtime_worker",
-                    None if clear_claim else now,
-                    None if clear_claim else now,
-                    completed_at,
-                    error_text,
-                    now,
-                    *event_ids,
-                ),
-            )
-            await db.commit()
-        return int(cursor.rowcount or 0)
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                allowed_statuses = ("running",) if completed else ("queued", "running")
+                status_placeholders = ", ".join("?" for _ in allowed_statuses)
+                max_attempts_by_event: dict[str, int] = {}
+                for lease in normalized_leases:
+                    async with db.execute(
+                        f"""
+                        SELECT max_attempts FROM l2_projection_jobs
+                        WHERE event_id = ? AND lease_token = ?
+                          AND attempt_count = ? AND status IN ({status_placeholders})
+                        """,
+                        (
+                            lease.event_id,
+                            lease.lease_token,
+                            lease.attempt_count,
+                            *allowed_statuses,
+                        ),
+                    ) as cursor:
+                        row = await cursor.fetchone()
+                    if row is None:
+                        await db.rollback()
+                        return 0
+                    max_attempts_by_event[lease.event_id] = int(row["max_attempts"] or 1)
+                transitioned = 0
+                for lease in normalized_leases:
+                    terminal = (
+                        not completed
+                        and (
+                            not requeue
+                            or lease.attempt_count >= max_attempts_by_event[lease.event_id]
+                        )
+                    )
+                    if completed:
+                        status = "completed"
+                        next_retry_at = None
+                        terminal_at = None
+                        completed_at = now
+                    elif terminal:
+                        status = "failed"
+                        next_retry_at = None
+                        terminal_at = now
+                        completed_at = None
+                    else:
+                        status = "pending"
+                        next_retry_at = now + _retry_delay_seconds(lease.attempt_count)
+                        terminal_at = None
+                        completed_at = None
+                    cursor = await db.execute(
+                        f"""
+                        UPDATE l2_projection_jobs
+                        SET status = ?, lease_token = NULL, lease_heartbeat_at = NULL,
+                            claimed_by = NULL,
+                            claimed_at = NULL, started_at = NULL, completed_at = ?,
+                            next_retry_at = ?, terminal_at = ?, last_error = ?, updated_at = ?
+                        WHERE event_id = ? AND lease_token = ? AND attempt_count = ?
+                          AND status IN ({status_placeholders})
+                        """,
+                        (
+                            status,
+                            completed_at,
+                            next_retry_at,
+                            terminal_at,
+                            None if completed else error_text,
+                            now,
+                            lease.event_id,
+                            lease.lease_token,
+                            lease.attempt_count,
+                            *allowed_statuses,
+                        ),
+                    )
+                    transitioned += max(int(cursor.rowcount or 0), 0)
+                await db.commit()
+                return transitioned
+            except BaseException:
+                await db.rollback()
+                raise
 
     @staticmethod
     async def _count_by_status(
@@ -390,6 +523,19 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
             ),
             "status": str(row["status"]),
             "attempt_count": int(row["attempt_count"] or 0),
+            "lease_token": row["lease_token"],
+            "lease_heartbeat_at": (
+                float(row["lease_heartbeat_at"])
+                if row["lease_heartbeat_at"] is not None
+                else None
+            ),
+            "next_retry_at": (
+                float(row["next_retry_at"]) if row["next_retry_at"] is not None else None
+            ),
+            "max_attempts": int(row["max_attempts"] or DEFAULT_L2_PROJECTION_MAX_ATTEMPTS),
+            "terminal_at": (
+                float(row["terminal_at"]) if row["terminal_at"] is not None else None
+            ),
             "claimed_by": row["claimed_by"],
             "claimed_at": float(row["claimed_at"]) if row["claimed_at"] is not None else None,
             "started_at": float(row["started_at"]) if row["started_at"] is not None else None,
@@ -398,3 +544,68 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }
+
+    @staticmethod
+    async def _release_queued_attempts(
+        db: aiosqlite.Connection,
+        *,
+        leases: list[L2ProjectionLease],
+        consumer_name: str,
+        now: float,
+    ) -> int:
+        """Release still-owned queued rows when a batch cannot start atomically."""
+
+        released = 0
+        for lease in leases:
+            cursor = await db.execute(
+                """
+                UPDATE l2_projection_jobs
+                SET status = CASE
+                        WHEN attempt_count >= max_attempts THEN 'failed'
+                        ELSE 'pending'
+                    END,
+                    lease_token = NULL,
+                    lease_heartbeat_at = NULL, claimed_by = NULL,
+                    claimed_at = NULL, started_at = NULL,
+                    next_retry_at = NULL,
+                    terminal_at = CASE
+                        WHEN attempt_count >= max_attempts THEN ?
+                        ELSE NULL
+                    END,
+                    last_error = CASE
+                        WHEN attempt_count >= max_attempts
+                            THEN 'projection_attempt_budget_exhausted_before_start'
+                        ELSE last_error
+                    END,
+                    updated_at = ?
+                WHERE event_id = ? AND status = 'queued'
+                  AND claimed_by = ? AND lease_token = ? AND attempt_count = ?
+                """,
+                (
+                    now,
+                    now,
+                    lease.event_id,
+                    consumer_name,
+                    lease.lease_token,
+                    lease.attempt_count,
+                ),
+            )
+            released += max(int(cursor.rowcount or 0), 0)
+        return released
+
+
+def _normalized_leases(leases: Iterable[L2ProjectionLease]) -> list[L2ProjectionLease]:
+    normalized: list[L2ProjectionLease] = []
+    seen: set[str] = set()
+    for lease in leases:
+        if not isinstance(lease, L2ProjectionLease):
+            raise TypeError("projection lease must be an L2ProjectionLease")
+        if lease.event_id in seen:
+            raise ValueError("projection leases must contain unique event IDs")
+        seen.add(lease.event_id)
+        normalized.append(lease)
+    return normalized
+
+
+def _retry_delay_seconds(attempt_count: int) -> float:
+    return min(300.0, 2.0 ** max(0, int(attempt_count) - 1))

@@ -10,7 +10,7 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ..batching_policy import BatchingPolicy, BucketState, decide_flush
-from .governance import active_projection_event_predicate
+from .governance import active_projection_event_predicate, ready_projection_job_predicate
 
 
 class _ProjectionQueueClaimingHostProtocol(Protocol):
@@ -151,6 +151,7 @@ class ProjectionQueueClaimingMixin:
 
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
             pending_total = await host._count_by_status(db, "pending")
             claim_mode = self._claim_mode(pending_total, projection_queue_module)
             selected_event_ids, effective_owner_by_event_id = await self._select_ready_event_ids(
@@ -161,6 +162,7 @@ class ProjectionQueueClaimingMixin:
                 projection_queue_module=projection_queue_module,
             )
             if not selected_event_ids:
+                await db.commit()
                 return []
             claimed_rows = await self._claim_selected_rows(
                 db,
@@ -297,7 +299,7 @@ class ProjectionQueueClaimingMixin:
             f"""
             SELECT event_id
             FROM l2_projection_jobs AS jobs
-            WHERE jobs.status = 'pending'
+            WHERE {ready_projection_job_predicate('jobs')}
               AND (jobs.batch_owner IS NULL OR jobs.batch_owner = '')
               AND {active_projection_event_predicate('jobs.event_id')}
             ORDER BY created_at ASC
@@ -325,7 +327,7 @@ class ProjectionQueueClaimingMixin:
                 MIN(CASE WHEN min_ready_events IS NOT NULL AND min_ready_events > 0 THEN min_ready_events END) AS bucket_min_ready_events,
                 MIN(CASE WHEN max_wait_seconds IS NOT NULL AND max_wait_seconds > 0 THEN max_wait_seconds END) AS bucket_max_wait_seconds
             FROM l2_projection_jobs AS jobs
-            WHERE jobs.status = 'pending'
+            WHERE {ready_projection_job_predicate('jobs')}
               AND jobs.batch_owner IS NOT NULL
               AND jobs.batch_owner != ''
               AND {active_projection_event_predicate('jobs.event_id')}
@@ -351,7 +353,7 @@ class ProjectionQueueClaimingMixin:
             f"""
             SELECT event_id
             FROM l2_projection_jobs AS jobs
-            WHERE jobs.status = 'pending'
+            WHERE {ready_projection_job_predicate('jobs')}
               AND jobs.batch_owner = ?
               AND {active_projection_event_predicate('jobs.event_id')}
             ORDER BY created_at ASC
@@ -454,7 +456,7 @@ class ProjectionQueueClaimingMixin:
             f"""
             SELECT event_id
             FROM l2_projection_jobs AS jobs
-            WHERE jobs.status = 'pending'
+            WHERE {ready_projection_job_predicate('jobs')}
               AND jobs.batch_owner IN ({placeholders})
               AND {active_projection_event_predicate('jobs.event_id')}
             ORDER BY created_at ASC
@@ -478,12 +480,17 @@ class ProjectionQueueClaimingMixin:
             f"""
             UPDATE l2_projection_jobs
             SET status = 'queued',
+                attempt_count = attempt_count + 1,
+                lease_token = lower(hex(randomblob(16))),
+                lease_heartbeat_at = NULL,
+                next_retry_at = NULL,
+                terminal_at = NULL,
                 claimed_by = ?,
                 claimed_at = ?,
                 started_at = NULL,
                 updated_at = ?
             WHERE event_id IN ({placeholders})
-              AND status = 'pending'
+              AND {ready_projection_job_predicate('l2_projection_jobs')}
               AND {active_projection_event_predicate('l2_projection_jobs.event_id')}
             """,
             (consumer_name, now, now, *selected_event_ids),

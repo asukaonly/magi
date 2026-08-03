@@ -6,7 +6,7 @@ from typing import AsyncIterator
 
 import pytest
 
-from magi.memory.l2.models import L2BatchJob
+from magi.memory.l2.models import L2BatchJob, L2ProjectionLease
 from magi.memory.l2.pipeline import L2Pipeline
 
 
@@ -20,18 +20,24 @@ class _RecordingCognitionStore:
     async def memory_correction_job_guard(self) -> AsyncIterator[None]:
         yield
 
-    async def mark_projection_jobs_running(self, event_ids, *, consumer_name: str) -> int:  # type: ignore[no-untyped-def]
-        ids = list(event_ids)
-        self.running_calls.append((ids, consumer_name))
-        return len(ids)
-
-    async def complete_projection_jobs(self, event_ids):  # type: ignore[no-untyped-def]
-        self.completed_calls.append(list(event_ids))
+    async def mark_projection_jobs_running(self, leases, *, consumer_name: str) -> int:  # type: ignore[no-untyped-def]
+        event_ids = [lease.event_id for lease in leases]
+        self.running_calls.append((event_ids, consumer_name))
         return len(event_ids)
 
-    async def fail_projection_jobs(self, event_ids, *, error_text: str | None = None, requeue: bool):  # type: ignore[no-untyped-def]
-        self.failed_calls.append((list(event_ids), error_text, requeue))
+    async def complete_projection_jobs(self, leases):  # type: ignore[no-untyped-def]
+        event_ids = [lease.event_id for lease in leases]
+        self.completed_calls.append(event_ids)
         return len(event_ids)
+
+    async def fail_projection_jobs(self, leases, *, error_text: str | None = None, requeue: bool):  # type: ignore[no-untyped-def]
+        event_ids = [lease.event_id for lease in leases]
+        self.failed_calls.append((event_ids, error_text, requeue))
+        return len(event_ids)
+
+
+def _lease(event_id: str) -> L2ProjectionLease:
+    return L2ProjectionLease(event_id=event_id, lease_token=f"lease:{event_id}", attempt_count=1)
 
 
 @pytest.mark.asyncio
@@ -65,6 +71,7 @@ async def test_extract_worker_marks_projection_jobs_running_before_completion():
         estimated_tokens=4,
         session_id=None,
         user_id=None,
+        projection_leases=[_lease("evt-proj-1")],
     )
 
     await pipeline._extract_queue.put(job)
@@ -83,8 +90,8 @@ async def test_extract_worker_marks_projection_jobs_running_before_completion():
 class _ZombieSkipCognitionStore(_RecordingCognitionStore):
     """Returns 0 from mark_projection_jobs_running to simulate a stale batch."""
 
-    async def mark_projection_jobs_running(self, event_ids, *, consumer_name: str) -> int:  # type: ignore[no-untyped-def]
-        ids = list(event_ids)
+    async def mark_projection_jobs_running(self, leases, *, consumer_name: str) -> int:  # type: ignore[no-untyped-def]
+        ids = [lease.event_id for lease in leases]
         self.running_calls.append((ids, consumer_name))
         return 0  # Simulates all events already completed/not-queued
 
@@ -117,6 +124,7 @@ async def test_extract_worker_skips_stale_batch_when_no_rows_transitioned():
         estimated_tokens=2,
         session_id=None,
         user_id=None,
+        projection_leases=[_lease("evt-zombie-1")],
     )
 
     await pipeline._extract_queue.put(job)
@@ -158,6 +166,7 @@ async def test_extract_worker_fails_invalid_model_output_instead_of_looping():
         estimated_tokens=2,
         session_id=None,
         user_id=None,
+        projection_leases=[_lease("evt-invalid-json")],
     )
 
     await pipeline._extract_queue.put(job)

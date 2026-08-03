@@ -88,8 +88,12 @@ class L2PipelineWorkerMixin:
             if not should_process:
                 return
             result = await host._extract_and_persist(job)
-            if job.event_ids and host._cognition_store is not None:
-                await host._cognition_store.complete_projection_jobs(job.event_ids)
+            if job.projection_leases and host._cognition_store is not None:
+                completed = await host._cognition_store.complete_projection_jobs(
+                    job.projection_leases
+                )
+                if completed != len(job.projection_leases):
+                    raise RuntimeError("projection_attempt_fenced_before_completion")
             await self._finish_extract_job(job, result)
         except Exception as exc:
             await self._fail_extract_job(job, exc)
@@ -108,9 +112,17 @@ class L2PipelineWorkerMixin:
         )
         if not job.event_ids or host._cognition_store is None:
             return True
+        if not job.projection_leases:
+            host._stats.extract_skipped += 1
+            logger.warning(
+                "L2 extract skipped without a durable projection lease",
+                job_id=job.job_id,
+                event_ids=job.event_ids,
+            )
+            return False
 
         transitioned = await host._cognition_store.mark_projection_jobs_running(
-            job.event_ids,
+            job.projection_leases,
             consumer_name=host._projection_consumer_name,
         )
         if transitioned != 0:
@@ -236,9 +248,9 @@ class L2PipelineWorkerMixin:
 
     async def _fail_extract_job(self, job: L2BatchJob, exc: Exception) -> None:
         host = self._worker_host()
-        if host._cognition_store is not None and job.event_ids:
+        if host._cognition_store is not None and job.projection_leases:
             await host._cognition_store.fail_projection_jobs(
-                job.event_ids,
+                job.projection_leases,
                 error_text=str(exc),
                 requeue=not isinstance(exc, L2LLMJsonError),
             )

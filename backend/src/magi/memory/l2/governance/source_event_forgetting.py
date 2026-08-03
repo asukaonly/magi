@@ -695,7 +695,9 @@ async def _complete_forgotten_projection_jobs(
     cursor = await db.execute(
         """
         UPDATE l2_projection_jobs
-        SET status = 'completed', claimed_by = NULL, claimed_at = NULL,
+        SET status = 'completed', lease_token = NULL, lease_heartbeat_at = NULL,
+            next_retry_at = NULL, terminal_at = NULL,
+            claimed_by = NULL, claimed_at = NULL,
             started_at = NULL, completed_at = ?,
             last_error = 'source_event_forgotten', updated_at = ?
         WHERE event_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))

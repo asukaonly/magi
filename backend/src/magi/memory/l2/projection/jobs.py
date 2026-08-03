@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from collections.abc import Iterable
+from typing import Any, Dict
 
+from ..batch_models import L2ProjectionLease
 from .queue import ProjectionJobQueue
 
 
@@ -73,39 +75,54 @@ class L2ProjectionJobStoreMixin:
 
     async def mark_projection_jobs_running(
         self,
-        event_ids: List[str],
+        leases: Iterable[L2ProjectionLease],
         *,
         consumer_name: str,
     ) -> int:
         """Mark queued projection jobs as actively running."""
-        if not event_ids:
+        normalized = tuple(leases)
+        if not normalized:
             return 0
         await self.initialize()
         return await self._projection_queue.mark_running(
-            event_ids=event_ids,
+            leases=normalized,
             consumer_name=consumer_name,
         )
 
-    async def complete_projection_jobs(self, event_ids: List[str]) -> int:
-        """Mark projection jobs as completed."""
-        if not event_ids:
+    async def complete_projection_jobs(self, leases: Iterable[L2ProjectionLease]) -> int:
+        """Complete only projection attempts that still own their leases."""
+        normalized = tuple(leases)
+        if not normalized:
             return 0
         await self.initialize()
-        return await self._projection_queue.complete(event_ids=event_ids)
+        return await self._projection_queue.complete(leases=normalized)
+
+    async def touch_running_projection_jobs(
+        self,
+        leases: Iterable[L2ProjectionLease],
+    ) -> int:
+        """Refresh a running projection lease set before a persistence boundary."""
+
+        normalized = tuple(leases)
+        if not normalized:
+            return 0
+        await self.initialize()
+        return await self._projection_queue.touch_running(leases=normalized)
 
     async def fail_projection_jobs(
         self,
-        event_ids: List[str],
+        leases: Iterable[L2ProjectionLease],
         *,
         error_text: str | None = None,
         requeue: bool,
     ) -> int:
         """Mark projection jobs as failed or return them to pending."""
-        if not event_ids:
+        normalized = tuple(leases)
+        if not normalized:
             return 0
         await self.initialize()
         return await self._projection_queue.fail(
-            event_ids=event_ids,
+            leases=normalized,
             error_text=error_text,
             requeue=requeue,
         )

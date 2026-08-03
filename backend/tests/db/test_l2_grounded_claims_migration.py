@@ -11,8 +11,8 @@ from magi.db.migrations.memory_shared.versions.v38_l2_grounded_claims import (
 )
 
 
-def test_grounded_claim_migration_is_release_head() -> None:
-    assert MEMORY_SHARED_MIGRATIONS[-1] == "v38_l2_grounded_claims.py"
+def test_grounded_claim_migration_precedes_release_head() -> None:
+    assert MEMORY_SHARED_MIGRATIONS[-2] == "v38_l2_grounded_claims.py"
     assert revision == "v38_l2_grounded_claims"
 
 
