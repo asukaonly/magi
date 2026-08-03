@@ -34,7 +34,6 @@ _ROUTED_PREDICATES = frozenset(
         "INTERESTED_IN",
         "LIKES",
         "FEELS",
-        "HAS_METRIC",
         "MAINTAINS",
         "PLANS_TO",
         "PREFERRED_COMMUNICATION_STYLE",
@@ -44,6 +43,7 @@ _ROUTED_PREDICATES = frozenset(
         "WORKS_ON",
     }
 )
+_UNROUTED_PREDICATES = frozenset({"HAS_METRIC"})
 _DEFERRED_PREDICATES = frozenset(
     {
         "ATTENDED",
@@ -138,6 +138,7 @@ def _route_input(predicate: str, **overrides: object) -> SemanticRouteInput:
 def test_route_disposition_table_exhausts_catalog_and_profile_signals() -> None:
     expected = {
         **dict.fromkeys(_ROUTED_PREDICATES, RouteDisposition.ROUTED),
+        **dict.fromkeys(_UNROUTED_PREDICATES, RouteDisposition.UNROUTED),
         **dict.fromkeys(_DEFERRED_PREDICATES, RouteDisposition.DEFERRED),
         **dict.fromkeys(
             _NOT_APPLICABLE_PREDICATES,
@@ -155,6 +156,34 @@ def test_route_disposition_table_exhausts_catalog_and_profile_signals() -> None:
         decision = derive_semantic_route(_route_input(predicate))
         assert decision.disposition is disposition, predicate
         assert decision.can_project_assertion is (disposition is RouteDisposition.ROUTED), predicate
+
+
+def test_metric_route_waits_for_a_host_typed_value_contract() -> None:
+    first = derive_semantic_route(_route_input("HAS_METRIC", object_value="stress"))
+    second = derive_semantic_route(_route_input("HAS_METRIC", object_value="engagement"))
+
+    for decision in (first, second):
+        assert decision.disposition is RouteDisposition.UNROUTED
+        assert decision.reason_code == "typed_metric_contract_required"
+        assert decision.object_role is semantic_routing.ObjectRole.STRUCTURED_TARGET_AND_VALUE
+        assert decision.slot_key is None
+        assert decision.value_fingerprint is None
+
+
+@pytest.mark.parametrize("value", ["2020-02-29", "02-29", "1997-04-03"])
+def test_birth_date_accepts_real_calendar_dates(value: str) -> None:
+    decision = derive_semantic_route(_route_input("BIRTH_DATE", object_value=value))
+
+    assert decision.disposition is RouteDisposition.ROUTED
+    assert decision.canonical_value == value
+
+
+@pytest.mark.parametrize("value", ["2021-02-29", "2020-02-31", "04-31", "13-01"])
+def test_birth_date_rejects_impossible_calendar_dates(value: str) -> None:
+    decision = derive_semantic_route(_route_input("BIRTH_DATE", object_value=value))
+
+    assert decision.disposition is RouteDisposition.UNROUTED
+    assert decision.reason_code == "invalid_typed_value"
 
 
 def test_predicate_catalog_aliases_match_canonicalizer() -> None:

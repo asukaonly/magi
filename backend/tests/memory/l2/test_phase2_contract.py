@@ -1153,17 +1153,10 @@ def test_phase2_keeps_mood_session_lifetime() -> None:
 
 
 @pytest.mark.parametrize(
-    ("trait_family", "expected_scope", "expected_ttl"),
-    [
-        ("stress", "daily", 24 * 60 * 60),
-        ("engagement", "session", 12 * 60 * 60),
-    ],
+    "trait_family",
+    ["stress", "engagement"],
 )
-def test_phase2_keeps_other_short_lived_state_lifetimes(
-    trait_family: str,
-    expected_scope: str,
-    expected_ttl: int,
-) -> None:
+def test_phase2_rejects_metrics_without_a_typed_value_contract(trait_family: str) -> None:
     claim_id = f"claim:{trait_family}"
     event_id = f"evt-{trait_family}"
     phase1_result = L2Phase1Result(
@@ -1216,9 +1209,8 @@ def test_phase2_keeps_other_short_lived_state_lifetimes(
         ],
     )
 
-    assert rejected == 0
-    assert prepared[0]["temporal_scope"] == expected_scope
-    assert prepared[0]["expires_at"] == event.timestamp + expected_ttl
+    assert prepared == []
+    assert rejected == 1
 
 
 def test_phase2_assertion_rejects_unknown_claim_reference() -> None:

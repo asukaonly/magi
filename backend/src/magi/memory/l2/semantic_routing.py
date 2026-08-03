@@ -6,6 +6,7 @@ import hashlib
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import date
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -14,7 +15,7 @@ from .claims.identity import canonical_json
 from .ontology import PROFILE_SIGNAL_PREDICATES
 from .predicate_catalog import SPEC_BY_CANONICAL
 
-ROUTE_CONTRACT_VERSION = 2
+ROUTE_CONTRACT_VERSION = 3
 SLOT_SCHEMA_VERSION = 1
 
 
@@ -242,23 +243,6 @@ _GOAL_SPEC = _RouteSpec(
     canonical_value="planned",
 )
 
-_METRIC_SPECS: dict[str, _RouteSpec] = {
-    "stress": _RouteSpec(
-        "state.stress.level",
-        "stress",
-        "stress_level",
-        ObjectRole.STRUCTURED_TARGET_AND_VALUE,
-        frozenset({"explicit_fact"}),
-    ),
-    "engagement": _RouteSpec(
-        "state.engagement.level",
-        "engagement",
-        "engagement",
-        ObjectRole.STRUCTURED_TARGET_AND_VALUE,
-        frozenset({"explicit_fact"}),
-    ),
-}
-
 ROUTE_EXTENSION_PREDICATES = frozenset(
     {"CONTRIBUTES_TO", "DEVELOPS", "FEELS", "MAINTAINS", "WORKS_ON"}
 )
@@ -308,7 +292,7 @@ _ROUTE_DISPOSITION_BY_PREDICATE: dict[str, RouteDisposition] = {
         RouteDisposition.NOT_APPLICABLE,
     ),
     "FEELS": RouteDisposition.ROUTED,
-    "HAS_METRIC": RouteDisposition.ROUTED,
+    "HAS_METRIC": RouteDisposition.UNROUTED,
     "PLANS_TO": RouteDisposition.ROUTED,
 }
 
@@ -349,7 +333,9 @@ def _validate_route_disposition_table() -> None:
 
 _validate_route_disposition_table()
 
-_BIRTH_DATE = re.compile(r"^(?:\d{4}-)?(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$")
+_BIRTH_DATE = re.compile(
+    r"^(?:(?P<year>\d{4})-)?(?P<month>0[1-9]|1[0-2])-(?P<day>0[1-9]|[12]\d|3[01])$"
+)
 
 
 def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecision:
@@ -409,25 +395,11 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
         )
 
     if predicate == "HAS_METRIC":
-        metric_key = (
-            unicodedata.normalize("NFKC", str(route_input.object_value or "")).strip().casefold()
-        )
-        metric_spec = _METRIC_SPECS.get(metric_key)
-        if metric_spec is None:
-            return _non_routed(
-                route_input,
-                disposition=RouteDisposition.UNROUTED,
-                reason_code="unsupported_typed_metric",
-                object_role=ObjectRole.STRUCTURED_TARGET_AND_VALUE,
-            )
-        if fact_kind not in metric_spec.allowed_fact_kinds:
-            return _mismatch(route_input, metric_spec)
-        return _routed(
+        return _non_routed(
             route_input,
-            spec=metric_spec,
-            canonical_value=None,
-            target_entity_id=None,
-            target_entity_type=None,
+            disposition=RouteDisposition.UNROUTED,
+            reason_code="typed_metric_contract_required",
+            object_role=ObjectRole.STRUCTURED_TARGET_AND_VALUE,
         )
 
     if predicate in _DERIVED_RULE_PREDICATES:
@@ -628,7 +600,15 @@ def _canonical_literal(predicate: str, value: Any) -> Any | None:
     if not text:
         return None
     if predicate == "BIRTH_DATE":
-        return text if _BIRTH_DATE.fullmatch(text) else None
+        match = _BIRTH_DATE.fullmatch(text)
+        if match is None:
+            return None
+        year = int(match.group("year") or 2000)
+        try:
+            date(year, int(match.group("month")), int(match.group("day")))
+        except ValueError:
+            return None
+        return text
     if predicate == "BIRTH_YEAR":
         if not text.isdigit():
             return None

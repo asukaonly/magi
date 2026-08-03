@@ -606,9 +606,9 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
                 {
                     "claim_id": "claim:1",
                     "subject_ref": "user:self",
-                    "predicate": "HAS_METRIC",
-                    "object_ref": "stress",
-                    "object_type": "health_metric",
+                    "predicate": "FEELS",
+                    "object_ref": "stressed",
+                    "object_type": "concept",
                     "fact_kind": "explicit_fact",
                     "temporal_cue": "recent",
                     "polarity": "positive",
@@ -628,9 +628,9 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
                 {
                     "entity_ref": "user:u1",
                     "entity_type": "user",
-                    "trait_family": "stress",
-                    "trait_name": "stress_level",
-                    "trait_value": "high",
+                    "trait_family": "mood",
+                    "trait_name": "mood",
+                    "trait_value": "stressed",
                     "natural_summary": "Work has recently felt stressful.",
                     "supporting_claim_ids": ["claim:1"],
                 }
@@ -2427,16 +2427,16 @@ async def test_sensor_events_without_session_do_not_use_user_recent_context():
 @pytest.mark.asyncio
 async def test_extract_worker_persists_llm_tom_assertions():
     responses = [
-        # Phase 1: extract a fact claim about stress
+        # Phase 1: extract a fact claim about the current mood
         json.dumps(
             {
                 "entities": [],
                 "fact_claims": [
                     {
                         "subject_ref": "user:self",
-                        "predicate": "HAS_METRIC",
-                        "object_ref": "stress",
-                        "object_type": "health_metric",
+                        "predicate": "FEELS",
+                        "object_ref": "stressed",
+                        "object_type": "concept",
                         "fact_kind": "explicit_fact",
                         "temporal_cue": "recent",
                         "polarity": "positive",
@@ -2458,9 +2458,9 @@ async def test_extract_worker_persists_llm_tom_assertions():
                     {
                         "entity_ref": "user:u1",
                         "entity_type": "user",
-                        "trait_family": "stress",
-                        "trait_name": "stress_level",
-                        "trait_value": "high",
+                        "trait_family": "mood",
+                        "trait_name": "mood",
+                        "trait_value": "stressed",
                         "natural_summary": "Work has recently felt stressful.",
                         "supporting_claim_ids": ["claim:1"],
                     }
@@ -2504,7 +2504,7 @@ async def test_extract_worker_persists_llm_tom_assertions():
             assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
 
             assert len(assertions) == 1
-            assert assertions[0]["trait_name"] == "stress_level"
+            assert assertions[0]["trait_name"] == "mood"
             # Assertion may already have been reconciled (temporary trait → corroborated)
             assert assertions[0]["validation_state"] in ("tentative", "corroborated")
             assert assertions[0]["confidence_score"] in (0.3, 0.5)
@@ -2667,9 +2667,9 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
                         "fact_claims": [
                             {
                                 "subject_ref": "user:self",
-                                "predicate": "HAS_METRIC",
+                                "predicate": "FEELS",
                                 "object_ref": "calm",
-                                "object_type": "health_metric",
+                                "object_type": "concept",
                                 "fact_kind": "explicit_fact",
                                 "temporal_cue": "recent",
                                 "polarity": "positive",
@@ -3262,16 +3262,16 @@ async def test_assistant_tool_grounded_event_is_skipped_before_llm_extraction():
 async def test_assistant_quote_does_not_add_new_evidence_weight():
     adapter = _FakeAdapter(
         [
-            # Phase 1: extract fact claim about stress
+            # Phase 1: extract a fact claim about the current mood
             json.dumps(
                 {
                     "entities": [],
                     "fact_claims": [
                         {
                             "subject_ref": "user:self",
-                            "predicate": "HAS_METRIC",
-                            "object_ref": "stress",
-                            "object_type": "health_metric",
+                            "predicate": "FEELS",
+                            "object_ref": "stressed",
+                            "object_type": "concept",
                             "fact_kind": "explicit_fact",
                             "temporal_cue": "recent",
                             "polarity": "positive",
@@ -3293,9 +3293,9 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                         {
                             "entity_ref": "user:u1",
                             "entity_type": "user",
-                            "trait_family": "stress",
-                            "trait_name": "stress_level",
-                            "trait_value": "high",
+                            "trait_family": "mood",
+                            "trait_name": "mood",
+                            "trait_value": "stressed",
                             "supporting_claim_ids": ["claim:1"],
                         }
                     ],
