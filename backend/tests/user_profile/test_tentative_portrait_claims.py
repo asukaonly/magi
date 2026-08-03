@@ -932,6 +932,65 @@ async def test_expiry_reveals_remaining_conflicted_value_and_invalidates_cache(
 
 
 @pytest.mark.asyncio
+async def test_forget_reveals_remaining_conflicted_value_and_invalidates_cache(
+    tmp_path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    _seed_claim(
+        db_path,
+        claim_id="claim-forget-retained",
+        event_id="event-forget-retained",
+        predicate="LIKES",
+        object_value="纯音乐",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_forget_conflict",
+        value_fingerprint="val_forget_retained",
+        created_at=100.0,
+    )
+    _seed_claim(
+        db_path,
+        claim_id="claim-forget-removed",
+        event_id="event-forget-removed",
+        predicate="DISLIKES",
+        object_value="纯音乐",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_forget_conflict",
+        value_fingerprint="val_forget_removed",
+        created_at=120.0,
+    )
+    store = _store(
+        db_path,
+        visible_event_ids={"event-forget-retained", "event-forget-removed"},
+    )
+
+    conflicted = await UserPortraitProjectionBuilder(store).build("local_user")
+    assert conflicted.prompt_summary == []
+
+    assert (
+        await store.tombstone_source_events(
+            ["event-forget-removed"],
+            reason="user_request",
+        )
+        == 1
+    )
+    assert await portrait_projection_is_stale(
+        conflicted,
+        user_id="local_user",
+        l2_store=store,
+    )
+    rebuilt = await UserPortraitProjectionBuilder(store).build("local_user")
+    assert rebuilt.prompt_summary == ["用户曾自述：喜欢「纯音乐」（尚未形成长期结论）"]
+    assert not await portrait_projection_is_stale(
+        rebuilt,
+        user_id="local_user",
+        l2_store=store,
+    )
+
+
+@pytest.mark.asyncio
 async def test_future_validity_start_invalidates_empty_tentative_cache(
     tmp_path,
     monkeypatch,
