@@ -11,6 +11,7 @@ import pytest
 from magi.core.sqlite import sqlite_connection_async
 from magi.memory.l2.assertions.occurrence_stats import (
     ClaimRouteValueKey,
+    MAX_FUTURE_CLOCK_SKEW_SECONDS,
     load_routed_claim_occurrence_stats,
     summarize_occurrence_times,
 )
@@ -327,6 +328,24 @@ def test_occurrence_timeline_ignores_nonpositive_and_nonfinite_times() -> None:
 
     assert stats.trusted_event_ids == ("event:valid",)
     assert stats.distinct_days == 1
+
+
+def test_occurrence_timeline_rejects_future_anchors_beyond_clock_skew() -> None:
+    now = 1_900_000_000.0
+    stats = summarize_occurrence_times(
+        [
+            ("event:valid", now - 86_400),
+            ("event:clock-drift", now + MAX_FUTURE_CLOCK_SKEW_SECONDS),
+            ("event:future", now + MAX_FUTURE_CLOCK_SKEW_SECONDS + 1),
+        ],
+        now=now,
+        local_timezone=UTC,
+    )
+
+    assert stats.trusted_event_ids == ("event:valid", "event:clock-drift")
+    assert "event:future" not in stats.trusted_event_ids
+    assert stats.last_observed_at == now + MAX_FUTURE_CLOCK_SKEW_SECONDS
+    assert stats.recency_days == 0.0
 
 
 @pytest.mark.asyncio

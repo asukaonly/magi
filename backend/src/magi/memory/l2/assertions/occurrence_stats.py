@@ -15,6 +15,8 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 
+MAX_FUTURE_CLOCK_SKEW_SECONDS = 5 * 60
+
 
 def _required_text(value: Any, *, field_name: str) -> str:
     text = str(value or "").strip()
@@ -101,13 +103,19 @@ def summarize_occurrence_times(
     """
 
     times_by_event: dict[str, set[float]] = defaultdict(set)
+    resolved_now = float(now)
+    latest_trusted_time = resolved_now + MAX_FUTURE_CLOCK_SKEW_SECONDS
     for raw_event_id, raw_timestamp in event_times:
         event_id = str(raw_event_id or "").strip()
         try:
             timestamp = float(raw_timestamp)
         except (TypeError, ValueError):
             continue
-        if event_id and math.isfinite(timestamp) and timestamp > 0:
+        if (
+            event_id
+            and math.isfinite(timestamp)
+            and 0 < timestamp <= latest_trusted_time
+        ):
             times_by_event[event_id].add(timestamp)
     trusted_times = sorted(
         (
@@ -141,7 +149,7 @@ def summarize_occurrence_times(
         first_observed_at=first_observed_at,
         last_observed_at=last_observed_at,
         span_days=max(0.0, (last_observed_at - first_observed_at) / 86_400),
-        recency_days=max(0.0, (float(now) - last_observed_at) / 86_400),
+        recency_days=max(0.0, (resolved_now - last_observed_at) / 86_400),
     )
 
 
@@ -292,6 +300,7 @@ async def load_routed_claim_occurrence_stats(
 __all__ = [
     "ClaimOccurrenceStats",
     "ClaimRouteValueKey",
+    "MAX_FUTURE_CLOCK_SKEW_SECONDS",
     "OccurrenceTimelineStats",
     "load_routed_claim_occurrence_stats",
     "summarize_occurrence_times",
