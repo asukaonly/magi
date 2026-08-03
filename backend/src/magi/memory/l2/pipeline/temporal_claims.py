@@ -85,28 +85,31 @@ def resolve_claim_temporal_fields(
         return ClaimTemporalResolution(None, None, None, None, None)
 
     supporting = [item for item in evidence if item.link_role == "supporting"]
-    timezone_ids = {
-        timezone_id
-        for item in supporting
-        if (timezone_id := canonical_timezone_id(item.calendar_timezone_id)) is not None
-    }
-    if not supporting or len(timezone_ids) != 1 or any(
-        canonical_timezone_id(item.calendar_timezone_id) is None for item in supporting
-    ):
+    timezone_evidence = tuple(
+        (item, canonical_timezone_id(item.calendar_timezone_id)) for item in supporting
+    )
+    if not supporting or any(timezone_id is None for _item, timezone_id in timezone_evidence):
         return _unresolved(
             raw,
             future_intent=future_intent,
-            quality="ambiguous" if len(timezone_ids) > 1 else "low",
+            quality="low",
         )
-    timezone_id = next(iter(timezone_ids))
-    resolved_timezone = ZoneInfo(timezone_id)
+    timezone_ids = {str(timezone_id) for _item, timezone_id in timezone_evidence}
+    timezone_id = sorted(timezone_ids)[0]
 
-    absolute = _absolute_range(raw, local_timezone=resolved_timezone)
-    if absolute is not None:
+    absolute_ranges = {
+        resolved
+        for candidate_timezone_id in timezone_ids
+        for resolved in [_absolute_range(raw, local_timezone=ZoneInfo(candidate_timezone_id))]
+        if resolved is not None
+    }
+    if absolute_ranges:
+        if len(absolute_ranges) != 1:
+            return _unresolved(raw, future_intent=future_intent, quality="ambiguous")
         return _result(
             raw,
             future_intent=future_intent,
-            calendar_range=absolute,
+            calendar_range=next(iter(absolute_ranges)),
             timezone_id=timezone_id,
             quality="calendar_anchor",
         )
@@ -134,13 +137,13 @@ def resolve_claim_temporal_fields(
 
     anchored_ranges: set[_CalendarRange] = {
         resolved
-        for item in supporting
+        for item, item_timezone_id in timezone_evidence
         if item.event_time is not None
         for resolved in [
             _calendar_anchored_range(
                 raw,
                 float(item.event_time),
-                local_timezone=resolved_timezone,
+                local_timezone=ZoneInfo(str(item_timezone_id)),
             )
         ]
         if resolved is not None
@@ -166,7 +169,12 @@ def _result(
     quality: str,
     anchor_event_ids: Iterable[str] = (),
 ) -> ClaimTemporalResolution:
-    start, end = calendar_range.epochs
+    try:
+        start, end = calendar_range.epochs
+    except (OSError, OverflowError, ValueError):
+        return _unresolved(raw, future_intent=future_intent, quality="ambiguous")
+    if end <= start:
+        return _unresolved(raw, future_intent=future_intent, quality="ambiguous")
     frame = {
         "raw": raw,
         "kind": "target" if future_intent else "fact_validity",

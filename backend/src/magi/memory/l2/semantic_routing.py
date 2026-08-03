@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from ...utils.calendar_timezone import canonical_timezone_id
 from .claims.identity import canonical_json
 from .ontology import PROFILE_SIGNAL_PREDICATES
 from .predicate_catalog import SPEC_BY_CANONICAL
@@ -337,8 +339,7 @@ def _validate_route_disposition_table() -> None:
 _validate_route_disposition_table()
 
 _BIRTH_DATE = re.compile(
-    r"^(?:(?P<year>[0-9]{4})-)?"
-    r"(?P<month>0[1-9]|1[0-2])-(?P<day>0[1-9]|[12][0-9]|3[01])$"
+    r"^(?:(?P<year>[0-9]{4})-)?" r"(?P<month>0[1-9]|1[0-2])-(?P<day>0[1-9]|[12][0-9]|3[01])$"
 )
 
 
@@ -558,27 +559,64 @@ def _routed(
 def _goal_target_window_key(route_input: SemanticRouteInput) -> str:
     resolution = str(route_input.time_resolution or "unscheduled").strip().casefold()
     raw = str(route_input.raw_time_expression or "").strip()
-    calendar = None
-    if isinstance(route_input.time_frame, Mapping):
-        raw_calendar = route_input.time_frame.get("calendar")
-        if isinstance(raw_calendar, Mapping):
-            calendar = {
-                key: raw_calendar.get(key)
-                for key in (
-                    "timezone_id",
-                    "precision",
-                    "civil_start",
-                    "civil_end_exclusive",
-                )
-            }
+    epoch_window = _goal_epoch_window(route_input)
+    calendar = _goal_calendar_window(route_input, resolution=resolution)
+    target_window = None if calendar is not None else epoch_window
     return _opaque_key(
         "twk",
         {
             "resolution": resolution,
-            "raw": raw if calendar is None else "",
+            "raw": raw if calendar is None and target_window is None else "",
             "calendar": calendar,
+            "target_window": target_window,
         },
     )
+
+
+def _goal_epoch_window(route_input: SemanticRouteInput) -> list[float] | None:
+    try:
+        start = float(route_input.target_from)
+        end = float(route_input.target_to)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+        return None
+    return [start, end]
+
+
+def _goal_calendar_window(
+    route_input: SemanticRouteInput,
+    *,
+    resolution: str,
+) -> dict[str, str] | None:
+    """Return only complete civil semantics; provenance stays outside slot identity."""
+
+    if resolution != "calendar_anchor" or _goal_epoch_window(route_input) is None:
+        return None
+    if not isinstance(route_input.time_frame, Mapping):
+        return None
+    raw_calendar = route_input.time_frame.get("calendar")
+    if not isinstance(raw_calendar, Mapping):
+        return None
+    if canonical_timezone_id(raw_calendar.get("timezone_id")) is None:
+        return None
+    precision = str(raw_calendar.get("precision") or "").strip().casefold()
+    if precision not in {"day", "week", "month"}:
+        return None
+    raw_civil_start = str(raw_calendar.get("civil_start") or "").strip()
+    raw_civil_end = str(raw_calendar.get("civil_end_exclusive") or "").strip()
+    try:
+        civil_start = date.fromisoformat(raw_civil_start)
+        civil_end = date.fromisoformat(raw_civil_end)
+        if civil_end <= civil_start:
+            return None
+    except ValueError:
+        return None
+    return {
+        "precision": precision,
+        "civil_start": civil_start.isoformat(),
+        "civil_end_exclusive": civil_end.isoformat(),
+    }
 
 
 def _mismatch(

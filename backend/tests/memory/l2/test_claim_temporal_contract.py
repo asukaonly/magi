@@ -298,7 +298,7 @@ def test_claim_identity_excludes_runtime_calendar_epoch_projection() -> None:
     assert first == second
 
 
-def test_temporal_resolution_requires_one_persisted_iana_timezone() -> None:
+def test_temporal_resolution_requires_valid_consistent_calendar_provenance() -> None:
     missing = resolve_claim_temporal_fields(
         raw_expression="明天",
         future_intent=True,
@@ -319,3 +319,60 @@ def test_temporal_resolution_requires_one_persisted_iana_timezone() -> None:
     assert conflicting.target_from is None
     assert conflicting.raw_time_frame is not None
     assert conflicting.raw_time_frame["resolution"] == "ambiguous"
+
+
+def test_equivalent_timezone_aliases_resolve_one_calendar_range() -> None:
+    anchor = datetime(2026, 8, 3, 12, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()
+
+    resolution = resolve_claim_temporal_fields(
+        raw_expression="tomorrow",
+        future_intent=True,
+        evidence=[
+            _evidence(
+                event_id="evt-canonical-zone",
+                event_time=anchor,
+                calendar_timezone_id="America/Los_Angeles",
+            ),
+            _evidence(
+                event_id="evt-zone-alias",
+                event_time=anchor,
+                calendar_timezone_id="US/Pacific",
+            ),
+        ],
+    )
+
+    assert (
+        resolution.target_from
+        == datetime(2026, 8, 4, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()
+    )
+    assert resolution.raw_time_frame is not None
+    assert resolution.raw_time_frame["resolution"] == "calendar_anchor"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_hours"),
+    [("2026-03-08", 23.0), ("2026-11-01", 25.0)],
+)
+def test_calendar_day_preserves_dst_boundaries(raw: str, expected_hours: float) -> None:
+    resolution = resolve_claim_temporal_fields(
+        raw_expression=raw,
+        future_intent=True,
+        evidence=[_evidence(calendar_timezone_id="America/Los_Angeles")],
+    )
+
+    assert resolution.target_from is not None
+    assert resolution.target_to is not None
+    assert (resolution.target_to - resolution.target_from) / 3600 == expected_hours
+
+
+def test_skipped_civil_day_is_not_a_resolved_calendar_range() -> None:
+    resolution = resolve_claim_temporal_fields(
+        raw_expression="2011-12-30",
+        future_intent=True,
+        evidence=[_evidence(calendar_timezone_id="Pacific/Apia")],
+    )
+
+    assert resolution.target_from is None
+    assert resolution.target_to is None
+    assert resolution.raw_time_frame is not None
+    assert resolution.raw_time_frame["resolution"] == "ambiguous"

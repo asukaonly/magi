@@ -382,6 +382,22 @@ def test_goal_window_identity_uses_civil_descriptor_instead_of_runtime_epoch() -
             },
         )
     )
+    timezone_alias = derive_semantic_route(
+        _route_input(
+            "PLANS_TO",
+            claim_id="claim:timezone-alias",
+            target_from=1_800_000_000.0,
+            target_to=1_800_086_400.0,
+            raw_time_expression="2027-01-15",
+            time_resolution="calendar_anchor",
+            time_frame={
+                "calendar": {
+                    **frame["calendar"],
+                    "timezone_id": "PRC",
+                }
+            },
+        )
+    )
     different_day = derive_semantic_route(
         _route_input(
             "PLANS_TO",
@@ -402,7 +418,47 @@ def test_goal_window_identity_uses_civil_descriptor_instead_of_runtime_epoch() -
     assert first.slot_key == shifted_epoch.slot_key
     assert first.target_window_key == synonymous_expression.target_window_key
     assert first.slot_key == synonymous_expression.slot_key
+    assert first.target_window_key == timezone_alias.target_window_key
+    assert first.slot_key == timezone_alias.slot_key
     assert different_day.target_window_key != first.target_window_key
+
+
+def test_goal_window_identity_falls_back_to_legacy_persisted_epochs() -> None:
+    first = derive_semantic_route(
+        _route_input(
+            "PLANS_TO",
+            claim_id="claim:legacy-first",
+            target_from=1_800_000_000.0,
+            target_to=1_800_086_400.0,
+            raw_time_expression="tomorrow",
+            time_resolution="calendar_anchor",
+            time_frame={
+                "raw": "tomorrow",
+                "kind": "target",
+                "resolution": "calendar_anchor",
+                "resolved_range": [1_800_000_000.0, 1_800_086_400.0],
+            },
+        )
+    )
+    different_window = derive_semantic_route(
+        _route_input(
+            "PLANS_TO",
+            claim_id="claim:legacy-later",
+            target_from=1_800_086_400.0,
+            target_to=1_800_172_800.0,
+            raw_time_expression="tomorrow",
+            time_resolution="calendar_anchor",
+            time_frame={
+                "raw": "tomorrow",
+                "kind": "target",
+                "resolution": "calendar_anchor",
+                "resolved_range": [1_800_086_400.0, 1_800_172_800.0],
+            },
+        )
+    )
+
+    assert first.target_window_key != different_window.target_window_key
+    assert first.slot_key != different_window.slot_key
 
 
 def test_unknown_predicate_remains_visible_as_unrouted() -> None:
