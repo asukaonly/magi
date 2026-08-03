@@ -2005,6 +2005,13 @@ async def test_l2_projection_jobs_support_enqueue_claim_complete_and_stats(tmp_p
     assert claimed[0]["status"] == "queued"
     assert claimed[0]["batch_owner"] == "owner:chrome_history:default"
     lease = _projection_lease(claimed[0])
+    assert (
+        await store.bind_projection_job_batch(
+            [lease],
+            consumer_name="runtime_worker",
+        )
+        == 1
+    )
 
     running_count = await store.mark_projection_jobs_running(
         [lease],
@@ -2049,6 +2056,9 @@ async def test_mark_projection_jobs_running_only_transitions_queued(tmp_path):
     claimed = await store.claim_projection_jobs(consumer_name="w1", limit=1)
     assert len(claimed) == 1
     lease = _projection_lease(claimed[0])
+    assert (
+        await store.bind_projection_job_batch([lease], consumer_name="w1") == 1
+    )
 
     await store.mark_projection_jobs_running([lease], consumer_name="w1")
     await store.stage_event_entity_link_projections(
@@ -2092,6 +2102,13 @@ async def test_l2_projection_jobs_support_fail_and_stale_requeue(tmp_path):
     assert [item["event_id"] for item in claimed] == ["evt-proj-fail"]
     assert claimed[0]["status"] == "queued"
     lease = _projection_lease(claimed[0])
+    assert (
+        await store.bind_projection_job_batch(
+            [lease],
+            consumer_name="runtime_worker",
+        )
+        == 1
+    )
 
     await store.fail_projection_jobs([lease], error_text="phase1 timeout", requeue=False)
     stats = await store.get_projection_backlog_stats()

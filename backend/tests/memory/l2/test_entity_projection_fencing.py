@@ -33,6 +33,13 @@ async def _running_lease(store, event_id: str) -> L2ProjectionLease:  # type: ig
         attempt_count=int(row["attempt_count"]),
     )
     assert (
+        await store.bind_projection_job_batch(
+            [lease],
+            consumer_name="entity-fence",
+        )
+        == 1
+    )
+    assert (
         await store.mark_projection_jobs_running(
             [lease],
             consumer_name="entity-fence",

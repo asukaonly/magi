@@ -23,7 +23,7 @@ from magi.memory.l2.corrections.relationship_conflict_effects import (
 )
 from magi.memory.l2.store import L2CognitionStore
 
-MEMORY_HEAD_REVISION = "v41_l2_claim_subject_revisions"
+MEMORY_HEAD_REVISION = "v42_l2_projection_batch_descriptors"
 
 
 def _memory_migration_config(db_path: Path):

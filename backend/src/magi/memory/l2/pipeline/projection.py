@@ -90,20 +90,45 @@ class L2PipelineProjectionMixin:
         )
         jobs, missing_leases = await self._build_extract_jobs_from_projection_rows(claimed_rows)
         if missing_leases:
-            await host._cognition_store.fail_projection_jobs(
-                missing_leases,
-                error_text="l1_event_not_found",
-                requeue=False,
-            )
+            for lease in missing_leases:
+                bound = await host._cognition_store.bind_projection_job_batch(
+                    [lease],
+                    consumer_name=host._projection_consumer_name,
+                )
+                if bound != 1:
+                    logger.warning(
+                        "L2 missing-event projection attempt could not be bound",
+                        event_id=lease.event_id,
+                    )
+                    continue
+                await host._cognition_store.fail_projection_jobs(
+                    [lease],
+                    error_text="l1_event_not_found",
+                    requeue=False,
+                )
             await host._drain_event_entity_link_outbox()
             logger.warning(
                 "L2 projection jobs referenced missing L1 events",
                 event_ids=[lease.event_id for lease in missing_leases],
             )
 
+        enqueued = 0
         for job in jobs:
+            bound = await host._cognition_store.bind_projection_job_batch(
+                job.projection_leases,
+                consumer_name=host._projection_consumer_name,
+                attempt_key=job.attempt_key,
+            )
+            if bound != len(job.projection_leases):
+                logger.warning(
+                    "L2 projection batch descriptor could not be bound",
+                    job_id=job.job_id,
+                    event_ids=job.event_ids,
+                )
+                continue
             await host._enqueue_extract_job(job)
-        return len(jobs)
+            enqueued += 1
+        return enqueued
 
     async def _build_extract_jobs_from_projection_rows(
         self,

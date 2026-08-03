@@ -471,6 +471,13 @@ async def test_time_range_forgetting_retains_l1_and_removes_all_derivatives(
     )
     projection_lease = L2ProjectionLease.from_dict(claimed[0])
     assert (
+        await memory.l2.bind_projection_job_batch(
+            [projection_lease],
+            consumer_name="time-range-link-test",
+        )
+        == 1
+    )
+    assert (
         await memory.l2.mark_projection_jobs_running(
             [projection_lease],
             consumer_name="time-range-link-test",
@@ -2197,6 +2204,13 @@ async def test_entity_forget_promotes_raced_target_lineage_before_cleanup(
         event_id=event_id,
         lease_token=str(claimed[0]["lease_token"]),
         attempt_count=int(claimed[0]["attempt_count"]),
+    )
+    assert (
+        await memory.l2.bind_projection_job_batch(
+            [lease],
+            consumer_name="forget-race-test",
+        )
+        == 1
     )
     assert (
         await memory.l2.mark_projection_jobs_running(

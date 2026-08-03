@@ -38,6 +38,10 @@ async def _running_leases(  # type: ignore[no-untyped-def]
     )
     assert len(claimed) == len(event_ids)
     leases = [L2ProjectionLease.from_dict(row) for row in claimed]
+    assert await store.bind_projection_job_batch(
+        leases,
+        consumer_name=consumer,
+    ) == len(leases)
     assert await store.mark_projection_jobs_running(leases, consumer_name=consumer) == len(leases)
     return sorted(leases, key=lambda lease: lease.event_id)
 
@@ -104,6 +108,7 @@ async def _published_projection_and_replay(  # type: ignore[no-untyped-def]
     assert await store.request_projection_replay(event_id)
     claimed = await store.claim_projection_jobs(consumer_name="worker-2", limit=1)
     replay = L2ProjectionLease.from_dict(claimed[0])
+    assert await store.bind_projection_job_batch([replay], consumer_name="worker-2") == 1
     assert await store.mark_projection_jobs_running([replay], consumer_name="worker-2") == 1
     return replay
 
@@ -633,6 +638,13 @@ async def test_entity_forget_discards_entire_running_replay_batch(
     replays = sorted(
         (L2ProjectionLease.from_dict(row) for row in replay_rows),
         key=lambda lease: lease.event_id,
+    )
+    assert (
+        await l2_store_with_schema.bind_projection_job_batch(
+            replays,
+            consumer_name="replay-worker",
+        )
+        == 2
     )
     assert (
         await l2_store_with_schema.mark_projection_jobs_running(

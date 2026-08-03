@@ -9,6 +9,9 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
 
+PROJECTION_ATTEMPT_DESCRIPTOR_VERSION = 1
+
+
 def _non_empty_text(value: str, *, field_name: str) -> str:
     text = value.strip()
     if not text:
@@ -257,6 +260,16 @@ def derive_projection_attempt_key(
 ) -> str:
     """Derive one unambiguous identity from a complete projection lease set."""
 
+    encoded = projection_attempt_descriptor_json(leases)
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return f"l2pa_{digest[:32]}"
+
+
+def projection_attempt_descriptor_json(
+    leases: Iterable[L2ProjectionLease],
+) -> str:
+    """Serialize the exact versioned member set for one projection attempt."""
+
     normalized = tuple(leases)
     if not normalized:
         raise ValueError("projection leases must not be empty")
@@ -275,14 +288,15 @@ def derive_projection_attempt_key(
                 "lease_token": lease.lease_token,
             }
         )
-    encoded = json.dumps(
-        material,
+    return json.dumps(
+        {
+            "descriptor_version": PROJECTION_ATTEMPT_DESCRIPTOR_VERSION,
+            "leases": material,
+        },
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     )
-    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-    return f"l2pa_{digest[:32]}"
 
 
 @dataclass(slots=True)
@@ -555,8 +569,10 @@ class ManualL2EventRequest:
 
 
 __all__ = [
+    "PROJECTION_ATTEMPT_DESCRIPTOR_VERSION",
     "build_l2_batch_bucket_key",
     "derive_projection_attempt_key",
+    "projection_attempt_descriptor_json",
     "L2BatchEvent",
     "L2BatchJob",
     "L2EntityReconcileJob",

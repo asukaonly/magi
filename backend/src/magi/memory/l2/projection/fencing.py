@@ -6,7 +6,11 @@ from collections.abc import Iterable
 
 import aiosqlite
 
-from ..batch_models import L2ProjectionLease, derive_projection_attempt_key
+from ..batch_models import (
+    L2ProjectionLease,
+    derive_projection_attempt_key,
+    projection_attempt_descriptor_json,
+)
 from .errors import ProjectionAttemptFencedError
 from .governance import active_projection_event_predicate
 
@@ -48,24 +52,88 @@ async def assert_current_projection_attempt(
 ) -> None:
     """Fence a write transaction to the exact currently running batch attempt."""
 
-    for lease in leases:
-        async with db.execute(
-            f"""
-            SELECT 1
-            FROM l2_projection_jobs AS jobs
-            WHERE jobs.event_id = ?
-              AND jobs.status = 'running'
-              AND jobs.lease_token = ?
-              AND jobs.attempt_count = ?
-              AND {active_projection_event_predicate('jobs.event_id')}
-            """,
-            (lease.event_id, lease.lease_token, lease.attempt_count),
-        ) as cursor:
-            if await cursor.fetchone() is None:
-                raise ProjectionAttemptFencedError("projection_attempt_fenced")
+    await assert_bound_projection_attempt(
+        db,
+        leases,
+        allowed_statuses=("running",),
+    )
+
+
+async def assert_bound_projection_attempt(
+    db: aiosqlite.Connection,
+    leases: Iterable[L2ProjectionLease],
+    *,
+    allowed_statuses: Iterable[str],
+    claimed_by: str | None = None,
+) -> None:
+    """Require the durable queue-issued descriptor for an exact lease set."""
+
+    normalized = normalize_projection_leases(leases, required=True)
+    statuses = tuple(
+        dict.fromkeys(str(status or "").strip() for status in allowed_statuses if status)
+    )
+    if not statuses:
+        raise ValueError("allowed_statuses must not be empty")
+    expected_attempt_key = derive_projection_attempt_key(normalized)
+    expected_descriptor = projection_attempt_descriptor_json(normalized)
+    event_ids = [lease.event_id for lease in normalized]
+    event_placeholders = ", ".join("?" for _ in event_ids)
+    status_placeholders = ", ".join("?" for _ in statuses)
+    claimed_by_clause = ""
+    args: list[object] = [*event_ids, *statuses]
+    if claimed_by is not None:
+        claimed_by_clause = " AND jobs.claimed_by = ?"
+        args.append(str(claimed_by))
+
+    async with db.execute(
+        f"""
+        SELECT jobs.event_id, jobs.lease_token, jobs.attempt_count,
+               jobs.batch_attempt_key, jobs.batch_descriptor_json,
+               jobs.batch_bound_at
+        FROM l2_projection_jobs AS jobs
+        WHERE jobs.event_id IN ({event_placeholders})
+          AND jobs.status IN ({status_placeholders})
+          {claimed_by_clause}
+          AND {active_projection_event_predicate('jobs.event_id')}
+        """,
+        tuple(args),
+    ) as cursor:
+        rows = await cursor.fetchall()
+    if len(rows) != len(normalized):
+        raise ProjectionAttemptFencedError("projection_attempt_fenced")
+
+    leases_by_event = {lease.event_id: lease for lease in normalized}
+    for row in rows:
+        event_id = str(row[0])
+        lease = leases_by_event.get(event_id)
+        if (
+            lease is None
+            or str(row[1] or "") != lease.lease_token
+            or int(row[2] or 0) != lease.attempt_count
+            or str(row[3] or "") != expected_attempt_key
+            or str(row[4] or "") != expected_descriptor
+            or row[5] is None
+        ):
+            raise ProjectionAttemptFencedError("projection_attempt_fenced")
+
+    async with db.execute(
+        """
+        SELECT event_id, batch_descriptor_json
+        FROM l2_projection_jobs
+        WHERE batch_attempt_key = ?
+        """,
+        (expected_attempt_key,),
+    ) as cursor:
+        bound_rows = await cursor.fetchall()
+    if (
+        {str(row[0]) for row in bound_rows} != set(event_ids)
+        or any(str(row[1] or "") != expected_descriptor for row in bound_rows)
+    ):
+        raise ProjectionAttemptFencedError("projection_attempt_fenced")
 
 
 __all__ = [
+    "assert_bound_projection_attempt",
     "assert_current_projection_attempt",
     "assert_projection_attempt_key",
     "normalize_projection_leases",

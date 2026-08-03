@@ -599,6 +599,13 @@ async def test_tombstone_completes_queued_projection_before_stale_batch_runs(
     )
     claimed = await store.claim_projection_jobs(consumer_name="test-worker", limit=1)
     assert [row["event_id"] for row in claimed] == ["evt-queued-forgotten"]
+    assert (
+        await store.bind_projection_job_batch(
+            [_projection_lease(claimed[0])],
+            consumer_name="test-worker",
+        )
+        == 1
+    )
 
     await store.tombstone_source_events(
         ["evt-queued-forgotten"],
@@ -670,6 +677,14 @@ async def test_projection_batch_start_is_all_or_nothing_after_one_event_is_forgo
         "evt-batch-active",
         "evt-batch-forgotten",
     }
+    projection_leases = [_projection_lease(row) for row in claimed]
+    assert (
+        await store.bind_projection_job_batch(
+            projection_leases,
+            consumer_name="test-worker",
+        )
+        == 2
+    )
 
     await store.tombstone_source_events(
         ["evt-batch-forgotten"],
@@ -678,7 +693,7 @@ async def test_projection_batch_start_is_all_or_nothing_after_one_event_is_forgo
 
     assert (
         await store.mark_projection_jobs_running(
-            [_projection_lease(row) for row in claimed],
+            projection_leases,
             consumer_name="test-worker",
         )
         == 0
@@ -1433,6 +1448,13 @@ async def test_time_range_projection_block_fail_closes_projection_queue(
     )
     claimed = await store.claim_projection_jobs(consumer_name="test-worker", limit=1)
     assert [row["event_id"] for row in claimed] == ["evt-time-queued"]
+    assert (
+        await store.bind_projection_job_batch(
+            [_projection_lease(claimed[0])],
+            consumer_name="test-worker",
+        )
+        == 1
+    )
     await _insert_projection_block(
         store,
         event_id="evt-time-queued",

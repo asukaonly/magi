@@ -46,6 +46,10 @@ async def _running_leases(
         for row in rows
     ]
     assert len(leases) == len(event_ids)
+    assert await store.bind_projection_job_batch(
+        leases,
+        consumer_name=consumer_name,
+    ) == len(leases)
     assert await store.mark_projection_jobs_running(
         leases,
         consumer_name=consumer_name,

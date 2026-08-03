@@ -715,10 +715,50 @@ async def _complete_forgotten_projection_jobs(
     now: float,
 ) -> int:
     event_json = _event_json(event_ids)
+    async with db.execute(
+        """
+        SELECT DISTINCT batch_attempt_key
+        FROM l2_projection_jobs
+        WHERE event_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
+          AND status IN ('queued', 'running')
+          AND batch_attempt_key IS NOT NULL
+        """,
+        (event_json,),
+    ) as cursor:
+        invalidated_attempt_keys = [str(row[0]) for row in await cursor.fetchall()]
+    if invalidated_attempt_keys:
+        placeholders = ", ".join("?" for _ in invalidated_attempt_keys)
+        await db.execute(
+            f"""
+            UPDATE l2_projection_jobs
+            SET status = 'pending',
+                attempt_count = CASE
+                    WHEN replay_requested = 1 THEN 0
+                    ELSE MAX(attempt_count - 1, 0)
+                END,
+                lease_token = NULL, lease_heartbeat_at = NULL,
+                batch_attempt_key = NULL, batch_descriptor_json = NULL,
+                batch_bound_at = NULL,
+                next_retry_at = NULL, terminal_at = NULL,
+                replay_requested = 0,
+                claimed_by = NULL, claimed_at = NULL,
+                started_at = NULL, completed_at = NULL,
+                last_error = 'projection_batch_invalidated_by_source_forgetting',
+                updated_at = ?
+            WHERE batch_attempt_key IN ({placeholders})
+              AND event_id NOT IN (
+                  SELECT CAST(value AS TEXT) FROM json_each(?)
+              )
+              AND status IN ('queued', 'running')
+            """,
+            (now, *invalidated_attempt_keys, event_json),
+        )
     cursor = await db.execute(
         """
         UPDATE l2_projection_jobs
         SET status = 'completed', lease_token = NULL, lease_heartbeat_at = NULL,
+            batch_attempt_key = NULL, batch_descriptor_json = NULL,
+            batch_bound_at = NULL,
             next_retry_at = NULL, terminal_at = NULL,
             claimed_by = NULL, claimed_at = NULL,
             started_at = NULL, completed_at = ?,

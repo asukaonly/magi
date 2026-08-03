@@ -7,7 +7,7 @@ from typing import Any, Dict, Protocol, cast
 
 import aiosqlite
 
-from ..batch_models import L2ProjectionLease
+from ..batch_models import L2ProjectionLease, derive_projection_attempt_key
 from .models import TerminalClaimFailureContext
 from .queue import (
     ProjectionCompletionCallback,
@@ -41,9 +41,23 @@ def _terminal_claim_callback(
         db: aiosqlite.Connection,
         terminal_leases: tuple[L2ProjectionLease, ...],
     ) -> None:
+        effective_context = context
+        if context.attempt_key is None and context.target_id is None:
+            attempt_key = derive_projection_attempt_key(terminal_leases)
+            target_id = (
+                f"projection_event:{terminal_leases[0].event_id}"
+                if len(terminal_leases) == 1
+                else f"projection_attempt:{attempt_key}"
+            )
+            effective_context = TerminalClaimFailureContext(
+                error_type=context.error_type,
+                reason_code=context.reason_code,
+                attempt_key=attempt_key,
+                target_id=target_id,
+            )
         await host._append_terminal_claim_projection_failure_outcomes_on_connection(
             db,
-            context=context,
+            context=effective_context,
             terminal_leases=terminal_leases,
         )
 
@@ -175,17 +189,28 @@ class L2ProjectionJobStoreMixin:
         if not normalized:
             return 0
         await self.initialize()
-        host = cast(_TerminalClaimFailureHostProtocol, self)
         return await self._projection_queue.mark_running(
             leases=normalized,
             consumer_name=consumer_name,
-            terminal_callback=_terminal_claim_callback(
-                host,
-                TerminalClaimFailureContext(
-                    error_type="ProjectionAttemptRejectedBeforeStart",
-                    reason_code="pipeline_retry_budget_exhausted_before_start",
-                ),
-            ),
+        )
+
+    async def bind_projection_job_batch(
+        self,
+        leases: Iterable[L2ProjectionLease],
+        *,
+        consumer_name: str,
+        attempt_key: str | None = None,
+    ) -> int:
+        """Bind queued rows to one exact final batch before worker dispatch."""
+
+        normalized = tuple(leases)
+        if not normalized:
+            return 0
+        await self.initialize()
+        return await self._projection_queue.bind_queued_batch(
+            leases=normalized,
+            consumer_name=consumer_name,
+            attempt_key=attempt_key,
         )
 
     async def complete_projection_jobs(self, leases: Iterable[L2ProjectionLease]) -> int:

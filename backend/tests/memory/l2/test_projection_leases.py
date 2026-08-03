@@ -13,6 +13,7 @@ from magi.memory.l2.models import (
     L2ProjectionLease,
     derive_projection_attempt_key,
 )
+from magi.memory.l2.projection.errors import ProjectionAttemptFencedError
 from magi.memory.l2.store import L2CognitionStore
 
 
@@ -32,6 +33,18 @@ async def _enqueue(store: L2CognitionStore, event_id: str) -> None:
     )
 
 
+async def _bind(
+    store: L2CognitionStore,
+    leases: list[L2ProjectionLease],
+    *,
+    consumer_name: str,
+) -> None:
+    assert (
+        await store.bind_projection_job_batch(leases, consumer_name=consumer_name)
+        == len(leases)
+    )
+
+
 @pytest.mark.asyncio
 async def test_claim_assigns_a_new_fencing_token_for_each_attempt(tmp_path) -> None:
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
@@ -42,6 +55,7 @@ async def test_claim_assigns_a_new_fencing_token_for_each_attempt(tmp_path) -> N
     first = _lease(first_row)
     assert first.attempt_count == 1
     assert first.lease_token
+    await _bind(store, [first], consumer_name="worker-1")
     assert await store.mark_projection_jobs_running([first], consumer_name="worker-1") == 1
 
     async with aiosqlite.connect(store.db_path) as db:
@@ -71,6 +85,7 @@ async def test_claim_assigns_a_new_fencing_token_for_each_attempt(tmp_path) -> N
     second = _lease(second_row)
     assert second.attempt_count == 2
     assert second.lease_token != first.lease_token
+    await _bind(store, [second], consumer_name="worker-2")
 
     assert await store.touch_running_projection_jobs([first]) == 0
     assert await store.complete_projection_jobs([first]) == 0
@@ -113,6 +128,7 @@ async def test_failed_attempt_respects_backoff_and_terminal_budget(tmp_path) -> 
         await db.commit()
 
     first = _lease((await store.claim_projection_jobs(consumer_name="worker", limit=1))[0])
+    await _bind(store, [first], consumer_name="worker")
     assert await store.mark_projection_jobs_running([first], consumer_name="worker") == 1
     assert await store.fail_projection_jobs([first], error_text="temporary", requeue=True) == 1
     assert await store.claim_projection_jobs(consumer_name="worker", limit=1) == []
@@ -124,6 +140,7 @@ async def test_failed_attempt_respects_backoff_and_terminal_budget(tmp_path) -> 
         await db.commit()
     second = _lease((await store.claim_projection_jobs(consumer_name="worker", limit=1))[0])
     assert second.attempt_count == 2
+    await _bind(store, [second], consumer_name="worker")
     assert await store.mark_projection_jobs_running([second], consumer_name="worker") == 1
     assert await store.fail_projection_jobs([second], error_text="still broken", requeue=True) == 1
 
@@ -145,6 +162,7 @@ async def test_completion_requires_running_but_queued_failure_is_fenced(tmp_path
     await store.initialize()
     await _enqueue(store, "event-queued")
     lease = _lease((await store.claim_projection_jobs(consumer_name="worker", limit=1))[0])
+    await _bind(store, [lease], consumer_name="worker")
 
     assert await store.complete_projection_jobs([lease]) == 0
     assert (
@@ -163,6 +181,7 @@ async def test_explicit_replay_resets_a_completed_job_to_a_fresh_attempt(tmp_pat
     await store.initialize()
     await _enqueue(store, "event-replay")
     first = _lease((await store.claim_projection_jobs(consumer_name="worker", limit=1))[0])
+    await _bind(store, [first], consumer_name="worker")
     assert await store.mark_projection_jobs_running([first], consumer_name="worker") == 1
     await store.stage_event_entity_link_projections(
         desired_links_by_event={first.event_id: []},
@@ -189,6 +208,7 @@ async def test_replay_requested_during_an_active_attempt_runs_after_it_finishes(
     active = _lease((await store.claim_projection_jobs(consumer_name="worker", limit=1))[0])
 
     assert await store.request_projection_replay("event-active-replay") is True
+    await _bind(store, [active], consumer_name="worker")
     assert await store.mark_projection_jobs_running([active], consumer_name="worker") == 1
     assert await store.request_projection_replay("event-active-replay") is True
     await store.stage_event_entity_link_projections(
@@ -227,6 +247,7 @@ async def test_explicit_replay_clears_pending_backoff_and_resets_attempt_budget(
         await db.commit()
 
     first = _lease((await store.claim_projection_jobs(consumer_name="worker", limit=1))[0])
+    await _bind(store, [first], consumer_name="worker")
     assert await store.mark_projection_jobs_running([first], consumer_name="worker") == 1
     assert (
         await store.fail_projection_jobs(
@@ -271,11 +292,13 @@ async def test_startup_recovery_releases_only_foreign_active_attempts(tmp_path) 
     foreign_queued = _lease(
         (await store.claim_projection_jobs(consumer_name="old-worker", limit=1))[0]
     )
+    await _bind(store, [foreign_queued], consumer_name="old-worker")
 
     await _enqueue(store, "event-foreign-running")
     foreign_running = _lease(
         (await store.claim_projection_jobs(consumer_name="old-worker", limit=1))[0]
     )
+    await _bind(store, [foreign_running], consumer_name="old-worker")
     assert (
         await store.mark_projection_jobs_running(
             [foreign_running],
@@ -288,6 +311,7 @@ async def test_startup_recovery_releases_only_foreign_active_attempts(tmp_path) 
     current_running = _lease(
         (await store.claim_projection_jobs(consumer_name="current-worker", limit=1))[0]
     )
+    await _bind(store, [current_running], consumer_name="current-worker")
     assert (
         await store.mark_projection_jobs_running(
             [current_running],
@@ -307,12 +331,14 @@ async def test_startup_recovery_releases_only_foreign_active_attempts(tmp_path) 
     foreign_exhausted = _lease(
         (await store.claim_projection_jobs(consumer_name="old-worker", limit=1))[0]
     )
+    await _bind(store, [foreign_exhausted], consumer_name="old-worker")
 
     assert await store.recover_foreign_projection_jobs(consumer_name="current-worker") == 3
     async with aiosqlite.connect(store.db_path) as db:
         db.row_factory = aiosqlite.Row
         rows = await (await db.execute("""
                 SELECT event_id, status, attempt_count, lease_token,
+                       batch_attempt_key, batch_descriptor_json, batch_bound_at,
                        lease_heartbeat_at, next_retry_at, terminal_at,
                        claimed_by, claimed_at, started_at, last_error
                 FROM l2_projection_jobs
@@ -325,6 +351,9 @@ async def test_startup_recovery_releases_only_foreign_active_attempts(tmp_path) 
         assert row["status"] == "pending"
         assert row["attempt_count"] == 1
         assert row["lease_token"] is None
+        assert row["batch_attempt_key"] is None
+        assert row["batch_descriptor_json"] is None
+        assert row["batch_bound_at"] is None
         assert row["lease_heartbeat_at"] is None
         assert row["next_retry_at"] is None
         assert row["terminal_at"] is None
@@ -342,6 +371,9 @@ async def test_startup_recovery_releases_only_foreign_active_attempts(tmp_path) 
     assert exhausted_row["status"] == "failed"
     assert exhausted_row["attempt_count"] == 1
     assert exhausted_row["lease_token"] is None
+    assert exhausted_row["batch_attempt_key"] is None
+    assert exhausted_row["batch_descriptor_json"] is None
+    assert exhausted_row["batch_bound_at"] is None
     assert exhausted_row["next_retry_at"] is None
     assert exhausted_row["terminal_at"] is not None
     assert exhausted_row["last_error"] == "projection_attempt_budget_exhausted_on_startup"
@@ -379,6 +411,166 @@ async def test_non_positive_claim_limits_leave_projection_jobs_pending(tmp_path)
 
     claimed = await store.claim_projection_jobs(consumer_name="worker", limit=1)
     assert [row["event_id"] for row in claimed] == ["event-limit"]
+
+
+@pytest.mark.asyncio
+async def test_bound_batch_rejects_singleton_start_write_and_completion(tmp_path) -> None:
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    await _enqueue(store, "event-a")
+    await _enqueue(store, "event-b")
+    rows = await store.claim_projection_jobs(consumer_name="worker", limit=2)
+    leases = [_lease(row) for row in rows]
+    assert {lease.event_id for lease in leases} == {"event-a", "event-b"}
+
+    assert (
+        await store.bind_projection_job_batch(
+            leases,
+            consumer_name="worker",
+            attempt_key=f"l2pa_{'0' * 32}",
+        )
+        == 0
+    )
+    await _bind(store, leases, consumer_name="worker")
+    singleton = [leases[0]]
+    assert await store.mark_projection_jobs_running(singleton, consumer_name="worker") == 0
+    assert await store.mark_projection_jobs_running(leases, consumer_name="worker") == 2
+    assert await store.touch_running_projection_jobs(singleton) == 0
+    with pytest.raises(ProjectionAttemptFencedError, match="projection_attempt_fenced"):
+        await store.stage_event_entity_link_projections(
+            desired_links_by_event={singleton[0].event_id: []},
+            projection_leases=singleton,
+        )
+    assert await store.complete_projection_jobs(singleton) == 0
+
+    await store.stage_event_entity_link_projections(
+        desired_links_by_event={lease.event_id: [] for lease in leases},
+        projection_leases=leases,
+    )
+    assert await store.complete_projection_jobs(leases) == 2
+
+
+@pytest.mark.asyncio
+async def test_forget_between_claim_and_bind_releases_unbound_batch_peer(tmp_path) -> None:
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    await _enqueue(store, "event-a")
+    await _enqueue(store, "event-b")
+    rows = await store.claim_projection_jobs(consumer_name="worker", limit=2)
+    leases = [_lease(row) for row in rows]
+    leases_by_event = {lease.event_id: lease for lease in leases}
+
+    await store.tombstone_source_events(["event-a"], reason="user_delete_event")
+    assert await store.bind_projection_job_batch(leases, consumer_name="worker") == 0
+
+    async with aiosqlite.connect(store.db_path) as db:
+        states = await (
+            await db.execute(
+                """
+                SELECT event_id, status, attempt_count, lease_token, claimed_by,
+                       batch_attempt_key, batch_descriptor_json
+                FROM l2_projection_jobs
+                ORDER BY event_id
+                """
+            )
+        ).fetchall()
+    assert states == [
+        ("event-a", "completed", 1, None, None, None, None),
+        ("event-b", "pending", 0, None, None, None, None),
+    ]
+    reclaimed = await store.claim_projection_jobs(consumer_name="worker", limit=2)
+    assert [row["event_id"] for row in reclaimed] == ["event-b"]
+    assert int(reclaimed[0]["attempt_count"]) == 1
+    assert reclaimed[0]["lease_token"] != leases_by_event["event-b"].lease_token
+
+
+@pytest.mark.asyncio
+async def test_one_member_replay_resets_the_full_failed_batch(tmp_path) -> None:
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    await _enqueue(store, "event-a")
+    await _enqueue(store, "event-b")
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute(
+            """
+            UPDATE l2_projection_jobs
+            SET max_attempts = CASE event_id WHEN 'event-a' THEN 1 ELSE 5 END
+            """
+        )
+        await db.commit()
+    rows = await store.claim_projection_jobs(consumer_name="worker", limit=2)
+    leases = [_lease(row) for row in rows]
+    await _bind(store, leases, consumer_name="worker")
+    assert await store.mark_projection_jobs_running(leases, consumer_name="worker") == 2
+    assert await store.request_projection_replay("event-b") is True
+
+    assert await store.fail_projection_jobs(leases, error_text="retry", requeue=True) == 2
+    async with aiosqlite.connect(store.db_path) as db:
+        states = await (
+            await db.execute(
+                """
+                SELECT event_id, status, attempt_count, terminal_at,
+                       batch_attempt_key, batch_descriptor_json
+                FROM l2_projection_jobs
+                ORDER BY event_id
+                """
+            )
+        ).fetchall()
+    assert states == [
+        ("event-a", "pending", 0, None, None, None),
+        ("event-b", "pending", 0, None, None, None),
+    ]
+    reclaimed = await store.claim_projection_jobs(consumer_name="worker", limit=2)
+    assert {row["event_id"] for row in reclaimed} == {"event-a", "event-b"}
+    assert {int(row["attempt_count"]) for row in reclaimed} == {1}
+    assert {str(row["lease_token"]) for row in reclaimed}.isdisjoint(
+        {lease.lease_token for lease in leases}
+    )
+
+
+@pytest.mark.asyncio
+async def test_retry_and_clear_invalidate_old_batch_descriptor(tmp_path) -> None:
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    await _enqueue(store, "event-a")
+    await _enqueue(store, "event-b")
+    first_rows = await store.claim_projection_jobs(consumer_name="worker", limit=2)
+    first = [_lease(row) for row in first_rows]
+    await _bind(store, first, consumer_name="worker")
+    assert await store.mark_projection_jobs_running(first, consumer_name="worker") == 2
+    assert await store.fail_projection_jobs(first, error_text="retry", requeue=True) == 2
+
+    async with aiosqlite.connect(store.db_path) as db:
+        cleared = await (
+            await db.execute(
+                """
+                SELECT COUNT(*)
+                FROM l2_projection_jobs
+                WHERE batch_attempt_key IS NOT NULL
+                   OR batch_descriptor_json IS NOT NULL
+                   OR batch_bound_at IS NOT NULL
+                """
+            )
+        ).fetchone()
+        await db.execute("UPDATE l2_projection_jobs SET next_retry_at = 0")
+        await db.commit()
+    assert cleared == (0,)
+
+    second_rows = await store.claim_projection_jobs(consumer_name="worker", limit=2)
+    second = [_lease(row) for row in second_rows]
+    assert {lease.lease_token for lease in second}.isdisjoint(
+        {lease.lease_token for lease in first}
+    )
+    await _bind(store, second, consumer_name="worker")
+    assert await store.mark_projection_jobs_running(first, consumer_name="worker") == 0
+
+    await store.clear()
+    async with aiosqlite.connect(store.db_path) as db:
+        remaining = await (
+            await db.execute("SELECT COUNT(*) FROM l2_projection_jobs")
+        ).fetchone()
+    assert remaining == (0,)
+    assert await store.mark_projection_jobs_running(second, consumer_name="worker") == 0
 
 
 def test_batch_attempt_key_is_order_independent_and_lease_sensitive() -> None:

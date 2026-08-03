@@ -38,6 +38,10 @@ async def _running_leases(store, event_ids: list[str]) -> list[L2ProjectionLease
         for row in rows
     ]
     assert len(leases) == len(event_ids)
+    assert await store.bind_projection_job_batch(
+        leases,
+        consumer_name="atomic-target-outcome-test",
+    ) == len(leases)
     assert await store.mark_projection_jobs_running(
         leases,
         consumer_name="atomic-target-outcome-test",
