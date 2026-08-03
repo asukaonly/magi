@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -41,6 +42,18 @@ class ReprojectedClaimRouteResult:
     targets_archived: int = 0
     shared_targets_preserved: int = 0
     authority_targets_preserved: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimTargetRetirementResult:
+    """Result of removing one or more Claims' downstream target authority."""
+
+    target_outcomes_invalidated: int = 0
+    assertions_archived: int = 0
+    relationships_archived: int = 0
+    shared_targets_preserved: int = 0
+    authority_targets_preserved: int = 0
+    affected_subject_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,6 +290,122 @@ class _RetirementResult:
     authority_targets_preserved: int = 0
 
 
+async def retire_claim_target_authority_on_connection(
+    db: aiosqlite.Connection,
+    *,
+    claim_ids: Iterable[str],
+    invalidated_reason: str,
+    changed_at: float,
+) -> ClaimTargetRetirementResult:
+    """Remove exact Claim target receipts and reconcile their canonical targets.
+
+    Entity rekeys intentionally leave immutable Claim target receipts pointing at
+    their original projection attempt. Before a Claim is irreversibly redacted,
+    expand those receipts through the current entity-resolution lineage so the
+    canonical assertion or relationship loses only this Claim's authority.
+    """
+
+    if not db.in_transaction:
+        raise RuntimeError("Claim target retirement requires an active transaction")
+    normalized_claim_ids = tuple(
+        sorted({str(claim_id).strip() for claim_id in claim_ids if str(claim_id).strip()})
+    )
+    reason = str(invalidated_reason or "").strip()
+    if not reason:
+        raise ValueError("invalidated_reason must not be blank")
+    if not normalized_claim_ids:
+        return ClaimTargetRetirementResult()
+
+    affected_targets: set[tuple[str, str]] = set()
+    retired_evidence_event_ids: set[str] = set()
+    invalidated = 0
+    for claim_id in normalized_claim_ids:
+        candidate = await _load_route_candidate(db, claim_id)
+        decision = _derive_candidate_route(candidate) if candidate is not None else None
+        retired_evidence_event_ids.update(
+            await _claim_supporting_evidence_event_ids(db, claim_id=claim_id)
+        )
+        receipts = await _active_target_receipts(db, claim_id=claim_id)
+        for receipt in receipts:
+            target_kind = str(receipt["target_kind"])
+            target_id = str(receipt["target_id"])
+            affected_targets.add((target_kind, target_id))
+            if candidate is not None and decision is not None:
+                canonical_target = await _authorized_receipt_target(
+                    db,
+                    receipt=receipt,
+                    candidate=candidate,
+                    decision=decision,
+                )
+                if canonical_target is not None:
+                    affected_targets.add((target_kind, canonical_target.target_id))
+            invalidated += await _invalidate_target_receipt(
+                db,
+                outcome_id=str(receipt["outcome_id"]),
+                reason=reason,
+                changed_at=changed_at,
+            )
+
+    assertion_archives = 0
+    relationship_archives = 0
+    shared_preserved = 0
+    authority_preserved = 0
+    affected_subject_keys: set[str] = set()
+    for target_kind, target_id in sorted(affected_targets):
+        affected_subject_keys.update(
+            await _target_subject_keys(
+                db,
+                target_kind=target_kind,
+                target_id=target_id,
+            )
+        )
+        support = await _current_target_support(
+            db,
+            target_kind=target_kind,
+            target_id=target_id,
+        )
+        authority = await _target_has_independent_authority(
+            db,
+            target_kind=target_kind,
+            target_id=target_id,
+        )
+        if support.claim_ids or authority:
+            await _refresh_target_evidence(
+                db,
+                target_kind=target_kind,
+                target_id=target_id,
+                support=support,
+                preserve_existing=authority,
+                retired_evidence_event_ids=retired_evidence_event_ids,
+                changed_at=changed_at,
+            )
+            if authority:
+                authority_preserved += 1
+            else:
+                shared_preserved += 1
+            continue
+        archived = await _archive_target(
+            db,
+            target_kind=target_kind,
+            target_id=target_id,
+            changed_at=changed_at,
+            reason=reason,
+        )
+        if target_kind == "assertion":
+            assertion_archives += archived
+        else:
+            relationship_archives += archived
+
+    return ClaimTargetRetirementResult(
+        target_outcomes_invalidated=invalidated,
+        assertions_archived=assertion_archives,
+        relationships_archived=relationship_archives,
+        shared_targets_preserved=shared_preserved,
+        authority_targets_preserved=authority_preserved,
+        affected_subject_keys=tuple(sorted(affected_subject_keys)),
+    )
+
+
 async def _reconcile_downstream_provenance(
     db: aiosqlite.Connection,
     *,
@@ -286,39 +415,7 @@ async def _reconcile_downstream_provenance(
     attempt_key: str,
     changed_at: float,
 ) -> _RetirementResult:
-    async with db.execute(
-        """
-        SELECT
-            targets.*,
-            routes.outcome AS source_route_outcome,
-            routes.target_slot_key AS source_route_slot_key,
-            routes.details_json AS source_route_details_json,
-            routes.invalidated_at AS source_route_invalidated_at,
-            routes.invalidated_reason AS source_route_invalidated_reason
-        FROM l2_claim_projection_outcomes AS targets
-        LEFT JOIN l2_claim_projection_outcomes AS routes
-          ON routes.outcome_id = (
-              SELECT source_routes.outcome_id
-              FROM l2_claim_projection_outcomes AS source_routes
-              WHERE source_routes.claim_id = targets.claim_id
-                AND source_routes.attempt_key = targets.attempt_key
-                AND source_routes.target_kind = 'route'
-              ORDER BY CASE WHEN source_routes.invalidated_at IS NULL
-                            THEN 1 ELSE 0 END DESC,
-                       source_routes.route_contract_version DESC,
-                       source_routes.created_at DESC,
-                       source_routes.outcome_id DESC
-              LIMIT 1
-          )
-        WHERE targets.claim_id = ?
-          AND targets.target_kind IN ('assertion', 'relationship')
-          AND targets.outcome = 'projected'
-          AND targets.invalidated_at IS NULL
-        ORDER BY targets.created_at, targets.outcome_id
-        """,
-        (claim_id,),
-    ) as cursor:
-        receipts = [dict(row) for row in await cursor.fetchall()]
+    receipts = await _active_target_receipts(db, claim_id=claim_id)
 
     invalidated = 0
     revalidated = 0
@@ -470,6 +567,46 @@ async def _reconcile_downstream_provenance(
         shared_targets_preserved=shared_preserved,
         authority_targets_preserved=authority_preserved,
     )
+
+
+async def _active_target_receipts(
+    db: aiosqlite.Connection,
+    *,
+    claim_id: str,
+) -> list[dict[str, Any]]:
+    async with db.execute(
+        """
+        SELECT
+            targets.*,
+            routes.outcome AS source_route_outcome,
+            routes.target_slot_key AS source_route_slot_key,
+            routes.details_json AS source_route_details_json,
+            routes.invalidated_at AS source_route_invalidated_at,
+            routes.invalidated_reason AS source_route_invalidated_reason
+        FROM l2_claim_projection_outcomes AS targets
+        LEFT JOIN l2_claim_projection_outcomes AS routes
+          ON routes.outcome_id = (
+              SELECT source_routes.outcome_id
+              FROM l2_claim_projection_outcomes AS source_routes
+              WHERE source_routes.claim_id = targets.claim_id
+                AND source_routes.attempt_key = targets.attempt_key
+                AND source_routes.target_kind = 'route'
+              ORDER BY CASE WHEN source_routes.invalidated_at IS NULL
+                            THEN 1 ELSE 0 END DESC,
+                       source_routes.route_contract_version DESC,
+                       source_routes.created_at DESC,
+                       source_routes.outcome_id DESC
+              LIMIT 1
+          )
+        WHERE targets.claim_id = ?
+          AND targets.target_kind IN ('assertion', 'relationship')
+          AND targets.outcome = 'projected'
+          AND targets.invalidated_at IS NULL
+        ORDER BY targets.created_at, targets.outcome_id
+        """,
+        (claim_id,),
+    ) as cursor:
+        return [dict(row) for row in await cursor.fetchall()]
 
 
 async def _invalidate_target_receipt(
@@ -940,6 +1077,33 @@ async def _target_has_independent_authority(
         return await cursor.fetchone() is not None
 
 
+async def _target_subject_keys(
+    db: aiosqlite.Connection,
+    *,
+    target_kind: str,
+    target_id: str,
+) -> set[str]:
+    if target_kind == "assertion":
+        query = """
+            SELECT entity_id, target_entity_id
+            FROM tom_trait_assertions
+            WHERE assertion_id = ?
+        """
+    else:
+        query = """
+            SELECT subject_id AS entity_id, object_id AS target_entity_id
+            FROM knowledge_graph
+            WHERE triple_id = ?
+        """
+    async with db.execute(query, (target_id,)) as cursor:
+        row = await cursor.fetchone()
+    if row is None:
+        return set()
+    subject = str(row[0] or "").strip()
+    target = str(row[1] or "").strip()
+    return {value for value in (subject, target if ":" in target else "") if value}
+
+
 async def _refresh_target_evidence(
     db: aiosqlite.Connection,
     *,
@@ -1081,6 +1245,7 @@ async def _archive_target(
     target_kind: str,
     target_id: str,
     changed_at: float,
+    reason: str = _ROUTE_CHANGED_REASON,
 ) -> int:
     if target_kind == "assertion":
         cursor = await db.execute(
@@ -1105,7 +1270,7 @@ async def _archive_target(
         WHERE triple_id = ? AND status = 'active'
         """,
         (
-            _ROUTE_CHANGED_REASON,
+            reason,
             changed_at,
             changed_at,
             changed_at,
@@ -1139,4 +1304,9 @@ def _decode_json(raw: Any) -> Any | None:
         return None
 
 
-__all__ = ["ReprojectedClaimRouteResult", "reproject_claim_route"]
+__all__ = [
+    "ClaimTargetRetirementResult",
+    "ReprojectedClaimRouteResult",
+    "reproject_claim_route",
+    "retire_claim_target_authority_on_connection",
+]

@@ -14,6 +14,7 @@ import aiosqlite
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
 from ..claims.repository import redact_grounded_claims_by_ids
+from ..claims.reprojection_write import retire_claim_target_authority_on_connection
 from ..corrections.cache_signals import mark_subject_changed
 from ..corrections.evidence_ledger import (
     claim_evidence_records_for_claims,
@@ -293,6 +294,12 @@ class L2StoreForgettingMixin:
                 (entity_id, entity_id),
             ) as cursor:
                 grounded_claim_ids = [str(row[0]) for row in await cursor.fetchall()]
+            claim_target_retirement = await retire_claim_target_authority_on_connection(
+                db,
+                claim_ids=grounded_claim_ids,
+                invalidated_reason="entity_forgotten",
+                changed_at=now,
+            )
             counts.update(
                 await redact_grounded_claims_by_ids(
                     db,
@@ -311,7 +318,9 @@ class L2StoreForgettingMixin:
                 """,
                 (f"{_FORGET_AUTHORITY_PREFIX}entity", now, entity_id, entity_id),
             )
-            counts["knowledge_graph"] = cursor.rowcount
+            counts["knowledge_graph"] = (
+                max(int(cursor.rowcount or 0), 0) + claim_target_retirement.relationships_archived
+            )
             await db.execute(
                 """
                 UPDATE knowledge_graph
@@ -336,7 +345,9 @@ class L2StoreForgettingMixin:
                 """,
                 (now, entity_id, entity_id),
             )
-            counts["tom_trait_assertions"] = cursor.rowcount
+            counts["tom_trait_assertions"] = (
+                max(int(cursor.rowcount or 0), 0) + claim_target_retirement.assertions_archived
+            )
             await db.execute(
                 """
                 UPDATE tom_trait_assertions
@@ -397,7 +408,10 @@ class L2StoreForgettingMixin:
                 repository=MemoryCorrectionRepository(host.db_path),
                 forgotten_assertions=forgotten_assertions,
                 forgotten_edges=forgotten_edges,
-                explicit_subject_keys=(entity_id,),
+                explicit_subject_keys=(
+                    entity_id,
+                    *claim_target_retirement.affected_subject_keys,
+                ),
                 now=now,
             )
 
