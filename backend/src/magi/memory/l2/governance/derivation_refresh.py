@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Mapping
 from typing import Protocol
 
@@ -59,6 +60,10 @@ async def invalidate_forgotten_derivations(
     )
     subject_keys.update(assertion_l3_subjects)
     subject_keys.update(edge_l3_subjects)
+    await _purge_forgotten_snapshot_baselines(
+        db,
+        subject_keys=subject_keys,
+    )
     revisions: dict[str, int] = {}
     for subject_key in sorted(subject_keys):
         revisions[subject_key] = await repository.bump_subject_revision(
@@ -67,6 +72,45 @@ async def invalidate_forgotten_derivations(
             updated_at=now,
         )
     return revisions
+
+
+async def _purge_forgotten_snapshot_baselines(
+    db: aiosqlite.Connection,
+    *,
+    subject_keys: set[str],
+) -> None:
+    """Remove snapshot history that may still contain forgotten material."""
+
+    if not subject_keys:
+        return
+    subject_json = json.dumps(
+        sorted(subject_keys),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    await db.execute(
+        """
+        DELETE FROM memory_derivation_dependencies
+        WHERE artifact_kind = 'snapshot'
+          AND artifact_id IN (
+              SELECT snapshot_id
+              FROM tom_snapshots
+              WHERE entity_id IN (
+                  SELECT CAST(value AS TEXT) FROM json_each(?)
+              )
+          )
+        """,
+        (subject_json,),
+    )
+    await db.execute(
+        """
+        DELETE FROM tom_snapshots
+        WHERE entity_id IN (
+            SELECT CAST(value AS TEXT) FROM json_each(?)
+        )
+        """,
+        (subject_json,),
+    )
 
 
 async def rebuild_forgotten_subject_views(

@@ -1130,7 +1130,83 @@ async def test_forget_time_range_rebuilds_snapshot_from_remaining_memory(
     serialized = json.dumps(after, ensure_ascii=False)
     assert "place:hangzhou" not in serialized
     assert "concept:coffee" in serialized
+    assert after["core_traits_history"] == []
+    assert after["preferences_history"] == []
+    assert after["relationship_history"] == []
+    assert after["mood_trajectory"] == []
     assert int(after["source_revision"]) > int(before["source_revision"])
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_purges_snapshot_baseline_before_failed_rebuild(
+    store: L2CognitionStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    forgotten_at = time.time() - 100
+    triple_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_LIVES_IN",
+        object_id="place:hangzhou",
+        object_type="place",
+        evidence_event_ids=["evt-snapshot-failed-rebuild"],
+        confidence=0.8,
+        observed_at=forgotten_at,
+        source_type="llm",
+    )
+    before = await store.refresh_entity_snapshot(
+        entity_id="user:u1",
+        entity_type="user",
+    )
+    assert before is not None
+    async with sqlite_connection_async(store.db_path) as db:
+        await db.execute(
+            """
+            INSERT INTO memory_derivation_dependencies(
+                artifact_kind, artifact_id, source_kind, source_id,
+                subject_key, source_revision, created_at
+            ) VALUES ('snapshot', ?, 'edge', ?, 'user:u1', ?, ?)
+            """,
+            (
+                before["snapshot_id"],
+                triple_id,
+                before["source_revision"],
+                time.time(),
+            ),
+        )
+        await db.commit()
+
+    async def fail_snapshot_rebuild(**_kwargs):
+        raise RuntimeError("snapshot rebuild unavailable")
+
+    monkeypatch.setattr(store, "refresh_entity_snapshot", fail_snapshot_rebuild)
+
+    await store.forget_time_range(
+        start=forgotten_at - 1,
+        end=forgotten_at + 1,
+    )
+
+    assert (
+        await store.get_tom_snapshot(
+            entity_id="user:u1",
+            entity_type="user",
+        )
+        is None
+    )
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM tom_snapshots WHERE snapshot_id = ?",
+            (before["snapshot_id"],),
+        ) as cursor:
+            assert int((await cursor.fetchone())[0]) == 0
+        async with db.execute(
+            """
+            SELECT COUNT(*) FROM memory_derivation_dependencies
+            WHERE artifact_kind = 'snapshot' AND artifact_id = ?
+            """,
+            (before["snapshot_id"],),
+        ) as cursor:
+            assert int((await cursor.fetchone())[0]) == 0
 
 
 # ── forget_episode ───────────────────────────────────────────────
