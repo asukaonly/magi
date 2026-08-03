@@ -45,6 +45,7 @@ _INTERNAL_SOURCE_KEYS = {
 }
 _MAX_PROMPT_SUMMARY_LINES = 4
 _MAX_PROTECTED_GOAL_LINES = 2
+TENTATIVE_SELECTION_REF_PREFIX = "tentative:"
 
 
 class UserPortraitLLMClient(Protocol):
@@ -107,11 +108,10 @@ class UserPortraitProjectionBuilder:
             recent=recent,
             tentative_lines=tentative_lines,
         )
-        selected_tentative_claims = [
-            candidate
-            for candidate in tentative_claims[:2]
-            if candidate.prompt_line in prompt_summary
-        ]
+        selected_tentative_claims = select_rendered_tentative_portrait_claims(
+            tentative_claims[:2],
+            prompt_summary,
+        )
         evidence_refs = self._evidence_refs(
             assertions=assertions,
             tentative_claims=selected_tentative_claims,
@@ -338,6 +338,7 @@ class UserPortraitProjectionBuilder:
                 refs.append(f"assertion:{assertion_id}")
         for candidate in tentative_claims:
             refs.extend(candidate.basis_refs)
+        refs.extend(tentative_portrait_selection_refs(tentative_claims))
         return list(dict.fromkeys(refs))
 
     @staticmethod
@@ -385,6 +386,30 @@ def render_portrait_rule_prompt_summary(
     if recent_items and len(lines) < _MAX_PROMPT_SUMMARY_LINES:
         lines.append(f"近期线索：{'、'.join(recent_items)}；不要直接当成长期结论。")
     return _merge_protected_prompt_lines(lines, _goal_prompt_lines(recent))
+
+
+def select_rendered_tentative_portrait_claims(
+    candidates: list[TentativePortraitClaim],
+    prompt_summary: list[str],
+) -> list[TentativePortraitClaim]:
+    """Return tentative candidates whose deterministic lines survived rendering."""
+
+    rendered_lines = set(_string_list(prompt_summary))
+    return [candidate for candidate in candidates if candidate.prompt_line in rendered_lines]
+
+
+def tentative_portrait_selection_refs(
+    candidates: list[TentativePortraitClaim],
+) -> list[str]:
+    """Return explicit Claim and evidence refs for a rendered tentative selection."""
+
+    refs: list[str] = []
+    for candidate in candidates:
+        refs.append(f"{TENTATIVE_SELECTION_REF_PREFIX}claim:{candidate.claim_id}")
+        refs.extend(
+            f"{TENTATIVE_SELECTION_REF_PREFIX}{basis_ref}" for basis_ref in candidate.basis_refs
+        )
+    return list(dict.fromkeys(refs))
 
 
 def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
@@ -553,7 +578,10 @@ def _optional_float(value: Any) -> float | None:
 
 
 __all__ = [
+    "TENTATIVE_SELECTION_REF_PREFIX",
     "UserPortraitLLMClient",
     "UserPortraitProjectionBuilder",
     "render_portrait_rule_prompt_summary",
+    "select_rendered_tentative_portrait_claims",
+    "tentative_portrait_selection_refs",
 ]

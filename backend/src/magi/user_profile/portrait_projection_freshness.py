@@ -11,7 +11,10 @@ from .portrait_claim_query import (
 )
 from .portrait_projection_builder import (
     PORTRAIT_ASSERTION_FAMILIES,
+    TENTATIVE_SELECTION_REF_PREFIX,
     render_portrait_rule_prompt_summary,
+    select_rendered_tentative_portrait_claims,
+    tentative_portrait_selection_refs,
 )
 from .portrait_signal_policy import assertion_portrait_role
 
@@ -183,7 +186,17 @@ async def _tentative_prompt_selection_changed(
         for line in current_summary
         if str(line).strip().startswith("用户曾自述：")
     ]
-    return cached_lines != current_lines
+    current_selection = select_rendered_tentative_portrait_claims(
+        candidates[:2],
+        current_summary,
+    )
+    current_selection_refs = tentative_portrait_selection_refs(current_selection)
+    cached_selection_refs = [
+        str(reference).strip()
+        for reference in projection.evidence_refs
+        if str(reference).strip().startswith(TENTATIVE_SELECTION_REF_PREFIX)
+    ]
+    return cached_lines != current_lines or cached_selection_refs != current_selection_refs
 
 
 async def _source_revision_changed(

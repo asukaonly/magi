@@ -420,7 +420,14 @@ async def test_builder_limits_visible_self_reports_and_preserves_them_from_llm_o
         "用户曾自述：偏好的沟通方式是「先讲结论」（尚未形成长期结论）",
     ]
     assert projection.generated_by == "rule"
-    assert projection.evidence_refs == ["event:event-like", "event:event-style"]
+    assert projection.evidence_refs == [
+        "event:event-like",
+        "event:event-style",
+        "tentative:claim:claim-like",
+        "tentative:event:event-like",
+        "tentative:claim:claim-style",
+        "tentative:event:event-style",
+    ]
     assert "用户讨厌所有音乐" not in "\n".join(projection.prompt_summary)
     assert "不可见内容" not in "\n".join(projection.prompt_summary)
     assert "被动观察内容" not in "\n".join(projection.prompt_summary)
@@ -924,6 +931,76 @@ async def test_expiry_reveals_remaining_conflicted_value_and_invalidates_cache(
     )
     rebuilt = await UserPortraitProjectionBuilder(store).build("local_user")
     assert rebuilt.prompt_summary == ["用户曾自述：喜欢「纯音乐」（尚未形成长期结论）"]
+    assert not await portrait_projection_is_stale(
+        rebuilt,
+        user_id="local_user",
+        l2_store=store,
+    )
+
+
+@pytest.mark.asyncio
+async def test_expiry_changes_same_value_provenance_and_invalidates_cache(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    clock = [150.0]
+    _patch_portrait_clock(monkeypatch, clock)
+    _seed_claim(
+        db_path,
+        claim_id="claim-same-value-retained",
+        event_id="event-same-value-retained",
+        predicate="LIKES",
+        object_value="纯音乐",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_same_value",
+        value_fingerprint="val_same_value",
+        created_at=100.0,
+    )
+    _seed_claim(
+        db_path,
+        claim_id="claim-same-value-expiring",
+        event_id="event-same-value-expiring",
+        predicate="LIKES",
+        object_value="纯音乐",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_same_value",
+        value_fingerprint="val_same_value",
+        created_at=120.0,
+        fact_valid_to=200.0,
+    )
+    store = _store(
+        db_path,
+        visible_event_ids={
+            "event-same-value-retained",
+            "event-same-value-expiring",
+        },
+    )
+
+    projection = await UserPortraitProjectionBuilder(store).build("local_user")
+    assert projection.prompt_summary == ["用户曾自述：喜欢「纯音乐」（尚未形成长期结论）"]
+    assert projection.evidence_refs == [
+        "event:event-same-value-expiring",
+        "tentative:claim:claim-same-value-expiring",
+        "tentative:event:event-same-value-expiring",
+    ]
+
+    clock[0] = 250.0
+    assert await portrait_projection_is_stale(
+        projection,
+        user_id="local_user",
+        l2_store=store,
+    )
+    rebuilt = await UserPortraitProjectionBuilder(store).build("local_user")
+    assert rebuilt.prompt_summary == projection.prompt_summary
+    assert rebuilt.evidence_refs == [
+        "event:event-same-value-retained",
+        "tentative:claim:claim-same-value-retained",
+        "tentative:event:event-same-value-retained",
+    ]
     assert not await portrait_projection_is_stale(
         rebuilt,
         user_id="local_user",
