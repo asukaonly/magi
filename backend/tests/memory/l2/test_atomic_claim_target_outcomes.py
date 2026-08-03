@@ -15,7 +15,7 @@ from magi.memory.l2.corrections.policy import (
     CorrectionPolicyAction,
     CorrectionPolicyDecision,
 )
-from magi.memory.l2.models import L2ProjectionLease
+from magi.memory.l2.models import L2ProjectionLease, derive_projection_attempt_key
 
 
 async def _running_leases(store, event_ids: list[str]) -> list[L2ProjectionLease]:  # type: ignore[no-untyped-def]
@@ -80,7 +80,7 @@ async def _ground_claim(
             identity_key=identity_key,
             extractor_contract_version=1,
             evidence_rule_version=1,
-            origin_attempt_key="attempt:atomic:1",
+            origin_attempt_key=derive_projection_attempt_key(leases),
             profile_id="chat.user_message",
             user_id=None,
             subject_ref="user:u1",
@@ -165,7 +165,7 @@ async def test_graph_target_and_claim_outcome_commit_together(
     )
     context = ClaimTargetOutcomeContext.for_claim(
         claim_id=claim_id,
-        attempt_key="attempt:graph:1",
+        attempt_key=derive_projection_attempt_key(leases),
         route_contract_version=7,
     )
 
@@ -188,7 +188,7 @@ async def test_graph_target_and_claim_outcome_commit_together(
     assert len(outcomes) == 1
     assert outcomes[0]["target_id"] == first["triple_id"]
     assert outcomes[0]["outcome"] == "projected"
-    assert outcomes[0]["attempt_key"] == "attempt:graph:1"
+    assert outcomes[0]["attempt_key"] == derive_projection_attempt_key(leases)
     assert outcomes[0]["route_contract_version"] == 7
 
 
@@ -217,7 +217,7 @@ async def test_graph_outcome_failure_rolls_back_target(
             _graph_candidate("evt-graph-rollback"),
             claim_outcome_context=ClaimTargetOutcomeContext.for_claim(
                 claim_id=claim_id,
-                attempt_key="attempt:graph:rollback",
+                attempt_key=derive_projection_attempt_key(leases),
                 route_contract_version=1,
             ),
             projection_leases=leases,
@@ -244,7 +244,7 @@ async def test_multi_claim_assertion_and_outcomes_replay_idempotently(
     ]
     context = ClaimTargetOutcomeContext(
         claim_ids=tuple(claim_ids),
-        attempt_key="attempt:assertion:1",
+        attempt_key=derive_projection_attempt_key(leases),
         route_contract_version=9,
     )
     candidate = _assertion_candidate(event_ids, claim_ids)
@@ -268,7 +268,7 @@ async def test_multi_claim_assertion_and_outcomes_replay_idempotently(
         assert len(outcomes) == 1
         assert outcomes[0]["target_id"] == first["assertion_id"]
         assert outcomes[0]["outcome"] == "projected"
-        assert outcomes[0]["attempt_key"] == "attempt:assertion:1"
+        assert outcomes[0]["attempt_key"] == derive_projection_attempt_key(leases)
         assert outcomes[0]["route_contract_version"] == 9
 
 
@@ -297,7 +297,7 @@ async def test_assertion_outcome_failure_rolls_back_target(
             _assertion_candidate(["evt-assertion-rollback"], [claim_id]),
             claim_outcome_context=ClaimTargetOutcomeContext.for_claim(
                 claim_id=claim_id,
-                attempt_key="attempt:assertion:rollback",
+                attempt_key=derive_projection_attempt_key(leases),
                 route_contract_version=1,
             ),
             projection_leases=leases,
@@ -318,7 +318,7 @@ async def test_atomic_writer_rejects_missing_claim_and_rolls_back_target(
             _graph_candidate("evt-missing-claim"),
             claim_outcome_context=ClaimTargetOutcomeContext.for_claim(
                 claim_id="clm_missing",
-                attempt_key="attempt:missing-claim",
+                attempt_key=derive_projection_attempt_key(leases),
                 route_contract_version=1,
             ),
             projection_leases=leases,
@@ -349,7 +349,7 @@ async def test_multi_claim_assertion_rolls_back_when_one_claim_is_missing(
             _assertion_candidate([event_id], [claim_id, "clm_missing"]),
             claim_outcome_context=ClaimTargetOutcomeContext(
                 claim_ids=(claim_id, "clm_missing"),
-                attempt_key="attempt:assertion:missing-claim",
+                attempt_key=derive_projection_attempt_key(leases),
                 route_contract_version=1,
             ),
             projection_leases=leases,
@@ -395,7 +395,7 @@ async def test_graph_governance_noop_commits_skipped_outcome_with_target(
         _graph_candidate("evt-graph-governed"),
         claim_outcome_context=ClaimTargetOutcomeContext.for_claim(
             claim_id=claim_id,
-            attempt_key="attempt:graph:governed",
+            attempt_key=derive_projection_attempt_key(leases),
             route_contract_version=1,
         ),
         projection_leases=leases,
@@ -450,7 +450,7 @@ async def test_assertion_governance_noop_commits_skipped_outcomes_with_target(
         _assertion_candidate(event_ids, claim_ids),
         claim_outcome_context=ClaimTargetOutcomeContext(
             claim_ids=tuple(claim_ids),
-            attempt_key="attempt:assertion:governed",
+            attempt_key=derive_projection_attempt_key(leases),
             route_contract_version=1,
         ),
         projection_leases=leases,

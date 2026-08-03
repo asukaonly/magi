@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 import aiosqlite
 
-from ..batch_models import L2ProjectionLease
+from ..batch_models import L2ProjectionLease, derive_projection_attempt_key
 from .errors import ProjectionAttemptFencedError
 from .governance import active_projection_event_predicate
 
@@ -29,6 +29,17 @@ def normalize_projection_leases(
             raise ValueError("projection leases must contain unique event IDs")
         event_ids.add(lease.event_id)
     return normalized
+
+
+def assert_projection_attempt_key(
+    attempt_key: str,
+    leases: Iterable[L2ProjectionLease],
+) -> None:
+    """Require a caller-supplied attempt identity to prove its exact lease set."""
+
+    normalized = normalize_projection_leases(leases, required=True)
+    if str(attempt_key or "").strip() != derive_projection_attempt_key(normalized):
+        raise ValueError("attempt_key does not match the complete projection lease set")
 
 
 async def assert_current_projection_attempt(
@@ -54,4 +65,8 @@ async def assert_current_projection_attempt(
                 raise ProjectionAttemptFencedError("projection_attempt_fenced")
 
 
-__all__ = ["assert_current_projection_attempt", "normalize_projection_leases"]
+__all__ = [
+    "assert_current_projection_attempt",
+    "assert_projection_attempt_key",
+    "normalize_projection_leases",
+]

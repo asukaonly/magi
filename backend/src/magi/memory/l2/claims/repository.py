@@ -12,9 +12,10 @@ from typing import Any, Protocol, cast
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
-from ..batch_models import L2ProjectionLease
+from ..batch_models import L2ProjectionLease, derive_projection_attempt_key
 from ..projection.fencing import (
     assert_current_projection_attempt,
+    assert_projection_attempt_key,
     normalize_projection_leases,
 )
 from ..projection.models import TerminalClaimFailureContext
@@ -50,12 +51,6 @@ def _optional_text(value: Any) -> str | None:
 
 def _json_or_none(value: Any) -> str | None:
     return None if value is None else canonical_json(value)
-
-
-def _terminal_attempt_key(lease: L2ProjectionLease) -> str:
-    material = f"{lease.event_id}:{lease.attempt_count}:{lease.lease_token}"
-    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
-    return f"l2pa_{digest[:32]}"
 
 
 def _record(row: aiosqlite.Row | None) -> dict[str, Any] | None:
@@ -95,6 +90,7 @@ class L2GroundedClaimStoreMixin:
         claim_id = f"clm_{uuid.uuid4().hex}"
         evidence_items = tuple(evidence)
         lease_items = normalize_projection_leases(projection_leases, required=True)
+        assert_projection_attempt_key(claim.origin_attempt_key, lease_items)
         if not evidence_items:
             raise ValueError("grounded Claim must have at least one evidence link")
         supporting_event_ids = [
@@ -482,6 +478,8 @@ class L2GroundedClaimStoreMixin:
         explicit_target_id = _optional_text(context.target_id)
         if (explicit_attempt_key is None) != (explicit_target_id is None):
             raise ValueError("terminal Claim failure attempt_key and target_id must be paired")
+        if explicit_attempt_key is not None:
+            assert_projection_attempt_key(explicit_attempt_key, lease_items)
 
         groups = (
             [
@@ -494,7 +492,7 @@ class L2GroundedClaimStoreMixin:
             if explicit_attempt_key is not None and explicit_target_id is not None
             else [
                 (
-                    _terminal_attempt_key(lease),
+                    derive_projection_attempt_key((lease,)),
                     f"projection_event:{lease.event_id}",
                     [lease.event_id],
                 )
@@ -554,6 +552,8 @@ class L2GroundedClaimStoreMixin:
         await host.initialize()
         claim_id = _required_text(outcome.claim_id, field_name="claim_id")
         attempt_key = _required_text(outcome.attempt_key, field_name="attempt_key")
+        if projection_leases:
+            assert_projection_attempt_key(attempt_key, projection_leases)
         target_kind = _required_text(outcome.target_kind, field_name="target_kind")
         target_id = str(outcome.target_id or "").strip()
         target_slot_key = _optional_text(outcome.target_slot_key)

@@ -17,7 +17,7 @@ from magi.memory.l2.claims.models import (
     ProjectionOutcomeInput,
 )
 from magi.memory.l2.claims.outcomes import ClaimTargetOutcomeContext
-from magi.memory.l2.models import L2ProjectionLease
+from magi.memory.l2.models import L2ProjectionLease, derive_projection_attempt_key
 from magi.memory.l2.projection.errors import ProjectionAttemptFencedError
 
 
@@ -56,12 +56,13 @@ async def _running_leases(
 def _claim_input(
     *,
     identity_key: str,
+    projection_leases: list[L2ProjectionLease],
 ) -> GroundedClaimInput:
     return GroundedClaimInput(
         identity_key=identity_key,
         extractor_contract_version=1,
         evidence_rule_version=1,
-        origin_attempt_key="attempt:test:1",
+        origin_attempt_key=derive_projection_attempt_key(projection_leases),
         profile_id="chat.user_message",
         user_id=None,
         subject_ref="user:self",
@@ -151,12 +152,12 @@ async def test_grounded_claim_replay_is_idempotent(l2_store_with_schema) -> None
     identity_key = _identity(supporting_event_ids=["evt-1"])
     leases = await _running_leases(l2_store_with_schema, ["evt-1"])
     first = await l2_store_with_schema.upsert_grounded_claim(
-        claim=_claim_input(identity_key=identity_key),
+        claim=_claim_input(identity_key=identity_key, projection_leases=leases),
         evidence=[_evidence("evt-1")],
         projection_leases=leases,
     )
     second = await l2_store_with_schema.upsert_grounded_claim(
-        claim=_claim_input(identity_key=identity_key),
+        claim=_claim_input(identity_key=identity_key, projection_leases=leases),
         evidence=[_evidence("evt-1")],
         projection_leases=leases,
     )
@@ -177,7 +178,7 @@ async def test_concurrent_grounded_claim_upsert_has_one_identity(l2_store_with_s
 
     async def write_once() -> dict:
         return await l2_store_with_schema.upsert_grounded_claim(
-            claim=_claim_input(identity_key=identity_key),
+            claim=_claim_input(identity_key=identity_key, projection_leases=leases),
             evidence=[_evidence("evt-concurrent")],
             projection_leases=leases,
         )
@@ -198,7 +199,10 @@ async def test_grounded_claim_rejects_support_outside_projection_lease_batch(
 
     with pytest.raises(ValueError, match="subset of projection lease event IDs"):
         await l2_store_with_schema.upsert_grounded_claim(
-            claim=_claim_input(identity_key=_identity(supporting_event_ids=["evt-not-leased"])),
+            claim=_claim_input(
+                identity_key=_identity(supporting_event_ids=["evt-not-leased"]),
+                projection_leases=leases,
+            ),
             evidence=[_evidence("evt-not-leased")],
             projection_leases=leases,
         )
@@ -225,14 +229,14 @@ async def test_claim_writes_require_the_exact_projection_lease(
 
     with pytest.raises(ProjectionAttemptFencedError):
         await l2_store_with_schema.upsert_grounded_claim(
-            claim=_claim_input(identity_key=identity_key),
+            claim=_claim_input(identity_key=identity_key, projection_leases=[invalid]),
             evidence=[_evidence("evt-exact")],
             projection_leases=[invalid],
         )
     assert await l2_store_with_schema.list_grounded_claims() == []
 
     stored = await l2_store_with_schema.upsert_grounded_claim(
-        claim=_claim_input(identity_key=identity_key),
+        claim=_claim_input(identity_key=identity_key, projection_leases=exact_leases),
         evidence=[_evidence("evt-exact")],
         projection_leases=exact_leases,
     )
@@ -250,7 +254,7 @@ async def test_claim_writes_require_the_exact_projection_lease(
         await l2_store_with_schema.append_claim_projection_outcome(
             ProjectionOutcomeInput(
                 claim_id=stored["claim_id"],
-                attempt_key="attempt:invalid",
+                attempt_key=derive_projection_attempt_key([invalid]),
                 target_kind="route",
                 outcome="unrouted",
             ),
@@ -274,7 +278,7 @@ async def test_claim_writes_require_the_exact_projection_lease(
     exact_outcome = await l2_store_with_schema.append_claim_projection_outcome(
         ProjectionOutcomeInput(
             claim_id=stored["claim_id"],
-            attempt_key="attempt:exact",
+            attempt_key=derive_projection_attempt_key(exact_leases),
             target_kind="route",
             outcome="unrouted",
         ),
@@ -284,12 +288,41 @@ async def test_claim_writes_require_the_exact_projection_lease(
 
 
 @pytest.mark.asyncio
+async def test_claim_write_rejects_attempt_key_from_a_different_lease_set(
+    l2_store_with_schema,
+) -> None:
+    leases = await _running_leases(l2_store_with_schema, ["evt-attempt-lineage"])
+    foreign_leases = [
+        L2ProjectionLease(
+            event_id="evt-attempt-lineage",
+            lease_token="foreign-token",
+            attempt_count=leases[0].attempt_count,
+        )
+    ]
+
+    with pytest.raises(ValueError, match="complete projection lease set"):
+        await l2_store_with_schema.upsert_grounded_claim(
+            claim=_claim_input(
+                identity_key=_identity(supporting_event_ids=["evt-attempt-lineage"]),
+                projection_leases=foreign_leases,
+            ),
+            evidence=[_evidence("evt-attempt-lineage")],
+            projection_leases=leases,
+        )
+
+    assert await l2_store_with_schema.list_grounded_claims() == []
+
+
+@pytest.mark.asyncio
 async def test_claim_entity_ref_rejects_same_version_entity_drift(
     l2_store_with_schema,
 ) -> None:
     leases = await _running_leases(l2_store_with_schema, ["evt-ref-version"])
     stored_claim = await l2_store_with_schema.upsert_grounded_claim(
-        claim=_claim_input(identity_key=_identity(supporting_event_ids=["evt-ref-version"])),
+        claim=_claim_input(
+            identity_key=_identity(supporting_event_ids=["evt-ref-version"]),
+            projection_leases=leases,
+        ),
         evidence=[_evidence("evt-ref-version")],
         projection_leases=leases,
     )
@@ -333,13 +366,16 @@ async def test_claim_entity_ref_rejects_same_version_entity_drift(
 async def test_projection_outcome_is_idempotent_per_attempt_target(l2_store_with_schema) -> None:
     leases = await _running_leases(l2_store_with_schema, ["evt-2"])
     stored = await l2_store_with_schema.upsert_grounded_claim(
-        claim=_claim_input(identity_key=_identity(supporting_event_ids=["evt-2"])),
+        claim=_claim_input(
+            identity_key=_identity(supporting_event_ids=["evt-2"]),
+            projection_leases=leases,
+        ),
         evidence=[_evidence("evt-2")],
         projection_leases=leases,
     )
     outcome = ProjectionOutcomeInput(
         claim_id=stored["claim_id"],
-        attempt_key="attempt:test:1",
+        attempt_key=derive_projection_attempt_key(leases),
         target_kind="route",
         target_id="",
         target_slot_key="route:preference:music",
@@ -366,7 +402,7 @@ async def test_projection_outcome_is_idempotent_per_attempt_target(l2_store_with
         await l2_store_with_schema.append_claim_projection_outcome(
             ProjectionOutcomeInput(
                 claim_id=stored["claim_id"],
-                attempt_key="attempt:test:1",
+                attempt_key=derive_projection_attempt_key(leases),
                 target_kind="route",
                 target_id="",
                 target_slot_key="route:preference:music",
@@ -389,14 +425,14 @@ async def test_forget_redacts_claim_and_invalidates_outcome(l2_store_with_schema
     identity_key = _identity(supporting_event_ids=["evt-secret"])
     leases = await _running_leases(l2_store_with_schema, ["evt-secret"])
     stored = await l2_store_with_schema.upsert_grounded_claim(
-        claim=_claim_input(identity_key=identity_key),
+        claim=_claim_input(identity_key=identity_key, projection_leases=leases),
         evidence=[_evidence("evt-secret")],
         projection_leases=leases,
     )
     await l2_store_with_schema.append_claim_projection_outcome(
         ProjectionOutcomeInput(
             claim_id=stored["claim_id"],
-            attempt_key="attempt:test:1",
+            attempt_key=derive_projection_attempt_key(leases),
             target_kind="assertion",
             target_id="assertion-secret",
             target_slot_key="slot-secret",
@@ -432,7 +468,7 @@ async def test_forget_redacts_claim_and_invalidates_outcome(l2_store_with_schema
     assert await l2_store_with_schema.get_grounded_claim(stored["claim_id"]) is None
 
     replay = await l2_store_with_schema.upsert_grounded_claim(
-        claim=_claim_input(identity_key=identity_key),
+        claim=_claim_input(identity_key=identity_key, projection_leases=leases),
         evidence=[_evidence("evt-secret")],
         projection_leases=leases,
     )
@@ -446,7 +482,10 @@ async def test_tombstone_immediately_hides_claim_before_cleanup_resumes(
 ) -> None:
     leases = await _running_leases(l2_store_with_schema, ["evt-tombstone-crash"])
     stored = await l2_store_with_schema.upsert_grounded_claim(
-        claim=_claim_input(identity_key=_identity(supporting_event_ids=["evt-tombstone-crash"])),
+        claim=_claim_input(
+            identity_key=_identity(supporting_event_ids=["evt-tombstone-crash"]),
+            projection_leases=leases,
+        ),
         evidence=[_evidence("evt-tombstone-crash")],
         projection_leases=leases,
     )
@@ -478,7 +517,7 @@ async def test_forgetting_required_antecedent_redacts_contextual_claim(
     )
     leases = await _running_leases(l2_store_with_schema, ["evt-reply"])
     stored = await l2_store_with_schema.upsert_grounded_claim(
-        claim=_claim_input(identity_key=identity_key),
+        claim=_claim_input(identity_key=identity_key, projection_leases=leases),
         evidence=[
             _evidence("evt-reply", evidence_mode="confirmation"),
             _evidence(
@@ -509,14 +548,17 @@ async def test_forgetting_required_antecedent_redacts_contextual_claim(
 async def test_full_clear_removes_claim_children_before_claims(l2_store_with_schema) -> None:
     leases = await _running_leases(l2_store_with_schema, ["evt-clear"])
     stored = await l2_store_with_schema.upsert_grounded_claim(
-        claim=_claim_input(identity_key=_identity(supporting_event_ids=["evt-clear"])),
+        claim=_claim_input(
+            identity_key=_identity(supporting_event_ids=["evt-clear"]),
+            projection_leases=leases,
+        ),
         evidence=[_evidence("evt-clear")],
         projection_leases=leases,
     )
     await l2_store_with_schema.append_claim_projection_outcome(
         ProjectionOutcomeInput(
             claim_id=stored["claim_id"],
-            attempt_key="attempt:clear:1",
+            attempt_key=derive_projection_attempt_key(leases),
             target_kind="route",
             outcome="unrouted",
             reason_code="unsupported_route",
@@ -539,7 +581,7 @@ async def test_forgetting_any_identity_evidence_redacts_the_whole_claim(
     leases = await _running_leases(l2_store_with_schema, ["evt-a", "evt-b"])
     identity_key = _identity(supporting_event_ids=["evt-a", "evt-b"])
     stored = await l2_store_with_schema.upsert_grounded_claim(
-        claim=_claim_input(identity_key=identity_key),
+        claim=_claim_input(identity_key=identity_key, projection_leases=leases),
         evidence=[_evidence("evt-a"), _evidence("evt-b")],
         projection_leases=leases,
     )
@@ -559,7 +601,10 @@ async def test_forgetting_any_identity_evidence_redacts_the_whole_claim(
 async def test_stale_attempt_cannot_append_claim_children(l2_store_with_schema) -> None:
     first = await _running_leases(l2_store_with_schema, ["evt-fenced"])
     stored = await l2_store_with_schema.upsert_grounded_claim(
-        claim=_claim_input(identity_key=_identity(supporting_event_ids=["evt-fenced"])),
+        claim=_claim_input(
+            identity_key=_identity(supporting_event_ids=["evt-fenced"]),
+            projection_leases=first,
+        ),
         evidence=[_evidence("evt-fenced")],
         projection_leases=first,
     )
@@ -585,7 +630,7 @@ async def test_stale_attempt_cannot_append_claim_children(l2_store_with_schema) 
         await l2_store_with_schema.append_claim_projection_outcome(
             ProjectionOutcomeInput(
                 claim_id=stored["claim_id"],
-                attempt_key="attempt:stale",
+                attempt_key=derive_projection_attempt_key(first),
                 target_kind="route",
                 outcome="unrouted",
             ),
@@ -630,7 +675,7 @@ async def test_stale_attempt_cannot_write_projection_targets(l2_store_with_schem
             },
             claim_outcome_context=ClaimTargetOutcomeContext.for_claim(
                 claim_id="clm_stale",
-                attempt_key="attempt:stale",
+                attempt_key=derive_projection_attempt_key(leases),
                 route_contract_version=1,
             ),
             projection_leases=leases,
@@ -656,7 +701,7 @@ async def test_stale_attempt_cannot_write_projection_targets(l2_store_with_schem
             },
             claim_outcome_context=ClaimTargetOutcomeContext.for_claim(
                 claim_id="clm_stale",
-                attempt_key="attempt:stale",
+                attempt_key=derive_projection_attempt_key(leases),
                 route_contract_version=1,
             ),
             projection_leases=leases,

@@ -41,6 +41,7 @@ from ..corrections.policy import (
 from ..corrections.repository import MemoryCorrectionRepository
 from ..projection.fencing import (
     assert_current_projection_attempt,
+    assert_projection_attempt_key,
     normalize_projection_leases,
 )
 from ..storage.utils import (
@@ -575,6 +576,8 @@ class L2StoreAssertionMixin:
         now = time.time()
         await host.initialize()
         lease_items = normalize_projection_leases(projection_leases, required=False)
+        if claim_outcome_context is not None:
+            assert_projection_attempt_key(claim_outcome_context.attempt_key, lease_items)
         normalized_candidate = normalize_assertion_candidate(candidate, host, now=now)
         normalized_candidate["forget_fingerprint"] = assertion_claim_fingerprint(
             slot_key_value=str(normalized_candidate["slot_key"]),

@@ -8,7 +8,11 @@ import time
 import aiosqlite
 import pytest
 
-from magi.memory.l2.models import L2BatchJob, L2ProjectionLease
+from magi.memory.l2.models import (
+    L2BatchJob,
+    L2ProjectionLease,
+    derive_projection_attempt_key,
+)
 from magi.memory.l2.store import L2CognitionStore
 
 
@@ -414,6 +418,25 @@ def test_batch_attempt_key_is_order_independent_and_lease_sensitive() -> None:
         ],
     )
     assert retried.attempt_key != job_a.attempt_key
+
+
+def test_projection_attempt_key_uses_unambiguous_structured_material() -> None:
+    first = [
+        L2ProjectionLease(
+            event_id="event:a",
+            lease_token="token\n1",
+            attempt_count=2,
+        )
+    ]
+    second = [
+        L2ProjectionLease(
+            event_id="event",
+            lease_token="a:2:token\n1",
+            attempt_count=1,
+        )
+    ]
+
+    assert derive_projection_attempt_key(first) != derive_projection_attempt_key(second)
 
 
 def test_batch_rejects_partial_projection_lease_coverage() -> None:

@@ -16,6 +16,7 @@ from .batch_models import (
     L2SnapshotRefreshJob,
     ManualL2EventRequest,
     build_l2_batch_bucket_key,
+    derive_projection_attempt_key,
 )
 from .candidate_models import (
     L2AssertionCandidate,
@@ -59,6 +60,7 @@ from .phase_models import (
 
 __all__ = [
     "build_l2_batch_bucket_key",
+    "derive_projection_attempt_key",
     "ContradictionHint",
     "EpisodeCandidateJob",
     "EpisodeConsolidationStats",

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
@@ -250,6 +252,39 @@ class L2ProjectionLease:
             raise ValueError("attempt_count must be positive")
 
 
+def derive_projection_attempt_key(
+    leases: Iterable[L2ProjectionLease],
+) -> str:
+    """Derive one unambiguous identity from a complete projection lease set."""
+
+    normalized = tuple(leases)
+    if not normalized:
+        raise ValueError("projection leases must not be empty")
+    if any(not isinstance(lease, L2ProjectionLease) for lease in normalized):
+        raise TypeError("projection lease must be an L2ProjectionLease")
+    event_ids: set[str] = set()
+    material: list[dict[str, Any]] = []
+    for lease in sorted(normalized, key=lambda item: item.event_id):
+        if lease.event_id in event_ids:
+            raise ValueError("projection leases must contain unique event IDs")
+        event_ids.add(lease.event_id)
+        material.append(
+            {
+                "attempt_count": lease.attempt_count,
+                "event_id": lease.event_id,
+                "lease_token": lease.lease_token,
+            }
+        )
+    encoded = json.dumps(
+        material,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return f"l2pa_{digest[:32]}"
+
+
 @dataclass(slots=True)
 class L2BatchJob:
     """Queue payload for one flushed L2 microbatch."""
@@ -312,12 +347,7 @@ class L2BatchJob:
 
         if not self.projection_leases:
             return f"direct:{self.job_id}"
-        material = "\n".join(
-            f"{lease.event_id}:{lease.attempt_count}:{lease.lease_token}"
-            for lease in sorted(self.projection_leases, key=lambda item: item.event_id)
-        )
-        digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
-        return f"l2pa_{digest[:32]}"
+        return derive_projection_attempt_key(self.projection_leases)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -526,6 +556,7 @@ class ManualL2EventRequest:
 
 __all__ = [
     "build_l2_batch_bucket_key",
+    "derive_projection_attempt_key",
     "L2BatchEvent",
     "L2BatchJob",
     "L2EntityReconcileJob",

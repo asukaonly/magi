@@ -42,6 +42,7 @@ from ..corrections.repository import MemoryCorrectionRepository
 from ..graph_conflicts import GraphConflictRule, relationship_predicate_slot
 from ..projection.fencing import (
     assert_current_projection_attempt,
+    assert_projection_attempt_key,
     normalize_projection_leases,
 )
 from .versions import append_knowledge_graph_version
@@ -360,6 +361,7 @@ class L2StoreGraphWriteMixin:
         host = cast(_GraphWriteHostProtocol, self)
         await host.initialize()
         lease_items = normalize_projection_leases(projection_leases, required=True)
+        assert_projection_attempt_key(claim_outcome_context.attempt_key, lease_items)
         if len(claim_outcome_context.claim_ids) != 1:
             raise ValueError("graph receipts require exactly one supporting Claim")
         async with sqlite_connection_async(host.db_path) as db:

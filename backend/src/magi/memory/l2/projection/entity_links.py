@@ -22,7 +22,7 @@ from ...entity_link_projection import (
     desired_entity_links_json,
     normalize_desired_entity_links,
 )
-from ..batch_models import L2ProjectionLease
+from ..batch_models import L2ProjectionLease, derive_projection_attempt_key
 from .fencing import assert_current_projection_attempt, normalize_projection_leases
 
 
@@ -492,11 +492,8 @@ def projection_entity_link_batch_key(leases: Iterable[L2ProjectionLease]) -> str
     """Return the stable identity of one complete projection lease set."""
 
     normalized = normalize_projection_leases(leases, required=True)
-    material = "\n".join(
-        f"{lease.event_id}:{lease.attempt_count}:{lease.lease_token}"
-        for lease in sorted(normalized, key=lambda item: item.event_id)
-    )
-    return "l2elb_" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
+    attempt_key = derive_projection_attempt_key(normalized)
+    return "l2elb_" + attempt_key.removeprefix("l2pa_")
 
 
 async def _next_event_revision(db: aiosqlite.Connection, event_id: str) -> int:
