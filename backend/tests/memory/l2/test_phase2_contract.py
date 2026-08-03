@@ -6,6 +6,10 @@ from typing import Any
 import pytest
 
 from magi.memory.event_contracts import MemoryDomain, TomDepth
+from magi.memory.l2.assertions.occurrence_stats import (
+    ClaimOccurrenceStats,
+    ClaimRouteValueKey,
+)
 from magi.memory.l2.models import (
     L2Phase1FactClaim,
     L2Phase1Result,
@@ -25,6 +29,14 @@ from magi.memory.l2.semantic_routing import SemanticRouteInput, derive_semantic_
 
 
 class _AssertionHarness(L2AssertionValidationMixin):
+    def _validate_phase2_assertions(self, **kwargs):  # type: ignore[no-untyped-def]
+        phase1_result = kwargs.get("phase1_result")
+        kwargs.setdefault(
+            "occurrence_stats_by_key",
+            _synthetic_occurrence_stats(phase1_result),
+        )
+        return super()._validate_phase2_assertions(**kwargs)
+
     def _resolve_self_entity_id(self, event: object) -> str:
         _ = event
         return "user:u1"
@@ -55,6 +67,41 @@ def _routes_for(phase1_result: L2Phase1Result):  # type: ignore[no-untyped-def]
         )
         routes[claim.claim_id] = route
     return routes
+
+
+def _synthetic_occurrence_stats(
+    phase1_result: L2Phase1Result | None,
+) -> dict[ClaimRouteValueKey, ClaimOccurrenceStats]:
+    """Build explicit unit-test statistics without invoking durable storage."""
+
+    if phase1_result is None:
+        return {}
+    routes = _routes_for(phase1_result)
+    claim_ids_by_key: dict[ClaimRouteValueKey, set[str]] = {}
+    event_ids_by_key: dict[ClaimRouteValueKey, set[str]] = {}
+    for claim in phase1_result.fact_claims:
+        route = routes.get(claim.claim_id)
+        if route is None or not route.can_project_assertion or not route.value_fingerprint:
+            continue
+        key = ClaimRouteValueKey(str(route.slot_key), str(route.value_fingerprint))
+        claim_ids_by_key.setdefault(key, set()).add(claim.claim_id)
+        event_ids_by_key.setdefault(key, set()).update(claim.supporting_event_ids)
+    return {
+        key: ClaimOccurrenceStats(
+            key=key,
+            claim_ids=tuple(sorted(claim_ids)),
+            supporting_event_ids=tuple(sorted(event_ids_by_key[key])),
+            trusted_event_ids=tuple(sorted(event_ids_by_key[key])),
+            observation_count=len(claim_ids),
+            evidence_count=len(event_ids_by_key[key]),
+            distinct_days=1 if event_ids_by_key[key] else 0,
+            first_observed_at=1_700_000_000.0 if event_ids_by_key[key] else None,
+            last_observed_at=1_700_000_000.0 if event_ids_by_key[key] else None,
+            span_days=0.0,
+            recency_days=0.0 if event_ids_by_key[key] else None,
+        )
+        for key, claim_ids in claim_ids_by_key.items()
+    }
 
 
 def test_phase2_result_contains_only_claim_assessments_and_assertions() -> None:
@@ -220,6 +267,124 @@ def test_phase2_rejects_event_only_profile_candidate() -> None:
 
     assert prepared == []
     assert rejected == 1
+
+
+def test_phase2_uses_full_ledger_counts_for_passive_promotion() -> None:
+    phase1_result = L2Phase1Result(
+        fact_claims=[
+            L2Phase1FactClaim(
+                claim_id="claim:current",
+                subject_ref="user:u1",
+                predicate="INTERESTED_IN",
+                object_ref="topic:memory",
+                object_type="topic",
+                fact_kind="explicit_fact",
+                temporal_cue=L2TemporalCue.RECURRING,
+                confidence=0.7,
+                supporting_event_ids=["evt-current"],
+            )
+        ]
+    )
+    routes = _routes_for(phase1_result)
+    route = routes["claim:current"]
+    key = ClaimRouteValueKey(str(route.slot_key), str(route.value_fingerprint))
+    occurrence_stats = ClaimOccurrenceStats(
+        key=key,
+        claim_ids=("claim:day-1", "claim:day-2", "claim:current"),
+        supporting_event_ids=("evt-day-1", "evt-day-2", "evt-current"),
+        trusted_event_ids=("evt-day-1", "evt-day-2", "evt-current"),
+        observation_count=3,
+        evidence_count=3,
+        distinct_days=3,
+        first_observed_at=1_699_827_200.0,
+        last_observed_at=1_700_000_000.0,
+        span_days=2.0,
+        recency_days=0.0,
+    )
+    event = SimpleNamespace(
+        event_id="evt-current",
+        timestamp=1_700_000_000.0,
+        source="browser-history",
+        user_id="u1",
+        memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+        tom_depth=TomDepth.TOPOLOGY_ONLY,
+    )
+
+    prepared, rejected = _AssertionHarness()._validate_phase2_assertions(
+        event=event,
+        profile=SimpleNamespace(
+            allow_assertion=True,
+            assertion_mode="phase2_candidate",
+            allowed_assertion_families=frozenset({"interest_profile"}),
+            allowed_assertion_traits="all",
+        ),
+        policy=SimpleNamespace(allow_assertion_write=True, assertion_scope="full"),
+        graph_candidates=[],
+        default_event_ids=["evt-current"],
+        semantic_routes=routes,
+        occurrence_stats_by_key={key: occurrence_stats},
+        phase1_result=phase1_result,
+        phase2_assertions=[
+            L2Phase2AssertionCandidate(
+                entity_ref="user:u1",
+                trait_value="Memory systems",
+                supporting_claim_ids=["claim:current"],
+            )
+        ],
+    )
+
+    assert rejected == 0
+    assert prepared[0]["temporal_scope"] == "recent"
+
+
+def test_phase2_does_not_fabricate_counts_when_ledger_stats_are_missing() -> None:
+    phase1_result = L2Phase1Result(
+        fact_claims=[
+            L2Phase1FactClaim(
+                claim_id="claim:missing-stats",
+                subject_ref="user:u1",
+                predicate="INTERESTED_IN",
+                object_ref="topic:memory",
+                object_type="topic",
+                fact_kind="explicit_fact",
+                temporal_cue=L2TemporalCue.RECURRING,
+                confidence=0.7,
+                supporting_event_ids=["evt-current"],
+            )
+        ]
+    )
+    event = SimpleNamespace(
+        event_id="evt-current",
+        timestamp=1_700_000_000.0,
+        source="browser-history",
+        user_id="u1",
+        memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+        tom_depth=TomDepth.TOPOLOGY_ONLY,
+    )
+
+    with pytest.raises(RuntimeError, match="durable occurrence statistics"):
+        _AssertionHarness()._validate_phase2_assertions(
+            event=event,
+            profile=SimpleNamespace(
+                allow_assertion=True,
+                assertion_mode="phase2_candidate",
+                allowed_assertion_families=frozenset({"interest_profile"}),
+                allowed_assertion_traits="all",
+            ),
+            policy=SimpleNamespace(allow_assertion_write=True, assertion_scope="full"),
+            graph_candidates=[],
+            default_event_ids=["evt-current"],
+            semantic_routes=_routes_for(phase1_result),
+            occurrence_stats_by_key={},
+            phase1_result=phase1_result,
+            phase2_assertions=[
+                L2Phase2AssertionCandidate(
+                    entity_ref="user:u1",
+                    trait_value="Memory systems",
+                    supporting_claim_ids=["claim:missing-stats"],
+                )
+            ],
+        )
 
 
 def test_phase2_derives_recent_profile_expiry_from_temporal_evidence() -> None:

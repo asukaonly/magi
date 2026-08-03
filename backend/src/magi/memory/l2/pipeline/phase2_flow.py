@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from ....core.logger import get_logger
+from ..assertions.occurrence_stats import (
+    ClaimOccurrenceStats,
+    ClaimRouteValueKey,
+    load_routed_claim_occurrence_stats,
+)
 from ..corrections.fingerprints import relationship_triple_id, scope_key
 from ..llm_json_client import L2LLMJsonError
 from ..models import L2ConflictArbitrationResult, L2FocalEntityRef
@@ -372,7 +378,7 @@ class L2Phase2FlowMixin:
                 stage="phase2",
                 exc=exc,
             )
-        phase2_candidates = self._validate_phase2_outputs(
+        phase2_candidates = await self._validate_phase2_outputs(
             batch=batch,
             phase1_flow=phase1_flow,
             phase2_context=phase2_context,
@@ -530,7 +536,7 @@ class L2Phase2FlowMixin:
             phase2_instructions=batch.extraction_profile.phase2_instructions,
         )
 
-    def _validate_phase2_outputs(
+    async def _validate_phase2_outputs(
         self: Any,
         *,
         batch: _PreparedExtractionBatch,
@@ -540,11 +546,13 @@ class L2Phase2FlowMixin:
         graph_candidates: list[dict[str, Any]],
         rejected_graph_count: int,
     ) -> _Phase2CandidateSet:
+        occurrence_stats_by_key = await self._load_phase2_occurrence_stats(phase1_flow)
         assertion_candidates, rejected_assertion_count = self._validate_phase2_assertion_output(
             batch,
             phase1_flow,
             phase2_result,
             graph_candidates,
+            occurrence_stats_by_key,
         )
         validated_assessments, rejected_assessment_count = self._validate_phase2_claim_assessments(
             phase1_result=phase1_flow.phase1_result,
@@ -584,6 +592,7 @@ class L2Phase2FlowMixin:
         phase1_flow: _Phase1ExtractionFlow,
         phase2_result: Any,
         graph_candidates: list[dict[str, Any]],
+        occurrence_stats_by_key: dict[ClaimRouteValueKey, ClaimOccurrenceStats],
     ) -> tuple[list[dict[str, Any]], int]:
         assertion_context = self._merge_graph_candidates(
             graph_candidates,
@@ -596,10 +605,40 @@ class L2Phase2FlowMixin:
             graph_candidates=assertion_context,
             default_event_ids=batch.batch_event_ids,
             semantic_routes=phase1_flow.semantic_routes,
+            occurrence_stats_by_key=occurrence_stats_by_key,
             phase1_result=phase1_flow.phase1_result,
             phase2_assertions=phase2_result.assertion_candidates,
             claim_outcomes=phase1_flow.claim_outcomes,
         )
+
+    async def _load_phase2_occurrence_stats(
+        self: Any,
+        phase1_flow: _Phase1ExtractionFlow,
+    ) -> dict[ClaimRouteValueKey, ClaimOccurrenceStats]:
+        """Load one recomputable ledger snapshot for all routed Claim values."""
+
+        keys = {
+            ClaimRouteValueKey(str(route.slot_key), str(route.value_fingerprint))
+            for route in phase1_flow.semantic_routes.values()
+            if route.can_project_assertion and route.value_fingerprint
+        }
+        if not keys:
+            return {}
+        if self._cognition_store is None:
+            raise RuntimeError("L2 cognition store is unavailable for promotion statistics")
+        stats = await load_routed_claim_occurrence_stats(
+            self._cognition_store.db_path,
+            keys=keys,
+            local_timezone=datetime.now().astimezone().tzinfo,
+        )
+        missing = keys.difference(stats)
+        if missing:
+            missing_slots = sorted(key.target_slot_key for key in missing)
+            raise RuntimeError(
+                "routed Claims are missing durable occurrence statistics: "
+                + ", ".join(missing_slots)
+            )
+        return stats
 
     def _log_phase2_candidate_validation(
         self: Any,

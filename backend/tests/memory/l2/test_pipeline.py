@@ -249,6 +249,42 @@ def _semantic_routes_for_phase1(phase1_result):  # type: ignore[no-untyped-def]
     return routes
 
 
+def _synthetic_occurrence_stats_for_phase1(phase1_result):  # type: ignore[no-untyped-def]
+    """Return explicit ledger-shaped statistics for validator unit tests."""
+
+    from magi.memory.l2.assertions.occurrence_stats import (
+        ClaimOccurrenceStats,
+        ClaimRouteValueKey,
+    )
+
+    routes = _semantic_routes_for_phase1(phase1_result)
+    claims_by_key = {}
+    events_by_key = {}
+    for claim in phase1_result.fact_claims:
+        route = routes.get(claim.claim_id)
+        if route is None or not route.can_project_assertion or not route.value_fingerprint:
+            continue
+        key = ClaimRouteValueKey(str(route.slot_key), str(route.value_fingerprint))
+        claims_by_key.setdefault(key, set()).add(claim.claim_id)
+        events_by_key.setdefault(key, set()).update(claim.supporting_event_ids)
+    return {
+        key: ClaimOccurrenceStats(
+            key=key,
+            claim_ids=tuple(sorted(claim_ids)),
+            supporting_event_ids=tuple(sorted(events_by_key[key])),
+            trusted_event_ids=tuple(sorted(events_by_key[key])),
+            observation_count=len(claim_ids),
+            evidence_count=len(events_by_key[key]),
+            distinct_days=1 if events_by_key[key] else 0,
+            first_observed_at=1.0 if events_by_key[key] else None,
+            last_observed_at=1.0 if events_by_key[key] else None,
+            span_days=0.0,
+            recency_days=0.0 if events_by_key[key] else None,
+        )
+        for key, claim_ids in claims_by_key.items()
+    }
+
+
 def test_reconcile_job_accepts_multiple_entities():
     from magi.memory.l2.models import L2EntityReconcileJob
 
@@ -5454,6 +5490,9 @@ class TestEntityTypeFiltering:
             graph_candidates=[],
             default_event_ids=["evt-profile-value"],
             semantic_routes=_semantic_routes_for_phase1(phase1_result),
+            occurrence_stats_by_key=_synthetic_occurrence_stats_for_phase1(
+                phase1_result
+            ),
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
@@ -5528,6 +5567,7 @@ class TestEntityTypeFiltering:
             graph_candidates=[],
             default_event_ids=["evt-profile-inference"],
             semantic_routes={},
+            occurrence_stats_by_key={},
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
@@ -5564,6 +5604,7 @@ class TestEntityTypeFiltering:
             graph_candidates=[],
             default_event_ids=["evt-derived-mode"],
             semantic_routes={},
+            occurrence_stats_by_key={},
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
@@ -5595,6 +5636,9 @@ class TestEntityTypeFiltering:
             graph_candidates=[],
             default_event_ids=["evt-trait-allowlist"],
             semantic_routes=_semantic_routes_for_phase1(phase1_result),
+            occurrence_stats_by_key=_synthetic_occurrence_stats_for_phase1(
+                phase1_result
+            ),
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
@@ -5628,6 +5672,9 @@ class TestEntityTypeFiltering:
             graph_candidates=[],
             default_event_ids=["evt-trait-wildcard"],
             semantic_routes=_semantic_routes_for_phase1(phase1_result),
+            occurrence_stats_by_key=_synthetic_occurrence_stats_for_phase1(
+                phase1_result
+            ),
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
@@ -5664,6 +5711,9 @@ class TestEntityTypeFiltering:
             graph_candidates=[],
             default_event_ids=["evt-assertion-scope"],
             semantic_routes=_semantic_routes_for_phase1(phase1_result),
+            occurrence_stats_by_key=_synthetic_occurrence_stats_for_phase1(
+                phase1_result
+            ),
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",

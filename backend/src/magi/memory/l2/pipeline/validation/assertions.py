@@ -11,6 +11,10 @@ from ...context_bundle import ResolvedContextRef
 from ...extraction_profiles import ExtractionProfile
 from ...models import L2AssertionCandidate, L2Phase1FactClaim, L2Phase1Result
 from ...assertion_family_policy import get_assertion_family_policy
+from ...assertions.occurrence_stats import (
+    ClaimOccurrenceStats,
+    ClaimRouteValueKey,
+)
 from ...assertions.promotion import (
     AssertionPromotionDecision,
     AssertionPromotionInput,
@@ -302,6 +306,28 @@ def _profile_permits_durable(
     return trait_family in {str(value or "").strip().casefold() for value in values}
 
 
+def _occurrence_stats_for_route(
+    route: SemanticRouteDecision,
+    occurrence_stats_by_key: dict[ClaimRouteValueKey, ClaimOccurrenceStats],
+) -> ClaimOccurrenceStats:
+    """Return the durable-ledger statistics for one exact routed value.
+
+    A routed Claim without recomputable statistics is an integrity failure. It
+    must not fall back to counts from the current model batch because doing so
+    would make replay and promotion depend on execution shape.
+    """
+
+    slot_key = str(route.slot_key or "").strip()
+    value_fingerprint = str(route.value_fingerprint or "").strip()
+    if not slot_key or not value_fingerprint:
+        raise RuntimeError("routed Claim is missing its promotion identity")
+    key = ClaimRouteValueKey(slot_key, value_fingerprint)
+    stats = occurrence_stats_by_key.get(key)
+    if stats is None:
+        raise RuntimeError("routed Claim is missing durable occurrence statistics")
+    return stats
+
+
 class _L2AssertionHostProtocol(Protocol):
     def _resolve_self_entity_id(self, event: MemoryEvent) -> str | None: ...
 
@@ -319,6 +345,7 @@ class Phase2AssertionValidationContext:
     default_event_ids: list[str]
     claims_by_id: dict[str, L2Phase1FactClaim]
     semantic_routes: dict[str, SemanticRouteDecision]
+    occurrence_stats_by_key: dict[ClaimRouteValueKey, ClaimOccurrenceStats]
     assertion_scope: str
     claim_outcomes: list[ClaimProjectionOutcomeDraft]
 
@@ -335,6 +362,7 @@ class L2AssertionValidationMixin:
         graph_candidates: list[dict[str, Any]],
         default_event_ids: list[str],
         semantic_routes: dict[str, SemanticRouteDecision],
+        occurrence_stats_by_key: dict[ClaimRouteValueKey, ClaimOccurrenceStats],
         phase2_assertions: list,
         phase1_result: L2Phase1Result | None = None,
         claim_outcomes: list[ClaimProjectionOutcomeDraft] | None = None,
@@ -387,6 +415,7 @@ class L2AssertionValidationMixin:
             default_event_ids=default_event_ids,
             claims_by_id=claims_by_id,
             semantic_routes=dict(semantic_routes),
+            occurrence_stats_by_key=dict(occurrence_stats_by_key),
             assertion_scope=assertion_scope,
             claim_outcomes=outcome_drafts,
         )
@@ -481,7 +510,10 @@ class L2AssertionValidationMixin:
             trait_family=trait_family,
             trait_name=trait_name,
             supporting_claims=supporting_claims,
-            supporting_event_ids=supporting_event_ids,
+            occurrence_stats=_occurrence_stats_for_route(
+                route,
+                context.occurrence_stats_by_key,
+            ),
         )
         if (
             trait_family in _PROFILE_FAMILIES
@@ -598,7 +630,7 @@ class L2AssertionValidationMixin:
         trait_family: str,
         trait_name: str,
         supporting_claims: list[L2Phase1FactClaim],
-        supporting_event_ids: list[str],
+        occurrence_stats: ClaimOccurrenceStats,
     ) -> AssertionPromotionDecision:
         """Derive host-owned horizon and expiry from grounded evidence."""
         name_lower = trait_name.casefold()
@@ -624,11 +656,7 @@ class L2AssertionValidationMixin:
                 evidence_class=_event_evidence_class(event),
                 source_strength=_source_strength_for_claims(event, supporting_claims),
                 temporal_cue=_promotion_temporal_cue(supporting_claims),
-                observation_count=max(len(supporting_claims), len(supporting_event_ids)),
-                evidence_count=len(supporting_event_ids),
-                distinct_days=1 if supporting_event_ids else 0,
-                span_days=0.0,
-                recency_days=0.0,
+                **occurrence_stats.promotion_fields(),
                 durable_permitted=_profile_permits_durable(event, profile, trait_family),
                 baseline_temporal_scope=baseline_scope,
                 baseline_decay_policy=baseline_decay,
