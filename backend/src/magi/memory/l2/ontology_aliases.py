@@ -16,9 +16,8 @@ logger = get_logger(__name__)
 
 
 PREDICATE_ALIASES: dict[str, str] = {
-    "LISTENED": "INTERACTED_WITH",
-    "LISTEN_TO": "INTERACTED_WITH",
-    "LISTENED_TO": "INTERACTED_WITH",
+    "LISTEN_TO": "LISTENED",
+    "LISTENED_TO": "LISTENED",
     "WATCHED": "VIEWED",
     "READ": "VIEWED",
     "BROWSED": "VIEWED",
@@ -34,8 +33,7 @@ PREDICATE_ALIASES: dict[str, str] = {
     "MODIFIED": "CREATES",
     "MODIFIES": "CREATES",
     "EDITED": "CREATES",
-    "COMMITTED": "CREATES",
-    "COMMITTED_TO": "CREATES",
+    "COMMITTED_TO": "COMMITTED",
     "INTERESTED": "INTERESTED_IN",
     "VISIT": "VISITED",
     "ATTENDED_TO": "ATTENDED",
@@ -53,7 +51,7 @@ PREDICATE_ALIASES: dict[str, str] = {
     "SUBSCRIBED_TO": "FOLLOWS",
     "LOCATED": "LOCATED_IN",
     "LIVES": "LIVES_IN",
-    "LOCATED_NEAR": "LOCATED_IN",
+    "LOCATED_NEAR": "LIVES_IN",
     "PREFERRED_ADDRESS": "PREFERRED_FORM_OF_ADDRESS",
     "ADDRESS_PREFERRED": "PREFERRED_FORM_OF_ADDRESS",
     "PREFERRED_NAME": "PREFERRED_FORM_OF_ADDRESS",
@@ -66,6 +64,7 @@ PREDICATE_ALIASES: dict[str, str] = {
     "DATE_OF_BIRTH": "BIRTH_DATE",
     "BORN_ON": "BIRTH_DATE",
     "BORN_IN": "BIRTH_YEAR",
+    "AGE": "STATED_AGE",
     "USER_AGE": "STATED_AGE",
     "COMMUNICATION_STYLE": "PREFERRED_COMMUNICATION_STYLE",
     "RESPONSE_STYLE": "PREFERRED_COMMUNICATION_STYLE",
@@ -85,12 +84,12 @@ def canonicalize_predicate(raw: Any) -> str | None:
     if not text:
         return None
     upper = text.upper()
+    if upper in PREDICATE_ALIASES:
+        return PREDICATE_ALIASES[upper]
     if upper in PREDICATE_REGISTRY:
         return upper
     if upper in PROFILE_SIGNAL_PREDICATES:
         return upper
-    if upper in PREDICATE_ALIASES:
-        return PREDICATE_ALIASES[upper]
     logger.info("L2 unknown predicate", predicate=upper, raw=str(raw))
     return upper
 

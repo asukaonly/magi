@@ -19,6 +19,7 @@ class _RecordingCognitionStore:
         self.heartbeat_calls: list[list[str]] = []
         self.completed_calls: list[list[str]] = []
         self.failed_calls: list[tuple[list[str], str | None, bool]] = []
+        self.terminal_failure_contexts: list[object] = []
         self.heartbeat_event = asyncio.Event()
         self.call_order: list[str] = []
 
@@ -30,6 +31,9 @@ class _RecordingCognitionStore:
         self.recovery_calls.append(consumer_name)
         self.call_order.append("recover")
         return self.recovered_count
+
+    async def current_clear_generation(self) -> int:
+        return 0
 
     async def mark_projection_jobs_running(self, leases, *, consumer_name: str) -> int:  # type: ignore[no-untyped-def]
         event_ids = [lease.event_id for lease in leases]
@@ -50,10 +54,23 @@ class _RecordingCognitionStore:
         self.call_order.append("complete")
         return len(event_ids)
 
-    async def fail_projection_jobs(self, leases, *, error_text: str | None = None, requeue: bool):  # type: ignore[no-untyped-def]
+    async def fail_projection_jobs(self, leases, *, error_text: str | None = None, requeue: bool, terminal_claim_failure=None):  # type: ignore[no-untyped-def]
         event_ids = [lease.event_id for lease in leases]
         self.failed_calls.append((event_ids, error_text, requeue))
+        self.terminal_failure_contexts.append(terminal_claim_failure)
         return len(event_ids)
+
+    async def prepare_event_entity_link_outbox(self):  # type: ignore[no-untyped-def]
+        return []
+
+
+class _RecordingL1Store:
+    async def align_entity_link_projection_clear_generation(
+        self,
+        clear_generation: int,
+    ) -> int:
+        assert clear_generation == 0
+        return 0
 
 
 def _lease(event_id: str) -> L2ProjectionLease:
@@ -234,7 +251,7 @@ async def test_pipeline_start_recovers_foreign_attempts_before_workers() -> None
     cognition_store.recovered_count = 2
     pipeline = L2Pipeline(
         cognition_store=cognition_store,
-        l1_store=SimpleNamespace(),
+        l1_store=_RecordingL1Store(),
         entity_catalog=SimpleNamespace(),
         llm_service=SimpleNamespace(),
     )
@@ -268,7 +285,7 @@ async def test_abort_during_startup_recovery_does_not_spawn_workers() -> None:
     cognition_store = _DelayedRecoveryCognitionStore()
     pipeline = L2Pipeline(
         cognition_store=cognition_store,
-        l1_store=SimpleNamespace(),
+        l1_store=_RecordingL1Store(),
         entity_catalog=SimpleNamespace(),
         llm_service=SimpleNamespace(),
     )

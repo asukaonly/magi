@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
@@ -19,6 +19,7 @@ from ..clear_generation import (
     advance_memory_clear_generation,
     current_memory_clear_generation,
     ensure_memory_clear_state,
+    memory_clear_generation_on_connection,
 )
 from ..context_scope.cache_epoch import invalidate_context_caches
 from ..context_scope.catalog import clear_user_contexts
@@ -33,6 +34,7 @@ from .graph_conflicts import (
     relationship_predicate_slot,
 )
 from .models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
+from .batch_models import L2ProjectionLease
 from .corrections.repository import (
     DEFAULT_DERIVATION_MAX_ATTEMPTS,
     DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
@@ -40,6 +42,7 @@ from .corrections.repository import (
 )
 from .corrections.cache_signals import mark_all_subjects_changed, mark_subject_changed
 from .claims.repository import L2GroundedClaimStoreMixin
+from .claims.outcomes import ClaimTargetOutcomeContext
 from .projection.queue import ProjectionJobQueue
 from .assertions.contradictions import L2StoreContradictionMixin
 from .assertions.feedback import L2StoreFeedbackMixin
@@ -62,6 +65,11 @@ from .graph.relationship_rekey_history import (
 from .graph.rule_convergence import converge_existing_graph_conflicts
 from .graph.writes import L2StoreGraphWriteMixin
 from .projection.jobs import L2ProjectionJobStoreMixin
+from .projection.entity_links import (
+    L2EventEntityLinkOutboxMixin,
+    _clear_projection_recovery_on_connection,
+    _count_projection_recovery_rows,
+)
 from .retrieval.queries import L2StoreQueryMixin
 from .storage.rows import L2StoreRowMappingMixin
 
@@ -70,6 +78,7 @@ logger = get_logger(__name__)
 
 class L2CognitionStore(
     L2GroundedClaimStoreMixin,
+    L2EventEntityLinkOutboxMixin,
     L2EntityFacetStoreMixin,
     L2EpisodeStoreMixin,
     L2ExperienceStoreMixin,
@@ -288,9 +297,42 @@ class L2CognitionStore(
         """Build deterministic ToM assertion candidates from lightweight rules."""
         return self._extract_assertion_candidates(event)
 
-    async def upsert_assertion_candidate(self, candidate: Dict[str, Any]) -> str:
+    async def upsert_assertion_candidate(
+        self,
+        candidate: Dict[str, Any],
+        *,
+        projection_leases: Iterable[L2ProjectionLease] = (),
+    ) -> str:
         """Persist a normalized assertion candidate."""
-        return await self._upsert_assertion(candidate)
+        result = await self._upsert_assertion(
+            candidate,
+            projection_leases=projection_leases,
+        )
+        return result.assertion_id
+
+    async def upsert_assertion_candidate_with_receipt(
+        self,
+        candidate: Dict[str, Any],
+        *,
+        claim_outcome_context: ClaimTargetOutcomeContext,
+        projection_leases: Iterable[L2ProjectionLease] = (),
+    ) -> dict[str, Any]:
+        """Atomically persist an assertion, Claim outcomes, and a receipt."""
+
+        lease_items = list(projection_leases)
+        if not lease_items:
+            raise ValueError("projection_leases are required for assertion receipts")
+        result = await self._upsert_assertion(
+            candidate,
+            claim_outcome_context=claim_outcome_context,
+            projection_leases=lease_items,
+        )
+        return {
+            "assertion_id": result.assertion_id,
+            "governance_action": result.governance_action.value,
+            "persisted": result.persisted,
+            "reason_code": result.reason_code,
+        }
 
     def set_assertion_change_callback(
         self,
@@ -425,8 +467,17 @@ class L2CognitionStore(
             "db_path": self.db_path,
         }
 
-    async def clear(self) -> int:
-        """Delete all cognition artifacts."""
+    async def clear(
+        self,
+        *,
+        entity_link_clear_generation: int | None = None,
+    ) -> int:
+        """Delete cognition artifacts without orphaning L1 projections.
+
+        A store with durable entity-link projection lineage can only be fully
+        cleared by the unified cross-database clear flow, after that flow has
+        fenced the outbox and successfully cleared L1.
+        """
         await self.initialize()
         async with self.memory_correction_job_guard():
             async with sqlite_connection_async(self.db_path) as db:
@@ -435,7 +486,17 @@ class L2CognitionStore(
                     async with db.execute("SELECT COUNT(*) FROM tom_trait_assertions") as cursor:
                         row = await cursor.fetchone()
                         count = int(row[0]) if row else 0
-                    await advance_memory_clear_generation(db)
+                    projection_recovery_rows = await _count_projection_recovery_rows(db)
+                    if projection_recovery_rows and entity_link_clear_generation is None:
+                        raise RuntimeError(
+                            "L2 clear with entity-link projections requires unified memory clear"
+                        )
+                    if entity_link_clear_generation is None:
+                        clear_generation = await advance_memory_clear_generation(db)
+                    else:
+                        clear_generation = await memory_clear_generation_on_connection(db)
+                        if int(entity_link_clear_generation) != clear_generation:
+                            raise RuntimeError("entity-link projection clear generation is stale")
                     async with db.execute(
                         "SELECT name FROM sqlite_master WHERE type = 'table'"
                     ) as cursor:
@@ -450,6 +511,13 @@ class L2CognitionStore(
                         if table not in existing_tables:
                             continue
                         await db.execute(f"DELETE FROM {table}")
+                    if entity_link_clear_generation is not None:
+                        await _clear_projection_recovery_on_connection(
+                            db,
+                            expected_clear_generation=clear_generation,
+                        )
+                    elif not projection_recovery_rows:
+                        await db.execute("DELETE FROM l2_projection_jobs")
                     await db.commit()
                     invalidate_context_caches(self.db_path)
                 except Exception:
@@ -502,7 +570,6 @@ L2_USER_CONTENT_TABLES = (
     "episodes_fts",
     "episode_events",
     "episodes",
-    "l2_projection_jobs",
     "l2_promotion_seen",
     "l2_promotion_counter",
 )

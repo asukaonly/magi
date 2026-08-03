@@ -59,6 +59,14 @@ class _SourceEventForgettingHostProtocol(Protocol):
 
     def memory_correction_job_guard(self) -> Any: ...
 
+    async def _stage_source_event_link_forget_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        event_ids: tuple[str, ...],
+        reason: str,
+    ) -> int: ...
+
 
 class L2StoreSourceEventForgettingMixin:
     """Remove L2 support from user-deleted source events."""
@@ -79,7 +87,7 @@ class L2StoreSourceEventForgettingMixin:
         *,
         reason: str,
     ) -> int:
-        """Block source events globally without changing existing claim rows."""
+        """Block source events and redact Claim content in the same transaction."""
         host = cast(_SourceEventForgettingHostProtocol, self)
         await host.initialize()
         normalized = normalize_source_event_ids(event_ids)
@@ -89,18 +97,25 @@ class L2StoreSourceEventForgettingMixin:
             async with sqlite_connection_async(host.db_path) as db:
                 await db.execute("BEGIN IMMEDIATE")
                 try:
+                    now = time.time()
                     inserted = int(
                         await tombstone_source_event_ids(
                             db,
                             event_ids=normalized,
                             reason=reason,
-                            created_at=time.time(),
+                            created_at=now,
                         )
                     )
                     await _complete_forgotten_projection_jobs(
                         db,
                         event_ids=normalized,
-                        now=time.time(),
+                        now=now,
+                    )
+                    await redact_grounded_claims_for_source_events(
+                        db,
+                        event_ids=normalized,
+                        reason=reason,
+                        now=now,
                     )
                     await db.commit()
                 except Exception:
@@ -220,6 +235,13 @@ class L2StoreSourceEventForgettingMixin:
                         now=now,
                         explicit_subject_keys=correction_subjects,
                     )
+                    result["event_entity_links"] = (
+                        await host._stage_source_event_link_forget_on_connection(
+                            db,
+                            event_ids=normalized,
+                            reason=reason,
+                        )
+                    )
                     await db.commit()
                 except Exception:
                     await db.rollback()
@@ -242,6 +264,7 @@ def _empty_result() -> dict[str, int]:
     return {
         "source_event_tombstones": 0,
         "projection_jobs": 0,
+        "event_entity_links": 0,
         "l2_claim_evidence": 0,
         "l2_claim_entity_refs": 0,
         "l2_grounded_claims": 0,

@@ -3,10 +3,66 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any, Dict
+from typing import Any, Dict, Protocol, cast
+
+import aiosqlite
 
 from ..batch_models import L2ProjectionLease
-from .queue import ProjectionJobQueue
+from .models import TerminalClaimFailureContext
+from .queue import (
+    ProjectionCompletionCallback,
+    ProjectionJobQueue,
+    ProjectionTerminalCallback,
+)
+
+
+class _TerminalClaimFailureHostProtocol(Protocol):
+    async def _append_terminal_claim_projection_failure_outcomes_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        context: TerminalClaimFailureContext,
+        terminal_leases: tuple[L2ProjectionLease, ...],
+    ) -> int: ...
+
+    async def _finalize_event_entity_link_outbox_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        leases: tuple[L2ProjectionLease, ...],
+    ) -> int: ...
+
+
+def _terminal_claim_callback(
+    host: _TerminalClaimFailureHostProtocol,
+    context: TerminalClaimFailureContext,
+) -> ProjectionTerminalCallback:
+    async def callback(
+        db: aiosqlite.Connection,
+        terminal_leases: tuple[L2ProjectionLease, ...],
+    ) -> None:
+        await host._append_terminal_claim_projection_failure_outcomes_on_connection(
+            db,
+            context=context,
+            terminal_leases=terminal_leases,
+        )
+
+    return callback
+
+
+def _entity_link_completion_callback(
+    host: _TerminalClaimFailureHostProtocol,
+) -> ProjectionCompletionCallback:
+    async def callback(
+        db: aiosqlite.Connection,
+        leases: tuple[L2ProjectionLease, ...],
+    ) -> None:
+        await host._finalize_event_entity_link_outbox_on_connection(
+            db,
+            leases=leases,
+        )
+
+    return callback
 
 
 class L2ProjectionJobStoreMixin:
@@ -95,9 +151,17 @@ class L2ProjectionJobStoreMixin:
         if not str(consumer_name or "").strip():
             return 0
         await self.initialize()
+        host = cast(_TerminalClaimFailureHostProtocol, self)
         async with self.memory_correction_job_guard():
             return await self._projection_queue.recover_foreign_attempts(
-                consumer_name=consumer_name
+                consumer_name=consumer_name,
+                terminal_callback=_terminal_claim_callback(
+                    host,
+                    TerminalClaimFailureContext(
+                        error_type="ProjectionAttemptRecoveredOnStartup",
+                        reason_code="pipeline_retry_budget_exhausted_on_startup",
+                    ),
+                ),
             )
 
     async def mark_projection_jobs_running(
@@ -111,9 +175,17 @@ class L2ProjectionJobStoreMixin:
         if not normalized:
             return 0
         await self.initialize()
+        host = cast(_TerminalClaimFailureHostProtocol, self)
         return await self._projection_queue.mark_running(
             leases=normalized,
             consumer_name=consumer_name,
+            terminal_callback=_terminal_claim_callback(
+                host,
+                TerminalClaimFailureContext(
+                    error_type="ProjectionAttemptRejectedBeforeStart",
+                    reason_code="pipeline_retry_budget_exhausted_before_start",
+                ),
+            ),
         )
 
     async def complete_projection_jobs(self, leases: Iterable[L2ProjectionLease]) -> int:
@@ -122,7 +194,11 @@ class L2ProjectionJobStoreMixin:
         if not normalized:
             return 0
         await self.initialize()
-        return await self._projection_queue.complete(leases=normalized)
+        host = cast(_TerminalClaimFailureHostProtocol, self)
+        return await self._projection_queue.complete(
+            leases=normalized,
+            completion_callback=_entity_link_completion_callback(host),
+        )
 
     async def touch_running_projection_jobs(
         self,
@@ -142,16 +218,25 @@ class L2ProjectionJobStoreMixin:
         *,
         error_text: str | None = None,
         requeue: bool,
+        terminal_claim_failure: TerminalClaimFailureContext | None = None,
     ) -> int:
         """Mark projection jobs as failed or return them to pending."""
         normalized = tuple(leases)
         if not normalized:
             return 0
         await self.initialize()
+        host = cast(_TerminalClaimFailureHostProtocol, self)
+        context = terminal_claim_failure or TerminalClaimFailureContext(
+            error_type="ProjectionJobFailure",
+            reason_code=(
+                "pipeline_retry_budget_exhausted" if requeue else "pipeline_non_retryable_failure"
+            ),
+        )
         return await self._projection_queue.fail(
             leases=normalized,
             error_text=error_text,
             requeue=requeue,
+            terminal_callback=_terminal_claim_callback(host, context),
         )
 
     async def requeue_stale_projection_jobs(
@@ -162,10 +247,18 @@ class L2ProjectionJobStoreMixin:
     ) -> int:
         """Return stale queued or running jobs back to pending for replay."""
         await self.initialize()
+        host = cast(_TerminalClaimFailureHostProtocol, self)
         async with self.memory_correction_job_guard():
             return await self._projection_queue.requeue_stale(
                 queued_timeout_seconds=queued_timeout_seconds,
                 running_timeout_seconds=running_timeout_seconds,
+                terminal_callback=_terminal_claim_callback(
+                    host,
+                    TerminalClaimFailureContext(
+                        error_type="ProjectionAttemptStale",
+                        reason_code="pipeline_retry_budget_exhausted_stale",
+                    ),
+                ),
             )
 
     async def get_projection_backlog_stats(

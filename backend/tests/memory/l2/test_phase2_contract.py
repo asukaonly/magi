@@ -19,6 +19,7 @@ from magi.memory.l2.pipeline.validation.assertions import L2AssertionValidationM
 from magi.memory.l2.pipeline.validation.claim_assessments import (
     L2ClaimAssessmentValidationMixin,
 )
+from magi.memory.l2.semantic_routing import SemanticRouteInput, derive_semantic_route
 
 
 class _AssertionHarness(L2AssertionValidationMixin):
@@ -31,6 +32,27 @@ class _AssertionHarness(L2AssertionValidationMixin):
 
     def _normalize_entity_type(self, raw_value: Any) -> str | None:
         return str(raw_value or "").strip().casefold() or None
+
+
+def _routes_for(phase1_result: L2Phase1Result):  # type: ignore[no-untyped-def]
+    routes = {}
+    for claim in phase1_result.fact_claims:
+        object_ref = str(claim.object_ref or "")
+        route = derive_semantic_route(
+            SemanticRouteInput(
+                claim_id=claim.claim_id,
+                subject_id=str(claim.subject_ref or "user:u1"),
+                subject_type=str(claim.subject_type or "user"),
+                canonical_predicate=str(claim.predicate or ""),
+                fact_kind=str(claim.fact_kind or "explicit_fact"),
+                object_type=str(claim.object_type or "other"),
+                object_value=claim.object_ref,
+                object_entity_id=object_ref if ":" in object_ref else None,
+                temporal_cue=str(claim.temporal_cue),
+            )
+        )
+        routes[claim.claim_id] = route
+    return routes
 
 
 def test_phase2_result_contains_only_claim_assessments_and_assertions() -> None:
@@ -63,14 +85,14 @@ def test_phase2_result_contains_only_claim_assessments_and_assertions() -> None:
     )
 
     assert [item.claim_id for item in result.claim_assessments] == ["claim:diiv"]
-    assert [item.supporting_claim_ids for item in result.assertion_candidates] == [
-        ["claim:diiv"]
-    ]
+    assert [item.supporting_claim_ids for item in result.assertion_candidates] == [["claim:diiv"]]
     assert not hasattr(result, "graph_edges")
     assert not hasattr(result, "contradiction_hints")
     assert not hasattr(result.assertion_candidates[0], "confidence")
     assert not hasattr(result.assertion_candidates[0], "volatility_index")
     assert not hasattr(result.assertion_candidates[0], "supporting_event_ids")
+    assert not hasattr(result.assertion_candidates[0], "trait_family")
+    assert not hasattr(result.assertion_candidates[0], "trait_name")
 
 
 def test_phase2_prompt_forbids_recreating_facts_or_evidence() -> None:
@@ -79,6 +101,8 @@ def test_phase2_prompt_forbids_recreating_facts_or_evidence() -> None:
     assert '"graph_edges"' not in PHASE2_INTEGRATE_SYSTEM_PROMPT
     assert '"supporting_event_ids"' not in PHASE2_INTEGRATE_SYSTEM_PROMPT
     assert '"recommended_action"' not in PHASE2_INTEGRATE_SYSTEM_PROMPT
+    assert '"trait_family"' not in PHASE2_INTEGRATE_SYSTEM_PROMPT
+    assert '"trait_name"' not in PHASE2_INTEGRATE_SYSTEM_PROMPT
 
 
 def test_phase2_assertion_metadata_is_derived_from_grounded_claims() -> None:
@@ -117,12 +141,11 @@ def test_phase2_assertion_metadata_is_derived_from_grounded_claims() -> None:
         policy=SimpleNamespace(allow_assertion_write=True, assertion_scope="full"),
         graph_candidates=[],
         default_event_ids=["evt-diiv"],
+        semantic_routes=_routes_for(phase1_result),
         phase1_result=phase1_result,
         phase2_assertions=[
             L2Phase2AssertionCandidate(
                 entity_ref="user:self",
-                trait_family="preference_profile",
-                trait_name="preference.music",
                 trait_value="DIIV",
                 natural_summary="喜欢 DIIV 的音乐",
                 supporting_claim_ids=["claim:diiv"],
@@ -136,6 +159,10 @@ def test_phase2_assertion_metadata_is_derived_from_grounded_claims() -> None:
     assert prepared[0]["confidence_score"] == 0.3
     assert prepared[0]["volatility_index"] == 0.2
     assert prepared[0]["inference_depth"] == "topology_only"
+    assert prepared[0]["trait_family"] == "preference_profile"
+    assert prepared[0]["trait_name"] == "preference.affinity"
+    assert prepared[0]["trait_value"] == "like"
+    assert prepared[0]["target_entity_id"] == "group:diiv"
 
 
 def test_phase2_rejects_event_only_profile_candidate() -> None:
@@ -147,7 +174,7 @@ def test_phase2_rejects_event_only_profile_candidate() -> None:
                 predicate="VIEWED",
                 object_ref="topic:memory",
                 object_type="topic",
-                fact_kind="interaction_evidence",
+                fact_kind="explicit_fact",
                 temporal_cue=L2TemporalCue.ONE_OFF,
                 confidence=0.7,
                 supporting_event_ids=["evt-page"],
@@ -178,12 +205,11 @@ def test_phase2_rejects_event_only_profile_candidate() -> None:
         ),
         graph_candidates=[],
         default_event_ids=["evt-page"],
+        semantic_routes=_routes_for(phase1_result),
         phase1_result=phase1_result,
         phase2_assertions=[
             L2Phase2AssertionCandidate(
                 entity_ref="user:self",
-                trait_family="interest_profile",
-                trait_name="interest.memory",
                 trait_value="Memory systems",
                 supporting_claim_ids=["claim:page"],
             )
@@ -203,7 +229,7 @@ def test_phase2_derives_recent_profile_expiry_from_temporal_evidence() -> None:
                 predicate="WORKS_ON",
                 object_ref="project:magi",
                 object_type="project",
-                fact_kind="interaction_evidence",
+                fact_kind="explicit_fact",
                 temporal_cue=L2TemporalCue.RECENT,
                 confidence=0.8,
                 supporting_event_ids=["evt-project"],
@@ -234,12 +260,11 @@ def test_phase2_derives_recent_profile_expiry_from_temporal_evidence() -> None:
         ),
         graph_candidates=[],
         default_event_ids=["evt-project"],
+        semantic_routes=_routes_for(phase1_result),
         phase1_result=phase1_result,
         phase2_assertions=[
             L2Phase2AssertionCandidate(
                 entity_ref="user:self",
-                trait_family="project_profile",
-                trait_name="project.active",
                 trait_value="Magi",
                 supporting_claim_ids=["claim:project"],
             )
@@ -251,6 +276,7 @@ def test_phase2_derives_recent_profile_expiry_from_temporal_evidence() -> None:
     assert prepared[0]["decay_policy"] == "time_window"
     assert prepared[0]["expires_at"] > event.timestamp
     assert prepared[0]["memory_subdomain"] == "state"
+    assert prepared[0]["trait_name"] == "project.engagement.active"
 
 
 def test_phase2_mixed_one_off_and_recent_evidence_cannot_become_durable() -> None:
@@ -304,12 +330,11 @@ def test_phase2_mixed_one_off_and_recent_evidence_cannot_become_durable() -> Non
         ),
         graph_candidates=[],
         default_event_ids=["evt-one-off", "evt-recent"],
+        semantic_routes=_routes_for(phase1_result),
         phase1_result=phase1_result,
         phase2_assertions=[
             L2Phase2AssertionCandidate(
                 entity_ref="user:self",
-                trait_family="preference_profile",
-                trait_name="preference.music",
                 trait_value="DIIV",
                 supporting_claim_ids=["claim:one-off", "claim:recent"],
             )
@@ -362,13 +387,12 @@ def test_phase2_external_preference_signal_is_not_durable_by_default() -> None:
         ),
         graph_candidates=[],
         default_event_ids=["evt-external-like"],
+        semantic_routes=_routes_for(phase1_result),
         phase1_result=phase1_result,
         phase2_assertions=[
             L2Phase2AssertionCandidate(
                 entity_ref="listener:u1",
                 entity_type="person",
-                trait_family="preference_profile",
-                trait_name="preference.music",
                 trait_value="DIIV",
                 supporting_claim_ids=["claim:external-like"],
             )
@@ -419,12 +443,11 @@ def test_phase2_rejects_interest_claim_as_preference_profile() -> None:
         ),
         graph_candidates=[],
         default_event_ids=["evt-interest"],
+        semantic_routes=_routes_for(phase1_result),
         phase1_result=phase1_result,
         phase2_assertions=[
             L2Phase2AssertionCandidate(
                 entity_ref="user:self",
-                trait_family="preference_profile",
-                trait_name="preference.memory",
                 trait_value="Memory systems",
                 supporting_claim_ids=["claim:interest"],
             )
@@ -475,12 +498,11 @@ def test_phase2_keeps_mood_session_lifetime() -> None:
         ),
         graph_candidates=[],
         default_event_ids=["evt-mood"],
+        semantic_routes=_routes_for(phase1_result),
         phase1_result=phase1_result,
         phase2_assertions=[
             L2Phase2AssertionCandidate(
                 entity_ref="user:self",
-                trait_family="mood",
-                trait_name="mood",
                 trait_value="calm",
                 supporting_claim_ids=["claim:mood"],
             )
@@ -546,12 +568,11 @@ def test_phase2_keeps_other_short_lived_state_lifetimes(
         ),
         graph_candidates=[],
         default_event_ids=[event_id],
+        semantic_routes=_routes_for(phase1_result),
         phase1_result=phase1_result,
         phase2_assertions=[
             L2Phase2AssertionCandidate(
                 entity_ref="user:self",
-                trait_family=trait_family,
-                trait_name=trait_family,
                 trait_value="high",
                 supporting_claim_ids=[claim_id],
             )
@@ -584,12 +605,11 @@ def test_phase2_assertion_rejects_unknown_claim_reference() -> None:
         policy=SimpleNamespace(allow_assertion_write=True, assertion_scope="full"),
         graph_candidates=[],
         default_event_ids=["evt-diiv"],
+        semantic_routes={},
         phase1_result=L2Phase1Result(),
         phase2_assertions=[
             L2Phase2AssertionCandidate(
                 entity_ref="user:self",
-                trait_family="preference_profile",
-                trait_name="interest.music",
                 trait_value="DIIV",
                 supporting_claim_ids=["claim:invented"],
             )
@@ -644,9 +664,7 @@ def test_phase2_claim_assessment_can_only_request_host_revalidation() -> None:
 
 def test_phase2_claim_assessment_rejects_unknown_records() -> None:
     hints, rejected = L2ClaimAssessmentValidationMixin()._validate_phase2_claim_assessments(
-        phase1_result=L2Phase1Result(
-            fact_claims=[L2Phase1FactClaim(claim_id="claim:diiv")]
-        ),
+        phase1_result=L2Phase1Result(fact_claims=[L2Phase1FactClaim(claim_id="claim:diiv")]),
         assessments=[
             L2Phase2ClaimAssessment(
                 claim_id="claim:diiv",

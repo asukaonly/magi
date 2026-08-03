@@ -15,6 +15,7 @@ from ...ontology import (
     validate_graph_candidate,
 )
 from .evidence import validate_supporting_event_ids
+from ..extraction_contracts import ClaimProjectionOutcomeDraft
 
 
 class L2Phase1GraphProjectionMixin:
@@ -30,11 +31,11 @@ class L2Phase1GraphProjectionMixin:
         profile: ExtractionProfile,
         catalog_name_index: dict[str, str] | None = None,
         classification: EvidenceClassification | None = None,
-    ) -> tuple[list[dict[str, Any]], int]:
+    ) -> tuple[list[dict[str, Any]], list[ClaimProjectionOutcomeDraft]]:
         candidates: list[dict[str, Any]] = []
-        rejected_count = 0
+        rejected_outcomes: list[ClaimProjectionOutcomeDraft] = []
         for claim in phase1_result.fact_claims:
-            candidate = self._project_phase1_claim(
+            candidate, reason_code = self._project_phase1_claim(
                 claim=claim,
                 event=event,
                 evidence_event_ids=evidence_event_ids,
@@ -44,10 +45,22 @@ class L2Phase1GraphProjectionMixin:
                 classification=classification,
             )
             if candidate is None:
-                rejected_count += 1
+                rejected_outcomes.append(
+                    ClaimProjectionOutcomeDraft(
+                        claim_id=str(getattr(claim, "claim_id", "") or ""),
+                        target_kind="relationship",
+                        target_id=f"predicate:{str(getattr(claim, 'predicate', '') or '').strip().upper()}",
+                        outcome=(
+                            "unresolved_entity"
+                            if reason_code in {"unresolved_object", "unresolved_subject"}
+                            else "rejected"
+                        ),
+                        reason_code=reason_code or "graph_candidate_rejected",
+                    )
+                )
                 continue
             candidates.append(candidate)
-        return candidates, rejected_count
+        return candidates, rejected_outcomes
 
     def _project_phase1_claim(
         self,
@@ -59,15 +72,18 @@ class L2Phase1GraphProjectionMixin:
         profile: ExtractionProfile,
         catalog_name_index: dict[str, str] | None,
         classification: EvidenceClassification | None,
-    ) -> dict[str, Any] | None:
-        if not profile.allow_graph or not str(getattr(claim, "claim_id", "") or "").strip():
-            return None
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        if not profile.allow_graph:
+            return None, "graph_projection_disabled"
+        claim_id = str(getattr(claim, "claim_id", "") or "").strip()
+        if not claim_id:
+            return None, "missing_claim_identity"
         supporting_event_ids = validate_supporting_event_ids(
             claim.supporting_event_ids,
             evidence_event_ids,
         )
         if not supporting_event_ids:
-            return None
+            return None, "missing_grounded_support"
         predicate = self._normalize_predicate(claim.predicate)  # type: ignore[attr-defined]
         object_type = self._normalize_entity_type(claim.object_type)  # type: ignore[attr-defined]
         if not self._phase1_graph_shape_allowed(
@@ -75,7 +91,7 @@ class L2Phase1GraphProjectionMixin:
             object_type=object_type,
             profile=profile,
         ):
-            return None
+            return None, "graph_shape_not_allowed"
         subject_id = self._resolve_phase2_subject_id(  # type: ignore[attr-defined]
             event=event,
             subject_ref=claim.subject_ref,
@@ -86,8 +102,10 @@ class L2Phase1GraphProjectionMixin:
             resolved_mentions=resolved_mentions,
             catalog_name_index=catalog_name_index,
         )
-        if not subject_id or not object_id:
-            return None
+        if not subject_id:
+            return None, "unresolved_subject"
+        if not object_id:
+            return None, "unresolved_object"
         if self._should_reject_preference_graph_candidate(  # type: ignore[attr-defined]
             event=event,
             subject_id=subject_id,
@@ -96,8 +114,9 @@ class L2Phase1GraphProjectionMixin:
             object_type=object_type,
             raw_object_ref=claim.object_ref,
         ):
-            return None
+            return None, "preference_domain_rejected"
         return {
+            "_claim_id": claim_id,
             "subject_id": subject_id,
             "subject_type": claim.subject_type or "user",
             "predicate": predicate,
@@ -113,7 +132,7 @@ class L2Phase1GraphProjectionMixin:
             "evidence_class": (
                 classification.evidence_class if classification is not None else None
             ),
-        }
+        }, None
 
     @staticmethod
     def _phase1_graph_shape_allowed(
@@ -133,9 +152,7 @@ class L2Phase1GraphProjectionMixin:
             return False
         if is_low_value_open_predicate(predicate):
             return False
-        is_valid, _ = validate_graph_candidate(
-            {"predicate": predicate, "object_type": object_type}
-        )
+        is_valid, _ = validate_graph_candidate({"predicate": predicate, "object_type": object_type})
         return is_valid
 
     @staticmethod
@@ -145,9 +162,9 @@ class L2Phase1GraphProjectionMixin:
         profile: ExtractionProfile,
         policy: Any,
     ) -> bool:
-        assertion_mode = str(
-            getattr(profile, "assertion_mode", "phase2_candidate") or ""
-        ).strip().casefold()
+        assertion_mode = (
+            str(getattr(profile, "assertion_mode", "phase2_candidate") or "").strip().casefold()
+        )
         return bool(
             phase1_result.fact_claims
             and policy.allow_assertion_write

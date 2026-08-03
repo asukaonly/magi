@@ -63,7 +63,7 @@ def test_phase1_claim_projects_directly_to_graph_candidate() -> None:
         confidence=0.8,
     )
 
-    candidates, rejected = _ProjectionHarness()._project_phase1_graph_candidates(
+    candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
         phase1_result=L2Phase1Result(fact_claims=[claim]),
         event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
         evidence_event_ids=["evt-diiv"],
@@ -71,9 +71,10 @@ def test_phase1_claim_projects_directly_to_graph_candidate() -> None:
         profile=_profile(),
     )
 
-    assert rejected == 0
+    assert outcomes == []
     assert candidates == [
         {
+            "_claim_id": "claim:diiv",
             "subject_id": "user:u1",
             "subject_type": "user",
             "predicate": "LIKES",
@@ -100,7 +101,7 @@ def test_phase1_graph_projection_rejects_missing_support() -> None:
         object_type="group",
     )
 
-    candidates, rejected = _ProjectionHarness()._project_phase1_graph_candidates(
+    candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
         phase1_result=L2Phase1Result(fact_claims=[claim]),
         event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
         evidence_event_ids=["evt-diiv"],
@@ -109,7 +110,10 @@ def test_phase1_graph_projection_rejects_missing_support() -> None:
     )
 
     assert candidates == []
-    assert rejected == 1
+    assert len(outcomes) == 1
+    assert outcomes[0].outcome == "rejected"
+    assert outcomes[0].reason_code == "missing_grounded_support"
+    assert outcomes[0].claim_id == "claim:diiv"
 
 
 def test_phase2_runs_only_when_higher_order_assertions_are_enabled() -> None:

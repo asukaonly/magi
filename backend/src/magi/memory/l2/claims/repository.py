@@ -12,6 +12,12 @@ from typing import Any, Protocol, cast
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ..batch_models import L2ProjectionLease
+from ..projection.fencing import (
+    assert_current_projection_attempt,
+    normalize_projection_leases,
+)
+from ..projection.models import TerminalClaimFailureContext
 from .identity import canonical_json, derive_claim_identity_key, projection_outcome_id
 from .models import (
     ClaimEntityRefInput,
@@ -19,6 +25,7 @@ from .models import (
     GroundedClaimInput,
     ProjectionOutcomeInput,
 )
+from .outcomes import ClaimTargetOutcomeContext, append_claim_target_outcomes_on_connection
 
 
 class _GroundedClaimHostProtocol(Protocol):
@@ -43,6 +50,12 @@ def _optional_text(value: Any) -> str | None:
 
 def _json_or_none(value: Any) -> str | None:
     return None if value is None else canonical_json(value)
+
+
+def _terminal_attempt_key(lease: L2ProjectionLease) -> str:
+    material = f"{lease.event_id}:{lease.attempt_count}:{lease.lease_token}"
+    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
+    return f"l2pa_{digest[:32]}"
 
 
 def _record(row: aiosqlite.Row | None) -> dict[str, Any] | None:
@@ -72,6 +85,7 @@ class L2GroundedClaimStoreMixin:
         *,
         claim: GroundedClaimInput,
         evidence: Iterable[ClaimEvidenceInput],
+        projection_leases: Iterable[L2ProjectionLease],
     ) -> dict[str, Any]:
         """Create one Claim idempotently and attach normalized evidence occurrences."""
 
@@ -80,16 +94,24 @@ class L2GroundedClaimStoreMixin:
         identity_key = _required_text(claim.identity_key, field_name="identity_key")
         claim_id = f"clm_{uuid.uuid4().hex}"
         evidence_items = tuple(evidence)
+        lease_items = normalize_projection_leases(projection_leases, required=True)
         if not evidence_items:
             raise ValueError("grounded Claim must have at least one evidence link")
         supporting_event_ids = [
-            item.event_id for item in evidence_items if item.link_role == "supporting"
+            _required_text(item.event_id, field_name="event_id")
+            for item in evidence_items
+            if item.link_role == "supporting"
         ]
         antecedent_event_ids = [
-            item.event_id for item in evidence_items if item.link_role == "antecedent"
+            _required_text(item.event_id, field_name="event_id")
+            for item in evidence_items
+            if item.link_role == "antecedent"
         ]
         if not supporting_event_ids:
             raise ValueError("grounded Claim must have supporting evidence")
+        lease_event_ids = {lease.event_id for lease in lease_items}
+        if not set(supporting_event_ids).issubset(lease_event_ids):
+            raise ValueError("supporting_event_ids must be a subset of projection lease event IDs")
         evidence_modes = {
             _required_text(item.evidence_mode, field_name="evidence_mode")
             for item in evidence_items
@@ -152,6 +174,7 @@ class L2GroundedClaimStoreMixin:
                         "replay_blocked": True,
                         "blocked_event_ids": blocked_event_ids,
                     }
+                await assert_current_projection_attempt(db, lease_items)
                 async with db.execute(
                     "SELECT * FROM l2_grounded_claims WHERE identity_key = ?",
                     (identity_key,),
@@ -210,6 +233,7 @@ class L2GroundedClaimStoreMixin:
                     created = bool(insert_cursor.rowcount)
                     availability = "active"
                 else:
+                    assert existing is not None
                     claim_id = str(existing["claim_id"])
                     availability = str(existing["availability"])
 
@@ -306,14 +330,25 @@ class L2GroundedClaimStoreMixin:
     async def upsert_claim_entity_ref(
         self,
         ref: ClaimEntityRefInput,
-    ) -> bool:
+        *,
+        projection_leases: Iterable[L2ProjectionLease],
+    ) -> dict[str, Any] | None:
         """Append one versioned resolver result for an active Claim."""
 
         host = cast(_GroundedClaimHostProtocol, self)
         await host.initialize()
+        lease_items = normalize_projection_leases(projection_leases, required=True)
+        claim_id = _required_text(ref.claim_id, field_name="claim_id")
+        ref_role = _required_text(ref.ref_role, field_name="ref_role")
+        entity_id = _required_text(ref.entity_id, field_name="entity_id")
+        resolution_version = max(1, int(ref.resolution_version))
         async with sqlite_connection_async(host.db_path) as db:
-            cursor = await db.execute(
-                """
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await assert_current_projection_attempt(db, lease_items)
+                await db.execute(
+                    """
                 INSERT OR IGNORE INTO l2_claim_entity_refs(
                     claim_id, ref_role, entity_id, resolution_version, created_at
                 )
@@ -322,18 +357,33 @@ class L2GroundedClaimStoreMixin:
                     SELECT 1 FROM l2_grounded_claims
                     WHERE claim_id = ? AND availability = 'active'
                 )
-                """,
-                (
-                    _required_text(ref.claim_id, field_name="claim_id"),
-                    _required_text(ref.ref_role, field_name="ref_role"),
-                    _required_text(ref.entity_id, field_name="entity_id"),
-                    max(1, int(ref.resolution_version)),
-                    time.time(),
-                    ref.claim_id,
-                ),
-            )
-            await db.commit()
-        return bool(cursor.rowcount)
+                    """,
+                    (
+                        claim_id,
+                        ref_role,
+                        entity_id,
+                        resolution_version,
+                        time.time(),
+                        claim_id,
+                    ),
+                )
+                async with db.execute(
+                    """
+                    SELECT * FROM l2_claim_entity_refs
+                    WHERE claim_id = ? AND ref_role = ? AND resolution_version = ?
+                    """,
+                    (claim_id, ref_role, resolution_version),
+                ) as cursor:
+                    stored_row = await cursor.fetchone()
+                if stored_row is not None and str(stored_row["entity_id"]) != entity_id:
+                    raise RuntimeError(
+                        "Claim entity resolution version maps to conflicting entity IDs"
+                    )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        return dict(stored_row) if stored_row is not None else None
 
     async def list_claim_entity_refs(self, *, claim_id: str) -> list[dict[str, Any]]:
         """List active resolver enrichments for one Claim."""
@@ -385,8 +435,115 @@ class L2GroundedClaimStoreMixin:
     async def append_claim_projection_outcome(
         self,
         outcome: ProjectionOutcomeInput,
+        *,
+        projection_leases: Iterable[L2ProjectionLease],
     ) -> dict[str, Any] | None:
         """Append one idempotent target result for an active Claim."""
+
+        lease_items = normalize_projection_leases(projection_leases, required=True)
+        return await self._append_claim_projection_outcome(
+            outcome,
+            projection_leases=lease_items,
+        )
+
+    async def append_reprojected_claim_route_outcome(
+        self,
+        outcome: ProjectionOutcomeInput,
+    ) -> dict[str, Any] | None:
+        """Append one trusted, idempotent route-maintenance result."""
+
+        if str(outcome.target_kind or "").strip() != "route":
+            raise ValueError("reprojected Claim outcome must target route")
+        if not str(outcome.attempt_key or "").startswith("route-reproject:"):
+            raise ValueError("reprojected Claim outcome has an invalid attempt key")
+        return await self._append_claim_projection_outcome(
+            outcome,
+            projection_leases=(),
+        )
+
+    async def _append_terminal_claim_projection_failure_outcomes_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        context: TerminalClaimFailureContext,
+        terminal_leases: tuple[L2ProjectionLease, ...],
+    ) -> int:
+        """Append Claim outcomes inside the owning projection queue transaction."""
+
+        lease_items = normalize_projection_leases(terminal_leases, required=True)
+        normalized_error_type = _required_text(context.error_type, field_name="error_type")
+        normalized_reason_code = _required_text(context.reason_code, field_name="reason_code")
+        explicit_attempt_key = _optional_text(context.attempt_key)
+        explicit_target_id = _optional_text(context.target_id)
+        if (explicit_attempt_key is None) != (explicit_target_id is None):
+            raise ValueError("terminal Claim failure attempt_key and target_id must be paired")
+
+        groups = (
+            [
+                (
+                    explicit_attempt_key,
+                    explicit_target_id,
+                    sorted(lease.event_id for lease in lease_items),
+                )
+            ]
+            if explicit_attempt_key is not None and explicit_target_id is not None
+            else [
+                (
+                    _terminal_attempt_key(lease),
+                    f"projection_event:{lease.event_id}",
+                    [lease.event_id],
+                )
+                for lease in lease_items
+            ]
+        )
+        inserted = 0
+        now = time.time()
+        for attempt_key, target_id, terminal_event_ids in groups:
+            placeholders = ", ".join("?" for _ in terminal_event_ids)
+            async with db.execute(
+                f"""
+                SELECT DISTINCT claims.claim_id
+                FROM l2_grounded_claims AS claims
+                JOIN l2_claim_evidence AS evidence
+                  ON evidence.claim_id = claims.claim_id
+                WHERE claims.availability = 'active'
+                  AND evidence.link_role = 'supporting'
+                  AND evidence.event_id IN ({placeholders})
+                ORDER BY claims.claim_id
+                """,
+                tuple(terminal_event_ids),
+            ) as cursor:
+                claim_ids = [str(row["claim_id"]) for row in await cursor.fetchall()]
+
+            if claim_ids:
+                outcome_ids = await append_claim_target_outcomes_on_connection(
+                    db,
+                    context=ClaimTargetOutcomeContext(
+                        claim_ids=tuple(claim_ids),
+                        attempt_key=attempt_key,
+                        route_contract_version=0,
+                    ),
+                    target_kind="pipeline",
+                    target_id=target_id,
+                    target_slot_key=None,
+                    outcome="failed",
+                    reason_code=normalized_reason_code,
+                    details={
+                        "error_type": normalized_error_type,
+                        "terminal_event_ids": sorted(terminal_event_ids),
+                    },
+                    created_at=now,
+                )
+                inserted += len(outcome_ids)
+        return inserted
+
+    async def _append_claim_projection_outcome(
+        self,
+        outcome: ProjectionOutcomeInput,
+        *,
+        projection_leases: tuple[L2ProjectionLease, ...],
+    ) -> dict[str, Any] | None:
+        """Write one outcome, optionally fenced by a live extraction attempt."""
 
         host = cast(_GroundedClaimHostProtocol, self)
         await host.initialize()
@@ -394,6 +551,11 @@ class L2GroundedClaimStoreMixin:
         attempt_key = _required_text(outcome.attempt_key, field_name="attempt_key")
         target_kind = _required_text(outcome.target_kind, field_name="target_kind")
         target_id = str(outcome.target_id or "").strip()
+        target_slot_key = _optional_text(outcome.target_slot_key)
+        route_contract_version = max(0, int(outcome.route_contract_version))
+        normalized_outcome = _required_text(outcome.outcome, field_name="outcome")
+        reason_code = _optional_text(outcome.reason_code)
+        details_json = _json_or_none(outcome.details)
         outcome_id = projection_outcome_id(
             claim_id=claim_id,
             attempt_key=attempt_key,
@@ -402,8 +564,22 @@ class L2GroundedClaimStoreMixin:
         )
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            cursor = await db.execute(
-                """
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                if projection_leases:
+                    await assert_current_projection_attempt(db, projection_leases)
+                async with db.execute(
+                    """
+                    SELECT 1 FROM l2_grounded_claims
+                    WHERE claim_id = ? AND availability = 'active'
+                    """,
+                    (claim_id,),
+                ) as claim_cursor:
+                    if await claim_cursor.fetchone() is None:
+                        await db.commit()
+                        return None
+                cursor = await db.execute(
+                    """
                 INSERT OR IGNORE INTO l2_claim_projection_outcomes(
                     outcome_id, claim_id, attempt_key, target_kind, target_id,
                     target_slot_key, route_contract_version, outcome,
@@ -414,34 +590,54 @@ class L2GroundedClaimStoreMixin:
                     SELECT 1 FROM l2_grounded_claims
                     WHERE claim_id = ? AND availability = 'active'
                 )
-                """,
-                (
-                    outcome_id,
-                    claim_id,
-                    attempt_key,
-                    target_kind,
-                    target_id,
-                    _optional_text(outcome.target_slot_key),
-                    max(0, int(outcome.route_contract_version)),
-                    _required_text(outcome.outcome, field_name="outcome"),
-                    _optional_text(outcome.reason_code),
-                    _json_or_none(outcome.details),
-                    time.time(),
-                    claim_id,
-                ),
-            )
-            await db.commit()
-            if not cursor.rowcount:
-                async with db.execute(
-                    "SELECT * FROM l2_claim_projection_outcomes WHERE outcome_id = ?",
-                    (outcome_id,),
-                ) as existing_cursor:
-                    return _record(await existing_cursor.fetchone())
-            async with db.execute(
-                "SELECT * FROM l2_claim_projection_outcomes WHERE outcome_id = ?",
-                (outcome_id,),
-            ) as stored_cursor:
-                return _record(await stored_cursor.fetchone())
+                    """,
+                    (
+                        outcome_id,
+                        claim_id,
+                        attempt_key,
+                        target_kind,
+                        target_id,
+                        target_slot_key,
+                        route_contract_version,
+                        normalized_outcome,
+                        reason_code,
+                        details_json,
+                        time.time(),
+                        claim_id,
+                    ),
+                )
+                if not cursor.rowcount:
+                    async with db.execute(
+                        "SELECT * FROM l2_claim_projection_outcomes WHERE outcome_id = ?",
+                        (outcome_id,),
+                    ) as existing_cursor:
+                        stored = _record(await existing_cursor.fetchone())
+                    expected = {
+                        "claim_id": claim_id,
+                        "attempt_key": attempt_key,
+                        "target_kind": target_kind,
+                        "target_id": target_id,
+                        "target_slot_key": target_slot_key,
+                        "route_contract_version": route_contract_version,
+                        "outcome": normalized_outcome,
+                        "reason_code": reason_code,
+                        "details_json": details_json,
+                    }
+                    if stored is None or any(
+                        stored.get(field) != value for field, value in expected.items()
+                    ):
+                        raise RuntimeError("claim_projection_outcome_conflict")
+                else:
+                    async with db.execute(
+                        "SELECT * FROM l2_claim_projection_outcomes WHERE outcome_id = ?",
+                        (outcome_id,),
+                    ) as stored_cursor:
+                        stored = _record(await stored_cursor.fetchone())
+                await db.commit()
+                return stored
+            except Exception:
+                await db.rollback()
+                raise
 
     async def list_claim_projection_outcomes(
         self,
@@ -486,16 +682,13 @@ async def redact_grounded_claims_for_source_events(
     event_json = canonical_json(normalized_ids)
     async with db.execute(
         """
-        SELECT claim_id, required_for_grounding FROM l2_claim_evidence
+        SELECT claim_id FROM l2_claim_evidence
         WHERE event_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
         """,
         (event_json,),
     ) as cursor:
         affected_rows = await cursor.fetchall()
     affected_claim_ids = sorted({str(row[0]) for row in affected_rows})
-    required_claim_ids = {
-        str(row[0]) for row in affected_rows if bool(int(row[1] or 0))
-    }
     deleted = await db.execute(
         """
         DELETE FROM l2_claim_evidence
@@ -515,20 +708,6 @@ async def redact_grounded_claims_for_source_events(
         ) as cursor:
             claim_row = await cursor.fetchone()
         if claim_row is None:
-            continue
-        async with db.execute(
-            """
-            SELECT 1 FROM l2_claim_evidence
-            WHERE claim_id = ? AND link_role = 'supporting' LIMIT 1
-            """,
-            (claim_id,),
-        ) as cursor:
-            still_supported = await cursor.fetchone() is not None
-        if still_supported and claim_id not in required_claim_ids:
-            await db.execute(
-                "UPDATE l2_grounded_claims SET updated_at = ? WHERE claim_id = ?",
-                (now, claim_id),
-            )
             continue
         tombstone_material = f"{claim_row[0]}:{reason}"
         tombstone_key = hashlib.sha256(tombstone_material.encode("utf-8")).hexdigest()
@@ -553,14 +732,20 @@ async def redact_grounded_claims_for_source_events(
             outcome_rows = await cursor.fetchall()
         for outcome_row in outcome_rows:
             outcome_id = str(outcome_row[0])
-            redacted_target = "redacted:" + hashlib.sha256(
-                f"{outcome_id}:{outcome_row[1] or ''}".encode("utf-8")
-            ).hexdigest()[:24]
+            redacted_target = (
+                "redacted:"
+                + hashlib.sha256(
+                    f"{outcome_id}:{outcome_row[1] or ''}".encode("utf-8")
+                ).hexdigest()[:24]
+            )
             redacted_slot = None
             if outcome_row[2] is not None:
-                redacted_slot = "redacted:" + hashlib.sha256(
-                    f"{outcome_id}:{outcome_row[2]}".encode("utf-8")
-                ).hexdigest()[:24]
+                redacted_slot = (
+                    "redacted:"
+                    + hashlib.sha256(f"{outcome_id}:{outcome_row[2]}".encode("utf-8")).hexdigest()[
+                        :24
+                    ]
+                )
             cursor = await db.execute(
                 """
                 UPDATE l2_claim_projection_outcomes

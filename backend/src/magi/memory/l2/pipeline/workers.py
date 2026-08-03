@@ -16,6 +16,7 @@ from ..models import (
     L2FocalEntityRef,
     ReconciledTraitOutcome,
 )
+from ..projection.models import TerminalClaimFailureContext
 from ..store import L2CognitionStore
 
 logger = get_logger("magi.memory.l2.pipeline")
@@ -53,6 +54,8 @@ class _L2PipelineWorkerHostProtocol(Protocol):
     def _resolve_self_entity_id(self, event: MemoryEvent) -> str | None: ...
 
     def _memory_operation_guard(self) -> Any: ...
+
+    async def _drain_event_entity_link_outbox(self) -> int: ...
 
 
 class L2PipelineWorkerMixin:
@@ -110,6 +113,7 @@ class L2PipelineWorkerMixin:
                 )
                 if completed != len(job.projection_leases):
                     raise RuntimeError("projection_attempt_fenced_before_completion")
+                await host._drain_event_entity_link_outbox()
             self._record_extract_job_completion(job, result)
         except Exception as exc:
             await self._fail_extract_job(job, exc)
@@ -357,11 +361,23 @@ class L2PipelineWorkerMixin:
     async def _fail_extract_job(self, job: L2BatchJob, exc: Exception) -> None:
         host = self._worker_host()
         if host._cognition_store is not None and job.projection_leases:
+            requeue = not isinstance(exc, L2LLMJsonError)
             await host._cognition_store.fail_projection_jobs(
                 job.projection_leases,
                 error_text=str(exc),
-                requeue=not isinstance(exc, L2LLMJsonError),
+                requeue=requeue,
+                terminal_claim_failure=TerminalClaimFailureContext(
+                    attempt_key=job.attempt_key,
+                    target_id=job.job_id,
+                    error_type=type(exc).__name__,
+                    reason_code=(
+                        "pipeline_retry_budget_exhausted"
+                        if requeue
+                        else "pipeline_non_retryable_failure"
+                    ),
+                ),
             )
+            await host._drain_event_entity_link_outbox()
         host._stats.extract_failed += 1
         logger.exception(
             "L2 extract failed",

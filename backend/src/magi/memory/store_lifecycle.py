@@ -20,6 +20,11 @@ from magi_plugin_sdk.fs import (
 )
 
 from ..core.sqlite import secure_compact_sqlite
+from .clear_generation import current_memory_clear_generation
+from .l2.projection.entity_links import (
+    begin_event_entity_link_projection_clear,
+    clear_event_entity_link_projection_recovery,
+)
 from .shared_clear import clear_shared_auxiliary_memory
 
 logger = logging.getLogger(__name__)
@@ -84,6 +89,10 @@ class UnifiedMemoryLifecycleMixin:
                 await store.initialize(start_workers=start_workers)
             else:
                 await store.initialize()
+        if self.l1 is not None:
+            await self.l1.align_entity_link_projection_clear_generation(
+                await current_memory_clear_generation(self.memory_db_path)
+            )
         if recover_pending:
             recovery = await self.resume_pending_forget_operations(
                 force=True,
@@ -160,21 +169,44 @@ class UnifiedMemoryLifecycleMixin:
                             for boundary in user_content_clear_boundaries:
                                 await clear_boundary_stack.enter_async_context(boundary())
                             await self._quiesce_memory_writers()
-                            l2_count = await self.l2.clear() if self.l2 is not None else 0
+                            entity_link_clear_generation = (
+                                await begin_event_entity_link_projection_clear(
+                                    self.memory_db_path
+                                )
+                            )
+                            if self.l1 is not None:
+                                l1_count = await self.l1.clear(
+                                    restart_workers=False,
+                                    entity_link_clear_generation=(
+                                        entity_link_clear_generation
+                                    ),
+                                )
+                            else:
+                                l1_count = self._clear_dormant_l1_database()
+                            if self.l2 is not None:
+                                l2_count = await self.l2.clear(
+                                    entity_link_clear_generation=(
+                                        entity_link_clear_generation
+                                    )
+                                )
+                            else:
+                                l2_count = 0
+                                await clear_event_entity_link_projection_recovery(
+                                    self.memory_db_path,
+                                    expected_clear_generation=(
+                                        entity_link_clear_generation
+                                    ),
+                                )
                             if self.l2_entity_catalog is not None:
                                 l2_count += await self.l2_entity_catalog.clear()
                             if self.l2_pipeline is not None:
                                 await self.l2_pipeline.reset_after_clear()
                             l0_count = await self.l0.clear() if self.l0 is not None else 0
-                            if self.l1 is not None:
-                                l1_count = await self.l1.clear(restart_workers=False)
-                            else:
-                                l1_count = self._clear_dormant_l1_database()
                             l3_count = await self.l3.clear() if self.l3 is not None else 0
                             l4_count = await self.l4.clear() if self.l4 is not None else 0
                             shared_counts = await clear_shared_auxiliary_memory(
                                 self.memory_db_path,
-                                advance_clear_generation=self.l2 is None,
+                                advance_clear_generation=False,
                             )
                             l0_count += shared_counts.l0
                             l2_count += shared_counts.l2

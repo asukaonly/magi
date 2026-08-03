@@ -14,7 +14,11 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Iterable
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+
+from ..l2.models import L2ProjectionLease
+from ..l2.projection.errors import ProjectionAttemptFencedError
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +90,7 @@ class EntityScopedSemanticBuilder:
         entity_ids: List[str],
         *,
         observed_at: float,
+        projection_leases: Iterable[L2ProjectionLease] = (),
     ) -> int:
         """Build entity-scoped semantic edges for a newly extracted event.
 
@@ -98,6 +103,7 @@ class EntityScopedSemanticBuilder:
         if not enabled:
             return 0
 
+        lease_items = tuple(projection_leases)
         try:
             return await self._build_edges_impl(
                 event_id,
@@ -106,7 +112,10 @@ class EntityScopedSemanticBuilder:
                 threshold=threshold,
                 max_siblings=max_siblings,
                 max_edges=max_edges,
+                projection_leases=lease_items,
             )
+        except ProjectionAttemptFencedError:
+            raise
         except Exception as exc:
             logger.warning(
                 "Entity-scoped semantic edge building failed",
@@ -123,6 +132,7 @@ class EntityScopedSemanticBuilder:
         threshold: float,
         max_siblings: int,
         max_edges: int,
+        projection_leases: tuple[L2ProjectionLease, ...],
     ) -> int:
         sibling_ids = await self._find_sibling_event_ids(
             event_id=event_id,
@@ -151,6 +161,7 @@ class EntityScopedSemanticBuilder:
             observed_at=observed_at,
             similar_pairs=similar_pairs,
             event_entities=event_entities,
+            projection_leases=projection_leases,
         )
         logger.debug(
             "Entity-scoped semantic edges built",
@@ -224,6 +235,7 @@ class EntityScopedSemanticBuilder:
         observed_at: float,
         similar_pairs: List[Tuple[str, float]],
         event_entities: Dict[str, List[str]],
+        projection_leases: tuple[L2ProjectionLease, ...],
     ) -> int:
         new_entities = set(event_entities.get(event_id, entity_ids))
         edge_count = 0
@@ -239,6 +251,7 @@ class EntityScopedSemanticBuilder:
                     observed_at=observed_at,
                     similarity=sim,
                     pair=pair,
+                    projection_leases=projection_leases,
                 ):
                     edge_count += 1
         return edge_count
@@ -266,6 +279,7 @@ class EntityScopedSemanticBuilder:
         observed_at: float,
         similarity: float,
         pair: Tuple[str, str, str, str],
+        projection_leases: tuple[L2ProjectionLease, ...],
     ) -> bool:
         subj_id, obj_id, subj_type, obj_type = pair
         try:
@@ -282,8 +296,11 @@ class EntityScopedSemanticBuilder:
                 source_type="entity_semantic_builder",
                 extraction_method="embedding_similarity",
                 evidence_text=f"Cosine similarity {similarity:.3f} within shared entity scope",
+                projection_leases=projection_leases,
             )
             return True
+        except ProjectionAttemptFencedError:
+            raise
         except Exception as exc:
             logger.debug("Failed to upsert semantic edge: %s", exc)
             return False

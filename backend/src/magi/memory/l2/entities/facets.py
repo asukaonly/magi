@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Iterable
 from typing import Any, Dict, List
 
 import aiosqlite
@@ -17,6 +18,11 @@ from ...source_event_governance import (
     source_event_time_range_block_ids,
     source_event_time_range_block_predicate,
     source_event_tombstone_ids,
+)
+from ..batch_models import L2ProjectionLease
+from ..projection.fencing import (
+    assert_current_projection_attempt,
+    normalize_projection_leases,
 )
 from ..storage.utils import (
     accumulate_confidence,
@@ -46,6 +52,7 @@ class L2EntityFacetStoreMixin:
         observed_at: float,
         source_type: str,
         extraction_method: str = "structured_hint",
+        projection_leases: Iterable[L2ProjectionLease] = (),
     ) -> str:
         """Insert or refresh a sidecar facet for one entity."""
         await self.initialize()
@@ -62,11 +69,14 @@ class L2EntityFacetStoreMixin:
             facet_value=facet_value,
         )
         now = time.time()
+        lease_items = normalize_projection_leases(projection_leases, required=False)
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             try:
+                if lease_items:
+                    await assert_current_projection_attempt(db, lease_items)
                 active_event_ids = await _active_facet_source_event_ids(
                     db,
                     evidence_event_ids,

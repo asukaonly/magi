@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from .phase1_models import (
     L2ClaimEvidenceMode,
+    L2FactKind,
     L2Phase1Entity,
     L2Phase1FactClaim,
     L2Phase1ResolvedRef,
@@ -29,6 +30,7 @@ from .phase_aux_models import (
 __all__ = [
     "ContradictionHint",
     "L2ClaimEvidenceMode",
+    "L2FactKind",
     "L2Phase1Entity",
     "L2Phase1FactClaim",
     "L2Phase1ResolvedRef",

@@ -6,6 +6,7 @@ import ast
 import json
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Dict, Protocol, cast
 
@@ -14,6 +15,11 @@ import aiosqlite
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
 from ...context_scope.models import normalize_context_scope
+from ..batch_models import L2ProjectionLease
+from ..claims.outcomes import (
+    ClaimTargetOutcomeContext,
+    append_claim_target_outcomes_on_connection,
+)
 from ..corrections.fingerprints import (
     assertion_claim_fingerprint,
     assertion_slot_key,
@@ -33,6 +39,10 @@ from ..corrections.policy import (
     CorrectionPolicyEvaluator,
 )
 from ..corrections.repository import MemoryCorrectionRepository
+from ..projection.fencing import (
+    assert_current_projection_attempt,
+    normalize_projection_leases,
+)
 from ..storage.utils import (
     max_evidence_event_ids,
     normalize_event_ids,
@@ -216,7 +226,8 @@ def _normalized_assertion_context(
 def _normalized_assertion_governance(candidate: Dict[str, Any]) -> Dict[str, Any]:
     raw_scope = candidate.get("scope")
     scope = normalize_context_scope(raw_scope if raw_scope is not None else {})
-    slot_key_value = assertion_slot_key(
+    semantic_route_slot_key = str(candidate.get("semantic_route_slot_key") or "").strip()
+    slot_key_value = semantic_route_slot_key or assertion_slot_key(
         entity_type=str(candidate["entity_type"]),
         entity_id=str(candidate["entity_id"]),
         trait_name=str(candidate.get("trait_name") or ""),
@@ -293,6 +304,8 @@ class _AssertionWriteResult:
     triggered_stable: bool = False
     should_notify: bool = True
     governance_action: CorrectionPolicyAction = CorrectionPolicyAction.ACCEPT_ACTIVE
+    persisted: bool = True
+    reason_code: str | None = None
 
 
 def build_assertion_merge_context(
@@ -475,10 +488,17 @@ def _merged_assertion_state(
 class L2StoreAssertionMixin:
     """Persist and update ToM assertion records."""
 
-    async def _upsert_assertion(self, candidate: Dict[str, Any]) -> str:
+    async def _upsert_assertion(
+        self,
+        candidate: Dict[str, Any],
+        *,
+        claim_outcome_context: ClaimTargetOutcomeContext | None = None,
+        projection_leases: Iterable[L2ProjectionLease] = (),
+    ) -> _AssertionWriteResult:
         host = cast(_AssertionHostProtocol, self)
         now = time.time()
         await host.initialize()
+        lease_items = normalize_projection_leases(projection_leases, required=False)
         normalized_candidate = normalize_assertion_candidate(candidate, host, now=now)
         normalized_candidate["forget_fingerprint"] = assertion_claim_fingerprint(
             slot_key_value=str(normalized_candidate["slot_key"]),
@@ -493,6 +513,8 @@ class L2StoreAssertionMixin:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             try:
+                if lease_items:
+                    await assert_current_projection_attempt(db, lease_items)
                 original_evidence = list(normalized_candidate["evidence_events"])
                 filtered_evidence = await filter_candidate_evidence_by_forget_rules(
                     db,
@@ -524,8 +546,14 @@ class L2StoreAssertionMixin:
                         forget_rule_id=filtered_evidence.blocking_rule_id,
                     )
                     result = self._governed_noop_result(policy, normalized_candidate)
+                    await self._append_atomic_claim_outcomes(
+                        db,
+                        context=claim_outcome_context,
+                        candidate=normalized_candidate,
+                        result=result,
+                    )
                     await db.commit()
-                    return result.assertion_id
+                    return result
 
                 if filtered_evidence.has_forgotten_evidence:
                     retained_bounds = filtered_evidence.retained_observation_bounds
@@ -607,6 +635,12 @@ class L2StoreAssertionMixin:
                             trait_name=trait_name,
                             now=now,
                         )
+                await self._append_atomic_claim_outcomes(
+                    db,
+                    context=claim_outcome_context,
+                    candidate=normalized_candidate,
+                    result=result,
+                )
                 await db.commit()
             except Exception:
                 await db.rollback()
@@ -624,7 +658,30 @@ class L2StoreAssertionMixin:
             trait_name=trait_name,
             result=result,
         )
-        return result.assertion_id
+        return result
+
+    @staticmethod
+    async def _append_atomic_claim_outcomes(
+        db: aiosqlite.Connection,
+        *,
+        context: ClaimTargetOutcomeContext | None,
+        candidate: Dict[str, Any],
+        result: _AssertionWriteResult,
+    ) -> None:
+        if context is None:
+            return
+        persisted = bool(result.persisted)
+        await append_claim_target_outcomes_on_connection(
+            db,
+            context=context,
+            target_kind="assertion",
+            target_id=result.assertion_id,
+            target_slot_key=str(candidate.get("slot_key") or "") or None,
+            outcome="projected" if persisted else "skipped",
+            reason_code=(
+                None if persisted else result.reason_code or result.governance_action.value
+            ),
+        )
 
     async def _record_governed_candidate_evidence(
         self,
@@ -689,6 +746,8 @@ class L2StoreAssertionMixin:
             assertion_id=assertion_id,
             should_notify=False,
             governance_action=policy.action,
+            persisted=False,
+            reason_code=policy.action.value,
         )
 
     async def _load_authoritative_assertion(

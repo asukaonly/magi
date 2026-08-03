@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from ....core.logger import get_logger
@@ -18,6 +19,7 @@ from ..models import (
     L2BatchJob,
     L2EventWindow,
     L2EventWindowSummary,
+    L2ProjectionLease,
     ResolvedEntityMention,
 )
 from .extraction_contracts import (
@@ -28,6 +30,7 @@ from .extraction_contracts import (
 )
 from .external_dialogue_grounding import ground_phase1_external_dialogue_refs
 from .claim_grounding import ground_phase1_fact_claims
+from .claim_persistence import L2ClaimPersistenceMixin
 from .phase2_flow import L2Phase2FlowMixin
 
 logger = get_logger("magi.memory.l2.pipeline")
@@ -107,9 +110,7 @@ def _l2_extraction_skip_result(
 
 def _policy_requires_extraction_context(policy: PolicyDecision) -> bool:
     return (
-        policy.allow_entity_extraction
-        or policy.allow_assertion_write
-        or policy.allow_graph_write
+        policy.allow_entity_extraction or policy.allow_assertion_write or policy.allow_graph_write
     )
 
 
@@ -163,6 +164,7 @@ def _empty_phase1_result_payload(
 
 def _prepared_extraction_batch(
     *,
+    job: L2BatchJob,
     event: MemoryEvent,
     classification: EvidenceClassification,
     policy: PolicyDecision,
@@ -179,6 +181,9 @@ def _prepared_extraction_batch(
     direct_write_count: int,
 ) -> _PreparedExtractionBatch:
     return _PreparedExtractionBatch(
+        attempt_key=job.attempt_key,
+        batch_key=job.bucket_key,
+        projection_leases=list(job.projection_leases),
         stored_event=event,
         classification=classification,
         policy=policy,
@@ -247,7 +252,7 @@ def build_l2_extraction_plan(stored_events: list[MemoryEvent]) -> L2ExtractionPl
     )
 
 
-class L2PipelineExtractionMixin(L2Phase2FlowMixin):
+class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
     """Run the end-to-end L2 Phase 1/Phase 2 extraction and persistence flow."""
 
     async def _fetch_pinned_payloads(self: Any, event_ids: Any) -> dict[str, str]:
@@ -288,24 +293,33 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
             skip_reason = str(extraction_plan.skip_result.get("skip_reason") or "")
             if skip_reason:
                 self._increment_bucket(self._stats.skip_by_reason, skip_reason)
+            await self._replace_event_entity_links_with_empty(job.projection_leases)
             return extraction_plan.skip_result
 
         primary_decision = extraction_plan.primary
         if primary_decision is None:  # pragma: no cover - defensive guard
+            await self._replace_event_entity_links_with_empty(job.projection_leases)
             return _l2_extraction_skip_result(
                 skip_reason="no_eligible_events",
                 evidence_class=None,
             )
         policy_skip = self._policy_skip_result(primary_decision)
         if policy_skip is not None:
+            await self._replace_event_entity_links_with_empty(job.projection_leases)
             return policy_skip
 
-        batch = await self._prepare_extraction_batch(extraction_plan, primary_decision)
+        batch = await self._prepare_extraction_batch(
+            extraction_plan,
+            primary_decision,
+            job=job,
+        )
         structured_only_result = await self._maybe_structured_only(batch)
         if structured_only_result is not None:
+            await self._replace_event_entity_links_with_empty(batch.projection_leases)
             return structured_only_result
 
         phase1_flow = await self._run_phase1_extraction(batch)
+        await self._assert_current_projection_attempt(batch)
         await self._persist_phase1_outputs(batch, phase1_flow)
         if not phase1_flow.phase1_result.has_content:
             return await self._empty_phase1_result(batch, phase1_flow)
@@ -361,6 +375,8 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
         self: Any,
         extraction_plan: L2ExtractionPlan,
         primary_decision: L2ExtractionEventDecision,
+        *,
+        job: L2BatchJob,
     ) -> _PreparedExtractionBatch:
         event, policy = primary_decision.event, primary_decision.policy
         eligible_events = self._eligible_event_tuples(extraction_plan)
@@ -380,13 +396,18 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
             context_messages=context_messages,
             history_contexts=history_contexts,
         )
-        existing_entities = await self._load_batch_existing_entities(eligible_events)
+        existing_entities = await self._load_batch_existing_entities(
+            eligible_events,
+            projection_leases=list(job.projection_leases),
+        )
         catalog_name_index = await self._build_catalog_name_index()
         direct_write_candidates, direct_write_count = await self._prepare_direct_graph_writes(
             eligible_events=eligible_events,
             catalog_name_index=catalog_name_index,
+            projection_leases=list(job.projection_leases),
         )
         return _prepared_extraction_batch(
+            job=job,
             event=event,
             classification=primary_decision.classification,
             policy=policy,
@@ -481,9 +502,7 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
             events=[self._serialize_event_for_batch(item) for item in batch_events],
             texts=resolve_window_texts(batch_events, pinned_by_id),
             context_texts=[
-                msg.get("content", "")
-                for msg in context_messages
-                if msg.get("content", "").strip()
+                msg.get("content", "") for msg in context_messages if msg.get("content", "").strip()
             ],
             history_contexts=history_contexts,
             summary=L2EventWindowSummary(
@@ -497,11 +516,16 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
     async def _load_batch_existing_entities(
         self: Any,
         eligible_events: list[tuple[MemoryEvent, EvidenceClassification, PolicyDecision]],
+        *,
+        projection_leases: Sequence[L2ProjectionLease] = (),
     ) -> list[dict[str, Any]]:
         existing_entities: list[dict[str, Any]] = []
         if self._entity_catalog is not None:
             for event, _classification, _policy in eligible_events:
-                await self._upsert_structured_hint_entities(event)
+                await self._upsert_structured_hint_entities(
+                    event,
+                    projection_leases=projection_leases,
+                )
             existing_entities = await self._entity_catalog.list_entities(limit=30)
         for event, _classification, _policy in eligible_events:
             self._inject_structured_entity_hints(event, existing_entities)
@@ -512,6 +536,7 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
         *,
         eligible_events: list[tuple[MemoryEvent, EvidenceClassification, PolicyDecision]],
         catalog_name_index: dict[str, Any],
+        projection_leases: list[L2ProjectionLease],
     ) -> tuple[list[dict[str, Any]], int]:
         all_candidates: list[dict[str, Any]] = []
         direct_write_count = 0
@@ -528,6 +553,7 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
             direct_write_count += await self._direct_write_graph_candidates(
                 event=event,
                 candidates=candidates,
+                projection_leases=projection_leases,
             )
             all_candidates.extend(candidates)
         return all_candidates, direct_write_count
@@ -557,7 +583,10 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
             event=batch.stored_event,
             evidence_event_ids=batch.batch_event_ids,
         )
-        return await self._upsert_entity_facets(facet_candidates)
+        return await self._upsert_entity_facets(
+            facet_candidates,
+            projection_leases=batch.projection_leases,
+        )
 
     async def _run_phase1_extraction(
         self: Any,
@@ -579,11 +608,22 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
             extraction_instructions=batch.extraction_profile.extraction_instructions,
         )
         self._ground_phase1_result(batch, phase1_result)
+        await self._persist_grounded_phase1_claims(batch, phase1_result)
         profile_signal_object_refs = self._collect_profile_signal_object_refs(phase1_result)
         resolved_mentions = await self._resolve_phase1_mentions(
             batch,
             phase1_result,
             profile_signal_object_refs,
+        )
+        object_refs = await self._persist_grounded_claim_entity_refs(
+            batch,
+            phase1_result,
+            resolved_mentions,
+        )
+        semantic_routes = await self._route_grounded_phase1_claims(
+            batch,
+            phase1_result,
+            object_refs=object_refs,
         )
         logger.debug(
             "L2 Phase 1 completed",
@@ -597,9 +637,13 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
             phase1_result=phase1_result,
             resolved_mentions=resolved_mentions,
             profile_signal_object_refs=profile_signal_object_refs,
+            semantic_routes=semantic_routes,
+            claim_outcomes=[],
         )
 
-    def _ground_phase1_result(self: Any, batch: _PreparedExtractionBatch, phase1_result: Any) -> None:
+    def _ground_phase1_result(
+        self: Any, batch: _PreparedExtractionBatch, phase1_result: Any
+    ) -> None:
         external_dialogue_stats = ground_phase1_external_dialogue_refs(
             phase1_result,
             batch.event_window,
@@ -647,6 +691,7 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
             evidence_events=[item[0] for item in batch.eligible_events],
             allowed_entity_types=batch.extraction_profile.allowed_entity_types,
             profile_signal_object_refs=profile_signal_object_refs,
+            projection_leases=batch.projection_leases,
         )
 
     async def _persist_phase1_outputs(
@@ -654,14 +699,18 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
         batch: _PreparedExtractionBatch,
         phase1_flow: _Phase1ExtractionFlow,
     ) -> None:
+        await self._drain_event_entity_link_outbox()
         await self._write_event_entity_links(
             event=batch.stored_event,
             batch_event_ids=batch.batch_event_ids,
             resolved_mentions=phase1_flow.resolved_mentions,
+            projection_leases=batch.projection_leases,
         )
+        await self._assert_current_projection_attempt(batch)
         await self._build_entity_semantic_edges(
             event=batch.stored_event,
             resolved_mentions=phase1_flow.resolved_mentions,
+            projection_leases=batch.projection_leases,
         )
 
     async def _empty_phase1_result(
@@ -679,5 +728,6 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
             facet_count=facet_count,
         )
         return _empty_phase1_result_payload(batch, phase1_flow)
+
 
 __all__ = ["L2PipelineExtractionMixin"]

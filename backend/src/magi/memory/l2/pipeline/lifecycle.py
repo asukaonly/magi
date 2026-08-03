@@ -121,6 +121,8 @@ class _L2PipelineLifecycleHostProtocol(Protocol):
 
     async def _flush_all_buckets(self, *, flush_reason: str) -> None: ...
 
+    async def _drain_event_entity_link_outbox(self) -> int: ...
+
 
 class L2PipelineLifecycleMixin:
     """Own L2 pipeline runtime state initialization and lifecycle hooks."""
@@ -215,6 +217,11 @@ class L2PipelineLifecycleMixin:
         start_epoch = host._lifecycle_epoch
         host._stats.is_running = True
         try:
+            if host._l1_store is not None:
+                clear_generation = await host._cognition_store.current_clear_generation()
+                await host._l1_store.align_entity_link_projection_clear_generation(
+                    clear_generation
+                )
             recovered_count = await host._cognition_store.recover_foreign_projection_jobs(
                 consumer_name=host._projection_consumer_name
             )
@@ -230,6 +237,7 @@ class L2PipelineLifecycleMixin:
                 consumer_name=host._projection_consumer_name,
                 recovered_count=recovered_count,
             )
+        await host._drain_event_entity_link_outbox()
         host._extract_workers = [
             asyncio.create_task(host._run_extract_worker())
             for _ in range(host._extract_worker_count)

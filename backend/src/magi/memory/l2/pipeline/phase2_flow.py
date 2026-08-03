@@ -5,10 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from ....core.logger import get_logger
+from ..corrections.fingerprints import relationship_triple_id, scope_key
 from ..llm_json_client import L2LLMJsonError
 from ..models import L2ConflictArbitrationResult, L2FocalEntityRef
+from ..semantic_routing import ROUTE_CONTRACT_VERSION
 from .event_entity_map import build_event_entity_map
 from .extraction_contracts import (
+    ClaimProjectionOutcomeDraft,
     _Phase1ExtractionFlow,
     _Phase2CandidateSet,
     _Phase2Context,
@@ -24,9 +27,7 @@ def _degraded_stages(phase1_flow: _Phase1ExtractionFlow) -> list[str]:
         return []
     return list(
         dict.fromkeys(
-            stage.strip()
-            for stage in raw_stages
-            if isinstance(stage, str) and stage.strip()
+            stage.strip() for stage in raw_stages if isinstance(stage, str) and stage.strip()
         )
     )
 
@@ -39,6 +40,81 @@ def _record_degraded_stage(
     if stage not in degraded_stages:
         degraded_stages.append(stage)
     phase1_flow.phase1_result.diagnostics["degraded_stages"] = degraded_stages
+
+
+def _ensure_assertion_outcomes(
+    phase1_flow: _Phase1ExtractionFlow,
+    *,
+    reason_code: str,
+    atomically_completed_claim_ids: set[str] | None = None,
+) -> None:
+    completed_claim_ids = {
+        outcome.claim_id
+        for outcome in phase1_flow.claim_outcomes
+        if outcome.target_kind == "assertion"
+    }
+    completed_claim_ids.update(atomically_completed_claim_ids or set())
+    for claim_id, route in phase1_flow.semantic_routes.items():
+        if not route.can_project_assertion or claim_id in completed_claim_ids:
+            continue
+        phase1_flow.claim_outcomes.append(
+            ClaimProjectionOutcomeDraft(
+                claim_id=claim_id,
+                target_kind="assertion",
+                target_id=f"slot:{route.slot_key}",
+                target_slot_key=route.slot_key,
+                outcome="skipped",
+                reason_code=reason_code,
+            )
+        )
+
+
+def _record_arbitration_skipped_outcomes(
+    phase1_flow: _Phase1ExtractionFlow,
+    candidates: _Phase2CandidateSet,
+    *,
+    reason_code: str,
+) -> None:
+    for candidate in candidates.graph_candidates:
+        claim_id = str(candidate.get("_claim_id") or "").strip()
+        if not claim_id:
+            continue
+        phase1_flow.claim_outcomes.append(
+            ClaimProjectionOutcomeDraft(
+                claim_id=claim_id,
+                target_kind="relationship",
+                target_id=str(
+                    relationship_triple_id(
+                        subject_id=str(candidate.get("subject_id") or ""),
+                        predicate=str(candidate.get("predicate") or ""),
+                        object_id=str(candidate.get("object_id") or ""),
+                        scope_key_value=scope_key(candidate.get("scope")),
+                    )
+                ),
+                outcome="skipped",
+                reason_code=reason_code,
+            )
+        )
+    for candidate in candidates.assertion_candidates:
+        slot_key = str(candidate.get("semantic_route_slot_key") or "").strip()
+        for claim_id in candidate.get("supporting_claim_ids", []):
+            normalized_claim_id = str(claim_id or "").strip()
+            if not normalized_claim_id:
+                continue
+            phase1_flow.claim_outcomes.append(
+                ClaimProjectionOutcomeDraft(
+                    claim_id=normalized_claim_id,
+                    target_kind="assertion",
+                    target_id=(
+                        f"slot:{slot_key}"
+                        if slot_key
+                        else f"claim:{normalized_claim_id}"
+                    ),
+                    target_slot_key=slot_key or None,
+                    outcome="skipped",
+                    reason_code=reason_code,
+                )
+            )
 
 
 def _phase1_only_result_payload(
@@ -63,9 +139,7 @@ def _phase1_only_result_payload(
         "touched_entity_ids": touched_entity_ids,
         "touched_place_ids": touched_place_ids,
         "touched_topic_keys": touched_topic_keys,
-        "event_entity_map": build_event_entity_map(
-            candidates + batch.direct_write_candidates
-        ),
+        "event_entity_map": build_event_entity_map(candidates + batch.direct_write_candidates),
         "snapshot_refresh_entity_ids": [],
         "skipped": False,
         "evidence_class": batch.classification.evidence_class,
@@ -169,7 +243,7 @@ class L2Phase2FlowMixin:
         batch: _PreparedExtractionBatch,
         phase1_flow: _Phase1ExtractionFlow,
     ) -> dict[str, Any]:
-        graph_candidates, rejected_graph_count = self._project_phase1_graph_candidates(
+        graph_candidates, graph_rejections = self._project_phase1_graph_candidates(
             phase1_result=phase1_flow.phase1_result,
             event=batch.stored_event,
             evidence_event_ids=batch.batch_event_ids,
@@ -178,6 +252,8 @@ class L2Phase2FlowMixin:
             profile=batch.extraction_profile,
             classification=batch.classification,
         )
+        phase1_flow.claim_outcomes.extend(graph_rejections)
+        rejected_graph_count = len(graph_rejections)
         focal_entities = self._build_focal_entities(
             batch.stored_event,
             phase1_flow.resolved_mentions,
@@ -228,6 +304,7 @@ class L2Phase2FlowMixin:
         try:
             conflict_arbitration = await self._apply_phase2_conflict_arbitration(
                 batch,
+                phase1_flow,
                 phase2_candidates,
             )
         except L2LLMJsonError as exc:
@@ -283,8 +360,21 @@ class L2Phase2FlowMixin:
         graph_candidates: list[dict[str, Any]],
         rejected_graph_count: int,
     ) -> dict[str, Any]:
-        relation_count = await self._upsert_knowledge_edges(graph_candidates)
+        await self._assert_current_projection_attempt(batch)
+        relation_count = await self._upsert_knowledge_edges_with_outcomes(
+            graph_candidates,
+            attempt_key=batch.attempt_key,
+            route_contract_version=ROUTE_CONTRACT_VERSION,
+            projection_leases=batch.projection_leases,
+        )
+        _ensure_assertion_outcomes(
+            phase1_flow,
+            reason_code=(
+                "phase2_degraded" if _degraded_stages(phase1_flow) else "phase2_not_required"
+            ),
+        )
         facet_count = await self._upsert_structured_facets(batch)
+        await self._persist_claim_projection_outcomes(batch, phase1_flow.claim_outcomes)
         logger.info(
             "L2 Phase 1 persisted without Phase 2 inference",
             event_id=batch.stored_event.event_id,
@@ -361,21 +451,17 @@ class L2Phase2FlowMixin:
         graph_candidates: list[dict[str, Any]],
         rejected_graph_count: int,
     ) -> _Phase2CandidateSet:
-        assertion_candidates, rejected_assertion_count = (
-            self._validate_phase2_assertion_output(
-                batch,
-                phase1_flow,
-                phase2_result,
-                graph_candidates,
-            )
+        assertion_candidates, rejected_assertion_count = self._validate_phase2_assertion_output(
+            batch,
+            phase1_flow,
+            phase2_result,
+            graph_candidates,
         )
-        contradiction_hints, rejected_assessment_count = (
-            self._validate_phase2_claim_assessments(
-                phase1_result=phase1_flow.phase1_result,
-                assessments=phase2_result.claim_assessments,
-                existing_graph_edges=phase2_context.existing_graph_edges,
-                existing_assertions=phase2_context.existing_assertions,
-            )
+        contradiction_hints, rejected_assessment_count = self._validate_phase2_claim_assessments(
+            phase1_result=phase1_flow.phase1_result,
+            assessments=phase2_result.claim_assessments,
+            existing_graph_edges=phase2_context.existing_graph_edges,
+            existing_assertions=phase2_context.existing_assertions,
         )
         candidates = _Phase2CandidateSet(
             graph_candidates=graph_candidates,
@@ -410,8 +496,10 @@ class L2Phase2FlowMixin:
             policy=batch.policy,
             graph_candidates=assertion_context,
             default_event_ids=batch.batch_event_ids,
+            semantic_routes=phase1_flow.semantic_routes,
             phase1_result=phase1_flow.phase1_result,
             phase2_assertions=phase2_result.assertion_candidates,
+            claim_outcomes=phase1_flow.claim_outcomes,
         )
 
     def _log_phase2_candidate_validation(
@@ -435,6 +523,7 @@ class L2Phase2FlowMixin:
     async def _apply_phase2_conflict_arbitration(
         self: Any,
         batch: _PreparedExtractionBatch,
+        phase1_flow: _Phase1ExtractionFlow,
         candidates: _Phase2CandidateSet,
     ) -> L2ConflictArbitrationResult | None:
         if not candidates.contradiction_hints:
@@ -448,12 +537,18 @@ class L2Phase2FlowMixin:
             assertion_candidates=candidates.assertion_candidates,
             contradiction_hints=candidates.contradiction_hints,
         )
-        self._apply_phase2_arbitration_decision(batch, candidates, conflict_arbitration)
+        self._apply_phase2_arbitration_decision(
+            batch,
+            phase1_flow,
+            candidates,
+            conflict_arbitration,
+        )
         return conflict_arbitration
 
     def _apply_phase2_arbitration_decision(
         self: Any,
         batch: _PreparedExtractionBatch,
+        phase1_flow: _Phase1ExtractionFlow,
         candidates: _Phase2CandidateSet,
         conflict_arbitration: L2ConflictArbitrationResult | None,
     ) -> None:
@@ -461,6 +556,11 @@ class L2Phase2FlowMixin:
             conflict_arbitration.decision if conflict_arbitration is not None else None
         )
         if arbitration_decision == "keep_existing":
+            _record_arbitration_skipped_outcomes(
+                phase1_flow,
+                candidates,
+                reason_code="conflict_keep_existing",
+            )
             logger.info(
                 "L2 conflict arbitration kept existing records",
                 event_id=batch.stored_event.event_id,
@@ -489,13 +589,29 @@ class L2Phase2FlowMixin:
         phase2_candidates: _Phase2CandidateSet,
         conflict_arbitration: L2ConflictArbitrationResult | None,
     ) -> dict[str, Any]:
+        await self._assert_current_projection_attempt(batch)
         relation_count, facet_count, assertion_count = await self._persist_extraction_outputs(
             graph_candidates=phase2_candidates.graph_candidates,
             direct_write_candidates=batch.direct_write_candidates,
             facet_candidates=phase2_candidates.facet_candidates,
             assertion_candidates=phase2_candidates.assertion_candidates,
             contradiction_hints=phase2_candidates.contradiction_hints,
+            attempt_key=batch.attempt_key,
+            route_contract_version=ROUTE_CONTRACT_VERSION,
+            projection_leases=batch.projection_leases,
         )
+        atomic_assertion_claim_ids = {
+            normalized_claim_id
+            for candidate in phase2_candidates.assertion_candidates
+            for claim_id in candidate.get("supporting_claim_ids", [])
+            if (normalized_claim_id := str(claim_id or "").strip())
+        }
+        _ensure_assertion_outcomes(
+            phase1_flow,
+            reason_code="phase2_no_assertion_candidate",
+            atomically_completed_claim_ids=atomic_assertion_claim_ids,
+        )
+        await self._persist_claim_projection_outcomes(batch, phase1_flow.claim_outcomes)
         self._log_phase2_persistence(
             batch,
             phase2_candidates,

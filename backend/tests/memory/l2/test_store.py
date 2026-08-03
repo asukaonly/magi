@@ -2018,6 +2018,10 @@ async def test_l2_projection_jobs_support_enqueue_claim_complete_and_stats(tmp_p
     assert stats["running"] == 1
     assert stats["claimed"] == 1
 
+    await store.stage_event_entity_link_projections(
+        desired_links_by_event={lease.event_id: []},
+        projection_leases=[lease],
+    )
     await store.complete_projection_jobs([lease])
     stats = await store.get_projection_backlog_stats()
 
@@ -2047,6 +2051,10 @@ async def test_mark_projection_jobs_running_only_transitions_queued(tmp_path):
     lease = _projection_lease(claimed[0])
 
     await store.mark_projection_jobs_running([lease], consumer_name="w1")
+    await store.stage_event_entity_link_projections(
+        desired_links_by_event={lease.event_id: []},
+        projection_leases=[lease],
+    )
     await store.complete_projection_jobs([lease])
 
     stats = await store.get_projection_backlog_stats()

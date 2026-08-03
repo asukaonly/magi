@@ -67,6 +67,14 @@ class _ForgettingHostProtocol(Protocol):
         event_ids: list[str],
     ) -> Dict[str, float]: ...
 
+    async def _stage_entity_link_forget_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        entity_id: str,
+        operation_key: str,
+    ) -> int: ...
+
 
 class L2StoreForgettingMixin:
     """Apply user rejection and forgetting actions to L2 records."""
@@ -242,6 +250,7 @@ class L2StoreForgettingMixin:
         self,
         *,
         entity_id: str,
+        operation_key: str | None = None,
     ) -> Dict[str, int]:
         """Cascade soft-delete everything derived from an entity."""
         host = cast(_ForgettingHostProtocol, self)
@@ -367,6 +376,14 @@ class L2StoreForgettingMixin:
                 forgotten_edges=forgotten_edges,
                 explicit_subject_keys=(entity_id,),
                 now=now,
+            )
+
+            counts["event_entity_links"] = (
+                await host._stage_entity_link_forget_on_connection(
+                    db,
+                    entity_id=entity_id,
+                    operation_key=operation_key or f"direct:{entity_id}",
+                )
             )
 
             await db.commit()

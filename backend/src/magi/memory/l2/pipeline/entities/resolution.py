@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -16,6 +17,7 @@ from ...models import (
     L2EntityResolutionMention,
     L2Phase1Entity,
     L2Phase1Result,
+    L2ProjectionLease,
     ResolvedEntityMention,
 )
 from ...ontology import is_vague_entity_reference
@@ -77,6 +79,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         evidence_events: list[MemoryEvent] | None = None,
         allowed_entity_types: frozenset[str] | None = None,
         profile_signal_object_refs: set[str] | None = None,
+        projection_leases: Iterable[L2ProjectionLease] = (),
     ) -> list[ResolvedEntityMention]:
         """Register Phase 1 entities in the entity catalog and return resolved mentions.
 
@@ -87,6 +90,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         """
         if self._entity_catalog is None:
             return []
+        lease_items = tuple(projection_leases)
 
         (
             pending,
@@ -99,6 +103,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             evidence_events=evidence_events,
             allowed_entity_types=allowed_entity_types,
             profile_signal_object_refs=profile_signal_object_refs,
+            projection_leases=lease_items,
         )
         llm_results = await self._resolve_phase1_entity_batch(
             llm_batch_items,
@@ -117,11 +122,13 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             await self._finalize_phase1_entity_resolution(
                 pending_item,
                 llm_results=llm_results,
+                projection_leases=lease_items,
             )
             resolved = await self._record_phase1_entity_mention(
                 pending_item,
                 evidence_events=evidence_events,
                 evidence_event_ids=evidence_event_ids,
+                projection_leases=lease_items,
             )
             if resolved is not None:
                 resolved_mentions.append(resolved)
@@ -136,6 +143,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         evidence_events: list[MemoryEvent] | None,
         allowed_entity_types: frozenset[str] | None,
         profile_signal_object_refs: set[str] | None,
+        projection_leases: tuple[L2ProjectionLease, ...],
     ) -> tuple[
         list[_PendingPhase1EntityResolution],
         list[L2BatchEntityResolutionItem],
@@ -173,6 +181,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 pending_item,
                 event=event,
                 llm_batch_items=llm_batch_items,
+                projection_leases=projection_leases,
             )
             pending.append(pending_item)
         return pending, llm_batch_items, context_only_mentions
@@ -313,6 +322,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         *,
         event: MemoryEvent,
         llm_batch_items: list[L2BatchEntityResolutionItem],
+        projection_leases: tuple[L2ProjectionLease, ...],
     ) -> None:
         if pending_item.entity.resolved_id:
             pending_item.resolved_entity_id = await self._prefer_existing_same_name_entity(
@@ -322,6 +332,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 mention_text=pending_item.mention_text,
                 confidence=pending_item.mention_confidence,
                 source_event_ids=pending_item.source_event_ids,
+                projection_leases=projection_leases,
             )
             pending_item.resolved_confidence = pending_item.entity.confidence
             return
@@ -417,6 +428,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         pending_item: _PendingPhase1EntityResolution,
         *,
         llm_results: dict[str, Any] | None,
+        projection_leases: tuple[L2ProjectionLease, ...],
     ) -> None:
         if pending_item.llm_mention_key is not None:
             if llm_results is None:
@@ -426,12 +438,16 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             await self._apply_phase1_llm_resolution(
                 pending_item,
                 llm_results=llm_results,
+                projection_leases=projection_leases,
             )
             self._cache_phase1_resolution(pending_item)
             return
 
         if pending_item.unresolved:
-            await self._finalize_unresolved_phase1_entity(pending_item)
+            await self._finalize_unresolved_phase1_entity(
+                pending_item,
+                projection_leases=projection_leases,
+            )
             self._cache_phase1_resolution(pending_item)
 
     async def _apply_phase1_llm_resolution(
@@ -439,6 +455,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         pending_item: _PendingPhase1EntityResolution,
         *,
         llm_results: dict[str, Any],
+        projection_leases: tuple[L2ProjectionLease, ...],
     ) -> None:
         llm_resolution = llm_results.get(pending_item.llm_mention_key)
         if (
@@ -452,11 +469,16 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             )
             return
 
-        await self._finalize_unresolved_phase1_entity(pending_item)
+        await self._finalize_unresolved_phase1_entity(
+            pending_item,
+            projection_leases=projection_leases,
+        )
 
     async def _finalize_unresolved_phase1_entity(
         self,
         pending_item: _PendingPhase1EntityResolution,
+        *,
+        projection_leases: tuple[L2ProjectionLease, ...],
     ) -> None:
         (
             pending_item.resolved_entity_id,
@@ -467,6 +489,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             mention_text=pending_item.mention_text,
             mention_confidence=pending_item.mention_confidence,
             source_event_ids=pending_item.source_event_ids,
+            projection_leases=projection_leases,
         )
 
     async def _record_phase1_entity_mention(
@@ -475,6 +498,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         *,
         evidence_events: list[MemoryEvent] | None,
         evidence_event_ids: list[str],
+        projection_leases: tuple[L2ProjectionLease, ...],
     ) -> ResolvedEntityMention | None:
         assert self._entity_catalog is not None
 
@@ -483,6 +507,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             normalized_surface=pending_item.normalized_surface,
             entity_type=pending_item.entity_type,
             event_ids=pending_item.source_event_ids,
+            projection_leases=projection_leases,
         )
         if not allowed_event_ids:
             return None
@@ -495,12 +520,14 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 entity_type=pending_item.entity_type,
                 entity_id=pending_item.resolved_entity_id,
                 source_event_ids=pending_item.source_event_ids,
+                projection_leases=projection_leases,
             )
             await self._entity_catalog.add_alias(
                 entity_id=pending_item.resolved_entity_id,
                 alias_text=pending_item.mention_text,
                 confidence=float(pending_item.resolved_confidence or 0.5),
                 source_event_ids=pending_item.source_event_ids,
+                projection_leases=projection_leases,
             )
 
         mention_event_ids = list(allowed_event_ids)
@@ -512,6 +539,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             evidence_text=pending_item.mention_text,
             resolved_entity_id=pending_item.resolved_entity_id,
             confidence=pending_item.resolved_confidence,
+            projection_leases=projection_leases,
         )
         return ResolvedEntityMention(
             mention_text=pending_item.mention_text,
@@ -574,9 +602,11 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         mentions: list[dict[str, Any]],
         *,
         evidence_event_ids: list[str] | None = None,
+        projection_leases: Iterable[L2ProjectionLease] = (),
     ) -> list[ResolvedEntityMention]:
         if self._entity_catalog is None:
             return []
+        lease_items = tuple(projection_leases)
 
         resolved_mentions: list[ResolvedEntityMention] = []
         for mention in mentions:
@@ -609,6 +639,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 mention_confidence=mention_confidence,
                 event=event,
                 source_event_ids=normalize_event_ids(evidence_event_ids or [event.event_id]),
+                projection_leases=lease_items,
             )
 
             allowed_event_ids = await self._entity_catalog.filter_projection_source_event_ids(
@@ -616,6 +647,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 normalized_surface=normalized_surface,
                 entity_type=entity_type,
                 event_ids=normalize_event_ids(evidence_event_ids or [event.event_id]),
+                projection_leases=lease_items,
             )
             if not allowed_event_ids:
                 continue
@@ -628,6 +660,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 evidence_text=evidence_text,
                 resolved_entity_id=resolved_entity_id,
                 confidence=resolved_confidence,
+                projection_leases=lease_items,
             )
             resolved_mentions.append(
                 ResolvedEntityMention(

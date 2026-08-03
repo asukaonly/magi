@@ -6,11 +6,13 @@ from .models import (
     GroundedClaimInput,
     ProjectionOutcomeInput,
 )
+from .outcomes import ClaimTargetOutcomeContext
 from .repository import L2GroundedClaimStoreMixin
 
 __all__ = [
     "ClaimEvidenceInput",
     "ClaimEntityRefInput",
+    "ClaimTargetOutcomeContext",
     "GroundedClaimInput",
     "L2GroundedClaimStoreMixin",
     "ProjectionOutcomeInput",

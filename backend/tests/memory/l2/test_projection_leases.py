@@ -72,6 +72,10 @@ async def test_claim_assigns_a_new_fencing_token_for_each_attempt(tmp_path) -> N
     assert await store.complete_projection_jobs([first]) == 0
     assert await store.fail_projection_jobs([first], requeue=False) == 0
     assert await store.mark_projection_jobs_running([second], consumer_name="worker-2") == 1
+    await store.stage_event_entity_link_projections(
+        desired_links_by_event={second.event_id: []},
+        projection_leases=[second],
+    )
     assert await store.complete_projection_jobs([second]) == 1
 
 
@@ -156,6 +160,10 @@ async def test_explicit_replay_resets_a_completed_job_to_a_fresh_attempt(tmp_pat
     await _enqueue(store, "event-replay")
     first = _lease((await store.claim_projection_jobs(consumer_name="worker", limit=1))[0])
     assert await store.mark_projection_jobs_running([first], consumer_name="worker") == 1
+    await store.stage_event_entity_link_projections(
+        desired_links_by_event={first.event_id: []},
+        projection_leases=[first],
+    )
     assert await store.complete_projection_jobs([first]) == 1
 
     assert await store.request_projection_replay("event-replay") is True
@@ -179,6 +187,10 @@ async def test_replay_requested_during_an_active_attempt_runs_after_it_finishes(
     assert await store.request_projection_replay("event-active-replay") is True
     assert await store.mark_projection_jobs_running([active], consumer_name="worker") == 1
     assert await store.request_projection_replay("event-active-replay") is True
+    await store.stage_event_entity_link_projections(
+        desired_links_by_event={active.event_id: []},
+        projection_leases=[active],
+    )
     assert await store.complete_projection_jobs([active]) == 1
 
     async with aiosqlite.connect(store.db_path) as db:

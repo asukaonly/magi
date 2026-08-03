@@ -158,6 +158,14 @@ def normalize_phase1_claim_contract(
             rejected_count += 1
             normalizations.append(f"fact_claims[{index}]: dropped malformed candidate")
             continue
+        missing_semantic_field = _missing_semantic_field(typed_claim)
+        if missing_semantic_field is not None:
+            rejected_count += 1
+            normalizations.append(
+                f"fact_claims[{index}]: dropped candidate "
+                f"(missing {missing_semantic_field})"
+            )
+            continue
         grounded_event_ids = _grounded_event_ids(
             claim=typed_claim,
             eligible_events=eligible_events,
@@ -193,6 +201,22 @@ def normalize_phase1_claim_contract(
     if rejected_count:
         diagnostics["rejected_fact_claim_count"] = rejected_count
     return normalizations
+
+
+def _missing_semantic_field(claim: L2Phase1FactClaim) -> str | None:
+    required = {
+        "subject_ref": claim.subject_ref,
+        "predicate": claim.predicate,
+        "object_ref": claim.object_ref,
+        "object_type": claim.object_type,
+        "fact_kind": getattr(claim.fact_kind, "value", claim.fact_kind),
+        "polarity": claim.polarity,
+        "specificity": claim.specificity,
+    }
+    return next(
+        (field_name for field_name, value in required.items() if not str(value or "").strip()),
+        None,
+    )
 
 
 def normalize_phase1_claim_temporal_cues(

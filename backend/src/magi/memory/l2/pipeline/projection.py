@@ -36,6 +36,8 @@ class _L2PipelineProjectionHostProtocol(Protocol):
 
     async def _enqueue_extract_job(self, job: L2BatchJob) -> None: ...
 
+    async def _drain_event_entity_link_outbox(self) -> int: ...
+
     def _resolve_batch_limits(self, event: MemoryEvent) -> tuple[int | None, int | None]: ...
 
     def _serialize_event_for_batch(self, event: MemoryEvent) -> dict[str, Any]: ...
@@ -64,6 +66,7 @@ class L2PipelineProjectionMixin:
             queued_timeout_seconds=host._projection_stale_queued_timeout_seconds,
             running_timeout_seconds=host._projection_stale_running_timeout_seconds,
         )
+        await host._drain_event_entity_link_outbox()
         claim_limit = max(1, int(limit or host._projection_claim_limit))
         if force:
             claimed_rows = await host._cognition_store.claim_projection_jobs(
@@ -92,6 +95,7 @@ class L2PipelineProjectionMixin:
                 error_text="l1_event_not_found",
                 requeue=False,
             )
+            await host._drain_event_entity_link_outbox()
             logger.warning(
                 "L2 projection jobs referenced missing L1 events",
                 event_ids=[lease.event_id for lease in missing_leases],

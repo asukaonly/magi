@@ -63,6 +63,8 @@ async def test_projection_rows_prefer_effective_batch_owner_over_metadata_json(t
         [
             {
                 "event_id": "evt-chrome-1",
+                "lease_token": "lease-owner-override",
+                "attempt_count": 1,
                 "batch_owner": "chrome_history:Default:github.com",
                 "effective_batch_owner": "chrome_history:Default:catchup:2",
             }

@@ -35,12 +35,10 @@ class L2Phase2ClaimAssessment:
 
 @dataclass(slots=True)
 class L2Phase2AssertionCandidate:
-    """Higher-order assertion proposed from grounded Phase 1 claims."""
+    """Higher-order synthesis proposed within host-owned semantic routes."""
 
     entity_ref: str = ""
     entity_type: str = "user"
-    trait_family: str = ""
-    trait_name: str = ""
     trait_value: str = ""
     natural_summary: str = ""
     supporting_claim_ids: list[str] = field(default_factory=list)
@@ -50,8 +48,6 @@ class L2Phase2AssertionCandidate:
         return cls(
             entity_ref=payload.get("entity_ref", ""),
             entity_type=payload.get("entity_type", "user"),
-            trait_family=payload.get("trait_family", ""),
-            trait_name=payload.get("trait_name", ""),
             trait_value=str(payload.get("trait_value", ""))[:40],
             natural_summary=str(payload.get("natural_summary", "") or "")[:500],
             supporting_claim_ids=payload.get("supporting_claim_ids", []),
@@ -60,8 +56,6 @@ class L2Phase2AssertionCandidate:
     def __post_init__(self) -> None:
         self.entity_ref = _optional_text(self.entity_ref) or ""
         self.entity_type = _optional_text(self.entity_type) or "user"
-        self.trait_family = _optional_text(self.trait_family) or ""
-        self.trait_name = _optional_text(self.trait_name) or ""
         self.trait_value = str(self.trait_value)
         self.natural_summary = str(self.natural_summary or "")[:500]
         self.supporting_claim_ids = _unique_texts(self.supporting_claim_ids)
