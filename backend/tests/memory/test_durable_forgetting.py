@@ -2205,6 +2205,10 @@ async def test_entity_forget_promotes_raced_target_lineage_before_cleanup(
         )
         == 1
     )
+    await memory.l2.stage_event_entity_link_projections(
+        desired_links_by_event={event_id: []},
+        projection_leases=[lease],
+    )
     assert await memory.l2.complete_projection_jobs([lease]) == 1
     summary = await memory.l3.upsert_candidate(
         candidate=L3Candidate(
