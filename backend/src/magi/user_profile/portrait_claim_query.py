@@ -103,7 +103,7 @@ async def list_tentative_portrait_claims(
         )
 
     values_by_slot: dict[str, set[str]] = {}
-    for slot_key, value_fingerprint in visible_route_value_keys:
+    for slot_key, value_fingerprint in current_route_value_keys.union(visible_route_value_keys):
         values_by_slot.setdefault(slot_key, set()).add(value_fingerprint)
     for candidate in provisional:
         values_by_slot.setdefault(candidate.slot_key, set()).add(candidate.value_fingerprint)

@@ -496,6 +496,100 @@ async def test_query_uses_latest_route_and_dedupes_current_portrait_assertions(t
 
 
 @pytest.mark.asyncio
+async def test_query_hides_slot_conflicted_by_current_non_visible_assertion(
+    tmp_path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    _seed_claim(
+        db_path,
+        claim_id="claim-current",
+        event_id="event-current-hidden",
+        predicate="LIKES",
+        object_value="纯音乐",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_music",
+        value_fingerprint="val_current",
+        created_at=100.0,
+    )
+    _seed_assertion_outcome(
+        db_path,
+        claim_id="claim-current",
+        assertion_id="assert-current",
+        slot_key="slt_music",
+        created_at=110.0,
+    )
+    _seed_claim(
+        db_path,
+        claim_id="claim-tentative-conflict",
+        event_id="event-tentative-conflict",
+        predicate="DISLIKES",
+        object_value="纯音乐",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_music",
+        value_fingerprint="val_conflicting",
+        created_at=120.0,
+    )
+
+    candidates = await list_tentative_portrait_claims(
+        _store(db_path, visible_event_ids={"event-tentative-conflict"}),
+        user_id="local_user",
+        current_assertion_ids={"assert-current"},
+        visible_assertion_ids=set(),
+    )
+
+    assert candidates == []
+
+
+@pytest.mark.asyncio
+async def test_query_dedupes_current_non_visible_assertion_value(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    _seed_claim(
+        db_path,
+        claim_id="claim-current",
+        event_id="event-current-hidden",
+        predicate="LIKES",
+        object_value="纯音乐",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_music",
+        value_fingerprint="val_same",
+        created_at=100.0,
+    )
+    _seed_assertion_outcome(
+        db_path,
+        claim_id="claim-current",
+        assertion_id="assert-current",
+        slot_key="slt_music",
+        created_at=110.0,
+    )
+    _seed_claim(
+        db_path,
+        claim_id="claim-tentative-duplicate",
+        event_id="event-tentative-duplicate",
+        predicate="LIKES",
+        object_value="纯音乐",
+        family="preference_profile",
+        trait_code="preference.affinity",
+        slot_key="slt_music",
+        value_fingerprint="val_same",
+        created_at=120.0,
+    )
+
+    candidates = await list_tentative_portrait_claims(
+        _store(db_path, visible_event_ids={"event-tentative-duplicate"}),
+        user_id="local_user",
+        current_assertion_ids={"assert-current"},
+        visible_assertion_ids=set(),
+    )
+
+    assert candidates == []
+
+
+@pytest.mark.asyncio
 async def test_query_applies_limit_after_all_tentative_claim_eligibility_filters(
     tmp_path,
 ) -> None:
