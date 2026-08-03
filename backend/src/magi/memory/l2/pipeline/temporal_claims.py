@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import calendar
 import re
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import Iterable
 
 from ..claims.models import ClaimEvidenceInput
+from ..temporal_trust import normalized_event_timestamp, trusted_event_timestamp
 
 _CHINESE_DATE = re.compile(r"^(\d{4})年(\d{1,2})月(\d{1,2})日$")
 _CHINESE_MONTH = re.compile(r"^(\d{4})年(\d{1,2})月$")
@@ -42,6 +44,7 @@ def resolve_claim_temporal_fields(
     future_intent: bool,
     evidence: Iterable[ClaimEvidenceInput],
     local_timezone: tzinfo | None = None,
+    now: float | None = None,
 ) -> ClaimTemporalResolution:
     """Resolve a closed set of exact or calendar-anchored time expressions."""
 
@@ -61,6 +64,21 @@ def resolve_claim_temporal_fields(
         for item in supporting
     ):
         return _unresolved(raw, future_intent=future_intent, quality="low")
+
+    anchor_times = [normalized_event_timestamp(item.event_time) for item in supporting]
+    if any(anchor_time is None for anchor_time in anchor_times):
+        return _unresolved(raw, future_intent=future_intent, quality="low")
+
+    resolved_now = float(time.time() if now is None else now)
+    if any(
+        trusted_event_timestamp(anchor_time, now=resolved_now) is None
+        for anchor_time in anchor_times
+    ):
+        return _unresolved(
+            raw,
+            future_intent=future_intent,
+            quality="low",
+        )
 
     anchored_ranges = {
         resolved

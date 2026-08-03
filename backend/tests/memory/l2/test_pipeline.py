@@ -298,6 +298,16 @@ def _synthetic_occurrence_stats_for_phase1(phase1_result):  # type: ignore[no-un
             claim_ids=tuple(sorted(claim_ids)),
             supporting_event_ids=tuple(sorted(events_by_key[key])),
             trusted_event_ids=tuple(sorted(events_by_key[key])),
+            recent_policy_event_ids=(
+                tuple(sorted(events_by_key[key]))
+                if _single_phase1_claim_field(
+                    policy_claims_by_key[key],
+                    "temporal_cue",
+                    "unspecified",
+                )
+                == "recent"
+                else ()
+            ),
             observation_count=len(claim_ids),
             evidence_count=len(events_by_key[key]),
             distinct_days=1 if events_by_key[key] else 0,

@@ -331,29 +331,24 @@ def _goal_projection_reason(
     if target_ends:
         if min(target_ends) <= current_time:
             return "goal_target_expired"
-    elif float(event.timestamp) + 30 * 24 * 60 * 60 <= current_time:
+    elif (
+        float(occurrence_stats.last_observed_at or event.timestamp) + 30 * 24 * 60 * 60
+        <= current_time
+    ):
         return "goal_target_expired"
     return None
 
 
 def _low_time_confidence_reason(
     *,
-    supporting_claims: list[L2Phase1FactClaim],
     occurrence_stats: ClaimOccurrenceStats,
 ) -> str | None:
-    """Block only current/recent semantics that lack trusted calendar evidence."""
+    """Block aggregated recent semantics without trusted policy evidence."""
 
-    if not any(
-        L2TemporalCue.from_value(claim.temporal_cue) is L2TemporalCue.RECENT
-        for claim in supporting_claims
-    ):
+    if L2TemporalCue.from_value(occurrence_stats.temporal_cue) is not L2TemporalCue.RECENT:
         return None
-    supporting_event_ids = {
-        event_id for claim in supporting_claims for event_id in claim.supporting_event_ids
-    }
-    if supporting_event_ids and supporting_event_ids.issubset(
-        set(occurrence_stats.trusted_event_ids)
-    ):
+    policy_event_ids = set(occurrence_stats.recent_policy_event_ids)
+    if policy_event_ids and policy_event_ids.issubset(set(occurrence_stats.trusted_event_ids)):
         return None
     return "low_time_confidence"
 
@@ -550,7 +545,6 @@ class L2AssertionValidationMixin:
             context.occurrence_stats_by_key,
         )
         temporal_reason = _low_time_confidence_reason(
-            supporting_claims=supporting_claims,
             occurrence_stats=occurrence_stats,
         )
         if temporal_reason is not None:
@@ -571,6 +565,22 @@ class L2AssertionValidationMixin:
             trait_name=trait_name,
             occurrence_stats=occurrence_stats,
         )
+        if (
+            promotion_decision.horizon is PromotionHorizon.RECENT
+            and occurrence_stats.last_observed_at is None
+        ):
+            for claim in supporting_claims:
+                context.claim_outcomes.append(
+                    ClaimProjectionOutcomeDraft(
+                        claim_id=claim.claim_id,
+                        target_kind="assertion",
+                        target_id=f"slot:{route.slot_key}",
+                        target_slot_key=route.slot_key,
+                        outcome="review",
+                        reason_code="low_time_confidence",
+                    )
+                )
+            return None
         goal_reason = _goal_projection_reason(
             event=context.event,
             route=route,
@@ -617,6 +627,7 @@ class L2AssertionValidationMixin:
             route=route,
             trait_value=trait_value,
             promotion_decision=promotion_decision,
+            occurrence_stats=occurrence_stats,
         )
 
     def _phase2_assertion_allowed(
@@ -658,6 +669,7 @@ class L2AssertionValidationMixin:
         route: SemanticRouteDecision,
         trait_value: Any,
         promotion_decision: AssertionPromotionDecision,
+        occurrence_stats: ClaimOccurrenceStats,
     ) -> dict[str, Any]:
         event = context.event
         self_entity_id = context.host._resolve_self_entity_id(event)
@@ -665,8 +677,14 @@ class L2AssertionValidationMixin:
         expiry = promotion_decision.expiry
         temporal_scope = expiry.temporal_scope
         decay_policy = expiry.decay_policy
+        lifecycle_anchor = (
+            float(occurrence_stats.last_observed_at)
+            if promotion_decision.horizon is PromotionHorizon.RECENT
+            and occurrence_stats.last_observed_at is not None
+            else float(event.timestamp)
+        )
         expires_at = (
-            event.timestamp + expiry.ttl_seconds if expiry.ttl_seconds is not None else None
+            lifecycle_anchor + expiry.ttl_seconds if expiry.ttl_seconds is not None else None
         )
         if trait_family == "goal_profile":
             target_ends = {
@@ -675,7 +693,7 @@ class L2AssertionValidationMixin:
             expires_at = (
                 next(iter(target_ends))
                 if len(target_ends) == 1
-                else event.timestamp + 30 * 24 * 60 * 60
+                else lifecycle_anchor + 30 * 24 * 60 * 60
             )
         return {
             "entity_id": entity_ref or self_entity_id or "",
@@ -690,13 +708,13 @@ class L2AssertionValidationMixin:
             "inference_depth": event.tom_depth.label,
             "validation_state": "tentative",
             "first_inferred_at": event.timestamp,
-            "last_validated_at": event.timestamp,
+            "last_validated_at": lifecycle_anchor,
             "target_entity_id": route.target_entity_id or "",
             "target_entity_type": route.target_entity_type or "",
             "target_scope": "entity_bound" if route.target_entity_id else "global",
             "temporal_scope": temporal_scope,
             "decay_policy": decay_policy,
-            "decay_anchor_at": event.timestamp,
+            "decay_anchor_at": lifecycle_anchor,
             "context_ref_id": "",
             "expires_at": expires_at,
             "memory_subdomain": classify_memory_subdomain(temporal_scope, decay_policy),

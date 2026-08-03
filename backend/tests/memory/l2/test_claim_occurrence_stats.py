@@ -484,6 +484,82 @@ async def test_low_trust_times_count_evidence_without_inventing_timeline(
     assert stats.recency_days == pytest.approx(1.0)
 
 
+@pytest.mark.asyncio
+async def test_recent_policy_provenance_excludes_unrelated_trusted_evidence(
+    l2_store_with_schema,
+) -> None:
+    now = 1_900_000_000.0
+    one_off_key = ClaimRouteValueKey("slot:one-off", "value:one-off")
+    recent_key = ClaimRouteValueKey("slot:recent-policy", "value:recent-policy")
+    mixed_key = ClaimRouteValueKey("slot:mixed-policy", "value:mixed-policy")
+
+    await _seed_claim(
+        l2_store_with_schema.db_path,
+        claim_id="claim:one-off-only",
+        event_id="event:one-off-only",
+        key=one_off_key,
+        event_time=now,
+        temporal_cue="one_off",
+    )
+    await _seed_claim(
+        l2_store_with_schema.db_path,
+        claim_id="claim:recent-low",
+        event_id="event:recent-low",
+        key=recent_key,
+        event_time=now - 86_400,
+        timestamp_quality="file_mtime",
+        temporal_cue="recent",
+    )
+    await _seed_claim(
+        l2_store_with_schema.db_path,
+        claim_id="claim:unspecified-exact",
+        event_id="event:unspecified-exact",
+        key=recent_key,
+        event_time=now,
+        created_at=2.0,
+        temporal_cue="unspecified",
+    )
+    await _seed_claim(
+        l2_store_with_schema.db_path,
+        claim_id="claim:mixed-one-off-low",
+        event_id="event:mixed-one-off-low",
+        key=mixed_key,
+        event_time=now - 86_400,
+        timestamp_quality="file_mtime",
+        temporal_cue="one_off",
+    )
+    await _seed_claim(
+        l2_store_with_schema.db_path,
+        claim_id="claim:mixed-stable-exact",
+        event_id="event:mixed-stable-exact",
+        key=mixed_key,
+        event_time=now,
+        created_at=2.0,
+        temporal_cue="stable",
+    )
+
+    stats = await load_routed_claim_occurrence_stats(
+        l2_store_with_schema.db_path,
+        keys=[one_off_key, recent_key, mixed_key],
+        now=now,
+        local_timezone=UTC,
+    )
+
+    assert stats[one_off_key].temporal_cue == "one_off"
+    assert stats[one_off_key].recent_policy_event_ids == ()
+
+    assert stats[recent_key].temporal_cue == "recent"
+    assert stats[recent_key].recent_policy_event_ids == ("event:recent-low",)
+    assert stats[recent_key].trusted_event_ids == ("event:unspecified-exact",)
+
+    assert stats[mixed_key].temporal_cue == "recent"
+    assert stats[mixed_key].recent_policy_event_ids == (
+        "event:mixed-one-off-low",
+        "event:mixed-stable-exact",
+    )
+    assert stats[mixed_key].trusted_event_ids == ("event:mixed-stable-exact",)
+
+
 def test_occurrence_days_follow_user_timezone() -> None:
     shanghai = ZoneInfo("Asia/Shanghai")
     first = datetime(2026, 1, 1, 15, 30, tzinfo=UTC).timestamp()

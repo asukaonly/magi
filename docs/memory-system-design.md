@@ -735,7 +735,9 @@ projections. Phase 1 may emit only a `raw_time_expression` copied verbatim from
 the current evidence quote, or an empty value; it never calculates or rewrites
 dates. The host resolves supported absolute expressions in the runtime's local
 calendar and resolves relative expressions only against trusted supporting-event
-timestamps. Non-intent Claims populate fact-validity fields, while
+timestamps. A supporting timestamp beyond the bounded future clock-skew window
+is not a valid relative-time anchor, even when its source otherwise labels it
+`exact` or `calendar_anchor`. Non-intent Claims populate fact-validity fields, while
 `future_intent` Claims populate a separate target window. Ambiguous, conflicting,
 or low-quality anchors preserve the raw expression without inventing a numeric
 range. This temporal material participates in Claim identity. Knowledge-graph
@@ -934,6 +936,13 @@ Assertion family semantics are centralized in `backend/src/magi/memory/l2/assert
 Profile assertion confidence and profile assertion horizon are separate decisions. Validation state answers how well supported a judgement is; the host-owned promotion evaluator answers whether the same grounded material remains event-only, is useful as recent context, or is durable enough for long-term profile use. Event-only profile candidates are not persisted as assertions. Recent profile assertions use a bounded time window and may be renewed by new evidence. Durable assertions use evidence-governed lifetime and are not downgraded merely because no new event arrived. User confirmation changes confidence but does not by itself turn recent context into a durable trait.
 
 Claim-backed promotion recomputes both occurrence statistics and policy metadata from the complete active Claim/evidence ledger for the routed slot and canonical value. Fact kind, predicate, temporal cue, evidence class, source strength, and durable permission do not come from the event currently being processed. Direct user self-report has authority over weaker replay evidence; without it, whitelisted sustained-engagement predicates outrank passive external exposure, and unknown or conflicting metadata falls back conservatively. Removing the stronger evidence may legitimately recompute a weaker horizon, but processing order and restart must not change the result for the same ledger.
+
+Claim-backed promotion statistics retain the evidence IDs whose wording selected
+an aggregated recent policy, and those policy-defining events must have trusted
+calendar provenance. A recent assertion's validation, decay, and TTL anchor is
+the latest trusted time in the complete ledger, not whichever event happens to
+trigger the current projection attempt. A delayed replay therefore cannot
+shorten a recent assertion behind newer trusted evidence.
 
 Family choice shapes downstream handling but does not by itself decide trust. Conflict decisions are primarily source-tier and active-key based: user-authored assertions remain authoritative over behavioral or plugin-derived inference unless the user explicitly corrects or rejects them. Family policy determines whether a value behaves like short-lived state, durable semantic profile, preference snapshot content, or core-trait context after it has passed source-tier and evidence gates.
 

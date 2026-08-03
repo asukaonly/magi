@@ -14,6 +14,7 @@ from magi.memory.l2.pipeline.claim_grounding import (
 )
 from magi.memory.l2.pipeline.claim_persistence import _timestamp_provenance
 from magi.memory.l2.pipeline.temporal_claims import resolve_claim_temporal_fields
+from magi.memory.l2.temporal_trust import MAX_FUTURE_CLOCK_SKEW_SECONDS
 
 
 def _evidence(
@@ -120,6 +121,78 @@ def test_untrusted_or_underanchored_time_stays_raw_for_review(
         "resolution": reason,
         "resolved_range": None,
     }
+
+
+@pytest.mark.parametrize("timestamp_quality", ["exact", "calendar_anchor"])
+@pytest.mark.parametrize(
+    ("raw_expression", "future_intent"),
+    [("明天", True), ("昨天", False)],
+)
+def test_relative_time_rejects_evidence_beyond_future_clock_skew(
+    timestamp_quality: str,
+    raw_expression: str,
+    future_intent: bool,
+) -> None:
+    now = 1_900_000_000.0
+    resolution = resolve_claim_temporal_fields(
+        raw_expression=raw_expression,
+        future_intent=future_intent,
+        evidence=[
+            _evidence(
+                event_time=now + MAX_FUTURE_CLOCK_SKEW_SECONDS + 1,
+                timestamp_quality=timestamp_quality,
+            )
+        ],
+        local_timezone=ZoneInfo("Asia/Shanghai"),
+        now=now,
+    )
+
+    assert resolution.fact_valid_from is None
+    assert resolution.fact_valid_to is None
+    assert resolution.target_from is None
+    assert resolution.target_to is None
+    assert resolution.raw_time_frame is not None
+    assert resolution.raw_time_frame["resolution"] == "low"
+
+
+def test_relative_time_accepts_evidence_at_future_clock_skew_boundary() -> None:
+    now = 1_900_000_000.0
+    resolution = resolve_claim_temporal_fields(
+        raw_expression="明天",
+        future_intent=True,
+        evidence=[
+            _evidence(event_time=now + MAX_FUTURE_CLOCK_SKEW_SECONDS),
+        ],
+        local_timezone=ZoneInfo("Asia/Shanghai"),
+        now=now,
+    )
+
+    assert resolution.target_from is not None
+    assert resolution.target_to is not None
+    assert resolution.raw_time_frame is not None
+    assert resolution.raw_time_frame["resolution"] == "calendar_anchor"
+
+
+def test_one_future_supporting_anchor_makes_relative_time_unresolved() -> None:
+    now = 1_900_000_000.0
+    resolution = resolve_claim_temporal_fields(
+        raw_expression="明天",
+        future_intent=True,
+        evidence=[
+            _evidence(event_id="evt-current", event_time=now),
+            _evidence(
+                event_id="evt-future",
+                event_time=now + MAX_FUTURE_CLOCK_SKEW_SECONDS + 1,
+            ),
+        ],
+        local_timezone=ZoneInfo("Asia/Shanghai"),
+        now=now,
+    )
+
+    assert resolution.target_from is None
+    assert resolution.target_to is None
+    assert resolution.raw_time_frame is not None
+    assert resolution.raw_time_frame["resolution"] == "low"
 
 
 def test_timestamp_quality_is_normalized_per_evidence_source() -> None:

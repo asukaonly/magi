@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import time
 from collections import defaultdict
 from collections.abc import Iterable
@@ -14,12 +13,15 @@ from typing import Any
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ..temporal_trust import (
+    MAX_FUTURE_CLOCK_SKEW_SECONDS,
+    trusted_event_timestamp,
+)
 from ..claims.route_selection import (
     CURRENT_ENTITY_REF_VERSIONS_CTE,
     LATEST_ROUTE_ORDER_SQL,
 )
 
-MAX_FUTURE_CLOCK_SKEW_SECONDS = 5 * 60
 _SUSTAINED_ENGAGEMENT_PREDICATES = frozenset(
     {
         "ATTENDED",
@@ -106,6 +108,7 @@ class ClaimOccurrenceStats:
     claim_ids: tuple[str, ...]
     supporting_event_ids: tuple[str, ...]
     trusted_event_ids: tuple[str, ...]
+    recent_policy_event_ids: tuple[str, ...]
     observation_count: int
     evidence_count: int
     distinct_days: int
@@ -135,6 +138,7 @@ class ClaimOccurrenceStats:
 @dataclass(frozen=True, slots=True)
 class _ClaimPolicyEvidence:
     claim_id: str
+    event_id: str
     fact_kind: str
     canonical_predicate: str
     temporal_cue: str
@@ -179,6 +183,7 @@ def _aggregate_promotion_policy(
     predicates = {row.canonical_predicate for row in selected if row.canonical_predicate}
     temporal_cues = {row.temporal_cue for row in selected}
     evidence_classes = {row.evidence_class for row in selected if row.evidence_class}
+    temporal_cue = _aggregate_temporal_cue(temporal_cues)
     return {
         "fact_kind": _conservative_value(
             fact_kinds,
@@ -189,7 +194,11 @@ def _aggregate_promotion_policy(
             predicates,
             source_strength=source_strength,
         ),
-        "temporal_cue": _aggregate_temporal_cue(temporal_cues),
+        "temporal_cue": temporal_cue,
+        "recent_policy_event_ids": _recent_policy_event_ids(
+            selected,
+            temporal_cue=temporal_cue,
+        ),
         "evidence_class": _aggregate_evidence_class(
             evidence_classes,
             source_strength=source_strength,
@@ -197,6 +206,24 @@ def _aggregate_promotion_policy(
         "source_strength": source_strength,
         "durable_permitted": source_strength == "direct_user",
     }
+
+
+def _recent_policy_event_ids(
+    rows: Iterable[_ClaimPolicyEvidence],
+    *,
+    temporal_cue: str,
+) -> tuple[str, ...]:
+    """Return evidence whose wording makes the selected policy recent."""
+
+    if temporal_cue != "recent":
+        return ()
+    material = tuple(rows)
+    cues = {row.temporal_cue for row in material}
+    if "one_off" in cues and len(cues) > 1:
+        relevant = material
+    else:
+        relevant = tuple(row for row in material if row.temporal_cue == "recent")
+    return tuple(sorted({row.event_id for row in relevant if row.event_id}))
 
 
 def _conservative_value(
@@ -284,14 +311,10 @@ def summarize_occurrence_times(
 
     times_by_event: dict[str, set[float]] = defaultdict(set)
     resolved_now = float(now)
-    latest_trusted_time = resolved_now + MAX_FUTURE_CLOCK_SKEW_SECONDS
     for raw_event_id, raw_timestamp in event_times:
         event_id = str(raw_event_id or "").strip()
-        try:
-            timestamp = float(raw_timestamp)
-        except (TypeError, ValueError):
-            continue
-        if event_id and math.isfinite(timestamp) and 0 < timestamp <= latest_trusted_time:
+        timestamp = trusted_event_timestamp(raw_timestamp, now=resolved_now)
+        if event_id and timestamp is not None:
             times_by_event[event_id].add(timestamp)
     trusted_times = sorted(
         (
@@ -429,6 +452,7 @@ async def load_routed_claim_occurrence_stats(
         ) as cursor:
             rows = await cursor.fetchall()
 
+    resolved_now = float(time.time() if now is None else now)
     claims_by_key: dict[ClaimRouteValueKey, set[str]] = defaultdict(set)
     evidence_by_key: dict[ClaimRouteValueKey, set[str]] = defaultdict(set)
     exact_times_by_key: dict[ClaimRouteValueKey, list[tuple[str, float]]] = defaultdict(list)
@@ -445,6 +469,7 @@ async def load_routed_claim_occurrence_stats(
         policy_evidence_by_key[key].append(
             _ClaimPolicyEvidence(
                 claim_id=claim_id,
+                event_id=event_id,
                 fact_kind=str(row["fact_kind"] or "").strip().casefold(),
                 canonical_predicate=str(row["canonical_predicate"] or "").strip().upper(),
                 temporal_cue=str(row["temporal_cue"] or "").strip().casefold(),
@@ -468,7 +493,6 @@ async def load_routed_claim_occurrence_stats(
         except (TypeError, ValueError):
             continue
 
-    resolved_now = float(time.time() if now is None else now)
     result: dict[ClaimRouteValueKey, ClaimOccurrenceStats] = {}
     for key in normalized_keys:
         claim_ids = claims_by_key.get(key)
@@ -492,6 +516,7 @@ async def load_routed_claim_occurrence_stats(
             claim_ids=tuple(sorted(claim_ids)),
             supporting_event_ids=tuple(sorted(supporting_event_ids)),
             trusted_event_ids=timeline.trusted_event_ids,
+            recent_policy_event_ids=tuple(promotion_policy["recent_policy_event_ids"]),
             observation_count=len(claim_ids),
             evidence_count=len(supporting_event_ids),
             distinct_days=timeline.distinct_days,

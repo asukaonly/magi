@@ -1,6 +1,7 @@
 """Tests for the narrow Phase 2 inference contract."""
 
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -21,7 +22,10 @@ from magi.memory.l2.models import (
 from magi.memory.l2.graph_conflicts import build_graph_conflict_matrix
 from magi.memory.l2.phase1_models import L2TemporalCue
 from magi.memory.l2.pipeline.prompts import PHASE2_INTEGRATE_SYSTEM_PROMPT
-from magi.memory.l2.pipeline.validation.assertions import L2AssertionValidationMixin
+from magi.memory.l2.pipeline.validation.assertions import (
+    L2AssertionValidationMixin,
+    _low_time_confidence_reason,
+)
 from magi.memory.l2.pipeline.validation.claim_assessments import (
     AssessmentActionEligibility,
     L2ClaimAssessmentValidationMixin,
@@ -158,6 +162,16 @@ def _synthetic_occurrence_stats(
             claim_ids=tuple(sorted(claim_ids)),
             supporting_event_ids=tuple(sorted(event_ids_by_key[key])),
             trusted_event_ids=tuple(sorted(event_ids_by_key[key])),
+            recent_policy_event_ids=(
+                tuple(sorted(event_ids_by_key[key]))
+                if _single_claim_value(
+                    claims_by_key[key],
+                    "temporal_cue",
+                    "unspecified",
+                )
+                == "recent"
+                else ()
+            ),
             observation_count=len(claim_ids),
             evidence_count=len(event_ids_by_key[key]),
             distinct_days=1 if event_ids_by_key[key] else 0,
@@ -330,6 +344,7 @@ def test_host_goal_projection_does_not_depend_on_phase2_candidate(
     phase2_assertions: list[L2Phase2AssertionCandidate],
 ) -> None:
     now = time.time()
+    replayed_event_time = now - 40 * 24 * 60 * 60
     phase1_result = L2Phase1Result(
         fact_claims=[
             L2Phase1FactClaim(
@@ -348,7 +363,7 @@ def test_host_goal_projection_does_not_depend_on_phase2_candidate(
     )
     event = SimpleNamespace(
         event_id="evt-goal",
-        timestamp=now,
+        timestamp=replayed_event_time,
         source="chat",
         user_id="u1",
         memory_domain=MemoryDomain.USER_AUTHORED,
@@ -381,15 +396,16 @@ def test_host_goal_projection_does_not_depend_on_phase2_candidate(
         evidence_class="user_self_report",
         source_strength="direct_user",
         durable_permitted=True,
-        claim_ids=("claim:goal",),
-        supporting_event_ids=("evt-goal",),
-        trusted_event_ids=("evt-goal",),
-        observation_count=1,
-        evidence_count=1,
-        distinct_days=1,
-        first_observed_at=now,
+        claim_ids=("claim:goal", "claim:goal-newer"),
+        supporting_event_ids=("evt-goal", "evt-goal-newer"),
+        trusted_event_ids=("evt-goal", "evt-goal-newer"),
+        recent_policy_event_ids=(),
+        observation_count=2,
+        evidence_count=2,
+        distinct_days=2,
+        first_observed_at=replayed_event_time,
         last_observed_at=now,
-        span_days=0.0,
+        span_days=40.0,
         recency_days=0.0,
     )
 
@@ -417,6 +433,8 @@ def test_host_goal_projection_does_not_depend_on_phase2_candidate(
     assert prepared[0]["trait_value"] == "去海边"
     assert prepared[0]["temporal_scope"] == "recent"
     assert prepared[0]["expires_at"] == pytest.approx(now + 30 * 24 * 60 * 60)
+    assert prepared[0]["last_validated_at"] == now
+    assert prepared[0]["decay_anchor_at"] == now
 
 
 @pytest.mark.parametrize(
@@ -490,6 +508,7 @@ def test_host_goal_rejects_ambiguous_or_expired_target_time(
         claim_ids=(claim.claim_id,),
         supporting_event_ids=("evt-timed-goal",),
         trusted_event_ids=("evt-timed-goal",),
+        recent_policy_event_ids=(),
         observation_count=1,
         evidence_count=1,
         distinct_days=1,
@@ -569,6 +588,9 @@ def test_low_quality_history_time_only_blocks_recent_current_projection(
         claim_ids=(claim.claim_id,),
         supporting_event_ids=("evt-history",),
         trusted_event_ids=(),
+        recent_policy_event_ids=(
+            ("evt-history",) if temporal_cue is L2TemporalCue.RECENT else ()
+        ),
         observation_count=1,
         evidence_count=1,
         distinct_days=0,
@@ -606,6 +628,41 @@ def test_low_quality_history_time_only_blocks_recent_current_projection(
 
     assert len(prepared) == expected_count
     assert ([outcome.reason_code for outcome in outcomes] or [None]) == [expected_reason]
+
+
+def test_aggregated_recent_policy_requires_its_own_trusted_evidence() -> None:
+    key = ClaimRouteValueKey("slot:project", "value:magi")
+    stats = ClaimOccurrenceStats(
+        key=key,
+        fact_kind="explicit_fact",
+        canonical_predicate="WORKS_ON",
+        temporal_cue="recent",
+        evidence_class="user_self_report",
+        source_strength="direct_user",
+        durable_permitted=True,
+        claim_ids=("claim:low-recent", "claim:exact-unspecified"),
+        supporting_event_ids=("evt-low-recent", "evt-exact-unspecified"),
+        trusted_event_ids=("evt-exact-unspecified",),
+        recent_policy_event_ids=("evt-low-recent",),
+        observation_count=2,
+        evidence_count=2,
+        distinct_days=1,
+        first_observed_at=1_700_000_000.0,
+        last_observed_at=1_700_000_000.0,
+        span_days=0.0,
+        recency_days=0.0,
+    )
+
+    assert _low_time_confidence_reason(occurrence_stats=stats) == "low_time_confidence"
+    assert (
+        _low_time_confidence_reason(
+            occurrence_stats=replace(
+                stats,
+                trusted_event_ids=("evt-low-recent", "evt-exact-unspecified"),
+            )
+        )
+        is None
+    )
 
 
 def test_phase2_rejects_event_only_profile_candidate() -> None:
@@ -693,6 +750,7 @@ def test_phase2_uses_full_ledger_counts_for_passive_promotion() -> None:
         claim_ids=("claim:day-1", "claim:day-2", "claim:current"),
         supporting_event_ids=("evt-day-1", "evt-day-2", "evt-current"),
         trusted_event_ids=("evt-day-1", "evt-day-2", "evt-current"),
+        recent_policy_event_ids=(),
         observation_count=3,
         evidence_count=3,
         distinct_days=3,
@@ -766,6 +824,7 @@ def test_phase2_uses_ledger_policy_instead_of_current_weak_replay() -> None:
         claim_ids=("claim:direct", "claim:weak-replay"),
         supporting_event_ids=("evt-direct", "evt-weak-replay"),
         trusted_event_ids=("evt-direct", "evt-weak-replay"),
+        recent_policy_event_ids=(),
         observation_count=2,
         evidence_count=2,
         distinct_days=2,
