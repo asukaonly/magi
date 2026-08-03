@@ -29,8 +29,8 @@ _EMAIL_HEADER_RE = re.compile(
 _SPEAKER_DASH_RE = re.compile(r"^.{1,48}?[ \t]+(?:—|–|-)[ \t]+\S")
 _HTML_INLINE_OPEN_RE = re.compile(r"<\s*(?P<tag>blockquote|pre|code)\b[^>]*>", re.IGNORECASE)
 _REPORTING_VERB_TAIL_RE = re.compile(
-    r"(?:\b(?:said|wrote|asked|replied|noted|mentioned|told[ \t]+me)\b|"
-    r"(?:说|写道|问道|回答|表示|提到))[ \t]*[,，:：]?[ \t]*$",
+    r"(?:\b(?:said|says|wrote|asked|replied|noted|mentioned|stated|claimed|"
+    r"told[ \t]+me)\b|(?:说|写道|问道|回答|表示|提到|声称))[ \t]*[,，:：]?[ \t]*$",
     re.IGNORECASE,
 )
 _SELF_REPORT_TAIL_RE = re.compile(
@@ -39,16 +39,18 @@ _SELF_REPORT_TAIL_RE = re.compile(
     re.IGNORECASE,
 )
 _ATTRIBUTION_PREFIX_TAIL_RE = re.compile(
-    r"(?:\b(?:according[ \t]+to|quote[ \t]+from)\b.+|"
-    r".+(?:的原话|原文|转述)(?:是)?)[ \t]*[,，:：]?[ \t]*$",
+    r"(?:\b(?:according[ \t]+to|quote[ \t]+from|excerpt[ \t]+from)\b.+|"
+    r"\bin[ \t]+.+?[’']s[ \t]+words\b|.+(?:的原话|原文|转述)(?:是)?|"
+    r".+用(?:他|她|它|他们|她们)?自己的话说)[ \t]*[,，:：]?[ \t]*$",
     re.IGNORECASE,
 )
 _ATTRIBUTION_LEAD_RE = re.compile(
-    r"^(?:on\b.+?,[ \t]*)?.+?\b(?:said|wrote|asked|replied|noted|mentioned)" r"[ \t]*[:：][ \t]*$",
+    r"^(?:on\b.+?,[ \t]*)?.+?\b(?:said|says|wrote|asked|replied|noted|mentioned|"
+    r"stated|claimed)[ \t]*[:：][ \t]*$",
     re.IGNORECASE,
 )
 _ATTRIBUTION_LEAD_ZH_RE = re.compile(
-    r"^.+?(?:说|写道|问道|回答|表示|提到|的原话(?:是)?)[ \t]*[:：][ \t]*$"
+    r"^.+?(?:说|写道|问道|回答|表示|提到|声称|的原话(?:是)?)[ \t]*[:：][ \t]*$"
 )
 _SELF_ATTRIBUTION_LEAD_RE = re.compile(
     r"^(?:I[ \t]+(?:said|wrote|asked|replied|noted|mentioned)|"
@@ -56,12 +58,21 @@ _SELF_ATTRIBUTION_LEAD_RE = re.compile(
     re.IGNORECASE,
 )
 _POST_ATTRIBUTION_RE = re.compile(
-    r"^[ \t]*(?:—|–|-)[ \t]+(?:[\w@][\w@.'’-]*[ \t]*){1,6}[.!。]?[ \t]*$",
+    r"^[ \t]*(?:(?:—{1,2}|–{1,2}|-{1,2})[ \t]+"
+    r"(?:[\w@][\w@.'’-]*[ \t]*){1,6}|\([^()\r\n]{1,80}\))[.!。]?[ \t]*$",
     re.UNICODE,
 )
 _PERSON_TITLE_RE = re.compile(
     r"^(?:dr|prof|professor|mr|mrs|ms|miss|sir|dame)[.][ \t]+\S",
     re.IGNORECASE,
+)
+_CHAT_HANDLE_RE = re.compile(
+    r"^(?:[^\w\s]{1,4}[ \t]*)?(?:@?[\w.-]+(?:#[\w.-]+)?|"
+    r"[^\s@]+@[^\s@]+\.[^\s@]+)(?:[ \t]+(?:@?[\w.'’-]+)){0,3}$",
+    re.UNICODE,
+)
+_FRONTMATTER_FIELD_RE = re.compile(
+    r"^(?:[A-Za-z_][\w.-]*|[\u3400-\u9fff][^:：=]{0,40})[ \t]*(?:[:：]|=)" r"(?:[ \t]+.*)?$"
 )
 _CALLOUT_LABELS = frozenset(
     {
@@ -73,6 +84,10 @@ _CALLOUT_LABELS = frozenset(
         "note",
         "preference",
         "python",
+        "reason",
+        "status",
+        "current status",
+        "music",
         "subject",
         "summary",
         "tip",
@@ -81,6 +96,10 @@ _CALLOUT_LABELS = frozenset(
         "warning",
         "主题",
         "工作",
+        "状态",
+        "当前状态",
+        "原因",
+        "音乐",
         "偏好",
         "我的偏好",
         "我的观点",
@@ -129,6 +148,13 @@ class HistoryDocumentSpanKind(str, Enum):
     PASTED_CONTENT = "pasted_content"
 
 
+class _PastedDialogueKind(str, Enum):
+    NONE = "none"
+    LINE = "line"
+    PARAGRAPH = "paragraph"
+    ATTRIBUTION_LEAD = "attribution_lead"
+
+
 @dataclass(frozen=True, slots=True)
 class HistoryDocumentSpan:
     """One exact source range with a deterministic attribution class."""
@@ -159,6 +185,7 @@ class _InlineDelimiter:
     kind: str
     closer: str = ""
     fence_length: int = 0
+    closing_start: int | None = None
 
 
 def find_history_document_author_occurrence(
@@ -195,43 +222,26 @@ def classify_history_document_spans(content: str) -> tuple[HistoryDocumentSpan, 
     fence_length = 0
     lazy_blockquote_paragraph = False
     lazy_pasted_paragraph = False
+    pending_attributed_content = False
+    attributed_content_active = False
     forwarded_content = False
-    frontmatter_delimiter: str | None = None
-    first_line = True
     inline_state = _InlineScanState()
 
     lines = content.splitlines(keepends=True)
+    frontmatter_end_line = _frontmatter_end_line(lines)
     for line_index, line in enumerate(lines):
         line_start = offset
         line_end = offset + len(line)
         offset = line_end
         line_body = line.rstrip("\r\n")
 
-        if first_line:
-            first_line = False
-            first_body = line_body.removeprefix("\ufeff").strip()
-            if first_body in {"---", "+++"}:
-                frontmatter_delimiter = first_body
-                _append_span(
-                    spans,
-                    line_start,
-                    line_end,
-                    HistoryDocumentSpanKind.FRONTMATTER,
-                )
-                continue
-
-        if frontmatter_delimiter is not None:
+        if frontmatter_end_line is not None and line_index <= frontmatter_end_line:
             _append_span(
                 spans,
                 line_start,
                 line_end,
                 HistoryDocumentSpanKind.FRONTMATTER,
             )
-            stripped_body = line_body.strip()
-            if stripped_body == frontmatter_delimiter or (
-                frontmatter_delimiter == "---" and stripped_body == "..."
-            ):
-                frontmatter_delimiter = None
             continue
 
         if forwarded_content:
@@ -241,6 +251,36 @@ def classify_history_document_spans(content: str) -> tuple[HistoryDocumentSpan, 
                 line_end,
                 HistoryDocumentSpanKind.PASTED_CONTENT,
             )
+            continue
+
+        if pending_attributed_content:
+            _append_span(
+                spans,
+                line_start,
+                line_end,
+                HistoryDocumentSpanKind.PASTED_CONTENT,
+            )
+            if line_body.strip():
+                pending_attributed_content = False
+                attributed_content_active = True
+            continue
+
+        if attributed_content_active:
+            if line_body.strip():
+                _append_span(
+                    spans,
+                    line_start,
+                    line_end,
+                    HistoryDocumentSpanKind.PASTED_CONTENT,
+                )
+            else:
+                attributed_content_active = False
+                _append_span(
+                    spans,
+                    line_start,
+                    line_end,
+                    HistoryDocumentSpanKind.AUTHOR_PROSE,
+                )
             continue
 
         if fence_char is not None:
@@ -347,8 +387,12 @@ def classify_history_document_spans(content: str) -> tuple[HistoryDocumentSpan, 
                 continue
             lazy_pasted_paragraph = False
 
-        if _is_pasted_dialogue_line(structural_line):
-            lazy_pasted_paragraph = True
+        pasted_dialogue_kind = _classify_pasted_dialogue_line(structural_line)
+        if pasted_dialogue_kind is not _PastedDialogueKind.NONE:
+            lazy_pasted_paragraph = pasted_dialogue_kind is _PastedDialogueKind.PARAGRAPH
+            pending_attributed_content = (
+                pasted_dialogue_kind is _PastedDialogueKind.ATTRIBUTION_LEAD
+            )
             inline_state = _InlineScanState()
             _append_span(
                 spans,
@@ -417,6 +461,22 @@ def _is_forwarded_content_start(line: str) -> bool:
     return bool(_FORWARDED_MARKER_RE.match(text) or _FORWARDED_MARKER_ZH_RE.match(text))
 
 
+def _frontmatter_end_line(lines: list[str]) -> int | None:
+    if not lines:
+        return None
+    delimiter = lines[0].rstrip("\r\n").removeprefix("\ufeff").strip()
+    if delimiter not in {"---", "+++"}:
+        return None
+    has_metadata_field = False
+    for index, line in enumerate(lines[1:], start=1):
+        text = line.rstrip("\r\n").strip()
+        if text == delimiter or (delimiter == "---" and text == "..."):
+            return index if has_metadata_field else None
+        if _FRONTMATTER_FIELD_RE.match(text):
+            has_metadata_field = True
+    return None
+
+
 def _starts_email_header_block(lines: list[str], start: int) -> bool:
     first = _EMAIL_HEADER_RE.match(
         _strip_markdown_container_prefixes(lines[start].rstrip("\r\n")).strip()
@@ -447,14 +507,14 @@ def _starts_email_header_block(lines: list[str], start: int) -> bool:
     return bool(headers & from_headers) and bool(headers & supporting_headers)
 
 
-def _is_pasted_dialogue_line(line: str) -> bool:
+def _classify_pasted_dialogue_line(line: str) -> _PastedDialogueKind:
     text = line.strip()
     if not text:
-        return False
+        return _PastedDialogueKind.NONE
     if not _SELF_ATTRIBUTION_LEAD_RE.match(text) and (
         _ATTRIBUTION_LEAD_RE.match(text) or _ATTRIBUTION_LEAD_ZH_RE.match(text)
     ):
-        return True
+        return _PastedDialogueKind.ATTRIBUTION_LEAD
     timestamped = False
     if text.startswith("["):
         closing = text.find("]")
@@ -471,53 +531,72 @@ def _is_pasted_dialogue_line(line: str) -> bool:
             if (
                 label.endswith((":", "："))
                 and remainder
-                and _plausible_speaker_label(normalized_label, timestamped=timestamped)
+                and _speaker_label_kind(
+                    normalized_label,
+                    timestamped=timestamped,
+                    strong_format=True,
+                )
+                is not _PastedDialogueKind.NONE
             ):
-                return True
+                return _PastedDialogueKind.PARAGRAPH
     colon_positions = [position for marker in (":", "：") if 0 < (position := text.find(marker))]
     if colon_positions:
         colon = min(colon_positions)
         label = text[:colon].strip().strip("*_`~")
         remainder = text[colon + 1 :].lstrip(" *_")
-        if remainder and _plausible_speaker_label(label, timestamped=timestamped):
-            return True
+        if remainder:
+            kind = _speaker_label_kind(label, timestamped=timestamped)
+            if kind is not _PastedDialogueKind.NONE:
+                return kind
     if _SPEAKER_DASH_RE.match(text):
         label = re.split(r"[ \t]+(?:—|–|-)[ \t]+", text, maxsplit=1)[0]
-        return _plausible_speaker_label(
+        return _speaker_label_kind(
             label.strip("*_`~"),
             timestamped=timestamped,
         )
-    return False
+    return _PastedDialogueKind.NONE
 
 
-def _plausible_speaker_label(value: str, *, timestamped: bool) -> bool:
+def _speaker_label_kind(
+    value: str,
+    *,
+    timestamped: bool,
+    strong_format: bool = False,
+) -> _PastedDialogueKind:
     label = value.strip()
     if not 1 <= len(label) <= 48:
-        return False
+        return _PastedDialogueKind.NONE
     if any(character in label for character in '!?。！？"“”「」『』'):
-        return False
+        return _PastedDialogueKind.NONE
     normalized = " ".join(label.casefold().split())
     if normalized in _CALLOUT_LABELS:
-        return False
-    if normalized in _SPEAKER_ROLE_LABELS or timestamped:
-        return any(character.isalpha() for character in label)
-    if _PERSON_TITLE_RE.match(label):
-        return True
+        return _PastedDialogueKind.NONE
+    if not any(character.isalpha() for character in label):
+        return _PastedDialogueKind.NONE
+    if (
+        normalized in _SPEAKER_ROLE_LABELS
+        or timestamped
+        or strong_format
+        or _PERSON_TITLE_RE.match(label)
+        or _looks_like_chat_handle(label)
+    ):
+        return _PastedDialogueKind.PARAGRAPH
     if re.fullmatch(r"[\u3400-\u9fff]{1,12}", label):
-        return True
+        return _PastedDialogueKind.LINE
     words = label.split()
+    if 1 <= len(words) <= 4 and all(
+        word and (word[0].isupper() or word.isupper() or word.startswith("@") or word.isalpha())
+        for word in words
+    ):
+        return _PastedDialogueKind.LINE
+    return _PastedDialogueKind.NONE
+
+
+def _looks_like_chat_handle(label: str) -> bool:
+    if _CHAT_HANDLE_RE.fullmatch(label) is None:
+        return False
     return bool(
-        1 <= len(words) <= 4
-        and all(
-            word
-            and (
-                word[0].isupper()
-                or word.isupper()
-                or word.startswith("@")
-                or (len(words) == 1 and word.isalpha())
-            )
-            for word in words
-        )
+        any(marker in label for marker in ("@", "#", "_")) or (label and not label[0].isalnum())
     )
 
 
@@ -625,7 +704,9 @@ def _append_inline_spans(
             index = end
             continue
 
-        closing = line.find(delimiter.closer, delimiter.opener_end)
+        closing = delimiter.closing_start
+        if closing is None:
+            closing = line.find(delimiter.closer, delimiter.opener_end)
         end = len(line) if closing < 0 else closing + len(delimiter.closer)
         _append_span(
             spans,
@@ -690,13 +771,19 @@ def _find_backtick_run(line: str, start: int, length: int) -> int | None:
 
 
 def _next_attributed_quote(line: str, start: int) -> _InlineDelimiter | None:
-    openers = {'"': '"', "“": "”", "「": "」", "『": "』"}
+    openers = {"“": "”", "「": "」", "『": "』"}
     positions: list[tuple[int, str, str]] = []
     for opener, closer in openers.items():
         position = line.find(opener, start)
         while position >= 0:
             positions.append((position, opener, closer))
             position = line.find(opener, position + len(opener))
+    for symmetric_quote in ('"', "'"):
+        position = line.find(symmetric_quote, start)
+        while position >= 0:
+            if _is_symmetric_quote_opener(line, position):
+                positions.append((position, symmetric_quote, symmetric_quote))
+            position = line.find(symmetric_quote, position + 1)
     positions.sort()
     for position, opener, closer in positions:
         prefix = line[:position]
@@ -705,7 +792,7 @@ def _next_attributed_quote(line: str, start: int) -> _InlineDelimiter | None:
         )
         if directly_attributed and _SELF_REPORT_TAIL_RE.search(prefix):
             continue
-        closing = line.find(closer, position + len(opener))
+        closing = _find_unescaped_character(line, closer, position + len(opener))
         post_attributed = closing >= 0 and bool(
             _POST_ATTRIBUTION_RE.match(line[closing + len(closer) :])
         )
@@ -716,8 +803,39 @@ def _next_attributed_quote(line: str, start: int) -> _InlineDelimiter | None:
             opener_end=position + len(opener),
             kind="quote",
             closer=closer,
+            closing_start=closing if closing >= 0 else None,
         )
     return None
+
+
+def _is_symmetric_quote_opener(line: str, position: int) -> bool:
+    if _is_escaped_character(line, position):
+        return False
+    next_position = position + 1
+    if next_position >= len(line) or line[next_position].isspace():
+        return False
+    if position == 0:
+        return True
+    previous = line[position - 1]
+    return previous.isspace() or previous in "([{,:;—–-"
+
+
+def _find_unescaped_character(line: str, character: str, start: int) -> int:
+    position = line.find(character, start)
+    while position >= 0:
+        if not _is_escaped_character(line, position):
+            return position
+        position = line.find(character, position + len(character))
+    return -1
+
+
+def _is_escaped_character(line: str, position: int) -> bool:
+    preceding_slashes = 0
+    cursor = position - 1
+    while cursor >= 0 and line[cursor] == "\\":
+        preceding_slashes += 1
+        cursor -= 1
+    return preceding_slashes % 2 == 1
 
 
 def _next_html_delimiter(line: str, start: int) -> _InlineDelimiter | None:

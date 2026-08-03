@@ -144,6 +144,22 @@ def test_ground_phase1_claim_uses_frozen_window_text() -> None:
             id="honorific_speaker_turn",
         ),
         pytest.param(
+            "alice_01: 我很喜欢 DIIV。\n",
+            id="underscore_chat_handle",
+        ),
+        pytest.param(
+            "alice#1234: 我很喜欢 DIIV。\n",
+            id="numbered_chat_handle",
+        ),
+        pytest.param(
+            "alice@example.com: 我很喜欢 DIIV。\n",
+            id="email_chat_handle",
+        ),
+        pytest.param(
+            "👩 Alice: 我很喜欢 DIIV。\n",
+            id="emoji_chat_handle",
+        ),
+        pytest.param(
             "**Alice:** 我很喜欢 DIIV。\n",
             id="bold_speaker_turn",
         ),
@@ -178,6 +194,22 @@ def test_ground_phase1_claim_uses_frozen_window_text() -> None:
             id="third_party_quote",
         ),
         pytest.param(
+            'Alice says, "我很喜欢 DIIV。"\n',
+            id="third_party_present_quote",
+        ),
+        pytest.param(
+            'Alice stated, "我很喜欢 DIIV。"\n',
+            id="third_party_stated_quote",
+        ),
+        pytest.param(
+            'Alice claimed, "我很喜欢 DIIV。"\n',
+            id="third_party_claimed_quote",
+        ),
+        pytest.param(
+            "Alice said, '我很喜欢 DIIV。'\n",
+            id="third_party_single_quote",
+        ),
+        pytest.param(
             'According to Alice, "我很喜欢 DIIV。"\n',
             id="according_to_quote",
         ),
@@ -186,8 +218,24 @@ def test_ground_phase1_claim_uses_frozen_window_text() -> None:
             id="quote_from_attribution",
         ),
         pytest.param(
+            'Excerpt from Alice: "我很喜欢 DIIV。"\n',
+            id="excerpt_from_attribution",
+        ),
+        pytest.param(
+            'In Alice\'s words, "我很喜欢 DIIV。"\n',
+            id="in_someones_words",
+        ),
+        pytest.param(
             '"我很喜欢 DIIV。" — Alice\n',
             id="post_attributed_quote",
+        ),
+        pytest.param(
+            "“我很喜欢 DIIV。” (Alice)\n",
+            id="parenthetical_post_attribution",
+        ),
+        pytest.param(
+            "“我很喜欢 DIIV。” —— Alice\n",
+            id="double_dash_post_attribution",
         ),
         pytest.param(
             "Alice 的原话是：「我很喜欢 DIIV。」\n",
@@ -198,12 +246,24 @@ def test_ground_phase1_claim_uses_frozen_window_text() -> None:
             id="cross_line_attributed_quote",
         ),
         pytest.param(
+            'Alice wrote:\n\n"我很喜欢 DIIV。"\n',
+            id="cross_blank_line_attributed_quote",
+        ),
+        pytest.param(
+            "Alice wrote:\n- 我很喜欢 DIIV。\n",
+            id="attributed_list",
+        ),
+        pytest.param(
             "On Tue, Alice wrote:\n我很喜欢 DIIV。\n",
             id="reply_header_attribution",
         ),
         pytest.param(
             "---\npreference: 我很喜欢 DIIV。\n---\n",
             id="frontmatter",
+        ),
+        pytest.param(
+            "---\npreferences:\n  - 我很喜欢 DIIV。\n---\n",
+            id="nested_frontmatter",
         ),
         pytest.param(
             "<blockquote>我很喜欢 DIIV。</blockquote>\n",
@@ -355,6 +415,20 @@ def test_history_document_keeps_ordinary_list_prose() -> None:
         ("Decision: I prefer concise answers.\n", "I prefer concise answers."),
         ("Python: I use it daily.\n", "I use it daily."),
         ("工作：我喜欢解决困难的问题。\n", "我喜欢解决困难的问题。"),
+        ("Reason: I prefer concise answers.\n", "I prefer concise answers."),
+        ("Status: I prefer concise answers.\n", "I prefer concise answers."),
+        ("Music: I prefer ambient music.\n", "I prefer ambient music."),
+        ("Current Status: I prefer concise answers.\n", "I prefer concise answers."),
+        ("音乐：我喜欢氛围音乐。\n", "我喜欢氛围音乐。"),
+        (
+            'The phrase "Alice said" is odd. I prefer concise answers.\n',
+            "I prefer concise answers.",
+        ),
+        ("---\n# Notes\nI prefer concise answers.\n", "I prefer concise answers."),
+        (
+            "Alice: copied text\nI prefer concise answers.\n",
+            "I prefer concise answers.",
+        ),
     ],
 )
 def test_history_document_keeps_unambiguous_author_prose(
