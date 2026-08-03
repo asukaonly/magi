@@ -654,18 +654,6 @@ async def test_assertion_dedupe_uses_its_original_route_attempt(tmp_path) -> Non
         value_fingerprint="val_original",
         created_at=90.0,
     )
-    _seed_claim(
-        db_path,
-        claim_id="claim-new-route-value",
-        event_id="event-new-route-value",
-        predicate="LIKES",
-        object_value="重路由后的值",
-        family="preference_profile",
-        trait_code="preference.affinity",
-        slot_key="slt_reprojected",
-        value_fingerprint="val_reprojected",
-        created_at=80.0,
-    )
     _seed_assertion_outcome(
         db_path,
         claim_id="claim-asserted",
@@ -695,7 +683,6 @@ async def test_assertion_dedupe_uses_its_original_route_attempt(tmp_path) -> Non
             visible_event_ids={
                 "event-asserted",
                 "event-original-duplicate",
-                "event-new-route-value",
             },
         ),
         user_id="local_user",
@@ -703,7 +690,7 @@ async def test_assertion_dedupe_uses_its_original_route_attempt(tmp_path) -> Non
         visible_assertion_ids={"assert-original"},
     )
 
-    assert [candidate.claim_id for candidate in candidates] == ["claim-new-route-value"]
+    assert [candidate.claim_id for candidate in candidates] == ["claim-asserted"]
 
 
 @pytest.mark.asyncio

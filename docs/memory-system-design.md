@@ -758,6 +758,26 @@ bounded recent context whose expiry follows the resolved target end, or a
 produces a review outcome, and an elapsed target produces an expired outcome,
 without creating a current assertion.
 
+Semantic-route maintenance is host-owned. Maintenance callers provide only a
+Claim identity and a bounded pass size; the host derives the current route
+contract, resolution-aware attempt identity, and route decision from durable
+Claim state. The highest non-invalidated contract version is the current route,
+even if an older outcome has a later wall-clock timestamp after clock rollback.
+Reprojection appends the current route and reconciles that Claim's assertion and
+relationship receipts in one immediate transaction. Semantically unchanged
+targets receive a current-contract receipt, while changed targets lose only the
+retired Claim provenance. Reconciliation coalesces duplicate active receipts per
+canonical target, preserves an already-current receipt, and maps an
+`entity_merged` receipt to the rekeyed target identity before revalidation. A
+target is archived only when no other active Claim still authorizes it and it
+has no independent correction or non-Claim authority; otherwise its Claim-backed
+evidence is recomputed from the remaining valid ledger support. Outcome
+invalidation and replacement receipts retain the audit trail, while archived
+targets disappear immediately at governed assertion, relationship, and portrait
+read boundaries. Portrait tentative-Claim deduplication is scoped to the route
+slot and value recorded by an assertion's source attempt, never to the Claim ID
+alone, so a later route/value can become visible without reviving the old value.
+
 `user_profile_projection` in `memory.db` is the product-facing read model for the
 local user profile. It is rebuilt from current L2 profile assertions, records
 field sources/conflicts, and derives deterministic fields such as `birth_year`

@@ -13,6 +13,10 @@ from typing import Any
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
+from ..memory.l2.claims.route_selection import (
+    CURRENT_ENTITY_REF_VERSIONS_CTE,
+    LATEST_ROUTE_ORDER_SQL,
+)
 from .portrait_signal_policy import (
     classify_tentative_portrait_claim,
     tentative_portrait_prompt_line,
@@ -58,7 +62,7 @@ async def list_tentative_portrait_claims(
             user_id=user_id,
             effective_at=at,
         )
-        claims_with_current_assertions = await _claim_ids_for_assertions(db, current_ids)
+        current_route_value_keys = await _route_value_keys_for_assertions(db, current_ids)
         visible_route_value_keys = await _route_value_keys_for_assertions(db, visible_ids)
 
     grouped = _group_candidate_rows(rows)
@@ -70,8 +74,6 @@ async def list_tentative_portrait_claims(
 
     for candidate in grouped.values():
         claim_id = str(candidate["claim_id"])
-        if claim_id in claims_with_current_assertions:
-            continue
         decision = classify_tentative_portrait_claim(
             candidate["claim"],
             candidate["route_outcome"],
@@ -112,7 +114,7 @@ async def list_tentative_portrait_claims(
     }
 
     candidates: list[TentativePortraitClaim] = []
-    seen_route_values = set(visible_route_value_keys)
+    seen_route_values = set(current_route_value_keys).union(visible_route_value_keys)
     for candidate in provisional:
         route_value_key = (candidate.slot_key, candidate.value_fingerprint)
         if candidate.slot_key in conflicted_slots or route_value_key in seen_route_values:
@@ -174,15 +176,18 @@ async def _candidate_rows(
     effective_at: float,
 ) -> list[aiosqlite.Row]:
     async with db.execute(
-        """
-        WITH latest_route_outcomes AS (
+        f"""
+        WITH {CURRENT_ENTITY_REF_VERSIONS_CTE},
+        latest_route_outcomes AS (
             SELECT
                 outcomes.*,
                 ROW_NUMBER() OVER (
                     PARTITION BY outcomes.claim_id
-                    ORDER BY outcomes.created_at DESC, outcomes.outcome_id DESC
+                    ORDER BY {LATEST_ROUTE_ORDER_SQL}
                 ) AS route_rank
             FROM l2_claim_projection_outcomes AS outcomes
+            LEFT JOIN current_entity_ref_versions AS route_refs
+              ON route_refs.claim_id = outcomes.claim_id
             WHERE outcomes.target_kind = 'route'
               AND outcomes.invalidated_at IS NULL
         ),
@@ -242,29 +247,6 @@ async def _candidate_rows(
         return list(await cursor.fetchall())
 
 
-async def _claim_ids_for_assertions(
-    db: aiosqlite.Connection,
-    assertion_ids: tuple[str, ...],
-) -> set[str]:
-    if not assertion_ids:
-        return set()
-    payload = json.dumps(assertion_ids, ensure_ascii=False, separators=(",", ":"))
-    async with db.execute(
-        """
-        SELECT DISTINCT outcomes.claim_id
-        FROM l2_claim_projection_outcomes AS outcomes
-        WHERE outcomes.target_kind = 'assertion'
-          AND outcomes.outcome = 'projected'
-          AND outcomes.invalidated_at IS NULL
-          AND outcomes.target_id IN (
-              SELECT CAST(value AS TEXT) FROM json_each(?)
-          )
-        """,
-        (payload,),
-    ) as cursor:
-        return {str(row[0]) for row in await cursor.fetchall()}
-
-
 async def _route_value_keys_for_assertions(
     db: aiosqlite.Connection,
     assertion_ids: tuple[str, ...],
@@ -284,7 +266,6 @@ async def _route_value_keys_for_assertions(
          AND routes.target_kind = 'route'
          AND routes.outcome = 'routed'
          AND routes.invalidated_at IS NULL
-         AND routes.target_slot_key = assertion_outcomes.target_slot_key
          AND routes.route_contract_version = assertion_outcomes.route_contract_version
         WHERE assertion_outcomes.target_kind = 'assertion'
           AND assertion_outcomes.outcome = 'projected'

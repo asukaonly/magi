@@ -14,6 +14,10 @@ from typing import Any
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ..claims.route_selection import (
+    CURRENT_ENTITY_REF_VERSIONS_CTE,
+    LATEST_ROUTE_ORDER_SQL,
+)
 
 MAX_FUTURE_CLOCK_SKEW_SECONDS = 5 * 60
 _SUSTAINED_ENGAGEMENT_PREDICATES = frozenset(
@@ -287,11 +291,7 @@ def summarize_occurrence_times(
             timestamp = float(raw_timestamp)
         except (TypeError, ValueError):
             continue
-        if (
-            event_id
-            and math.isfinite(timestamp)
-            and 0 < timestamp <= latest_trusted_time
-        ):
+        if event_id and math.isfinite(timestamp) and 0 < timestamp <= latest_trusted_time:
             times_by_event[event_id].add(timestamp)
     trusted_times = sorted(
         (
@@ -368,7 +368,7 @@ async def load_routed_claim_occurrence_stats(
     async with sqlite_connection_async(db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            """
+            f"""
             WITH requested_keys AS (
                 SELECT
                     CAST(json_extract(value, '$.target_slot_key') AS TEXT)
@@ -377,6 +377,7 @@ async def load_routed_claim_occurrence_stats(
                         AS value_fingerprint
                 FROM json_each(?)
             ),
+            {CURRENT_ENTITY_REF_VERSIONS_CTE},
             latest_route_outcomes AS (
                 SELECT
                     outcomes.claim_id,
@@ -388,9 +389,11 @@ async def load_routed_claim_occurrence_stats(
                     ) AS value_fingerprint,
                     ROW_NUMBER() OVER (
                         PARTITION BY outcomes.claim_id
-                        ORDER BY outcomes.created_at DESC, outcomes.outcome_id DESC
+                        ORDER BY {LATEST_ROUTE_ORDER_SQL}
                     ) AS row_number
                 FROM l2_claim_projection_outcomes AS outcomes
+                LEFT JOIN current_entity_ref_versions AS route_refs
+                  ON route_refs.claim_id = outcomes.claim_id
                 WHERE outcomes.target_kind = 'route'
                   AND outcomes.invalidated_at IS NULL
             )
@@ -429,9 +432,7 @@ async def load_routed_claim_occurrence_stats(
     claims_by_key: dict[ClaimRouteValueKey, set[str]] = defaultdict(set)
     evidence_by_key: dict[ClaimRouteValueKey, set[str]] = defaultdict(set)
     exact_times_by_key: dict[ClaimRouteValueKey, list[tuple[str, float]]] = defaultdict(list)
-    policy_evidence_by_key: dict[ClaimRouteValueKey, list[_ClaimPolicyEvidence]] = defaultdict(
-        list
-    )
+    policy_evidence_by_key: dict[ClaimRouteValueKey, list[_ClaimPolicyEvidence]] = defaultdict(list)
     for row in rows:
         key = ClaimRouteValueKey(
             target_slot_key=str(row["target_slot_key"]),

@@ -91,6 +91,11 @@ class L2EntityMaintenanceStats:
     claim_route_outcomes_appended: int = 0
     claim_route_outcomes_already_present: int = 0
     claim_route_claims_no_longer_active: int = 0
+    claim_route_target_outcomes_invalidated: int = 0
+    claim_route_target_outcomes_revalidated: int = 0
+    claim_route_targets_archived: int = 0
+    claim_route_shared_targets_preserved: int = 0
+    claim_route_authority_targets_preserved: int = 0
     claim_route_reprojection_failed: int = 0
     promoted_episode_ids: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -257,10 +262,7 @@ class L2EntityMaintenance(
         if self._cognition_store is None:
             return
         try:
-            reprojection = await reproject_stale_claim_routes(
-                self._cognition_store,
-                route_contract_version=ROUTE_CONTRACT_VERSION,
-            )
+            reprojection = await reproject_stale_claim_routes(self._cognition_store)
         except Exception as exc:
             stats.errors.append(f"claim_route_reprojection:{exc}")
             logger.warning("L2 Claim route reprojection failed", error=str(exc))
@@ -270,6 +272,11 @@ class L2EntityMaintenance(
         stats.claim_route_outcomes_appended = reprojection.outcomes_appended
         stats.claim_route_outcomes_already_present = reprojection.outcomes_already_present
         stats.claim_route_claims_no_longer_active = reprojection.claims_no_longer_active
+        stats.claim_route_target_outcomes_invalidated = reprojection.target_outcomes_invalidated
+        stats.claim_route_target_outcomes_revalidated = reprojection.target_outcomes_revalidated
+        stats.claim_route_targets_archived = reprojection.targets_archived
+        stats.claim_route_shared_targets_preserved = reprojection.shared_targets_preserved
+        stats.claim_route_authority_targets_preserved = reprojection.authority_targets_preserved
         stats.claim_route_reprojection_failed = reprojection.failed
 
     async def _run_entity_cleanup_steps(
@@ -347,6 +354,11 @@ def _log_maintenance_stats(stats: L2EntityMaintenanceStats) -> None:
         claim_route_outcomes_appended=stats.claim_route_outcomes_appended,
         claim_route_outcomes_already_present=stats.claim_route_outcomes_already_present,
         claim_route_claims_no_longer_active=stats.claim_route_claims_no_longer_active,
+        claim_route_target_outcomes_invalidated=(stats.claim_route_target_outcomes_invalidated),
+        claim_route_target_outcomes_revalidated=(stats.claim_route_target_outcomes_revalidated),
+        claim_route_targets_archived=stats.claim_route_targets_archived,
+        claim_route_shared_targets_preserved=(stats.claim_route_shared_targets_preserved),
+        claim_route_authority_targets_preserved=(stats.claim_route_authority_targets_preserved),
         claim_route_reprojection_failed=stats.claim_route_reprojection_failed,
     )
 
@@ -374,6 +386,11 @@ def _maintenance_has_changes(stats: L2EntityMaintenanceStats) -> bool:
             stats.unrouted_claim_count,
             stats.claim_route_outcomes_appended,
             stats.claim_route_claims_no_longer_active,
+            stats.claim_route_target_outcomes_invalidated,
+            stats.claim_route_target_outcomes_revalidated,
+            stats.claim_route_targets_archived,
+            stats.claim_route_shared_targets_preserved,
+            stats.claim_route_authority_targets_preserved,
             stats.claim_route_reprojection_failed,
         )
     )

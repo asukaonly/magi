@@ -447,21 +447,6 @@ class L2GroundedClaimStoreMixin:
             projection_leases=lease_items,
         )
 
-    async def append_reprojected_claim_route_outcome(
-        self,
-        outcome: ProjectionOutcomeInput,
-    ) -> dict[str, Any] | None:
-        """Append one trusted, idempotent route-maintenance result."""
-
-        if str(outcome.target_kind or "").strip() != "route":
-            raise ValueError("reprojected Claim outcome must target route")
-        if not str(outcome.attempt_key or "").startswith("route-reproject:"):
-            raise ValueError("reprojected Claim outcome has an invalid attempt key")
-        return await self._append_claim_projection_outcome(
-            outcome,
-            projection_leases=(),
-        )
-
     async def _append_terminal_claim_projection_failure_outcomes_on_connection(
         self,
         db: aiosqlite.Connection,

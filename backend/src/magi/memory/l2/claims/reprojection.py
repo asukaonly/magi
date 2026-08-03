@@ -2,23 +2,19 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 
 import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
-from ..semantic_routing import (
-    ROUTE_CONTRACT_VERSION,
-    RouteDisposition,
-    SemanticRouteDecision,
-    SemanticRouteInput,
-    derive_semantic_route,
+from ..semantic_routing import ROUTE_CONTRACT_VERSION, RouteDisposition
+from .reprojection_write import reproject_claim_route
+from .route_selection import (
+    CURRENT_ENTITY_REF_VERSIONS_CTE,
+    LATEST_ROUTE_ORDER_SQL,
 )
-from .identity import projection_outcome_id
-from .models import ProjectionOutcomeInput
 
 logger = get_logger(__name__)
 
@@ -45,6 +41,11 @@ class ClaimRouteReprojectionStats:
     deferred: int = 0
     not_applicable: int = 0
     unrouted: int = 0
+    target_outcomes_invalidated: int = 0
+    target_outcomes_revalidated: int = 0
+    targets_archived: int = 0
+    shared_targets_preserved: int = 0
+    authority_targets_preserved: int = 0
     failed: int = 0
 
 
@@ -52,11 +53,6 @@ class _ClaimRouteReprojectionStore(Protocol):
     db_path: str
 
     async def initialize(self) -> None: ...
-
-    async def append_reprojected_claim_route_outcome(
-        self,
-        outcome: ProjectionOutcomeInput,
-    ) -> dict[str, Any] | None: ...
 
 
 async def list_unrouted_claim_backlog(
@@ -66,16 +62,19 @@ async def list_unrouted_claim_backlog(
 
     async with sqlite_connection_async(db_path) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("""
-            WITH latest_route_outcomes AS (
+        async with db.execute(f"""
+            WITH {CURRENT_ENTITY_REF_VERSIONS_CTE},
+            latest_route_outcomes AS (
                 SELECT
                     outcomes.claim_id,
                     outcomes.outcome,
                     ROW_NUMBER() OVER (
                         PARTITION BY outcomes.claim_id
-                        ORDER BY outcomes.created_at DESC, outcomes.outcome_id DESC
+                        ORDER BY {LATEST_ROUTE_ORDER_SQL}
                     ) AS row_number
                 FROM l2_claim_projection_outcomes AS outcomes
+                LEFT JOIN current_entity_ref_versions AS route_refs
+                  ON route_refs.claim_id = outcomes.claim_id
                 WHERE outcomes.target_kind = 'route'
                   AND outcomes.invalidated_at IS NULL
             )
@@ -108,53 +107,55 @@ async def list_unrouted_claim_backlog(
 async def reproject_stale_claim_routes(
     store: _ClaimRouteReprojectionStore,
     *,
-    route_contract_version: int = ROUTE_CONTRACT_VERSION,
     limit: int = 200,
 ) -> ClaimRouteReprojectionStats:
     """Append current route outcomes for active unrouted or stale Claims.
 
-    Selection is based only on the latest non-invalidated route outcome. The
-    deterministic attempt key makes retries idempotent while preserving every
-    historical outcome.
+    Selection uses the highest non-invalidated route contract before wall-clock
+    time, then also repairs stale target receipts. The deterministic attempt key
+    makes retries idempotent while preserving every historical outcome.
     """
 
-    version = max(0, int(route_contract_version))
     await store.initialize()
     candidates = await _list_reprojection_candidates(
         store.db_path,
-        route_contract_version=version,
         limit=limit,
     )
     appended = 0
     already_present = 0
     no_longer_active = 0
     failed = 0
+    target_outcomes_invalidated = 0
+    target_outcomes_revalidated = 0
+    targets_archived = 0
+    shared_targets_preserved = 0
+    authority_targets_preserved = 0
     dispositions = {disposition: 0 for disposition in RouteDisposition}
 
-    for candidate in candidates:
+    for claim_id in candidates:
         try:
-            decision = _derive_candidate_route(candidate)
-            dispositions[decision.disposition] += 1
-            outcome = _route_outcome(candidate, decision, route_contract_version=version)
-            expected_outcome_id = projection_outcome_id(
-                claim_id=outcome.claim_id,
-                attempt_key=outcome.attempt_key,
-                target_kind=outcome.target_kind,
-                target_id=outcome.target_id,
+            result = await reproject_claim_route(
+                store.db_path,
+                claim_id=claim_id,
             )
-            existed = await _projection_outcome_exists(store.db_path, expected_outcome_id)
-            stored = await store.append_reprojected_claim_route_outcome(outcome)
-            if stored is None:
+            if not result.claim_active or result.decision is None:
                 no_longer_active += 1
-            elif existed:
-                already_present += 1
-            else:
+                continue
+            dispositions[result.decision.disposition] += 1
+            if result.route_outcome_appended:
                 appended += 1
+            else:
+                already_present += 1
+            target_outcomes_invalidated += result.target_outcomes_invalidated
+            target_outcomes_revalidated += result.target_outcomes_revalidated
+            targets_archived += result.targets_archived
+            shared_targets_preserved += result.shared_targets_preserved
+            authority_targets_preserved += result.authority_targets_preserved
         except Exception as exc:
             failed += 1
             logger.warning(
                 "L2 Claim route reprojection candidate failed",
-                claim_id=str(candidate.get("claim_id") or ""),
+                claim_id=claim_id,
                 error=str(exc),
             )
 
@@ -167,6 +168,11 @@ async def reproject_stale_claim_routes(
         deferred=dispositions[RouteDisposition.DEFERRED],
         not_applicable=dispositions[RouteDisposition.NOT_APPLICABLE],
         unrouted=dispositions[RouteDisposition.UNROUTED],
+        target_outcomes_invalidated=target_outcomes_invalidated,
+        target_outcomes_revalidated=target_outcomes_revalidated,
+        targets_archived=targets_archived,
+        shared_targets_preserved=shared_targets_preserved,
+        authority_targets_preserved=authority_targets_preserved,
         failed=failed,
     )
 
@@ -174,29 +180,14 @@ async def reproject_stale_claim_routes(
 async def _list_reprojection_candidates(
     db_path: str,
     *,
-    route_contract_version: int,
     limit: int,
-) -> list[dict[str, Any]]:
+) -> list[str]:
     bounded_limit = max(1, min(int(limit), 5000))
     async with sqlite_connection_async(db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            """
-            WITH latest_route_outcomes AS (
-                SELECT
-                    outcomes.claim_id,
-                    outcomes.attempt_key,
-                    outcomes.outcome,
-                    outcomes.route_contract_version,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY outcomes.claim_id
-                        ORDER BY outcomes.created_at DESC, outcomes.outcome_id DESC
-                    ) AS row_number
-                FROM l2_claim_projection_outcomes AS outcomes
-                WHERE outcomes.target_kind = 'route'
-                  AND outcomes.invalidated_at IS NULL
-            ),
-            latest_entity_refs AS (
+            f"""
+            WITH latest_entity_refs AS (
                 SELECT
                     refs.claim_id,
                     refs.ref_role,
@@ -210,24 +201,25 @@ async def _list_reprojection_candidates(
                     ) AS row_number
                 FROM l2_claim_entity_refs AS refs
                 WHERE refs.invalidated_at IS NULL
+            ),
+            {CURRENT_ENTITY_REF_VERSIONS_CTE},
+            latest_route_outcomes AS (
+                SELECT
+                    outcomes.claim_id,
+                    outcomes.attempt_key,
+                    outcomes.outcome,
+                    outcomes.route_contract_version,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY outcomes.claim_id
+                        ORDER BY {LATEST_ROUTE_ORDER_SQL}
+                    ) AS row_number
+                FROM l2_claim_projection_outcomes AS outcomes
+                LEFT JOIN current_entity_ref_versions AS route_refs
+                  ON route_refs.claim_id = outcomes.claim_id
+                WHERE outcomes.target_kind = 'route'
+                  AND outcomes.invalidated_at IS NULL
             )
-            SELECT
-                claims.claim_id,
-                COALESCE(subject_refs.entity_id, claims.subject_ref) AS subject_ref,
-                claims.subject_type,
-                claims.canonical_predicate,
-                claims.fact_kind,
-                claims.object_type,
-                claims.object_value_json,
-                claims.temporal_cue,
-                claims.specificity,
-                claims.target_from,
-                claims.target_to,
-                claims.raw_time_frame_json,
-                object_refs.entity_id AS object_entity_id,
-                COALESCE(subject_refs.resolution_version, 0)
-                    AS subject_resolution_version,
-                COALESCE(object_refs.resolution_version, 0) AS object_resolution_version
+            SELECT claims.claim_id
             FROM l2_grounded_claims AS claims
             LEFT JOIN latest_route_outcomes AS latest
               ON latest.claim_id = claims.claim_id
@@ -241,6 +233,10 @@ async def _list_reprojection_candidates(
              AND object_refs.ref_role = 'object'
              AND object_refs.row_number = 1
             WHERE claims.availability = 'active'
+              AND (
+                    latest.claim_id IS NULL
+                    OR latest.route_contract_version <= ?
+              )
               AND (
                     latest.claim_id IS NULL
                     OR latest.route_contract_version < ?
@@ -262,113 +258,31 @@ async def _list_reprojection_candidates(
                             || ':' || claims.claim_id
                         )
                     )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM l2_claim_projection_outcomes AS target_outcomes
+                        WHERE target_outcomes.claim_id = claims.claim_id
+                          AND target_outcomes.target_kind IN (
+                              'assertion', 'relationship'
+                          )
+                          AND target_outcomes.outcome = 'projected'
+                          AND target_outcomes.invalidated_at IS NULL
+                          AND target_outcomes.route_contract_version < ?
+                    )
               )
             ORDER BY claims.created_at, claims.claim_id
             LIMIT ?
             """,
             (
-                route_contract_version,
-                route_contract_version,
-                route_contract_version,
+                ROUTE_CONTRACT_VERSION,
+                ROUTE_CONTRACT_VERSION,
+                ROUTE_CONTRACT_VERSION,
+                ROUTE_CONTRACT_VERSION,
+                ROUTE_CONTRACT_VERSION,
                 bounded_limit,
             ),
         ) as cursor:
-            return [dict(row) for row in await cursor.fetchall()]
-
-
-def _derive_candidate_route(candidate: dict[str, Any]) -> SemanticRouteDecision:
-    raw_time_frame = _decode_json(candidate.get("raw_time_frame_json"))
-    temporal_payload = raw_time_frame if isinstance(raw_time_frame, dict) else {}
-    return derive_semantic_route(
-        SemanticRouteInput(
-            claim_id=str(candidate["claim_id"]),
-            subject_id=str(candidate["subject_ref"]),
-            subject_type=str(candidate["subject_type"]),
-            canonical_predicate=str(candidate["canonical_predicate"]),
-            fact_kind=str(candidate["fact_kind"]),
-            object_type=str(candidate["object_type"]),
-            object_value=_decode_json(candidate.get("object_value_json")),
-            object_entity_id=(
-                str(candidate["object_entity_id"])
-                if candidate.get("object_entity_id") is not None
-                else None
-            ),
-            temporal_cue=str(candidate["temporal_cue"]),
-            specificity=str(candidate["specificity"]),
-            target_from=(
-                float(candidate["target_from"])
-                if candidate.get("target_from") is not None
-                else None
-            ),
-            target_to=(
-                float(candidate["target_to"])
-                if candidate.get("target_to") is not None
-                else None
-            ),
-            raw_time_expression=str(temporal_payload.get("raw") or ""),
-            time_resolution=str(temporal_payload.get("resolution") or "unscheduled"),
-        )
-    )
-
-
-def _route_outcome(
-    candidate: dict[str, Any],
-    decision: SemanticRouteDecision,
-    *,
-    route_contract_version: int,
-) -> ProjectionOutcomeInput:
-    predicate = str(candidate["canonical_predicate"]).strip().upper()
-    subject_resolution = max(
-        0,
-        int(candidate.get("subject_resolution_version") or 0),
-    )
-    object_resolution = max(
-        0,
-        int(candidate.get("object_resolution_version") or 0),
-    )
-    resolution_key = (
-        f"s{subject_resolution}:r{object_resolution}"
-        if subject_resolution > 0
-        else f"r{object_resolution}"
-    )
-    return ProjectionOutcomeInput(
-        claim_id=decision.claim_id,
-        attempt_key=f"route-reproject:v{route_contract_version}:{resolution_key}:{decision.claim_id}",
-        target_kind="route",
-        target_id=decision.route_key or f"predicate:{predicate}",
-        target_slot_key=decision.slot_key,
-        route_contract_version=route_contract_version,
-        outcome=decision.disposition.value,
-        reason_code=decision.reason_code,
-        details={
-            "semantic_route_id": decision.semantic_route_id,
-            "family": decision.family,
-            "trait_code": decision.trait_code,
-            "object_role": decision.object_role.value,
-            "value_fingerprint": decision.value_fingerprint,
-            "target_entity_type": decision.target_entity_type,
-            "target_window_key": decision.target_window_key,
-            "scope_key": decision.scope_key,
-        },
-    )
-
-
-async def _projection_outcome_exists(db_path: str, outcome_id: str) -> bool:
-    async with sqlite_connection_async(db_path) as db:
-        async with db.execute(
-            "SELECT 1 FROM l2_claim_projection_outcomes WHERE outcome_id = ?",
-            (outcome_id,),
-        ) as cursor:
-            return await cursor.fetchone() is not None
-
-
-def _decode_json(raw: Any) -> Any | None:
-    if raw is None:
-        return None
-    try:
-        return json.loads(str(raw))
-    except (TypeError, ValueError):
-        return None
+            return [str(row["claim_id"]) for row in await cursor.fetchall()]
 
 
 __all__ = [

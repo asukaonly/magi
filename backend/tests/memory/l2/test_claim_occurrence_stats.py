@@ -20,6 +20,7 @@ from magi.memory.l2.assertions.promotion import (
     PromotionHorizon,
     evaluate_assertion_promotion,
 )
+from magi.memory.l2.semantic_routing import ROUTE_CONTRACT_VERSION
 
 
 async def _seed_claim(
@@ -39,6 +40,7 @@ async def _seed_claim(
     source_type: str = "chat",
     source_domain: str = "user_authored",
     author_type: str = "user",
+    route_contract_version: int = 1,
 ) -> None:
     async with sqlite_connection_async(db_path) as db:
         await db.execute(
@@ -97,6 +99,7 @@ async def _seed_claim(
             key=key,
             outcome="routed",
             created_at=created_at,
+            route_contract_version=route_contract_version,
         )
         await db.commit()
 
@@ -108,16 +111,17 @@ async def _insert_route(
     key: ClaimRouteValueKey,
     outcome: str,
     created_at: float,
+    route_contract_version: int = 1,
     invalidated_at: float | None = None,
 ) -> None:
-    suffix = f"{outcome}:{created_at}:{invalidated_at}"
+    suffix = f"v{route_contract_version}:{outcome}:{created_at}:{invalidated_at}"
     await db.execute(
         """
         INSERT OR IGNORE INTO l2_claim_projection_outcomes(
             outcome_id, claim_id, attempt_key, target_kind, target_id,
             target_slot_key, route_contract_version, outcome, reason_code,
             details_json, created_at, invalidated_at, invalidated_reason
-        ) VALUES (?, ?, ?, 'route', ?, ?, 1, ?, 'test_route', ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, 'route', ?, ?, ?, ?, 'test_route', ?, ?, ?, ?)
         """,
         (
             f"outcome:{claim_id}:{suffix}",
@@ -125,6 +129,7 @@ async def _insert_route(
             f"attempt:{claim_id}:{suffix}",
             f"route:{claim_id}:{suffix}",
             key.target_slot_key,
+            route_contract_version,
             outcome,
             json.dumps({"value_fingerprint": key.value_fingerprint}),
             created_at,
@@ -132,6 +137,45 @@ async def _insert_route(
             "test_invalidated" if invalidated_at is not None else None,
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_latest_route_prefers_contract_version_over_future_created_at(
+    l2_store_with_schema,
+) -> None:
+    old_key = ClaimRouteValueKey("slot:old", "value:old")
+    current_key = ClaimRouteValueKey("slot:current", "value:current")
+    now = 1_900_000_000.0
+    await _seed_claim(
+        l2_store_with_schema.db_path,
+        claim_id="claim:clock-rollback",
+        event_id="event:clock-rollback",
+        key=old_key,
+        event_time=now - 86_400,
+        created_at=now + 10_000,
+        route_contract_version=ROUTE_CONTRACT_VERSION - 1,
+    )
+    async with sqlite_connection_async(l2_store_with_schema.db_path) as db:
+        await _insert_route(
+            db,
+            claim_id="claim:clock-rollback",
+            key=current_key,
+            outcome="routed",
+            created_at=now,
+            route_contract_version=ROUTE_CONTRACT_VERSION,
+        )
+        await db.commit()
+
+    stats = await load_routed_claim_occurrence_stats(
+        l2_store_with_schema.db_path,
+        keys=[old_key, current_key],
+        now=now,
+        local_timezone=UTC,
+    )
+
+    assert old_key not in stats
+    assert stats[current_key].claim_ids == ("claim:clock-rollback",)
+    assert stats[current_key].supporting_event_ids == ("event:clock-rollback",)
 
 
 @pytest.mark.asyncio
@@ -413,9 +457,7 @@ async def test_low_trust_times_count_evidence_without_inventing_timeline(
 ) -> None:
     key = ClaimRouteValueKey("slot:quality", "value:quality")
     now = 1_900_000_000.0
-    for index, quality in enumerate(
-        ("derived_order", "file_mtime", "calendar_anchor", "exact")
-    ):
+    for index, quality in enumerate(("derived_order", "file_mtime", "calendar_anchor", "exact")):
         await _seed_claim(
             l2_store_with_schema.db_path,
             claim_id=f"claim:quality:{index}",
