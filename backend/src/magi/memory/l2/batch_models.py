@@ -261,7 +261,7 @@ class L2BatchJob:
     estimated_tokens: int
     session_id: str | None = None
     user_id: str | None = None
-    projection_leases: list[L2ProjectionLease | dict[str, Any]] = field(default_factory=list)
+    projection_leases: list[L2ProjectionLease] = field(default_factory=list)
     job_type: str = "extract_batch"
     oldest_event_timestamp: float = 0.0
     newest_event_timestamp: float = 0.0
@@ -282,13 +282,9 @@ class L2BatchJob:
         )
         if not self.events:
             raise ValueError("events must not be empty")
-        normalized_leases: list[L2ProjectionLease] = []
-        for lease in self.projection_leases:
-            if isinstance(lease, L2ProjectionLease):
-                normalized_leases.append(lease)
-            elif isinstance(lease, dict):
-                normalized_leases.append(L2ProjectionLease.from_dict(lease))
-        lease_ids = [lease.event_id for lease in normalized_leases]
+        if any(not isinstance(lease, L2ProjectionLease) for lease in self.projection_leases):
+            raise TypeError("projection leases must be L2ProjectionLease values")
+        lease_ids = [lease.event_id for lease in self.projection_leases]
         if len(lease_ids) != len(set(lease_ids)):
             raise ValueError("projection_leases must contain unique event IDs")
         event_ids = {
@@ -298,7 +294,6 @@ class L2BatchJob:
         }
         if lease_ids and set(lease_ids) != event_ids:
             raise ValueError("projection leases must cover the complete event batch")
-        self.projection_leases = normalized_leases
         timestamps = [float(item.get("timestamp", 0.0) or 0.0) for item in self.events]
         self.oldest_event_timestamp = float(self.oldest_event_timestamp or min(timestamps))
         self.newest_event_timestamp = float(self.newest_event_timestamp or max(timestamps))
@@ -360,13 +355,8 @@ class L2PendingBatchBucket:
         )
         self.estimated_tokens = max(0, int(self.estimated_tokens))
         self.events = [dict(item) for item in self.events if isinstance(item, dict)]
-        self.projection_leases = [
-            item
-            if isinstance(item, L2ProjectionLease)
-            else L2ProjectionLease.from_dict(item)
-            for item in self.projection_leases
-            if isinstance(item, (L2ProjectionLease, dict))
-        ]
+        if any(not isinstance(lease, L2ProjectionLease) for lease in self.projection_leases):
+            raise TypeError("projection leases must be L2ProjectionLease values")
         if self.events:
             enqueued_at = float(self.created_at or self.last_event_at or _current_time())
             timestamps = [float(item.get("timestamp", 0.0) or 0.0) for item in self.events]

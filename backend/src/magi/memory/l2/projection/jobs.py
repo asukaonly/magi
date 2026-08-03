@@ -17,6 +17,10 @@ class L2ProjectionJobStoreMixin:
     async def initialize(self) -> None:
         raise NotImplementedError
 
+    def memory_correction_job_guard(self) -> Any:
+        """Return the shared projection/correction persistence guard."""
+        raise NotImplementedError
+
     async def enqueue_projection_job(
         self,
         *,
@@ -54,6 +58,8 @@ class L2ProjectionJobStoreMixin:
         limit: int,
     ) -> list[Dict[str, Any]]:
         """Claim pending jobs whose owner bucket is ready for extraction."""
+        if int(limit) <= 0:
+            return []
         await self.initialize()
         return await self._projection_queue.claim_ready(
             consumer_name=consumer_name,
@@ -67,11 +73,32 @@ class L2ProjectionJobStoreMixin:
         limit: int,
     ) -> list[Dict[str, Any]]:
         """Claim up to *limit* pending projection jobs ordered by creation time."""
+        if int(limit) <= 0:
+            return []
         await self.initialize()
         return await self._projection_queue.claim(
             consumer_name=consumer_name,
             limit=limit,
         )
+
+    async def request_projection_replay(self, event_id: str) -> bool:
+        """Request a new durable attempt for an existing projection row."""
+
+        if not str(event_id or "").strip():
+            return False
+        await self.initialize()
+        return await self._projection_queue.request_replay(event_id=event_id)
+
+    async def recover_foreign_projection_jobs(self, *, consumer_name: str) -> int:
+        """Recover in-flight leases left by a previous backend process."""
+
+        if not str(consumer_name or "").strip():
+            return 0
+        await self.initialize()
+        async with self.memory_correction_job_guard():
+            return await self._projection_queue.recover_foreign_attempts(
+                consumer_name=consumer_name
+            )
 
     async def mark_projection_jobs_running(
         self,
@@ -135,10 +162,11 @@ class L2ProjectionJobStoreMixin:
     ) -> int:
         """Return stale queued or running jobs back to pending for replay."""
         await self.initialize()
-        return await self._projection_queue.requeue_stale(
-            queued_timeout_seconds=queued_timeout_seconds,
-            running_timeout_seconds=running_timeout_seconds,
-        )
+        async with self.memory_correction_job_guard():
+            return await self._projection_queue.requeue_stale(
+                queued_timeout_seconds=queued_timeout_seconds,
+                running_timeout_seconds=running_timeout_seconds,
+            )
 
     async def get_projection_backlog_stats(
         self,

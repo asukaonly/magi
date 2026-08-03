@@ -19,6 +19,38 @@ ALTER TABLE l2_projection_jobs
 """,
     "ALTER TABLE l2_projection_jobs ADD COLUMN terminal_at REAL",
     """
+ALTER TABLE l2_projection_jobs
+    ADD COLUMN replay_requested INTEGER NOT NULL DEFAULT 0
+        CHECK (replay_requested IN (0, 1))
+""",
+    """
+UPDATE l2_projection_jobs
+SET status = CASE
+        WHEN attempt_count >= max_attempts THEN 'failed'
+        ELSE 'pending'
+    END,
+    claimed_by = NULL,
+    claimed_at = NULL,
+    started_at = NULL,
+    completed_at = NULL,
+    next_retry_at = CASE
+        WHEN attempt_count >= max_attempts THEN NULL
+        ELSE CAST(strftime('%s', 'now') AS REAL)
+    END,
+    terminal_at = CASE
+        WHEN attempt_count >= max_attempts
+            THEN CAST(strftime('%s', 'now') AS REAL)
+        ELSE NULL
+    END,
+    last_error = CASE
+        WHEN attempt_count >= max_attempts
+            THEN 'projection_attempt_budget_exhausted_during_upgrade'
+        ELSE 'projection_attempt_recovered_during_upgrade'
+    END,
+    updated_at = CAST(strftime('%s', 'now') AS REAL)
+WHERE status IN ('queued', 'running')
+""",
+    """
 UPDATE l2_projection_jobs
 SET status = 'failed',
     terminal_at = CAST(strftime('%s', 'now') AS REAL),
@@ -47,6 +79,7 @@ def schema_sql_for_fresh_database() -> str:
 
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS idx_l2_projection_jobs_retry_ready")
+    op.execute("ALTER TABLE l2_projection_jobs DROP COLUMN replay_requested")
     op.execute("ALTER TABLE l2_projection_jobs DROP COLUMN terminal_at")
     op.execute("ALTER TABLE l2_projection_jobs DROP COLUMN max_attempts")
     op.execute("ALTER TABLE l2_projection_jobs DROP COLUMN next_retry_at")

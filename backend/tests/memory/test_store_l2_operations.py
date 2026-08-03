@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,10 +12,10 @@ from magi.memory.store_l2_operations import UnifiedMemoryL2OperationsMixin
 
 
 class _Harness(UnifiedMemoryL2OperationsMixin):
-    def __init__(self, l2) -> None:
-        self.l1 = None
+    def __init__(self, l2, *, l1=None, l2_pipeline=None) -> None:  # type: ignore[no-untyped-def]
+        self.l1 = l1
         self.l2 = l2
-        self.l2_pipeline = None
+        self.l2_pipeline = l2_pipeline
         self._memory_epoch = 0
         self._memory_barrier = AsyncOperationBarrier()
 
@@ -103,3 +104,30 @@ async def test_upsert_user_graph_edges_returns_empty_without_l2_store():
     harness = _Harness(None)
 
     assert await harness.upsert_user_graph_edges([]) == []
+
+
+@pytest.mark.asyncio
+async def test_replay_l2_extraction_uses_the_durable_projection_queue():
+    event = SimpleNamespace(
+        event_id="event-replay",
+        source="chat",
+        event_type="UserMessage",
+    )
+    l1 = AsyncMock()
+    l1.get_memory_event.return_value = event
+    l2 = AsyncMock()
+    l2.enqueue_projection_job.return_value = False
+    l2.request_projection_replay.return_value = True
+    pipeline = AsyncMock()
+    harness = _Harness(l2, l1=l1, l2_pipeline=pipeline)
+
+    assert await harness.replay_l2_extraction("event-replay") is True
+
+    l2.enqueue_projection_job.assert_awaited_once_with(
+        event_id="event-replay",
+        source="chat",
+        event_type="UserMessage",
+    )
+    l2.request_projection_replay.assert_awaited_once_with("event-replay")
+    pipeline.enqueue_event.assert_not_awaited()
+    pipeline.flush_all_pending_batches.assert_awaited_once_with()

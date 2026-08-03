@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 import aiosqlite
 
@@ -119,6 +119,132 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
             await db.commit()
         return bool(cursor.rowcount)
 
+    async def request_replay(self, *, event_id: str) -> bool:
+        """Durably request a fresh attempt for an existing active source event."""
+
+        normalized_event_id = str(event_id or "").strip()
+        if not normalized_event_id:
+            return False
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    f"""
+                    SELECT status, replay_requested
+                    FROM l2_projection_jobs AS jobs
+                    WHERE jobs.event_id = ?
+                      AND {active_projection_event_predicate('jobs.event_id')}
+                    """,
+                    (normalized_event_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if row is None:
+                    await db.rollback()
+                    return False
+                status = str(row["status"])
+                if status in {"pending", "completed", "failed"}:
+                    cursor = await db.execute(
+                        """
+                        UPDATE l2_projection_jobs
+                        SET status = 'pending', attempt_count = 0,
+                            lease_token = NULL, lease_heartbeat_at = NULL,
+                            next_retry_at = NULL, terminal_at = NULL,
+                            replay_requested = 0,
+                            claimed_by = NULL, claimed_at = NULL,
+                            started_at = NULL, completed_at = NULL,
+                            last_error = NULL, updated_at = ?
+                        WHERE event_id = ? AND status IN ('pending', 'completed', 'failed')
+                        """,
+                        (now, normalized_event_id),
+                    )
+                    accepted = bool(cursor.rowcount)
+                elif status in {"queued", "running"}:
+                    cursor = await db.execute(
+                        """
+                        UPDATE l2_projection_jobs
+                        SET replay_requested = 1, updated_at = ?
+                        WHERE event_id = ? AND status IN ('queued', 'running')
+                        """,
+                        (now, normalized_event_id),
+                    )
+                    accepted = bool(cursor.rowcount)
+                else:
+                    accepted = False
+                await db.commit()
+                return accepted
+            except Exception:
+                await db.rollback()
+                raise
+
+    async def recover_foreign_attempts(self, *, consumer_name: str) -> int:
+        """Recover leases owned by a previous backend process immediately."""
+
+        normalized_consumer = str(consumer_name or "").strip()
+        if not normalized_consumer:
+            return 0
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                f"""
+                UPDATE l2_projection_jobs
+                SET status = CASE
+                        WHEN replay_requested = 0 AND attempt_count >= max_attempts
+                            THEN 'failed'
+                        ELSE 'pending'
+                    END,
+                    attempt_count = CASE
+                        WHEN replay_requested = 1 THEN 0
+                        ELSE attempt_count
+                    END,
+                    lease_token = NULL,
+                    lease_heartbeat_at = NULL,
+                    next_retry_at = NULL,
+                    terminal_at = CASE
+                        WHEN replay_requested = 0 AND attempt_count >= max_attempts THEN ?
+                        ELSE NULL
+                    END,
+                    replay_requested = 0,
+                    claimed_by = NULL,
+                    claimed_at = NULL,
+                    started_at = NULL,
+                    completed_at = NULL,
+                    last_error = CASE
+                        WHEN replay_requested = 1
+                            THEN 'projection_replay_recovered_on_startup'
+                        WHEN attempt_count >= max_attempts
+                            THEN 'projection_attempt_budget_exhausted_on_startup'
+                        ELSE 'projection_attempt_recovered_on_startup'
+                    END,
+                    updated_at = ?
+                WHERE status IN ('queued', 'running')
+                  AND (claimed_by IS NULL OR claimed_by != ?)
+                  AND {active_projection_event_predicate('l2_projection_jobs.event_id')}
+                """,
+                (now, now, normalized_consumer),
+            )
+            await db.commit()
+        return max(int(cursor.rowcount or 0), 0)
+
+    async def claim_ready(
+        self,
+        *,
+        consumer_name: str,
+        limit: int,
+    ) -> list[Dict[str, Any]]:
+        """Claim ready jobs while rejecting non-positive limits."""
+
+        if int(limit) <= 0:
+            return []
+        return cast(
+            list[Dict[str, Any]],
+            await super().claim_ready(
+                consumer_name=consumer_name,
+                limit=limit,
+            ),
+        )
+
     async def claim(
         self,
         *,
@@ -126,6 +252,8 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
         limit: int,
     ) -> list[Dict[str, Any]]:
         """Claim up to *limit* pending projection jobs ordered by creation time."""
+        if int(limit) <= 0:
+            return []
         now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -322,7 +450,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
             try:
                 async with db.execute(
                     f"""
-                    SELECT event_id, attempt_count, max_attempts
+                    SELECT event_id, attempt_count, max_attempts, replay_requested
                     FROM l2_projection_jobs
                     WHERE (
                         (status = 'queued' AND claimed_at IS NOT NULL AND claimed_at < ?)
@@ -341,22 +469,32 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                 transitioned = 0
                 for row in stale_rows:
                     attempt_count = int(row["attempt_count"] or 0)
-                    terminal = attempt_count >= int(row["max_attempts"] or 1)
+                    replay_requested = bool(row["replay_requested"])
+                    terminal = not replay_requested and attempt_count >= int(
+                        row["max_attempts"] or 1
+                    )
                     cursor = await db.execute(
                         """
                         UPDATE l2_projection_jobs
-                        SET status = ?, lease_token = NULL, lease_heartbeat_at = NULL,
+                        SET status = ?, attempt_count = ?,
+                            lease_token = NULL, lease_heartbeat_at = NULL,
                             claimed_by = NULL,
                             claimed_at = NULL, started_at = NULL,
-                            next_retry_at = ?, terminal_at = ?,
-                            last_error = 'projection_attempt_stale', updated_at = ?
+                            next_retry_at = ?, terminal_at = ?, replay_requested = 0,
+                            last_error = ?, updated_at = ?
                         WHERE event_id = ? AND status IN ('queued', 'running')
                           AND attempt_count = ?
                         """,
                         (
                             "failed" if terminal else "pending",
-                            None if terminal else now + _retry_delay_seconds(attempt_count),
+                            0 if replay_requested else attempt_count,
+                            (
+                                None
+                                if terminal or replay_requested
+                                else now + _retry_delay_seconds(attempt_count)
+                            ),
                             now if terminal else None,
+                            None if replay_requested else "projection_attempt_stale",
                             now,
                             str(row["event_id"]),
                             attempt_count,
@@ -414,11 +552,12 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
             try:
                 allowed_statuses = ("running",) if completed else ("queued", "running")
                 status_placeholders = ", ".join("?" for _ in allowed_statuses)
-                max_attempts_by_event: dict[str, int] = {}
+                attempt_state_by_event: dict[str, tuple[int, bool]] = {}
                 for lease in normalized_leases:
                     async with db.execute(
                         f"""
-                        SELECT max_attempts FROM l2_projection_jobs
+                        SELECT max_attempts, replay_requested
+                        FROM l2_projection_jobs
                         WHERE event_id = ? AND lease_token = ?
                           AND attempt_count = ? AND status IN ({status_placeholders})
                         """,
@@ -433,47 +572,63 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                     if row is None:
                         await db.rollback()
                         return 0
-                    max_attempts_by_event[lease.event_id] = int(row["max_attempts"] or 1)
+                    attempt_state_by_event[lease.event_id] = (
+                        int(row["max_attempts"] or 1),
+                        bool(row["replay_requested"]),
+                    )
                 transitioned = 0
                 for lease in normalized_leases:
-                    terminal = (
-                        not completed
-                        and (
-                            not requeue
-                            or lease.attempt_count >= max_attempts_by_event[lease.event_id]
-                        )
+                    max_attempts, replay_requested = attempt_state_by_event[lease.event_id]
+                    terminal = not completed and (
+                        not requeue or lease.attempt_count >= max_attempts
                     )
-                    if completed:
+                    if replay_requested:
+                        status = "pending"
+                        next_attempt_count = 0
+                        next_retry_at = None
+                        terminal_at = None
+                        completed_at = None
+                        next_error = None
+                    elif completed:
                         status = "completed"
+                        next_attempt_count = lease.attempt_count
                         next_retry_at = None
                         terminal_at = None
                         completed_at = now
+                        next_error = None
                     elif terminal:
                         status = "failed"
+                        next_attempt_count = lease.attempt_count
                         next_retry_at = None
                         terminal_at = now
                         completed_at = None
+                        next_error = error_text
                     else:
                         status = "pending"
+                        next_attempt_count = lease.attempt_count
                         next_retry_at = now + _retry_delay_seconds(lease.attempt_count)
                         terminal_at = None
                         completed_at = None
+                        next_error = error_text
                     cursor = await db.execute(
                         f"""
                         UPDATE l2_projection_jobs
-                        SET status = ?, lease_token = NULL, lease_heartbeat_at = NULL,
+                        SET status = ?, attempt_count = ?,
+                            lease_token = NULL, lease_heartbeat_at = NULL,
                             claimed_by = NULL,
                             claimed_at = NULL, started_at = NULL, completed_at = ?,
-                            next_retry_at = ?, terminal_at = ?, last_error = ?, updated_at = ?
+                            next_retry_at = ?, terminal_at = ?, replay_requested = 0,
+                            last_error = ?, updated_at = ?
                         WHERE event_id = ? AND lease_token = ? AND attempt_count = ?
                           AND status IN ({status_placeholders})
                         """,
                         (
                             status,
+                            next_attempt_count,
                             completed_at,
                             next_retry_at,
                             terminal_at,
-                            None if completed else error_text,
+                            next_error,
                             now,
                             lease.event_id,
                             lease.lease_token,
@@ -525,17 +680,14 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
             "attempt_count": int(row["attempt_count"] or 0),
             "lease_token": row["lease_token"],
             "lease_heartbeat_at": (
-                float(row["lease_heartbeat_at"])
-                if row["lease_heartbeat_at"] is not None
-                else None
+                float(row["lease_heartbeat_at"]) if row["lease_heartbeat_at"] is not None else None
             ),
             "next_retry_at": (
                 float(row["next_retry_at"]) if row["next_retry_at"] is not None else None
             ),
             "max_attempts": int(row["max_attempts"] or DEFAULT_L2_PROJECTION_MAX_ATTEMPTS),
-            "terminal_at": (
-                float(row["terminal_at"]) if row["terminal_at"] is not None else None
-            ),
+            "terminal_at": (float(row["terminal_at"]) if row["terminal_at"] is not None else None),
+            "replay_requested": bool(row["replay_requested"]),
             "claimed_by": row["claimed_by"],
             "claimed_at": float(row["claimed_at"]) if row["claimed_at"] is not None else None,
             "started_at": float(row["started_at"]) if row["started_at"] is not None else None,
@@ -561,18 +713,25 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                 """
                 UPDATE l2_projection_jobs
                 SET status = CASE
-                        WHEN attempt_count >= max_attempts THEN 'failed'
+                        WHEN replay_requested = 0 AND attempt_count >= max_attempts
+                            THEN 'failed'
                         ELSE 'pending'
+                    END,
+                    attempt_count = CASE
+                        WHEN replay_requested = 1 THEN 0
+                        ELSE attempt_count
                     END,
                     lease_token = NULL,
                     lease_heartbeat_at = NULL, claimed_by = NULL,
                     claimed_at = NULL, started_at = NULL,
                     next_retry_at = NULL,
                     terminal_at = CASE
-                        WHEN attempt_count >= max_attempts THEN ?
+                        WHEN replay_requested = 0 AND attempt_count >= max_attempts THEN ?
                         ELSE NULL
                     END,
+                    replay_requested = 0,
                     last_error = CASE
+                        WHEN replay_requested = 1 THEN NULL
                         WHEN attempt_count >= max_attempts
                             THEN 'projection_attempt_budget_exhausted_before_start'
                         ELSE last_error

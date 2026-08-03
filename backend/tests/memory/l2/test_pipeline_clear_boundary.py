@@ -16,6 +16,10 @@ class _CognitionStore:
     async def memory_correction_job_guard(self):
         yield
 
+    async def recover_foreign_projection_jobs(self, *, consumer_name: str) -> int:
+        _ = consumer_name
+        return 0
+
     async def reconcile_entity(self, **_kwargs):
         return [SimpleNamespace(changed=True)]
 

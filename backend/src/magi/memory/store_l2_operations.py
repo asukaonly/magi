@@ -8,7 +8,6 @@ from magi.identity.defaults import CANONICAL_LOCAL_USER
 
 from ..core.sqlite import sqlite_connection_async
 
-
 _CANONICAL_SELF_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
 
 
@@ -30,12 +29,20 @@ class UnifiedMemoryL2OperationsMixin:
     async def replay_l2_extraction(self, event_id: str) -> bool:
         """Replay L2 extraction for an already stored L1 event."""
         async with self.memory_operation_guard():  # type: ignore[attr-defined]
-            if self.l1 is None or self.l2_pipeline is None:
+            if self.l1 is None or self.l2 is None or self.l2_pipeline is None:
                 return False
             event = await self.l1.get_memory_event(event_id)
             if event is None:
                 return False
-            return await self.l2_pipeline.enqueue_event(event)
+            inserted = await self.l2.enqueue_projection_job(
+                event_id=event.event_id,
+                source=event.source,
+                event_type=event.event_type,
+            )
+            accepted = inserted or await self.l2.request_projection_replay(event.event_id)
+            if accepted:
+                await self.l2_pipeline.flush_all_pending_batches()
+            return accepted
 
     async def reconcile_entities(self, entity_ids: list[str]) -> bool:
         """Trigger entity-level reconcile for one or more entities."""
@@ -83,14 +90,12 @@ class UnifiedMemoryL2OperationsMixin:
         if self.l2 is None:
             return {"pending": 0}
         async with sqlite_connection_async(self.l2.db_path) as db:
-            async with db.execute(
-                """
+            async with db.execute("""
                 SELECT COUNT(*)
                 FROM knowledge_graph
                 WHERE embedding_status = 'pending'
                   AND status = 'active'
-                """
-            ) as cursor:
+                """) as cursor:
                 row = await cursor.fetchone()
         return {"pending": int(row[0] if row is not None else 0)}
 
@@ -125,9 +130,7 @@ class UnifiedMemoryL2OperationsMixin:
             else int(expected_epoch)
         )
         async with self.memory_operation_guard():  # type: ignore[attr-defined]
-            if captured_epoch != int(
-                self.memory_operation_epoch()  # type: ignore[attr-defined]
-            ):
+            if captured_epoch != int(self.memory_operation_epoch()):  # type: ignore[attr-defined]
                 return False
             _ = subject_attributes
             _ = object_attributes
@@ -160,9 +163,7 @@ class UnifiedMemoryL2OperationsMixin:
             else int(expected_epoch)
         )
         async with self.memory_operation_guard():  # type: ignore[attr-defined]
-            if captured_epoch != int(
-                self.memory_operation_epoch()  # type: ignore[attr-defined]
-            ):
+            if captured_epoch != int(self.memory_operation_epoch()):  # type: ignore[attr-defined]
                 return []
             if self.l2 is None:
                 return []
