@@ -49,6 +49,15 @@ class AssessmentCandidateScope:
     def has_candidates(self) -> bool:
         return bool(self.graph_candidate_indexes or self.assertion_candidate_indexes)
 
+    def has_candidates_for(self, target_record_type: str) -> bool:
+        """Return whether this Claim has a candidate for the target store."""
+
+        if target_record_type == "knowledge_graph":
+            return bool(self.graph_candidate_indexes)
+        if target_record_type == "tom_trait_assertion":
+            return bool(self.assertion_candidate_indexes)
+        return False
+
 
 @dataclass(frozen=True, slots=True)
 class ValidatedClaimAssessment:
@@ -93,7 +102,7 @@ class _CompatibilityResult:
 
 
 class L2ClaimAssessmentValidationMixin:
-    """Accept only assessments whose compatibility is recomputed by the host."""
+    """Derive every candidate-record disposition from host-owned compatibility."""
 
     def _validate_phase2_claim_assessments(
         self,
@@ -108,6 +117,8 @@ class L2ClaimAssessmentValidationMixin:
         graph_conflict_rules: Iterable[GraphConflictRule | Mapping[str, Any]],
         arbitration_min_confidence: float,
     ) -> tuple[list[ValidatedClaimAssessment], int]:
+        """Merge model reports with exhaustive host candidate-record assessments."""
+
         claims_by_id = {
             claim.claim_id: claim
             for claim in phase1_result.fact_claims
@@ -117,6 +128,7 @@ class L2ClaimAssessmentValidationMixin:
         rules = _graph_rules_by_predicate(graph_conflict_rules)
         validated: list[ValidatedClaimAssessment] = []
         rejected_count = 0
+        assessed_record_pairs: set[tuple[str, str]] = set()
         for assessment in assessments:
             claim = claims_by_id.get(assessment.claim_id)
             if claim is None:
@@ -145,39 +157,16 @@ class L2ClaimAssessmentValidationMixin:
                 )
                 continue
             record_type, record_payload = record
-            if assessment.relationship == "refines":
-                validated.append(
-                    ValidatedClaimAssessment(
-                        claim_id=claim.claim_id,
-                        relationship=assessment.relationship,
-                        related_record_id=assessment.related_record_id,
-                        target_record_type=record_type,
-                        compatibility="refines_without_taxonomy",
-                        same_value=False,
-                        independent_evidence=False,
-                        candidate_scope=candidate_scope,
-                        action_eligibility=AssessmentActionEligibility.NOOP,
-                        reason_code="assessment_refines_noop",
-                        confidence=_claim_confidence(claim),
-                        target_slot_key=_record_slot_key(record_payload),
-                    )
-                )
-                continue
-
-            if record_type == "knowledge_graph":
-                compatibility = _relationship_compatibility(
-                    claim=claim,
-                    record=record_payload,
-                    graph_candidates=graph_candidates,
-                    graph_rules=rules,
-                )
-            else:
-                compatibility = _assertion_compatibility(
-                    claim=claim,
-                    record=record_payload,
-                    route=semantic_routes.get(claim.claim_id),
-                    assertion_candidates=assertion_candidates,
-                )
+            assessed_record_pairs.add((claim.claim_id, assessment.related_record_id))
+            compatibility = _record_compatibility(
+                claim=claim,
+                record_type=record_type,
+                record=record_payload,
+                route=semantic_routes.get(claim.claim_id),
+                graph_candidates=graph_candidates,
+                assertion_candidates=assertion_candidates,
+                graph_rules=rules,
+            )
             result = _validated_assessment(
                 claim=claim,
                 assessment=assessment,
@@ -189,6 +178,48 @@ class L2ClaimAssessmentValidationMixin:
             if result.action_eligibility is AssessmentActionEligibility.REJECTED:
                 rejected_count += 1
             validated.append(result)
+
+        for claim in claims_by_id.values():
+            candidate_scope = _candidate_scope(
+                claim.claim_id,
+                graph_candidates=graph_candidates,
+                assertion_candidates=assertion_candidates,
+            )
+            if not candidate_scope.has_candidates:
+                continue
+            for record_id, (record_type, record_payload) in records_by_id.items():
+                record_pair = (claim.claim_id, record_id)
+                if (
+                    record_pair in assessed_record_pairs
+                    or not candidate_scope.has_candidates_for(record_type)
+                ):
+                    continue
+                compatibility = _record_compatibility(
+                    claim=claim,
+                    record_type=record_type,
+                    record=record_payload,
+                    route=semantic_routes.get(claim.claim_id),
+                    graph_candidates=graph_candidates,
+                    assertion_candidates=assertion_candidates,
+                    graph_rules=rules,
+                )
+                if compatibility.compatibility == "incompatible":
+                    continue
+                host_assessment = L2Phase2ClaimAssessment(
+                    claim_id=claim.claim_id,
+                    relationship=_host_assessment_relationship(compatibility),
+                    related_record_id=record_id,
+                )
+                validated.append(
+                    _validated_assessment(
+                        claim=claim,
+                        assessment=host_assessment,
+                        record_type=record_type,
+                        candidate_scope=candidate_scope,
+                        compatibility=compatibility,
+                        arbitration_min_confidence=arbitration_min_confidence,
+                    )
+                )
         return validated, rejected_count
 
 
@@ -205,7 +236,9 @@ def _validated_assessment(
     action = AssessmentActionEligibility.REJECTED
     hint: ContradictionHint | None = None
     reason_code = compatibility.reason_code
-    if compatibility.same_value:
+    if not candidate_scope.has_candidates_for(record_type):
+        reason_code = "assessment_rejected_missing_candidate"
+    elif compatibility.same_value:
         if compatibility.independent_evidence:
             action = AssessmentActionEligibility.REVALIDATE
             reason_code = "assessment_same_value_independent_evidence"
@@ -220,10 +253,7 @@ def _validated_assessment(
             action = AssessmentActionEligibility.NOOP
             reason_code = "assessment_duplicate_evidence_noop"
     elif compatibility.contradiction_kind is not None:
-        if not candidate_scope.has_candidates:
-            action = AssessmentActionEligibility.REJECTED
-            reason_code = "assessment_rejected_missing_candidate"
-        elif confidence < max(0.0, min(1.0, float(arbitration_min_confidence))):
+        if confidence < max(0.0, min(1.0, float(arbitration_min_confidence))):
             action = AssessmentActionEligibility.QUARANTINED
             reason_code = "assessment_low_confidence_quarantined"
         else:
@@ -251,6 +281,41 @@ def _validated_assessment(
         target_slot_key=compatibility.target_slot_key,
         hint=hint,
     )
+
+
+def _record_compatibility(
+    *,
+    claim: L2Phase1FactClaim,
+    record_type: str,
+    record: dict[str, Any],
+    route: SemanticRouteDecision | None,
+    graph_candidates: list[dict[str, Any]],
+    assertion_candidates: list[dict[str, Any]],
+    graph_rules: Mapping[str, GraphConflictRule],
+) -> _CompatibilityResult:
+    if record_type == "knowledge_graph":
+        return _relationship_compatibility(
+            claim=claim,
+            record=record,
+            graph_candidates=graph_candidates,
+            graph_rules=graph_rules,
+        )
+    if record_type == "tom_trait_assertion":
+        return _assertion_compatibility(
+            claim=claim,
+            record=record,
+            route=route,
+            assertion_candidates=assertion_candidates,
+        )
+    return _incompatible("assessment_rejected_unknown_record_type")
+
+
+def _host_assessment_relationship(compatibility: _CompatibilityResult) -> str:
+    if compatibility.same_value:
+        return "refines"
+    if compatibility.compatibility == "relationship_exclusive_group":
+        return "evolves"
+    return "contradicts"
 
 
 def _rejected_assessment(

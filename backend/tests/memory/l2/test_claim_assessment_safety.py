@@ -70,6 +70,62 @@ def _graph_candidate(claim: L2Phase1FactClaim) -> dict[str, Any]:
     }
 
 
+def _assertion_route(claim: L2Phase1FactClaim):
+    return derive_semantic_route(
+        SemanticRouteInput(
+            claim_id=claim.claim_id,
+            subject_id="user:u1",
+            subject_type="user",
+            canonical_predicate=claim.predicate,
+            fact_kind=claim.fact_kind,
+            object_type=claim.object_type,
+            object_value=claim.object_ref,
+            object_entity_id=claim.object_ref,
+            temporal_cue="stable",
+            specificity="concrete",
+            target_from=None,
+            target_to=None,
+            raw_time_expression="",
+            time_resolution="unscheduled",
+        )
+    )
+
+
+def _assertion_candidate(
+    claim: L2Phase1FactClaim,
+    *,
+    slot_key: str,
+    trait_value: str = "like",
+) -> dict[str, Any]:
+    return {
+        "supporting_claim_ids": [claim.claim_id],
+        "semantic_route_slot_key": slot_key,
+        "trait_value": trait_value,
+    }
+
+
+def _assertion_record(
+    route: Any,
+    *,
+    assertion_id: str = "assert:old",
+    trait_value: str = "dislike",
+    slot_key: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "assertion_id": assertion_id,
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": route.family,
+        "trait_name": route.trait_code,
+        "trait_value": trait_value,
+        "target_entity_id": route.target_entity_id,
+        "target_entity_type": route.target_entity_type,
+        "slot_key": slot_key or route.slot_key,
+        "scope_key": "global",
+        "evidence_events": ["evt-old"],
+    }
+
+
 def _validate_graph_assessment(
     *,
     claim: L2Phase1FactClaim,
@@ -317,7 +373,152 @@ def test_assertion_compatibility_uses_host_route_target_scope_and_typed_value() 
     assert incompatible[0].hint is None
 
 
-def test_refines_is_audited_noop_and_unknown_record_is_rejected() -> None:
+def test_host_synthesizes_assertion_conflict_when_model_omits_assessment() -> None:
+    claim = _claim(predicate="LIKES", object_ref="topic:jazz")
+    route = _assertion_route(claim)
+    record = _assertion_record(route)
+    unrelated = _assertion_record(
+        route,
+        assertion_id="assert:unrelated",
+        slot_key="slt_unrelated",
+    )
+
+    validated, rejected = L2ClaimAssessmentValidationMixin()._validate_phase2_claim_assessments(
+        phase1_result=L2Phase1Result(fact_claims=[claim]),
+        semantic_routes={claim.claim_id: route},
+        graph_candidates=[],
+        assertion_candidates=[
+            _assertion_candidate(claim, slot_key=route.slot_key),
+        ],
+        assessments=[],
+        existing_graph_edges=[],
+        existing_assertions=[record, unrelated],
+        graph_conflict_rules=[],
+        arbitration_min_confidence=0.85,
+    )
+
+    assert rejected == 0
+    assert len(validated) == 1
+    assert validated[0].related_record_id == "assert:old"
+    assert validated[0].relationship == "contradicts"
+    assert validated[0].compatibility == "assertion_same_slot"
+    assert validated[0].action_eligibility is AssessmentActionEligibility.PENDING_ARBITRATION
+    assert validated[0].candidate_scope == AssessmentCandidateScope((), (0,))
+    assert validated[0].hint is not None
+
+
+@pytest.mark.parametrize(
+    ("event_ids", "expected_action"),
+    [
+        (["evt-old"], AssessmentActionEligibility.NOOP),
+        (["evt-new"], AssessmentActionEligibility.REVALIDATE),
+    ],
+)
+def test_host_synthesized_same_value_assertion_only_noops_or_revalidates(
+    event_ids: list[str],
+    expected_action: AssessmentActionEligibility,
+) -> None:
+    claim = _claim(
+        predicate="LIKES",
+        object_ref="topic:jazz",
+        evidence_event_ids=event_ids,
+    )
+    route = _assertion_route(claim)
+
+    validated, rejected = L2ClaimAssessmentValidationMixin()._validate_phase2_claim_assessments(
+        phase1_result=L2Phase1Result(fact_claims=[claim]),
+        semantic_routes={claim.claim_id: route},
+        graph_candidates=[],
+        assertion_candidates=[
+            _assertion_candidate(claim, slot_key=route.slot_key),
+        ],
+        assessments=[],
+        existing_graph_edges=[],
+        existing_assertions=[
+            _assertion_record(route, trait_value="like"),
+        ],
+        graph_conflict_rules=[],
+        arbitration_min_confidence=0.85,
+    )
+
+    assert rejected == 0
+    assert len(validated) == 1
+    assert validated[0].relationship == "refines"
+    assert validated[0].same_value is True
+    assert validated[0].action_eligibility is expected_action
+    assert validated[0].action_eligibility not in {
+        AssessmentActionEligibility.PENDING_ARBITRATION,
+        AssessmentActionEligibility.QUARANTINED,
+    }
+
+
+def test_model_refines_cannot_mask_assertion_value_conflict() -> None:
+    claim = _claim(predicate="LIKES", object_ref="topic:jazz")
+    route = _assertion_route(claim)
+    record = _assertion_record(route)
+
+    validated, rejected = L2ClaimAssessmentValidationMixin()._validate_phase2_claim_assessments(
+        phase1_result=L2Phase1Result(fact_claims=[claim]),
+        semantic_routes={claim.claim_id: route},
+        graph_candidates=[],
+        assertion_candidates=[
+            _assertion_candidate(claim, slot_key=route.slot_key),
+        ],
+        assessments=[
+            L2Phase2ClaimAssessment(
+                claim_id=claim.claim_id,
+                relationship="refines",
+                related_record_id="assert:old",
+            )
+        ],
+        existing_graph_edges=[],
+        existing_assertions=[record],
+        graph_conflict_rules=[],
+        arbitration_min_confidence=0.85,
+    )
+
+    assert rejected == 0
+    assert len(validated) == 1
+    assert validated[0].relationship == "refines"
+    assert validated[0].compatibility == "assertion_same_slot"
+    assert validated[0].action_eligibility is AssessmentActionEligibility.PENDING_ARBITRATION
+    assert validated[0].reason_code == "assessment_pending_arbitration"
+    assert validated[0].hint is not None
+
+
+def test_host_synthesizes_graph_conflict_when_model_omits_assessment() -> None:
+    claim = _claim(predicate="DISLIKES", object_ref="topic:jazz")
+    validated, rejected = L2ClaimAssessmentValidationMixin()._validate_phase2_claim_assessments(
+        phase1_result=L2Phase1Result(fact_claims=[claim]),
+        semantic_routes={},
+        graph_candidates=[_graph_candidate(claim)],
+        assertion_candidates=[],
+        assessments=[],
+        existing_graph_edges=[
+            {
+                "triple_id": "triple:like-jazz",
+                "subject_id": "user:u1",
+                "predicate": "LIKES",
+                "object_id": "topic:jazz",
+                "scope_key": "global",
+                "evidence_event_ids": ["evt-old"],
+            }
+        ],
+        existing_assertions=[],
+        graph_conflict_rules=list(build_graph_conflict_matrix().values()),
+        arbitration_min_confidence=0.85,
+    )
+
+    assert rejected == 0
+    assert len(validated) == 1
+    assert validated[0].related_record_id == "triple:like-jazz"
+    assert validated[0].relationship == "contradicts"
+    assert validated[0].compatibility == "relationship_opposite"
+    assert validated[0].action_eligibility is AssessmentActionEligibility.PENDING_ARBITRATION
+    assert validated[0].candidate_scope == AssessmentCandidateScope((0,), ())
+
+
+def test_refines_is_host_validated_and_unknown_record_is_rejected() -> None:
     claim = _claim()
     record = {
         "triple_id": "triple:old",
@@ -325,6 +526,7 @@ def test_refines_is_audited_noop_and_unknown_record_is_rejected() -> None:
         "predicate": "LIKES",
         "object_id": "topic:jazz",
         "scope_key": "global",
+        "evidence_event_ids": ["evt-new"],
     }
     refined, rejected = _validate_graph_assessment(
         claim=claim,
@@ -354,7 +556,7 @@ def test_refines_is_audited_noop_and_unknown_record_is_rejected() -> None:
 
     assert rejected == 0
     assert refined.action_eligibility is AssessmentActionEligibility.NOOP
-    assert refined.reason_code == "assessment_refines_noop"
+    assert refined.reason_code == "assessment_duplicate_evidence_noop"
     assert refined.hint is None
     assert unknown_rejected == 1
     assert unknown[0].action_eligibility is AssessmentActionEligibility.REJECTED
