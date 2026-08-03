@@ -37,6 +37,9 @@ def _candidate(
     source_domain: str,
     evidence_event: str,
     inferred_at: float,
+    temporal_scope: str = "stable",
+    decay_policy: str | None = "evidence_only",
+    expires_at: float | None = None,
 ) -> Dict[str, Any]:
     """Build a fully-shaped assertion candidate for ``upsert_assertion_candidate``.
 
@@ -62,11 +65,11 @@ def _candidate(
         "target_entity_id": _TARGET_ID,
         "target_entity_type": "entity",
         "target_scope": "entity_bound",
-        "temporal_scope": "stable",
-        "decay_policy": "evidence_only",
+        "temporal_scope": temporal_scope,
+        "decay_policy": decay_policy,
         "decay_anchor_at": inferred_at,
         "context_ref_id": "",
-        "expires_at": None,
+        "expires_at": expires_at,
         "memory_subdomain": "",
         "natural_summary": "",
     }
@@ -185,6 +188,83 @@ async def test_inferred_agreement_reinforces_authoritative(l2_store_with_schema)
     assert float(active[0]["confidence_score"]) >= confidence_before
     # No shadow row on agreement.
     assert _shadow_rows(rows) == []
+
+
+@pytest.mark.asyncio
+async def test_same_value_weaker_evidence_cannot_shorten_durable_horizon(
+    l2_store_with_schema,
+):
+    store = l2_store_with_schema
+    inferred_at = 1_710_000_000.0
+
+    await store.upsert_assertion_candidate(
+        _candidate(
+            trait_value="rock",
+            source_domain="user_authored",
+            evidence_event="evt-durable",
+            inferred_at=inferred_at,
+            temporal_scope="stable",
+            decay_policy="evidence_only",
+            expires_at=None,
+        )
+    )
+    await store.upsert_assertion_candidate(
+        _candidate(
+            trait_value="rock",
+            source_domain="external_activity",
+            evidence_event="evt-recent",
+            inferred_at=inferred_at + 100,
+            temporal_scope="recent",
+            decay_policy="standard_decay",
+            expires_at=inferred_at + 86_400,
+        )
+    )
+
+    active = _active_rows(await _all_rows(store.db_path))
+    assert len(active) == 1
+    assert active[0]["temporal_scope"] == "stable"
+    assert active[0]["decay_policy"] == "evidence_only"
+    assert active[0]["expires_at"] is None
+    assert set(json.loads(active[0]["evidence_events"])) == {
+        "evt-durable",
+        "evt-recent",
+    }
+
+
+@pytest.mark.asyncio
+async def test_same_value_recent_reinforcement_keeps_later_expiry(
+    l2_store_with_schema,
+):
+    store = l2_store_with_schema
+    inferred_at = 1_710_000_000.0
+
+    await store.upsert_assertion_candidate(
+        _candidate(
+            trait_value="rock",
+            source_domain="external_activity",
+            evidence_event="evt-longer",
+            inferred_at=inferred_at,
+            temporal_scope="recent",
+            decay_policy="standard_decay",
+            expires_at=inferred_at + 14 * 86_400,
+        )
+    )
+    await store.upsert_assertion_candidate(
+        _candidate(
+            trait_value="rock",
+            source_domain="external_activity",
+            evidence_event="evt-shorter",
+            inferred_at=inferred_at + 100,
+            temporal_scope="recent",
+            decay_policy="standard_decay",
+            expires_at=inferred_at + 7 * 86_400,
+        )
+    )
+
+    active = _active_rows(await _all_rows(store.db_path))
+    assert len(active) == 1
+    assert active[0]["temporal_scope"] == "recent"
+    assert active[0]["expires_at"] == pytest.approx(inferred_at + 14 * 86_400)
 
 
 @pytest.mark.asyncio

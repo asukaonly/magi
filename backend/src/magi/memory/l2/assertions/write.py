@@ -436,6 +436,82 @@ def _existing_assertion_update_values(
     )
 
 
+_TEMPORAL_SCOPE_STRENGTH = {
+    "momentary": 0,
+    "session": 1,
+    "recent": 2,
+    "persistent": 3,
+    "stable": 3,
+}
+_DECAY_POLICY_STRENGTH = {
+    "session_decay": 0,
+    "standard_decay": 1,
+    "evidence_only": 2,
+    "none": 3,
+}
+
+
+def _same_value_lifecycle_candidate(
+    existing: Any,
+    candidate: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Merge lifecycle fields without shortening an established horizon."""
+
+    merged = dict(candidate)
+    existing_scope = str(existing["temporal_scope"] or "session").strip().casefold()
+    candidate_scope = str(candidate.get("temporal_scope") or "session").strip().casefold()
+    existing_scope_strength = _TEMPORAL_SCOPE_STRENGTH.get(existing_scope, 0)
+    candidate_scope_strength = _TEMPORAL_SCOPE_STRENGTH.get(candidate_scope, 0)
+
+    if existing_scope_strength > candidate_scope_strength:
+        for field_name in (
+            "temporal_scope",
+            "decay_policy",
+            "decay_anchor_at",
+            "expires_at",
+        ):
+            merged[field_name] = existing[field_name]
+        return merged
+    if existing_scope_strength < candidate_scope_strength:
+        return merged
+
+    merged["temporal_scope"] = existing["temporal_scope"]
+    existing_decay = _decay_policy_strength(
+        existing["decay_policy"],
+        temporal_scope=existing_scope,
+    )
+    candidate_decay = _decay_policy_strength(
+        candidate.get("decay_policy"),
+        temporal_scope=candidate_scope,
+    )
+    if existing_decay >= candidate_decay:
+        merged["decay_policy"] = existing["decay_policy"]
+        merged["decay_anchor_at"] = max(
+            float(existing["decay_anchor_at"] or 0.0),
+            float(candidate.get("decay_anchor_at") or 0.0),
+        )
+    merged["expires_at"] = _later_existing_expiry(
+        existing["expires_at"],
+        candidate.get("expires_at"),
+    )
+    return merged
+
+
+def _decay_policy_strength(value: Any, *, temporal_scope: str) -> int:
+    normalized = str(value or "").strip().casefold()
+    if not normalized:
+        return 3 if _TEMPORAL_SCOPE_STRENGTH.get(temporal_scope, 0) >= 3 else -1
+    return _DECAY_POLICY_STRENGTH.get(normalized, -1)
+
+
+def _later_existing_expiry(existing: Any, candidate: Any) -> float | None:
+    if existing is None:
+        return None
+    if candidate is None:
+        return float(existing)
+    return max(float(existing), float(candidate))
+
+
 def _time_span_hours(first_inferred_at: float, last_validated_at: float) -> float:
     return max(0.0, (last_validated_at - first_inferred_at) / 3600.0)
 
@@ -1122,6 +1198,7 @@ class L2StoreAssertionMixin:
         merge_context: AssertionMergeContext,
         now: float,
     ) -> _AssertionWriteResult:
+        lifecycle_candidate = _same_value_lifecycle_candidate(existing, candidate)
         validation_state, confidence = _merged_assertion_state(
             merge_context=merge_context,
             trait_name=trait_name,
@@ -1132,7 +1209,7 @@ class L2StoreAssertionMixin:
         return await self._update_existing_assertion(
             db=db,
             existing=existing,
-            candidate=candidate,
+            candidate=lifecycle_candidate,
             trait_name=trait_name,
             merge_context=merge_context,
             validation_state=validation_state,
