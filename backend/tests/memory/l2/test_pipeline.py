@@ -1541,8 +1541,13 @@ async def test_optional_inference_failure_persists_phase1_and_completes(
             assert stats["extract_completed"] == 1
             assert stats["extract_failed"] == 0
             assert len(adapter.calls) == expected_call_count
+            expected_degraded_message = (
+                "L2 conflict arbitration degraded without dropping unrelated Phase 2 candidates"
+                if failure_stage == "conflict_arbitration"
+                else "L2 optional inference degraded to Phase 1"
+            )
             assert any(
-                "L2 optional inference degraded to Phase 1" in record.getMessage()
+                expected_degraded_message in record.getMessage()
                 and failure_stage in record.getMessage()
                 for record in caplog.records
             )
@@ -2537,7 +2542,10 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
             summaries = await store.l3.list_summaries(limit=10) if store.l3 is not None else []
 
             assert assertions[0]["assertion_id"] == existing_assertion_id
-            assert assertions[0]["validation_state"] == "stable"
+            # The independent reconcile worker may normalize a stable row to
+            # corroborated while this test waits. The incompatible Phase 2
+            # assessment must not contradict or supersede it.
+            assert assertions[0]["validation_state"] in {"stable", "corroborated"}
             assert assertions[0]["confidence_score"] == pytest.approx(0.84)
             assert not any(item["summary_category"] == "conflict_resolution" for item in summaries)
         finally:
@@ -2669,7 +2677,7 @@ async def test_extract_worker_uses_conflict_arbitration_to_keep_existing_graph_f
             assert len(active_edges) == 1
             assert active_edges[0]["triple_id"] == existing_triple_id
             assert active_edges[0]["predicate"] == "LIKES"
-            assert active_edges[0]["last_confirmed_at"] > 1710000000.0
+            assert active_edges[0]["last_confirmed_at"] == 1710000000.0
             assert deprecated_edges == []
         finally:
             await store.shutdown()

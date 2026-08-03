@@ -20,6 +20,13 @@ from ..projection.fencing import (
 
 logger = get_logger(__name__)
 
+_ALLOWED_ACTIONS_BY_TARGET = {
+    "knowledge_graph": frozenset({"mark_conflicted", "mark_deprecated", "revalidate_only"}),
+    "tom_trait_assertion": frozenset(
+        {"downgrade_confidence", "mark_conflicted", "revalidate_only"}
+    ),
+}
+
 
 class _ContradictionHostProtocol(Protocol):
     db_path: str
@@ -52,6 +59,17 @@ class L2StoreContradictionMixin:
         host = cast(_ContradictionHostProtocol, self)
         payload = self._contradiction_payload(hint)
         if not payload.target_record_id or not payload.target_record_type:
+            return False
+        if payload.action not in _ALLOWED_ACTIONS_BY_TARGET.get(
+            payload.target_record_type,
+            frozenset(),
+        ):
+            logger.warning(
+                "L2 contradiction hint rejected an unsupported action",
+                target_record_type=payload.target_record_type,
+                target_record_id=payload.target_record_id,
+                action=payload.action,
+            )
             return False
 
         now = time.time()
@@ -170,11 +188,7 @@ class L2StoreContradictionMixin:
             hint_confidence=payload.confidence,
             action=payload.action,
         )
-        next_state = (
-            "contradicted"
-            if payload.action in {"downgrade_confidence", "mark_conflicted"}
-            else "corroborated"
-        )
+        next_state = "contradicted"
         await db.execute(
             """
             UPDATE tom_trait_assertions

@@ -13,10 +13,12 @@ from magi.memory.l2.models import (
     L2Phase2ClaimAssessment,
     L2Phase2Result,
 )
+from magi.memory.l2.graph_conflicts import build_graph_conflict_matrix
 from magi.memory.l2.phase1_models import L2TemporalCue
 from magi.memory.l2.pipeline.prompts import PHASE2_INTEGRATE_SYSTEM_PROMPT
 from magi.memory.l2.pipeline.validation.assertions import L2AssertionValidationMixin
 from magi.memory.l2.pipeline.validation.claim_assessments import (
+    AssessmentActionEligibility,
     L2ClaimAssessmentValidationMixin,
 )
 from magi.memory.l2.semantic_routing import SemanticRouteInput, derive_semantic_route
@@ -620,13 +622,16 @@ def test_phase2_assertion_rejects_unknown_claim_reference() -> None:
     assert rejected == 1
 
 
-def test_phase2_claim_assessment_can_only_request_host_revalidation() -> None:
+def test_phase2_claim_assessment_requires_host_validated_pending_action() -> None:
     phase1_result = L2Phase1Result(
         fact_claims=[
             L2Phase1FactClaim(
                 claim_id="claim:diiv",
+                subject_ref="user:u1",
                 predicate="DISLIKES",
                 object_ref="group:diiv",
+                object_type="group",
+                fact_kind="stable_preference",
                 confidence=0.8,
                 evidence_text="我现在不喜欢 DIIV 了",
                 supporting_event_ids=["evt-diiv"],
@@ -634,8 +639,19 @@ def test_phase2_claim_assessment_can_only_request_host_revalidation() -> None:
         ]
     )
 
-    hints, rejected = L2ClaimAssessmentValidationMixin()._validate_phase2_claim_assessments(
+    validated, rejected = L2ClaimAssessmentValidationMixin()._validate_phase2_claim_assessments(
         phase1_result=phase1_result,
+        semantic_routes={},
+        graph_candidates=[
+            {
+                "_claim_id": "claim:diiv",
+                "subject_id": "user:u1",
+                "predicate": "DISLIKES",
+                "object_id": "group:diiv",
+                "scope": {},
+            }
+        ],
+        assertion_candidates=[],
         assessments=[
             L2Phase2ClaimAssessment(
                 claim_id="claim:diiv",
@@ -646,25 +662,35 @@ def test_phase2_claim_assessment_can_only_request_host_revalidation() -> None:
         existing_graph_edges=[
             {
                 "triple_id": "triple:old-like",
+                "subject_id": "user:u1",
                 "predicate": "LIKES",
                 "object_id": "group:diiv",
+                "scope_key": "global",
+                "evidence_event_ids": ["evt-old"],
             }
         ],
         existing_assertions=[],
+        graph_conflict_rules=list(build_graph_conflict_matrix().values()),
+        arbitration_min_confidence=0.75,
     )
 
     assert rejected == 0
-    assert len(hints) == 1
-    assert hints[0].target_record_id == "triple:old-like"
-    assert hints[0].target_record_type == "knowledge_graph"
-    assert hints[0].contradiction_kind == "preference_reversal"
-    assert hints[0].confidence == 0.8
-    assert hints[0].recommended_action == "revalidate_only"
+    assert len(validated) == 1
+    assert validated[0].action_eligibility is AssessmentActionEligibility.PENDING_ARBITRATION
+    assert validated[0].hint is not None
+    assert validated[0].hint.target_record_id == "triple:old-like"
+    assert validated[0].hint.target_record_type == "knowledge_graph"
+    assert validated[0].hint.contradiction_kind == "preference_reversal"
+    assert validated[0].hint.confidence == 0.8
+    assert validated[0].hint.recommended_action == "pending_arbitration"
 
 
 def test_phase2_claim_assessment_rejects_unknown_records() -> None:
-    hints, rejected = L2ClaimAssessmentValidationMixin()._validate_phase2_claim_assessments(
+    validated, rejected = L2ClaimAssessmentValidationMixin()._validate_phase2_claim_assessments(
         phase1_result=L2Phase1Result(fact_claims=[L2Phase1FactClaim(claim_id="claim:diiv")]),
+        semantic_routes={},
+        graph_candidates=[],
+        assertion_candidates=[],
         assessments=[
             L2Phase2ClaimAssessment(
                 claim_id="claim:diiv",
@@ -674,7 +700,11 @@ def test_phase2_claim_assessment_rejects_unknown_records() -> None:
         ],
         existing_graph_edges=[],
         existing_assertions=[],
+        graph_conflict_rules=[],
+        arbitration_min_confidence=0.85,
     )
 
-    assert hints == []
     assert rejected == 1
+    assert len(validated) == 1
+    assert validated[0].action_eligibility is AssessmentActionEligibility.REJECTED
+    assert validated[0].target_id

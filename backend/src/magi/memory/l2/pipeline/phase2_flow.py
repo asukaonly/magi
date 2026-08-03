@@ -17,6 +17,10 @@ from .extraction_contracts import (
     _Phase2Context,
     _PreparedExtractionBatch,
 )
+from .validation.claim_assessments import (
+    AssessmentActionEligibility,
+    ValidatedClaimAssessment,
+)
 
 logger = get_logger("magi.memory.l2.pipeline")
 
@@ -69,15 +73,16 @@ def _ensure_assertion_outcomes(
         )
 
 
-def _record_arbitration_skipped_outcomes(
+def _record_scoped_candidate_outcomes(
     phase1_flow: _Phase1ExtractionFlow,
     candidates: _Phase2CandidateSet,
     *,
+    claim_ids: set[str],
     reason_code: str,
 ) -> None:
     for candidate in candidates.graph_candidates:
         claim_id = str(candidate.get("_claim_id") or "").strip()
-        if not claim_id:
+        if not claim_id or claim_id not in claim_ids:
             continue
         phase1_flow.claim_outcomes.append(
             ClaimProjectionOutcomeDraft(
@@ -99,22 +104,96 @@ def _record_arbitration_skipped_outcomes(
         slot_key = str(candidate.get("semantic_route_slot_key") or "").strip()
         for claim_id in candidate.get("supporting_claim_ids", []):
             normalized_claim_id = str(claim_id or "").strip()
-            if not normalized_claim_id:
+            if not normalized_claim_id or normalized_claim_id not in claim_ids:
                 continue
             phase1_flow.claim_outcomes.append(
                 ClaimProjectionOutcomeDraft(
                     claim_id=normalized_claim_id,
                     target_kind="assertion",
-                    target_id=(
-                        f"slot:{slot_key}"
-                        if slot_key
-                        else f"claim:{normalized_claim_id}"
-                    ),
+                    target_id=(f"slot:{slot_key}" if slot_key else f"claim:{normalized_claim_id}"),
                     target_slot_key=slot_key or None,
                     outcome="skipped",
                     reason_code=reason_code,
                 )
             )
+
+
+def _append_assessment_outcome(
+    phase1_flow: _Phase1ExtractionFlow,
+    assessment: ValidatedClaimAssessment,
+    *,
+    outcome: str,
+    reason_code: str,
+) -> None:
+    phase1_flow.claim_outcomes.append(
+        ClaimProjectionOutcomeDraft(
+            claim_id=assessment.claim_id,
+            target_kind="assessment",
+            target_id=assessment.target_id,
+            target_slot_key=assessment.target_slot_key,
+            outcome=outcome,
+            reason_code=reason_code,
+            details={
+                "compatibility": assessment.compatibility,
+                "same_value": assessment.same_value,
+                "independent_evidence": assessment.independent_evidence,
+                "target_record_type": assessment.target_record_type,
+                "related_record_id": assessment.related_record_id,
+                "relationship": assessment.relationship,
+            },
+        )
+    )
+
+
+def _record_terminal_validation_outcomes(
+    phase1_flow: _Phase1ExtractionFlow,
+    assessments: list[ValidatedClaimAssessment],
+) -> None:
+    outcome_by_action = {
+        AssessmentActionEligibility.REJECTED: "rejected",
+        AssessmentActionEligibility.NOOP: "noop",
+        AssessmentActionEligibility.QUARANTINED: "quarantined",
+        AssessmentActionEligibility.REVALIDATE: "revalidated",
+    }
+    for assessment in assessments:
+        outcome = outcome_by_action.get(assessment.action_eligibility)
+        if outcome is None:
+            continue
+        _append_assessment_outcome(
+            phase1_flow,
+            assessment,
+            outcome=outcome,
+            reason_code=assessment.reason_code,
+        )
+
+
+def _candidate_claim_ids(candidate: dict[str, Any]) -> set[str]:
+    graph_claim_id = str(candidate.get("_claim_id") or "").strip()
+    if graph_claim_id:
+        return {graph_claim_id}
+    return {
+        normalized
+        for claim_id in candidate.get("supporting_claim_ids", [])
+        if (normalized := str(claim_id or "").strip())
+    }
+
+
+def _remove_candidates_for_claims(
+    candidates: _Phase2CandidateSet,
+    claim_ids: set[str],
+) -> None:
+    if not claim_ids:
+        return
+    candidates.graph_candidates = [
+        candidate
+        for candidate in candidates.graph_candidates
+        if not claim_ids.intersection(_candidate_claim_ids(candidate))
+    ]
+    candidates.assertion_candidates = [
+        candidate
+        for candidate in candidates.assertion_candidates
+        if not claim_ids.intersection(_candidate_claim_ids(candidate))
+    ]
 
 
 def _phase1_only_result_payload(
@@ -308,14 +387,21 @@ class L2Phase2FlowMixin:
                 phase2_candidates,
             )
         except L2LLMJsonError as exc:
-            return await self._persist_degraded_phase1(
-                batch=batch,
-                phase1_flow=phase1_flow,
-                graph_candidates=graph_candidates,
-                rejected_graph_count=rejected_graph_count,
-                stage="conflict_arbitration",
-                exc=exc,
+            logger.warning(
+                "L2 conflict arbitration degraded without dropping unrelated Phase 2 candidates",
+                event_id=batch.stored_event.event_id,
+                profile_id=batch.extraction_profile.profile_id,
+                degraded_stage="conflict_arbitration",
+                error_type=type(exc).__name__,
             )
+            _record_degraded_stage(phase1_flow, "conflict_arbitration")
+            self._apply_phase2_arbitration_decision(
+                batch,
+                phase1_flow,
+                phase2_candidates,
+                None,
+            )
+            conflict_arbitration = None
         return await self._persist_phase2_result(
             batch=batch,
             phase1_flow=phase1_flow,
@@ -342,14 +428,17 @@ class L2Phase2FlowMixin:
         await self._emit_active_entities(event=batch.stored_event, focal_entities=focal_entities)
         existing_graph_edges: list[dict[str, Any]] = []
         existing_assertions: list[dict[str, Any]] = []
+        graph_conflict_rules: list[dict[str, Any]] = []
         if self._cognition_store is not None:
             existing_graph_edges, existing_assertions = await self._load_existing_graph_context(
                 focal_entities
             )
+            graph_conflict_rules = await self._cognition_store.list_graph_conflict_rules()
         return _Phase2Context(
             focal_entities=focal_entities,
             existing_graph_edges=existing_graph_edges,
             existing_assertions=existing_assertions,
+            graph_conflict_rules=graph_conflict_rules,
         )
 
     async def _persist_phase1_only(
@@ -457,12 +546,21 @@ class L2Phase2FlowMixin:
             phase2_result,
             graph_candidates,
         )
-        contradiction_hints, rejected_assessment_count = self._validate_phase2_claim_assessments(
+        validated_assessments, rejected_assessment_count = self._validate_phase2_claim_assessments(
             phase1_result=phase1_flow.phase1_result,
+            semantic_routes=phase1_flow.semantic_routes,
+            graph_candidates=graph_candidates,
+            assertion_candidates=assertion_candidates,
             assessments=phase2_result.claim_assessments,
             existing_graph_edges=phase2_context.existing_graph_edges,
             existing_assertions=phase2_context.existing_assertions,
+            graph_conflict_rules=phase2_context.graph_conflict_rules,
+            arbitration_min_confidence=self._conflict_arbitration_min_confidence,
         )
+        contradiction_hints = [
+            assessment.hint for assessment in validated_assessments if assessment.hint is not None
+        ]
+        _record_terminal_validation_outcomes(phase1_flow, validated_assessments)
         candidates = _Phase2CandidateSet(
             graph_candidates=graph_candidates,
             facet_candidates=self._build_structured_facet_candidates(
@@ -471,6 +569,7 @@ class L2Phase2FlowMixin:
             ),
             assertion_candidates=assertion_candidates,
             contradiction_hints=contradiction_hints,
+            validated_claim_assessments=validated_assessments,
             rejected_graph_candidate_count=rejected_graph_count,
             rejected_assertion_candidate_count=rejected_assertion_count,
             claim_assessment_count=len(phase2_result.claim_assessments),
@@ -526,16 +625,43 @@ class L2Phase2FlowMixin:
         phase1_flow: _Phase1ExtractionFlow,
         candidates: _Phase2CandidateSet,
     ) -> L2ConflictArbitrationResult | None:
-        if not candidates.contradiction_hints:
+        pending_assessments = self._pending_claim_assessments(
+            candidates.validated_claim_assessments
+        )
+        if not pending_assessments:
+            self._apply_phase2_arbitration_decision(
+                batch,
+                phase1_flow,
+                candidates,
+                None,
+            )
             return None
-        if not (candidates.graph_candidates or candidates.assertion_candidates):
+        pending_claim_ids = self._candidate_claim_ids_for_assessments(pending_assessments)
+        graph_candidates = self._graph_candidates_for_claims(
+            candidates.graph_candidates,
+            pending_claim_ids,
+        )
+        assertion_candidates = self._assertion_candidates_for_claims(
+            candidates.assertion_candidates,
+            pending_claim_ids,
+        )
+        pending_hints = [
+            assessment.hint for assessment in pending_assessments if assessment.hint is not None
+        ]
+        if not pending_hints or not (graph_candidates or assertion_candidates):
+            self._apply_phase2_arbitration_decision(
+                batch,
+                phase1_flow,
+                candidates,
+                None,
+            )
             return None
         conflict_arbitration = await self._arbitrate_conflicting_candidates(
             anchor_event=batch.stored_event,
             batch_events=[item[0] for item in batch.eligible_events],
-            graph_candidates=candidates.graph_candidates,
-            assertion_candidates=candidates.assertion_candidates,
-            contradiction_hints=candidates.contradiction_hints,
+            graph_candidates=graph_candidates,
+            assertion_candidates=assertion_candidates,
+            contradiction_hints=pending_hints,
         )
         self._apply_phase2_arbitration_decision(
             batch,
@@ -552,33 +678,163 @@ class L2Phase2FlowMixin:
         candidates: _Phase2CandidateSet,
         conflict_arbitration: L2ConflictArbitrationResult | None,
     ) -> None:
-        arbitration_decision = (
-            conflict_arbitration.decision if conflict_arbitration is not None else None
+        assessments = candidates.validated_claim_assessments
+        pending_assessments = self._pending_claim_assessments(assessments)
+        validation_blocked = [
+            assessment
+            for assessment in assessments
+            if assessment.action_eligibility is AssessmentActionEligibility.QUARANTINED
+            or (
+                assessment.action_eligibility is AssessmentActionEligibility.NOOP
+                and assessment.reason_code == "assessment_duplicate_evidence_noop"
+            )
+        ]
+        validation_blocked_claim_ids = {assessment.claim_id for assessment in validation_blocked}
+        reason_by_removed_claim = {
+            assessment.claim_id: "assessment_candidate_quarantined"
+            for assessment in validation_blocked
+        }
+        selected_assessments = (
+            self._selected_claim_assessments(pending_assessments, conflict_arbitration)
+            if conflict_arbitration is not None
+            else []
         )
-        if arbitration_decision == "keep_existing":
-            _record_arbitration_skipped_outcomes(
+        selected_keys = {
+            (
+                assessment.claim_id,
+                assessment.target_record_type,
+                assessment.related_record_id,
+                assessment.relationship,
+            )
+            for assessment in selected_assessments
+        }
+        arbitration_decision = conflict_arbitration.decision if conflict_arbitration else None
+        if arbitration_decision in {"keep_new", "mark_evolution"}:
+            pending_by_claim: dict[str, list[ValidatedClaimAssessment]] = {}
+            for assessment in pending_assessments:
+                pending_by_claim.setdefault(assessment.claim_id, []).append(assessment)
+            for claim_id, claim_assessments in pending_by_claim.items():
+                if claim_id in validation_blocked_claim_ids:
+                    continue
+                if any(
+                    (
+                        assessment.claim_id,
+                        assessment.target_record_type,
+                        assessment.related_record_id,
+                        assessment.relationship,
+                    )
+                    not in selected_keys
+                    for assessment in claim_assessments
+                ):
+                    reason_by_removed_claim[claim_id] = "conflict_arbitration_unselected"
+        else:
+            pending_claim_ids = {assessment.claim_id for assessment in pending_assessments}
+            selected_claim_ids = {assessment.claim_id for assessment in selected_assessments}
+            for claim_id in pending_claim_ids - validation_blocked_claim_ids:
+                reason_by_removed_claim[claim_id] = (
+                    "conflict_keep_existing"
+                    if arbitration_decision == "keep_existing" and claim_id in selected_claim_ids
+                    else (
+                        "conflict_arbitration_unavailable"
+                        if arbitration_decision is None
+                        else "conflict_arbitration_unselected"
+                    )
+                )
+
+        for reason_code in sorted(set(reason_by_removed_claim.values())):
+            scoped_claim_ids = {
+                claim_id
+                for claim_id, reason in reason_by_removed_claim.items()
+                if reason == reason_code
+            }
+            _record_scoped_candidate_outcomes(
                 phase1_flow,
                 candidates,
-                reason_code="conflict_keep_existing",
+                claim_ids=scoped_claim_ids,
+                reason_code=reason_code,
             )
+        removed_claim_ids = set(reason_by_removed_claim)
+        _remove_candidates_for_claims(candidates, removed_claim_ids)
+        actionable_selected_assessments = [
+            assessment
+            for assessment in selected_assessments
+            if assessment.claim_id not in removed_claim_ids
+        ]
+
+        safe_assessments = [
+            assessment
+            for assessment in assessments
+            if assessment.action_eligibility is AssessmentActionEligibility.REVALIDATE
+            and assessment.claim_id not in removed_claim_ids
+        ]
+        safe_hints = self._safe_revalidation_hints(safe_assessments)
+        candidates.contradiction_hints = safe_hints
+
+        for assessment in pending_assessments:
+            key = (
+                assessment.claim_id,
+                assessment.target_record_type,
+                assessment.related_record_id,
+                assessment.relationship,
+            )
+            if assessment.claim_id in validation_blocked_claim_ids:
+                _append_assessment_outcome(
+                    phase1_flow,
+                    assessment,
+                    outcome="quarantined",
+                    reason_code="assessment_candidate_quarantined",
+                )
+                continue
+            if (
+                arbitration_decision in {"keep_new", "mark_evolution"}
+                and assessment.claim_id in removed_claim_ids
+            ):
+                _append_assessment_outcome(
+                    phase1_flow,
+                    assessment,
+                    outcome="quarantined",
+                    reason_code=reason_by_removed_claim[assessment.claim_id],
+                )
+                continue
+            if key not in selected_keys:
+                _append_assessment_outcome(
+                    phase1_flow,
+                    assessment,
+                    outcome="quarantined",
+                    reason_code=(
+                        "conflict_arbitration_unavailable"
+                        if arbitration_decision is None
+                        else "conflict_arbitration_unselected"
+                    ),
+                )
+                continue
+            if arbitration_decision == "keep_existing":
+                _append_assessment_outcome(
+                    phase1_flow,
+                    assessment,
+                    outcome="noop",
+                    reason_code="conflict_keep_existing",
+                )
+            elif arbitration_decision in {"keep_new", "mark_evolution"}:
+                _append_assessment_outcome(
+                    phase1_flow,
+                    assessment,
+                    outcome="accepted",
+                    reason_code=f"conflict_{arbitration_decision}",
+                )
+
+        if arbitration_decision == "keep_existing":
             logger.info(
                 "L2 conflict arbitration kept existing records",
                 event_id=batch.stored_event.event_id,
                 decision="keep_existing",
-                severe_hint_count=len(
-                    self._severe_contradiction_hints(candidates.contradiction_hints)
-                ),
-            )
-            candidates.graph_candidates = []
-            candidates.assertion_candidates = []
-            candidates.contradiction_hints = self._rewrite_hints_for_keep_existing(
-                contradiction_hints=candidates.contradiction_hints,
-                conflict_arbitration=conflict_arbitration,
+                selected_assessment_count=len(selected_assessments),
+                removed_claim_count=len(removed_claim_ids),
             )
         elif arbitration_decision == "mark_evolution":
             candidates.contradiction_hints = self._rewrite_hints_for_evolution(
-                contradiction_hints=candidates.contradiction_hints,
-                conflict_arbitration=conflict_arbitration,
+                safe_hints=safe_hints,
+                selected_assessments=actionable_selected_assessments,
             )
 
     async def _persist_phase2_result(
