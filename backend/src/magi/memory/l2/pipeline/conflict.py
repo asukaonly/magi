@@ -15,6 +15,10 @@ from ..models import (
     L2ExistingRecord,
     L2SourceEvent,
 )
+from .validation.claim_assessments import (
+    AssessmentActionEligibility,
+    ValidatedClaimAssessment,
+)
 
 if TYPE_CHECKING:
     from ..store import L2CognitionStore
@@ -42,9 +46,13 @@ class L2ConflictArbitrationMixin:
     _conflict_arbitration_min_confidence: float
     _stats: Any
 
-    def _severe_contradiction_hints(self, hints: list[ContradictionHint]) -> list[ContradictionHint]:
+    def _severe_contradiction_hints(
+        self, hints: list[ContradictionHint]
+    ) -> list[ContradictionHint]:
         severe: list[ContradictionHint] = []
         for hint in hints:
+            if hint.recommended_action != "pending_arbitration":
+                continue
             if hint.contradiction_kind not in SEVERE_CONTRADICTION_KINDS:
                 continue
             if float(hint.confidence) < self._conflict_arbitration_min_confidence:
@@ -61,7 +69,11 @@ class L2ConflictArbitrationMixin:
         assertion_candidates: list[dict[str, Any]],
         contradiction_hints: list[ContradictionHint],
     ) -> L2ConflictArbitrationResult | None:
-        if not self._enable_conflict_arbitration or self._llm_service is None or self._cognition_store is None:
+        if (
+            not self._enable_conflict_arbitration
+            or self._llm_service is None
+            or self._cognition_store is None
+        ):
             return None
 
         severe_hints = self._severe_contradiction_hints(contradiction_hints)
@@ -109,57 +121,101 @@ class L2ConflictArbitrationMixin:
         )
         return result
 
+    @staticmethod
+    def _pending_claim_assessments(
+        assessments: list[ValidatedClaimAssessment],
+    ) -> list[ValidatedClaimAssessment]:
+        return [assessment for assessment in assessments if assessment.is_pending_conflict]
+
+    @staticmethod
+    def _safe_revalidation_hints(
+        assessments: list[ValidatedClaimAssessment],
+    ) -> list[ContradictionHint]:
+        return [
+            assessment.hint
+            for assessment in assessments
+            if assessment.action_eligibility is AssessmentActionEligibility.REVALIDATE
+            and assessment.hint is not None
+        ]
+
+    @staticmethod
+    def _candidate_claim_ids_for_assessments(
+        assessments: list[ValidatedClaimAssessment],
+    ) -> set[str]:
+        return {assessment.claim_id for assessment in assessments}
+
+    @staticmethod
+    def _graph_candidates_for_claims(
+        graph_candidates: list[dict[str, Any]],
+        claim_ids: set[str],
+    ) -> list[dict[str, Any]]:
+        return [
+            candidate
+            for candidate in graph_candidates
+            if str(candidate.get("_claim_id") or "").strip() in claim_ids
+        ]
+
+    @staticmethod
+    def _assertion_candidates_for_claims(
+        assertion_candidates: list[dict[str, Any]],
+        claim_ids: set[str],
+    ) -> list[dict[str, Any]]:
+        return [
+            candidate
+            for candidate in assertion_candidates
+            if claim_ids.intersection(
+                str(claim_id or "").strip()
+                for claim_id in candidate.get("supporting_claim_ids", [])
+                if str(claim_id or "").strip()
+            )
+        ]
+
+    @staticmethod
+    def _selected_claim_assessments(
+        assessments: list[ValidatedClaimAssessment],
+        conflict_arbitration: L2ConflictArbitrationResult,
+    ) -> list[ValidatedClaimAssessment]:
+        if conflict_arbitration.decision == "keep_existing":
+            selected_record_ids = {
+                str(record_id or "").strip()
+                for record_id in conflict_arbitration.winning_record_ids
+                if str(record_id or "").strip()
+            }
+        else:
+            selected_record_ids = {
+                str(record_id or "").strip()
+                for record_id in conflict_arbitration.superseded_record_ids
+                if str(record_id or "").strip()
+            }
+        return [
+            assessment
+            for assessment in assessments
+            if assessment.related_record_id in selected_record_ids
+        ]
+
     def _rewrite_hints_for_evolution(
         self,
         *,
-        contradiction_hints: list[ContradictionHint],
-        conflict_arbitration: L2ConflictArbitrationResult,
+        safe_hints: list[ContradictionHint],
+        selected_assessments: list[ValidatedClaimAssessment],
     ) -> list[ContradictionHint]:
-        superseded_record_ids = {
-            record_id
-            for record_id in (
-                self._non_empty_text(item)  # type: ignore[attr-defined]
-                for item in conflict_arbitration.superseded_record_ids
-            )
-            if record_id
-        }
-        evolved_target_ids = superseded_record_ids or {
-            hint.target_record_id for hint in self._severe_contradiction_hints(contradiction_hints) if hint.target_record_id
-        }
-        rewritten_hints: list[ContradictionHint] = []
-        for hint in contradiction_hints:
-            next_hint = ContradictionHint(**hint.to_dict())
-            if next_hint.target_record_id in evolved_target_ids:
-                if next_hint.target_record_type == "knowledge_graph":
-                    next_hint.recommended_action = "mark_deprecated"
-                elif next_hint.target_record_type == "tom_trait_assertion":
-                    next_hint.recommended_action = "mark_conflicted"
+        rewritten_hints = [ContradictionHint(**hint.to_dict()) for hint in safe_hints]
+        for assessment in selected_assessments:
+            if assessment.hint is None:
+                continue
+            next_hint = ContradictionHint(**assessment.hint.to_dict())
+            if next_hint.target_record_type == "knowledge_graph":
+                next_hint.recommended_action = "mark_deprecated"
+            elif next_hint.target_record_type == "tom_trait_assertion":
+                next_hint.recommended_action = "mark_conflicted"
+            else:
+                continue
             rewritten_hints.append(next_hint)
         return rewritten_hints
 
-    def _rewrite_hints_for_keep_existing(
-        self,
-        *,
-        contradiction_hints: list[ContradictionHint],
-        conflict_arbitration: L2ConflictArbitrationResult,
-    ) -> list[ContradictionHint]:
-        winning_record_ids = {
-            record_id
-            for record_id in (
-                self._non_empty_text(item)  # type: ignore[attr-defined]
-                for item in conflict_arbitration.winning_record_ids
-            )
-            if record_id
-        }
-        rewritten_hints: list[ContradictionHint] = []
-        for hint in contradiction_hints:
-            next_hint = ContradictionHint(**hint.to_dict())
-            if not winning_record_ids or next_hint.target_record_id in winning_record_ids:
-                next_hint.recommended_action = "revalidate_only"
-            rewritten_hints.append(next_hint)
-        return rewritten_hints
-
-    async def _load_target_records_for_hints(self, hints: list[ContradictionHint]) -> list[L2ExistingRecord]:
+    async def _load_target_records_for_hints(
+        self, hints: list[ContradictionHint]
+    ) -> list[L2ExistingRecord]:
         if self._cognition_store is None:
             return []
         records: list[L2ExistingRecord] = []
@@ -171,7 +227,9 @@ class L2ConflictArbitrationMixin:
                 continue
             seen.add(target_record_id)
             if target_record_type == "tom_trait_assertion":
-                assertion = await self._cognition_store.get_tom_assertion(assertion_id=target_record_id)
+                assertion = await self._cognition_store.get_tom_assertion(
+                    assertion_id=target_record_id
+                )
                 if assertion is None:
                     continue
                 records.append(
@@ -263,8 +321,12 @@ class L2ConflictArbitrationMixin:
         if self._l1_store is None or self._cognition_store is None:
             return {}
         entity_type = self._entity_type_from_id(entity_id)  # type: ignore[attr-defined]
-        assertions = await self._cognition_store.list_tom_assertions(entity_id=entity_id, entity_type=entity_type, limit=500)
-        event_ids = sorted({event_id for item in assertions for event_id in item.get("evidence_events", [])})
+        assertions = await self._cognition_store.list_tom_assertions(
+            entity_id=entity_id, entity_type=entity_type, limit=500
+        )
+        event_ids = sorted(
+            {event_id for item in assertions for event_id in item.get("evidence_events", [])}
+        )
         timestamps: dict[str, float] = {}
         for event_id in event_ids:
             event = await self._l1_store.get_event(event_id)

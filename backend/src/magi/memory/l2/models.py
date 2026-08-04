@@ -12,9 +12,13 @@ from .batch_models import (
     L2EventWindowSummary,
     L2HistoryContext,
     L2PendingBatchBucket,
+    L2ProjectionLease,
     L2SnapshotRefreshJob,
     ManualL2EventRequest,
+    PROJECTION_ATTEMPT_DESCRIPTOR_VERSION,
     build_l2_batch_bucket_key,
+    derive_projection_attempt_key,
+    projection_attempt_descriptor_json,
 )
 from .candidate_models import (
     L2AssertionCandidate,
@@ -42,6 +46,7 @@ from .episode_models import EpisodeCandidateJob, EpisodeConsolidationStats, Epis
 from .phase_models import (
     ContradictionHint,
     L2ClaimEvidenceMode,
+    L2FactKind,
     L2Phase1Entity,
     L2Phase1FactClaim,
     L2Phase1ResolvedRef,
@@ -56,7 +61,10 @@ from .phase_models import (
 
 
 __all__ = [
+    "PROJECTION_ATTEMPT_DESCRIPTOR_VERSION",
     "build_l2_batch_bucket_key",
+    "derive_projection_attempt_key",
+    "projection_attempt_descriptor_json",
     "ContradictionHint",
     "EpisodeCandidateJob",
     "EpisodeConsolidationStats",
@@ -68,6 +76,7 @@ __all__ = [
     "L2CandidateSet",
     "L2ConflictArbitrationResult",
     "L2ClaimEvidenceMode",
+    "L2FactKind",
     "L2EntityCandidate",
     "L2EntityResolution",
     "L2EntityResolutionMention",
@@ -83,6 +92,7 @@ __all__ = [
     "L2HistoryContext",
     "L2KnowledgeEdgeWrite",
     "L2PendingBatchBucket",
+    "L2ProjectionLease",
     "L2Phase1Entity",
     "L2Phase1FactClaim",
     "L2Phase1ResolvedRef",

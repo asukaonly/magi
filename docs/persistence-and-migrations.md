@@ -38,7 +38,7 @@ chat payloads, memory records, or plugin state.
 |------|-------|-------|
 | `data/chat/chat.db` | chat | sessions, session-creation idempotency mappings, turns, messages, attachments, per-turn context-usage snapshots, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, context summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |
 | `data/memory/l1_events.db` | memory L1 + L1-projected chat sessions | normalized event log, embeddings, FTS, entity links |
-| `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | short-term attention checkpoints, knowledge graph, ToM, correction history, stable context identities, summaries, procedural skills |
+| `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | short-term attention checkpoints, grounded Claim/evidence/entity-reference ledgers, exact L2 projection attempts and outcomes, knowledge graph, ToM, correction history, stable context identities, summaries, procedural skills |
 | `runtime/runtime_trace.db` | runtime trace | trace turns / spans / llm calls / tools, plugin ingress events |
 | `runtime/llm_usage.db` | llm | per-request usage + cost telemetry, daily rollups |
 | `data/app/persona_registry.db` | personality | personas, active persona, source-linked reference dossiers for generated personas |
@@ -357,7 +357,7 @@ independent Alembic environment with its own version chain:
 | `identity` | `identity.db` |
 | `batch` | `batch.db` |
 
-Current heads that matter to the chat-clear and delivery boundary:
+Current heads that matter to the chat-clear, memory-projection, and delivery boundaries:
 
 | environment | head | Boundary added at head |
 |-------------|------|------------------------|
@@ -365,7 +365,18 @@ Current heads that matter to the chat-clear and delivery boundary:
 | `background_tasks` | `v2` | recoverable terminal-completion snapshots with durable delivery claims, frozen intent/body, and scoped discard during conversation deletion |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
 | `message_queue` | `v7` | pending desktop full-clear transaction adopted before command recovery; success returns to an empty idle row |
-| `memory_shared` | `v35_l0_attention_state` | replace task-shaped L0 tables with session attention while preserving source-forgetting barriers |
+| `memory_shared` | `v42_l2_projection_batch_descriptors` | bind every queued L2 attempt to its exact canonical lease-set descriptor and recover legacy in-flight rows to retryable pending state |
+
+The L2 Claim-ledger chain was introduced by `memory_shared` revisions `v38`
+through `v42`: grounded Claims and their evidence/projection outcomes, projection
+leases, the durable L2-to-L1 entity-link outbox, Claim-aware subject revisions,
+and exact projection-batch descriptors. Fresh-store baseline DDL and each
+incremental migration define the same columns and indexes. `v42` deliberately
+adds nullable descriptor fields and resets legacy `queued` / `running` rows to a
+retryable pending state rather than guessing the members of an interrupted
+attempt; the new runtime then enforces exact descriptor binding before execution.
+Calendar timezone and civil-range provenance live in L1 event metadata and the
+Claim temporal frame, so they require no additional shared-memory schema revision.
 
 Layout under `backend/src/magi/db/`:
 

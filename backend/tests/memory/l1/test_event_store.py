@@ -955,8 +955,13 @@ async def test_l1_event_store_restores_final_memory_event_shape(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_l1_event_store_persists_metadata_json(tmp_path):
+async def test_l1_event_store_persists_metadata_json(tmp_path, monkeypatch):
     from magi.memory.l1.event_store import L1EventStore
+
+    monkeypatch.setattr(
+        "magi.memory.l1.writes.local_calendar_timezone_id",
+        lambda: "Asia/Shanghai",
+    )
 
     db_path = tmp_path / "l1_events.db"
     store = L1EventStore(db_path=str(db_path), vector_enabled=False)
@@ -1005,8 +1010,8 @@ async def test_l1_event_store_persists_metadata_json(tmp_path):
         assert fetched["id"] > 0
         assert fetched["event_type"] == "APP_USAGE_HOURLY"
         assert fetched["idempotency_key"] == "app_usage:2026-03-27T10:00:00+08:00:com.apple.Safari"
-        # _evidence is merged in at write time; original keys must be preserved and no
-        # unexpected extra keys should appear.
+        # Host-owned evidence and calendar context are merged at write time while
+        # preserving the event's original metadata.
         assert fetched["metadata_json"] == {
             "bucket_start": "2026-03-27T10:00:00+08:00",
             "bucket_end": "2026-03-27T11:00:00+08:00",
@@ -1014,6 +1019,7 @@ async def test_l1_event_store_persists_metadata_json(tmp_path):
             "app_name": "Safari",
             "duration_seconds": 2280,
             "_evidence": fetched["metadata_json"]["_evidence"],
+            "_temporal": {"calendar_timezone_id": "Asia/Shanghai"},
         }
         assert restored is not None
         assert restored.metadata_json == fetched["metadata_json"]

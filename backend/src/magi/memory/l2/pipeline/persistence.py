@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ....core.logger import get_logger
 from ...event_contracts import MemoryEvent
+from ..claims.outcomes import ClaimTargetOutcomeContext
+from ..models import L2ProjectionLease
 
 if TYPE_CHECKING:
     from ..store import L2CognitionStore
@@ -28,8 +30,12 @@ class L2PipelinePersistenceMixin:
         *,
         event: MemoryEvent,
         candidates: list[dict[str, Any]],
+        projection_leases: list[L2ProjectionLease],
     ) -> int:
-        count = await self._upsert_knowledge_edges(candidates)
+        count = await self._upsert_knowledge_edges(
+            candidates,
+            projection_leases=projection_leases,
+        )
         if count > 0:
             logger.debug(
                 "L2 structured hints direct-written before Phase 1",
@@ -38,25 +44,70 @@ class L2PipelinePersistenceMixin:
             )
         return count
 
-    async def _upsert_knowledge_edges(self, candidates: list[dict[str, Any]]) -> int:
+    async def _upsert_knowledge_edges(
+        self,
+        candidates: list[dict[str, Any]],
+        *,
+        projection_leases: list[L2ProjectionLease],
+    ) -> int:
+        host = self._persistence_host()
+        if not candidates or host._cognition_store is None:
+            return 0
+
+        edge_writes = [_public_projection_candidate(candidate) for candidate in candidates]
+        triple_ids = await host._cognition_store.upsert_knowledge_edges(
+            edge_writes,
+            projection_leases=projection_leases,
+        )
+        return len(triple_ids)
+
+    async def _upsert_knowledge_edges_with_outcomes(
+        self,
+        candidates: list[dict[str, Any]],
+        *,
+        attempt_key: str,
+        route_contract_version: int,
+        projection_leases: list[L2ProjectionLease],
+    ) -> int:
         host = self._persistence_host()
         if not candidates or host._cognition_store is None:
             return 0
 
         count = 0
         for candidate in candidates:
-            await host._cognition_store.upsert_knowledge_edge(**candidate)
-            count += 1
+            claim_id = str(candidate.get("_claim_id") or "").strip()
+            if not claim_id:
+                raise ValueError("graph projection candidate is missing its supporting Claim")
+            receipt = await host._cognition_store.upsert_knowledge_edge_with_receipt(
+                _public_projection_candidate(candidate),
+                claim_outcome_context=ClaimTargetOutcomeContext.for_claim(
+                    claim_id=claim_id,
+                    attempt_key=attempt_key,
+                    route_contract_version=route_contract_version,
+                ),
+                projection_leases=projection_leases,
+            )
+            persisted = bool(receipt.get("persisted"))
+            if persisted:
+                count += 1
         return count
 
-    async def _upsert_entity_facets(self, candidates: list[dict[str, Any]]) -> int:
+    async def _upsert_entity_facets(
+        self,
+        candidates: list[dict[str, Any]],
+        *,
+        projection_leases: list[L2ProjectionLease],
+    ) -> int:
         host = self._persistence_host()
         if not candidates or host._cognition_store is None:
             return 0
 
         count = 0
         for candidate in candidates:
-            await host._cognition_store.upsert_entity_facet(**candidate)
+            await host._cognition_store.upsert_entity_facet(
+                **candidate,
+                projection_leases=projection_leases,
+            )
             count += 1
         return count
 
@@ -68,6 +119,9 @@ class L2PipelinePersistenceMixin:
         facet_candidates: list[dict[str, Any]],
         assertion_candidates: list[dict[str, Any]],
         contradiction_hints: list[Any],
+        attempt_key: str,
+        route_contract_version: int,
+        projection_leases: list[L2ProjectionLease],
     ) -> tuple[int, int, int]:
         host = self._persistence_host()
         if host._cognition_store is None:
@@ -92,16 +146,48 @@ class L2PipelinePersistenceMixin:
         )
         entity_locks = await host._acquire_entity_locks(persist_entity_ids)
         try:
-            relation_count = await self._upsert_knowledge_edges(graph_candidates)
-            facet_count = await self._upsert_entity_facets(facet_candidates)
+            relation_count = await self._upsert_knowledge_edges_with_outcomes(
+                graph_candidates,
+                attempt_key=attempt_key,
+                route_contract_version=route_contract_version,
+                projection_leases=projection_leases,
+            )
+            facet_count = await self._upsert_entity_facets(
+                facet_candidates,
+                projection_leases=projection_leases,
+            )
 
             assertion_count = 0
             for candidate in assertion_candidates:
-                await host._cognition_store.upsert_assertion_candidate(candidate)
-                assertion_count += 1
+                supporting_claim_ids = tuple(
+                    dict.fromkeys(
+                        normalized_claim_id
+                        for claim_id in candidate.get("supporting_claim_ids", [])
+                        if (normalized_claim_id := str(claim_id or "").strip())
+                    )
+                )
+                if not supporting_claim_ids:
+                    raise ValueError(
+                        "assertion projection candidate is missing its supporting Claims"
+                    )
+                receipt = await host._cognition_store.upsert_assertion_candidate_with_receipt(
+                    candidate,
+                    claim_outcome_context=ClaimTargetOutcomeContext(
+                        claim_ids=supporting_claim_ids,
+                        attempt_key=attempt_key,
+                        route_contract_version=route_contract_version,
+                    ),
+                    projection_leases=projection_leases,
+                )
+                persisted = bool(receipt.get("persisted"))
+                if persisted:
+                    assertion_count += 1
 
             for hint in contradiction_hints:
-                await host._cognition_store.apply_contradiction_hint(hint)
+                await host._cognition_store.apply_contradiction_hint(
+                    hint,
+                    projection_leases=projection_leases,
+                )
         finally:
             for lock in entity_locks:
                 lock.release()
@@ -113,3 +199,7 @@ class L2PipelinePersistenceMixin:
 
 
 __all__ = ["L2PipelinePersistenceMixin"]
+
+
+def _public_projection_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in candidate.items() if not key.startswith("_")}

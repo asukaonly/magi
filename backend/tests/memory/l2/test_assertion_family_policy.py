@@ -55,15 +55,13 @@ def test_family_policy_reads_configured_ttl(monkeypatch) -> None:
     assert mood.default_ttl_seconds == 123.0
 
 
-def test_phase2_prompt_explains_assertion_family_semantics() -> None:
+def test_phase2_prompt_assigns_assertion_semantics_to_the_host() -> None:
     from magi.memory.l2.pipeline.prompts import PHASE2_INTEGRATE_SYSTEM_PROMPT
 
-    assert "## Assertion Family Semantics" in PHASE2_INTEGRATE_SYSTEM_PROMPT
-    assert "`routine_profile`" in PHASE2_INTEGRATE_SYSTEM_PROMPT
-    assert "`preference_profile`" in PHASE2_INTEGRATE_SYSTEM_PROMPT
-    assert "`interest_profile`" in PHASE2_INTEGRATE_SYSTEM_PROMPT
-    assert "`project_profile`" in PHASE2_INTEGRATE_SYSTEM_PROMPT
-    assert "`taste_profile`" not in PHASE2_INTEGRATE_SYSTEM_PROMPT
+    assert "The host deterministically owns semantic routes" in PHASE2_INTEGRATE_SYSTEM_PROMPT
+    assert "Do not return family, trait name/code, slot, route" in PHASE2_INTEGRATE_SYSTEM_PROMPT
+    assert '"trait_family"' not in PHASE2_INTEGRATE_SYSTEM_PROMPT
+    assert '"trait_name"' not in PHASE2_INTEGRATE_SYSTEM_PROMPT
 
 
 def test_decorate_assertion_family_metadata_exposes_value_i18n_policy() -> None:

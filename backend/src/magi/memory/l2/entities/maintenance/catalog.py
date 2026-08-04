@@ -216,6 +216,24 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
                     target_entity_id=winner_id,
                     now=now,
                 )
+                affected_claim_ids = await self._rekey_claim_entity_refs_locked(
+                    db,
+                    source_entity_id=loser_id,
+                    target_entity_id=winner_id,
+                    now=now,
+                )
+                if affected_claim_ids:
+                    placeholders = ", ".join("?" for _ in affected_claim_ids)
+                    await db.execute(
+                        f"""
+                        UPDATE l2_claim_projection_outcomes
+                        SET invalidated_at = ?, invalidated_reason = 'entity_merged'
+                        WHERE claim_id IN ({placeholders})
+                          AND target_kind = 'route'
+                          AND invalidated_at IS NULL
+                        """,
+                        (now, *sorted(affected_claim_ids)),
+                    )
                 await db.execute(
                     "UPDATE OR IGNORE entity_facets SET entity_id = ? WHERE entity_id = ?",
                     (winner_id, loser_id),
@@ -227,6 +245,87 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
                 await db.rollback()
                 raise
         await self._delete_invalidated_edge_vectors(invalidated_vector_ids)
+
+    async def _rekey_claim_entity_refs_locked(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        source_entity_id: str,
+        target_entity_id: str,
+        now: float,
+    ) -> set[str]:
+        """Append canonical ref versions for Claims whose latest ref was merged."""
+
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            WITH ranked_refs AS (
+                SELECT refs.claim_id, refs.ref_role, refs.entity_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY refs.claim_id, refs.ref_role
+                           ORDER BY refs.resolution_version DESC,
+                                    refs.created_at DESC,
+                                    refs.entity_id
+                       ) AS row_number
+                FROM l2_claim_entity_refs AS refs
+                JOIN l2_grounded_claims AS claims
+                  ON claims.claim_id = refs.claim_id
+                 AND claims.availability = 'active'
+                WHERE refs.invalidated_at IS NULL
+            ),
+            direct_subjects AS (
+                SELECT claims.claim_id, 'subject' AS ref_role
+                FROM l2_grounded_claims AS claims
+                WHERE claims.availability = 'active'
+                  AND claims.subject_ref = ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM ranked_refs AS ranked
+                      WHERE ranked.claim_id = claims.claim_id
+                        AND ranked.ref_role = 'subject'
+                        AND ranked.row_number = 1
+                  )
+            )
+            SELECT claim_id, ref_role
+            FROM ranked_refs
+            WHERE row_number = 1 AND entity_id = ?
+            UNION
+            SELECT claim_id, ref_role FROM direct_subjects
+            ORDER BY claim_id, ref_role
+            """,
+            (source_entity_id, source_entity_id),
+        ) as cursor:
+            affected_refs = [
+                (str(row["claim_id"]), str(row["ref_role"])) for row in await cursor.fetchall()
+            ]
+
+        for claim_id, ref_role in affected_refs:
+            async with db.execute(
+                """
+                SELECT COALESCE(MAX(resolution_version), 0)
+                FROM l2_claim_entity_refs
+                WHERE claim_id = ? AND ref_role = ?
+                """,
+                (claim_id, ref_role),
+            ) as cursor:
+                row = await cursor.fetchone()
+            next_version = int(row[0] or 0) + 1 if row is not None else 1
+            await db.execute(
+                """
+                UPDATE l2_claim_entity_refs
+                SET invalidated_at = ?, invalidated_reason = 'entity_merged'
+                WHERE claim_id = ? AND ref_role = ? AND invalidated_at IS NULL
+                """,
+                (now, claim_id, ref_role),
+            )
+            await db.execute(
+                """
+                INSERT INTO l2_claim_entity_refs(
+                    claim_id, ref_role, entity_id, resolution_version, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (claim_id, ref_role, target_entity_id, next_version, now),
+            )
+        return {claim_id for claim_id, _ref_role in affected_refs}
 
     async def _prune_orphan_low_mention_entities(
         self,
@@ -300,6 +399,22 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
                         return False
                 async with db.execute(
                     "SELECT 1 FROM tom_trait_assertions WHERE entity_id = ? OR target_entity_id = ? LIMIT 1",
+                    (entity_id, entity_id),
+                ) as cur:
+                    if await cur.fetchone():
+                        await db.rollback()
+                        return False
+                async with db.execute(
+                    """
+                    SELECT 1
+                    FROM l2_grounded_claims AS claims
+                    LEFT JOIN l2_claim_entity_refs AS refs
+                      ON refs.claim_id = claims.claim_id
+                     AND refs.invalidated_at IS NULL
+                    WHERE claims.availability = 'active'
+                      AND (claims.subject_ref = ? OR refs.entity_id = ?)
+                    LIMIT 1
+                    """,
                     (entity_id, entity_id),
                 ) as cur:
                     if await cur.fetchone():

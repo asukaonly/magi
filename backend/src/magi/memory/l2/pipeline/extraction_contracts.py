@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...event_contracts import MemoryEvent
 from ...evidence import EvidenceClassification, PolicyDecision
-from ..models import L2EventWindow, ResolvedEntityMention
+from ..models import L2EventWindow, L2ProjectionLease, ResolvedEntityMention
+from ..semantic_routing import SemanticRouteDecision
+
+if TYPE_CHECKING:
+    from .validation.claim_assessments import ValidatedClaimAssessment
 
 
 @dataclass(slots=True)
@@ -36,6 +40,9 @@ class L2ExtractionPlan:
 
 @dataclass(slots=True)
 class _PreparedExtractionBatch:
+    attempt_key: str
+    batch_key: str
+    projection_leases: list[L2ProjectionLease]
     stored_event: MemoryEvent
     classification: EvidenceClassification
     policy: PolicyDecision
@@ -58,6 +65,21 @@ class _Phase1ExtractionFlow:
     phase1_result: Any
     resolved_mentions: list[ResolvedEntityMention]
     profile_signal_object_refs: set[str]
+    semantic_routes: dict[str, SemanticRouteDecision]
+    claim_outcomes: list["ClaimProjectionOutcomeDraft"]
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimProjectionOutcomeDraft:
+    """One host-owned Claim target result awaiting fenced persistence."""
+
+    claim_id: str
+    target_kind: str
+    outcome: str
+    target_id: str = ""
+    target_slot_key: str | None = None
+    reason_code: str | None = None
+    details: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -65,6 +87,7 @@ class _Phase2Context:
     focal_entities: list[dict[str, Any]]
     existing_graph_edges: list[dict[str, Any]]
     existing_assertions: list[dict[str, Any]]
+    graph_conflict_rules: list[dict[str, Any]]
 
 
 @dataclass(slots=True)
@@ -73,6 +96,7 @@ class _Phase2CandidateSet:
     facet_candidates: list[dict[str, Any]]
     assertion_candidates: list[dict[str, Any]]
     contradiction_hints: list[Any]
+    validated_claim_assessments: list["ValidatedClaimAssessment"]
     rejected_graph_candidate_count: int
     rejected_assertion_candidate_count: int
     claim_assessment_count: int
@@ -80,6 +104,7 @@ class _Phase2CandidateSet:
 
 
 __all__ = [
+    "ClaimProjectionOutcomeDraft",
     "L2ExtractionEventDecision",
     "L2ExtractionPlan",
     "_Phase1ExtractionFlow",

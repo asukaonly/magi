@@ -30,7 +30,7 @@ from magi.memory.l2.corrections.models import (
 from magi.memory.l2.corrections.repository import MemoryCorrectionRepository
 from magi.memory.l2.corrections.relationship_service import RelationshipCorrectionService
 from magi.memory.l2.corrections.service import MemoryCorrectionService
-from magi.memory.l2.batch_models import L2BatchJob
+from magi.memory.l2.batch_models import L2BatchJob, L2ProjectionLease
 from magi.memory.l2.entities.catalog import L2EntityCatalog
 from magi.memory.l2.pipeline import L2Pipeline
 from magi.memory.l2.store import L2CognitionStore
@@ -350,6 +350,15 @@ async def test_clear_waits_for_running_l2_pipeline_writeback(tmp_path) -> None:
         ],
         flush_reason="immediate",
         estimated_tokens=1,
+        projection_leases=[L2ProjectionLease.from_dict(claimed[0])],
+    )
+    assert (
+        await store.bind_projection_job_batch(
+            job.projection_leases,
+            consumer_name="test-consumer",
+            attempt_key=job.attempt_key,
+        )
+        == 1
     )
     started = asyncio.Event()
     release = asyncio.Event()
@@ -1098,7 +1107,12 @@ async def test_unified_clear_keeps_clear_failure_when_writer_restart_also_fails(
     tmp_path,
 ) -> None:
     class L2Store:
-        async def clear(self) -> int:
+        async def clear(
+            self,
+            *,
+            entity_link_clear_generation: int | None = None,
+        ) -> int:
+            assert entity_link_clear_generation is not None
             raise RuntimeError("l2 clear failed")
 
     class Pipeline:

@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
+
+
+PROJECTION_ATTEMPT_DESCRIPTOR_VERSION = 1
 
 
 def _non_empty_text(value: str, *, field_name: str) -> str:
@@ -226,6 +232,74 @@ class L2EventWindow:
 
 
 @dataclass(slots=True)
+class L2ProjectionLease:
+    """Fencing token for one durable event projection attempt."""
+
+    event_id: str
+    lease_token: str
+    attempt_count: int
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "L2ProjectionLease":
+        return cls(
+            event_id=str(payload.get("event_id") or ""),
+            lease_token=str(payload.get("lease_token") or ""),
+            attempt_count=int(payload.get("attempt_count") or 0),
+        )
+
+    def __post_init__(self) -> None:
+        self.event_id = _non_empty_text(self.event_id, field_name="event_id")
+        self.lease_token = _non_empty_text(self.lease_token, field_name="lease_token")
+        self.attempt_count = int(self.attempt_count)
+        if self.attempt_count < 1:
+            raise ValueError("attempt_count must be positive")
+
+
+def derive_projection_attempt_key(
+    leases: Iterable[L2ProjectionLease],
+) -> str:
+    """Derive one unambiguous identity from a complete projection lease set."""
+
+    encoded = projection_attempt_descriptor_json(leases)
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return f"l2pa_{digest[:32]}"
+
+
+def projection_attempt_descriptor_json(
+    leases: Iterable[L2ProjectionLease],
+) -> str:
+    """Serialize the exact versioned member set for one projection attempt."""
+
+    normalized = tuple(leases)
+    if not normalized:
+        raise ValueError("projection leases must not be empty")
+    if any(not isinstance(lease, L2ProjectionLease) for lease in normalized):
+        raise TypeError("projection lease must be an L2ProjectionLease")
+    event_ids: set[str] = set()
+    material: list[dict[str, Any]] = []
+    for lease in sorted(normalized, key=lambda item: item.event_id):
+        if lease.event_id in event_ids:
+            raise ValueError("projection leases must contain unique event IDs")
+        event_ids.add(lease.event_id)
+        material.append(
+            {
+                "attempt_count": lease.attempt_count,
+                "event_id": lease.event_id,
+                "lease_token": lease.lease_token,
+            }
+        )
+    return json.dumps(
+        {
+            "descriptor_version": PROJECTION_ATTEMPT_DESCRIPTOR_VERSION,
+            "leases": material,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+@dataclass(slots=True)
 class L2BatchJob:
     """Queue payload for one flushed L2 microbatch."""
 
@@ -236,6 +310,7 @@ class L2BatchJob:
     estimated_tokens: int
     session_id: str | None = None
     user_id: str | None = None
+    projection_leases: list[L2ProjectionLease] = field(default_factory=list)
     job_type: str = "extract_batch"
     oldest_event_timestamp: float = 0.0
     newest_event_timestamp: float = 0.0
@@ -256,6 +331,18 @@ class L2BatchJob:
         )
         if not self.events:
             raise ValueError("events must not be empty")
+        if any(not isinstance(lease, L2ProjectionLease) for lease in self.projection_leases):
+            raise TypeError("projection leases must be L2ProjectionLease values")
+        lease_ids = [lease.event_id for lease in self.projection_leases]
+        if len(lease_ids) != len(set(lease_ids)):
+            raise ValueError("projection_leases must contain unique event IDs")
+        event_ids = {
+            str(item.get("event_id", "")).strip()
+            for item in self.events
+            if str(item.get("event_id", "")).strip()
+        }
+        if lease_ids and set(lease_ids) != event_ids:
+            raise ValueError("projection leases must cover the complete event batch")
         timestamps = [float(item.get("timestamp", 0.0) or 0.0) for item in self.events]
         self.oldest_event_timestamp = float(self.oldest_event_timestamp or min(timestamps))
         self.newest_event_timestamp = float(self.newest_event_timestamp or max(timestamps))
@@ -267,6 +354,14 @@ class L2BatchJob:
             for item in self.events
             if str(item.get("event_id", "")).strip()
         ]
+
+    @property
+    def attempt_key(self) -> str:
+        """Return the stable identity of this exact lease-fenced batch attempt."""
+
+        if not self.projection_leases:
+            return f"direct:{self.job_id}"
+        return derive_projection_attempt_key(self.projection_leases)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -284,6 +379,7 @@ class L2PendingBatchBucket:
     max_events: int | None = None
     max_estimated_tokens: int | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
+    projection_leases: list[L2ProjectionLease] = field(default_factory=list)
     estimated_tokens: int = 0
     oldest_event_timestamp: float = 0.0
     newest_event_timestamp: float = 0.0
@@ -303,6 +399,8 @@ class L2PendingBatchBucket:
         )
         self.estimated_tokens = max(0, int(self.estimated_tokens))
         self.events = [dict(item) for item in self.events if isinstance(item, dict)]
+        if any(not isinstance(lease, L2ProjectionLease) for lease in self.projection_leases):
+            raise TypeError("projection leases must be L2ProjectionLease values")
         if self.events:
             enqueued_at = float(self.created_at or self.last_event_at or _current_time())
             timestamps = [float(item.get("timestamp", 0.0) or 0.0) for item in self.events]
@@ -346,6 +444,7 @@ class L2PendingBatchBucket:
         queued_at: float | None = None,
         max_events: int | None = None,
         max_estimated_tokens: int | None = None,
+        projection_lease: L2ProjectionLease | None = None,
     ) -> None:
         payload = dict(event)
         event_id = _non_empty_text(str(payload.get("event_id", "")), field_name="event_id")
@@ -354,6 +453,10 @@ class L2PendingBatchBucket:
         payload["event_id"] = event_id
         payload["timestamp"] = timestamp
         self.events.append(payload)
+        if projection_lease is not None:
+            if projection_lease.event_id != event_id:
+                raise ValueError("projection lease event_id must match the event")
+            self.projection_leases.append(projection_lease)
         if max_events is not None:
             resolved_max_events = max(1, int(max_events))
             self.max_events = (
@@ -389,6 +492,7 @@ class L2PendingBatchBucket:
             estimated_tokens=self.estimated_tokens,
             session_id=self.session_id,
             user_id=self.user_id,
+            projection_leases=list(self.projection_leases),
             oldest_event_timestamp=self.oldest_event_timestamp,
             newest_event_timestamp=self.newest_event_timestamp,
         )
@@ -465,7 +569,10 @@ class ManualL2EventRequest:
 
 
 __all__ = [
+    "PROJECTION_ATTEMPT_DESCRIPTOR_VERSION",
     "build_l2_batch_bucket_key",
+    "derive_projection_attempt_key",
+    "projection_attempt_descriptor_json",
     "L2BatchEvent",
     "L2BatchJob",
     "L2EntityReconcileJob",
@@ -473,6 +580,7 @@ __all__ = [
     "L2EventWindowSummary",
     "L2HistoryContext",
     "L2PendingBatchBucket",
+    "L2ProjectionLease",
     "L2SnapshotRefreshJob",
     "ManualL2EventRequest",
 ]

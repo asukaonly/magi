@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -12,6 +12,10 @@ if TYPE_CHECKING:
 from .....core.logger import get_logger
 from ....embedding.embedding_pipeline import MemoryEmbeddingPipeline as MemoryEmbeddingPipeline
 from ....embedding.sqlite_vec_index import SqliteVecIndex
+from ...claims.reprojection import (
+    list_unrouted_claim_backlog,
+    reproject_stale_claim_routes,
+)
 from .assertions import L2EntityAssertionMaintenanceMixin
 from .catalog import (
     L2EntityCatalogMaintenanceMixin,
@@ -22,6 +26,7 @@ from .embeddings import L2EntityEmbeddingMaintenanceMixin
 from .episodes import L2EntityEpisodeMaintenanceMixin
 from .predicates import L2EntityPredicateMaintenanceMixin
 from ...ontology import get_predicate_synonym_group as get_predicate_synonym_group
+from ...semantic_routing import ROUTE_CONTRACT_VERSION
 
 logger = get_logger(__name__)
 
@@ -80,6 +85,18 @@ class L2EntityMaintenanceStats:
     episodes_promoted: int = 0
     episodes_merged: int = 0
     episodes_invalidated: int = 0
+    unrouted_claim_count: int = 0
+    unrouted_claim_backlog: list[dict[str, Any]] = field(default_factory=list)
+    claim_route_candidates_selected: int = 0
+    claim_route_outcomes_appended: int = 0
+    claim_route_outcomes_already_present: int = 0
+    claim_route_claims_no_longer_active: int = 0
+    claim_route_target_outcomes_invalidated: int = 0
+    claim_route_target_outcomes_revalidated: int = 0
+    claim_route_targets_archived: int = 0
+    claim_route_shared_targets_preserved: int = 0
+    claim_route_authority_targets_preserved: int = 0
+    claim_route_reprojection_failed: int = 0
     promoted_episode_ids: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -216,12 +233,51 @@ class L2EntityMaintenance(
         )
         stats = L2EntityMaintenanceStats()
         await self._run_entity_cleanup_steps(plan, stats)
+        await self._run_claim_route_steps(stats)
         await self._run_assertion_decay_steps(plan, stats)
         await self._run_snapshot_reconciliation_steps(plan, stats)
         await self._run_edge_cleanup_steps(plan, stats)
         await self._run_episode_cleanup_steps(plan, stats)
         _log_maintenance_stats(stats)
         return stats
+
+    async def _run_claim_route_steps(self, stats: L2EntityMaintenanceStats) -> None:
+        try:
+            backlog = await list_unrouted_claim_backlog(self._db_path)
+        except Exception as exc:
+            stats.errors.append(f"claim_route_backlog:{exc}")
+            logger.warning("L2 unrouted Claim backlog query failed", error=str(exc))
+            return
+
+        stats.unrouted_claim_backlog = [asdict(group) for group in backlog]
+        stats.unrouted_claim_count = sum(group.claim_count for group in backlog)
+        if backlog:
+            logger.info(
+                "L2 unrouted Claim backlog",
+                total_claims=stats.unrouted_claim_count,
+                route_contract_version=ROUTE_CONTRACT_VERSION,
+                groups=stats.unrouted_claim_backlog,
+            )
+
+        if self._cognition_store is None:
+            return
+        try:
+            reprojection = await reproject_stale_claim_routes(self._cognition_store)
+        except Exception as exc:
+            stats.errors.append(f"claim_route_reprojection:{exc}")
+            logger.warning("L2 Claim route reprojection failed", error=str(exc))
+            return
+
+        stats.claim_route_candidates_selected = reprojection.candidates_selected
+        stats.claim_route_outcomes_appended = reprojection.outcomes_appended
+        stats.claim_route_outcomes_already_present = reprojection.outcomes_already_present
+        stats.claim_route_claims_no_longer_active = reprojection.claims_no_longer_active
+        stats.claim_route_target_outcomes_invalidated = reprojection.target_outcomes_invalidated
+        stats.claim_route_target_outcomes_revalidated = reprojection.target_outcomes_revalidated
+        stats.claim_route_targets_archived = reprojection.targets_archived
+        stats.claim_route_shared_targets_preserved = reprojection.shared_targets_preserved
+        stats.claim_route_authority_targets_preserved = reprojection.authority_targets_preserved
+        stats.claim_route_reprojection_failed = reprojection.failed
 
     async def _run_entity_cleanup_steps(
         self, plan: _L2MaintenanceRunPlan, stats: L2EntityMaintenanceStats
@@ -292,6 +348,18 @@ def _log_maintenance_stats(stats: L2EntityMaintenanceStats) -> None:
         episodes_promoted=stats.episodes_promoted,
         episodes_merged=stats.episodes_merged,
         episodes_invalidated=stats.episodes_invalidated,
+        unrouted_claim_count=stats.unrouted_claim_count,
+        unrouted_claim_backlog=stats.unrouted_claim_backlog,
+        claim_route_candidates_selected=stats.claim_route_candidates_selected,
+        claim_route_outcomes_appended=stats.claim_route_outcomes_appended,
+        claim_route_outcomes_already_present=stats.claim_route_outcomes_already_present,
+        claim_route_claims_no_longer_active=stats.claim_route_claims_no_longer_active,
+        claim_route_target_outcomes_invalidated=(stats.claim_route_target_outcomes_invalidated),
+        claim_route_target_outcomes_revalidated=(stats.claim_route_target_outcomes_revalidated),
+        claim_route_targets_archived=stats.claim_route_targets_archived,
+        claim_route_shared_targets_preserved=(stats.claim_route_shared_targets_preserved),
+        claim_route_authority_targets_preserved=(stats.claim_route_authority_targets_preserved),
+        claim_route_reprojection_failed=stats.claim_route_reprojection_failed,
     )
 
 
@@ -315,5 +383,14 @@ def _maintenance_has_changes(stats: L2EntityMaintenanceStats) -> bool:
             stats.episodes_promoted,
             stats.episodes_merged,
             stats.episodes_invalidated,
+            stats.unrouted_claim_count,
+            stats.claim_route_outcomes_appended,
+            stats.claim_route_claims_no_longer_active,
+            stats.claim_route_target_outcomes_invalidated,
+            stats.claim_route_target_outcomes_revalidated,
+            stats.claim_route_targets_archived,
+            stats.claim_route_shared_targets_preserved,
+            stats.claim_route_authority_targets_preserved,
+            stats.claim_route_reprojection_failed,
         )
     )

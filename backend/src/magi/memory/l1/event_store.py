@@ -80,6 +80,7 @@ class L1EventStore(
         self._embedding_batch_wait_seconds = 1.0
         self._embedding_mutation_lock = asyncio.Lock()
         self._operation_guard_factory: Callable[[], Any] | None = None
+        self._entity_link_clear_generation: int | None = None
         self._initialized = False
         self._pinned_payload_store: Any | None = None
 

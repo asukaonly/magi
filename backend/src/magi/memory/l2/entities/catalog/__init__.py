@@ -28,6 +28,11 @@ from .embeddings import (
 from .queries import L2EntityCatalogQueryMixin
 from .source_event_governance import L2EntitySourceEventGovernanceMixin
 from ...ontology import coerce_unknown_entity_type
+from ...batch_models import L2ProjectionLease
+from ...projection.fencing import (
+    assert_current_projection_attempt,
+    normalize_projection_leases,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -126,14 +131,18 @@ class L2EntityCatalog(
         entity_type: str,
         entity_id: str,
         source_event_ids: Iterable[str] | None = None,
+        projection_leases: Iterable[L2ProjectionLease] = (),
     ) -> str:
         await self.initialize()
         normalized_entity_type = _normalize_catalog_entity_type(entity_type)
         normalized_entity_id = _normalize_entity_ref(entity_id, normalized_entity_type) or entity_id
         normalized_name = _normalize_alias(canonical_name)
         now = time.time()
+        lease_items = normalize_projection_leases(projection_leases, required=False)
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
+            if lease_items:
+                await assert_current_projection_attempt(db, lease_items)
             active_event_ids = await _active_source_event_ids(
                 db,
                 source_event_ids,
@@ -198,12 +207,16 @@ class L2EntityCatalog(
         alias_text: str,
         confidence: float = 1.0,
         source_event_ids: Iterable[str] | None = None,
+        projection_leases: Iterable[L2ProjectionLease] = (),
     ) -> None:
         await self.initialize()
         now = time.time()
         normalized_alias = _normalize_alias(alias_text)
+        lease_items = normalize_projection_leases(projection_leases, required=False)
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
+            if lease_items:
+                await assert_current_projection_attempt(db, lease_items)
             normalized_entity_type: str | None = None
             if source_event_ids is not None:
                 async with db.execute(
@@ -333,6 +346,7 @@ class L2EntityCatalog(
         evidence_text: Optional[str],
         resolved_entity_id: Optional[str],
         confidence: Optional[float],
+        projection_leases: Iterable[L2ProjectionLease] = (),
     ) -> int:
         await self.initialize()
         normalized_entity_type = _normalize_catalog_entity_type(entity_type)
@@ -340,8 +354,11 @@ class L2EntityCatalog(
             resolved_entity_id, normalized_entity_type
         )
         now = time.time()
+        lease_items = normalize_projection_leases(projection_leases, required=False)
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
+            if lease_items:
+                await assert_current_projection_attempt(db, lease_items)
             active_event_ids = await _active_source_event_ids(
                 db,
                 evidence_event_ids,
@@ -352,6 +369,32 @@ class L2EntityCatalog(
             if not active_event_ids:
                 await db.commit()
                 return 0
+            evidence_event_ids_json = json.dumps(
+                sorted(active_event_ids),
+                ensure_ascii=False,
+            )
+            async with db.execute(
+                """
+                SELECT mention_id
+                FROM entity_mentions
+                WHERE normalized_surface = ?
+                  AND entity_type IS ?
+                  AND evidence_event_ids = ?
+                  AND resolved_entity_id IS ?
+                ORDER BY mention_id ASC
+                LIMIT 1
+                """,
+                (
+                    normalized_surface,
+                    normalized_entity_type,
+                    evidence_event_ids_json,
+                    normalized_resolved_entity_id,
+                ),
+            ) as existing_cursor:
+                existing = await existing_cursor.fetchone()
+            if existing is not None:
+                await db.commit()
+                return int(existing[0])
             cursor = await db.execute(
                 """
                 INSERT INTO entity_mentions(
@@ -369,7 +412,7 @@ class L2EntityCatalog(
                     mention_text,
                     normalized_surface,
                     normalized_entity_type,
-                    json.dumps(active_event_ids, ensure_ascii=False),
+                    evidence_event_ids_json,
                     evidence_text,
                     normalized_resolved_entity_id,
                     float(confidence) if confidence is not None else None,
@@ -386,12 +429,16 @@ class L2EntityCatalog(
         normalized_surface: str,
         entity_type: str | None,
         event_ids: Iterable[str],
+        projection_leases: Iterable[L2ProjectionLease] = (),
     ) -> tuple[str, ...]:
         """Filter old evidence blocked by entity deletion before pipeline side effects."""
         await self.initialize()
+        lease_items = normalize_projection_leases(projection_leases, required=False)
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
+                if lease_items:
+                    await assert_current_projection_attempt(db, lease_items)
                 active_event_ids = await _active_source_event_ids(
                     db,
                     event_ids,

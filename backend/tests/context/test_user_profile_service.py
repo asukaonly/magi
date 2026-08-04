@@ -68,6 +68,21 @@ class _FakeL2Store:
         return []
 
 
+class _RevisionedL2Store(_FakeL2Store):
+    def __init__(self):
+        super().__init__()
+        self.revision = 0
+
+    async def current_subject_revision(self, subject_key: str) -> int:
+        assert subject_key.startswith("user:")
+        return self.revision
+
+
+class _BrokenRevisionL2Store(_FakeL2Store):
+    async def current_subject_revision(self, subject_key: str) -> int:
+        raise RuntimeError(f"cannot read {subject_key}")
+
+
 class _FakeUnifiedMemory:
     def __init__(self):
         self.l2_entity_catalog = _FakeL2EntityCatalog()
@@ -203,6 +218,30 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         # Only one DB round-trip for each store.
         self.assertEqual(um.l2_entity_catalog.call_count, 1)
         self.assertEqual(um.l2.call_count, 1)
+
+    async def test_durable_subject_revision_invalidates_cache_before_ttl(self):
+        um = _FakeUnifiedMemory()
+        um.l2 = _RevisionedL2Store()
+        svc = UserProfileService(unified_memory=um, cache_ttl=300)
+
+        await svc.get_display_name("alice")
+        await svc.get_display_name("alice")
+        self.assertEqual(um.l2_entity_catalog.call_count, 1)
+
+        um.l2.revision += 1
+        await svc.get_display_name("alice")
+
+        self.assertEqual(um.l2_entity_catalog.call_count, 2)
+
+    async def test_revision_read_failure_does_not_reuse_cache(self):
+        um = _FakeUnifiedMemory()
+        um.l2 = _BrokenRevisionL2Store()
+        svc = UserProfileService(unified_memory=um, cache_ttl=300)
+
+        await svc.get_display_name("alice")
+        await svc.get_display_name("alice")
+
+        self.assertEqual(um.l2_entity_catalog.call_count, 2)
 
     async def test_cache_returns_independent_dict_copy(self):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())

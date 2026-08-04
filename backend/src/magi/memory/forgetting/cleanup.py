@@ -44,6 +44,9 @@ class ForgetLayerCleanup:
                 reason=reason,
                 persist_barrier=False,
             )
+            pipeline = getattr(host, "l2_pipeline", None)
+            if pipeline is not None:
+                await pipeline._drain_event_entity_link_outbox(raise_on_error=True)
         await DailyMoodAggregateStore(host.memory_db_path).forget_source_events(normalized)
         if host.l2_entity_catalog is not None:
             await host.l2_entity_catalog.finish_source_event_forgetting(

@@ -12,6 +12,11 @@ import aiosqlite
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
 from ...context_scope import normalize_context_scope
+from ..batch_models import L2ProjectionLease
+from ..claims.outcomes import (
+    ClaimTargetOutcomeContext,
+    append_claim_target_outcomes_on_connection,
+)
 from ..corrections.evidence_ledger import append_claim_evidence_event_ids
 from ..corrections.fingerprints import (
     canonical_scope_json,
@@ -35,6 +40,11 @@ from ..corrections.relationship_conflict_effects import (
 )
 from ..corrections.repository import MemoryCorrectionRepository
 from ..graph_conflicts import GraphConflictRule, relationship_predicate_slot
+from ..projection.fencing import (
+    assert_current_projection_attempt,
+    assert_projection_attempt_key,
+    normalize_projection_leases,
+)
 from .versions import append_knowledge_graph_version
 from ..ontology import are_predicates_synonymous
 from ..storage.utils import (
@@ -114,6 +124,15 @@ class _KnowledgeEdgeInput:
     valid_to: float | None
     evidence_class: str | None
     scope: object | None
+
+
+@dataclass(frozen=True)
+class _KnowledgeEdgeWriteResult:
+    triple_id: str
+    slot_key: str
+    governance_action: CorrectionPolicyAction
+    persisted: bool
+    reason_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -289,16 +308,20 @@ class L2StoreGraphWriteMixin:
         valid_to: float | None = None,
         evidence_class: str | None = None,
         scope: Mapping[str, Any] | None = None,
+        projection_leases: Iterable[L2ProjectionLease] = (),
     ) -> str:
         """Insert or refresh a knowledge-graph edge."""
         host = cast(_GraphWriteHostProtocol, self)
         await host.initialize()
+        lease_items = normalize_projection_leases(projection_leases, required=False)
 
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             try:
-                triple_id = await self._upsert_knowledge_edge_on_connection(
+                if lease_items:
+                    await assert_current_projection_attempt(db, lease_items)
+                result = await self._upsert_knowledge_edge_on_connection(
                     db=db,
                     edge=_KnowledgeEdgeInput(
                         subject_id=subject_id,
@@ -324,25 +347,81 @@ class L2StoreGraphWriteMixin:
             except Exception:
                 await db.rollback()
                 raise
-        return triple_id
+        return result.triple_id
 
-    async def upsert_knowledge_edges(self, edge_writes: Iterable[Mapping[str, Any]]) -> list[str]:
+    async def upsert_knowledge_edge_with_receipt(
+        self,
+        edge_write: Mapping[str, Any],
+        *,
+        claim_outcome_context: ClaimTargetOutcomeContext,
+        projection_leases: Iterable[L2ProjectionLease] = (),
+    ) -> dict[str, Any]:
+        """Atomically persist one edge, its Claim outcome, and a receipt."""
+
+        host = cast(_GraphWriteHostProtocol, self)
+        await host.initialize()
+        lease_items = normalize_projection_leases(projection_leases, required=True)
+        assert_projection_attempt_key(claim_outcome_context.attempt_key, lease_items)
+        if len(claim_outcome_context.claim_ids) != 1:
+            raise ValueError("graph receipts require exactly one supporting Claim")
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await assert_current_projection_attempt(db, lease_items)
+                result = await self._upsert_knowledge_edge_on_connection(
+                    db=db,
+                    edge=self._knowledge_edge_input_from_mapping(edge_write),
+                )
+                persisted = bool(result.persisted)
+                reason_code = (
+                    None if persisted else result.reason_code or result.governance_action.value
+                )
+                await append_claim_target_outcomes_on_connection(
+                    db,
+                    context=claim_outcome_context,
+                    target_kind="relationship",
+                    target_id=result.triple_id,
+                    target_slot_key=result.slot_key,
+                    outcome="projected" if persisted else "skipped",
+                    reason_code=reason_code,
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        return {
+            "triple_id": result.triple_id,
+            "slot_key": result.slot_key,
+            "governance_action": result.governance_action.value,
+            "persisted": result.persisted,
+            "reason_code": result.reason_code,
+        }
+
+    async def upsert_knowledge_edges(
+        self,
+        edge_writes: Iterable[Mapping[str, Any]],
+        *,
+        projection_leases: Iterable[L2ProjectionLease] = (),
+    ) -> list[str]:
         """Insert or refresh multiple knowledge-graph edges in one transaction."""
         host = cast(_GraphWriteHostProtocol, self)
         await host.initialize()
+        lease_items = normalize_projection_leases(projection_leases, required=False)
 
         triple_ids: list[str] = []
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             try:
+                if lease_items:
+                    await assert_current_projection_attempt(db, lease_items)
                 for edge_write in edge_writes:
-                    triple_ids.append(
-                        await self._upsert_knowledge_edge_on_connection(
-                            db=db,
-                            edge=self._knowledge_edge_input_from_mapping(edge_write),
-                        )
+                    result = await self._upsert_knowledge_edge_on_connection(
+                        db=db,
+                        edge=self._knowledge_edge_input_from_mapping(edge_write),
                     )
+                    triple_ids.append(result.triple_id)
                 await db.commit()
             except Exception:
                 await db.rollback()
@@ -376,7 +455,7 @@ class L2StoreGraphWriteMixin:
         *,
         db: aiosqlite.Connection,
         edge: _KnowledgeEdgeInput,
-    ) -> str:
+    ) -> _KnowledgeEdgeWriteResult:
         host = cast(_GraphWriteHostProtocol, self)
         write = self._build_knowledge_edge_write(
             host=host,
@@ -418,7 +497,13 @@ class L2StoreGraphWriteMixin:
                 triple_id=triple_id,
                 governance_action=CorrectionPolicyAction.BLOCKED_BY_FORGET.value,
             )
-            return triple_id
+            return _KnowledgeEdgeWriteResult(
+                triple_id=triple_id,
+                slot_key=write.slot_key,
+                governance_action=CorrectionPolicyAction.BLOCKED_BY_FORGET,
+                persisted=False,
+                reason_code="all_evidence_forgotten",
+            )
         if filtered_evidence.has_forgotten_evidence:
             retained_bounds = filtered_evidence.retained_observation_bounds
             if retained_bounds is None:
@@ -505,14 +590,26 @@ class L2StoreGraphWriteMixin:
                 correction_id=policy.correction_id,
                 governance_action=policy.action.value,
             )
-            return policy.target_id or triple_id
+            return _KnowledgeEdgeWriteResult(
+                triple_id=policy.target_id or triple_id,
+                slot_key=write.slot_key,
+                governance_action=policy.action,
+                persisted=False,
+                reason_code=policy.action.value,
+            )
         if policy.action == CorrectionPolicyAction.ACCEPT_HISTORICAL:
-            await self._merge_historical_relationship_version(
+            persisted = await self._merge_historical_relationship_version(
                 db=db,
                 triple_id=policy.target_id,
                 write=write,
             )
-            return policy.target_id or triple_id
+            return _KnowledgeEdgeWriteResult(
+                triple_id=policy.target_id or triple_id,
+                slot_key=write.slot_key,
+                governance_action=policy.action,
+                persisted=persisted,
+                reason_code=None if persisted else "historical_target_unavailable",
+            )
         if policy.action == CorrectionPolicyAction.CREATE_SHADOW:
             assert policy.correction_id is not None
             await self._upsert_conflicted_relationship(
@@ -522,7 +619,12 @@ class L2StoreGraphWriteMixin:
                 correction_id=policy.correction_id,
                 authoritative_triple_id=policy.authoritative_target_id,
             )
-            return triple_id
+            return _KnowledgeEdgeWriteResult(
+                triple_id=triple_id,
+                slot_key=write.slot_key,
+                governance_action=policy.action,
+                persisted=True,
+            )
 
         existing = await self._fetch_existing_knowledge_edge(db=db, triple_id=triple_id)
         if existing:
@@ -534,7 +636,13 @@ class L2StoreGraphWriteMixin:
                         existing_scope_key=str(existing["scope_key"] or "global"),
                         candidate_scope_key=write.scope_key,
                     )
-                    return triple_id
+                    return _KnowledgeEdgeWriteResult(
+                        triple_id=triple_id,
+                        slot_key=write.slot_key,
+                        governance_action=policy.action,
+                        persisted=False,
+                        reason_code="authority_scope_mismatch",
+                    )
                 await self._merge_authoritative_relationship_evidence(
                     db=db,
                     triple_id=triple_id,
@@ -575,7 +683,12 @@ class L2StoreGraphWriteMixin:
             source_type=write.source_type,
             extraction_method=write.extraction_method,
         )
-        return triple_id
+        return _KnowledgeEdgeWriteResult(
+            triple_id=triple_id,
+            slot_key=write.slot_key,
+            governance_action=policy.action,
+            persisted=True,
+        )
 
     def relationship_slot_key_for(
         self,
@@ -916,9 +1029,9 @@ class L2StoreGraphWriteMixin:
         db: aiosqlite.Connection,
         triple_id: str | None,
         write: _KnowledgeEdgeWrite,
-    ) -> None:
+    ) -> bool:
         if not triple_id:
-            return
+            return False
         existing = await self._fetch_existing_knowledge_edge(db=db, triple_id=triple_id)
         if (
             existing is None
@@ -934,7 +1047,7 @@ class L2StoreGraphWriteMixin:
                 triple_id=triple_id,
                 observed_at=write.observed_at,
             )
-            return
+            return False
         merged = _merge_edge_evidence(
             existing=existing,
             new_event_ids=write.evidence_event_ids,
@@ -973,6 +1086,7 @@ class L2StoreGraphWriteMixin:
             triple_id=triple_id,
             created_at=write.now,
         )
+        return True
 
     async def _upsert_conflicted_relationship(
         self,

@@ -35,6 +35,7 @@ DEFAULT_L2_PROJECTION_CLAIM_LIMIT = (
 )
 DEFAULT_L2_PROJECTION_STALE_QUEUED_TIMEOUT_SECONDS = 1800.0
 DEFAULT_L2_PROJECTION_STALE_RUNNING_TIMEOUT_SECONDS = 300.0
+DEFAULT_L2_PROJECTION_HEARTBEAT_INTERVAL_SECONDS = 30.0
 DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION = True
 DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE = 0.85
 
@@ -104,8 +105,10 @@ class _L2PipelineLifecycleHostProtocol(Protocol):
     _stats: L2PipelineStats
     _projection_consumer_name: str
     _projection_claim_limit: int
+    _projection_heartbeat_interval_seconds: float
     _projection_stale_queued_timeout_seconds: float
     _projection_stale_running_timeout_seconds: float
+    _lifecycle_epoch: int
     _operation_guard_factory: Callable[[], Any] | None
 
     async def _run_extract_worker(self) -> None: ...
@@ -118,6 +121,8 @@ class _L2PipelineLifecycleHostProtocol(Protocol):
 
     async def _flush_all_buckets(self, *, flush_reason: str) -> None: ...
 
+    async def _drain_event_entity_link_outbox(self) -> int: ...
+
 
 class L2PipelineLifecycleMixin:
     """Own L2 pipeline runtime state initialization and lifecycle hooks."""
@@ -129,10 +134,12 @@ class L2PipelineLifecycleMixin:
         l1_store: Optional[L1EventStore] = None,
         entity_catalog: Optional[L2EntityCatalog] = None,
         llm_service: Optional[L2LLMService] = None,
-        state_change_callback: Callable[[str, str, list[ReconciledTraitOutcome]], Awaitable[None]]
-        | None = None,
-        active_entity_callback: Callable[[MemoryEvent, list[L2FocalEntityRef]], Awaitable[None]]
-        | None = None,
+        state_change_callback: (
+            Callable[[str, str, list[ReconciledTraitOutcome]], Awaitable[None]] | None
+        ) = None,
+        active_entity_callback: (
+            Callable[[MemoryEvent, list[L2FocalEntityRef]], Awaitable[None]] | None
+        ) = None,
         extraction_profile_provider: Callable[[], Iterable[Any]] | None = None,
         batch_flush_interval_seconds: int = DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS,
         enable_conflict_arbitration: bool = DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
@@ -176,12 +183,16 @@ class L2PipelineLifecycleMixin:
         host._stats = L2PipelineStats()
         host._projection_consumer_name = f"l2-pipeline:{uuid.uuid4().hex[:8]}"
         host._projection_claim_limit = DEFAULT_L2_PROJECTION_CLAIM_LIMIT
+        host._projection_heartbeat_interval_seconds = (
+            DEFAULT_L2_PROJECTION_HEARTBEAT_INTERVAL_SECONDS
+        )
         host._projection_stale_queued_timeout_seconds = (
             DEFAULT_L2_PROJECTION_STALE_QUEUED_TIMEOUT_SECONDS
         )
         host._projection_stale_running_timeout_seconds = (
             DEFAULT_L2_PROJECTION_STALE_RUNNING_TIMEOUT_SECONDS
         )
+        host._lifecycle_epoch = 0
         host._operation_guard_factory = None
 
     def set_operation_guard_factory(self, factory: Callable[[], Any]) -> None:
@@ -202,7 +213,31 @@ class L2PipelineLifecycleMixin:
         if host._stats.is_running or host._cognition_store is None:
             return
 
+        host._lifecycle_epoch += 1
+        start_epoch = host._lifecycle_epoch
         host._stats.is_running = True
+        try:
+            if host._l1_store is not None:
+                clear_generation = await host._cognition_store.current_clear_generation()
+                await host._l1_store.align_entity_link_projection_clear_generation(
+                    clear_generation
+                )
+            recovered_count = await host._cognition_store.recover_foreign_projection_jobs(
+                consumer_name=host._projection_consumer_name
+            )
+        except BaseException:
+            if host._lifecycle_epoch == start_epoch:
+                host._stats.is_running = False
+            raise
+        if host._lifecycle_epoch != start_epoch or not host._stats.is_running:
+            return
+        if recovered_count:
+            logger.info(
+                "L2 projection attempts recovered on startup",
+                consumer_name=host._projection_consumer_name,
+                recovered_count=recovered_count,
+            )
+        await host._drain_event_entity_link_outbox()
         host._extract_workers = [
             asyncio.create_task(host._run_extract_worker())
             for _ in range(host._extract_worker_count)
@@ -216,6 +251,7 @@ class L2PipelineLifecycleMixin:
         if not host._stats.is_running:
             return
 
+        host._lifecycle_epoch += 1
         host._stats.is_running = False
         if host._flush_worker is not None:
             host._flush_worker.cancel()
@@ -230,10 +266,12 @@ class L2PipelineLifecycleMixin:
             )
         except (asyncio.TimeoutError, Exception):
             logger.warning("L2 shutdown flush timed out")
-        for _ in range(host._extract_worker_count):
+        for _ in host._extract_workers:
             await host._extract_queue.put(None)
-        await host._reconcile_queue.put(None)
-        await host._snapshot_queue.put(None)
+        if host._reconcile_worker is not None:
+            await host._reconcile_queue.put(None)
+        if host._snapshot_worker is not None:
+            await host._snapshot_queue.put(None)
 
         for worker in [*host._extract_workers, host._reconcile_worker, host._snapshot_worker]:
             if worker is None:
@@ -251,6 +289,7 @@ class L2PipelineLifecycleMixin:
     async def abort_for_clear(self) -> None:
         """Cancel workers and discard pending work without flushing it."""
         host = self._lifecycle_host()
+        host._lifecycle_epoch += 1
         host._stats.is_running = False
         workers = [
             *host._extract_workers,
@@ -275,6 +314,7 @@ class L2PipelineLifecycleMixin:
         host = self._lifecycle_host()
         if host._stats.is_running:
             raise RuntimeError("L2 pipeline must be stopped before reset")
+        host._lifecycle_epoch += 1
         async with host._staging_lock:
             host._staging_buckets = {}
         host._extract_queue = asyncio.Queue()

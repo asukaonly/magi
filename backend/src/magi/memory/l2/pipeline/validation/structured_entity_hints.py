@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
 from .....core.logger import get_logger
 from ....event_contracts import MemoryEvent
-from ...models import L2Phase1FactClaim, L2Phase1Result, StructuredGraphHint
+from ...models import (
+    L2Phase1FactClaim,
+    L2Phase1Result,
+    L2ProjectionLease,
+    StructuredGraphHint,
+)
 from .structured_hint_common import L2StructuredHintHostMixin
 
 logger = get_logger(__name__)
@@ -26,6 +32,7 @@ class _StructuredEntityHintUpsertState:
     catalog: Any
     host: Any
     source_event_ids: tuple[str, ...]
+    projection_leases: tuple[L2ProjectionLease, ...]
     seen_ids: set[str] = field(default_factory=set)
     upserted_count: int = 0
 
@@ -33,7 +40,12 @@ class _StructuredEntityHintUpsertState:
 class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
     """Inject source-owned structured hints into Phase 1 context."""
 
-    async def _upsert_structured_hint_entities(self, event: MemoryEvent) -> int:
+    async def _upsert_structured_hint_entities(
+        self,
+        event: MemoryEvent,
+        *,
+        projection_leases: Iterable[L2ProjectionLease] = (),
+    ) -> int:
         """Persist source-owned entity hints so graph hints can reference catalog IDs."""
         metadata_json = event.metadata_json
         if not isinstance(metadata_json, dict):
@@ -46,6 +58,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
             catalog=catalog,
             host=self._structured_hint_host(),
             source_event_ids=(event.event_id,),
+            projection_leases=tuple(projection_leases),
         )
         await self._upsert_structured_entity_hint_records(metadata_json, state)
         await self._upsert_structured_graph_ref_entities(metadata_json, state)
@@ -81,6 +94,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                         alias_text=candidate.alias_text,
                         confidence=0.98,
                         source_event_ids=state.source_event_ids,
+                        projection_leases=state.projection_leases,
                     )
                     state.seen_ids.add(existing_entity_id)
                     continue
@@ -184,6 +198,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
             canonical_name=candidate.canonical_name,
             entity_type=candidate.entity_type,
             source_event_ids=state.source_event_ids,
+            projection_leases=state.projection_leases,
         )
         state.seen_ids.add(normalized_entity_id)
         alias = state.host._non_empty_text(candidate.alias_text) or candidate.canonical_name
@@ -193,6 +208,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                 alias_text=alias,
                 confidence=0.98,
                 source_event_ids=state.source_event_ids,
+                projection_leases=state.projection_leases,
             )
         state.upserted_count += 1
 
@@ -210,6 +226,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                 alias_text=alias,
                 confidence=0.98,
                 source_event_ids=state.source_event_ids,
+                projection_leases=state.projection_leases,
             )
         state.seen_ids.add(entity_id)
 

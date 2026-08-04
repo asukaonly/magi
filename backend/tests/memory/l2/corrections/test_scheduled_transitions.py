@@ -186,8 +186,13 @@ async def test_future_relationship_transition_is_idempotent(
             entity_type="user",
         )
         assert transitioned is not None
-        assert "place:shanghai" in str(transitioned)
-        assert "place:hangzhou" not in str(transitioned)
+        current_outgoing = transitioned["relationship_topology"]["outgoing"]
+        assert [item["object_id"] for item in current_outgoing] == ["place:shanghai"]
+        assert any(
+            "place:hangzhou" in json.dumps(entry["from"])
+            and "place:shanghai" in json.dumps(entry["to"])
+            for entry in transitioned["relationship_history"]
+        )
 
         second = await store.process_memory_correction_jobs(limit=10)
         assert second == {
@@ -442,9 +447,7 @@ async def test_due_uncommitted_assertion_chain_keeps_committed_root(
         if isinstance(evidence, str):
             evidence = json.loads(evidence)
         assert evidence == ["event-old"]
-        assert float(committed["confidence_score"]) == pytest.approx(
-            original["confidence_score"]
-        )
+        assert float(committed["confidence_score"]) == pytest.approx(original["confidence_score"])
         assert float(committed["valid_from"]) == pytest.approx(original["valid_from"])
         assert float(committed["valid_from"]) < first_at
     assert [item["assertion_id"] for item in forecast] == [
@@ -669,9 +672,7 @@ async def test_unrelated_scheduled_assertion_keeps_scoped_read_on_normal_path(
             db,
             target_kind="assertion",
             identity_field="assertion_id",
-            probe_base_sql=(
-                "SELECT * FROM tom_trait_assertions WHERE entity_id = ?"
-            ),
+            probe_base_sql=("SELECT * FROM tom_trait_assertions WHERE entity_id = ?"),
             probe_base_args=("user:u1",),
             normal_sql=(
                 "SELECT tom_trait_assertions.*, 'normal' AS selected_path "

@@ -44,6 +44,8 @@ class L2ReconcileStateMixin:
             return "interest_profile"
         if normalized.startswith("project."):
             return "project_profile"
+        if normalized.startswith("goal."):
+            return "goal_profile"
         if normalized.startswith("routine."):
             return "routine_profile"
         if normalized.startswith("state."):
@@ -116,6 +118,8 @@ class L2ReconcileStateMixin:
             return "current_mood"
         if trait_name == "engagement":
             return "current_engagement"
+        if trait_name.startswith("goal."):
+            return "none"
         return "core_traits"
 
     def _engagement_value(self, value: str) -> float:

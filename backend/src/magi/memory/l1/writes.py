@@ -16,6 +16,11 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from ...events.events import EventTypes
 from ...utils.diagnostic_logging import full_content_logging_enabled
+from ...utils.calendar_timezone import (
+    calendar_timezone_id_from_metadata,
+    local_calendar_timezone_id,
+    with_calendar_timezone,
+)
 from ..embedding.sqlite_vec_index import SqliteVecIndex
 from ..evidence import (
     EVIDENCE_RULE_VERSION,
@@ -152,6 +157,13 @@ class L1EventWriteMixin:
         )
         merged_metadata = _merge_evidence_into_metadata(
             event.metadata_json, evidence_values.get("reason_code")
+        )
+        calendar_timezone_id = calendar_timezone_id_from_metadata(event.metadata_json)
+        if calendar_timezone_id is None:
+            calendar_timezone_id = local_calendar_timezone_id()
+        merged_metadata = with_calendar_timezone(
+            merged_metadata,
+            calendar_timezone_id=calendar_timezone_id,
         )
         result = await self._store_event_transaction(
             host=host,
@@ -709,9 +721,42 @@ class L1EventWriteMixin:
             event.event_id,
         )
 
-    async def clear(self, *, restart_workers: bool = True) -> int:
+    async def clear(
+        self,
+        *,
+        restart_workers: bool = True,
+        entity_link_clear_generation: int | None = None,
+    ) -> int:
         """Delete all events by dropping and recreating the DB file."""
         host = cast(L1EventWriteHostProtocol, self)
+        await host.initialize(start_workers=False)
+        async with sqlite_connection_async(host.db_path) as db:
+            async with db.execute(
+                """
+                SELECT clear_generation
+                FROM l1_entity_link_projection_generation
+                WHERE singleton_id = 1
+                """
+            ) as cursor:
+                generation_row = await cursor.fetchone()
+            current_link_generation = int(generation_row[0]) if generation_row else 0
+            async with db.execute(
+                "SELECT 1 FROM l1_event_entity_projection_state LIMIT 1"
+            ) as cursor:
+                has_projected_state = await cursor.fetchone() is not None
+        if entity_link_clear_generation is None:
+            if has_projected_state:
+                raise RuntimeError(
+                    "L1 clear with entity-link projections requires unified memory clear"
+                )
+            effective_link_generation = current_link_generation
+        else:
+            effective_link_generation = int(entity_link_clear_generation)
+            if effective_link_generation <= current_link_generation:
+                raise RuntimeError("L1 clear must advance entity-link generation")
+            await getattr(host, "align_entity_link_projection_clear_generation")(
+                effective_link_generation
+            )
         logger.info("L1EventStore.clear: counting events before wipe")
         count = await host.count_events()
         logger.info("L1EventStore.clear: total=%d, stopping embedding workers", count)
@@ -738,6 +783,9 @@ class L1EventWriteMixin:
         logger.info("L1EventStore.clear: reinitializing schema at %s", db_path)
 
         await host.initialize(start_workers=restart_workers)
+        await getattr(host, "align_entity_link_projection_clear_generation")(
+            effective_link_generation
+        )
         logger.info("L1EventStore.clear: done, removed %d events", count)
 
         return count
@@ -791,7 +839,7 @@ class L1EventWriteMixin:
             selector_sql=f"""
                 SELECT events.event_id
                 FROM {FACT_EVENTS_TABLE} AS events
-                INNER JOIN l1_event_entities AS links
+                INNER JOIN l1_effective_event_entities AS links
                     ON links.event_id = events.event_id
                 WHERE events.deleted_at IS NULL
                   AND links.entity_id = ?
@@ -822,7 +870,7 @@ class L1EventWriteMixin:
             selector_sql=f"""
                 SELECT events.event_id
                 FROM {FACT_EVENTS_TABLE} AS events
-                INNER JOIN l1_event_entities AS links
+                INNER JOIN l1_effective_event_entities AS links
                     ON links.event_id = events.event_id
                 WHERE links.entity_id = ?
                   AND events.event_id > ?

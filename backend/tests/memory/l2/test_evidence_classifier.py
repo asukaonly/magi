@@ -68,6 +68,39 @@ def _build_external_observation(*, summary: str = "Calendar shows a meeting tomo
     )
 
 
+def _build_history_document(
+    *,
+    content: str,
+    event_type: str = "history_import.document",
+    source: str = "history_import_markdown",
+    historical: bool = True,
+) -> MemoryEvent:
+    return MemoryEvent(
+        event_id="evt-history-document-1",
+        correlation_id="history-import:job-1",
+        timestamp=1710000002.0,
+        created_at=1710000002.0,
+        event_type=event_type,
+        source=source,
+        source_item_id="record-1",
+        memory_domain=MemoryDomain.USER_AUTHORED,
+        ingest_target=IngestTarget.L1_ONLY,
+        cognition_eligible=True,
+        tom_depth=TomDepth.NONE,
+        retention_class=RetentionClass.COMPRESSIBLE,
+        session_id="history-session-1",
+        turn_id=None,
+        user_id="u1",
+        task_id=None,
+        content=content,
+        author_type="user",
+        content_type="text",
+        importance_score=0.72,
+        level=EventLevel.INFO.value,
+        metadata_json={"history_import": {"historical": historical}},
+    )
+
+
 def _build_runtime_event():
     return Event(
         type=EventTypes.TASK_COMPLETED,
@@ -173,6 +206,48 @@ def test_classifier_maps_user_request_english_please_lead():
     )
 
     assert classification.evidence_class == "user_request"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "How did pottery change me?",
+        "Please remember that I practiced pottery every Sunday.",
+    ],
+)
+def test_classifier_prioritizes_exact_history_document_contract(content):
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(_build_history_document(content=content))
+
+    assert classification.evidence_class == "user_self_report"
+    assert classification.reason_code == "user_authored_history_document"
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        _build_history_document(
+            content="How did pottery change me?",
+            event_type="history_import.chat",
+        ),
+        _build_history_document(
+            content="How did pottery change me?",
+            source="chat",
+        ),
+        _build_history_document(
+            content="How did pottery change me?",
+            historical=False,
+        ),
+    ],
+)
+def test_classifier_does_not_apply_document_rule_to_near_misses(event):
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(event)
+
+    assert classification.evidence_class == "user_question"
+    assert classification.reason_code == "user_question_lead_or_mark"
 
 
 def test_user_question_policy_blocks_l2_writes():
@@ -342,7 +417,7 @@ def test_classifier_external_plugin_source_classifies_as_external_observation():
     assert classification.reason_code == "external_source"
 
 
-def test_classifier_evidence_rule_version_is_four():
+def test_classifier_evidence_rule_version_is_five():
     """Bumping EVIDENCE_RULE_VERSION triggers stale-row backfill.
 
     The version is part of the L1 backfill contract: any rule semantics
@@ -350,7 +425,7 @@ def test_classifier_evidence_rule_version_is_four():
     """
     from magi.memory.evidence import EVIDENCE_RULE_VERSION
 
-    assert EVIDENCE_RULE_VERSION == 4
+    assert EVIDENCE_RULE_VERSION == 5
 
 
 @pytest.mark.parametrize(

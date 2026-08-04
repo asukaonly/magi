@@ -552,7 +552,18 @@ class DurableForgetRunner:
             if self._host.l2 is None:
                 raise RuntimeError("L2 store is required to forget an entity")
             await self._promote_entity_candidate_evidence(operation)
-            result = dict(await self._host.l2.forget_entity(entity_id=str(payload["entity_id"])))
+            result = dict(
+                await self._host.l2.forget_entity(
+                    entity_id=str(payload["entity_id"]),
+                    operation_key=operation.operation_id,
+                )
+            )
+            if self._host.l2_pipeline is not None:
+                result["event_entity_link_projections"] = (
+                    await self._host.l2_pipeline._drain_event_entity_link_outbox(
+                        raise_on_error=True
+                    )
+                )
             if self._host.l2_entity_catalog is not None:
                 catalog_counts = await self._host.l2_entity_catalog.forget_entity_catalog(
                     str(payload["entity_id"]),

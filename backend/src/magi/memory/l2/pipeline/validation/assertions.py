@@ -3,43 +3,49 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol
 
 from ....event_contracts import MemoryEvent
 from ...context_bundle import ResolvedContextRef
 from ...extraction_profiles import ExtractionProfile
-from ...models import L2AssertionCandidate, L2Phase1FactClaim, L2Phase1Result
+from ...models import (
+    L2AssertionCandidate,
+    L2Phase1FactClaim,
+    L2Phase1Result,
+    L2Phase2AssertionCandidate,
+)
 from ...assertion_family_policy import get_assertion_family_policy
+from ...assertions.occurrence_stats import (
+    ClaimOccurrenceStats,
+    ClaimRouteValueKey,
+)
 from ...assertions.promotion import (
     AssertionPromotionDecision,
     AssertionPromotionInput,
     PromotionHorizon,
-    SourceStrengthPreset,
     evaluate_assertion_promotion,
 )
 from ...assertions.settings import momentary_ttl_seconds
 from ...ontology import is_leaf_fact_duplicate, validate_assertion_candidate
 from ...ontology_aliases import canonicalize_predicate
 from ...phase1_models import L2TemporalCue
+from ...semantic_routing import (
+    ROUTE_CONTRACT_VERSION,
+    ObjectRole,
+    SemanticRouteDecision,
+)
 from .evidence import validate_supporting_event_ids
+from ..extraction_contracts import ClaimProjectionOutcomeDraft
 
 _TOPOLOGY_ONLY_TRAIT_FAMILIES = {"public_sentiment", "group_atmosphere", "relationship_shift"}
 _SEMANTIC_TEMPORAL_SCOPES = {"persistent", "stable", ""}
 _SEMANTIC_DECAY_POLICIES = {"none", "evidence_only", ""}
-_PROFILE_TRAIT_BY_PREDICATE = {
-    "REAL_NAME": "identity.real_name",
-    "BIRTH_DATE": "identity.birth_date",
-    "BIRTH_YEAR": "identity.birth_year",
-    "STATED_AGE": "identity.age.stated",
-    "PREFERRED_FORM_OF_ADDRESS": "communication.address.preferred",
-    "DISALLOWED_FORM_OF_ADDRESS": "communication.address.disallowed",
-    "PREFERRED_COMMUNICATION_STYLE": "communication.response_style.preferred",
-}
-_PROFILE_TRAITS_REQUIRING_PHASE1_SIGNAL = frozenset(_PROFILE_TRAIT_BY_PREDICATE.values())
 _PROFILE_FAMILIES = frozenset(
     {
         "communication_profile",
+        "goal_profile",
         "identity_profile",
         "interest_profile",
         "preference_profile",
@@ -47,13 +53,6 @@ _PROFILE_FAMILIES = frozenset(
         "routine_profile",
         "state_profile",
     }
-)
-_PREFERENCE_PREDICATES = frozenset({"DISLIKES", "LIKES"})
-_PROJECT_ENGAGEMENT_PREDICATES = frozenset(
-    {"CONTRIBUTES_TO", "CREATES", "DEVELOPS", "MAINTAINS", "WORKS_ON"}
-)
-_SUSTAINED_ENGAGEMENT_PREDICATES = frozenset(
-    {*_PROJECT_ENGAGEMENT_PREDICATES, "ATTENDED", "MEMBER_OF", "OWNS", "USES"}
 )
 
 
@@ -64,19 +63,6 @@ def classify_memory_subdomain(temporal_scope: str, decay_policy: str) -> str:
     ):
         return "semantic"
     return "state"
-
-
-def _profile_values_by_trait(phase1_result: L2Phase1Result | None) -> dict[str, str]:
-    if phase1_result is None:
-        return {}
-    values: dict[str, str] = {}
-    for claim in phase1_result.fact_claims:
-        predicate = canonicalize_predicate(getattr(claim, "predicate", ""))
-        trait_name = _PROFILE_TRAIT_BY_PREDICATE.get(predicate or "")
-        value = str(getattr(claim, "object_ref", "") or "").strip()
-        if trait_name and value:
-            values[trait_name] = value[:40]
-    return values
 
 
 def _claims_by_id(phase1_result: L2Phase1Result | None) -> dict[str, L2Phase1FactClaim]:
@@ -103,6 +89,100 @@ def _resolve_supporting_claims(
     if any(claim_id not in claims_by_id for claim_id in claim_ids):
         return []
     return [claims_by_id[claim_id] for claim_id in claim_ids]
+
+
+def _known_supporting_claims(
+    assertion: Any,
+    claims_by_id: dict[str, L2Phase1FactClaim],
+) -> list[L2Phase1FactClaim]:
+    seen: set[str] = set()
+    known: list[L2Phase1FactClaim] = []
+    for raw_claim_id in getattr(assertion, "supporting_claim_ids", []):
+        claim_id = str(raw_claim_id or "").strip()
+        if not claim_id or claim_id in seen or claim_id not in claims_by_id:
+            continue
+        seen.add(claim_id)
+        known.append(claims_by_id[claim_id])
+    return known
+
+
+def _with_host_goal_candidates(
+    phase2_assertions: list[Any],
+    *,
+    claims_by_id: dict[str, L2Phase1FactClaim],
+    semantic_routes: dict[str, SemanticRouteDecision],
+) -> list[Any]:
+    """Replace model-owned Goal candidates with one host candidate per Claim."""
+
+    goal_claim_ids = {
+        claim_id
+        for claim_id in claims_by_id
+        if (route := semantic_routes.get(claim_id)) is not None and route.family == "goal_profile"
+    }
+    candidates = [
+        candidate
+        for candidate in phase2_assertions
+        if not goal_claim_ids.intersection(
+            {
+                str(claim_id or "").strip()
+                for claim_id in getattr(candidate, "supporting_claim_ids", [])
+                if str(claim_id or "").strip()
+            }
+        )
+    ]
+    for claim_id, claim in claims_by_id.items():
+        route = semantic_routes.get(claim_id)
+        if route is None or route.family != "goal_profile" or not route.can_project_assertion:
+            continue
+        candidates.append(
+            L2Phase2AssertionCandidate(
+                entity_ref=route.subject_id or claim.subject_ref,
+                entity_type=route.subject_type or claim.subject_type,
+                trait_value="",
+                natural_summary="",
+                supporting_claim_ids=[claim_id],
+            )
+        )
+    return candidates
+
+
+def _append_assertion_rejection_outcomes(
+    outcomes: list[ClaimProjectionOutcomeDraft],
+    *,
+    assertion: Any,
+    claims_by_id: dict[str, L2Phase1FactClaim],
+    semantic_routes: dict[str, SemanticRouteDecision],
+    reason_code: str,
+    supporting_claims: list[L2Phase1FactClaim] | None = None,
+    route: SemanticRouteDecision | None = None,
+) -> None:
+    claims = supporting_claims or _known_supporting_claims(assertion, claims_by_id)
+    for claim in claims:
+        claim_route = route or semantic_routes.get(claim.claim_id)
+        slot_key = str(claim_route.slot_key or "").strip() if claim_route is not None else ""
+        route_key = str(claim_route.route_key or "").strip() if claim_route is not None else ""
+        predicate = canonicalize_predicate(str(claim.predicate or "")) or str(
+            claim.predicate or ""
+        ).strip().upper()
+        target_id = (
+            f"slot:{slot_key}"
+            if slot_key
+            else f"route:{route_key}"
+            if route_key
+            else f"predicate:{predicate}"
+            if predicate
+            else f"claim:{claim.claim_id}"
+        )
+        outcomes.append(
+            ClaimProjectionOutcomeDraft(
+                claim_id=claim.claim_id,
+                target_kind="assertion",
+                target_id=target_id,
+                target_slot_key=slot_key or None,
+                outcome="rejected",
+                reason_code=reason_code,
+            )
+        )
 
 
 def _supporting_event_ids(claims: list[L2Phase1FactClaim]) -> list[str]:
@@ -165,130 +245,112 @@ def _profile_allows_assertion_trait(profile: ExtractionProfile, trait_name: str)
     return False
 
 
-def _profile_family_matches_claims(
-    trait_family: str,
+def _shared_semantic_route(
     claims: list[L2Phase1FactClaim],
-) -> bool:
-    if trait_family not in _PROFILE_FAMILIES:
-        return True
-    predicates = {
-        canonicalize_predicate(str(claim.predicate or "")) or "" for claim in claims
-    }
-    fact_kinds = {str(claim.fact_kind or "").strip().casefold() for claim in claims}
-    object_types = {str(claim.object_type or "").strip().casefold() for claim in claims}
-    if trait_family == "preference_profile":
-        return bool(predicates) and predicates <= _PREFERENCE_PREDICATES
-    if trait_family == "interest_profile":
-        return bool(
-            not (predicates & _PREFERENCE_PREDICATES)
-            and "project" not in object_types
-            and (
-                "INTERESTED_IN" in predicates
-                or "interaction_evidence" in fact_kinds
-            )
+    routes_by_claim_id: dict[str, SemanticRouteDecision],
+) -> SemanticRouteDecision | None:
+    routes = [routes_by_claim_id.get(claim.claim_id) for claim in claims]
+    if any(route is None or not route.can_project_assertion for route in routes):
+        return None
+    typed_routes = [route for route in routes if route is not None]
+    route_identities = {
+        (
+            route.slot_key,
+            route.value_fingerprint,
+            route.family,
+            route.trait_code,
+            route.subject_id,
+            route.subject_type,
+            route.target_entity_id,
+            route.target_entity_type,
+            route.target_window_key,
+            route.scope_key,
         )
-    if trait_family == "project_profile":
-        return bool(
-            object_types == {"project"}
-            and predicates
-            and predicates <= _PROJECT_ENGAGEMENT_PREDICATES
-        )
-    if trait_family == "routine_profile":
-        return fact_kinds == {"interaction_evidence"}
-    if trait_family == "identity_profile":
-        return bool(predicates) and predicates <= {
-            "BIRTH_DATE",
-            "BIRTH_YEAR",
-            "REAL_NAME",
-            "STATED_AGE",
-        }
-    if trait_family == "communication_profile":
-        return bool(predicates) and predicates <= {
-            "DISALLOWED_FORM_OF_ADDRESS",
-            "PREFERRED_COMMUNICATION_STYLE",
-            "PREFERRED_FORM_OF_ADDRESS",
-        }
-    return "public_topology" not in fact_kinds
-
-
-def _promotion_fact_kind(claims: list[L2Phase1FactClaim]) -> str:
-    fact_kinds = {str(claim.fact_kind or "").strip().casefold() for claim in claims}
-    if len(fact_kinds) == 1:
-        return next(iter(fact_kinds))
-    if "interaction_evidence" in fact_kinds:
-        return "interaction_evidence"
-    return "explicit_fact"
-
-
-def _promotion_predicate(claims: list[L2Phase1FactClaim]) -> str:
-    predicates = {
-        canonicalize_predicate(str(claim.predicate or "")) or "" for claim in claims
+        for route in typed_routes
     }
-    return next(iter(predicates)) if len(predicates) == 1 else ""
+    if len(route_identities) != 1:
+        return None
+    return typed_routes[0]
 
 
-def _promotion_temporal_cue(claims: list[L2Phase1FactClaim]) -> L2TemporalCue:
-    cues = {
-        L2TemporalCue.from_value(getattr(claim, "temporal_cue", None)) for claim in claims
-    }
-    if len(cues) == 1:
-        return next(iter(cues))
-    if L2TemporalCue.RECENT in cues:
-        return L2TemporalCue.RECENT
-    if L2TemporalCue.UNSPECIFIED in cues:
-        return L2TemporalCue.UNSPECIFIED
-    if L2TemporalCue.RECURRING in cues:
-        return L2TemporalCue.RECURRING
-    return L2TemporalCue.UNSPECIFIED
+def _occurrence_stats_for_route(
+    route: SemanticRouteDecision,
+    occurrence_stats_by_key: dict[ClaimRouteValueKey, ClaimOccurrenceStats],
+) -> ClaimOccurrenceStats:
+    """Return the durable-ledger statistics for one exact routed value.
+
+    A routed Claim without recomputable statistics is an integrity failure. It
+    must not fall back to counts from the current model batch because doing so
+    would make replay and promotion depend on execution shape.
+    """
+
+    slot_key = str(route.slot_key or "").strip()
+    value_fingerprint = str(route.value_fingerprint or "").strip()
+    if not slot_key or not value_fingerprint:
+        raise RuntimeError("routed Claim is missing its promotion identity")
+    key = ClaimRouteValueKey(slot_key, value_fingerprint)
+    stats = occurrence_stats_by_key.get(key)
+    if stats is None:
+        raise RuntimeError("routed Claim is missing durable occurrence statistics")
+    return stats
 
 
-def _event_evidence_class(event: MemoryEvent) -> str:
-    metadata = getattr(event, "metadata_json", None)
-    if isinstance(metadata, dict):
-        annotated = str(metadata.get("evidence_class") or "").strip().casefold()
-        if annotated:
-            return annotated
-    memory_domain = getattr(event, "memory_domain", None)
-    domain = str(getattr(memory_domain, "label", memory_domain) or "").strip().casefold()
-    if domain == "user_authored":
-        return "user_self_report"
-    if domain == "external_activity":
-        return "external_observation"
-    if domain == "runtime_telemetry":
-        return "system_runtime"
-    return "unknown"
-
-
-def _source_strength_for_claims(
+def _goal_projection_reason(
+    *,
     event: MemoryEvent,
-    claims: list[L2Phase1FactClaim],
-) -> SourceStrengthPreset:
-    if _event_evidence_class(event) == "user_self_report":
-        return SourceStrengthPreset.DIRECT_USER
-    predicates = {
-        canonicalize_predicate(str(claim.predicate or "")) or "" for claim in claims
+    route: SemanticRouteDecision,
+    supporting_claims: list[L2Phase1FactClaim],
+    occurrence_stats: ClaimOccurrenceStats,
+) -> str | None:
+    """Return a review/expiry reason when a routed goal is not current-safe."""
+
+    if route.family != "goal_profile":
+        return None
+    if any(
+        str(getattr(claim.evidence_mode, "value", claim.evidence_mode)).casefold() != "direct"
+        for claim in supporting_claims
+    ):
+        return "goal_requires_direct_self_report"
+    trusted_event_ids = set(occurrence_stats.trusted_event_ids)
+    supporting_event_ids = {
+        event_id for claim in supporting_claims for event_id in claim.supporting_event_ids
     }
-    if predicates & _SUSTAINED_ENGAGEMENT_PREDICATES:
-        return SourceStrengthPreset.SUSTAINED_ENGAGEMENT
-    if _event_evidence_class(event) == "external_observation":
-        return SourceStrengthPreset.PASSIVE_EXPOSURE
-    return SourceStrengthPreset.STRUCTURED_SOURCE
+    if not supporting_event_ids or not supporting_event_ids.issubset(trusted_event_ids):
+        return "goal_low_time_confidence"
+    for claim in supporting_claims:
+        frame = claim.raw_time_frame or {}
+        resolution = str(frame.get("resolution") or "unscheduled").strip().casefold()
+        if claim.raw_time_expression and resolution == "low":
+            return "goal_low_time_confidence"
+        if claim.raw_time_expression and resolution not in {"exact", "calendar_anchor"}:
+            return "goal_ambiguous_time"
+    current_time = time.time()
+    target_ends = [
+        float(claim.target_to) for claim in supporting_claims if claim.target_to is not None
+    ]
+    if target_ends:
+        if min(target_ends) <= current_time:
+            return "goal_target_expired"
+    elif (
+        float(occurrence_stats.last_observed_at or event.timestamp) + 30 * 24 * 60 * 60
+        <= current_time
+    ):
+        return "goal_target_expired"
+    return None
 
 
-def _profile_permits_durable(
-    event: MemoryEvent,
-    profile: ExtractionProfile,
-    trait_family: str,
-) -> bool:
-    if _event_evidence_class(event) == "user_self_report":
-        return True
-    allowed = getattr(profile, "durable_assertion_families", None)
-    if allowed == "all":
-        return True
-    if allowed is None:
-        return False
-    values = [allowed] if isinstance(allowed, str) else allowed
-    return trait_family in {str(value or "").strip().casefold() for value in values}
+def _low_time_confidence_reason(
+    *,
+    occurrence_stats: ClaimOccurrenceStats,
+) -> str | None:
+    """Block aggregated recent semantics without trusted policy evidence."""
+
+    if L2TemporalCue.from_value(occurrence_stats.temporal_cue) is not L2TemporalCue.RECENT:
+        return None
+    policy_event_ids = set(occurrence_stats.recent_policy_event_ids)
+    if policy_event_ids and policy_event_ids.issubset(set(occurrence_stats.trusted_event_ids)):
+        return None
+    return "low_time_confidence"
 
 
 class _L2AssertionHostProtocol(Protocol):
@@ -306,8 +368,11 @@ class Phase2AssertionValidationContext:
     host: _L2AssertionHostProtocol
     duplicate_check_candidates: list[dict[str, Any]]
     default_event_ids: list[str]
-    profile_values_by_trait: dict[str, str]
     claims_by_id: dict[str, L2Phase1FactClaim]
+    semantic_routes: dict[str, SemanticRouteDecision]
+    occurrence_stats_by_key: dict[ClaimRouteValueKey, ClaimOccurrenceStats]
+    assertion_scope: str
+    claim_outcomes: list[ClaimProjectionOutcomeDraft]
 
 
 class L2AssertionValidationMixin:
@@ -321,20 +386,52 @@ class L2AssertionValidationMixin:
         policy: Any,
         graph_candidates: list[dict[str, Any]],
         default_event_ids: list[str],
+        semantic_routes: dict[str, SemanticRouteDecision],
+        occurrence_stats_by_key: dict[ClaimRouteValueKey, ClaimOccurrenceStats],
         phase2_assertions: list,
         phase1_result: L2Phase1Result | None = None,
+        claim_outcomes: list[ClaimProjectionOutcomeDraft] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """Validate Phase 2 assertion candidates."""
+        claims_by_id = _claims_by_id(phase1_result)
+        outcome_drafts = claim_outcomes if claim_outcomes is not None else []
+        raw_assertions = _with_host_goal_candidates(
+            list(phase2_assertions or []),
+            claims_by_id=claims_by_id,
+            semantic_routes=semantic_routes,
+        )
         if not policy.allow_assertion_write or not profile.allow_assertion:
+            for assertion in raw_assertions:
+                _append_assertion_rejection_outcomes(
+                    outcome_drafts,
+                    assertion=assertion,
+                    claims_by_id=claims_by_id,
+                    semantic_routes=semantic_routes,
+                    reason_code="assertion_write_disabled",
+                )
             return [], 0
-        raw_assertions = list(phase2_assertions or [])
         if not _profile_accepts_phase2_assertions(profile):
+            for assertion in raw_assertions:
+                _append_assertion_rejection_outcomes(
+                    outcome_drafts,
+                    assertion=assertion,
+                    claims_by_id=claims_by_id,
+                    semantic_routes=semantic_routes,
+                    reason_code="assertion_profile_mode_rejected",
+                )
             return [], len(raw_assertions)
 
-        scoped_assertions = self._apply_assertion_scope(
-            raw_candidates=raw_assertions,
-            assertion_scope=getattr(policy, "assertion_scope", None) or "full",
-        )
+        assertion_scope = str(getattr(policy, "assertion_scope", None) or "full")
+        scoped_assertions = [] if assertion_scope == "none" else raw_assertions
+        if assertion_scope == "none":
+            for assertion in raw_assertions:
+                _append_assertion_rejection_outcomes(
+                    outcome_drafts,
+                    assertion=assertion,
+                    claims_by_id=claims_by_id,
+                    semantic_routes=semantic_routes,
+                    reason_code="assertion_scope_rejected",
+                )
 
         context = Phase2AssertionValidationContext(
             event=event,
@@ -345,8 +442,11 @@ class L2AssertionValidationMixin:
                 for c in graph_candidates
             ],
             default_event_ids=default_event_ids,
-            profile_values_by_trait=_profile_values_by_trait(phase1_result),
-            claims_by_id=_claims_by_id(phase1_result),
+            claims_by_id=claims_by_id,
+            semantic_routes=dict(semantic_routes),
+            occurrence_stats_by_key=dict(occurrence_stats_by_key),
+            assertion_scope=assertion_scope,
+            claim_outcomes=outcome_drafts,
         )
         prepared: list[dict[str, Any]] = []
         rejected_count = max(0, len(raw_assertions) - len(scoped_assertions))
@@ -363,35 +463,159 @@ class L2AssertionValidationMixin:
         assertion: Any,
         context: Phase2AssertionValidationContext,
     ) -> dict[str, Any] | None:
-        trait_family = str(getattr(assertion, "trait_family", "") or "").casefold()
-        trait_name = str(getattr(assertion, "trait_name", "") or "")
-        if not self._phase2_assertion_allowed(assertion, context, trait_family, trait_name):
-            return None
-        if not self._phase2_profile_signal_present(trait_name, context):
-            return None
         supporting_claims = _resolve_supporting_claims(assertion, context.claims_by_id)
         if not supporting_claims:
+            _append_assertion_rejection_outcomes(
+                context.claim_outcomes,
+                assertion=assertion,
+                claims_by_id=context.claims_by_id,
+                semantic_routes=context.semantic_routes,
+                reason_code="invalid_supporting_claims",
+            )
             return None
-        if not _profile_family_matches_claims(trait_family, supporting_claims):
+        route = _shared_semantic_route(supporting_claims, context.semantic_routes)
+        if route is None or route.family is None or route.trait_code is None:
+            _append_assertion_rejection_outcomes(
+                context.claim_outcomes,
+                assertion=assertion,
+                claims_by_id=context.claims_by_id,
+                semantic_routes=context.semantic_routes,
+                supporting_claims=supporting_claims,
+                reason_code="incompatible_semantic_route",
+            )
+            return None
+        trait_family = route.family
+        trait_name = route.trait_code
+        trait_value = (
+            getattr(assertion, "trait_value", "")
+            if route.object_role is ObjectRole.STRUCTURED_TARGET_AND_VALUE
+            else route.canonical_value
+        )
+        if trait_family == "goal_profile":
+            goal_values = {
+                str(claim.object_ref or "").strip()
+                for claim in supporting_claims
+                if str(claim.object_ref or "").strip()
+            }
+            trait_value = next(iter(goal_values)) if len(goal_values) == 1 else None
+        if trait_value is None or not str(trait_value).strip():
+            _append_assertion_rejection_outcomes(
+                context.claim_outcomes,
+                assertion=assertion,
+                claims_by_id=context.claims_by_id,
+                semantic_routes=context.semantic_routes,
+                supporting_claims=supporting_claims,
+                route=route,
+                reason_code="missing_trait_value",
+            )
+            return None
+        if not self._phase2_assertion_allowed(
+            context,
+            trait_family=trait_family,
+            trait_name=trait_name,
+            trait_value=trait_value,
+        ):
+            _append_assertion_rejection_outcomes(
+                context.claim_outcomes,
+                assertion=assertion,
+                claims_by_id=context.claims_by_id,
+                semantic_routes=context.semantic_routes,
+                supporting_claims=supporting_claims,
+                route=route,
+                reason_code="assertion_policy_rejected",
+            )
             return None
         supporting_event_ids = validate_supporting_event_ids(
             _supporting_event_ids(supporting_claims),
             context.default_event_ids,
         )
         if not supporting_event_ids:
+            _append_assertion_rejection_outcomes(
+                context.claim_outcomes,
+                assertion=assertion,
+                claims_by_id=context.claims_by_id,
+                semantic_routes=context.semantic_routes,
+                supporting_claims=supporting_claims,
+                route=route,
+                reason_code="missing_grounded_support",
+            )
+            return None
+        occurrence_stats = _occurrence_stats_for_route(
+            route,
+            context.occurrence_stats_by_key,
+        )
+        temporal_reason = _low_time_confidence_reason(
+            occurrence_stats=occurrence_stats,
+        )
+        if temporal_reason is not None:
+            for claim in supporting_claims:
+                context.claim_outcomes.append(
+                    ClaimProjectionOutcomeDraft(
+                        claim_id=claim.claim_id,
+                        target_kind="assertion",
+                        target_id=f"slot:{route.slot_key}",
+                        target_slot_key=route.slot_key,
+                        outcome="review",
+                        reason_code=temporal_reason,
+                    )
+                )
             return None
         promotion_decision = self._evaluate_phase2_assertion_promotion(
-            event=context.event,
-            profile=context.profile,
             trait_family=trait_family,
             trait_name=trait_name,
-            supporting_claims=supporting_claims,
-            supporting_event_ids=supporting_event_ids,
+            occurrence_stats=occurrence_stats,
         )
+        if (
+            promotion_decision.horizon is PromotionHorizon.RECENT
+            and occurrence_stats.last_observed_at is None
+        ):
+            for claim in supporting_claims:
+                context.claim_outcomes.append(
+                    ClaimProjectionOutcomeDraft(
+                        claim_id=claim.claim_id,
+                        target_kind="assertion",
+                        target_id=f"slot:{route.slot_key}",
+                        target_slot_key=route.slot_key,
+                        outcome="review",
+                        reason_code="low_time_confidence",
+                    )
+                )
+            return None
+        goal_reason = _goal_projection_reason(
+            event=context.event,
+            route=route,
+            supporting_claims=supporting_claims,
+            occurrence_stats=occurrence_stats,
+        )
+        if goal_reason is not None:
+            goal_outcome = "expired" if goal_reason == "goal_target_expired" else "review"
+            for claim in supporting_claims:
+                context.claim_outcomes.append(
+                    ClaimProjectionOutcomeDraft(
+                        claim_id=claim.claim_id,
+                        target_kind="assertion",
+                        target_id=f"slot:{route.slot_key}",
+                        target_slot_key=route.slot_key,
+                        outcome=goal_outcome,
+                        reason_code=goal_reason,
+                    )
+                )
+            return None
         if (
             trait_family in _PROFILE_FAMILIES
             and promotion_decision.horizon is PromotionHorizon.EVENT_ONLY
         ):
+            for claim in supporting_claims:
+                context.claim_outcomes.append(
+                    ClaimProjectionOutcomeDraft(
+                        claim_id=claim.claim_id,
+                        target_kind="assertion",
+                        target_id=f"slot:{route.slot_key}",
+                        target_slot_key=route.slot_key,
+                        outcome="event_only",
+                        reason_code=promotion_decision.reason,
+                    )
+                )
             return None
         return self._normalize_phase2_assertion(
             assertion,
@@ -400,35 +624,38 @@ class L2AssertionValidationMixin:
             trait_name=trait_name,
             supporting_event_ids=supporting_event_ids,
             supporting_claims=supporting_claims,
+            route=route,
+            trait_value=trait_value,
             promotion_decision=promotion_decision,
+            occurrence_stats=occurrence_stats,
         )
 
     def _phase2_assertion_allowed(
         self,
-        assertion: Any,
         context: Phase2AssertionValidationContext,
+        *,
         trait_family: str,
         trait_name: str,
+        trait_value: Any,
     ) -> bool:
         if trait_family not in context.profile.allowed_assertion_families:
             return False
+        if (
+            context.assertion_scope == "topology_only"
+            and trait_family not in _TOPOLOGY_ONLY_TRAIT_FAMILIES
+        ):
+            return False
         if not _profile_allows_assertion_trait(context.profile, trait_name):
             return False
-        assertion_dict = assertion.to_dict() if hasattr(assertion, "to_dict") else dict(assertion)
+        assertion_dict = {
+            "trait_family": trait_family,
+            "trait_name": trait_name,
+            "trait_value": trait_value,
+        }
         is_valid, _ = validate_assertion_candidate(assertion_dict)
         if not is_valid:
             return False
         return not is_leaf_fact_duplicate(context.duplicate_check_candidates, assertion_dict)
-
-    @staticmethod
-    def _phase2_profile_signal_present(
-        trait_name: str,
-        context: Phase2AssertionValidationContext,
-    ) -> bool:
-        return (
-            trait_name not in _PROFILE_TRAITS_REQUIRING_PHASE1_SIGNAL
-            or trait_name in context.profile_values_by_trait
-        )
 
     def _normalize_phase2_assertion(
         self,
@@ -439,27 +666,41 @@ class L2AssertionValidationMixin:
         trait_name: str,
         supporting_event_ids: list[str],
         supporting_claims: list[L2Phase1FactClaim],
+        route: SemanticRouteDecision,
+        trait_value: Any,
         promotion_decision: AssertionPromotionDecision,
+        occurrence_stats: ClaimOccurrenceStats,
     ) -> dict[str, Any]:
         event = context.event
         self_entity_id = context.host._resolve_self_entity_id(event)
-        entity_ref = _supporting_claim_subject(supporting_claims) or context.host._non_empty_text(
-            assertion.entity_ref
-        )
-        if entity_ref and entity_ref.startswith("user:") and self_entity_id:
-            entity_ref = self_entity_id
+        entity_ref = route.subject_id or _supporting_claim_subject(supporting_claims)
         expiry = promotion_decision.expiry
         temporal_scope = expiry.temporal_scope
         decay_policy = expiry.decay_policy
-        expires_at = (
-            event.timestamp + expiry.ttl_seconds if expiry.ttl_seconds is not None else None
+        lifecycle_anchor = (
+            float(occurrence_stats.last_observed_at)
+            if promotion_decision.horizon is PromotionHorizon.RECENT
+            and occurrence_stats.last_observed_at is not None
+            else float(event.timestamp)
         )
+        expires_at = (
+            lifecycle_anchor + expiry.ttl_seconds if expiry.ttl_seconds is not None else None
+        )
+        if trait_family == "goal_profile":
+            target_ends = {
+                float(claim.target_to) for claim in supporting_claims if claim.target_to is not None
+            }
+            expires_at = (
+                next(iter(target_ends))
+                if len(target_ends) == 1
+                else lifecycle_anchor + 30 * 24 * 60 * 60
+            )
         return {
             "entity_id": entity_ref or self_entity_id or "",
-            "entity_type": str(getattr(assertion, "entity_type", "user") or "user"),
+            "entity_type": route.subject_type or "user",
             "trait_family": trait_family,
             "trait_name": trait_name,
-            "trait_value": self._phase2_trait_value(assertion, trait_name, context),
+            "trait_value": trait_value,
             "confidence_score": _supporting_claim_confidence(supporting_claims),
             "evidence_events": supporting_event_ids,
             "volatility_index": _volatility_for_temporal_scope(temporal_scope),
@@ -467,43 +708,31 @@ class L2AssertionValidationMixin:
             "inference_depth": event.tom_depth.label,
             "validation_state": "tentative",
             "first_inferred_at": event.timestamp,
-            "last_validated_at": event.timestamp,
-            "target_entity_id": "",
-            "target_entity_type": "",
-            "target_scope": "global",
+            "last_validated_at": lifecycle_anchor,
+            "target_entity_id": route.target_entity_id or "",
+            "target_entity_type": route.target_entity_type or "",
+            "target_scope": "entity_bound" if route.target_entity_id else "global",
             "temporal_scope": temporal_scope,
             "decay_policy": decay_policy,
-            "decay_anchor_at": event.timestamp,
+            "decay_anchor_at": lifecycle_anchor,
             "context_ref_id": "",
             "expires_at": expires_at,
             "memory_subdomain": classify_memory_subdomain(temporal_scope, decay_policy),
             "natural_summary": str(getattr(assertion, "natural_summary", "") or "")[:500],
+            "semantic_route_key": route.route_key or "",
+            "semantic_route_slot_key": route.slot_key or "",
+            "route_contract_version": ROUTE_CONTRACT_VERSION,
+            "supporting_claim_ids": [claim.claim_id for claim in supporting_claims],
         }
-
-    @staticmethod
-    def _phase2_trait_value(
-        assertion: Any,
-        trait_name: str,
-        context: Phase2AssertionValidationContext,
-    ) -> str:
-        trait_value = context.profile_values_by_trait.get(trait_name) or assertion.trait_value
-        if isinstance(trait_value, (dict, list)):
-            trait_value = json.dumps(trait_value, ensure_ascii=False, sort_keys=True)
-        elif trait_value is None:
-            trait_value = ""
-        return str(trait_value)[:40]
 
     def _evaluate_phase2_assertion_promotion(
         self,
         *,
-        event: MemoryEvent,
-        profile: ExtractionProfile,
         trait_family: str,
         trait_name: str,
-        supporting_claims: list[L2Phase1FactClaim],
-        supporting_event_ids: list[str],
+        occurrence_stats: ClaimOccurrenceStats,
     ) -> AssertionPromotionDecision:
-        """Derive host-owned horizon and expiry from grounded evidence."""
+        """Derive horizon only from the complete active Claim ledger snapshot."""
         name_lower = trait_name.casefold()
         policy = get_assertion_family_policy(trait_family)
         baseline_scope: str | None
@@ -517,22 +746,10 @@ class L2AssertionValidationMixin:
             baseline_scope = policy.default_temporal_scope if policy is not None else None
             baseline_decay = policy.default_decay_policy if policy is not None else None
             baseline_ttl = policy.default_ttl_seconds if policy is not None else None
-        fact_kind = _promotion_fact_kind(supporting_claims)
-        predicate = _promotion_predicate(supporting_claims)
         return evaluate_assertion_promotion(
             AssertionPromotionInput(
                 trait_family=trait_family,
-                fact_kind=fact_kind,
-                predicate=predicate,
-                evidence_class=_event_evidence_class(event),
-                source_strength=_source_strength_for_claims(event, supporting_claims),
-                temporal_cue=_promotion_temporal_cue(supporting_claims),
-                observation_count=max(len(supporting_claims), len(supporting_event_ids)),
-                evidence_count=len(supporting_event_ids),
-                distinct_days=1 if supporting_event_ids else 0,
-                span_days=0.0,
-                recency_days=0.0,
-                durable_permitted=_profile_permits_durable(event, profile, trait_family),
+                **occurrence_stats.promotion_fields(),
                 baseline_temporal_scope=baseline_scope,
                 baseline_decay_policy=baseline_decay,
                 baseline_ttl_seconds=baseline_ttl,

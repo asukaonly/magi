@@ -150,6 +150,19 @@ ASSERTION_FAMILY_POLICIES: dict[str, AssertionFamilyPolicy] = {
         snapshot_bucket="core_traits",
         value_i18n="literal",
     ),
+    "goal_profile": AssertionFamilyPolicy(
+        family="goal_profile",
+        description="A concrete near-term goal or plan explicitly stated by the user.",
+        phase2_guidance=(
+            "Use only for direct future-intent Claims with a resolved concrete target; "
+            "never promote goals into durable identity or core traits."
+        ),
+        default_temporal_scope="recent",
+        default_decay_policy="time_window",
+        default_ttl_seconds=30 * 24 * 60 * 60,
+        snapshot_bucket="context",
+        value_i18n="literal",
+    ),
     "routine_profile": AssertionFamilyPolicy(
         family="routine_profile",
         description="Stable behavior patterns and rhythms such as recurring tools, times, or habits.",

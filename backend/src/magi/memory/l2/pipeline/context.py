@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Iterable, Optional, Protocol, cast
+from typing import Any, Iterable, Mapping, Optional, Protocol, cast
 
 from ...event_contracts import (
     IngestTarget,
@@ -18,11 +18,13 @@ from ..context_collector import collect_context_bundle
 from ..entities.catalog import L2EntityCatalog
 from ..entities.catalog.lookup import get_canonical_names
 from ..models import L2BatchJob, L2FocalEntityRef, L2HistoryContext
+from ..semantic_routing import SemanticRouteDecision
 from ..store import L2CognitionStore
 
 DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT = 3
 DEFAULT_L2_HISTORY_CONTEXT_LIMIT = 3
 DEFAULT_L2_HISTORY_SEARCH_LIMIT = 4
+_HOST_CONFLICT_CONTEXT_PAGE_SIZE = 100
 
 
 def _context_row_precedes_event(row: dict[str, Any], event: MemoryEvent) -> bool:
@@ -249,6 +251,110 @@ class L2PipelineContextMixin:
                 assertions.append(assertion)
 
         return graph_edges[:30], assertions[:20]
+
+    async def _load_host_conflict_context(
+        self,
+        *,
+        graph_candidates: list[dict[str, Any]],
+        assertion_candidates: list[dict[str, Any]],
+        semantic_routes: Mapping[str, SemanticRouteDecision],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Load complete current records relevant to host conflict checks.
+
+        Phase 2 model context stays deliberately small. Host validation must not
+        inherit those presentation limits, so it pages through every active
+        relationship for candidate subjects and every live assertion family for
+        candidate routes. The validation layer remains responsible for exact
+        slot and graph-taxonomy compatibility.
+        """
+
+        host = self._context_host()
+        if host._cognition_store is None:
+            return [], []
+
+        graph_edges: list[dict[str, Any]] = []
+        seen_triple_ids: set[str] = set()
+        graph_subject_ids = sorted(
+            {
+                subject_id
+                for candidate in graph_candidates
+                if (subject_id := _non_empty_context_text(candidate.get("subject_id")))
+            }
+        )
+        for subject_id in graph_subject_ids:
+            offset = 0
+            while True:
+                page = await host._cognition_store.get_relationships(
+                    subject_id=subject_id,
+                    status="active",
+                    include_inactive=False,
+                    limit=_HOST_CONFLICT_CONTEXT_PAGE_SIZE,
+                    offset=offset,
+                )
+                for relation in page:
+                    triple_id = _non_empty_context_text(relation.get("triple_id"))
+                    if triple_id is None or triple_id in seen_triple_ids:
+                        continue
+                    seen_triple_ids.add(triple_id)
+                    graph_edges.append(relation)
+                if len(page) < _HOST_CONFLICT_CONTEXT_PAGE_SIZE:
+                    break
+                offset += len(page)
+
+        assertion_claim_ids = {
+            claim_id
+            for candidate in assertion_candidates
+            for raw_claim_id in (candidate.get("supporting_claim_ids") or [])
+            if (claim_id := _non_empty_context_text(raw_claim_id))
+        }
+        assertion_query_keys = {
+            (
+                route.subject_id,
+                route.subject_type,
+                route.family,
+                route.target_entity_id,
+            )
+            for claim_id in assertion_claim_ids
+            if (route := semantic_routes.get(claim_id)) is not None
+            and route.can_project_assertion
+            and route.subject_id
+            and route.subject_type
+            and route.family
+        }
+        assertions: list[dict[str, Any]] = []
+        seen_assertion_ids: set[str] = set()
+        for subject_id, subject_type, family, target_entity_id in sorted(
+            assertion_query_keys,
+            key=lambda key: tuple(str(value or "") for value in key),
+        ):
+            offset = 0
+            while True:
+                page = await host._cognition_store.list_tom_assertions(
+                    entity_id=subject_id,
+                    entity_type=subject_type,
+                    trait_families=[family],
+                    target_entity_id=target_entity_id,
+                    include_expired=False,
+                    include_inactive=False,
+                    include_superseded=False,
+                    limit=_HOST_CONFLICT_CONTEXT_PAGE_SIZE,
+                    offset=offset,
+                )
+                for assertion in page:
+                    if _non_empty_context_text(assertion.get("target_entity_id")) != (
+                        _non_empty_context_text(target_entity_id)
+                    ):
+                        continue
+                    assertion_id = _non_empty_context_text(assertion.get("assertion_id"))
+                    if assertion_id is None or assertion_id in seen_assertion_ids:
+                        continue
+                    seen_assertion_ids.add(assertion_id)
+                    assertions.append(assertion)
+                if len(page) < _HOST_CONFLICT_CONTEXT_PAGE_SIZE:
+                    break
+                offset += len(page)
+
+        return graph_edges, assertions
 
     async def _load_history_contexts(
         self,
@@ -497,6 +603,11 @@ class L2PipelineContextMixin:
 
     def _context_host(self) -> _L2PipelineContextHostProtocol:
         return self  # type: ignore[return-value]
+
+
+def _non_empty_context_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
 
 
 def _history_match_terms(match: dict[str, Any], host: _L2PipelineContextHostProtocol) -> list[str]:

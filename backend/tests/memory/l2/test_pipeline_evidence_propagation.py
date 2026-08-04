@@ -78,7 +78,7 @@ def test_phase1_graph_projection_includes_evidence_class():
         effective_structured_allowed_predicates=frozenset({"LIKES"}),
     )
 
-    candidates, rejected_count = pipeline._project_phase1_graph_candidates(
+    candidates, outcomes = pipeline._project_phase1_graph_candidates(
         phase1_result=phase1_result,
         event=event,
         evidence_event_ids=["evt-ft"],
@@ -88,7 +88,7 @@ def test_phase1_graph_projection_includes_evidence_class():
         classification=classification,
     )
 
-    assert rejected_count == 0
+    assert outcomes == []
     assert len(candidates) == 1
     assert candidates[0]["evidence_class"] == EvidenceClass.USER_SELF_REPORT.label
 

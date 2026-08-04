@@ -16,6 +16,7 @@ from ..models import (
     L2FocalEntityRef,
     ReconciledTraitOutcome,
 )
+from ..projection.models import TerminalClaimFailureContext
 from ..store import L2CognitionStore
 
 logger = get_logger("magi.memory.l2.pipeline")
@@ -27,6 +28,7 @@ class _L2PipelineWorkerHostProtocol(Protocol):
     _reconcile_queue: asyncio.Queue[list[str] | None]
     _snapshot_queue: asyncio.Queue[list[str] | None]
     _projection_consumer_name: str
+    _projection_heartbeat_interval_seconds: float
     _stats: Any
     _state_change_callback: (
         Callable[[str, str, list[ReconciledTraitOutcome]], Awaitable[None]] | None
@@ -52,6 +54,8 @@ class _L2PipelineWorkerHostProtocol(Protocol):
     def _resolve_self_entity_id(self, event: MemoryEvent) -> str | None: ...
 
     def _memory_operation_guard(self) -> Any: ...
+
+    async def _drain_event_entity_link_outbox(self) -> int: ...
 
 
 class L2PipelineWorkerMixin:
@@ -82,18 +86,39 @@ class L2PipelineWorkerMixin:
 
     async def _process_extract_job_locked(self, job: L2BatchJob) -> None:
         host = self._worker_host()
+        heartbeat_task: asyncio.Task[None] | None = None
+        lease_lost = asyncio.Event()
         host._stats.extract_active += 1
         try:
             should_process = await self._start_extract_job(job)
             if not should_process:
                 return
-            result = await host._extract_and_persist(job)
-            if job.event_ids and host._cognition_store is not None:
-                await host._cognition_store.complete_projection_jobs(job.event_ids)
+            if job.projection_leases and host._cognition_store is not None:
+                heartbeat_task = asyncio.create_task(
+                    self._run_projection_heartbeat(job, lease_lost)
+                )
+            result = self._validate_extract_result(await host._extract_and_persist(job))
+            if lease_lost.is_set():
+                raise RuntimeError("projection_attempt_fenced_during_extraction")
             await self._finish_extract_job(job, result)
+            if lease_lost.is_set():
+                raise RuntimeError("projection_attempt_fenced_before_completion")
+            await self._stop_projection_heartbeat(heartbeat_task)
+            heartbeat_task = None
+            if lease_lost.is_set():
+                raise RuntimeError("projection_attempt_fenced_before_completion")
+            if job.projection_leases and host._cognition_store is not None:
+                completed = await host._cognition_store.complete_projection_jobs(
+                    job.projection_leases
+                )
+                if completed != len(job.projection_leases):
+                    raise RuntimeError("projection_attempt_fenced_before_completion")
+                await host._drain_event_entity_link_outbox()
+            self._record_extract_job_completion(job, result)
         except Exception as exc:
             await self._fail_extract_job(job, exc)
         finally:
+            await self._stop_projection_heartbeat(heartbeat_task)
             host._stats.extract_active = max(host._stats.extract_active - 1, 0)
 
     async def _start_extract_job(self, job: L2BatchJob) -> bool:
@@ -108,12 +133,20 @@ class L2PipelineWorkerMixin:
         )
         if not job.event_ids or host._cognition_store is None:
             return True
+        if not job.projection_leases:
+            host._stats.extract_skipped += 1
+            logger.warning(
+                "L2 extract skipped without a durable projection lease",
+                job_id=job.job_id,
+                event_ids=job.event_ids,
+            )
+            return False
 
         transitioned = await host._cognition_store.mark_projection_jobs_running(
-            job.event_ids,
+            job.projection_leases,
             consumer_name=host._projection_consumer_name,
         )
-        if transitioned != 0:
+        if transitioned == len(job.projection_leases):
             return True
 
         host._stats.extract_skipped += 1
@@ -125,16 +158,94 @@ class L2PipelineWorkerMixin:
         )
         return False
 
+    async def _run_projection_heartbeat(
+        self,
+        job: L2BatchJob,
+        lease_lost: asyncio.Event,
+    ) -> None:
+        """Keep a running projection batch live until its final fenced write."""
+
+        host = self._worker_host()
+        interval_seconds = max(0.001, float(host._projection_heartbeat_interval_seconds))
+        while True:
+            await asyncio.sleep(interval_seconds)
+            if host._cognition_store is None:
+                lease_lost.set()
+                return
+            try:
+                touched = await host._cognition_store.touch_running_projection_jobs(
+                    job.projection_leases
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    "L2 projection heartbeat failed",
+                    job_id=job.job_id,
+                    event_ids=job.event_ids,
+                    exc_info=True,
+                )
+                continue
+            if touched == len(job.projection_leases):
+                continue
+            lease_lost.set()
+            logger.warning(
+                "L2 projection heartbeat lost its lease",
+                job_id=job.job_id,
+                event_ids=job.event_ids,
+                expected_count=len(job.projection_leases),
+                touched_count=touched,
+            )
+            return
+
+    @staticmethod
+    async def _stop_projection_heartbeat(task: asyncio.Task[None] | None) -> None:
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    @staticmethod
+    def _validate_extract_result(result: Any) -> dict[str, Any]:
+        """Normalize completion metrics before any durable completion side effect."""
+
+        if not isinstance(result, dict):
+            raise TypeError("L2 extraction result must be a mapping")
+        normalized = dict(result)
+        for key in (
+            "relation_count",
+            "assertion_count",
+            "mention_count",
+            "graph_candidate_count",
+            "assertion_candidate_count",
+            "rejected_graph_candidate_count",
+            "rejected_assertion_candidate_count",
+            "contradiction_hint_count",
+        ):
+            try:
+                count = int(normalized.get(key, 0) or 0)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"L2 extraction result has an invalid {key}") from exc
+            if count < 0:
+                raise ValueError(f"L2 extraction result has a negative {key}")
+            normalized[key] = count
+        for key in ("touched_entity_ids", "snapshot_refresh_entity_ids"):
+            value = normalized.get(key, [])
+            if not isinstance(value, list):
+                raise TypeError(f"L2 extraction result {key} must be a list")
+            normalized[key] = value
+        return normalized
+
     async def _finish_extract_job(
         self,
         job: L2BatchJob,
         result: dict[str, Any],
     ) -> None:
         host = self._worker_host()
-        host._stats.extract_completed += 1
-        self._log_extract_result(job, result)
-        host._stats.relations_written += int(result["relation_count"])
-        host._stats.assertions_written += int(result["assertion_count"])
         touched_entity_ids = result.get("touched_entity_ids", [])
         if isinstance(touched_entity_ids, list) and touched_entity_ids:
             host._accumulate_session_entities(job.session_id, touched_entity_ids)
@@ -150,6 +261,17 @@ class L2PipelineWorkerMixin:
                 result=result,
                 touched_entity_ids=touched_entity_ids,
             )
+
+    def _record_extract_job_completion(
+        self,
+        job: L2BatchJob,
+        result: dict[str, Any],
+    ) -> None:
+        host = self._worker_host()
+        host._stats.extract_completed += 1
+        self._log_extract_result(job, result)
+        host._stats.relations_written += int(result["relation_count"])
+        host._stats.assertions_written += int(result["assertion_count"])
 
     def _log_extract_result(self, job: L2BatchJob, result: dict[str, Any]) -> None:
         host = self._worker_host()
@@ -230,18 +352,32 @@ class L2PipelineWorkerMixin:
                 (evt.get("metadata_json") or {}).get("interaction_kind")
                 if isinstance(evt.get("metadata_json"), dict)
                 else ""
-            ).strip().lower()
+            )
+            .strip()
+            .lower()
             != FIRST_CONTEXT_STORY_INTERACTION_KIND
         ]
 
     async def _fail_extract_job(self, job: L2BatchJob, exc: Exception) -> None:
         host = self._worker_host()
-        if host._cognition_store is not None and job.event_ids:
+        if host._cognition_store is not None and job.projection_leases:
+            requeue = not isinstance(exc, L2LLMJsonError)
             await host._cognition_store.fail_projection_jobs(
-                job.event_ids,
+                job.projection_leases,
                 error_text=str(exc),
-                requeue=not isinstance(exc, L2LLMJsonError),
+                requeue=requeue,
+                terminal_claim_failure=TerminalClaimFailureContext(
+                    attempt_key=job.attempt_key,
+                    target_id=job.job_id,
+                    error_type=type(exc).__name__,
+                    reason_code=(
+                        "pipeline_retry_budget_exhausted"
+                        if requeue
+                        else "pipeline_non_retryable_failure"
+                    ),
+                ),
             )
+            await host._drain_event_entity_link_outbox()
         host._stats.extract_failed += 1
         logger.exception(
             "L2 extract failed",
@@ -268,8 +404,8 @@ class L2PipelineWorkerMixin:
                     )
                     if host._cognition_store is not None:
                         async with host._cognition_store.memory_correction_job_guard():
-                            snapshot_candidates, total_outcomes = (
-                                await self._reconcile_entities(entity_ids)
+                            snapshot_candidates, total_outcomes = await self._reconcile_entities(
+                                entity_ids
                             )
                     else:
                         snapshot_candidates, total_outcomes = set(), 0

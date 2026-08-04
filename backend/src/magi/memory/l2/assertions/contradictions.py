@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Dict, Protocol, cast
 
@@ -10,9 +11,21 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
+from ..batch_models import L2ProjectionLease
 from ..models import ContradictionHint
+from ..projection.fencing import (
+    assert_current_projection_attempt,
+    normalize_projection_leases,
+)
 
 logger = get_logger(__name__)
+
+_ALLOWED_ACTIONS_BY_TARGET = {
+    "knowledge_graph": frozenset({"mark_conflicted", "mark_deprecated", "revalidate_only"}),
+    "tom_trait_assertion": frozenset(
+        {"downgrade_confidence", "mark_conflicted", "revalidate_only"}
+    ),
+}
 
 
 class _ContradictionHostProtocol(Protocol):
@@ -36,31 +49,58 @@ class _ContradictionPayload:
 class L2StoreContradictionMixin:
     """Apply contradiction hints to persisted graph and assertion records."""
 
-    async def apply_contradiction_hint(self, hint: Dict[str, Any] | ContradictionHint) -> bool:
+    async def apply_contradiction_hint(
+        self,
+        hint: Dict[str, Any] | ContradictionHint,
+        *,
+        projection_leases: Iterable[L2ProjectionLease] = (),
+    ) -> bool:
         """Apply a contradiction hint to an existing graph edge or ToM assertion."""
         host = cast(_ContradictionHostProtocol, self)
         payload = self._contradiction_payload(hint)
         if not payload.target_record_id or not payload.target_record_type:
             return False
+        if payload.action not in _ALLOWED_ACTIONS_BY_TARGET.get(
+            payload.target_record_type,
+            frozenset(),
+        ):
+            logger.warning(
+                "L2 contradiction hint rejected an unsupported action",
+                target_record_type=payload.target_record_type,
+                target_record_id=payload.target_record_id,
+                action=payload.action,
+            )
+            return False
 
         now = time.time()
         await host.initialize()
+        lease_items = normalize_projection_leases(projection_leases, required=False)
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            if payload.target_record_type == "tom_trait_assertion":
-                return await self._apply_assertion_contradiction(
-                    db,
-                    host=host,
-                    payload=payload,
-                    now=now,
-                )
-
-            if payload.target_record_type == "knowledge_graph":
-                return await self._apply_relation_contradiction(
-                    db,
-                    payload=payload,
-                    now=now,
-                )
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                if lease_items:
+                    await assert_current_projection_attempt(db, lease_items)
+                if payload.target_record_type == "tom_trait_assertion":
+                    applied = await self._apply_assertion_contradiction(
+                        db,
+                        host=host,
+                        payload=payload,
+                        now=now,
+                    )
+                elif payload.target_record_type == "knowledge_graph":
+                    applied = await self._apply_relation_contradiction(
+                        db,
+                        payload=payload,
+                        now=now,
+                    )
+                else:
+                    applied = False
+                await db.commit()
+                return applied
+            except Exception:
+                await db.rollback()
+                raise
 
         return False
 
@@ -127,7 +167,6 @@ class L2StoreContradictionMixin:
             """,
             (now, now, payload.target_record_id),
         )
-        await db.commit()
         logger.info(
             "L2 contradiction revalidated existing assertion",
             target_record_type=payload.target_record_type,
@@ -149,11 +188,7 @@ class L2StoreContradictionMixin:
             hint_confidence=payload.confidence,
             action=payload.action,
         )
-        next_state = (
-            "contradicted"
-            if payload.action in {"downgrade_confidence", "mark_conflicted"}
-            else "corroborated"
-        )
+        next_state = "contradicted"
         await db.execute(
             """
             UPDATE tom_trait_assertions
@@ -168,7 +203,6 @@ class L2StoreContradictionMixin:
                 payload.target_record_id,
             ),
         )
-        await db.commit()
         logger.info(
             "L2 contradiction applied",
             target_record_type=payload.target_record_type,
@@ -209,7 +243,6 @@ class L2StoreContradictionMixin:
             """,
             (now, now, payload.target_record_id),
         )
-        await db.commit()
         logger.info(
             "L2 contradiction revalidated existing relation",
             target_record_type=payload.target_record_type,
@@ -239,7 +272,6 @@ class L2StoreContradictionMixin:
                 payload.target_record_id,
             ),
         )
-        await db.commit()
         logger.info(
             "L2 contradiction applied",
             target_record_type=payload.target_record_type,

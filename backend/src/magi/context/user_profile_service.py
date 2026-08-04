@@ -39,6 +39,7 @@ class _CacheEntry:
     preferences: Dict[str, Any] = field(default_factory=dict)
     prompt_summary: list[str] = field(default_factory=list)
     correction_signal: int = 0
+    source_revision: int | None = None
     fetched_at: float = 0.0
 
 
@@ -102,26 +103,87 @@ class UserProfileService:
             self._memory_db_path(),
             f"user:{user_id}",
         )
+        revision_supported, current_revision = await self._current_source_revision(user_id)
         if (
             entry is not None
             and entry.correction_signal == current_signal
+            and (
+                not revision_supported
+                or (
+                    current_revision is not None
+                    and entry.source_revision == current_revision
+                )
+            )
             and (now - entry.fetched_at) < self._ttl_for_entry(entry)
         ):
             return entry
 
-        entry = _CacheEntry(fetched_at=now, correction_signal=current_signal)
+        for read_attempt in range(2):
+            entry = await self._fetch_entry(
+                user_id,
+                fetched_at=now,
+                correction_signal=current_signal,
+            )
+            completed_supported, completed_revision = await self._current_source_revision(
+                user_id
+            )
+            revision_supported = revision_supported or completed_supported
+            entry.source_revision = completed_revision
+            if (
+                not revision_supported
+                or current_revision is None
+                or completed_revision is None
+                or current_revision == completed_revision
+            ):
+                if not revision_supported or completed_revision is not None:
+                    self._cache[user_id] = entry
+                return entry
+            if read_attempt == 0:
+                current_revision = completed_revision
+                now = time.monotonic()
+
+        logger.warning(
+            "Discarded user profile read because the source revision kept changing",
+            user_id=user_id,
+        )
+        return _CacheEntry()
+
+    async def _fetch_entry(
+        self,
+        user_id: str,
+        *,
+        fetched_at: float,
+        correction_signal: int,
+    ) -> _CacheEntry:
+        entry = _CacheEntry(
+            fetched_at=fetched_at,
+            correction_signal=correction_signal,
+        )
         prompt_summary = await self._fetch_portrait_prompt_summary(user_id)
         projection_entry = await self._fetch_projection_entry(user_id)
         if projection_entry is not None:
             entry = projection_entry
-            entry.fetched_at = now
-            entry.correction_signal = current_signal
+            entry.fetched_at = fetched_at
+            entry.correction_signal = correction_signal
         else:
             entry.preferences = await self._fetch_preferences(user_id)
-            entry.display_name = await self._fetch_display_name(user_id, preferences=entry.preferences)
+            entry.display_name = await self._fetch_display_name(
+                user_id,
+                preferences=entry.preferences,
+            )
         entry.prompt_summary = prompt_summary
-        self._cache[user_id] = entry
         return entry
+
+    async def _current_source_revision(self, user_id: str) -> tuple[bool, int | None]:
+        l2 = getattr(self._unified_memory, "l2", None)
+        getter = getattr(l2, "current_subject_revision", None)
+        if not callable(getter):
+            return False, None
+        try:
+            return True, int(await getter(f"user:{user_id}"))
+        except Exception:
+            logger.debug("Failed to read profile source revision for %s", user_id)
+            return True, None
 
     async def _fetch_portrait_prompt_summary(self, user_id: str) -> list[str]:
         db_path = self._memory_db_path()

@@ -13,6 +13,8 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
+from ..claims.repository import redact_grounded_claims_by_ids
+from ..claims.reprojection_write import retire_claim_target_authority_on_connection
 from ..corrections.cache_signals import mark_subject_changed
 from ..corrections.evidence_ledger import (
     claim_evidence_records_for_claims,
@@ -66,6 +68,14 @@ class _ForgettingHostProtocol(Protocol):
         self,
         event_ids: list[str],
     ) -> Dict[str, float]: ...
+
+    async def _stage_entity_link_forget_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        entity_id: str,
+        operation_key: str,
+    ) -> int: ...
 
 
 class L2StoreForgettingMixin:
@@ -242,6 +252,7 @@ class L2StoreForgettingMixin:
         self,
         *,
         entity_id: str,
+        operation_key: str | None = None,
     ) -> Dict[str, int]:
         """Cascade soft-delete everything derived from an entity."""
         host = cast(_ForgettingHostProtocol, self)
@@ -270,6 +281,34 @@ class L2StoreForgettingMixin:
                 "entity_id = ? OR target_entity_id = ?",
                 (entity_id, entity_id),
             )
+            async with db.execute(
+                """
+                SELECT DISTINCT claims.claim_id
+                FROM l2_grounded_claims AS claims
+                LEFT JOIN l2_claim_entity_refs AS refs
+                  ON refs.claim_id = claims.claim_id
+                WHERE claims.availability = 'active'
+                  AND (claims.subject_ref = ? OR refs.entity_id = ?)
+                ORDER BY claims.claim_id
+                """,
+                (entity_id, entity_id),
+            ) as cursor:
+                grounded_claim_ids = [str(row[0]) for row in await cursor.fetchall()]
+            claim_target_retirement = await retire_claim_target_authority_on_connection(
+                db,
+                claim_ids=grounded_claim_ids,
+                invalidated_reason="entity_forgotten",
+                changed_at=now,
+            )
+            counts.update(
+                await redact_grounded_claims_by_ids(
+                    db,
+                    claim_ids=grounded_claim_ids,
+                    reason=f"forget_entity:{entity_id}",
+                    invalidated_reason="entity_forgotten",
+                    now=now,
+                )
+            )
             cursor = await db.execute(
                 """
                 UPDATE knowledge_graph
@@ -279,7 +318,9 @@ class L2StoreForgettingMixin:
                 """,
                 (f"{_FORGET_AUTHORITY_PREFIX}entity", now, entity_id, entity_id),
             )
-            counts["knowledge_graph"] = cursor.rowcount
+            counts["knowledge_graph"] = (
+                max(int(cursor.rowcount or 0), 0) + claim_target_retirement.relationships_archived
+            )
             await db.execute(
                 """
                 UPDATE knowledge_graph
@@ -304,7 +345,9 @@ class L2StoreForgettingMixin:
                 """,
                 (now, entity_id, entity_id),
             )
-            counts["tom_trait_assertions"] = cursor.rowcount
+            counts["tom_trait_assertions"] = (
+                max(int(cursor.rowcount or 0), 0) + claim_target_retirement.assertions_archived
+            )
             await db.execute(
                 """
                 UPDATE tom_trait_assertions
@@ -365,8 +408,19 @@ class L2StoreForgettingMixin:
                 repository=MemoryCorrectionRepository(host.db_path),
                 forgotten_assertions=forgotten_assertions,
                 forgotten_edges=forgotten_edges,
-                explicit_subject_keys=(entity_id,),
+                explicit_subject_keys=(
+                    entity_id,
+                    *claim_target_retirement.affected_subject_keys,
+                ),
                 now=now,
+            )
+
+            counts["event_entity_links"] = (
+                await host._stage_entity_link_forget_on_connection(
+                    db,
+                    entity_id=entity_id,
+                    operation_key=operation_key or f"direct:{entity_id}",
+                )
             )
 
             await db.commit()

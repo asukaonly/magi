@@ -31,6 +31,7 @@ from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
 from magi.memory.l3.models import L3Candidate
 from magi.memory.l3.storage.operations import ForgottenSummarySourceEventError
 from magi.memory.l2.episodes.crud import ForgottenEpisodeTimeRangeError
+from magi.memory.l2.models import L2ProjectionLease
 from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
 
 
@@ -448,7 +449,7 @@ async def test_time_range_forgetting_retains_l1_and_removes_all_derivatives(
 ) -> None:
     await apply_memory_shared_schema(str(tmp_path / "memory.db"))
     memory = _build_memory(tmp_path)
-    await memory.initialize()
+    await memory.initialize(start_workers=False)
     assert memory.l0 is not None and memory.l1 is not None
     assert memory.l2 is not None and memory.l2_entity_catalog is not None
     assert memory.l3 is not None and memory.l4 is not None
@@ -456,6 +457,52 @@ async def test_time_range_forgetting_retains_l1_and_removes_all_derivatives(
     time_event = _event("event-l0-time", timestamp=1_720_001_000.0)
     await memory.l1.store(source_event)
     await memory.l1.store(time_event)
+    await memory.l1.write_event_entities(
+        [(time_event.event_id, "entity:manual", "manual", 0.8)]
+    )
+    assert await memory.l2.enqueue_projection_job(
+        event_id=time_event.event_id,
+        source="chat",
+        event_type="UserMessage",
+    )
+    claimed = await memory.l2.claim_projection_jobs(
+        consumer_name="time-range-link-test",
+        limit=1,
+    )
+    projection_lease = L2ProjectionLease.from_dict(claimed[0])
+    assert (
+        await memory.l2.bind_projection_job_batch(
+            [projection_lease],
+            consumer_name="time-range-link-test",
+        )
+        == 1
+    )
+    assert (
+        await memory.l2.mark_projection_jobs_running(
+            [projection_lease],
+            consumer_name="time-range-link-test",
+        )
+        == 1
+    )
+    await memory.l2.stage_event_entity_link_projections(
+        desired_links_by_event={
+            time_event.event_id: [("entity:projected", "projected", 0.9)]
+        },
+        projection_leases=[projection_lease],
+    )
+    assert await memory.l2.complete_projection_jobs([projection_lease]) == 1
+    assert memory.l2_pipeline is not None
+    assert (
+        await memory.l2_pipeline._drain_event_entity_link_outbox(
+            raise_on_error=True
+        )
+        == 1
+    )
+    assert set(
+        (await memory.l1.get_event_entity_ids([time_event.event_id]))[
+            time_event.event_id
+        ]
+    ) == {"entity:manual", "entity:projected"}
     await _apply_attention(
         memory,
         session_id="session-1",
@@ -575,6 +622,18 @@ async def test_time_range_forgetting_retains_l1_and_removes_all_derivatives(
         assert (await memory.l0.get_workbench("session-1"))["attention_items"] == []
         retained_l1 = await memory.l1.get_event(time_event.event_id)
         assert retained_l1 is not None and retained_l1["deleted_at"] is None
+        assert (
+            await memory.l1.get_event_entity_ids([time_event.event_id])
+        )[time_event.event_id] == ["entity:manual"]
+        async with aiosqlite.connect(memory.l1.db_path) as l1_db:
+            async with l1_db.execute(
+                """
+                SELECT COUNT(*) FROM l1_projected_event_entities
+                WHERE event_id = ?
+                """,
+                (time_event.event_id,),
+            ) as cursor:
+                assert await cursor.fetchone() == (0,)
         assertion = await memory.l2.get_tom_assertion(assertion_id=assertion_id)
         edge = await memory.l2.get_relationship(triple_id=edge_id)
         assert assertion is not None and assertion["status"] == "archived"
@@ -2137,7 +2196,34 @@ async def test_entity_forget_promotes_raced_target_lineage_before_cleanup(
         source="chat",
         event_type="UserMessage",
     )
-    assert await memory.l2.complete_projection_jobs([event_id]) == 1
+    claimed = await memory.l2.claim_projection_jobs(
+        consumer_name="forget-race-test",
+        limit=1,
+    )
+    lease = L2ProjectionLease(
+        event_id=event_id,
+        lease_token=str(claimed[0]["lease_token"]),
+        attempt_count=int(claimed[0]["attempt_count"]),
+    )
+    assert (
+        await memory.l2.bind_projection_job_batch(
+            [lease],
+            consumer_name="forget-race-test",
+        )
+        == 1
+    )
+    assert (
+        await memory.l2.mark_projection_jobs_running(
+            [lease],
+            consumer_name="forget-race-test",
+        )
+        == 1
+    )
+    await memory.l2.stage_event_entity_link_projections(
+        desired_links_by_event={event_id: []},
+        projection_leases=[lease],
+    )
+    assert await memory.l2.complete_projection_jobs([lease]) == 1
     summary = await memory.l3.upsert_candidate(
         candidate=L3Candidate(
             summary_type="thematic",

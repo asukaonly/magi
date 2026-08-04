@@ -22,4 +22,14 @@ def active_projection_event_predicate(event_id_sql: str) -> str:
     """
 
 
-__all__ = ["active_projection_event_predicate"]
+def ready_projection_job_predicate(job_sql: str) -> str:
+    """Return SQL for a pending job whose retry window and budget permit claim."""
+
+    return f"""
+        {job_sql}.status = 'pending'
+        AND COALESCE({job_sql}.next_retry_at, 0) <= CAST(strftime('%s', 'now') AS REAL)
+        AND {job_sql}.attempt_count < {job_sql}.max_attempts
+    """
+
+
+__all__ = ["active_projection_event_predicate", "ready_projection_job_predicate"]

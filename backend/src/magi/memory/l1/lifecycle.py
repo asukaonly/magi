@@ -21,6 +21,7 @@ from .embeddings.common import (
 # Compose the canonical L1 schema from the release baseline migration.
 _L1_MIGRATION_MODULES = (
     "magi.db.migrations.l1.versions.v1_initial",
+    "magi.db.migrations.l1.versions.v2_l2_entity_link_projections",
 )
 SCHEMA_SQL = "\n".join(
     importlib.import_module(_module).SCHEMA_SQL for _module in _L1_MIGRATION_MODULES

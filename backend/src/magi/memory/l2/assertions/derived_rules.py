@@ -14,6 +14,7 @@ from ....identity.defaults import CANONICAL_LOCAL_USER
 from ..entities.catalog.lookup import get_canonical_names
 from ..ontology import ASSERTION_FAMILY_ALLOWLIST, ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
 from ..phase1_models import L2TemporalCue
+from .occurrence_stats import summarize_occurrence_times
 from .promotion import (
     AssertionPromotionInput,
     PromotionHorizon,
@@ -343,13 +344,15 @@ def _evidence_stats_for_edge(
     timestamps: Mapping[str, float],
     now: float,
 ) -> _EdgeEvidenceStats:
-    event_times = [
-        (str(raw_event_id), float(timestamps[str(raw_event_id)]))
-        for raw_event_id in edge.get("evidence_event_ids") or []
-        if str(raw_event_id) in timestamps and float(timestamps[str(raw_event_id)]) > 0
-    ]
-    event_times.sort(key=lambda item: (item[1], item[0]))
-    if not event_times:
+    timeline = summarize_occurrence_times(
+        [
+            (str(raw_event_id), float(timestamps[str(raw_event_id)]))
+            for raw_event_id in edge.get("evidence_event_ids") or []
+            if str(raw_event_id) in timestamps and float(timestamps[str(raw_event_id)]) > 0
+        ],
+        now=now,
+    )
+    if not timeline.trusted_event_ids:
         return _EdgeEvidenceStats(
             event_ids=(),
             observation_count=int(edge.get("observation_count", 0) or 0),
@@ -360,22 +363,17 @@ def _evidence_stats_for_edge(
             span_days=0.0,
             recency_days=None,
         )
-    ordered_times = [timestamp for _event_id, timestamp in event_times]
-    distinct_days = {
-        (time.localtime(timestamp).tm_year, time.localtime(timestamp).tm_yday)
-        for timestamp in ordered_times
-    }
-    first_observed_at = ordered_times[0]
-    last_observed_at = ordered_times[-1]
+    assert timeline.first_observed_at is not None
+    assert timeline.last_observed_at is not None
     return _EdgeEvidenceStats(
-        event_ids=tuple(event_id for event_id, _timestamp in event_times),
+        event_ids=timeline.trusted_event_ids,
         observation_count=int(edge.get("observation_count", 0) or 0),
-        evidence_count=len(event_times),
-        distinct_days=len(distinct_days),
-        first_observed_at=first_observed_at,
-        last_observed_at=last_observed_at,
-        span_days=max(0.0, (last_observed_at - first_observed_at) / 86_400),
-        recency_days=max(0.0, (now - last_observed_at) / 86_400),
+        evidence_count=len(timeline.trusted_event_ids),
+        distinct_days=timeline.distinct_days,
+        first_observed_at=timeline.first_observed_at,
+        last_observed_at=timeline.last_observed_at,
+        span_days=timeline.span_days,
+        recency_days=timeline.recency_days,
     )
 
 

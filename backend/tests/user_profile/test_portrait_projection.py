@@ -6,6 +6,7 @@ from _shared.memory_schema import apply_memory_shared_schema
 from magi.memory.l2.store import L2CognitionStore
 from magi.user_profile.models import UserPortraitProjection, UserProfileProjection
 from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
+from magi.user_profile.portrait_projection_freshness import portrait_projection_is_stale
 from magi.user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from magi.user_profile.projection_repository import UserProfileProjectionRepository
 
@@ -169,6 +170,42 @@ class _ConfirmedPassiveSignalL2:
         return []
 
 
+class _ExpiringGoalL2:
+    def __init__(self) -> None:
+        self.now = 150.0
+
+    async def list_current_assertions(self, **kwargs):
+        if self.now >= 200.0:
+            return []
+        return [
+            {
+                "assertion_id": "a-goal-beach",
+                "trait_family": "goal_profile",
+                "trait_name": "goal.intent",
+                "trait_value": "去海边",
+                "source_domain": "user_authored",
+                "validation_state": "tentative",
+                "confidence_score": 0.9,
+                "evidence_events": ["event-goal"],
+                "temporal_scope": "recent",
+                "expires_at": 200.0,
+                "updated_at": 100.0,
+            }
+        ]
+
+
+class _UnrelatedPortraitLLM:
+    async def generate_portrait(self, *, material):
+        return {
+            "prompt_summary": [
+                "模型摘要一",
+                "模型摘要二",
+                "模型摘要三",
+                "模型摘要四",
+            ]
+        }
+
+
 class _FragmentedProfileSignalL2:
     async def list_current_assertions(self, **kwargs):
         return [
@@ -308,6 +345,29 @@ async def test_portrait_projection_treats_confirmed_feedback_as_user_qualified()
     world_groups = {group["id"]: group["items"] for group in projection.world["groups"]}
     assert [item["text"] for item in world_groups["preferences"]] == ["DeepSeek"]
     assert "DeepSeek" in "\n".join(projection.prompt_summary)
+
+
+async def test_goal_prompt_line_survives_llm_override_and_expires_from_portrait():
+    store = _ExpiringGoalL2()
+    builder = UserPortraitProjectionBuilder(store, llm_client=_UnrelatedPortraitLLM())
+
+    projection = await builder.build("local_user")
+
+    assert len(projection.prompt_summary) == 4
+    assert "近期计划：去海边" in projection.prompt_summary
+    assert "模型摘要四" not in projection.prompt_summary
+    assert projection.generated_by == "llm"
+
+    store.now = 250.0
+    assert await portrait_projection_is_stale(
+        projection,
+        user_id="local_user",
+        l2_store=store,
+    )
+
+    expired = await builder.build("local_user")
+    assert "近期计划：去海边" not in expired.prompt_summary
+    assert "去海边" not in str(expired.recent)
 
 
 async def test_portrait_projection_uses_profile_projection_as_strong_input_and_converges_groups():

@@ -295,8 +295,6 @@ def _summarize_phase2_assertions(result: L2Phase2Result) -> list[dict[str, Any]]
     return [
         {
             "entity_ref": assertion.entity_ref,
-            "trait_family": assertion.trait_family,
-            "trait_name": assertion.trait_name,
             "trait_value": assertion.trait_value,
             "natural_summary": assertion.natural_summary,
             "supporting_claim_ids": assertion.supporting_claim_ids,

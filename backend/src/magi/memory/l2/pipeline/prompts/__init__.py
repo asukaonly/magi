@@ -8,10 +8,6 @@ from typing import Any
 from magi.events.first_context import first_context_from_metadata
 
 from ...models import L2EventWindow
-from ...assertion_family_policy import (
-    render_assertion_family_list,
-    render_assertion_family_semantics,
-)
 from .workflows import (
     BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
     CONFLICT_ARBITRATION_SYSTEM_PROMPT,
@@ -65,6 +61,7 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
     - `clarification`: the current short reply adds a concrete detail to the immediately preceding user statement, optionally through the immediately following assistant question. Cite the nearest user event and the immediately preceding assistant event, in chronological order, in `antecedent_event_ids`.
    Recent Context is interpretation context, not standalone evidence. Never use older context, History Context, or assistant wording without explicit current user confirmation. If the current message does not authorize the claim under one of these modes, omit it.
 15. Every fact claim must include `temporal_cue`, grounded in explicit wording only: `one_off` for explicitly single-use wording, `recent` for wording such as recently/currently/these days, `recurring` for often/every week/repeatedly, `stable` for always/for years/long-term, and `unspecified` when no linguistic time cue is present. Do not infer a stable cue from the predicate or fact kind. Do not use temporal_cue to choose retention, expiry, or lifecycle; the host owns that policy.
+16. Every fact claim must include `raw_time_expression`. Copy only the exact time phrase from `evidence_text` (for example `明天`, `2026-08-15`, or `next month`), preserving its original text. Use an empty string when the evidence has no explicit time phrase. Never calculate dates, add a year, or rewrite a relative expression; the host owns deterministic resolution.
 
 ## Output Format
 Return JSON only:
@@ -91,6 +88,7 @@ Return JSON only:
       "object_type": "enum from allowed types",
       "fact_kind": "explicit_fact|stable_preference|public_topology|future_intent|interaction_evidence",
       "temporal_cue": "one_off|recent|recurring|stable|unspecified",
+      "raw_time_expression": "exact evidence substring or empty string",
       "polarity": "positive|negative",
       "specificity": "concrete|underspecified",
       "evidence_text": "supporting quote",
@@ -129,38 +127,17 @@ Reason: This is a recall question, not a preference statement.
 
 PHASE2_INTEGRATE_SYSTEM_PROMPT = """You are the inference stage of a personal memory system.
 
-Phase 1 has already extracted facts, resolved entities, and verified exact event evidence. Your task is limited to higher-order interpretation. Do not recreate graph edges, facts, entities, confidence scores, evidence quotes, event IDs, decay rules, or conflict actions.
-
-## Allowed Assertion Families
-@@ASSERTION_FAMILY_LIST@@
-
-@@ASSERTION_FAMILY_SEMANTICS@@
+Phase 1 has already extracted facts, resolved entities, and verified exact event evidence. The host deterministically owns semantic routes, assertion families, trait codes, slots, values, confidence, time horizons, and lifecycle. Your task is limited to deciding whether claims within one compatible route support a useful higher-order synthesis and, when they do, writing a concise natural-language summary. Do not recreate graph edges, facts, entities, confidence scores, evidence quotes, event IDs, semantic routes, decay rules, or conflict actions.
 
 ## Rules
 1. Every output item must cite one or more `claim_id` values shown in Phase 1. Never cite raw event IDs or invent a claim ID.
 2. Emit a claim assessment only for a non-obvious relationship to a listed existing record: `refines`, `contradicts`, or `evolves`. Exact new facts and exact corroboration are handled deterministically by the host and must be omitted.
 3. `related_record_id` must exactly match a listed triple ID or assertion ID. If no listed record applies, omit the assessment.
-4. Generate an assertion only when the cited claims support a reusable higher-order understanding. A one-time task or passive observation is evidence, not automatically a stable preference, identity, routine, or psychological state. Select a semantic family independently from temporal horizon: use `preference_profile` only for actual likes/dislikes, `interest_profile` for grounded attention or interest, and `project_profile` for active project work or contribution. The host decides whether any candidate is event-only, recent, or durable.
-5. When the user explicitly states profile facts, prefer `identity_profile` or `communication_profile` assertions.
-  - Phase 1 `REAL_NAME` -> `trait_family = "identity_profile"`, `trait_name = "identity.real_name"`
-  - Phase 1 `BIRTH_DATE` -> `trait_family = "identity_profile"`, `trait_name = "identity.birth_date"`
-  - Phase 1 `BIRTH_YEAR` -> `trait_family = "identity_profile"`, `trait_name = "identity.birth_year"`
-  - Phase 1 `STATED_AGE` -> `trait_family = "identity_profile"`, `trait_name = "identity.age.stated"`
-  - Phase 1 `PREFERRED_FORM_OF_ADDRESS` -> `trait_family = "communication_profile"`, `trait_name = "communication.address.preferred"`
-  - Phase 1 `DISALLOWED_FORM_OF_ADDRESS` -> `trait_family = "communication_profile"`, `trait_name = "communication.address.disallowed"`
-  - Phase 1 `PREFERRED_COMMUNICATION_STYLE` -> `trait_family = "communication_profile"`, `trait_name = "communication.response_style.preferred"`
-    - If multiple forms are listed, encode `trait_value` as a JSON array string.
-    - For profile assertions, `trait_value` is user-facing data. Preserve the
-      original language/script and wording from Phase 1 `object_ref` or evidence.
-      Do NOT translate, romanize, slugify, or convert it to snake_case IDs
-      (for example, keep `哈基米或者子涵`, never `haji_mi_or_zi_han`).
-    - These internal trait names may appear ONLY in `assertion_candidates.trait_name`.
-    - Emit these profile assertions only when Phase 1 contains the matching
-      profile-signal fact claim grounded in current [USER] text. Do not infer
-      identity or communication profile values from assistant/persona text,
-      history context, or a one-off task request.
-6. Preserve original language and script in user-facing values. Do not translate, romanize, transliterate, slugify, or replace them with internal identifiers.
-7. The host owns confidence, volatility, inference depth, lifecycle, and conflict actions. Do not return those fields.
+4. Generate a candidate only when all cited claims express one compatible understanding. Never group unrelated subjects, targets, semantic values, or time windows. The host rejects cross-route groups.
+5. A one-time task or passive observation is evidence, not automatically a stable preference, identity, routine, or psychological state. The host decides whether a candidate is event-only, recent, durable, review-only, or unrouted.
+6. Preserve original language and script in `natural_summary`. Do not translate, romanize, transliterate, slugify, or replace user-facing language with internal identifiers.
+7. `trait_value` is optional language-level synthesis only. It is never used for route, family, trait, slot, target, or identity. For direct typed claims, the host uses the Claim value instead.
+8. Do not return family, trait name/code, slot, route, target, confidence, volatility, inference depth, lifecycle, or conflict-action fields. Undeclared fields are ignored.
 
 ## Output Format
 Return JSON only:
@@ -177,9 +154,7 @@ Return JSON only:
     {
       "entity_ref": "entity ID",
       "entity_type": "enum",
-      "trait_family": "enum from allowed families",
-      "trait_name": "string",
-      "trait_value": "profile assertions: original user-facing text; state assertions: short controlled value, max 40 chars",
+      "trait_value": "optional short synthesis, max 40 chars",
       "natural_summary": "free-form description in user's language, max 500 chars",
       "supporting_claim_ids": ["exact Phase 1 claim IDs"]
     }
@@ -188,19 +163,13 @@ Return JSON only:
 ```
 """
 
-PHASE2_INTEGRATE_SYSTEM_PROMPT = PHASE2_INTEGRATE_SYSTEM_PROMPT.replace(
-    "@@ASSERTION_FAMILY_LIST@@", render_assertion_family_list()
-).replace("@@ASSERTION_FAMILY_SEMANTICS@@", render_assertion_family_semantics())
-
 
 def build_phase2_integrate_system_prompt(user_language: str | None = None) -> str:
     """Return the Phase 2 system prompt with an explicit language directive.
 
     When ``user_language`` is supplied (e.g. "zh-CN", "en", "ja"), the prompt
     is suffixed with a binding instruction: every ``natural_summary`` and every
-    user-facing ``trait_value`` for state assertions must be written in that
-    language. Profile-fact ``trait_value`` (real_name, address preference, etc.)
-    still follows rule 5 and preserves the original script.
+    user-facing ``trait_value`` must be written in that language when present.
 
     When ``user_language`` is None, returns the baseline prompt unchanged so
     the LLM falls back to inferring language from evidence text.
@@ -210,11 +179,9 @@ def build_phase2_integrate_system_prompt(user_language: str | None = None) -> st
     return PHASE2_INTEGRATE_SYSTEM_PROMPT + (
         "\n\n## Language directive\n"
         f"The user's primary language is `{user_language}`. Write every "
-        "`natural_summary` in that language. For state-class assertion "
-        "`trait_value` (mood, stress, engagement, sleep, energy, focus), also "
+        "`natural_summary` in that language. When `trait_value` is present, also "
         "use that language unless the evidence text supplies an explicit foreign "
-        "term the user chose. Profile-fact `trait_value` (real_name, addressing "
-        "preference, etc.) still preserves the source script per rule 5."
+        "term the user chose."
     )
 
 

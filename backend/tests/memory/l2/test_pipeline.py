@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -14,6 +15,7 @@ from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory import MemoryStoreTuning
 from magi.memory import UnifiedMemoryStore as _RuntimeUnifiedMemoryStore
 from magi.memory.event_contracts import normalize_runtime_event
+from magi.memory.l2.semantic_routing import ROUTE_CONTRACT_VERSION
 from magi_plugin_sdk import ExtractionProfileSpec
 
 
@@ -105,6 +107,9 @@ class _FakeAdapter:
                 call[key] = value
         self.calls.append(call)
         response_text = self._responses.pop(0) if self._responses else self._fallback_response
+        claim_ids = re.findall(r"\bclm_[0-9a-f]{32}\b", prompt)
+        if claim_ids:
+            response_text = response_text.replace('"claim:1"', json.dumps(claim_ids[0]))
         message = SimpleNamespace(content=response_text, tool_calls=[], role="assistant")
         return SimpleNamespace(
             choices=[SimpleNamespace(message=message, finish_reason="stop")],
@@ -215,6 +220,114 @@ def _phase1_result_with_support(event_id: str):
             )
         ]
     )
+
+
+def _semantic_routes_for_phase1(phase1_result):  # type: ignore[no-untyped-def]
+    from magi.memory.l2.semantic_routing import SemanticRouteInput, derive_semantic_route
+
+    routes = {}
+    for claim in phase1_result.fact_claims:
+        object_ref = str(claim.object_ref or "")
+        object_entity_id = object_ref if ":" in object_ref else None
+        subject_ref = str(claim.subject_ref or "")
+        if subject_ref.startswith("user:"):
+            subject_ref = "user:local_user"
+        route = derive_semantic_route(
+            SemanticRouteInput(
+                claim_id=claim.claim_id,
+                subject_id=subject_ref,
+                subject_type=str(claim.subject_type or "user"),
+                canonical_predicate=str(claim.predicate or ""),
+                fact_kind=str(claim.fact_kind or "explicit_fact"),
+                object_type=str(claim.object_type or "other"),
+                object_value=claim.object_ref,
+                object_entity_id=object_entity_id,
+                temporal_cue=str(claim.temporal_cue),
+                specificity=str(claim.specificity or "concrete"),
+                target_from=claim.target_from,
+                target_to=claim.target_to,
+                raw_time_expression=claim.raw_time_expression,
+                time_resolution="unscheduled",
+            )
+        )
+        routes[claim.claim_id] = route
+    return routes
+
+
+def _synthetic_occurrence_stats_for_phase1(phase1_result):  # type: ignore[no-untyped-def]
+    """Return explicit ledger-shaped statistics for validator unit tests."""
+
+    from magi.memory.l2.assertions.occurrence_stats import (
+        ClaimOccurrenceStats,
+        ClaimRouteValueKey,
+    )
+
+    routes = _semantic_routes_for_phase1(phase1_result)
+    claims_by_key = {}
+    events_by_key = {}
+    policy_claims_by_key = {}
+    for claim in phase1_result.fact_claims:
+        route = routes.get(claim.claim_id)
+        if route is None or not route.can_project_assertion or not route.value_fingerprint:
+            continue
+        key = ClaimRouteValueKey(str(route.slot_key), str(route.value_fingerprint))
+        claims_by_key.setdefault(key, set()).add(claim.claim_id)
+        events_by_key.setdefault(key, set()).update(claim.supporting_event_ids)
+        policy_claims_by_key.setdefault(key, []).append(claim)
+    return {
+        key: ClaimOccurrenceStats(
+            key=key,
+            fact_kind=_single_phase1_claim_field(
+                policy_claims_by_key[key],
+                "fact_kind",
+                "explicit_fact",
+            ),
+            canonical_predicate=_single_phase1_claim_field(
+                policy_claims_by_key[key],
+                "predicate",
+                "",
+            ).upper(),
+            temporal_cue=_single_phase1_claim_field(
+                policy_claims_by_key[key],
+                "temporal_cue",
+                "unspecified",
+            ),
+            evidence_class="user_self_report",
+            source_strength="direct_user",
+            durable_permitted=True,
+            claim_ids=tuple(sorted(claim_ids)),
+            supporting_event_ids=tuple(sorted(events_by_key[key])),
+            trusted_event_ids=tuple(sorted(events_by_key[key])),
+            recent_policy_event_ids=(
+                tuple(sorted(events_by_key[key]))
+                if _single_phase1_claim_field(
+                    policy_claims_by_key[key],
+                    "temporal_cue",
+                    "unspecified",
+                )
+                == "recent"
+                else ()
+            ),
+            observation_count=len(claim_ids),
+            evidence_count=len(events_by_key[key]),
+            distinct_days=1 if events_by_key[key] else 0,
+            first_observed_at=1.0 if events_by_key[key] else None,
+            last_observed_at=1.0 if events_by_key[key] else None,
+            span_days=0.0,
+            recency_days=0.0 if events_by_key[key] else None,
+        )
+        for key, claim_ids in claims_by_key.items()
+    }
+
+
+def _single_phase1_claim_field(claims, field_name, fallback):  # type: ignore[no-untyped-def]
+    values = {
+        str(getattr(raw, "value", raw) or "").strip().casefold()
+        for claim in claims
+        for raw in [getattr(claim, field_name, "")]
+    }
+    values.discard("")
+    return next(iter(values)) if len(values) == 1 else fallback
 
 
 def test_reconcile_job_accepts_multiple_entities():
@@ -503,9 +616,9 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
                 {
                     "claim_id": "claim:1",
                     "subject_ref": "user:self",
-                    "predicate": "HAS_METRIC",
-                    "object_ref": "stress",
-                    "object_type": "health_metric",
+                    "predicate": "FEELS",
+                    "object_ref": "stressed",
+                    "object_type": "concept",
                     "fact_kind": "explicit_fact",
                     "temporal_cue": "recent",
                     "polarity": "positive",
@@ -525,9 +638,9 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
                 {
                     "entity_ref": "user:u1",
                     "entity_type": "user",
-                    "trait_family": "stress",
-                    "trait_name": "stress_level",
-                    "trait_value": "high",
+                    "trait_family": "mood",
+                    "trait_name": "mood",
+                    "trait_value": "stressed",
                     "natural_summary": "Work has recently felt stressful.",
                     "supporting_claim_ids": ["claim:1"],
                 }
@@ -1465,7 +1578,11 @@ async def test_optional_inference_failure_persists_phase1_and_completes(
                     L2InvalidJsonResponseError,
                 )
 
-                async def _fail_conflict_arbitration(_batch, _candidates):
+                async def _fail_conflict_arbitration(
+                    _batch,
+                    _phase1_flow,
+                    _candidates,
+                ):
                     raise L2InvalidJsonResponseError(
                         "invalid conflict arbitration JSON"
                     )
@@ -1505,8 +1622,13 @@ async def test_optional_inference_failure_persists_phase1_and_completes(
             assert stats["extract_completed"] == 1
             assert stats["extract_failed"] == 0
             assert len(adapter.calls) == expected_call_count
+            expected_degraded_message = (
+                "L2 conflict arbitration degraded without dropping unrelated Phase 2 candidates"
+                if failure_stage == "conflict_arbitration"
+                else "L2 optional inference degraded to Phase 1"
+            )
             assert any(
-                "L2 optional inference degraded to Phase 1" in record.getMessage()
+                expected_degraded_message in record.getMessage()
                 and failure_stage in record.getMessage()
                 for record in caplog.records
             )
@@ -1515,6 +1637,116 @@ async def test_optional_inference_failure_persists_phase1_and_completes(
                 and edge["object_id"] == "place:shanghai"
                 for edge in relationships
             )
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_phase2_json_failure_still_persists_host_owned_goal_assertion():
+    event_time = time.time()
+    phase1_response = json.dumps(
+        {
+            "entities": [
+                {
+                    "surface": "去海边",
+                    "normalized_name": "海边旅行",
+                    "entity_type": "activity",
+                    "specificity": "concrete",
+                    "resolved_id": "activity:beach-trip",
+                    "is_new": False,
+                    "alias_signals": ["去海边"],
+                    "confidence": 0.96,
+                }
+            ],
+            "fact_claims": [
+                {
+                    "subject_ref": "user:self",
+                    "predicate": "PLANS_TO",
+                    "object_ref": "去海边",
+                    "object_type": "activity",
+                    "fact_kind": "future_intent",
+                    "temporal_cue": "unspecified",
+                    "raw_time_expression": "",
+                    "polarity": "positive",
+                    "specificity": "concrete",
+                    "evidence_text": "我计划去海边",
+                    "evidence_mode": "direct",
+                    "confidence": 0.96,
+                    "supporting_event_ids": ["evt-goal-phase2-degraded"],
+                }
+            ],
+            "resolved_refs": [],
+            "diagnostics": {"entity_status": "found"},
+        },
+        ensure_ascii=False,
+    )
+    adapter = _FakeAdapter([phase1_response, "not-json", "still-not-json"])
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            assert store.l2 is not None
+            assert store.l2_entity_catalog is not None
+            await store.l2_entity_catalog.upsert_entity(
+                entity_id="activity:beach-trip",
+                canonical_name="海边旅行",
+                entity_type="activity",
+            )
+            await store.l2_entity_catalog.add_alias(
+                entity_id="activity:beach-trip",
+                alias_text="去海边",
+                confidence=0.98,
+            )
+
+            await store.ingest_event(
+                {
+                    "id": "evt-goal-phase2-degraded",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": event_time,
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s-goal-phase2-degraded",
+                        "content": "我计划去海边",
+                    },
+                }
+            )
+
+            for _ in range(400):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 1 and stats["assertions_written"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
+            assert len(assertions) == 1
+            assert assertions[0]["trait_family"] == "goal_profile"
+            assert assertions[0]["trait_name"] == "goal.intent"
+            assert assertions[0]["trait_value"] == "去海边"
+            assert assertions[0]["temporal_scope"] == "recent"
+            assert assertions[0]["expires_at"] == pytest.approx(
+                event_time + 30 * 24 * 60 * 60
+            )
+
+            claims = await store.l2.list_grounded_claims()
+            outcomes = await store.l2.list_claim_projection_outcomes(
+                claim_id=claims[0]["claim_id"]
+            )
+            assertion_outcomes = [
+                outcome for outcome in outcomes if outcome["target_kind"] == "assertion"
+            ]
+            assert [outcome["outcome"] for outcome in assertion_outcomes] == ["projected"]
+            assert store.get_l2_pipeline_stats()["extract_failed"] == 0
+            assert len(adapter.calls) == 3
         finally:
             await store.shutdown()
 
@@ -2205,16 +2437,16 @@ async def test_sensor_events_without_session_do_not_use_user_recent_context():
 @pytest.mark.asyncio
 async def test_extract_worker_persists_llm_tom_assertions():
     responses = [
-        # Phase 1: extract a fact claim about stress
+        # Phase 1: extract a fact claim about the current mood
         json.dumps(
             {
                 "entities": [],
                 "fact_claims": [
                     {
                         "subject_ref": "user:self",
-                        "predicate": "HAS_METRIC",
-                        "object_ref": "stress",
-                        "object_type": "health_metric",
+                        "predicate": "FEELS",
+                        "object_ref": "stressed",
+                        "object_type": "concept",
                         "fact_kind": "explicit_fact",
                         "temporal_cue": "recent",
                         "polarity": "positive",
@@ -2236,9 +2468,9 @@ async def test_extract_worker_persists_llm_tom_assertions():
                     {
                         "entity_ref": "user:u1",
                         "entity_type": "user",
-                        "trait_family": "stress",
-                        "trait_name": "stress_level",
-                        "trait_value": "high",
+                        "trait_family": "mood",
+                        "trait_name": "mood",
+                        "trait_value": "stressed",
                         "natural_summary": "Work has recently felt stressful.",
                         "supporting_claim_ids": ["claim:1"],
                     }
@@ -2282,11 +2514,104 @@ async def test_extract_worker_persists_llm_tom_assertions():
             assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
 
             assert len(assertions) == 1
-            assert assertions[0]["trait_name"] == "stress_level"
+            assert assertions[0]["trait_name"] == "mood"
             # Assertion may already have been reconciled (temporary trait → corroborated)
             assert assertions[0]["validation_state"] in ("tentative", "corroborated")
             assert assertions[0]["confidence_score"] in (0.3, 0.5)
             assert store.get_l2_pipeline_stats()["reconcile_enqueued"] >= 1
+            claims = await store.l2.list_grounded_claims()
+            assert len(claims) == 1
+            outcomes = await store.l2.list_claim_projection_outcomes(
+                claim_id=claims[0]["claim_id"]
+            )
+            assertion_outcomes = [
+                outcome for outcome in outcomes if outcome["target_kind"] == "assertion"
+            ]
+            assert len(assertion_outcomes) == 1
+            assert assertion_outcomes[0]["outcome"] == "projected"
+            assert assertion_outcomes[0]["target_id"] == assertions[0]["assertion_id"]
+            assert assertion_outcomes[0]["attempt_key"] == claims[0]["origin_attempt_key"]
+            assert (
+                assertion_outcomes[0]["route_contract_version"]
+                == ROUTE_CONTRACT_VERSION
+            )
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_extract_worker_closes_routed_claim_when_phase2_omits_assertion():
+    responses = [
+        json.dumps(
+            {
+                "entities": [],
+                "fact_claims": [
+                    {
+                        "subject_ref": "user:self",
+                        "predicate": "REAL_NAME",
+                        "object_ref": "Asuka",
+                        "object_type": "concept",
+                        "fact_kind": "explicit_fact",
+                        "temporal_cue": "stable",
+                        "polarity": "positive",
+                        "specificity": "concrete",
+                        "evidence_text": "My real name is Asuka.",
+                        "confidence": 0.95,
+                        "supporting_event_ids": ["evt-route-no-assertion"],
+                    }
+                ],
+                "resolved_refs": [],
+                "diagnostics": {"entity_status": "none"},
+            }
+        ),
+        json.dumps({"claim_assessments": [], "assertion_candidates": []}),
+    ]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
+        )
+        await store.initialize()
+        try:
+            await store.ingest_event(
+                {
+                    "id": "evt-route-no-assertion",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": time.time(),
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s1",
+                        "content": "My real name is Asuka.",
+                    },
+                }
+            )
+
+            for _ in range(400):
+                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            assert store.l2 is not None
+            claims = await store.l2.list_grounded_claims()
+            assert len(claims) == 1
+            outcomes = await store.l2.list_claim_projection_outcomes(
+                claim_id=claims[0]["claim_id"]
+            )
+            assertion_outcomes = [
+                outcome for outcome in outcomes if outcome["target_kind"] == "assertion"
+            ]
+            assert len(assertion_outcomes) == 1
+            assert assertion_outcomes[0]["outcome"] == "skipped"
+            assert assertion_outcomes[0]["reason_code"] == "phase2_no_assertion_candidate"
+            assert assertion_outcomes[0]["target_id"].startswith("slot:")
+            assert store.get_l2_pipeline_stats()["extract_failed"] == 0
         finally:
             await store.shutdown()
 
@@ -2352,9 +2677,9 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
                         "fact_claims": [
                             {
                                 "subject_ref": "user:self",
-                                "predicate": "HAS_METRIC",
+                                "predicate": "FEELS",
                                 "object_ref": "calm",
-                                "object_type": "health_metric",
+                                "object_type": "concept",
                                 "fact_kind": "explicit_fact",
                                 "temporal_cue": "recent",
                                 "polarity": "positive",
@@ -2408,7 +2733,10 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
             summaries = await store.l3.list_summaries(limit=10) if store.l3 is not None else []
 
             assert assertions[0]["assertion_id"] == existing_assertion_id
-            assert assertions[0]["validation_state"] == "stable"
+            # The independent reconcile worker may normalize a stable row to
+            # corroborated while this test waits. The incompatible Phase 2
+            # assessment must not contradict or supersede it.
+            assert assertions[0]["validation_state"] in {"stable", "corroborated"}
             assert assertions[0]["confidence_score"] == pytest.approx(0.84)
             assert not any(item["summary_category"] == "conflict_resolution" for item in summaries)
         finally:
@@ -2540,7 +2868,7 @@ async def test_extract_worker_uses_conflict_arbitration_to_keep_existing_graph_f
             assert len(active_edges) == 1
             assert active_edges[0]["triple_id"] == existing_triple_id
             assert active_edges[0]["predicate"] == "LIKES"
-            assert active_edges[0]["last_confirmed_at"] > 1710000000.0
+            assert active_edges[0]["last_confirmed_at"] == 1710000000.0
             assert deprecated_edges == []
         finally:
             await store.shutdown()
@@ -2944,16 +3272,16 @@ async def test_assistant_tool_grounded_event_is_skipped_before_llm_extraction():
 async def test_assistant_quote_does_not_add_new_evidence_weight():
     adapter = _FakeAdapter(
         [
-            # Phase 1: extract fact claim about stress
+            # Phase 1: extract a fact claim about the current mood
             json.dumps(
                 {
                     "entities": [],
                     "fact_claims": [
                         {
                             "subject_ref": "user:self",
-                            "predicate": "HAS_METRIC",
-                            "object_ref": "stress",
-                            "object_type": "health_metric",
+                            "predicate": "FEELS",
+                            "object_ref": "stressed",
+                            "object_type": "concept",
                             "fact_kind": "explicit_fact",
                             "temporal_cue": "recent",
                             "polarity": "positive",
@@ -2975,9 +3303,9 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                         {
                             "entity_ref": "user:u1",
                             "entity_type": "user",
-                            "trait_family": "stress",
-                            "trait_name": "stress_level",
-                            "trait_value": "high",
+                            "trait_family": "mood",
+                            "trait_name": "mood",
+                            "trait_value": "stressed",
                             "supporting_claim_ids": ["claim:1"],
                         }
                     ],
@@ -3517,8 +3845,6 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
                         {
                             "entity_ref": "user:u1",
                             "entity_type": "user",
-                            "trait_family": "preference_profile",
-                            "trait_name": "preference.food.pattern",
                             "trait_value": "avoids_vinegar_heavy_dishes",
                             "supporting_claim_ids": ["claim:1"],
                         }
@@ -3565,7 +3891,8 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
             assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
 
             assert [item["predicate"] for item in relationships] == ["DISLIKES"]
-            assert [item["trait_name"] for item in assertions] == ["preference.food.pattern"]
+            assert [item["trait_name"] for item in assertions] == ["preference.affinity"]
+            assert [item["trait_value"] for item in assertions] == ["dislike"]
         finally:
             await store.shutdown()
 
@@ -4061,6 +4388,7 @@ async def test_prepare_direct_graph_writes_processes_every_batch_event():
             candidates, count = await pipeline._prepare_direct_graph_writes(
                 eligible_events=events,
                 catalog_name_index=await pipeline._build_catalog_name_index(),
+                projection_leases=[],
             )
 
             assert count == 2
@@ -5090,7 +5418,9 @@ class TestEntityTypeFiltering:
                 canonical_name,
                 entity_type,
                 source_event_ids,
+                projection_leases=(),
             ):
+                _ = projection_leases
                 self.entities[entity_id] = {
                     "entity_id": entity_id,
                     "canonical_name": canonical_name,
@@ -5177,7 +5507,9 @@ class TestEntityTypeFiltering:
                 canonical_name,
                 entity_type,
                 source_event_ids,
+                projection_leases=(),
             ):
+                _ = projection_leases
                 self.entities[entity_id] = {
                     "entity_id": entity_id,
                     "canonical_name": canonical_name,
@@ -5263,7 +5595,7 @@ class TestEntityTypeFiltering:
                 ),
             ]
         )
-        prepared, rejected_count = pipeline._project_phase1_graph_candidates(
+        prepared, rejected_outcomes = pipeline._project_phase1_graph_candidates(
             phase1_result=phase1_result,
             event=event,
             profile=profile,
@@ -5272,7 +5604,8 @@ class TestEntityTypeFiltering:
             catalog_name_index={},
         )
 
-        assert rejected_count == 1
+        assert len(rejected_outcomes) == 1
+        assert rejected_outcomes[0].reason_code == "graph_shape_not_allowed"
         assert len(prepared) == 1
         assert prepared[0]["predicate"] == "MAINTAINS"
         assert prepared[0]["object_id"] == "product:magi"
@@ -5311,11 +5644,13 @@ class TestEntityTypeFiltering:
             policy=SimpleNamespace(allow_assertion_write=True),
             graph_candidates=[],
             default_event_ids=["evt-profile-value"],
+            semantic_routes=_semantic_routes_for_phase1(phase1_result),
+            occurrence_stats_by_key=_synthetic_occurrence_stats_for_phase1(
+                phase1_result
+            ),
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="communication_profile",
-                    trait_name="communication.address.preferred",
                     trait_value="haji_mi_or_zi_han",
                     supporting_claim_ids=["claim:1"],
                 )
@@ -5386,11 +5721,11 @@ class TestEntityTypeFiltering:
             policy=SimpleNamespace(allow_assertion_write=True),
             graph_candidates=[],
             default_event_ids=["evt-profile-inference"],
+            semantic_routes={},
+            occurrence_stats_by_key={},
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="communication_profile",
-                    trait_name="communication.response_style.preferred",
                     trait_value="全面审查与详细建议",
                     supporting_claim_ids=["claim:invented"],
                 )
@@ -5423,11 +5758,11 @@ class TestEntityTypeFiltering:
             policy=SimpleNamespace(allow_assertion_write=True),
             graph_candidates=[],
             default_event_ids=["evt-derived-mode"],
+            semantic_routes={},
+            occurrence_stats_by_key={},
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="preference_profile",
-                    trait_name="preference.music",
                     trait_value="Track A",
                 )
             ],
@@ -5436,13 +5771,14 @@ class TestEntityTypeFiltering:
         assert prepared == []
         assert rejected_count == 1
 
-    def test_phase2_assertions_respect_trait_allowlist(self):
+    def test_phase2_assertions_respect_host_route_trait_allowlist(self):
         from magi.memory.l2.models import L2Phase2AssertionCandidate
         from magi.memory.l2.pipeline import L2Pipeline
 
         pipeline = L2Pipeline.__new__(L2Pipeline)
         event = _make_memory_event(event_id="evt-trait-allowlist", content="played Track A")
 
+        phase1_result = _phase1_result_with_support("evt-trait-allowlist")
         prepared, rejected_count = pipeline._validate_phase2_assertions(
             event=event,
             profile=SimpleNamespace(
@@ -5454,27 +5790,22 @@ class TestEntityTypeFiltering:
             policy=SimpleNamespace(allow_assertion_write=True),
             graph_candidates=[],
             default_event_ids=["evt-trait-allowlist"],
+            semantic_routes=_semantic_routes_for_phase1(phase1_result),
+            occurrence_stats_by_key=_synthetic_occurrence_stats_for_phase1(
+                phase1_result
+            ),
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="interest_profile",
-                    trait_name="interest.music",
                     trait_value="Track A",
                     supporting_claim_ids=["claim:1"],
                 ),
-                L2Phase2AssertionCandidate(
-                    entity_ref="user:local_user",
-                    trait_family="interest_profile",
-                    trait_name="interest.movie",
-                    trait_value="Movie B",
-                    supporting_claim_ids=["claim:1"],
-                ),
             ],
-            phase1_result=_phase1_result_with_support("evt-trait-allowlist"),
+            phase1_result=phase1_result,
         )
 
         assert rejected_count == 1
-        assert [item["trait_name"] for item in prepared] == ["interest.music"]
+        assert prepared == []
 
     def test_phase2_assertions_allow_trait_namespace_wildcard(self):
         from magi.memory.l2.models import L2Phase2AssertionCandidate
@@ -5483,6 +5814,7 @@ class TestEntityTypeFiltering:
         pipeline = L2Pipeline.__new__(L2Pipeline)
         event = _make_memory_event(event_id="evt-trait-wildcard", content="played Track A")
 
+        phase1_result = _phase1_result_with_support("evt-trait-wildcard")
         prepared, rejected_count = pipeline._validate_phase2_assertions(
             event=event,
             profile=SimpleNamespace(
@@ -5494,20 +5826,22 @@ class TestEntityTypeFiltering:
             policy=SimpleNamespace(allow_assertion_write=True),
             graph_candidates=[],
             default_event_ids=["evt-trait-wildcard"],
+            semantic_routes=_semantic_routes_for_phase1(phase1_result),
+            occurrence_stats_by_key=_synthetic_occurrence_stats_for_phase1(
+                phase1_result
+            ),
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="interest_profile",
-                    trait_name="interest.music",
                     trait_value="Track A",
                     supporting_claim_ids=["claim:1"],
                 ),
             ],
-            phase1_result=_phase1_result_with_support("evt-trait-wildcard"),
+            phase1_result=phase1_result,
         )
 
         assert rejected_count == 0
-        assert [item["trait_name"] for item in prepared] == ["interest.music"]
+        assert [item["trait_name"] for item in prepared] == ["interest.attention"]
 
     def test_phase2_assertions_respect_policy_assertion_scope(self):
         from magi.memory.l2.models import L2Phase2AssertionCandidate
@@ -5516,6 +5850,7 @@ class TestEntityTypeFiltering:
         pipeline = L2Pipeline.__new__(L2Pipeline)
         event = _make_memory_event(event_id="evt-assertion-scope", content="Chrome users discussed Magi")
 
+        phase1_result = _phase1_result_with_support("evt-assertion-scope")
         prepared, rejected_count = pipeline._validate_phase2_assertions(
             event=event,
             profile=SimpleNamespace(
@@ -5530,27 +5865,22 @@ class TestEntityTypeFiltering:
             ),
             graph_candidates=[],
             default_event_ids=["evt-assertion-scope"],
+            semantic_routes=_semantic_routes_for_phase1(phase1_result),
+            occurrence_stats_by_key=_synthetic_occurrence_stats_for_phase1(
+                phase1_result
+            ),
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="interest_profile",
-                    trait_name="interest.music",
                     trait_value="Track A",
                     supporting_claim_ids=["claim:1"],
                 ),
-                L2Phase2AssertionCandidate(
-                    entity_ref="user:local_user",
-                    trait_family="public_sentiment",
-                    trait_name="sentiment.magi",
-                    trait_value="positive",
-                    supporting_claim_ids=["claim:1"],
-                ),
             ],
-            phase1_result=_phase1_result_with_support("evt-assertion-scope"),
+            phase1_result=phase1_result,
         )
 
         assert rejected_count == 1
-        assert [item["trait_family"] for item in prepared] == ["public_sentiment"]
+        assert prepared == []
 
 
 class TestEntityNameQuality:
@@ -5869,7 +6199,9 @@ class TestPhase2CatalogNameIndex:
             )
 
             assert prepared == []
-            assert rejected == 1
+            assert len(rejected) == 1
+            assert rejected[0].outcome == "unresolved_entity"
+            assert rejected[0].reason_code == "unresolved_object"
 
             surface_claim = L2Phase1FactClaim(
                 claim_id="claim:1",
@@ -5889,7 +6221,7 @@ class TestPhase2CatalogNameIndex:
                 catalog_name_index=catalog_name_index,
             )
 
-            assert rejected == 0
+            assert rejected == []
             assert prepared[0]["object_id"] == phase1_result.entities[0].resolved_id
             assert prepared[0]["object_id"] == resolved_mentions[0].resolved_entity_id
 

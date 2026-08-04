@@ -636,6 +636,7 @@ L2 holds:
 - Entity mentions and canonical entities
 - Knowledge graph edges (with `fact_kind`, temporal validity, privacy scope)
 - Entity facets (sidecar structured attributes)
+- Grounded Claim ledger with normalized evidence links, host-owned temporal fields, and exhaustive semantic-route and projection outcomes
 - ToM trait assertions (versioned, with lifecycle states and supersession)
 - ToM snapshots (periodically refreshed entity portraits)
 - Episodes (bounded activity and theme segments formed from L1 events)
@@ -729,6 +730,90 @@ remain outside both model contracts. Shared handoff data lives in a small
 extraction contract module so either phase can evolve without importing
 implementation details from the other.
 
+The grounded Claim is the durable handoff between extraction and downstream
+projections. Phase 1 may emit only a `raw_time_expression` copied verbatim from
+the current evidence quote, or an empty value; it never calculates or rewrites
+dates. New L1 writes attach the validated IANA calendar timezone captured at
+ingestion when the host can resolve one. Calendar-sensitive Claim resolution
+requires that persisted timezone and resolves relative expressions only against
+trusted supporting-event timestamps. Missing timezone provenance, conflicting
+resolved ranges, or a non-positive civil interval fail closed. A supporting
+timestamp beyond the bounded future clock-skew window is specifically invalid as
+a relative-time anchor, even when the source labels it `exact` or
+`calendar_anchor`; an absolute grounded calendar expression does not depend on
+that event-time anchor. Equivalent IANA aliases may converge only when they
+produce the same actual calendar range. Non-intent Claims populate fact-validity
+fields, while `future_intent` Claims populate a separate target window. Ambiguous
+or low-quality relative anchors preserve the raw expression without inventing a
+numeric range.
+
+The immutable Claim identity includes the grounded raw expression, temporal
+kind, and resolution class, but excludes the host-derived epoch projection and
+the complete audit payload. The first durable Claim projection remains
+authoritative during replay, so changing the process timezone cannot mutate the
+Claim or its downstream target. The persisted frame retains both the numeric
+range and an auditable civil descriptor (`timezone_id`, precision, civil start,
+exclusive civil end, operator, and anchor event IDs). Knowledge-graph
+`valid_from` / `valid_to` use fact validity only; target windows are assertion
+routing inputs and must never be written as graph fact validity. A `recent` Claim
+without trustworthy time provenance is review-only, while `stable` or
+`unspecified` Claims are not rejected merely because their evidence lacks an
+exact timestamp.
+
+A concrete `PLANS_TO` Claim with `fact_kind = future_intent` and a resolved
+target is routed to `goal_profile` / `goal.intent`, not to the knowledge graph.
+Only direct user evidence may become a current goal assertion. The host creates
+the minimal assertion candidate independently of optional Phase 2 output, so an
+empty or failed Phase 2 cannot discard a qualifying goal, and derives its literal
+user-facing value from the Claim target rather than model synthesis or an
+internal entity ID. Goal identity includes the target window so plans for
+different windows do not collapse into one slot. A trusted current goal is
+bounded recent context whose expiry follows the resolved target end, or a
+30-day fallback when no schedule was stated; ambiguous or low-confidence timing
+produces a review outcome, and an elapsed target produces an expired outcome,
+without creating a current assertion.
+
+For a complete current calendar frame, Goal slot identity uses canonical civil
+precision and bounds, while expression spelling, evidence-anchor IDs, timezone
+aliases, and runtime epoch representation remain provenance rather than slot
+identity. Legacy frames that lack a complete civil descriptor fall back to their
+already persisted `target_from` / `target_to`; two historical `tomorrow` Claims
+with different durable epoch windows therefore cannot collapse during route
+upgrade.
+
+Semantic-route maintenance is host-owned. Maintenance callers provide only a
+Claim identity and a bounded pass size; the host derives the current route
+contract, resolution-aware attempt identity, and route decision from durable
+Claim state. The highest non-invalidated contract version is the current route,
+even if an older outcome has a later wall-clock timestamp after clock rollback.
+Reprojection appends the current route and reconciles that Claim's assertion and
+relationship receipts in one immediate transaction. Semantically unchanged
+targets receive a current-contract receipt, while changed targets lose only the
+retired Claim provenance. Reconciliation coalesces duplicate active receipts per
+canonical target, preserves an already-current receipt, and maps an
+`entity_merged` receipt to the rekeyed target identity before revalidation. A
+target is archived only when no other active Claim still authorizes it and it
+has no independent correction or non-Claim authority; otherwise its Claim-backed
+evidence is recomputed from the remaining valid ledger support. Outcome
+invalidation and replacement receipts retain the audit trail, while archived
+targets disappear immediately at governed assertion, relationship, and portrait
+read boundaries. Portrait tentative-Claim deduplication is scoped to the route
+slot and value recorded by an assertion's source attempt, never to the Claim ID
+alone, so a later route/value can become visible without reviving the old value.
+Portrait freshness recomputes the current eligible top-two tentative selection
+with the same deterministic renderer used by the builder, even when the cached
+portrait contains no tentative line. It compares both rendered lines and explicit
+selected Claim/event provenance, so a same-text fallback cannot retain evidence
+for an expired Claim. Validity-window transitions, conflict resolution, prompt
+limits, and protected Goal lines therefore cannot leave a stale hidden or newly
+visible self-report indefinitely cached.
+Host conflict discovery is exhaustive over the current slot even when the
+bounded Phase 2 context omits records or the model returns no assessments.
+Model assessments may explain a conflict but never define the comparison set or
+authorize a side effect. `HAS_METRIC` remains explicitly unrouted with
+`typed_metric_contract_required` until the host can derive metric name, value,
+unit, and value identity without free-form model output.
+
 `user_profile_projection` in `memory.db` is the product-facing read model for the
 local user profile. It is rebuilt from current L2 profile assertions, records
 field sources/conflicts, and derives deterministic fields such as `birth_year`
@@ -766,6 +851,13 @@ The product-facing portrait world uses four stable groups: identity facts,
 long-running work, preferences/interests, and collaboration style. Graph
 relationships become visible only after graph-to-assertion promotion has produced
 a governed recent or durable assertion.
+`goal_profile` is always recent context, never portrait world or ToM core-trait
+material. The portrait renders a current goal from its literal Claim target as
+`近期计划：<target>` and may carry that deterministic line into the bounded
+prompt summary without allowing model wording to replace it. When the assertion
+expires or disappears, or when a newer Claim route or projection outcome changes
+its eligibility, the cached portrait is stale and must rebuild so an obsolete
+plan is not retained.
 The self-portrait API returns this grouped projection directly. It does not
 return a second raw-observation shape, and the frontend must not reclassify
 assertions or graph material with its own policy.
@@ -807,6 +899,18 @@ within each source session, while other participants remain non-cognitive L1
 context. Approximate timestamps preserve source order but must not be presented
 as exact history. Import progress belongs to a durable host-owned job, and a
 global memory clear removes both its normalized records and job state.
+
+An authorship declaration for an imported Markdown document applies to ordinary
+author prose, not every byte in the file. Before a document Claim can use direct
+user authority, the host locates its exact evidence occurrence inside a
+deterministically classified author-prose span. Frontmatter, block quotes,
+attributed or pasted dialogue, forwarded mail, fenced or indented code, inline
+code, and third-party or unattributed quoted text do not inherit document-level
+authorship. A self-attributed quote may remain author prose only when a
+deterministic first-person reporting form makes that ownership explicit.
+Ambiguous spans fail closed as non-authoritative evidence. This gate may
+conservatively omit a real self-report, but it must not promote another speaker's
+words or embedded instructions as facts about the user.
 
 `L2` embedding uses a shared embedding pipeline across all layers; each layer defines its own text builder, chunk strategy, parent-table status writeback, and retrieval collapse logic. The entity catalog uses single-entity-single-vector without chunking. All L2 parent tables record unified embedding observation fields (`embedding_status`, `embedding_profile_id`, `last_embedded_at`); `knowledge_graph` also records these fields for relation-edge vectors. Runtime settings expose a persistent vector rebuild job for `L1`, `L2` entities, `L2` edges, `L3`, and `L4`.
 
@@ -873,9 +977,40 @@ Key properties:
 - Reconciliation: `reconcile_entity()` re-derives confidence and stability from evidence counts and time spans
 - Snapshot evolution: `refresh_entity_snapshot()` rebuilds from reconciled assertions + graph edges, maintaining `core_traits_history`, `preferences_history`, `relationship_history`, `mood_trajectory`, and `emerging_signals`
 
-Assertion family semantics are centralized in `backend/src/magi/memory/l2/assertion_family_policy.py`. The canonical families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `interest_profile`, `project_profile`, `routine_profile`, and `state_profile`. Families describe meaning, not retention: `preference_profile` is reserved for actual likes and dislikes, `interest_profile` describes grounded attention or interest without claiming affinity, `project_profile` describes active project work, and `routine_profile` owns repeated behavior rhythms and habits. Each family policy defines Phase 2 guidance, baseline lifecycle defaults, snapshot bucket, and value-localization expectation. Runtime confidence and TTL tuning lives under `agent.memory.l2.assertion`, and both Phase 2 validation and assertion reconciliation must read those config-backed values rather than maintaining separate TTL or state-threshold constants. These policies drive validation, prompt text, decay defaults, and snapshot placement.
+Assertion family semantics are centralized in `backend/src/magi/memory/l2/assertion_family_policy.py`. The canonical families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `interest_profile`, `project_profile`, `goal_profile`, `routine_profile`, and `state_profile`. Families describe meaning, not retention: `preference_profile` is reserved for actual likes and dislikes, `interest_profile` describes grounded attention or interest without claiming affinity, `project_profile` describes active project work, `goal_profile` represents a concrete near-term intention and is always bounded recent context rather than durable identity or snapshot core-trait material, and `routine_profile` owns repeated behavior rhythms and habits. Each family policy defines Phase 2 guidance, baseline lifecycle defaults, snapshot bucket, and value-localization expectation. Runtime confidence and TTL tuning lives under `agent.memory.l2.assertion`, and both Phase 2 validation and assertion reconciliation must read those config-backed values rather than maintaining separate TTL or state-threshold constants. These policies drive validation, prompt text, decay defaults, and snapshot placement.
 
 Profile assertion confidence and profile assertion horizon are separate decisions. Validation state answers how well supported a judgement is; the host-owned promotion evaluator answers whether the same grounded material remains event-only, is useful as recent context, or is durable enough for long-term profile use. Event-only profile candidates are not persisted as assertions. Recent profile assertions use a bounded time window and may be renewed by new evidence. Durable assertions use evidence-governed lifetime and are not downgraded merely because no new event arrived. User confirmation changes confidence but does not by itself turn recent context into a durable trait.
+
+Claim-backed promotion recomputes both occurrence statistics and policy metadata from the complete active Claim/evidence ledger for the routed slot and canonical value. Fact kind, predicate, temporal cue, evidence class, source strength, and durable permission do not come from the event currently being processed. Direct user self-report has authority over weaker replay evidence; without it, whitelisted sustained-engagement predicates outrank passive external exposure, and unknown or conflicting metadata falls back conservatively. Removing the stronger evidence may legitimately recompute a weaker horizon, but processing order and restart must not change the result for the same ledger.
+
+Source-event forgetting captures the affected route/value identities before it
+redacts Claim receipts, then recomputes materialized assertion evidence,
+validation state, confidence, retention horizon, expiry, and portrait/snapshot
+invalidation from the surviving active ledger in the same immediate
+transaction. Ordinary writes remain monotonic and cannot shorten a stronger
+horizon; explicit forget governance may downgrade, archive, expire, or later
+reactivate a `forget:event` assertion when a subsequent deletion changes the
+remaining conservative policy. A preliminary source tombstone excludes any
+Claim linked through supporting or antecedent evidence from occurrence statistics
+and performs this reconciliation before readable Claim state is destroyed, so a
+crash between admission and full cleanup cannot leave an authoritative stale
+assertion.
+
+Forgetting also deletes every affected materialized user snapshot and its
+dependency rows inside the forget transaction, before the subject revision is
+advanced. The privacy rebuild therefore starts without the previous snapshot as
+an evolution baseline; if the rebuild fails, the deleted snapshot stays hidden.
+When a snapshot remains materializable, ordinary situation changes and
+corrections may retain the prior snapshot as an evolution baseline. Forgotten
+material, however, may never survive as a historical location, transition, or
+explanatory sentence in that history.
+
+Claim-backed promotion statistics retain the evidence IDs whose wording selected
+an aggregated recent policy, and those policy-defining events must have trusted
+calendar provenance. A recent assertion's validation, decay, and TTL anchor is
+the latest trusted time in the complete ledger, not whichever event happens to
+trigger the current projection attempt. A delayed replay therefore cannot
+shorten a recent assertion behind newer trusted evidence.
 
 Family choice shapes downstream handling but does not by itself decide trust. Conflict decisions are primarily source-tier and active-key based: user-authored assertions remain authoritative over behavioral or plugin-derived inference unless the user explicitly corrects or rejects them. Family policy determines whether a value behaves like short-lived state, durable semantic profile, preference snapshot content, or core-trait context after it has passed source-tier and evidence gates.
 
@@ -1004,7 +1139,10 @@ The default execution model:
 3. If `cognition_eligible=true` and evidence policy allows cognition, an `l2_projection_jobs` record is created in `memory.db`
 4. If evidence classification is unavailable or inconclusive, raw L1 storage remains successful, but fact promotion and L2 graph/assertion writes wait for evidence resolution rather than treating the event as authoritative by default
 5. `L2Pipeline` in the `runtime_worker` claims ready jobs and marks them `queued`
-6. Claimed events are batched by batch owner / session / user; the worker marks jobs `running` before extraction
+6. Claimed events are batched by batch owner / session / user. Before work enters
+   the extract worker, the queue atomically binds every member to one canonical
+   batch descriptor and attempt key derived from the complete canonical lease set;
+   only that exact descriptor may mark the jobs `running` or write results.
 7. Successful extraction marks jobs `completed`; failures mark them `failed` or requeue to `pending`
 8. Model output must be a JSON object matching the stage's required top-level fields and field types. Repairable auxiliary metadata is normalized before validation; in Phase 1, an absent, unknown, or source-unsupported `temporal_cue` becomes an unambiguous cue detected in the evidence quote, or `unspecified` when no cue is present, without another model call. A semantically invalid Phase 1 claim is rejected individually so one bad candidate cannot discard valid peers or fail the projection job. Invalid top-level JSON or stage structure still receives one stricter format retry. Repeated failure of the required Phase 1 extraction marks the projection job `failed`; failure of optional entity disambiguation leaves those mentions unresolved, while failure of Phase 2 or conflict arbitration persists the grounded Phase 1 facts and completes with an explicit degraded-stage marker. Non-model infrastructure failures may still requeue to `pending`.
 
@@ -1031,11 +1169,17 @@ Batch policy:
 Extraction flow:
 
 - L2 microbatches are profile-isolated. Session events stay session-scoped; events without a session are separated by source, optional plugin batch owner, and user. Structured hints are admitted and written per event under that event's evidence policy rather than inheriting the last event's batch context.
+- A claimed row is not yet an executable attempt. Final worker batching persists
+  the exact descriptor on every member, and batch-state/result writes verify the
+  descriptor, bound event set, lease tokens, and attempt counts. Derivation,
+  outbox, and clear-boundary paths additionally verify the subject revision or
+  clear generation they own. Migration or crash recovery returns unbound/partial
+  queued work to `pending`; a subset of leases can never complete the whole batch.
 - Phase 1 extracts current-batch entities, facts, and candidate observations from admitted events, using source-owned hints and extraction-profile instructions as anchors. Each fact includes a grounded linguistic temporal cue (`one_off`, `recent`, `recurring`, `stable`, or `unspecified`) that reflects explicit source wording only; it never owns retention policy. The host then assigns each retained fact a deterministic claim reference and verifies its current quote, evidence mode, and bounded antecedent IDs. Missing, out-of-batch, context-only, or unmatchable support rejects that candidate without retrying the full response and without expanding evidence to the whole batch.
 - Extracted entity mentions are attributed only to events that literally contain the surface or normalized name. A context-only entity may be used transiently only for a validated contextual claim when its exact catalog ID and canonical name already exist, but it cannot create catalog records, aliases, event-entity links, or mention evidence for the current event. Underspecified entities are not registered.
 - Grounded Phase 1 claims are projected deterministically into graph candidates. The graph store owns merge, corroboration, exclusivity, and opposite-predicate handling; Phase 2 never restates those facts as graph writes.
-- Entity disambiguation and Phase 2 are optional enrichments. If entity disambiguation exhausts its model/JSON retries, affected mentions remain unresolved and no fallback entity is created. If Phase 2 or conflict arbitration exhausts its retries, validated Phase 1 graph facts and structured facets are still persisted, higher-order candidates are discarded, and the projection is completed with the degraded stage recorded in diagnostics and logs.
-- Before Phase 2, the pipeline may build a deterministic evidence packet from current Phase 1 output, bounded L1 history contexts, existing L2 graph edges, and existing assertion state. This retrieval step must not call an LLM; it is a cost-controlled recall step that gives Phase 2 corroboration, conflict, and prior-state context. The packet also reports how many prior history contexts support each current candidate, so Phase 2 can distinguish a one-off mention from a recurring signal without adding another LLM recall step.
+- Entity disambiguation and Phase 2 are optional enrichments. If entity disambiguation exhausts its model/JSON retries, affected mentions remain unresolved and no fallback entity is created. If Phase 2 or conflict arbitration exhausts its retries, validated Phase 1 graph facts, structured facets, and host-owned qualifying Goal assertions are still persisted; model-owned higher-order candidates are discarded, and the projection is completed with the degraded stage recorded in diagnostics and logs.
+- Before Phase 2, the pipeline may build a deterministic evidence packet from current Phase 1 output, bounded L1 history contexts, existing L2 graph edges, and existing assertion state. This retrieval step must not call an LLM; it is a cost-controlled recall step that gives Phase 2 corroboration, conflict, and prior-state context. The packet also reports how many prior history contexts support each current candidate, so Phase 2 can distinguish a one-off mention from a recurring signal without adding another LLM recall step. The model packet remains bounded, but host conflict arbitration separately pages the complete current slot domain before persistence; truncating prompt context cannot truncate the safety check.
 - Phase 1 resolved entities may be used to fetch directly linked L1 event text through the event-entity index; this is preferred over asking the model to rediscover history. External sensor events without a session must not fall back to arbitrary same-user recent chat context.
 - Phase 2 runs only when the active profile permits direct higher-order assertion inference. Its output may reference deterministic Phase 1 claim IDs and exact existing record IDs, but it may not provide event IDs, confidence, lifecycle fields, expiry, or persistence actions. Assertions without valid supporting claim references and record assessments without an exact existing target are rejected. The host validates that the selected semantic family matches the grounded claims, then derives evidence, confidence, horizon, volatility, lifecycle, and safe conflict actions from validated inputs. Explicit one-off profile material remains event-only; explicit recent wording creates bounded recent context; explicit identity, communication, preference, or interest statements may form durable profile understanding when their semantics permit it.
 - Passive observations remain graph or episode evidence until they cross the host's recent-evidence floor; they may then become expiring recent context, but never durable profile conclusions. Durable graph-derived profile assertions require a plugin-declared non-passive signal preset, explicit durable permission, and the host's higher observation, distinct-day, time-span, and recency floors.
