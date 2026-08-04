@@ -69,11 +69,22 @@ def test_phase1_prompt_keeps_linguistic_cue_separate_from_lifecycle_policy() -> 
 def test_phase1_prompt_forbids_translation_for_abstract_entity_types() -> None:
     assert "including activity, concept, topic, event" in PHASE1_EXTRACT_SYSTEM_PROMPT
     assert "common nouns and phrases as well as proper nouns" in PHASE1_EXTRACT_SYSTEM_PROMPT
-    assert "slow morning walk and casual breakfast hunting" in PHASE1_EXTRACT_SYSTEM_PROMPT
-    assert "directional but unbound travel style" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "protocol rules and JSON schema are instructions, not evidence" in (
+        PHASE1_EXTRACT_SYSTEM_PROMPT
+    )
+    assert "never emit an entity surface or claim value copied from them" in (
+        PHASE1_EXTRACT_SYSTEM_PROMPT
+    )
     assert "only when that exact alternate name appears in a current evidence message" in (
         PHASE1_EXTRACT_SYSTEM_PROMPT
     )
+
+
+def test_phase1_prompt_does_not_embed_user_like_translation_examples() -> None:
+    assert "慢悠悠的晨间散步和随性觅食" not in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "有方向但不设具体目的地的旅行方式" not in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "slow morning walk and casual breakfast hunting" not in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "directional but unbound travel style" not in PHASE1_EXTRACT_SYSTEM_PROMPT
 
 
 def test_phase1_render_separates_user_language_from_evidence_script() -> None:
