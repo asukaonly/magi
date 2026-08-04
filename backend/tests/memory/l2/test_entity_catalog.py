@@ -177,10 +177,46 @@ async def test_canonical_name_is_not_stored_as_its_own_alias() -> None:
         )
 
         entities = await catalog.list_entities(limit=10)
+        resolved = await catalog.resolve_alias("github", entity_type="software")
 
         assert len(entities) == 1
         assert entities[0]["canonical_name"] == "GitHub"
         assert entities[0]["aliases"] == []
+        assert resolved == {
+            "decision": "match",
+            "entity_id": "software:github",
+            "candidate_count": 1,
+            "matched_confidence": 1.0,
+        }
+
+
+@pytest.mark.asyncio
+async def test_canonical_resolution_uses_alias_casefolding_without_duplicate_row() -> None:
+    from magi.memory.l2.entities.catalog import L2EntityCatalog
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = str(Path(temp_dir) / "memory.db")
+        catalog = L2EntityCatalog(db_path=db_path)
+        await catalog.initialize()
+
+        entity_id = await catalog.upsert_entity(
+            canonical_name="Straße",
+            entity_type="place",
+            entity_id="place:strasse",
+        )
+        await catalog.add_alias(
+            entity_id=entity_id,
+            alias_text="STRASSE",
+            confidence=0.95,
+        )
+
+        entities = await catalog.list_entities(limit=10)
+        resolved = await catalog.resolve_alias("STRASSE", entity_type="place")
+
+        assert entities[0]["aliases"] == []
+        assert resolved["decision"] == "match"
+        assert resolved["entity_id"] == entity_id
+        assert resolved["matched_confidence"] == 1.0
 
 
 @pytest.mark.asyncio

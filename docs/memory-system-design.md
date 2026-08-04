@@ -743,7 +743,9 @@ translations. An alias may be persisted only when that exact alternate name also
 occurs in eligible current evidence; existing catalog aliases may participate in
 matching without being copied into new event provenance. A normalized alias that
 equals the entity's normalized canonical name is not an alias and must not be
-stored as a duplicate catalog row. Imported Markdown uses
+stored as a duplicate catalog row. Exact entity resolution searches canonical
+names and aliases as separate first-class namespaces, so canonical lookup must
+not depend on that duplicate row. Imported Markdown uses
 the same host-owned authorship classifier as claim grounding, so text found only
 inside blockquotes, code, or pasted dialogue cannot create an entity or alias.
 Governance surfaces present aliases as entity metadata in record details, never

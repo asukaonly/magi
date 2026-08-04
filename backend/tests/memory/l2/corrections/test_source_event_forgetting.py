@@ -845,7 +845,6 @@ async def test_source_event_forget_removes_public_entity_evidence(
     assert retained_entity["aliases"] == [
         "Independent label",
         "Private mixed mention",
-        "Public retained alias",
     ]
     assert retained_entity["canonical_name"] == "Public retained alias"
     assert all(item["entity_id"] != "person:private" for item in entities)
