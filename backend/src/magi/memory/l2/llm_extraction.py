@@ -13,6 +13,10 @@ from .pipeline.claim_grounding import (
     normalize_phase1_claim_contract,
 )
 from .pipeline.evidence_packet import build_phase2_evidence_packet
+from .pipeline.entity_grounding import (
+    evidence_script_names,
+    normalize_phase1_entity_contract,
+)
 from .pipeline.prompts import (
     PHASE1_EXTRACT_SYSTEM_PROMPT,
     build_phase2_integrate_system_prompt,
@@ -48,12 +52,15 @@ class L2LLMExtractionMixin:
             session_id=session_id,
             user_id=user_id,
         )
+        user_language = _effective_user_language()
         prompt = render_phase1_extract_prompt(
             event_window=event_window,
             focal_subject=focal_subject,
             existing_entities=existing_entities,
             context_messages=context_messages,
             extraction_instructions=extraction_instructions,
+            user_language=user_language or None,
+            evidence_scripts=evidence_script_names(event_window),
         )
         payload = await self._generate_json(
             system_prompt=PHASE1_EXTRACT_SYSTEM_PROMPT,
@@ -75,7 +82,7 @@ class L2LLMExtractionMixin:
                 "fact_claims": list,
                 "resolved_refs": list,
             },
-            contract_normalizer=lambda response: normalize_phase1_claim_contract(
+            contract_normalizer=lambda response: _normalize_phase1_contract(
                 response,
                 event_window,
                 context_messages=context_messages,
@@ -126,7 +133,7 @@ class L2LLMExtractionMixin:
             existing_graph_edges=existing_graph_edges,
             existing_assertions=existing_assertions,
         )
-        user_language = _phase2_user_language()
+        user_language = _effective_user_language()
         prompt = _phase2_prompt(
             phase1_result=phase1_result,
             existing_graph_edges=existing_graph_edges,
@@ -179,13 +186,30 @@ def _log_phase2_started(
     )
 
 
-def _phase2_user_language() -> str:
+def _effective_user_language() -> str:
     from ...i18n import get_effective_language
 
     try:
         return get_effective_language(default="")
     except Exception:
         return ""
+
+
+def _normalize_phase1_contract(
+    payload: dict[str, object],
+    event_window: L2EventWindow,
+    *,
+    context_messages: list[dict[str, object]] | None = None,
+) -> list[str]:
+    normalizations = normalize_phase1_entity_contract(payload, event_window)
+    normalizations.extend(
+        normalize_phase1_claim_contract(
+            payload,
+            event_window,
+            context_messages=context_messages,
+        )
+    )
+    return normalizations
 
 
 def _phase2_prompt(

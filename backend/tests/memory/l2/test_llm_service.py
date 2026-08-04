@@ -950,6 +950,86 @@ def test_phase1_keeps_valid_claim_when_a_peer_claim_has_bad_evidence():
     assert len(adapter.calls) == 1
 
 
+def test_phase1_applies_language_and_entity_grounding_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2BatchEvent, L2EventWindow
+
+    surface = "慢悠悠的晨间散步和随性觅食"
+    translated = "slow morning walk and casual breakfast hunting"
+    evidence = f"我喜欢{surface}。"
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "entities": [
+                    {
+                        "surface": surface,
+                        "normalized_name": translated,
+                        "entity_type": "activity",
+                        "specificity": "concrete",
+                        "resolved_id": None,
+                        "is_new": True,
+                        "alias_signals": [translated],
+                        "confidence": 0.9,
+                    }
+                ],
+                "fact_claims": [
+                    {
+                        "subject_ref": "user:self",
+                        "subject_type": "user",
+                        "predicate": "LIKES",
+                        "object_ref": translated,
+                        "object_type": "activity",
+                        "fact_kind": "stable_preference",
+                        "temporal_cue": "unspecified",
+                        "raw_time_expression": "",
+                        "polarity": "positive",
+                        "specificity": "concrete",
+                        "evidence_text": evidence,
+                        "confidence": 0.9,
+                        "supporting_event_ids": ["evt-walk"],
+                        "evidence_mode": "direct",
+                        "antecedent_event_ids": [],
+                    }
+                ],
+                "resolved_refs": [],
+                "diagnostics": {"entity_status": "found"},
+            },
+            ensure_ascii=False,
+        )
+    )
+    monkeypatch.setattr(
+        "magi.memory.l2.llm_extraction._effective_user_language",
+        lambda: "zh-CN",
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    result = asyncio.run(
+        service.extract_phase1(
+            event_window=L2EventWindow(
+                events=[
+                    L2BatchEvent(
+                        event_id="evt-walk",
+                        content=evidence,
+                        author_type="user",
+                    )
+                ]
+            ),
+            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+        )
+    )
+
+    assert result.entities[0].normalized_name == surface
+    assert result.entities[0].alias_signals == []
+    assert result.fact_claims[0].object_ref == surface
+    assert result.diagnostics["repaired_entity_name_count"] == 1
+    messages = adapter.calls[0]["messages"]
+    assert isinstance(messages, list)
+    assert "Configured user language: `zh-CN`" in messages[1]["content"]
+    assert "Letter scripts detected in current evidence: Han" in messages[1]["content"]
+
+
 def test_phase1_short_reply_does_not_reuse_prior_user_text_as_current_evidence():
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2BatchEvent, L2EventWindow

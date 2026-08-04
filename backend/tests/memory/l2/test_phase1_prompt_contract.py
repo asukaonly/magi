@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
+from magi.memory.l2.models import L2BatchEvent, L2EventWindow
+from magi.memory.l2.pipeline.prompts import (
+    PHASE1_EXTRACT_SYSTEM_PROMPT,
+    render_phase1_extract_prompt,
+)
 from magi.memory.l2.phase1_models import (
     L2ClaimEvidenceMode,
     L2Phase1FactClaim,
@@ -60,3 +64,35 @@ def test_phase1_prompt_keeps_linguistic_cue_separate_from_lifecycle_policy() -> 
     )
     assert "explicit wording only" in PHASE1_EXTRACT_SYSTEM_PROMPT
     assert "Do not use temporal_cue to choose retention" in PHASE1_EXTRACT_SYSTEM_PROMPT
+
+
+def test_phase1_prompt_forbids_translation_for_abstract_entity_types() -> None:
+    assert "including activity, concept, topic, event" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "common nouns and phrases as well as proper nouns" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "slow morning walk and casual breakfast hunting" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "directional but unbound travel style" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "only when that exact alternate name appears in a current evidence message" in (
+        PHASE1_EXTRACT_SYSTEM_PROMPT
+    )
+
+
+def test_phase1_render_separates_user_language_from_evidence_script() -> None:
+    prompt = render_phase1_extract_prompt(
+        event_window=L2EventWindow(
+            events=[
+                L2BatchEvent(
+                    event_id="evt-1",
+                    content="我最近在听 DIIV。",
+                    author_type="user",
+                )
+            ]
+        ),
+        focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+        user_language="zh-CN",
+        evidence_scripts=("Han", "Latin"),
+    )
+
+    assert "Configured user language: `zh-CN`" in prompt
+    assert "not permission to translate evidence-derived fields" in prompt
+    assert "Letter scripts detected in current evidence: Han, Latin" in prompt
+    assert "Keep JSON keys, enum values, and protocol identifiers in English" in prompt
