@@ -49,7 +49,7 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
 5. If a pronoun, short answer, or vague reference appears (e.g., "那个", "它", "这种", "the one", "there"), use only the bounded Recent Context frame to interpret it. Recent Context is interpretation context, not standalone evidence. History Context may help identify an already known entity, but it must never supply a new claim.
 6. If a mentioned entity matches an Existing Entity by name, alias, or clear semantic equivalence, use its canonical ID. Otherwise mark as new.
 7. Each entity must include a specificity rating: "concrete" for specific items, "underspecified" for vague/category-level references.
-8. Preserve entity language and script. `surface` must be the original text span, and `normalized_name` must keep the source language/script unless the source itself uses a translated name. Do NOT translate Chinese, Japanese, Korean, Cyrillic, or other non-Latin proper nouns into English; do NOT romanize or slugify them. Put known translations, romanizations, or alternate spellings in `alias_signals` only.
+8. Preserve the evidence language and script for every entity type, including activity, concept, topic, event, and other abstract entities. `surface` must be an exact current-evidence span. `normalized_name` may normalize spelling, spacing, or punctuation only while retaining every letter script used by `surface`; never translate, romanize, transliterate, summarize, or slugify it. This applies to common nouns and phrases as well as proper nouns. For example, `慢悠悠的晨间散步和随性觅食` must not become `slow morning walk and casual breakfast hunting`, and `有方向但不设具体目的地的旅行方式` must not become `directional but unbound travel style`. Add an item to `alias_signals` only when that exact alternate name appears in a current evidence message. Existing catalog aliases may be used for matching but must not be copied into output unless current evidence also contains them.
 9. Extract only concrete, named, reusable entities. Pronouns and vague placeholders such as "他", "她", "它", "这个", "那个", "this one", "that one", "the file", "the image", generic "app", or generic "PDF" may appear only in `resolved_refs`; do not emit them as `entities` unless they are confidently resolved to a specific existing entity or asset with a concrete canonical name.
 10. For web pages and external-source metadata, never use a URL domain/path slug as the canonical entity name when the title or source text contains a readable subject name. Treat domains and platforms as provenance or separate platform entities, not as replacements for the content entity.
 11. Addressing instructions such as "叫我子涵" or "call me Zihan" are communication-profile signals. Emit one fact claim with `predicate = "PREFERRED_FORM_OF_ADDRESS"`, `object_ref` set to the requested name, and `object_type = "concept"`. Do NOT turn the requested name into a LIKES, DISLIKES, INTERESTED_IN, KNOWS, or other graph relationship.
@@ -70,7 +70,7 @@ Return JSON only:
   "entities": [
     {
       "surface": "original text span",
-      "normalized_name": "canonical name",
+      "normalized_name": "source-language normalized name",
       "entity_type": "enum from allowed types",
       "specificity": "concrete|underspecified",
       "resolved_id": "existing entity ID or null if new",
@@ -211,6 +211,8 @@ def render_phase1_extract_prompt(
     existing_entities: list[dict[str, Any]] | None = None,
     context_messages: list[dict[str, Any]] | None = None,
     extraction_instructions: str | None = None,
+    user_language: str | None = None,
+    evidence_scripts: tuple[str, ...] = (),
 ) -> str:
     """Render a Markdown-formatted Phase 1 extraction prompt."""
     parts: list[str] = []
@@ -219,6 +221,24 @@ def render_phase1_extract_prompt(
         parts.append("## Source-Specific Instructions")
         parts.append(extraction_instructions.strip())
         parts.append("")
+
+    parts.append("## Language and Script Contract")
+    parts.append(
+        f"- Configured user language: `{user_language or 'unknown'}`. This is context "
+        "for interpreting the user, not permission to translate evidence-derived fields."
+    )
+    script_label = ", ".join(evidence_scripts) if evidence_scripts else "unknown"
+    parts.append(f"- Letter scripts detected in current evidence: {script_label}.")
+    parts.append(
+        "- Keep JSON keys, enum values, and protocol identifiers in English. Keep "
+        "`surface`, `normalized_name`, `object_ref`, `evidence_text`, and "
+        "`raw_time_expression` in the current evidence language and script."
+    )
+    parts.append(
+        "- The host verifies entity surfaces and aliases against current evidence and "
+        "restores translated normalized names to their source surface."
+    )
+    parts.append("")
 
     # Messages to analyze
     parts.append("## Messages to Analyze")

@@ -717,9 +717,31 @@ persisted. The LLM is not an authority for inventing `entity_id` values. Grounde
 Phase 1 claims are projected into graph candidates only after their endpoints
 resolve to catalog IDs produced by Phase 1 entity resolution or source-owned
 structured hints that have first been registered in the catalog. Phase 2 does not
-emit graph edges. Non-Latin entity names keep their original script in catalog
-names and aliases; ASCII slugs are storage identifiers only and must not replace
-the source-language name in user-facing evidence.
+emit graph edges. Evidence-derived entity text and model-generated summaries have
+different language contracts. The configured user language guides Phase 2
+natural-language summaries, but it is interpretation context only in Phase 1 and
+never authorizes translation of imported evidence. Phase 1 protocol keys and enum
+values remain English, while entity surfaces, normalized names, evidence-derived
+object references, evidence quotes, and raw time expressions retain the current
+evidence language.
+Before typed validation or persistence, the host detects the current evidence
+scripts, requires every entity surface to occur in eligible current evidence,
+restores a normalized name to that surface when it drops any source letter script,
+and rewrites the matching claim reference when the mapping is unambiguous. The
+same rule applies to activities, concepts, topics, and other abstract entities,
+not only proper nouns. Same-script spelling, spacing, and punctuation
+normalization remains allowed. Non-Latin entity names therefore keep their
+original script in catalog names; ASCII slugs are storage identifiers only and
+must not replace the source-language name in user-facing evidence.
+
+Phase 1 alias signals are provenance-bearing names, not a place for speculative
+translations. An alias may be persisted only when that exact alternate name also
+occurs in eligible current evidence; existing catalog aliases may participate in
+matching without being copied into new event provenance. Imported Markdown uses
+the same host-owned authorship classifier as claim grounding, so text found only
+inside blockquotes, code, or pasted dialogue cannot create an entity or alias.
+Governance surfaces present aliases as entity metadata in record details, never
+as the record summary or as source-evidence references.
 
 The extraction runtime keeps Phase 1 admission, batch preparation, entity
 resolution, evidence grounding, and deterministic graph projection separate from
@@ -1176,7 +1198,7 @@ Extraction flow:
   clear generation they own. Migration or crash recovery returns unbound/partial
   queued work to `pending`; a subset of leases can never complete the whole batch.
 - Phase 1 extracts current-batch entities, facts, and candidate observations from admitted events, using source-owned hints and extraction-profile instructions as anchors. Each fact includes a grounded linguistic temporal cue (`one_off`, `recent`, `recurring`, `stable`, or `unspecified`) that reflects explicit source wording only; it never owns retention policy. The host then assigns each retained fact a deterministic claim reference and verifies its current quote, evidence mode, and bounded antecedent IDs. Missing, out-of-batch, context-only, or unmatchable support rejects that candidate without retrying the full response and without expanding evidence to the whole batch.
-- Extracted entity mentions are attributed only to events that literally contain the surface or normalized name. A context-only entity may be used transiently only for a validated contextual claim when its exact catalog ID and canonical name already exist, but it cannot create catalog records, aliases, event-entity links, or mention evidence for the current event. Underspecified entities are not registered.
+- Phase 1 entity candidates are admitted only when their exact surface occurs in eligible current evidence. Cross-script translated normalized names are restored to that surface before typed entity resolution, and alias signals absent from the same evidence are discarded. Imported Markdown occurrence checks exclude blockquotes, code, and pasted dialogue. Extracted entity mentions are then attributed only to events that literally contain the surface or retained normalized name. A context-only entity may be used transiently only for a validated contextual claim when its exact catalog ID and canonical name already exist, but it cannot create catalog records, aliases, event-entity links, or mention evidence for the current event. Underspecified entities are not registered.
 - Grounded Phase 1 claims are projected deterministically into graph candidates. The graph store owns merge, corroboration, exclusivity, and opposite-predicate handling; Phase 2 never restates those facts as graph writes.
 - Entity disambiguation and Phase 2 are optional enrichments. If entity disambiguation exhausts its model/JSON retries, affected mentions remain unresolved and no fallback entity is created. If Phase 2 or conflict arbitration exhausts its retries, validated Phase 1 graph facts, structured facets, and host-owned qualifying Goal assertions are still persisted; model-owned higher-order candidates are discarded, and the projection is completed with the degraded stage recorded in diagnostics and logs.
 - Before Phase 2, the pipeline may build a deterministic evidence packet from current Phase 1 output, bounded L1 history contexts, existing L2 graph edges, and existing assertion state. This retrieval step must not call an LLM; it is a cost-controlled recall step that gives Phase 2 corroboration, conflict, and prior-state context. The packet also reports how many prior history contexts support each current candidate, so Phase 2 can distinguish a one-off mention from a recurring signal without adding another LLM recall step. The model packet remains bounded, but host conflict arbitration separately pages the complete current slot domain before persistence; truncating prompt context cannot truncate the safety check.

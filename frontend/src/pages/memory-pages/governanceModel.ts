@@ -615,8 +615,8 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       status: label('statuses.valid', '有效'),
       updatedAt: entity.updated_at,
       evidenceCount,
-      summary: aliases.length ? `${label('fields.aliases', '别名')}：${aliases.join('、')}` : null,
-      related: aliases,
+      summary: null,
+      related: [],
       impact: [
         { label: label('impact.relations', '关系'), value: l2Relations.filter((item) => item.subject_id === entity.entity_id || item.object_id === entity.entity_id).length },
         { label: label('impact.assertions', '断言'), value: l2Assertions.filter((item) => item.entity_id === entity.entity_id).length },
