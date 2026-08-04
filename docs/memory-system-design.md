@@ -723,7 +723,11 @@ natural-language summaries, but it is interpretation context only in Phase 1 and
 never authorizes translation of imported evidence. Phase 1 protocol keys and enum
 values remain English, while entity surfaces, normalized names, evidence-derived
 object references, evidence quotes, and raw time expressions retain the current
-evidence language.
+evidence language. Phase 1 protocol prose and JSON schemas are instructions, not
+candidate evidence. Prompt guidance should express extraction rules structurally
+instead of embedding reusable, user-like entity values, and the host must reject
+any emitted entity or Claim value that is not grounded in eligible current
+evidence.
 Before typed validation or persistence, the host detects the current evidence
 scripts, requires every entity surface to occur in eligible current evidence,
 restores a normalized name to that surface when it drops any source letter script,
@@ -737,7 +741,9 @@ must not replace the source-language name in user-facing evidence.
 Phase 1 alias signals are provenance-bearing names, not a place for speculative
 translations. An alias may be persisted only when that exact alternate name also
 occurs in eligible current evidence; existing catalog aliases may participate in
-matching without being copied into new event provenance. Imported Markdown uses
+matching without being copied into new event provenance. A normalized alias that
+equals the entity's normalized canonical name is not an alias and must not be
+stored as a duplicate catalog row. Imported Markdown uses
 the same host-owned authorship classifier as claim grounding, so text found only
 inside blockquotes, code, or pasted dialogue cannot create an entity or alias.
 Governance surfaces present aliases as entity metadata in record details, never
@@ -784,6 +790,13 @@ exact timestamp.
 
 A concrete `PLANS_TO` Claim with `fact_kind = future_intent` and a resolved
 target is routed to `goal_profile` / `goal.intent`, not to the knowledge graph.
+Phase 1 should represent the complete planned action referenced by the Claim as
+a concrete entity rather than extracting only nested nouns. When the model omits
+that representation, the host may complete it only after the Claim has passed
+current-evidence grounding, only when the exact concrete `object_ref` occurs in
+that Claim's evidence quote, and only by submitting the target through ordinary
+entity quality, catalog, and resolution rules. It must not invent an entity ID or
+route directly from an unresolved surface string.
 Only direct user evidence may become a current goal assertion. The host creates
 the minimal assertion candidate independently of optional Phase 2 output, so an
 empty or failed Phase 2 cannot discard a qualifying goal, and derives its literal
