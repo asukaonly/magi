@@ -217,15 +217,17 @@ class L2EntityCatalog(
             await db.execute("BEGIN IMMEDIATE")
             if lease_items:
                 await assert_current_projection_attempt(db, lease_items)
+            async with db.execute(
+                "SELECT canonical_name, entity_type FROM entity_catalog WHERE entity_id = ?",
+                (entity_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is not None and _normalize_alias(str(row[0] or "")) == normalized_alias:
+                await db.commit()
+                return
             normalized_entity_type: str | None = None
-            if source_event_ids is not None:
-                async with db.execute(
-                    "SELECT entity_type FROM entity_catalog WHERE entity_id = ?",
-                    (entity_id,),
-                ) as cursor:
-                    row = await cursor.fetchone()
-                if row is not None:
-                    normalized_entity_type = str(row[0] or "").strip() or None
+            if source_event_ids is not None and row is not None:
+                normalized_entity_type = str(row[1] or "").strip() or None
             active_event_ids = await _active_source_event_ids(
                 db,
                 source_event_ids,

@@ -157,6 +157,33 @@ async def test_low_confidence_alias_does_not_auto_merge():
 
 
 @pytest.mark.asyncio
+async def test_canonical_name_is_not_stored_as_its_own_alias() -> None:
+    from magi.memory.l2.entities.catalog import L2EntityCatalog
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = str(Path(temp_dir) / "memory.db")
+        catalog = L2EntityCatalog(db_path=db_path)
+        await catalog.initialize()
+
+        entity_id = await catalog.upsert_entity(
+            canonical_name="GitHub",
+            entity_type="software",
+            entity_id="software:github",
+        )
+        await catalog.add_alias(
+            entity_id=entity_id,
+            alias_text="github",
+            confidence=0.95,
+        )
+
+        entities = await catalog.list_entities(limit=10)
+
+        assert len(entities) == 1
+        assert entities[0]["canonical_name"] == "GitHub"
+        assert entities[0]["aliases"] == []
+
+
+@pytest.mark.asyncio
 async def test_record_mention_preserves_surface_form_and_evidence_event_ids():
     from magi.memory.l2.entities.catalog import L2EntityCatalog
 
