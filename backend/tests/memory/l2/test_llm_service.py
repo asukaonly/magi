@@ -1030,6 +1030,78 @@ def test_phase1_applies_language_and_entity_grounding_contract(
     assert "Letter scripts detected in current evidence: Han" in messages[1]["content"]
 
 
+def test_phase1_materializes_omitted_grounded_future_intent_target() -> None:
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2BatchEvent, L2EventWindow
+
+    evidence = "我计划秋天去一次海边"
+    target = "秋天去一次海边"
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "entities": [
+                    {
+                        "surface": "海边",
+                        "normalized_name": "海边",
+                        "entity_type": "place",
+                        "specificity": "concrete",
+                        "resolved_id": None,
+                        "is_new": True,
+                        "alias_signals": [],
+                        "confidence": 0.94,
+                    }
+                ],
+                "fact_claims": [
+                    {
+                        "subject_ref": "user:self",
+                        "subject_type": "user",
+                        "predicate": "PLANS_TO",
+                        "object_ref": target,
+                        "object_type": "activity",
+                        "fact_kind": "future_intent",
+                        "temporal_cue": "unspecified",
+                        "raw_time_expression": "秋天",
+                        "polarity": "positive",
+                        "specificity": "concrete",
+                        "evidence_text": evidence,
+                        "confidence": 0.96,
+                        "supporting_event_ids": ["evt-plan"],
+                        "evidence_mode": "direct",
+                        "antecedent_event_ids": [],
+                    }
+                ],
+                "resolved_refs": [],
+                "diagnostics": {"entity_status": "found"},
+            },
+            ensure_ascii=False,
+        )
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    result = asyncio.run(
+        service.extract_phase1(
+            event_window=L2EventWindow(
+                events=[
+                    L2BatchEvent(
+                        event_id="evt-plan",
+                        content=evidence,
+                        author_type="user",
+                    )
+                ]
+            ),
+            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+        )
+    )
+
+    assert [(entity.surface, entity.entity_type) for entity in result.entities] == [
+        ("海边", "place"),
+        (target, "activity"),
+    ]
+    assert result.entities[1].normalized_name == target
+    assert result.entities[1].alias_signals == []
+    assert result.diagnostics["materialized_future_intent_entity_count"] == 1
+
+
 def test_phase1_short_reply_does_not_reuse_prior_user_text_as_current_evidence():
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2BatchEvent, L2EventWindow

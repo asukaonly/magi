@@ -132,6 +132,60 @@ def normalize_phase1_entity_contract(
     return normalizations
 
 
+def materialize_grounded_future_intent_entities(
+    payload: dict[str, object],
+) -> list[str]:
+    """Complete omitted goal targets from already-grounded Phase 1 Claims."""
+
+    raw_entities = payload.get("entities")
+    raw_claims = payload.get("fact_claims")
+    if not isinstance(raw_entities, list) or not isinstance(raw_claims, list):
+        return []
+
+    diagnostics = payload.get("diagnostics")
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+        payload["diagnostics"] = diagnostics
+    diagnostics.pop("materialized_future_intent_entity_count", None)
+
+    known_refs = _entity_reference_keys(raw_entities)
+    materialized_count = 0
+    for claim in raw_claims:
+        if not isinstance(claim, dict) or not _is_concrete_future_intent(claim):
+            continue
+        object_ref = _non_empty_text(claim.get("object_ref"))
+        object_type = _non_empty_text(claim.get("object_type"))
+        evidence_text = _non_empty_text(claim.get("evidence_text"))
+        if object_ref is None or object_type is None or evidence_text is None:
+            continue
+        key = (object_type.casefold(), _canonical_text(object_ref))
+        if key in known_refs or key[1] not in _canonical_text(evidence_text):
+            continue
+        raw_entities.append(
+            {
+                "surface": object_ref,
+                "normalized_name": object_ref,
+                "entity_type": object_type,
+                "specificity": "concrete",
+                "resolved_id": None,
+                "is_new": True,
+                "alias_signals": [],
+                "confidence": _grounded_entity_confidence(claim.get("confidence")),
+            }
+        )
+        known_refs.add(key)
+        materialized_count += 1
+
+    if not materialized_count:
+        return []
+    diagnostics["entity_status"] = "found"
+    diagnostics["materialized_future_intent_entity_count"] = materialized_count
+    return [
+        "entities: materialized "
+        f"{materialized_count} grounded future-intent targets omitted by the model"
+    ]
+
+
 def _eligible_evidence_sources(
     event_window: L2EventWindow,
 ) -> list[tuple[L2BatchEvent | None, str, bool]]:
@@ -151,6 +205,39 @@ def _eligible_evidence_sources(
         )
         sources.append((event, content, is_history_document))
     return sources
+
+
+def _entity_reference_keys(
+    raw_entities: list[object],
+) -> set[tuple[str, str]]:
+    keys: set[tuple[str, str]] = set()
+    for entity in raw_entities:
+        if not isinstance(entity, dict):
+            continue
+        entity_type = _non_empty_text(entity.get("entity_type"))
+        if entity_type is None:
+            continue
+        for field_name in ("surface", "normalized_name", "resolved_id"):
+            value = _non_empty_text(entity.get(field_name))
+            if value is not None:
+                keys.add((entity_type.casefold(), _canonical_text(value)))
+    return keys
+
+
+def _is_concrete_future_intent(claim: dict[str, object]) -> bool:
+    return (
+        str(claim.get("predicate") or "").strip().upper() == "PLANS_TO"
+        and str(claim.get("fact_kind") or "").strip().casefold() == "future_intent"
+        and str(claim.get("specificity") or "").strip().casefold() == "concrete"
+    )
+
+
+def _grounded_entity_confidence(value: object) -> float:
+    try:
+        confidence = float(value or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return min(1.0, max(0.9, confidence))
 
 
 def _is_grounded_surface(
@@ -247,5 +334,6 @@ def _non_empty_text(value: Any) -> str | None:
 
 __all__ = [
     "evidence_script_names",
+    "materialize_grounded_future_intent_entities",
     "normalize_phase1_entity_contract",
 ]
