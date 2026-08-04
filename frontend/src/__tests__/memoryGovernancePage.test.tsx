@@ -678,11 +678,17 @@ describe('MemoryGovernancePage', () => {
     renderPage();
 
     expect(screen.queryByRole('dialog', { name: '记录详情' })).not.toBeInTheDocument();
+    expect(screen.queryByText('别名：我、自己')).not.toBeInTheDocument();
 
     await user.click(await screen.findByRole('button', { name: /^打开记录 用户$/ }));
 
     const drawer = await screen.findByRole('dialog', { name: '记录详情' });
     expect(within(drawer).getByRole('heading', { name: '用户' })).toBeInTheDocument();
+    expect(within(drawer).getByText('别名')).toBeInTheDocument();
+    expect(within(drawer).getByText('我、自己')).toBeInTheDocument();
+    expect(within(drawer).getByText('没有可直接展示的来源引用。')).toBeInTheDocument();
+    expect(within(drawer).queryByText(/^我$/)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(/^自己$/)).not.toBeInTheDocument();
     expect(within(drawer).getByText('当前可见关联')).toBeInTheDocument();
     expect(within(drawer).getByText('这里只反映当前已读取的数据，不代表删除或遗忘的完整影响范围。')).toBeInTheDocument();
     expect(within(drawer).getByText('重新核对这个实体的合并、关系和冲突状态。')).toBeInTheDocument();
