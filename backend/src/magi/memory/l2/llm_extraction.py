@@ -15,6 +15,7 @@ from .pipeline.claim_grounding import (
 from .pipeline.evidence_packet import build_phase2_evidence_packet
 from .pipeline.entity_grounding import (
     evidence_script_names,
+    materialize_grounded_future_intent_entities,
     normalize_phase1_entity_contract,
 )
 from .pipeline.prompts import (
@@ -209,6 +210,7 @@ def _normalize_phase1_contract(
             context_messages=context_messages,
         )
     )
+    normalizations.extend(materialize_grounded_future_intent_entities(payload))
     return normalizations
 
 

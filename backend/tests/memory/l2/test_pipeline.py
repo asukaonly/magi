@@ -1752,6 +1752,123 @@ async def test_phase2_json_failure_still_persists_host_owned_goal_assertion():
 
 
 @pytest.mark.asyncio
+async def test_missing_future_intent_entity_is_materialized_and_routed():
+    event_time = time.time()
+    phase1_response = json.dumps(
+        {
+            "entities": [
+                {
+                    "surface": "海边",
+                    "normalized_name": "海边",
+                    "entity_type": "place",
+                    "specificity": "concrete",
+                    "resolved_id": None,
+                    "is_new": True,
+                    "alias_signals": [],
+                    "confidence": 0.96,
+                }
+            ],
+            "fact_claims": [
+                {
+                    "subject_ref": "user:self",
+                    "subject_type": "user",
+                    "predicate": "PLANS_TO",
+                    "object_ref": "去海边",
+                    "object_type": "activity",
+                    "fact_kind": "future_intent",
+                    "temporal_cue": "unspecified",
+                    "raw_time_expression": "",
+                    "polarity": "positive",
+                    "specificity": "concrete",
+                    "evidence_text": "我计划去海边",
+                    "evidence_mode": "direct",
+                    "antecedent_event_ids": [],
+                    "confidence": 0.96,
+                    "supporting_event_ids": ["evt-materialized-goal"],
+                }
+            ],
+            "resolved_refs": [],
+            "diagnostics": {"entity_status": "found"},
+        },
+        ensure_ascii=False,
+    )
+    phase2_response = json.dumps(
+        {"claim_assessments": [], "assertion_candidates": []}
+    )
+    adapter = _FakeAdapter([phase1_response, phase2_response])
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            assert store.l2 is not None
+            assert store.l2_entity_catalog is not None
+
+            await store.ingest_event(
+                {
+                    "id": "evt-materialized-goal",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": event_time,
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s-materialized-goal",
+                        "content": "我计划去海边",
+                    },
+                }
+            )
+
+            for _ in range(400):
+                stats = store.get_l2_pipeline_stats()
+                if stats["extract_completed"] >= 1 and stats["assertions_written"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
+            assert len(assertions) == 1
+            assert assertions[0]["trait_name"] == "goal.intent"
+            assert assertions[0]["trait_value"] == "去海边"
+
+            claims = await store.l2.list_grounded_claims()
+            assert len(claims) == 1
+            refs = await store.l2.list_claim_entity_refs(
+                claim_id=claims[0]["claim_id"]
+            )
+            object_refs = [ref for ref in refs if ref["ref_role"] == "object"]
+            assert len(object_refs) == 1
+
+            outcomes = await store.l2.list_claim_projection_outcomes(
+                claim_id=claims[0]["claim_id"]
+            )
+            route_outcomes = [
+                outcome for outcome in outcomes if outcome["target_kind"] == "route"
+            ]
+            assert [outcome["outcome"] for outcome in route_outcomes] == ["routed"]
+
+            entities = await store.l2_entity_catalog.list_entities(limit=10)
+            activity_entities = [
+                entity
+                for entity in entities
+                if entity["entity_type"] == "activity"
+                and entity["canonical_name"] == "去海边"
+            ]
+            assert len(activity_entities) == 1
+            assert activity_entities[0]["entity_id"] == object_refs[0]["entity_id"]
+            assert activity_entities[0]["aliases"] == []
+            assert store.get_l2_pipeline_stats()["extract_failed"] == 0
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
     """The extract worker passes place + type hints into episode formation.
 

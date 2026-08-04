@@ -217,15 +217,17 @@ class L2EntityCatalog(
             await db.execute("BEGIN IMMEDIATE")
             if lease_items:
                 await assert_current_projection_attempt(db, lease_items)
+            async with db.execute(
+                "SELECT canonical_name, entity_type FROM entity_catalog WHERE entity_id = ?",
+                (entity_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is not None and _normalize_alias(str(row[0] or "")) == normalized_alias:
+                await db.commit()
+                return
             normalized_entity_type: str | None = None
-            if source_event_ids is not None:
-                async with db.execute(
-                    "SELECT entity_type FROM entity_catalog WHERE entity_id = ?",
-                    (entity_id,),
-                ) as cursor:
-                    row = await cursor.fetchone()
-                if row is not None:
-                    normalized_entity_type = str(row[0] or "").strip() or None
+            if source_event_ids is not None and row is not None:
+                normalized_entity_type = str(row[1] or "").strip() or None
             active_event_ids = await _active_source_event_ids(
                 db,
                 source_event_ids,
@@ -286,23 +288,60 @@ class L2EntityCatalog(
         await self.initialize()
         normalized_alias = _normalize_alias(alias_text)
 
-        query = """
+        alias_query = """
             SELECT c.entity_id, c.entity_type, a.confidence
-            FROM entity_aliases a
-            JOIN entity_catalog c ON c.entity_id = a.entity_id
+            FROM entity_aliases AS a
+            JOIN entity_catalog AS c ON c.entity_id = a.entity_id
             WHERE a.normalized_alias = ?
+        """
+        canonical_query = """
+            SELECT entity_id, entity_type, canonical_name
+            FROM entity_catalog
+            WHERE magi_normalize_alias(canonical_name) = ?
         """
         args: list[Any] = [normalized_alias]
         normalized_entity_type = _normalize_catalog_entity_type(entity_type)
         if normalized_entity_type:
-            query += " AND c.entity_type = ?"
+            alias_query += " AND c.entity_type = ?"
+            canonical_query += " AND entity_type = ?"
             args.append(normalized_entity_type)
-        query += " ORDER BY a.confidence DESC, c.entity_id ASC"
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(query, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
+            await db.create_function(
+                "magi_normalize_alias",
+                1,
+                _normalize_alias,
+                deterministic=True,
+            )
+            async with db.execute(alias_query, tuple(args)) as cursor:
+                alias_rows = await cursor.fetchall()
+            async with db.execute(canonical_query, tuple(args)) as cursor:
+                canonical_rows = await cursor.fetchall()
+
+        candidates: dict[str, tuple[str, float]] = {}
+        for row in alias_rows:
+            candidates[str(row["entity_id"])] = (
+                str(row["entity_type"]),
+                float(row["confidence"]),
+            )
+        for row in canonical_rows:
+            if _normalize_alias(str(row["canonical_name"])) != normalized_alias:
+                continue
+            entity_id = str(row["entity_id"])
+            entity_type_value = str(row["entity_type"])
+            candidates[entity_id] = (entity_type_value, 1.0)
+        rows = sorted(
+            (
+                {
+                    "entity_id": entity_id,
+                    "entity_type": entity_type_value,
+                    "confidence": confidence,
+                }
+                for entity_id, (entity_type_value, confidence) in candidates.items()
+            ),
+            key=lambda row: (-float(row["confidence"]), str(row["entity_id"])),
+        )
 
         if not rows:
             return {

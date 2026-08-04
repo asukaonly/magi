@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from magi.memory.l2.models import L2BatchEvent, L2EventWindow
 from magi.memory.l2.pipeline.entity_grounding import (
     evidence_script_names,
+    materialize_grounded_future_intent_entities,
     normalize_phase1_entity_contract,
 )
 from magi.memory.l2.pipeline.history_markdown import HISTORY_DOCUMENT_EVENT_TYPE
@@ -196,6 +199,132 @@ def test_drops_history_document_entity_found_only_in_blockquote() -> None:
         ),
     )
 
+    assert payload["entities"] == []
+
+
+def test_materializes_missing_grounded_future_intent_target() -> None:
+    payload: dict[str, object] = {
+        "entities": [_entity("海边", "海边", "place")],
+        "fact_claims": [
+            {
+                "subject_ref": "user:self",
+                "subject_type": "user",
+                "predicate": "PLANS_TO",
+                "object_ref": "秋天去一次海边",
+                "object_type": "activity",
+                "fact_kind": "future_intent",
+                "polarity": "positive",
+                "specificity": "concrete",
+                "evidence_text": "我想秋天去一次海边",
+                "confidence": 0.84,
+            }
+        ],
+        "diagnostics": {"entity_status": "found"},
+    }
+
+    normalizations = materialize_grounded_future_intent_entities(payload)
+
+    entities = payload["entities"]
+    assert isinstance(entities, list)
+    assert entities == [
+        _entity("海边", "海边", "place"),
+        {
+            "surface": "秋天去一次海边",
+            "normalized_name": "秋天去一次海边",
+            "entity_type": "activity",
+            "specificity": "concrete",
+            "resolved_id": None,
+            "is_new": True,
+            "alias_signals": [],
+            "confidence": 0.9,
+        },
+    ]
+    assert payload["diagnostics"] == {
+        "entity_status": "found",
+        "materialized_future_intent_entity_count": 1,
+    }
+    assert normalizations == [
+        "entities: materialized 1 grounded future-intent targets omitted by the model"
+    ]
+
+
+def test_does_not_duplicate_existing_future_intent_target() -> None:
+    target = "秋天去一次海边"
+    payload: dict[str, object] = {
+        "entities": [_entity(target, target, "activity")],
+        "fact_claims": [
+            {
+                "predicate": "PLANS_TO",
+                "object_ref": target,
+                "object_type": "activity",
+                "fact_kind": "future_intent",
+                "specificity": "concrete",
+                "evidence_text": f"我想{target}",
+                "confidence": 0.96,
+            }
+        ],
+        "diagnostics": {"entity_status": "found"},
+    }
+
+    normalizations = materialize_grounded_future_intent_entities(payload)
+
+    assert payload["entities"] == [_entity(target, target, "activity")]
+    assert payload["diagnostics"] == {"entity_status": "found"}
+    assert normalizations == []
+
+
+def test_does_not_materialize_future_intent_target_absent_from_evidence() -> None:
+    payload: dict[str, object] = {
+        "entities": [],
+        "fact_claims": [
+            {
+                "predicate": "PLANS_TO",
+                "object_ref": "去海边",
+                "object_type": "activity",
+                "fact_kind": "future_intent",
+                "specificity": "concrete",
+                "evidence_text": "我想休息一下",
+                "confidence": 0.96,
+            }
+        ],
+        "diagnostics": {"entity_status": "none"},
+    }
+
+    assert materialize_grounded_future_intent_entities(payload) == []
+    assert payload["entities"] == []
+    assert payload["diagnostics"] == {"entity_status": "none"}
+
+
+@pytest.mark.parametrize(
+    ("predicate", "fact_kind", "specificity"),
+    [
+        ("LIKES", "stable_preference", "concrete"),
+        ("PLANS_TO", "explicit_fact", "concrete"),
+        ("PLANS_TO", "future_intent", "underspecified"),
+    ],
+)
+def test_only_materializes_concrete_future_intent_targets(
+    predicate: str,
+    fact_kind: str,
+    specificity: str,
+) -> None:
+    payload: dict[str, object] = {
+        "entities": [],
+        "fact_claims": [
+            {
+                "predicate": predicate,
+                "object_ref": "去海边",
+                "object_type": "activity",
+                "fact_kind": fact_kind,
+                "specificity": specificity,
+                "evidence_text": "我计划去海边",
+                "confidence": 0.96,
+            }
+        ],
+        "diagnostics": {"entity_status": "none"},
+    }
+
+    assert materialize_grounded_future_intent_entities(payload) == []
     assert payload["entities"] == []
 
 
