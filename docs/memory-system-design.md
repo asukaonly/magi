@@ -717,7 +717,12 @@ persisted. The LLM is not an authority for inventing `entity_id` values. Grounde
 Phase 1 claims are projected into graph candidates only after their endpoints
 resolve to catalog IDs produced by Phase 1 entity resolution or source-owned
 structured hints that have first been registered in the catalog. Phase 2 does not
-emit graph edges. Evidence-derived entity text and model-generated summaries have
+emit graph edges. Graph storage and internal retrieval continue to use those stable
+IDs, while product-facing relationship read models must batch-hydrate endpoint
+names from the entity catalog. A client may cache catalog entities for reuse, but
+it must not infer a user-visible name from an ID prefix such as `concept:` or
+`other:`; an unresolved opaque endpoint is presented as unknown instead.
+Evidence-derived entity text and model-generated summaries have
 different language contracts. The configured user language guides Phase 2
 natural-language summaries, but it is interpretation context only in Phase 1 and
 never authorizes translation of imported evidence. Phase 1 protocol keys and enum

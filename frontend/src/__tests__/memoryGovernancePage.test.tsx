@@ -591,6 +591,56 @@ describe('MemoryGovernancePage', () => {
     expect(screen.getByText('观察')).toBeInTheDocument();
   });
 
+  it('uses hydrated relation names when the entity cache is stale', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l2Relations: [
+        {
+          ...baseMemoryState.l2Relations[0],
+          subject_id: 'user:self',
+          subject_type: 'user',
+          object_id: `concept:${'a'.repeat(12)}`,
+          object_type: 'concept',
+          object_name: '没有人声或者人声比较远的音乐',
+        },
+      ],
+      l2Entities: baseMemoryState.l2Entities,
+    } as ReturnType<typeof useMemory>);
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /关系图谱/ }));
+
+    expect(await screen.findByRole('button', {
+      name: '打开记录 用户 使用 没有人声或者人声比较远的音乐',
+    })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /使用 concept$/ })).not.toBeInTheDocument();
+    expect(screen.getAllByText('用户 → 概念')).toHaveLength(2);
+  });
+
+  it('does not present an opaque entity type as a relationship endpoint name', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l2Relations: [
+        {
+          ...baseMemoryState.l2Relations[0],
+          object_id: `other:${'b'.repeat(12)}`,
+          object_type: 'other',
+        },
+      ],
+      l2Entities: baseMemoryState.l2Entities,
+    } as ReturnType<typeof useMemory>);
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /关系图谱/ }));
+
+    expect(await screen.findByRole('button', {
+      name: '打开记录 用户 使用 未知对象',
+    })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /使用 other$/ })).not.toBeInTheDocument();
+  });
+
   it('shows a visible load error and retries the active category', async () => {
     const loadL2Entities = vi.fn()
       .mockResolvedValueOnce(false)
