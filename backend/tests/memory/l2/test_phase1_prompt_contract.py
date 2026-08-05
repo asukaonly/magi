@@ -96,6 +96,20 @@ def test_phase1_prompt_does_not_embed_user_like_translation_examples() -> None:
     assert "directional but unbound travel style" not in PHASE1_EXTRACT_SYSTEM_PROMPT
 
 
+def test_phase1_prompt_reserves_other_for_unclassified_entities() -> None:
+    assert "Prefer the most specific allowed entity type" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "Use `group` for named bands, teams, communities, and collectives" in (
+        PHASE1_EXTRACT_SYSTEM_PROMPT
+    )
+    assert "Use `media` for named songs, albums, films, books, podcasts, and creative works" in (
+        PHASE1_EXTRACT_SYSTEM_PROMPT
+    )
+    assert "Use `concept` for abstract qualities, styles, and preferences" in (
+        PHASE1_EXTRACT_SYSTEM_PROMPT
+    )
+    assert "Use `other` only when no other allowed type fits" in PHASE1_EXTRACT_SYSTEM_PROMPT
+
+
 def test_phase1_render_separates_user_language_from_evidence_script() -> None:
     prompt = render_phase1_extract_prompt(
         event_window=L2EventWindow(
