@@ -2379,6 +2379,66 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
     assert fake_memory.l2.assertion_count_kwargs["include_inactive"] is True
 
 
+def test_memory_relation_api_hydrates_endpoint_names(monkeypatch):
+    import magi.api.routers.memory.l2.knowledge_routes as knowledge_routes
+
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    fake_memory = _FakeUnifiedMemory()
+
+    async def _get_relationships(**_kwargs):
+        return [
+            {
+                "triple_id": "triple-1",
+                "subject_id": "user:local_user",
+                "subject_type": "user",
+                "predicate": "LIKES",
+                "object_id": "concept:c6052b702d6e",
+                "object_type": "concept",
+                "confidence": 0.3,
+                "evidence_event_ids": ["evt-1"],
+                "observation_count": 1,
+                "status": "active",
+            }
+        ]
+
+    async def _get_canonical_names(_db_path, entity_ids):
+        assert set(entity_ids) == {"user:local_user", "concept:c6052b702d6e"}
+        return {
+            "concept:c6052b702d6e": "没有人声或者人声比较远的音乐",
+        }
+
+    fake_memory.l2.get_relationships = _get_relationships
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr(
+        knowledge_routes,
+        "get_canonical_names",
+        _get_canonical_names,
+        raising=False,
+    )
+
+    response = TestClient(app).get("/api/memory/l2/relations")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [
+        {
+            "triple_id": "triple-1",
+            "subject_id": "user:local_user",
+            "subject_type": "user",
+            "subject_name": None,
+            "predicate": "LIKES",
+            "object_id": "concept:c6052b702d6e",
+            "object_type": "concept",
+            "object_name": "没有人声或者人声比较远的音乐",
+            "confidence": 0.3,
+            "evidence_event_ids": ["evt-1"],
+            "observation_count": 1,
+            "status": "active",
+        }
+    ]
+
+
 def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_is_unavailable(
     monkeypatch,
 ):

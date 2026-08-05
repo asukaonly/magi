@@ -247,8 +247,24 @@ function getRelationEntityTypeLabel(entityType: unknown, label: GovernanceLabelF
     ['group', label('relations.entityTypes.group', '群组')],
     ['event', label('relations.entityTypes.event', '事件')],
     ['media', label('relations.entityTypes.media', '内容')],
+    ['product', label('relations.entityTypes.product', '产品')],
+    ['food', label('relations.entityTypes.food', '食物')],
+    ['technology', label('relations.entityTypes.technology', '技术')],
     ['hardware', label('relations.entityTypes.hardware', '硬件')],
     ['software', label('relations.entityTypes.software', '软件')],
+    ['virtual_object', label('relations.entityTypes.virtualObject', '虚拟对象')],
+    ['activity', label('relations.entityTypes.activity', '活动')],
+    ['animal', label('relations.entityTypes.animal', '动物')],
+    ['pet', label('relations.entityTypes.pet', '宠物')],
+    ['health_metric', label('relations.entityTypes.healthMetric', '健康指标')],
+    ['concept', label('relations.entityTypes.concept', '概念')],
+    ['skill', label('relations.entityTypes.skill', '技能')],
+    ['topic', label('relations.entityTypes.topic', '主题')],
+    ['weather_state', label('relations.entityTypes.weatherState', '天气状态')],
+    ['location_state', label('relations.entityTypes.locationState', '位置状态')],
+    ['time_point', label('relations.entityTypes.timePoint', '时间点')],
+    ['session_topic', label('relations.entityTypes.sessionTopic', '会话主题')],
+    ['presence', label('relations.entityTypes.presence', '在场状态')],
     ['website', label('relations.entityTypes.website', '网站')],
     ['domain', label('relations.entityTypes.website', '网站')],
     ['other', label('relations.entityTypes.other', '其他')],
@@ -329,16 +345,24 @@ function getReadableEventType(value: unknown, label: GovernanceLabelFn): string 
 function getRelationEndpointName(
   entityId: unknown,
   entityType: unknown,
+  canonicalName: unknown,
   entityNamesById: Map<string, string>,
   label: GovernanceLabelFn
 ): string {
+  const hydratedName = safeText(canonicalName, '');
+  if (hydratedName) return hydratedName;
+
   const name = getAssertionEntityName(entityId, entityNamesById, label);
   const rawType = safeText(entityType, '');
   if (!rawType) return name;
 
   const escapedType = rawType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const withoutRepeatedType = name.replace(new RegExp(`^${escapedType}(?:\\s+|[:/_-]+)`, 'i'), '').trim();
-  return withoutRepeatedType || name;
+  const fallbackName = withoutRepeatedType || name;
+  if (fallbackName.toLocaleLowerCase() === rawType.toLocaleLowerCase()) {
+    return label('assertions.unknownEntity', '未知对象');
+  }
+  return fallbackName;
 }
 
 function getSnapshotPreview(snapshot: L2Snapshot, label: GovernanceLabelFn): string {
@@ -688,8 +712,20 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
 
   const l2RelationRecords: LayerRecord[] = l2Relations.map((relation) => {
     const evidenceEventIds = toList(relation.evidence_event_ids);
-    const subjectName = getRelationEndpointName(relation.subject_id, relation.subject_type, entityNamesById, label);
-    const objectName = getRelationEndpointName(relation.object_id, relation.object_type, entityNamesById, label);
+    const subjectName = getRelationEndpointName(
+      relation.subject_id,
+      relation.subject_type,
+      relation.subject_name,
+      entityNamesById,
+      label
+    );
+    const objectName = getRelationEndpointName(
+      relation.object_id,
+      relation.object_type,
+      relation.object_name,
+      entityNamesById,
+      label
+    );
     const predicateLabel = getRelationPredicateLabel(relation.predicate, label);
     const subjectType = getRelationEntityTypeLabel(relation.subject_type, label);
     const objectType = getRelationEntityTypeLabel(relation.object_type, label);

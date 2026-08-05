@@ -6,6 +6,8 @@ import asyncio
 
 from fastapi import HTTPException, Query, status
 
+from magi.memory.l2.entities.catalog.lookup import get_canonical_names
+
 from ..dependencies import _resolve_unified_memory
 from ..helpers import canonical_self_id, memory_t
 from ..router import memory_router
@@ -38,6 +40,21 @@ async def list_l2_relations(
             include_inactive=include_inactive,
         ),
     )
+    entity_ids = {
+        str(entity_id)
+        for item in items
+        for entity_id in (item.get("subject_id"), item.get("object_id"))
+        if entity_id
+    }
+    canonical_names = await get_canonical_names(unified_memory.l2.db_path, entity_ids)
+    items = [
+        {
+            **item,
+            "subject_name": canonical_names.get(str(item.get("subject_id") or "")),
+            "object_name": canonical_names.get(str(item.get("object_id") or "")),
+        }
+        for item in items
+    ]
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 

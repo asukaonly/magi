@@ -712,12 +712,25 @@ pronouns and vague placeholders such as “那个”, “他”, generic “app�
 “PDF” may help resolve references, but should not become canonical L2 entities
 unless they resolve to a concrete named entity or asset.
 
+Phase 1 must choose the most specific evidence-supported type from the canonical
+entity registry. Named collectives belong to `group`, named creative works belong
+to `media`, and abstract qualities or styles belong to `concept`. `other` is a
+last-resort classification for a concrete entity that does not fit any available
+type; unfamiliarity alone is not a reason to use it. The host still validates the
+type against the registry, but it does not guess a replacement type from an entity
+name when the evidence cannot support that semantic decision.
+
 Knowledge graph endpoints must resolve through the entity catalog before they are
 persisted. The LLM is not an authority for inventing `entity_id` values. Grounded
 Phase 1 claims are projected into graph candidates only after their endpoints
 resolve to catalog IDs produced by Phase 1 entity resolution or source-owned
 structured hints that have first been registered in the catalog. Phase 2 does not
-emit graph edges. Evidence-derived entity text and model-generated summaries have
+emit graph edges. Graph storage and internal retrieval continue to use those stable
+IDs, while product-facing relationship read models must batch-hydrate endpoint
+names from the entity catalog. A client may cache catalog entities for reuse, but
+it must not infer a user-visible name from an ID prefix such as `concept:` or
+`other:`; an unresolved opaque endpoint is presented as unknown instead.
+Evidence-derived entity text and model-generated summaries have
 different language contracts. The configured user language guides Phase 2
 natural-language summaries, but it is interpretation context only in Phase 1 and
 never authorizes translation of imported evidence. Phase 1 protocol keys and enum

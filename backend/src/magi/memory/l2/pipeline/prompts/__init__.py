@@ -33,6 +33,13 @@ person, place, organization, group, product, food, software, technology, hardwar
 ### Entity Type Aliases (map to canonical type)
 dish/drink/snack/ingredient → food | app/application/service/platform/os/database → software | language/framework/algorithm/model → technology | device/console/phone → hardware | idea/principle/theory → concept
 
+### Entity Type Selection
+Prefer the most specific allowed entity type supported by the current evidence.
+- Use `group` for named bands, teams, communities, and collectives.
+- Use `media` for named songs, albums, films, books, podcasts, and creative works.
+- Use `concept` for abstract qualities, styles, and preferences.
+- Use `other` only when no other allowed type fits; never use it merely because the entity is unfamiliar.
+
 ## Predicates
 Core predicates (preferred): LIKES, DISLIKES, INTERESTED_IN, VISITED, LIVES_IN, PLANS_TO, ATTENDED, WORKS_AT, MEMBER_OF, INTERACTED_WITH, KNOWS, FAMILY_OF, USES, OWNS, CREATES, PROFICIENT_IN, HAS_METRIC
 

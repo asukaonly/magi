@@ -172,9 +172,11 @@ export interface L2Relation {
   triple_id: string;
   subject_id: string;
   subject_type: string;
+  subject_name?: string | null;
   predicate: string;
   object_id: string;
   object_type: string;
+  object_name?: string | null;
   confidence: number;
   evidence_event_ids: string[];
   observation_count: number;
