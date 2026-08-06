@@ -1534,7 +1534,14 @@ relationship evidence. Old archived assertion rows that match the former forget
 shape are protected from replay rather than risk reviving content the user had
 already removed.
 
-The product exposes this agency through two complementary surfaces. **About You**
+The product exposes this agency through three complementary surfaces. The
+**Pending** workspace and memory Overview consume one discriminated pending-memory
+read model that combines pre-materialization reviews, tentative or contradicted
+Assertions, and reviewable memory stories. They share the same visual decision
+lane while dispatching each item to its owning governed command. A
+pre-materialization review offers confirm, reject, and edit-then-confirm; its edit
+form exposes only the literal memory value and user-facing summary.
+**About You**
 keeps its grouped summaries read-only and lets the user open the exact source
 behind a long-term understanding or a review item. Assertion-backed items use the
 governed correction flow, while profile-backed items open Personal Profile because

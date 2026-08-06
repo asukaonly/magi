@@ -7,6 +7,7 @@ import {
   memoryApi,
   type L2Assertion,
   type L2ExperienceSeed,
+  type L2PendingReview,
 } from '@/api/modules/memory';
 import { memoryStoriesApi, type StoryItem } from '@/api/modules/memoryStories';
 import {
@@ -16,6 +17,7 @@ import {
 } from '@/api/modules/notifications';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS } from './MemoryPageFrame';
 import { PendingFilterTabs } from './pending/PendingFilterTabs';
+import { PendingMemoryReviewEditDialog } from './pending/PendingMemoryReviewEditDialog';
 import { PendingReviewGroups } from './pending/PendingReviewGroups';
 import {
   buildPendingFilterOptions,
@@ -23,12 +25,14 @@ import {
   type ConflictAction,
   type PendingAction,
   type PendingFilter,
+  type PendingReviewAction,
 } from './pending/pendingModel';
 import { isMemoryUpdateStory } from './storyFilters';
 import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
 
 export const MemoryPendingPage = () => {
   const { t } = useTranslation('app');
+  const [reviews, setReviews] = useState<L2PendingReview[]>([]);
   const [assertions, setAssertions] = useState<L2Assertion[]>([]);
   const [stories, setStories] = useState<StoryItem[]>([]);
   const [seeds, setSeeds] = useState<L2ExperienceSeed[]>([]);
@@ -36,17 +40,20 @@ export const MemoryPendingPage = () => {
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<PendingFilter>('all');
+  const [editingReview, setEditingReview] = useState<L2PendingReview | null>(null);
   const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashboardPayload, storyPayload, seedPayload, notificationPayload] = await Promise.all([
+      const [reviewPayload, dashboardPayload, storyPayload, seedPayload, notificationPayload] = await Promise.all([
+        memoryApi.listPendingReviews(100),
         memoryApi.getDashboard({ pending_limit: 25 }),
         memoryStoriesApi.list({ limit: 50, offset: 0, surface: 'all' }),
         memoryApi.listExperienceSeeds({ status: 'candidate', limit: 50, offset: 0 }),
         listNotifications(),
       ]);
+      setReviews(reviewPayload.items || []);
       setAssertions(dashboardPayload.pending_assertions?.items || []);
       setStories((storyPayload.items || []).filter((story) => (
         story.review_state === 'pending_confirmation' && isMemoryUpdateStory(story)
@@ -62,8 +69,8 @@ export const MemoryPendingPage = () => {
     void load();
   }, [load]);
 
-  const totalCount = assertions.length + stories.length + seeds.length + conflicts.length;
-  const memoryCount = assertions.length + conflicts.length;
+  const totalCount = reviews.length + assertions.length + stories.length + seeds.length + conflicts.length;
+  const memoryCount = reviews.length + assertions.length + conflicts.length;
   const experienceCount = seeds.length;
   const observationCount = stories.length;
 
@@ -83,6 +90,42 @@ export const MemoryPendingPage = () => {
     try {
       await memoryApi.submitAssertionFeedback(assertion.assertion_id, 'confirmed');
       setAssertions((items) => items.filter((item) => item.assertion_id !== assertion.assertion_id));
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleReview = async (review: L2PendingReview, action: PendingReviewAction) => {
+    if (action === 'edit') {
+      setEditingReview(review);
+      return;
+    }
+    const id = `review:${review.review_id}`;
+    setActionId(id);
+    try {
+      await memoryApi.resolvePendingReview(review.review_id, {
+        action,
+        expected_version: review.version,
+      });
+      setReviews((items) => items.filter((item) => item.review_id !== review.review_id));
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleReviewEdit = async (edit: { trait_value: string; natural_summary?: string }) => {
+    if (!editingReview) return;
+    const review = editingReview;
+    const id = `review:${review.review_id}`;
+    setActionId(id);
+    try {
+      await memoryApi.resolvePendingReview(review.review_id, {
+        action: 'confirm_with_edit',
+        expected_version: review.version,
+        edit,
+      });
+      setReviews((items) => items.filter((item) => item.review_id !== review.review_id));
+      setEditingReview(null);
     } finally {
       setActionId(null);
     }
@@ -163,6 +206,7 @@ export const MemoryPendingPage = () => {
           </div>
           <div className="mt-6 [&>section+section]:mt-10 [&>section+section]:border-t [&>section+section]:border-[hsl(var(--memory-divider)/0.5)] [&>section+section]:pt-10">
             <PendingReviewGroups
+              reviews={reviews}
               assertions={assertions}
               stories={stories}
               seeds={seeds}
@@ -174,6 +218,7 @@ export const MemoryPendingPage = () => {
               showMemory={showMemory}
               showExperiences={showExperiences}
               showObservations={showObservations}
+              onReview={handleReview}
               onAssertion={handleAssertion}
               onStory={handleStory}
               onSeed={handleSeed}
@@ -191,6 +236,14 @@ export const MemoryPendingPage = () => {
         }}
         onSaved={load}
         onConflict={load}
+      />
+      <PendingMemoryReviewEditDialog
+        review={editingReview}
+        busy={Boolean(editingReview && actionId === `review:${editingReview.review_id}`)}
+        onOpenChange={(open) => {
+          if (!open && !actionId) setEditingReview(null);
+        }}
+        onSubmit={handleReviewEdit}
       />
     </MemoryPageFrame>
   );

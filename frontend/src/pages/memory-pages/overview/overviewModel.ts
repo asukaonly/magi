@@ -1,4 +1,9 @@
-import type { L2Assertion, MemoryDashboard, MemorySourceCount } from '@/api/modules/memory';
+import type {
+  L2Assertion,
+  L2PendingReview,
+  MemoryDashboard,
+  MemorySourceCount,
+} from '@/api/modules/memory';
 import type { SensorSourceStatusItem, SensorSourceStatusResponse } from '@/api/modules/sensors';
 import type { StoryItem } from '@/api/modules/memoryStories';
 import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
@@ -6,6 +11,15 @@ import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import { isMemoryUpdateStory } from '../storyFilters';
 
 export type PendingOverviewItem =
+  | {
+      kind: 'review';
+      id: string;
+      title: string;
+      body: string;
+      status: string;
+      updatedAt: number;
+      payload: L2PendingReview;
+    }
   | {
       kind: 'assertion';
       id: string;
@@ -165,9 +179,24 @@ export const buildSourceRows = (
 export const buildPendingItems = (
   dashboard: MemoryDashboard | null,
   stories: StoryItem[],
+  reviews: L2PendingReview[],
   dismissedIds: Set<string>,
   t: OverviewTranslateFn,
 ): PendingOverviewItem[] => {
+  const reviewItems: PendingOverviewItem[] = reviews.map((review) => {
+    const value = String(review.proposed.trait_value || '').trim()
+      || t('memory.pending.reviews.unknownValue');
+    return {
+      kind: 'review',
+      id: `review:${review.review_id}`,
+      title: t('memory.pending.reviews.title', { value }),
+      body: String(review.proposed.natural_summary || '').trim()
+        || t('memory.pending.reviews.body'),
+      status: review.status,
+      updatedAt: review.updated_at,
+      payload: review,
+    };
+  });
   const assertionItems: PendingOverviewItem[] = (dashboard?.pending_assertions.items || []).map((assertion) => {
     const copy = getPendingAssertionCopy(assertion, t);
     return {
@@ -191,11 +220,11 @@ export const buildPendingItems = (
       updatedAt: story.display_timestamp || 0,
       payload: story,
     }));
-  return [...assertionItems, ...storyItems]
+  return [...reviewItems, ...assertionItems, ...storyItems]
     .filter((item) => !dismissedIds.has(item.id))
     .sort((left, right) => {
-      const leftPriority = left.kind === 'assertion' && left.status === 'contradicted' ? 0 : left.kind === 'story' ? 1 : 2;
-      const rightPriority = right.kind === 'assertion' && right.status === 'contradicted' ? 0 : right.kind === 'story' ? 1 : 2;
+      const leftPriority = left.kind === 'review' ? 0 : left.kind === 'assertion' && left.status === 'contradicted' ? 1 : left.kind === 'story' ? 2 : 3;
+      const rightPriority = right.kind === 'review' ? 0 : right.kind === 'assertion' && right.status === 'contradicted' ? 1 : right.kind === 'story' ? 2 : 3;
       return leftPriority - rightPriority || right.updatedAt - left.updatedAt;
     });
 };

@@ -1,10 +1,11 @@
-import type { L2ExperienceSeed } from '@/api/modules/memory';
+import type { L2ExperienceSeed, L2PendingReview } from '@/api/modules/memory';
 import type { StoryItem } from '@/api/modules/memoryStories';
 import type { NotificationItem } from '@/api/modules/notifications';
 
 export type PendingAction = 'confirmed' | 'rejected';
 export type ConflictAction = 'confirm' | 'reject';
 export type PendingFilter = 'all' | 'memory' | 'experiences' | 'observations';
+export type PendingReviewAction = 'confirm' | 'reject' | 'edit';
 
 export interface PendingFilterOption {
   key: PendingFilter;
@@ -63,6 +64,14 @@ export const conflictTitle = (notification: NotificationItem, fallback: string):
 
 export const conflictBody = (notification: NotificationItem): string => (
   String(notification.body || notification.payload.inferred_value || '').trim()
+);
+
+export const pendingReviewValue = (review: L2PendingReview, fallback: string): string => (
+  String(review.proposed.trait_value || '').trim() || fallback
+);
+
+export const pendingReviewSummary = (review: L2PendingReview, fallback: string): string => (
+  String(review.proposed.natural_summary || '').trim() || fallback
 );
 
 export const isOpenProfileConflict = (notification: NotificationItem): boolean => (

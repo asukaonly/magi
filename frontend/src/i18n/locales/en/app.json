@@ -2723,6 +2723,7 @@
         "noEvents": "No events"
       },
       "pendingKinds": {
+        "review": "Memory to confirm",
         "assertion": "Structured assertion",
         "story": "Memory update"
       },
@@ -2731,7 +2732,11 @@
         "startChat": "Start a conversation",
         "connectSource": "Connect your first source",
         "confirm": "Confirm",
+        "edit": "Edit",
         "reject": "Not right",
+        "confirmReview": "Confirm this memory",
+        "editReview": "Edit and confirm",
+        "rejectReview": "Do not use this memory",
         "confirmAssertion": "Confirm assertion",
         "rejectAssertion": "Reject assertion",
         "confirmStory": "Confirm memory update",
@@ -2993,6 +2998,7 @@
       "emptyTitle": "Nothing needs review right now",
       "emptyBody": "New judgments or experience signals will appear here.",
       "meta": {
+        "preMaterializationReview": "Confirm before saving",
         "assertion": "About-you judgment",
         "conflict": "Preference conflict",
         "summary": "Summary",
@@ -3010,13 +3016,29 @@
         "uncertainBody": "The evidence is not consistent enough, and there is no clear opposite judgment yet. Confirm whether this is accurate.",
         "traitBody": "Judgment type: {{trait}}"
       },
+      "reviews": {
+        "title": "Do you want Magi to remember “{{value}}”?",
+        "body": "This may shape how Magi understands you later, so it needs your confirmation first.",
+        "unknownValue": "this"
+      },
+      "reviewEdit": {
+        "title": "Edit and confirm",
+        "description": "Edit only what you want Magi to remember. Once confirmed, it is stored as a memory you approved.",
+        "valueLabel": "Memory",
+        "summaryLabel": "Note (optional)",
+        "summaryPlaceholder": "Describe this memory in one sentence",
+        "confirm": "Confirm and save"
+      },
       "fallbackMemoryUpdateTitle": "Summary to review",
       "fallbackConflictTitle": "Preference conflict",
       "conflictMeta": "Differs from confirmed memory",
       "evidenceCount": "{{count}} pieces of evidence",
+      "claimCount": "{{count}} source claim(s)",
       "fragmentCount": "{{count}} fragments",
       "actions": {
         "confirm": "Confirm",
+        "confirmReview": "Yes",
+        "editReview": "Edit",
         "confirmJudgment": "Yes",
         "reject": "Not right",
         "confirmObservation": "Looks right",

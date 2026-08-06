@@ -2722,6 +2722,7 @@
         "noEvents": "暂无事件"
       },
       "pendingKinds": {
+        "review": "待确认记忆",
         "assertion": "结构化断言",
         "story": "记忆更新"
       },
@@ -2730,7 +2731,11 @@
         "startChat": "开始对话",
         "connectSource": "连接第一个来源",
         "confirm": "确认",
+        "edit": "修改",
         "reject": "不对",
+        "confirmReview": "确认这条记忆",
+        "editReview": "修改后确认",
+        "rejectReview": "不采用这条记忆",
         "confirmAssertion": "确认断言",
         "rejectAssertion": "拒绝断言",
         "confirmStory": "确认记忆更新",
@@ -2991,6 +2996,7 @@
       "emptyTitle": "现在没有需要处理的内容",
       "emptyBody": "Magi 有新的判断或经历线索时会放到这里。",
       "meta": {
+        "preMaterializationReview": "写入前确认",
         "assertion": "关于你的判断",
         "conflict": "偏好冲突",
         "summary": "总结",
@@ -3008,13 +3014,29 @@
         "uncertainBody": "证据还不够一致，但没有明确的相反判断。请确认它准不准。",
         "traitBody": "判断类型：{{trait}}"
       },
+      "reviews": {
+        "title": "你希望 Magi 记住「{{value}}」吗？",
+        "body": "这条内容可能会影响 Magi 之后对你的理解，需要你先确认。",
+        "unknownValue": "这条内容"
+      },
+      "reviewEdit": {
+        "title": "修改后确认",
+        "description": "只修改你想让 Magi 记住的内容。确认后，它会作为你亲自确认的记忆写入。",
+        "valueLabel": "记忆内容",
+        "summaryLabel": "补充说明（可选）",
+        "summaryPlaceholder": "用一句话说明这条记忆",
+        "confirm": "确认并写入"
+      },
       "fallbackMemoryUpdateTitle": "待确认总结",
       "fallbackConflictTitle": "偏好冲突",
       "conflictMeta": "和已确认记忆不一致",
       "evidenceCount": "{{count}} 条证据",
+      "claimCount": "{{count}} 条来源判断",
       "fragmentCount": "{{count}} 个片段",
       "actions": {
         "confirm": "确认",
+        "confirmReview": "是的",
+        "editReview": "修改",
         "confirmJudgment": "是的",
         "reject": "不对",
         "confirmObservation": "说得对",
