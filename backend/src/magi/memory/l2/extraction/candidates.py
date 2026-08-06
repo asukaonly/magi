@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional, Protocol, cast
 
 from ...event_contracts import MemoryEvent
-from ..models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
+from ..models import L2KnowledgeEdgeWrite
 
 
 class _CandidateHostProtocol(Protocol):
@@ -37,12 +37,3 @@ class L2StoreCandidateExtractionMixin:
                 extraction_method="keyword_rule",
             )
         ]
-
-    def _extract_assertion_candidates(self, event: MemoryEvent) -> list[L2TomAssertionWrite]:
-        # Stress/calm assertion candidates used to be generated here from a
-        # tiny English-only keyword list (anxious/relaxed/...). It missed every
-        # non-English speaker and double-emitted whatever the L2 LLM extraction
-        # already produces. The LLM pipeline is now the single source of mood
-        # / stress assertions; rule fallback intentionally stays empty.
-        del event
-        return []

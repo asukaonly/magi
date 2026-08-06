@@ -837,14 +837,11 @@ Each event source is mapped to an `ExtractionProfile` that controls L2 cognition
 - `allowed_predicates`: which predicates LLM may use (e.g., `USES`, `INTERESTED_IN`, `VIEWED`)
 - `allowed_assertion_families`: which ToM assertion families are permitted (empty disables assertions)
 - `allow_graph` / `allow_assertion`: master switches for graph and assertion writing
-- `assertion_mode`: `none`, `derived`, or `phase2_candidate`
 - `extraction_instructions` / `phase1_instructions`: free-text instructions injected into the LLM Phase 1 prompt
-- `phase2_instructions`: source-specific integration guidance injected into the Phase 2 prompt
+- `summary_instructions`: optional wording guidance for claim-bound Phase 2 summaries
 - `derived_assertion_specs`: host-validated graph-derived assertion specs for accumulated source evidence
 
-Phase 1 instructions guide entity and fact extraction. Phase 2 instructions explain which higher-order assertions are meaningful for the source and how to interpret domain evidence. Phase 2 cannot emit graph edges or choose evidence IDs, confidence, lifecycle, expiry, or persistence actions; it can only reference host-assigned Phase 1 claim IDs and exact existing record IDs. Plugins can also declare derived assertion specs when they know source-specific evidence patterns better than the host, but the host still validates assertion families, traits, lifecycle, and source-tier conflict rules.
-
-Phase 2 also receives a host-built deterministic evidence packet when related context is available. The packet can include current candidate anchors, bounded L1 history matches, related graph evidence, and existing assertion state. This recall step is intentionally non-LLM; plugins influence it through source metadata, batch ownership, graph facts, and derived assertion specs rather than by running their own model pass.
+Phase 1 instructions guide entity and grounded Claim extraction. The host then owns semantic routing and every Assertion field, including family, trait, slot, target, value, evidence, confidence, promotion horizon, lifecycle, and governance action. Phase 2 is optional and may return only concise summaries bound to host-assigned Claim IDs. Empty or invalid summaries do not change materialization. Plugins can declare derived assertion specs when they know source-specific accumulated evidence patterns, but the host still validates assertion families, traits, lifecycle, and source-tier governance.
 
 Canonical assertion families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `routine_profile`, and `state_profile`. Use `preference_profile` for durable interests, affinities, tastes, and preferences. Use `routine_profile` for repeated behavior rhythms and habits. Do not use assertion family names as graph predicates or graph object refs.
 
@@ -865,7 +862,7 @@ class ChromeHistoryPlugin(Plugin):
                 allow_graph=True,
                 allow_assertion=False,
                 extraction_instructions="Treat browser history as observed page titles, not user-authored text.",
-                phase2_instructions="Do not infer user preferences from one-off page visits.",
+                summary_instructions="Keep summaries factual and preserve the source language.",
             )
         ]
 ```

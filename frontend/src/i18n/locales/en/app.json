@@ -2041,14 +2041,6 @@
           "label": "Knowledge extraction batch interval (seconds)",
           "description": "How long to wait before processing a batch of new conversations for knowledge extraction. Minimum 30 seconds."
         },
-        "enable_l2_conflict_arbitration": {
-          "label": "Enable fact conflict resolution",
-          "description": "When new information highly contradicts existing memory, use AI to analyze deeply before deciding whether to update."
-        },
-        "l2_conflict_arbitration_min_confidence": {
-          "label": "Conflict resolution threshold",
-          "description": "Only trigger deep analysis when contradiction confidence reaches this level."
-        },
         "enable_l3_llm_summary": {
           "label": "Enable AI summaries",
           "description": "Use AI to condense conversation records into periodic summaries and reviews."

@@ -1478,12 +1478,6 @@ describe('settings page draft saving', () => {
     expect(
       screen.queryByLabelText('settings.memory.fields.l2_batch_flush_interval_seconds.label')
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('switch', { name: 'settings.memory.fields.enable_l2_conflict_arbitration.label' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByLabelText('settings.memory.fields.l2_conflict_arbitration_min_confidence.label')
-    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryReflection' }));
     await screen.findByRole('heading', { name: 'settings.tabs.memoryReflection' });
@@ -1509,8 +1503,6 @@ describe('settings page draft saving', () => {
             }),
             l2: expect.objectContaining({
               batch_flush_interval_seconds: 60,
-              conflict_arbitration_enabled: true,
-              conflict_arbitration_min_confidence: 0.85,
             }),
             l3: expect.objectContaining({
               retention_days: 240,

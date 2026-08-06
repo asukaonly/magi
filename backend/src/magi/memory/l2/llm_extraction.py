@@ -12,10 +12,8 @@ from .llm_priority import l2_llm_priority_for_event_window
 from .pipeline.claim_grounding import (
     normalize_phase1_claim_contract,
 )
-from .pipeline.evidence_packet import build_phase2_evidence_packet
 from .pipeline.entity_grounding import (
     evidence_script_names,
-    materialize_grounded_future_intent_entities,
     normalize_phase1_entity_contract,
 )
 from .pipeline.prompts import (
@@ -118,30 +116,24 @@ class L2LLMExtractionMixin:
         self,
         *,
         phase1_result: L2Phase1Result,
-        existing_graph_edges: list[dict[str, Any]] | None = None,
-        existing_assertions: list[dict[str, Any]] | None = None,
         event_window: L2EventWindow,
         focal_subject: dict[str, Any],
-        phase2_instructions: str | None = None,
+        summary_instructions: str | None = None,
     ) -> L2Phase2Result:
-        """Phase 2: infer higher-order assertions and assess non-obvious conflicts."""
+        """Phase 2: optionally improve user-facing wording without semantic authority."""
         started_at = time.perf_counter()
         event_ids = list(event_window.event_ids)
         session_id = self._non_empty_text(event_window.summary.session_id)
         _log_phase2_started(
             event_ids=event_ids,
             phase1_result=phase1_result,
-            existing_graph_edges=existing_graph_edges,
-            existing_assertions=existing_assertions,
         )
         user_language = _effective_user_language()
         prompt = _phase2_prompt(
             phase1_result=phase1_result,
-            existing_graph_edges=existing_graph_edges,
-            existing_assertions=existing_assertions,
             event_window=event_window,
             focal_subject=focal_subject,
-            phase2_instructions=phase2_instructions,
+            summary_instructions=summary_instructions,
         )
         payload = await self._generate_json(
             system_prompt=build_phase2_integrate_system_prompt(user_language or None),
@@ -152,15 +144,10 @@ class L2LLMExtractionMixin:
             log_context=_phase2_log_context(
                 event_ids=event_ids,
                 phase1_result=phase1_result,
-                existing_graph_edges=existing_graph_edges,
-                existing_assertions=existing_assertions,
                 event_window=event_window,
             ),
             priority=l2_llm_priority_for_event_window(event_window),
-            required_fields={
-                "claim_assessments": list,
-                "assertion_candidates": list,
-            },
+            required_fields={"summaries": list},
         )
         result = L2Phase2Result.from_dict(payload)
         _log_phase2_completed(
@@ -175,15 +162,11 @@ def _log_phase2_started(
     *,
     event_ids: list[str],
     phase1_result: L2Phase1Result,
-    existing_graph_edges: list[dict[str, Any]] | None,
-    existing_assertions: list[dict[str, Any]] | None,
 ) -> None:
     logger.info(
         "L2 Phase 2 integration started",
         event_ids=event_ids,
         fact_claim_count=len(phase1_result.fact_claims),
-        existing_edge_count=len(existing_graph_edges) if existing_graph_edges else 0,
-        existing_assertion_count=len(existing_assertions) if existing_assertions else 0,
     )
 
 
@@ -210,30 +193,20 @@ def _normalize_phase1_contract(
             context_messages=context_messages,
         )
     )
-    normalizations.extend(materialize_grounded_future_intent_entities(payload))
     return normalizations
 
 
 def _phase2_prompt(
     *,
     phase1_result: L2Phase1Result,
-    existing_graph_edges: list[dict[str, Any]] | None,
-    existing_assertions: list[dict[str, Any]] | None,
     event_window: L2EventWindow,
     focal_subject: dict[str, Any],
-    phase2_instructions: str | None,
+    summary_instructions: str | None,
 ) -> str:
-    evidence_packet = build_phase2_evidence_packet(
-        phase1_result=phase1_result,
-        existing_graph_edges=existing_graph_edges,
-        existing_assertions=existing_assertions,
-        event_window=event_window,
-    )
     return render_phase2_integrate_prompt(
         phase1_result=phase1_result.to_dict(),
         focal_subject=focal_subject,
-        source_integration_instructions=phase2_instructions,
-        evidence_packet=evidence_packet,
+        summary_instructions=summary_instructions,
     )
 
 
@@ -241,15 +214,11 @@ def _phase2_log_context(
     *,
     event_ids: list[str],
     phase1_result: L2Phase1Result,
-    existing_graph_edges: list[dict[str, Any]] | None,
-    existing_assertions: list[dict[str, Any]] | None,
     event_window: L2EventWindow,
 ) -> dict[str, Any]:
     return {
         "event_ids": event_ids,
         "fact_claim_count": len(phase1_result.fact_claims),
-        "existing_edge_count": len(existing_graph_edges) if existing_graph_edges else 0,
-        "existing_assertion_count": len(existing_assertions) if existing_assertions else 0,
         "history_context_count": len(event_window.history_contexts),
     }
 
@@ -262,18 +231,16 @@ def _log_phase2_completed(
 ) -> None:
     duration_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
     logger.info(
-        "L2 Phase 2 inference completed",
+        "L2 Phase 2 summary generation completed",
         duration_ms=duration_ms,
         event_ids=event_ids,
-        claim_assessment_count=len(result.claim_assessments),
-        assertion_count=len(result.assertion_candidates),
+        summary_count=len(result.summaries),
     )
     if full_content_logging_enabled():
         logger.info(
-            "L2 Phase 2 candidate summary",
+            "L2 Phase 2 wording summary",
             event_ids=event_ids,
-            claim_assessments=_summarize_phase2_claim_assessments(result),
-            assertion_candidates=_summarize_phase2_assertions(result),
+            summaries=_summarize_phase2_summaries(result),
         )
 
 
@@ -306,26 +273,10 @@ def _summarize_phase1_fact_claims(result: L2Phase1Result) -> list[dict[str, Any]
     ]
 
 
-def _summarize_phase2_claim_assessments(result: L2Phase2Result) -> list[dict[str, Any]]:
+def _summarize_phase2_summaries(result: L2Phase2Result) -> list[dict[str, Any]]:
     return [
-        {
-            "claim_id": assessment.claim_id,
-            "relationship": assessment.relationship,
-            "related_record_id": assessment.related_record_id,
-        }
-        for assessment in result.claim_assessments[:20]
-    ]
-
-
-def _summarize_phase2_assertions(result: L2Phase2Result) -> list[dict[str, Any]]:
-    return [
-        {
-            "entity_ref": assertion.entity_ref,
-            "trait_value": assertion.trait_value,
-            "natural_summary": assertion.natural_summary,
-            "supporting_claim_ids": assertion.supporting_claim_ids,
-        }
-        for assertion in result.assertion_candidates[:20]
+        {"claim_ids": summary.claim_ids, "text": summary.text}
+        for summary in result.summaries[:20]
     ]
 
 

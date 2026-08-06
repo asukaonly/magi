@@ -61,6 +61,32 @@ class _L2PipelineWorkerHostProtocol(Protocol):
 class L2PipelineWorkerMixin:
     """Own the extract, reconcile, snapshot, and callback worker loops."""
 
+    async def _load_evidence_timestamps(self, entity_id: str) -> dict[str, float]:
+        """Load durable L1 timestamps used by deterministic reconciliation."""
+        host = self._worker_host()
+        l1_store = getattr(host, "_l1_store", None)
+        if l1_store is None or host._cognition_store is None:
+            return {}
+        assertions = await host._cognition_store.list_tom_assertions(
+            entity_id=entity_id,
+            entity_type=host._entity_type_from_id(entity_id),
+            limit=500,
+        )
+        event_ids = sorted(
+            {
+                str(event_id)
+                for item in assertions
+                for event_id in item.get("evidence_events", [])
+                if str(event_id or "").strip()
+            }
+        )
+        timestamps: dict[str, float] = {}
+        for event_id in event_ids:
+            event = await l1_store.get_event(event_id)
+            if event is not None:
+                timestamps[event_id] = float(event["timestamp"])
+        return timestamps
+
     async def _run_extract_worker(self) -> None:
         host = self._worker_host()
         if host._cognition_store is None:
@@ -221,9 +247,11 @@ class L2PipelineWorkerMixin:
             "assertion_count",
             "mention_count",
             "graph_candidate_count",
-            "assertion_candidate_count",
+            "materialization_count",
             "rejected_graph_candidate_count",
-            "rejected_assertion_candidate_count",
+            "summary_count",
+            "accepted_summary_count",
+            "rejected_summary_count",
             "contradiction_hint_count",
         ):
             try:
@@ -295,14 +323,13 @@ class L2PipelineWorkerMixin:
             profile_id=result.get("profile_id"),
             mention_count=int(result.get("mention_count", 0)),
             graph_candidate_count=int(result.get("graph_candidate_count", 0)),
-            assertion_candidate_count=int(result.get("assertion_candidate_count", 0)),
+            materialization_count=int(result.get("materialization_count", 0)),
             rejected_graph_candidate_count=int(result.get("rejected_graph_candidate_count", 0)),
-            rejected_assertion_candidate_count=int(
-                result.get("rejected_assertion_candidate_count", 0)
-            ),
+            summary_count=int(result.get("summary_count", 0)),
+            accepted_summary_count=int(result.get("accepted_summary_count", 0)),
+            rejected_summary_count=int(result.get("rejected_summary_count", 0)),
             relation_count=int(result["relation_count"]),
             assertion_count=int(result["assertion_count"]),
-            contradiction_hint_count=int(result.get("contradiction_hint_count", 0)),
             degraded_stages=result.get("degraded_stages", []),
             touched_entity_count=len(result.get("touched_entity_ids", [])),
             queue_size=host._extract_queue.qsize(),

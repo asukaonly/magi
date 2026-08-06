@@ -221,8 +221,6 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.l0.attention_update_idle_seconds == 30
     assert config.memory.l0.attention_update_max_delay_seconds == 90
     assert config.memory.l2.batch_flush_interval_seconds == 60
-    assert config.memory.l2.conflict_arbitration_enabled is True
-    assert config.memory.l2.conflict_arbitration_min_confidence == 0.85
     assert config.memory.l2.shadow_conflict_notification_enabled is True
     assert config.memory.l2.portrait_projection_refresh_delay_seconds == 120
     assert config.memory.l1.retention_days == 30
@@ -420,11 +418,6 @@ def test_memory_config_rejects_l2_batch_flush_interval_below_minimum():
         SystemConfigModel(memory={"l2": {"batch_flush_interval_seconds": 29}})
 
 
-def test_memory_config_rejects_l2_conflict_arbitration_threshold_above_maximum():
-    with pytest.raises(ValueError):
-        SystemConfigModel(memory={"l2": {"conflict_arbitration_min_confidence": 1.1}})
-
-
 def test_llm_settings_allow_multiple_instances_of_same_provider_type():
     settings = LLMSettings(
         providers={
@@ -518,8 +511,6 @@ def test_build_update_paths_contains_new_sections():
     config.llm.model_runtime_overrides["openai::gpt-5.2::chat"] = LLMConcurrencyOverrideSettings(
         max_concurrency=7
     )
-    config.memory.l2.conflict_arbitration_enabled = False
-    config.memory.l2.conflict_arbitration_min_confidence = 0.9
     config.memory.l2.shadow_conflict_notification_enabled = False
     config.memory.l2.portrait_projection_refresh_delay_seconds = 45
     config.memory.l3.retention_days = 210
@@ -551,8 +542,6 @@ def test_build_update_paths_contains_new_sections():
     assert updates["agent.memory.l2.vectors_enabled"] == config.memory.l2.vectors_enabled
     assert updates["llm.model_runtime_overrides"]["openai::gpt-5.2::chat"]["max_concurrency"] == 7
     assert "max_concurrency" not in config.llm.selections["core"].limits.model_dump()
-    assert updates["agent.memory.l2.conflict_arbitration_enabled"] is False
-    assert updates["agent.memory.l2.conflict_arbitration_min_confidence"] == 0.9
     assert updates["agent.memory.l2.shadow_conflict_notification_enabled"] is False
     assert updates["agent.memory.l2.portrait_projection_refresh_delay_seconds"] == 45
     assert updates["agent.memory.l3.retention_days"] == 210

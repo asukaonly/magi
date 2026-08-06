@@ -631,21 +631,8 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
             "resolved_refs": [],
             "diagnostics": {"entity_status": "none"},
         }),
-        # Phase 2: produce assertion
-        json.dumps({
-            "claim_assessments": [],
-            "assertion_candidates": [
-                {
-                    "entity_ref": "user:u1",
-                    "entity_type": "user",
-                    "trait_family": "mood",
-                    "trait_name": "mood",
-                    "trait_value": "stressed",
-                    "natural_summary": "Work has recently felt stressful.",
-                    "supporting_claim_ids": ["claim:1"],
-                }
-            ],
-        }),
+        # Phase 2 may improve wording but does not decide whether to write.
+        json.dumps({"summaries": []}),
     ]
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
@@ -802,16 +789,11 @@ def test_unified_memory_store_wires_l2_batch_flush_interval_into_pipeline():
         enable_l3=False,
         enable_l4=False,
         l2_batch_flush_interval_seconds=90,
-        tuning=MemoryStoreTuning(
-            enable_l2_conflict_arbitration=False,
-            l2_conflict_arbitration_min_confidence=0.9,
-        ),
+        tuning=MemoryStoreTuning(),
     )
 
     assert store.l2_pipeline is not None
     assert store.l2_pipeline._batch_flush_interval_seconds == 90
-    assert store.l2_pipeline._enable_conflict_arbitration is False
-    assert store.l2_pipeline._conflict_arbitration_min_confidence == 0.9
 
 
 
@@ -1093,8 +1075,8 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
                 "diagnostics": {"entity_status": "found"},
             }
         ),
-        # Phase 2 has no higher-order inference; Phase 1 owns the graph fact.
-        json.dumps({"claim_assessments": [], "assertion_candidates": []}),
+        # Phase 2 wording is optional; Phase 1 owns graph and assertion semantics.
+        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1273,23 +1255,8 @@ async def test_short_reply_context_error_does_not_fail_or_create_false_mentions(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("failure_stage", "followup_responses", "expected_call_count"),
-    [
-        ("phase2", ["not-json", "still-not-json"], 3),
-        (
-            "conflict_arbitration",
-            [json.dumps({"claim_assessments": [], "assertion_candidates": []})],
-            2,
-        ),
-    ],
-)
 async def test_optional_inference_failure_persists_phase1_and_completes(
     caplog,
-    monkeypatch,
-    failure_stage,
-    followup_responses,
-    expected_call_count,
 ):
     phase1_response = json.dumps(
         {
@@ -1325,7 +1292,7 @@ async def test_optional_inference_failure_persists_phase1_and_completes(
         },
         ensure_ascii=False,
     )
-    adapter = _FakeAdapter([phase1_response, *followup_responses])
+    adapter = _FakeAdapter([phase1_response, "not-json", "still-not-json"])
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
@@ -1350,27 +1317,6 @@ async def test_optional_inference_failure_persists_phase1_and_completes(
                 alias_text="魔都",
                 confidence=0.98,
             )
-            if failure_stage == "conflict_arbitration":
-                from magi.memory.l2.llm_json_client import (
-                    L2InvalidJsonResponseError,
-                )
-
-                async def _fail_conflict_arbitration(
-                    _batch,
-                    _phase1_flow,
-                    _candidates,
-                ):
-                    raise L2InvalidJsonResponseError(
-                        "invalid conflict arbitration JSON"
-                    )
-
-                assert store.l2_pipeline is not None
-                monkeypatch.setattr(
-                    store.l2_pipeline,
-                    "_apply_phase2_conflict_arbitration",
-                    _fail_conflict_arbitration,
-                )
-
             with caplog.at_level(logging.INFO, logger="magi.memory.l2.pipeline"):
                 await store.ingest_event(
                     {
@@ -1398,15 +1344,9 @@ async def test_optional_inference_failure_persists_phase1_and_completes(
 
             assert stats["extract_completed"] == 1
             assert stats["extract_failed"] == 0
-            assert len(adapter.calls) == expected_call_count
-            expected_degraded_message = (
-                "L2 conflict arbitration degraded without dropping unrelated Phase 2 candidates"
-                if failure_stage == "conflict_arbitration"
-                else "L2 optional inference degraded to Phase 1"
-            )
+            assert len(adapter.calls) == 3
             assert any(
-                expected_degraded_message in record.getMessage()
-                and failure_stage in record.getMessage()
+                "L2 optional summary generation failed" in record.getMessage()
                 for record in caplog.records
             )
             assert any(
@@ -1529,7 +1469,7 @@ async def test_phase2_json_failure_still_persists_host_owned_goal_assertion():
 
 
 @pytest.mark.asyncio
-async def test_missing_future_intent_entity_is_materialized_and_routed():
+async def test_goal_text_is_materialized_without_creating_an_activity_entity():
     event_time = time.time()
     phase1_response = json.dumps(
         {
@@ -1569,9 +1509,7 @@ async def test_missing_future_intent_entity_is_materialized_and_routed():
         },
         ensure_ascii=False,
     )
-    phase2_response = json.dumps(
-        {"claim_assessments": [], "assertion_candidates": []}
-    )
+    phase2_response = json.dumps({"summaries": []})
     adapter = _FakeAdapter([phase1_response, phase2_response])
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1620,7 +1558,7 @@ async def test_missing_future_intent_entity_is_materialized_and_routed():
                 claim_id=claims[0]["claim_id"]
             )
             object_refs = [ref for ref in refs if ref["ref_role"] == "object"]
-            assert len(object_refs) == 1
+            assert object_refs == []
 
             outcomes = await store.l2.list_claim_projection_outcomes(
                 claim_id=claims[0]["claim_id"]
@@ -1637,9 +1575,7 @@ async def test_missing_future_intent_entity_is_materialized_and_routed():
                 if entity["entity_type"] == "activity"
                 and entity["canonical_name"] == "去海边"
             ]
-            assert len(activity_entities) == 1
-            assert activity_entities[0]["entity_id"] == object_refs[0]["entity_id"]
-            assert activity_entities[0]["aliases"] == []
+            assert activity_entities == []
             assert store.get_l2_pipeline_stats()["extract_failed"] == 0
         finally:
             await store.shutdown()
@@ -1690,8 +1626,8 @@ async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
                 "diagnostics": {"entity_status": "found"},
             }
         ),
-        # Phase 2 has no higher-order inference; Phase 1 owns the graph fact.
-        json.dumps({"claim_assessments": [], "assertion_candidates": []}),
+        # Phase 2 wording is optional; Phase 1 owns graph and assertion semantics.
+        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -2177,109 +2113,6 @@ async def test_extract_worker_orders_history_contexts_chronologically_in_prompt(
 
 
 @pytest.mark.asyncio
-async def test_phase2_uses_phase1_entities_to_recall_l1_entity_history():
-    from magi.memory.l2.pipeline.prompts import PHASE2_INTEGRATE_SYSTEM_PROMPT
-
-    adapter = _FakeAdapter(
-        [
-            json.dumps(
-                {
-                    "entities": [
-                        {
-                            "surface": "DIIV",
-                            "normalized_name": "DIIV",
-                            "entity_type": "group",
-                            "specificity": "concrete",
-                            "resolved_id": "group:diiv",
-                            "is_new": False,
-                        }
-                    ],
-                    "fact_claims": [
-                        {
-                            "subject_ref": "user:self",
-                            "predicate": "ATTENDED",
-                            "object_ref": "DIIV",
-                            "object_type": "group",
-                            "fact_kind": "interaction_evidence",
-                            "temporal_cue": "one_off",
-                            "specificity": "concrete",
-                            "confidence": 0.9,
-                            "evidence_text": "DIIV was great last night.",
-                            "supporting_event_ids": ["evt-current-band"],
-                        }
-                    ],
-                    "resolved_refs": [],
-                    "diagnostics": {"entity_status": "found"},
-                }
-            ),
-            json.dumps({"claim_assessments": [], "assertion_candidates": []}),
-        ]
-    )
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-            scenario_llm_pool=_FakeScenarioPool(adapter),
-        )
-        await store.initialize()
-        try:
-            assert store.l1 is not None
-            assert store.l2_entity_catalog is not None
-            await store.l2_entity_catalog.upsert_entity(
-                canonical_name="DIIV",
-                entity_type="group",
-                entity_id="group:diiv",
-            )
-            await store.l1.store(
-                _make_memory_event(
-                    event_id="evt-linked-history",
-                    session_id="s-old",
-                    user_id="u1",
-                    timestamp=100.0,
-                    content="The concert replay made me revisit that night.",
-                )
-            )
-            await store.l1.write_event_entities(
-                [("evt-linked-history", "group:diiv", "group", 0.95)]
-            )
-
-            await store.ingest_event(
-                {
-                    "id": "evt-current-band",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": 300.0,
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s-new",
-                        "content": "DIIV was great last night.",
-                    },
-                }
-            )
-            for _ in range(400):
-                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
-            phase2_prompts = [
-                str(call["prompt"])
-                for call in adapter.calls
-                if call.get("system_prompt") == PHASE2_INTEGRATE_SYSTEM_PROMPT
-            ]
-
-            assert len(phase2_prompts) == 1
-            assert "The concert replay made me revisit that night." in phase2_prompts[0]
-            assert "History Matches" in phase2_prompts[0]
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
 async def test_sensor_events_without_session_do_not_use_user_recent_context():
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
@@ -2328,7 +2161,7 @@ async def test_sensor_events_without_session_do_not_use_user_recent_context():
 
 
 @pytest.mark.asyncio
-async def test_extract_worker_persists_llm_tom_assertions():
+async def test_extract_worker_materializes_routed_assertions():
     responses = [
         # Phase 1: extract a fact claim about the current mood
         json.dumps(
@@ -2353,23 +2186,8 @@ async def test_extract_worker_persists_llm_tom_assertions():
                 "diagnostics": {"entity_status": "none"},
             }
         ),
-        # Phase 2: produce assertion
-        json.dumps(
-            {
-                "claim_assessments": [],
-                "assertion_candidates": [
-                    {
-                        "entity_ref": "user:u1",
-                        "entity_type": "user",
-                        "trait_family": "mood",
-                        "trait_name": "mood",
-                        "trait_value": "stressed",
-                        "natural_summary": "Work has recently felt stressful.",
-                        "supporting_claim_ids": ["claim:1"],
-                    }
-                ],
-            }
-        ),
+        # Empty wording output must not suppress host materialization.
+        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -2433,7 +2251,7 @@ async def test_extract_worker_persists_llm_tom_assertions():
 
 
 @pytest.mark.asyncio
-async def test_extract_worker_closes_routed_claim_when_phase2_omits_assertion():
+async def test_extract_worker_materializes_routed_claim_when_phase2_omits_summary():
     responses = [
         json.dumps(
             {
@@ -2457,7 +2275,7 @@ async def test_extract_worker_closes_routed_claim_when_phase2_omits_assertion():
                 "diagnostics": {"entity_status": "none"},
             }
         ),
-        json.dumps({"claim_assessments": [], "assertion_candidates": []}),
+        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -2501,9 +2319,10 @@ async def test_extract_worker_closes_routed_claim_when_phase2_omits_assertion():
                 outcome for outcome in outcomes if outcome["target_kind"] == "assertion"
             ]
             assert len(assertion_outcomes) == 1
-            assert assertion_outcomes[0]["outcome"] == "skipped"
-            assert assertion_outcomes[0]["reason_code"] == "phase2_no_assertion_candidate"
-            assert assertion_outcomes[0]["target_id"].startswith("slot:")
+            assert assertion_outcomes[0]["outcome"] == "projected"
+            assert assertion_outcomes[0]["reason_code"] is None
+            assert assertion_outcomes[0]["target_id"].startswith("assert_")
+            assert assertion_outcomes[0]["target_slot_key"]
             assert store.get_l2_pipeline_stats()["extract_failed"] == 0
         finally:
             await store.shutdown()
@@ -2586,9 +2405,10 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
                         "diagnostics": {"entity_status": "none"},
                     }
                 ),
-                # Phase 2 may identify a conflict, but the host owns the action.
+                # Undeclared semantic fields are ignored; the host owns all actions.
                 json.dumps(
                     {
+                        "summaries": [],
                         "claim_assessments": [
                             {
                                 "claim_id": "claim:1",
@@ -2596,7 +2416,12 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
                                 "related_record_id": existing_assertion_id,
                             }
                         ],
-                        "assertion_candidates": [],
+                        "assertion_candidates": [
+                            {
+                                "assertion_id": existing_assertion_id,
+                                "conflict_action": "invalidate",
+                            }
+                        ],
                     }
                 ),
             ]
@@ -2625,397 +2450,16 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
             assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
             summaries = await store.l3.list_summaries(limit=10) if store.l3 is not None else []
 
-            assert assertions[0]["assertion_id"] == existing_assertion_id
+            existing = next(
+                item for item in assertions if item["assertion_id"] == existing_assertion_id
+            )
             # The independent reconcile worker may normalize a stable row to
             # corroborated while this test waits. The incompatible Phase 2
             # assessment must not contradict or supersede it.
-            assert assertions[0]["validation_state"] in {"stable", "corroborated"}
-            assert assertions[0]["confidence_score"] == pytest.approx(0.84)
+            assert existing["validation_state"] in {"stable", "corroborated"}
+            assert existing["confidence_score"] == pytest.approx(0.84)
+            assert any(item["trait_value"] == "calm" for item in assertions)
             assert not any(item["summary_category"] == "conflict_resolution" for item in summaries)
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_extract_worker_uses_conflict_arbitration_to_keep_existing_graph_fact():
-    adapter = _FakeAdapter("{}")
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-            scenario_llm_pool=_FakeScenarioPool(adapter),
-        )
-        await store.initialize()
-        try:
-            assert store.l2 is not None
-            assert store.l1 is not None
-            assert store.l2_pipeline is not None
-            store.l2_pipeline._conflict_arbitration_min_confidence = 0.2
-            await store.l1.store(
-                _make_memory_event(
-                    event_id="evt-like-1",
-                    session_id="s-old",
-                    user_id="u1",
-                    timestamp=1710000000.0,
-                    content="I love Shanghai.",
-                )
-            )
-            existing_triple_id = await store.l2.upsert_knowledge_edge(
-                subject_id="user:u1",
-                subject_type="user",
-                predicate="LIKES",
-                object_id="place:shanghai",
-                object_type="place",
-                evidence_event_ids=["evt-like-1"],
-                confidence=0.91,
-                observed_at=1710000000.0,
-                source_type="chat",
-                extraction_method="llm",
-            )
-            adapter._responses = [
-                # Phase 1: extract entity mention + fact claim
-                json.dumps(
-                    {
-                        "entities": [
-                            {
-                                "surface": "Shanghai",
-                                "normalized_name": "Shanghai",
-                                "entity_type": "place",
-                                "specificity": "concrete",
-                                "resolved_id": "place:shanghai",
-                                "is_new": False,
-                                "alias_signals": [],
-                                "confidence": 0.94,
-                            }
-                        ],
-                        "fact_claims": [
-                            {
-                                "subject_ref": "user:u1",
-                                "predicate": "DISLIKES",
-                                "object_ref": "place:shanghai",
-                                "object_type": "place",
-                                "fact_kind": "stable_preference",
-                                "temporal_cue": "recent",
-                                "polarity": "negative",
-                                "specificity": "concrete",
-                                "evidence_text": "I hate Shanghai now.",
-                                "confidence": 0.94,
-                                "supporting_event_ids": ["evt-hate-1"],
-                            }
-                        ],
-                        "resolved_refs": [],
-                        "diagnostics": {"entity_status": "found"},
-                    }
-                ),
-                # Phase 2 only links the grounded claim to the existing record.
-                json.dumps(
-                    {
-                        "claim_assessments": [
-                            {
-                                "claim_id": "claim:1",
-                                "relationship": "contradicts",
-                                "related_record_id": existing_triple_id,
-                            }
-                        ],
-                        "assertion_candidates": [],
-                    }
-                ),
-                # Conflict arbitration: keep_existing
-                json.dumps(
-                    {
-                        "decision": "keep_existing",
-                        "winning_record_ids": [existing_triple_id],
-                        "superseded_record_ids": [],
-                        "reason": "The new statement is too weak to overturn the established preference.",
-                    }
-                ),
-            ]
-
-            await store.ingest_event(
-                {
-                    "id": "evt-hate-1",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s-new",
-                        "content": "I hate Shanghai now.",
-                    },
-                }
-            )
-
-            for _ in range(400):
-                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
-            active_edges = await store.l2.get_relationships(subject_id="user:u1", status="active", limit=10)
-            deprecated_edges = await store.l2.get_relationships(subject_id="user:u1", status="deprecated", limit=10)
-
-            assert len(active_edges) == 1
-            assert active_edges[0]["triple_id"] == existing_triple_id
-            assert active_edges[0]["predicate"] == "LIKES"
-            assert active_edges[0]["last_confirmed_at"] == 1710000000.0
-            assert deprecated_edges == []
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_extract_worker_marks_evolution_by_deprecating_old_graph_fact_and_keeping_new_one():
-    adapter = _FakeAdapter("{}")
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-            scenario_llm_pool=_FakeScenarioPool(adapter),
-        )
-        await store.initialize()
-        try:
-            assert store.l2 is not None
-            assert store.l2_pipeline is not None
-            store.l2_pipeline._conflict_arbitration_min_confidence = 0.2
-            await store.l2.upsert_knowledge_edge(
-                subject_id="user:u1",
-                subject_type="user",
-                predicate="LIKES",
-                object_id="place:shanghai",
-                object_type="place",
-                evidence_event_ids=["evt-like-1"],
-                confidence=0.91,
-                observed_at=1710000000.0,
-                source_type="chat",
-                extraction_method="llm",
-            )
-            previous_edge = (await store.l2.get_relationships(subject_id="user:u1", status="active", limit=10))[0]
-            adapter._responses = [
-                # Phase 1: extract entity + fact claim
-                json.dumps(
-                    {
-                        "entities": [
-                            {
-                                "surface": "Shanghai",
-                                "normalized_name": "Shanghai",
-                                "entity_type": "place",
-                                "specificity": "concrete",
-                                "resolved_id": "place:shanghai",
-                                "is_new": False,
-                                "alias_signals": [],
-                                "confidence": 0.94,
-                            }
-                        ],
-                        "fact_claims": [
-                            {
-                                "subject_ref": "user:u1",
-                                "predicate": "DISLIKES",
-                                "object_ref": "place:shanghai",
-                                "object_type": "place",
-                                "fact_kind": "stable_preference",
-                                "temporal_cue": "recent",
-                                "polarity": "negative",
-                                "specificity": "concrete",
-                                "evidence_text": "I hate Shanghai these days.",
-                                "confidence": 0.94,
-                                "supporting_event_ids": ["evt-evolution-1"],
-                            }
-                        ],
-                        "resolved_refs": [],
-                        "diagnostics": {"entity_status": "found"},
-                    }
-                ),
-                # Phase 2 only links the grounded claim to the existing record.
-                json.dumps(
-                    {
-                        "claim_assessments": [
-                            {
-                                "claim_id": "claim:1",
-                                "relationship": "evolves",
-                                "related_record_id": previous_edge["triple_id"],
-                            }
-                        ],
-                        "assertion_candidates": [],
-                    }
-                ),
-                # Conflict arbitration: mark_evolution
-                json.dumps(
-                    {
-                        "decision": "mark_evolution",
-                        "winning_record_ids": [],
-                        "superseded_record_ids": [previous_edge["triple_id"]],
-                        "reason": "The user's preference appears to have evolved over time.",
-                    }
-                ),
-            ]
-
-            await store.ingest_event(
-                {
-                    "id": "evt-evolution-1",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s-new",
-                        "content": "I hate Shanghai these days.",
-                    },
-                }
-            )
-
-            for _ in range(400):
-                stats = store.get_l2_pipeline_stats()
-                if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
-            active_edges = await store.l2.get_relationships(subject_id="user:u1", status="active", limit=10)
-            deprecated_edges = await store.l2.get_relationships(subject_id="user:u1", status="deprecated", limit=10)
-            stats = store.get_l2_pipeline_stats()
-
-            assert len(active_edges) == 1
-            assert active_edges[0]["predicate"] == "DISLIKES"
-            assert len(deprecated_edges) == 1
-            assert deprecated_edges[0]["triple_id"] == previous_edge["triple_id"]
-            assert stats["conflict_arbitration_triggered"] == 1
-            assert stats["conflict_arbitration_by_decision"]["mark_evolution"] == 1
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_extract_worker_refreshes_snapshot_after_graph_mark_evolution():
-    adapter = _FakeAdapter("{}")
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-            scenario_llm_pool=_FakeScenarioPool(adapter),
-        )
-        await store.initialize()
-        try:
-            assert store.l2 is not None
-            assert store.l2_pipeline is not None
-            store.l2_pipeline._conflict_arbitration_min_confidence = 0.2
-            await store.l2.upsert_knowledge_edge(
-                subject_id="user:u1",
-                subject_type="user",
-                predicate="LIKES",
-                object_id="place:shanghai",
-                object_type="place",
-                evidence_event_ids=["evt-like-1"],
-                confidence=0.91,
-                observed_at=1710000000.0,
-                source_type="chat",
-                extraction_method="llm",
-            )
-            previous_edge = (await store.l2.get_relationships(subject_id="user:u1", status="active", limit=10))[0]
-            seeded_snapshot = await store.l2.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
-            assert seeded_snapshot is not None
-            assert seeded_snapshot["preferences"]["place:shanghai"]["value"] == "like"
-
-            adapter._responses = [
-                # Phase 1: extract entity + fact claim
-                json.dumps(
-                    {
-                        "entities": [
-                            {
-                                "surface": "Shanghai",
-                                "normalized_name": "Shanghai",
-                                "entity_type": "place",
-                                "specificity": "concrete",
-                                "resolved_id": "place:shanghai",
-                                "is_new": False,
-                                "alias_signals": [],
-                                "confidence": 0.94,
-                            }
-                        ],
-                        "fact_claims": [
-                            {
-                                "subject_ref": "user:u1",
-                                "predicate": "DISLIKES",
-                                "object_ref": "place:shanghai",
-                                "object_type": "place",
-                                "fact_kind": "stable_preference",
-                                "temporal_cue": "recent",
-                                "polarity": "negative",
-                                "specificity": "concrete",
-                                "evidence_text": "I hate Shanghai these days.",
-                                "confidence": 0.94,
-                                "supporting_event_ids": ["evt-evolution-2"],
-                            }
-                        ],
-                        "resolved_refs": [],
-                        "diagnostics": {"entity_status": "found"},
-                    }
-                ),
-                # Phase 2 only links the grounded claim to the existing record.
-                json.dumps(
-                    {
-                        "claim_assessments": [
-                            {
-                                "claim_id": "claim:1",
-                                "relationship": "evolves",
-                                "related_record_id": previous_edge["triple_id"],
-                            }
-                        ],
-                        "assertion_candidates": [],
-                    }
-                ),
-                # Conflict arbitration: mark_evolution
-                json.dumps(
-                    {
-                        "decision": "mark_evolution",
-                        "winning_record_ids": [],
-                        "superseded_record_ids": [previous_edge["triple_id"]],
-                        "reason": "The user's preference appears to have evolved over time.",
-                    }
-                ),
-            ]
-
-            await store.ingest_event(
-                {
-                    "id": "evt-evolution-2",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s-new",
-                        "content": "I hate Shanghai these days.",
-                    },
-                }
-            )
-
-            for _ in range(400):
-                stats = store.get_l2_pipeline_stats()
-                if stats["extract_completed"] >= 1 and stats["snapshot_completed"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
-            snapshot = await store.l2.get_tom_snapshot(entity_id="user:u1", entity_type="user")
-            stats = store.get_l2_pipeline_stats()
-
-            assert snapshot is not None
-            assert snapshot["preferences"]["place:shanghai"]["value"] == "dislike"
-            assert snapshot["preferences_history"][0]["field"] == "place:shanghai"
-            assert snapshot["preferences_history"][0]["from"]["value"] == "like"
-            assert snapshot["preferences_history"][0]["to"]["value"] == "dislike"
-            assert stats["snapshot_completed"] >= 1
         finally:
             await store.shutdown()
 
@@ -3188,22 +2632,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                     "diagnostics": {"entity_status": "none"},
                 }
             ),
-            # Phase 2: produce assertion
-            json.dumps(
-                {
-                    "claim_assessments": [],
-                    "assertion_candidates": [
-                        {
-                            "entity_ref": "user:u1",
-                            "entity_type": "user",
-                            "trait_family": "mood",
-                            "trait_name": "mood",
-                            "trait_value": "stressed",
-                            "supporting_claim_ids": ["claim:1"],
-                        }
-                    ],
-                }
-            ),
+            json.dumps({"summaries": []}),
         ]
     )
 
@@ -3441,14 +2870,6 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                 },
                 ensure_ascii=False,
             ),
-            # This profile disables higher-order assertions, so Phase 2 is skipped.
-            json.dumps(
-                {
-                    "claim_assessments": [],
-                    "assertion_candidates": [],
-                },
-                ensure_ascii=False,
-            ),
         ]
     )
 
@@ -3498,14 +2919,12 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
             messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2.pipeline"]
             assert any("L2 extract completed" in message for message in messages)
             assert any("L2 Phase 1 extraction started" in message for message in messages)
-            # With allow_assertion=False Phase 1 persists grounded facts directly.
-            assert any(
-                "L2 Phase 1 persisted without Phase 2 inference" in message
-                for message in messages
-            )
+            # With no assertion route, the optional summary call is skipped.
+            assert not any("L2 optional summary generation started" in message for message in messages)
+            assert any("L2 Claim projections persisted" in message for message in messages)
             assert any("source.calendar" in message for message in messages)
             assert any("rejected_graph_candidate_count" in message for message in messages)
-            assert any("rejected_assertion_candidate_count" in message for message in messages)
+            assert any("materialization_count" in message for message in messages)
         finally:
             await store.shutdown()
 
@@ -3549,14 +2968,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                 },
                 ensure_ascii=False,
             ),
-            # Phase 2 has no higher-order inference; Phase 1 owns the graph fact.
-            json.dumps(
-                {
-                    "claim_assessments": [],
-                    "assertion_candidates": [],
-                },
-                ensure_ascii=False,
-            ),
+            json.dumps({"summaries": []}, ensure_ascii=False),
         ]
     )
 
@@ -3603,53 +3015,46 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
 
 
 @pytest.mark.asyncio
-async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
+async def test_preference_claim_projects_graph_and_assertion_without_special_suppression():
     adapter = _FakeAdapter(
-        json.dumps(
-            {
-                "mentions": [
-                    {
-                        "mention_text": "西湖醋鱼",
-                        "normalized_surface": "西湖醋鱼",
-                        "entity_type": "dish",
-                        "canonical_name_hint": "西湖醋鱼",
-                        "alias_signals": [],
-                        "evidence_text": "但我讨厌吃西湖醋鱼",
-                        "confidence": 0.95,
-                    }
-                ],
-                "graph_candidates": [
-                    {
-                        "subject_ref": "user:u1",
-                        "subject_type": "user",
-                        "predicate": "DISLIKES",
-                        "object_ref": "food:xi-hu-cu-yu",
-                        "object_type": "dish",
-                        "fact_kind": "stable_preference",
-                        "polarity": "negative",
-                        "evidence_text": "但我讨厌吃西湖醋鱼",
-                        "confidence": 0.88,
-                    }
-                ],
-                "assertion_candidates": [
-                    {
-                        "entity_ref": "user:u1",
-                        "entity_type": "user",
-                        "trait_family": "preference_profile",
-                        "trait_name": "preference.food",
-                        "trait_value": "dislikes_food:food:xi-hu-cu-yu",
-                        "inference_depth": "defensive_psychology",
-                        "volatility_index": 0.4,
-                        "confidence": 0.7,
-                        "validation_state": "tentative",
-                        "evidence_texts": ["但我讨厌吃西湖醋鱼"],
-                        "supporting_event_ids": ["evt-unified-food-dup-1"],
-                    }
-                ],
-                "diagnostics": {"entity_status": "found"},
-            },
-            ensure_ascii=False,
-        )
+        [
+            json.dumps(
+                {
+                    "entities": [
+                        {
+                            "surface": "西湖醋鱼",
+                            "normalized_name": "西湖醋鱼",
+                            "entity_type": "food",
+                            "specificity": "concrete",
+                            "resolved_id": None,
+                            "is_new": True,
+                            "alias_signals": [],
+                            "confidence": 0.95,
+                        }
+                    ],
+                    "fact_claims": [
+                        {
+                            "subject_ref": "user:self",
+                            "subject_type": "user",
+                            "predicate": "DISLIKES",
+                            "object_ref": "西湖醋鱼",
+                            "object_type": "food",
+                            "fact_kind": "stable_preference",
+                            "temporal_cue": "unspecified",
+                            "polarity": "negative",
+                            "specificity": "concrete",
+                            "evidence_text": "但我讨厌吃西湖醋鱼",
+                            "confidence": 0.88,
+                            "supporting_event_ids": ["evt-unified-food-dup-1"],
+                        }
+                    ],
+                    "resolved_refs": [],
+                    "diagnostics": {"entity_status": "found"},
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps({"summaries": []}, ensure_ascii=False),
+        ]
     )
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -3684,108 +3089,14 @@ async def test_unified_extraction_suppresses_duplicate_leaf_assertions():
                     break
                 await asyncio.sleep(0.01)
 
-            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
+            assert store.l2 is not None
+            assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
+            relationships = await store.l2.get_relationships(subject_id="user:u1")
 
-            assert assertions == []
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_fact():
-    adapter = _FakeAdapter(
-        [
-            # Phase 1: extract entity + fact claim
-            json.dumps(
-                {
-                    "entities": [
-                        {
-                            "surface": "西湖醋鱼",
-                            "normalized_name": "西湖醋鱼",
-                            "entity_type": "dish",
-                            "specificity": "concrete",
-                            "resolved_id": None,
-                            "is_new": True,
-                            "alias_signals": [],
-                            "confidence": 0.95,
-                        }
-                    ],
-                    "fact_claims": [
-                        {
-                            "subject_ref": "user:u1",
-                            "predicate": "DISLIKES",
-                            "object_ref": "西湖醋鱼",
-                            "object_type": "dish",
-                            "fact_kind": "stable_preference",
-                            "temporal_cue": "unspecified",
-                            "polarity": "negative",
-                            "specificity": "concrete",
-                            "evidence_text": "但我讨厌吃西湖醋鱼",
-                            "confidence": 0.88,
-                            "supporting_event_ids": ["evt-unified-food-high-order-1"],
-                        }
-                    ],
-                    "resolved_refs": [],
-                    "diagnostics": {"entity_status": "found"},
-                },
-                ensure_ascii=False,
-            ),
-            # Phase 2: higher-order assertion grounded in the Phase 1 claim
-            json.dumps(
-                {
-                    "claim_assessments": [],
-                    "assertion_candidates": [
-                        {
-                            "entity_ref": "user:u1",
-                            "entity_type": "user",
-                            "trait_value": "avoids_vinegar_heavy_dishes",
-                            "supporting_claim_ids": ["claim:1"],
-                        }
-                    ],
-                },
-                ensure_ascii=False,
-            ),
-        ]
-    )
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-            scenario_llm_pool=_FakeScenarioPool(adapter),
-        )
-        await store.initialize()
-        try:
-            await store.ingest_event(
-                {
-                    "id": "evt-unified-food-high-order-1",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "但我讨厌吃西湖醋鱼",
-                    },
-                }
-            )
-
-            for _ in range(400):
-                stats = store.get_l2_pipeline_stats()
-                if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1 and stats["assertions_written"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
-            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
-            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
-
-            assert [item["predicate"] for item in relationships] == ["DISLIKES"]
-            assert [item["trait_name"] for item in assertions] == ["preference.affinity"]
-            assert [item["trait_value"] for item in assertions] == ["dislike"]
+            assert any(edge["predicate"] == "DISLIKES" for edge in relationships)
+            assert len(assertions) == 1
+            assert assertions[0]["trait_name"] == "preference.affinity"
+            assert assertions[0]["trait_value"] == "dislike"
         finally:
             await store.shutdown()
 
@@ -3826,14 +3137,6 @@ async def test_unified_extraction_respects_calendar_profile_restrictions():
                     ],
                     "resolved_refs": [],
                     "diagnostics": {"entity_status": "found"},
-                },
-                ensure_ascii=False,
-            ),
-            # The calendar profile disables higher-order assertions, so Phase 2 is skipped.
-            json.dumps(
-                {
-                    "claim_assessments": [],
-                    "assertion_candidates": [],
                 },
                 ensure_ascii=False,
             ),
@@ -4424,12 +3727,7 @@ async def test_extract_worker_persists_structured_graph_hints_without_phase2_edg
                 "diagnostics": {"entity_status": "none"},
             }
         ),
-        json.dumps(
-            {
-                "claim_assessments": [],
-                "assertion_candidates": [],
-            }
-        ),
+        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -4539,12 +3837,7 @@ async def test_structured_hint_not_double_written_when_phase2_runs():
         ),
         # Phase 2 returns no new graph edges — the only graph write should be
         # the single direct-write of the structured hint before Phase 1.
-        json.dumps(
-            {
-                "claim_assessments": [],
-                "assertion_candidates": [],
-            }
-        ),
+        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -4638,12 +3931,7 @@ async def test_extract_worker_persists_category_facets_from_structured_graph_hin
                 "diagnostics": {"entity_status": "none"},
             }
         ),
-        json.dumps(
-            {
-                "claim_assessments": [],
-                "assertion_candidates": [],
-            }
-        ),
+        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -5016,7 +4304,7 @@ class TestExtractionInstructions:
 
         assert "**归潮** -> media:1ee3b9131dd8" in phase2_prompt
         assert "entity_id: media:1ee3b9131dd8" in phase2_prompt
-        assert "Do not recreate graph edges" in PHASE2_INTEGRATE_SYSTEM_PROMPT
+        assert "host deterministically owns every semantic decision" in PHASE2_INTEGRATE_SYSTEM_PROMPT
         assert "romanize" in PHASE2_INTEGRATE_SYSTEM_PROMPT
 
     def test_phase2_prompt_includes_all_phase1_entities(self):
@@ -5050,21 +4338,19 @@ class TestExtractionInstructions:
         assert "**Magi** -> software:magi" in phase2_prompt
         assert "**Codex** -> software:codex" in phase2_prompt
 
-    def test_phase2_prompt_includes_integration_instructions(self):
+    def test_phase2_prompt_includes_summary_instructions(self):
         from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt
 
         phase2_prompt = render_phase2_integrate_prompt(
             phase1_result={"entities": [], "fact_claims": []},
             focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
-            source_integration_instructions=(
-                "For play history, derive preference_profile only from repeated plays."
-            ),
+            summary_instructions="Keep the source's wording concise.",
         )
 
-        assert "## Source-Specific Integration Instructions" in phase2_prompt
-        assert "derive preference_profile only from repeated plays" in phase2_prompt
+        assert "## Source-Specific Summary Instructions" in phase2_prompt
+        assert "Keep the source's wording concise" in phase2_prompt
 
-    def test_phase2_prompt_omits_integration_instructions_when_absent(self):
+    def test_phase2_prompt_omits_summary_instructions_when_absent(self):
         from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt
 
         phase2_prompt = render_phase2_integrate_prompt(
@@ -5072,11 +4358,11 @@ class TestExtractionInstructions:
             focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
         )
 
-        assert "## Source-Specific Integration Instructions" not in phase2_prompt
+        assert "## Source-Specific Summary Instructions" not in phase2_prompt
 
     @pytest.mark.asyncio
-    async def test_pipeline_passes_profile_phase2_instructions(self):
-        phase2_instructions = "For play history, emit preference_profile only after repeated plays."
+    async def test_pipeline_passes_profile_summary_instructions(self):
+        summary_instructions = "Keep summaries in the source language."
         adapter = _FakeAdapter(
             [
                 json.dumps(
@@ -5084,16 +4370,17 @@ class TestExtractionInstructions:
                         "entities": [],
                         "fact_claims": [
                             {
+                                "claim_id": "claim:profile-summary",
                                 "subject_ref": "user:u1",
                                 "subject_type": "user",
-                                "predicate": "INTERESTED_IN",
+                                "predicate": "LIKES",
                                 "object_ref": "Track A",
                                 "object_type": "media",
-                                "fact_kind": "stable_preference",
+                                "fact_kind": "explicit_fact",
                                 "temporal_cue": "unspecified",
                                 "polarity": "positive",
                                 "specificity": "concrete",
-                                "evidence_text": "played Track A",
+                                "evidence_text": "I like Track A",
                                 "confidence": 0.9,
                                 "supporting_event_ids": ["evt-phase2-profile-1"],
                             }
@@ -5102,12 +4389,7 @@ class TestExtractionInstructions:
                         "diagnostics": {"entity_status": "none"},
                     }
                 ),
-                json.dumps(
-                    {
-                        "claim_assessments": [],
-                        "assertion_candidates": [],
-                    }
-                ),
+                json.dumps({"summaries": []}),
             ]
         )
 
@@ -5124,10 +4406,10 @@ class TestExtractionInstructions:
                         profile_id="source.play_history",
                         source_types=["play_history"],
                         allowed_entity_types=["media", "topic"],
-                        allowed_predicates=["INTERESTED_IN"],
+                        allowed_predicates=["LIKES"],
                         allow_graph=True,
                         allow_assertion=True,
-                        phase2_instructions=phase2_instructions,
+                        summary_instructions=summary_instructions,
                     )
                 ],
             )
@@ -5143,7 +4425,7 @@ class TestExtractionInstructions:
                         "data": {
                             "user_id": "u1",
                             "session_id": "s1",
-                            "content": "played Track A",
+                            "content": "I like Track A",
                         },
                     }
                 )
@@ -5155,8 +4437,8 @@ class TestExtractionInstructions:
 
                 assert len(adapter.calls) >= 2
                 phase2_prompt = str(adapter.calls[-1]["prompt"])
-                assert "## Source-Specific Integration Instructions" in phase2_prompt
-                assert phase2_instructions in phase2_prompt
+                assert "## Source-Specific Summary Instructions" in phase2_prompt
+                assert summary_instructions in phase2_prompt
             finally:
                 await store.shutdown()
 
@@ -5460,57 +4742,6 @@ class TestEntityTypeFiltering:
         assert prepared[0]["predicate"] == "MAINTAINS"
         assert prepared[0]["object_id"] == "product:magi"
 
-    def test_phase2_profile_assertion_preserves_phase1_value(self):
-        from magi.memory.l2.models import (
-            L2Phase1FactClaim,
-            L2Phase1Result,
-            L2Phase2AssertionCandidate,
-        )
-        from magi.memory.l2.pipeline import L2Pipeline
-
-        pipeline = L2Pipeline.__new__(L2Pipeline)
-        event = _make_memory_event(event_id="evt-profile-value", content="叫我哈基米或者子涵都行吧")
-        phase1_result = L2Phase1Result(
-            fact_claims=[
-                L2Phase1FactClaim(
-                    claim_id="claim:1",
-                    subject_ref="user:self",
-                    predicate="PREFERRED_FORM_OF_ADDRESS",
-                    object_ref="哈基米或者子涵",
-                    object_type="concept",
-                    fact_kind="explicit_fact",
-                    confidence=0.3,
-                    supporting_event_ids=["evt-profile-value"],
-                )
-            ]
-        )
-
-        prepared, rejected_count = pipeline._validate_phase2_assertions(
-            event=event,
-            profile=SimpleNamespace(
-                allow_assertion=True,
-                allowed_assertion_families={"communication_profile"},
-            ),
-            policy=SimpleNamespace(allow_assertion_write=True),
-            graph_candidates=[],
-            default_event_ids=["evt-profile-value"],
-            semantic_routes=_semantic_routes_for_phase1(phase1_result),
-            occurrence_stats_by_key=_synthetic_occurrence_stats_for_phase1(
-                phase1_result
-            ),
-            phase2_assertions=[
-                L2Phase2AssertionCandidate(
-                    entity_ref="user:local_user",
-                    trait_value="haji_mi_or_zi_han",
-                    supporting_claim_ids=["claim:1"],
-                )
-            ],
-            phase1_result=phase1_result,
-        )
-
-        assert rejected_count == 0
-        assert prepared[0]["trait_value"] == "哈基米或者子涵"
-
     def test_profile_signal_claim_requires_current_user_evidence(self):
         from magi.memory.l2.models import L2BatchEvent, L2Phase1Result
         from magi.memory.l2.pipeline import L2Pipeline
@@ -5554,144 +4785,6 @@ class TestEntityTypeFiltering:
         assert [claim.predicate for claim in phase1_result.fact_claims] == [
             "PREFERRED_FORM_OF_ADDRESS"
         ]
-
-    def test_phase2_profile_assertion_requires_phase1_profile_signal(self):
-        from magi.memory.l2.models import L2Phase1Result, L2Phase2AssertionCandidate
-        from magi.memory.l2.pipeline import L2Pipeline
-
-        pipeline = L2Pipeline.__new__(L2Pipeline)
-        event = _make_memory_event(event_id="evt-profile-inference", content="帮我全面审查这段代码")
-
-        prepared, rejected_count = pipeline._validate_phase2_assertions(
-            event=event,
-            profile=SimpleNamespace(
-                allow_assertion=True,
-                allowed_assertion_families={"communication_profile"},
-            ),
-            policy=SimpleNamespace(allow_assertion_write=True),
-            graph_candidates=[],
-            default_event_ids=["evt-profile-inference"],
-            semantic_routes={},
-            occurrence_stats_by_key={},
-            phase2_assertions=[
-                L2Phase2AssertionCandidate(
-                    entity_ref="user:local_user",
-                    trait_value="全面审查与详细建议",
-                    supporting_claim_ids=["claim:invented"],
-                )
-            ],
-            phase1_result=L2Phase1Result.from_dict({
-                "entities": [],
-                "fact_claims": [],
-                "resolved_refs": [],
-            }),
-        )
-
-        assert prepared == []
-        assert rejected_count == 1
-
-    def test_phase2_assertions_rejected_when_mode_is_derived(self):
-        from magi.memory.l2.models import L2Phase2AssertionCandidate
-        from magi.memory.l2.pipeline import L2Pipeline
-
-        pipeline = L2Pipeline.__new__(L2Pipeline)
-        event = _make_memory_event(event_id="evt-derived-mode", content="played Track A repeatedly")
-
-        prepared, rejected_count = pipeline._validate_phase2_assertions(
-            event=event,
-            profile=SimpleNamespace(
-                allow_assertion=True,
-                assertion_mode="derived",
-                allowed_assertion_families={"preference_profile"},
-                allowed_assertion_traits=None,
-            ),
-            policy=SimpleNamespace(allow_assertion_write=True),
-            graph_candidates=[],
-            default_event_ids=["evt-derived-mode"],
-            semantic_routes={},
-            occurrence_stats_by_key={},
-            phase2_assertions=[
-                L2Phase2AssertionCandidate(
-                    entity_ref="user:local_user",
-                    trait_value="Track A",
-                )
-            ],
-        )
-
-        assert prepared == []
-        assert rejected_count == 1
-
-    def test_phase2_assertions_respect_host_route_trait_allowlist(self):
-        from magi.memory.l2.models import L2Phase2AssertionCandidate
-        from magi.memory.l2.pipeline import L2Pipeline
-
-        pipeline = L2Pipeline.__new__(L2Pipeline)
-        event = _make_memory_event(event_id="evt-trait-allowlist", content="played Track A")
-
-        phase1_result = _phase1_result_with_support("evt-trait-allowlist")
-        prepared, rejected_count = pipeline._validate_phase2_assertions(
-            event=event,
-            profile=SimpleNamespace(
-                allow_assertion=True,
-                assertion_mode="phase2_candidate",
-                allowed_assertion_families={"interest_profile"},
-                allowed_assertion_traits=frozenset({"interest.music"}),
-            ),
-            policy=SimpleNamespace(allow_assertion_write=True),
-            graph_candidates=[],
-            default_event_ids=["evt-trait-allowlist"],
-            semantic_routes=_semantic_routes_for_phase1(phase1_result),
-            occurrence_stats_by_key=_synthetic_occurrence_stats_for_phase1(
-                phase1_result
-            ),
-            phase2_assertions=[
-                L2Phase2AssertionCandidate(
-                    entity_ref="user:local_user",
-                    trait_value="Track A",
-                    supporting_claim_ids=["claim:1"],
-                ),
-            ],
-            phase1_result=phase1_result,
-        )
-
-        assert rejected_count == 1
-        assert prepared == []
-
-    def test_phase2_assertions_allow_trait_namespace_wildcard(self):
-        from magi.memory.l2.models import L2Phase2AssertionCandidate
-        from magi.memory.l2.pipeline import L2Pipeline
-
-        pipeline = L2Pipeline.__new__(L2Pipeline)
-        event = _make_memory_event(event_id="evt-trait-wildcard", content="played Track A")
-
-        phase1_result = _phase1_result_with_support("evt-trait-wildcard")
-        prepared, rejected_count = pipeline._validate_phase2_assertions(
-            event=event,
-            profile=SimpleNamespace(
-                allow_assertion=True,
-                assertion_mode="phase2_candidate",
-                allowed_assertion_families={"interest_profile"},
-                allowed_assertion_traits=frozenset({"interest.*"}),
-            ),
-            policy=SimpleNamespace(allow_assertion_write=True),
-            graph_candidates=[],
-            default_event_ids=["evt-trait-wildcard"],
-            semantic_routes=_semantic_routes_for_phase1(phase1_result),
-            occurrence_stats_by_key=_synthetic_occurrence_stats_for_phase1(
-                phase1_result
-            ),
-            phase2_assertions=[
-                L2Phase2AssertionCandidate(
-                    entity_ref="user:local_user",
-                    trait_value="Track A",
-                    supporting_claim_ids=["claim:1"],
-                ),
-            ],
-            phase1_result=phase1_result,
-        )
-
-        assert rejected_count == 0
-        assert [item["trait_name"] for item in prepared] == ["interest.attention"]
 
 class TestEntityNameQuality:
     """Tests for _is_quality_entity_name noise filter."""
@@ -6243,46 +5336,3 @@ class TestEpisodeCandidateJobEntityAttribution:
         )
 
         assert [item.event_id for item in jobs] == ["evt-browse"]
-
-    def test_phase2_touch_scope_exposes_event_entity_map(self):
-        from magi.memory.l2.pipeline.phase2_flow import _phase2_touch_scope
-
-        class _Pipeline:
-            def _collect_touched_entities(self, graph_candidates, assertion_candidates):
-                _ = graph_candidates, assertion_candidates
-                return ["user:local_user", "person:sarah", "software:v2ex"]
-
-            def _derive_place_and_topic_hints(self, touched_entity_ids):
-                _ = touched_entity_ids
-                return [], []
-
-        batch = SimpleNamespace(direct_write_candidates=[], self_entity_id=None)
-        candidates = SimpleNamespace(
-            graph_candidates=[
-                {
-                    "subject_id": "user:local_user",
-                    "object_id": "person:sarah",
-                    "evidence_event_ids": ["evt-chat"],
-                }
-            ],
-            assertion_candidates=[
-                {
-                    "entity_id": "software:v2ex",
-                    "evidence_events": ["evt-browse"],
-                }
-            ],
-            contradiction_hints=[],
-        )
-
-        payload = _phase2_touch_scope(
-            _Pipeline(),
-            batch,
-            candidates,
-            relation_count=1,
-            conflict_decision=None,
-        )
-
-        assert payload["event_entity_map"] == {
-            "evt-chat": ["person:sarah", "user:local_user"],
-            "evt-browse": ["software:v2ex"],
-        }

@@ -34,8 +34,6 @@ DEFAULT_L2_PROJECTION_CLAIM_LIMIT = (
 DEFAULT_L2_PROJECTION_STALE_QUEUED_TIMEOUT_SECONDS = 1800.0
 DEFAULT_L2_PROJECTION_STALE_RUNNING_TIMEOUT_SECONDS = 300.0
 DEFAULT_L2_PROJECTION_HEARTBEAT_INTERVAL_SECONDS = 30.0
-DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION = True
-DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE = 0.85
 
 
 @dataclass(slots=True)
@@ -64,8 +62,6 @@ class L2PipelineStats:
     avg_batch_estimated_tokens: float = 0.0
     extract_by_evidence_class: dict[str, int] = field(default_factory=dict)
     skip_by_reason: dict[str, int] = field(default_factory=dict)
-    conflict_arbitration_triggered: int = 0
-    conflict_arbitration_by_decision: dict[str, int] = field(default_factory=dict)
     severe_contradiction_hint_count: int = 0
 
 
@@ -82,8 +78,6 @@ class _L2PipelineLifecycleHostProtocol(Protocol):
     _active_entity_callback: Callable[[MemoryEvent, list[L2FocalEntityRef]], Awaitable[None]] | None
     _extraction_profile_provider: Callable[[], Iterable[Any]] | None
     _batch_flush_interval_seconds: int
-    _enable_conflict_arbitration: bool
-    _conflict_arbitration_min_confidence: float
     _extract_queue: asyncio.Queue[L2BatchJob | None]
     _reconcile_queue: asyncio.Queue[list[str] | None]
     _snapshot_queue: asyncio.Queue[list[str] | None]
@@ -134,8 +128,6 @@ class L2PipelineLifecycleMixin:
         ) = None,
         extraction_profile_provider: Callable[[], Iterable[Any]] | None = None,
         batch_flush_interval_seconds: int = DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS,
-        enable_conflict_arbitration: bool = DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
-        conflict_arbitration_min_confidence: float = DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE,
         semantic_edge_builder: Optional[EntityScopedSemanticBuilder] = None,
         promotion_counter: Optional[L2PromotionCounter] = None,
     ) -> None:
@@ -154,10 +146,6 @@ class L2PipelineLifecycleMixin:
         host._active_entity_callback = active_entity_callback
         host._extraction_profile_provider = extraction_profile_provider
         host._batch_flush_interval_seconds = max(0, int(batch_flush_interval_seconds))
-        host._enable_conflict_arbitration = bool(enable_conflict_arbitration)
-        host._conflict_arbitration_min_confidence = max(
-            0.0, min(1.0, float(conflict_arbitration_min_confidence))
-        )
         host._extract_queue = asyncio.Queue()
         host._reconcile_queue = asyncio.Queue()
         host._snapshot_queue = asyncio.Queue()
@@ -330,13 +318,11 @@ class L2PipelineLifecycleMixin:
 
 
 __all__ = [
-    "DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION",
     "DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS",
     "DEFAULT_L2_EXTRACT_WORKER_COUNT",
     "DEFAULT_L2_PROJECTION_CLAIM_LIMIT",
     "DEFAULT_L2_PROJECTION_STALE_QUEUED_TIMEOUT_SECONDS",
     "DEFAULT_L2_PROJECTION_STALE_RUNNING_TIMEOUT_SECONDS",
-    "DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE",
     "L2PipelineLifecycleMixin",
     "L2PipelineStats",
 ]

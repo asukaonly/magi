@@ -244,38 +244,38 @@ class TestClassifyMemorySubdomain:
     """Unit tests for classify_memory_subdomain helper."""
 
     def test_stable_evidence_only_is_semantic(self):
-        from magi.memory.l2.pipeline.validation import classify_memory_subdomain
+        from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
 
         assert classify_memory_subdomain("stable", "evidence_only") == "semantic"
 
     def test_persistent_none_is_semantic(self):
-        from magi.memory.l2.pipeline.validation import classify_memory_subdomain
+        from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
 
         assert classify_memory_subdomain("persistent", "none") == "semantic"
 
     def test_empty_scope_empty_policy_is_semantic(self):
-        from magi.memory.l2.pipeline.validation import classify_memory_subdomain
+        from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
 
         assert classify_memory_subdomain("", "") == "semantic"
 
     def test_session_decay_is_state(self):
-        from magi.memory.l2.pipeline.validation import classify_memory_subdomain
+        from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
 
         assert classify_memory_subdomain("session", "session_decay") == "state"
 
     def test_momentary_fast_decay_is_state(self):
-        from magi.memory.l2.pipeline.validation import classify_memory_subdomain
+        from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
 
         assert classify_memory_subdomain("momentary", "fast_decay") == "state"
 
     def test_daily_time_window_is_state(self):
-        from magi.memory.l2.pipeline.validation import classify_memory_subdomain
+        from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
 
         assert classify_memory_subdomain("daily", "time_window") == "state"
 
     def test_stable_with_session_decay_is_state(self):
         """Even with stable scope, a non-semantic decay policy produces state."""
-        from magi.memory.l2.pipeline.validation import classify_memory_subdomain
+        from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
 
         assert classify_memory_subdomain("stable", "session_decay") == "state"
 

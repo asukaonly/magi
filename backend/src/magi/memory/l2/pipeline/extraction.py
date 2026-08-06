@@ -128,11 +128,10 @@ def _structured_only_result(batch: _PreparedExtractionBatch) -> dict[str, Any]:
         "mention_count": 0,
         "direct_write_count": batch.direct_write_count,
         "graph_candidate_count": 0,
-        "assertion_candidate_count": 0,
+        "materialization_count": 0,
         "rejected_graph_candidate_count": 0,
-        "rejected_assertion_candidate_count": 0,
+        "summary_count": 0,
         "contradiction_hint_count": 0,
-        "conflict_arbitration_decision": None,
         "structured_only": True,
     }
 
@@ -154,11 +153,10 @@ def _empty_phase1_result_payload(
         "mention_count": len(phase1_flow.phase1_result.entities),
         "direct_write_count": batch.direct_write_count,
         "graph_candidate_count": 0,
-        "assertion_candidate_count": 0,
+        "materialization_count": 0,
         "rejected_graph_candidate_count": 0,
-        "rejected_assertion_candidate_count": 0,
+        "summary_count": 0,
         "contradiction_hint_count": 0,
-        "conflict_arbitration_decision": None,
     }
 
 

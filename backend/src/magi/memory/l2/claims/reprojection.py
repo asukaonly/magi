@@ -209,6 +209,7 @@ async def _list_reprojection_candidates(
                     outcomes.attempt_key,
                     outcomes.outcome,
                     outcomes.route_contract_version,
+                    outcomes.details_json,
                     ROW_NUMBER() OVER (
                         PARTITION BY outcomes.claim_id
                         ORDER BY {LATEST_ROUTE_ORDER_SQL}
@@ -258,6 +259,37 @@ async def _list_reprojection_candidates(
                             || ':' || claims.claim_id
                         )
                     )
+                    OR (
+                        latest.route_contract_version = ?
+                        AND (
+                            (
+                                json_type(
+                                    latest.details_json,
+                                    '$.subject_resolution_version'
+                                ) IS NOT NULL
+                                AND CAST(json_extract(
+                                    latest.details_json,
+                                    '$.subject_resolution_version'
+                                ) AS INTEGER) != COALESCE(
+                                    subject_refs.resolution_version,
+                                    0
+                                )
+                            )
+                            OR (
+                                json_type(
+                                    latest.details_json,
+                                    '$.object_resolution_version'
+                                ) IS NOT NULL
+                                AND CAST(json_extract(
+                                    latest.details_json,
+                                    '$.object_resolution_version'
+                                ) AS INTEGER) != COALESCE(
+                                    object_refs.resolution_version,
+                                    0
+                                )
+                            )
+                        )
+                    )
                     OR EXISTS (
                         SELECT 1
                         FROM l2_claim_projection_outcomes AS target_outcomes
@@ -274,6 +306,7 @@ async def _list_reprojection_candidates(
             LIMIT ?
             """,
             (
+                ROUTE_CONTRACT_VERSION,
                 ROUTE_CONTRACT_VERSION,
                 ROUTE_CONTRACT_VERSION,
                 ROUTE_CONTRACT_VERSION,

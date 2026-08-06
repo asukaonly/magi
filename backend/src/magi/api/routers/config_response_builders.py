@@ -128,8 +128,6 @@ def _build_memory_l2_config(memory_cfg: Any) -> MemoryL2ConfigModel:
         vectors_enabled=memory_cfg.l2.vectors_enabled,
         batch_flush_interval_seconds=memory_cfg.l2.batch_flush_interval_seconds,
         auto_extract_relations=memory_cfg.l2.auto_extract_relations,
-        conflict_arbitration_enabled=memory_cfg.l2.conflict_arbitration_enabled,
-        conflict_arbitration_min_confidence=memory_cfg.l2.conflict_arbitration_min_confidence,
         shadow_conflict_notification_enabled=memory_cfg.l2.shadow_conflict_notification_enabled,
         portrait_projection_refresh_delay_seconds=(
             memory_cfg.l2.portrait_projection_refresh_delay_seconds

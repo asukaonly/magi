@@ -380,16 +380,16 @@ def test_plugin_profile_cannot_override_host_chat_profile():
     assert profiles["chat.user_message"].allowed_entity_types != frozenset({"software"})
 
 
-def test_legacy_allow_assertion_derives_assertion_mode():
+def test_plugin_allow_assertion_is_preserved():
     from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
     profiles = build_extraction_profile_registry(_plugin_profile_specs())
 
-    assert profiles["source.calendar"].assertion_mode == "none"
-    assert profiles["source.netease_music"].assertion_mode == "phase2_candidate"
+    assert profiles["source.calendar"].allow_assertion is False
+    assert profiles["source.netease_music"].allow_assertion is True
 
 
-def test_phase1_instructions_override_legacy_extraction_instructions():
+def test_phase1_and_summary_instructions_are_independent():
     from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
     profiles = build_extraction_profile_registry([
@@ -400,7 +400,7 @@ def test_phase1_instructions_override_legacy_extraction_instructions():
             "allowed_predicates": ["INTERESTED_IN"],
             "extraction_instructions": "legacy instructions",
             "phase1_instructions": "new phase one instructions",
-            "phase2_instructions": "phase two integration instructions",
+            "summary_instructions": "summary wording instructions",
             "allow_assertion": False,
         }
     ])
@@ -408,10 +408,10 @@ def test_phase1_instructions_override_legacy_extraction_instructions():
     profile = profiles["source.custom_sensor"]
     assert profile.extraction_instructions == "new phase one instructions"
     assert profile.phase1_instructions == "new phase one instructions"
-    assert profile.phase2_instructions == "phase two integration instructions"
+    assert profile.summary_instructions == "summary wording instructions"
 
 
-def test_invalid_assertion_mode_profile_is_skipped():
+def test_unknown_profile_fields_do_not_change_materialization_authority():
     from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
     profiles = build_extraction_profile_registry([
@@ -420,11 +420,11 @@ def test_invalid_assertion_mode_profile_is_skipped():
             "source_types": ["bad_mode"],
             "allowed_entity_types": ["topic"],
             "allowed_predicates": ["INTERESTED_IN"],
-            "assertion_mode": "direct_write",
+            "unknown_materialization_mode": "direct_write",
         }
     ])
 
-    assert "source.bad_mode" not in profiles
+    assert profiles["source.bad_mode"].allow_assertion is True
 
 
 def test_allowed_assertion_traits_default_to_all():

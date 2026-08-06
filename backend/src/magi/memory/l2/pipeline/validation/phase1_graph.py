@@ -165,22 +165,4 @@ class L2Phase1GraphProjectionMixin:
         is_valid, _ = validate_graph_candidate({"predicate": predicate, "object_type": object_type})
         return is_valid
 
-    @staticmethod
-    def _phase2_inference_required(
-        *,
-        phase1_result: L2Phase1Result,
-        profile: ExtractionProfile,
-        policy: Any,
-    ) -> bool:
-        assertion_mode = (
-            str(getattr(profile, "assertion_mode", "phase2_candidate") or "").strip().casefold()
-        )
-        return bool(
-            phase1_result.fact_claims
-            and policy.allow_assertion_write
-            and profile.allow_assertion
-            and assertion_mode == "phase2_candidate"
-        )
-
-
 __all__ = ["L2Phase1GraphProjectionMixin"]

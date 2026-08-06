@@ -33,7 +33,7 @@ from .graph_conflicts import (
     build_graph_conflict_matrix,
     relationship_predicate_slot,
 )
-from .models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
+from .models import L2KnowledgeEdgeWrite
 from .batch_models import L2ProjectionLease
 from .corrections.repository import (
     DEFAULT_DERIVATION_MAX_ATTEMPTS,
@@ -292,10 +292,6 @@ class L2CognitionStore(
     def build_rule_graph_candidates(self, event: MemoryEvent) -> list[L2KnowledgeEdgeWrite]:
         """Build deterministic graph candidates from lightweight rules."""
         return self._extract_graph_candidates(event)
-
-    def build_rule_assertion_candidates(self, event: MemoryEvent) -> list[L2TomAssertionWrite]:
-        """Build deterministic ToM assertion candidates from lightweight rules."""
-        return self._extract_assertion_candidates(event)
 
     async def upsert_assertion_candidate(
         self,

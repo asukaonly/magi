@@ -2040,14 +2040,6 @@
           "label": "知识提炼批处理间隔（秒）",
           "description": "新对话进入后，等待多久再统一处理一批知识提炼，最少 30 秒。"
         },
-        "enable_l2_conflict_arbitration": {
-          "label": "启用事实冲突仲裁",
-          "description": "当新信息与已有记忆产生高可信度矛盾时，交由 AI 深度分析后再决定是否更新记忆。"
-        },
-        "l2_conflict_arbitration_min_confidence": {
-          "label": "冲突仲裁触发阈值",
-          "description": "只有矛盾程度达到该阈值时才启动深度仲裁。"
-        },
         "enable_l3_llm_summary": {
           "label": "启用 AI 总结",
           "description": "使用 AI 模型将对话记录浓缩成阶段性摘要和回顾。"

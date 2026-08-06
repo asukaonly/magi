@@ -19,7 +19,7 @@ def test_appends_language_directive():
     assert prompt.startswith(PHASE2_INTEGRATE_SYSTEM_PROMPT)
     assert "## Language directive" in prompt
     assert "`zh-CN`" in prompt
-    assert "natural_summary" in prompt
+    assert "Write every summary in that language" in prompt
 
 
 def test_directive_is_appended_not_inlined():
@@ -43,8 +43,7 @@ def test_phase2_result_ignores_unused_refinements_payload():
                     "explanation": "unused",
                 }
             ],
-            "claim_assessments": [],
-            "assertion_candidates": [],
+            "summaries": [],
         }
     )
 

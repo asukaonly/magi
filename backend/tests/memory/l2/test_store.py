@@ -120,18 +120,14 @@ def _ensure_test_store_schema(request):
     _migrated_l2_db_path(tmp_path)
 
 
-# Production deleted the English STRESS/CALM keyword rule (commit 8217ce51):
-# the L2 LLM pipeline is now the single source of mood/stress assertion
-# candidates and `build_rule_assertion_candidates` intentionally returns [].
-# These tests exercise the assertion LIFECYCLE downstream of candidate intake
-# (tentative -> stable promotion, contradiction downgrade, expiry, snapshots,
-# user feedback), so the deleted rule lives on here as a test fixture that
-# shapes candidates exactly like the LLM extraction emits them.
+# Production has no English keyword assertion rule. These tests exercise the
+# assertion lifecycle downstream of host materialization, so this fixture only
+# builds representative persistence inputs.
 _STRESS_KEYWORDS = ("stress", "stressed", "anxious", "anxiety", "pressure")
 _CALM_KEYWORDS = ("calm", "relaxed", "relief", "peaceful")
 
 
-def _llm_style_assertion_candidates(event):  # type: ignore[no-untyped-def]
+def _materialized_assertion_candidates(event):  # type: ignore[no-untyped-def]
     from magi.memory.event_contracts import TomDepth
     from magi.memory.l2.models import L2TomAssertionWrite
 
@@ -165,15 +161,14 @@ def _llm_style_assertion_candidates(event):  # type: ignore[no-untyped-def]
 
 
 async def _apply_rule_candidates(store, event):  # type: ignore[no-untyped-def]
-    """Upsert graph candidates from the surviving rule path, plus assertion
-    candidates shaped like the L2 LLM extraction (see fixture note above)."""
+    """Upsert rule graph candidates plus representative materialized assertions."""
     await store.initialize()
     relation_count = 0
     assertion_count = 0
     for candidate in store.build_rule_graph_candidates(event):
         await store.upsert_knowledge_edge(**candidate.to_dict())
         relation_count += 1
-    for candidate in _llm_style_assertion_candidates(event):
+    for candidate in _materialized_assertion_candidates(event):
         await store.upsert_assertion_candidate(candidate.to_dict())
         assertion_count += 1
     return {"relation_count": relation_count, "assertion_count": assertion_count}
@@ -254,7 +249,7 @@ async def test_tom_assertion_upsert_notifies_assertion_change_callback(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_tom_assertion_intake_from_llm_style_candidate(tmp_path):
+async def test_tom_assertion_intake_from_materialized_candidate(tmp_path):
     # Was `test_tom_assertion_starts_tentative_with_low_confidence`: under the
     # shared state machine (assertions/state_machine.py) a temporary trait
     # (stress_level) corroborates at >=0.50 on its FIRST evidence, so the old
@@ -271,16 +266,12 @@ async def test_tom_assertion_intake_from_llm_style_candidate(tmp_path):
         timestamp=1710000000.0,
     )
     graph_candidates = store.build_rule_graph_candidates(event)
-    assertion_candidates = _llm_style_assertion_candidates(event)
+    assertion_candidates = _materialized_assertion_candidates(event)
     result = await _apply_rule_candidates(store, event)
 
     assertions = await store.list_tom_assertions(entity_id="user:u1")
 
     assert graph_candidates == []
-    # The in-store rule fallback is intentionally empty (commit 8217ce51);
-    # assertion candidates come from the L2 LLM pipeline, mirrored here by
-    # the test fixture.
-    assert store.build_rule_assertion_candidates(event) == []
     assert len(assertion_candidates) == 1
     assert isinstance(assertion_candidates[0], L2TomAssertionWrite)
 

@@ -1417,7 +1417,6 @@ async def test_real_failed_completion_delete_removes_l1_through_l4(
             enable_l3_vectors=False,
             enable_l4_vectors=False,
             enable_l3_llm_summary=False,
-            enable_l2_conflict_arbitration=False,
             async_embeddings=False,
         ),
     )

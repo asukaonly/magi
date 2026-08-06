@@ -456,8 +456,6 @@ export interface MemoryL2Config {
   vectors_enabled: boolean;
   batch_flush_interval_seconds: number;
   auto_extract_relations: boolean;
-  conflict_arbitration_enabled: boolean;
-  conflict_arbitration_min_confidence: number;
   shadow_conflict_notification_enabled: boolean;
   portrait_projection_refresh_delay_seconds: number;
 }
@@ -786,8 +784,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       vectors_enabled: true,
       batch_flush_interval_seconds: 60,
       auto_extract_relations: true,
-      conflict_arbitration_enabled: true,
-      conflict_arbitration_min_confidence: 0.85,
       shadow_conflict_notification_enabled: true,
       portrait_projection_refresh_delay_seconds: 120,
     },

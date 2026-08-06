@@ -132,8 +132,6 @@ async def test_edge_embedding_worker_uses_config_interval(tmp_path: Path) -> Non
         vectors_enabled=True,
         batch_flush_interval_seconds=60,
         auto_extract_relations=False,
-        conflict_arbitration_enabled=False,
-        conflict_arbitration_min_confidence=0.85,
         maintenance_enabled=False,
         maintenance_interval_seconds=86400.0,
         edge_embedding_drain_interval_seconds=42.0,

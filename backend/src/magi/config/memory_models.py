@@ -436,8 +436,6 @@ class MemoryL2Settings(BaseModel):
     batch_flush_interval_seconds: int = Field(default=60, ge=30)
     llm_extraction_enabled: bool = Field(default=True)
     auto_extract_relations: bool = Field(default=True)
-    conflict_arbitration_enabled: bool = Field(default=True)
-    conflict_arbitration_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
     maintenance_enabled: bool = Field(
         default=True,
         description="Register periodic L2 entity/graph maintenance with the runtime scheduler.",

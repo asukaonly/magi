@@ -10,11 +10,9 @@ from magi.events.first_context import first_context_from_metadata
 from ...models import L2EventWindow
 from .workflows import (
     BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
-    CONFLICT_ARBITRATION_SYSTEM_PROMPT,
     ENTITY_RECONCILE_SYSTEM_PROMPT,
     ENTITY_RESOLUTION_SYSTEM_PROMPT,
     render_batch_entity_resolution_prompt,
-    render_conflict_arbitration_prompt,
     render_entity_reconcile_prompt,
     render_entity_resolution_prompt,
 )
@@ -61,8 +59,7 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
 10. For web pages and external-source metadata, never use a URL domain/path slug as the canonical entity name when the title or source text contains a readable subject name. Treat domains and platforms as provenance or separate platform entities, not as replacements for the content entity.
 11. Addressing instructions such as "叫我子涵" or "call me Zihan" are communication-profile signals. Emit one fact claim with `predicate = "PREFERRED_FORM_OF_ADDRESS"`, `object_ref` set to the requested name, and `object_type = "concept"`. Do NOT turn the requested name into a LIKES, DISLIKES, INTERESTED_IN, KNOWS, or other graph relationship.
 12. Explicit self-profile facts such as real name, birthday, birth year, age, preferred language, or preferred communication style should use the matching profile-signal predicate, not graph predicates.
-13. Every concrete object_ref used in fact_claims must also appear in entities with a matching surface or normalized_name and matching entity_type, unless object_ref is exactly an Existing Entity ID. This includes activities, events, plans, media, products, groups, and concepts. A context-only entity may be used only by its Existing Entity ID; do not create a new entity from Recent Context or History Context.
-    - For `PLANS_TO` with `fact_kind = "future_intent"`, represent the complete planned action referenced by `object_ref` as its own concrete activity, skill, event, or other matching entity. Extracting only nested nouns from that action does not satisfy this rule.
+13. A concrete object_ref should also appear in entities when it names a reusable catalog object. Assertion-only literal values and complete `PLANS_TO` action text do not require an entity. For a goal, keep the complete planned action in `object_ref`; extract only independently reusable nested places, software, projects, skills, or other named objects as entities. A context-only entity may be used only by its Existing Entity ID; do not create a new entity from Recent Context or History Context.
 14. Every fact claim must include `evidence_text` as an exact quote copied from a current message under Messages to Analyze. `supporting_event_ids` must contain only the current message IDs that contain that exact quote. Every claim must also declare one `evidence_mode`:
     - `direct`: the current quote states the complete claim. `antecedent_event_ids` must be empty.
     - `confirmation`: the current user quote is an explicit, unambiguous yes/no confirmation of the immediately preceding assistant proposition. Cite exactly that assistant event in `antecedent_event_ids`. Weak acknowledgements such as "嗯", "maybe", or "可能吧" are not confirmation.
@@ -133,38 +130,26 @@ Reason: This is a recall question, not a preference statement.
 """
 
 
-PHASE2_INTEGRATE_SYSTEM_PROMPT = """You are the inference stage of a personal memory system.
+PHASE2_INTEGRATE_SYSTEM_PROMPT = """You write optional natural-language summaries for a personal memory system.
 
-Phase 1 has already extracted facts, resolved entities, and verified exact event evidence. The host deterministically owns semantic routes, assertion families, trait codes, slots, values, confidence, time horizons, and lifecycle. Your task is limited to deciding whether claims within one compatible route support a useful higher-order synthesis and, when they do, writing a concise natural-language summary. Do not recreate graph edges, facts, entities, confidence scores, evidence quotes, event IDs, semantic routes, decay rules, or conflict actions.
+Phase 1 has already extracted and grounded the facts. The host deterministically owns every semantic decision, including routes, graph edges, assertion families, trait codes, slots, values, confidence, promotion, conflicts, time horizons, and lifecycle. Your output can improve wording only. It can never create, suppress, merge, or alter a memory.
 
 ## Rules
 1. Every output item must cite one or more `claim_id` values shown in Phase 1. Never cite raw event IDs or invent a claim ID.
-2. Emit a claim assessment only for a non-obvious relationship to a listed existing record: `refines`, `contradicts`, or `evolves`. Exact new facts and exact corroboration are handled deterministically by the host and must be omitted.
-3. `related_record_id` must exactly match a listed triple ID or assertion ID. If no listed record applies, omit the assessment.
-4. Generate a candidate only when all cited claims express one compatible understanding. Never group unrelated subjects, targets, semantic values, or time windows. The host rejects cross-route groups.
-5. A one-time task or passive observation is evidence, not automatically a stable preference, identity, routine, or psychological state. The host decides whether a candidate is event-only, recent, durable, review-only, or unrouted.
-6. Preserve original language and script in `natural_summary`. Do not translate, romanize, transliterate, slugify, or replace user-facing language with internal identifiers.
-7. `trait_value` is optional language-level synthesis only. It is never used for route, family, trait, slot, target, or identity. For direct typed claims, the host uses the Claim value instead.
-8. Do not return family, trait name/code, slot, route, target, confidence, volatility, inference depth, lifecycle, or conflict-action fields. Undeclared fields are ignored.
+2. Claims in one item must describe the same subject, target, value, and time window. When uncertain, emit separate summaries or omit them.
+3. Preserve the evidence language and script. Do not translate, romanize, transliterate, slugify, or expose internal identifiers.
+4. Keep each summary factual and concise. Do not infer causes, personality, stability, currentness, or intent beyond the cited Claims.
+5. Do not return entities, record IDs, families, traits, slots, routes, targets, values, confidence, lifecycle, conflict actions, or any undeclared fields.
+6. It is valid to return an empty `summaries` list. The host supplies deterministic fallback wording.
 
 ## Output Format
 Return JSON only:
 ```json
 {
-  "claim_assessments": [
+  "summaries": [
     {
-      "claim_id": "exact Phase 1 claim ID",
-      "relationship": "refines|contradicts|evolves",
-      "related_record_id": "exact listed triple or assertion ID"
-    }
-  ],
-  "assertion_candidates": [
-    {
-      "entity_ref": "entity ID",
-      "entity_type": "enum",
-      "trait_value": "optional short synthesis, max 40 chars",
-      "natural_summary": "free-form description in user's language, max 500 chars",
-      "supporting_claim_ids": ["exact Phase 1 claim IDs"]
+      "claim_ids": ["exact Phase 1 claim IDs"],
+      "text": "concise grounded summary, max 500 chars"
     }
   ]
 }
@@ -176,8 +161,7 @@ def build_phase2_integrate_system_prompt(user_language: str | None = None) -> st
     """Return the Phase 2 system prompt with an explicit language directive.
 
     When ``user_language`` is supplied (e.g. "zh-CN", "en", "ja"), the prompt
-    is suffixed with a binding instruction: every ``natural_summary`` and every
-    user-facing ``trait_value`` must be written in that language when present.
+    is suffixed with a binding instruction for every summary.
 
     When ``user_language`` is None, returns the baseline prompt unchanged so
     the LLM falls back to inferring language from evidence text.
@@ -187,9 +171,8 @@ def build_phase2_integrate_system_prompt(user_language: str | None = None) -> st
     return PHASE2_INTEGRATE_SYSTEM_PROMPT + (
         "\n\n## Language directive\n"
         f"The user's primary language is `{user_language}`. Write every "
-        "`natural_summary` in that language. When `trait_value` is present, also "
-        "use that language unless the evidence text supplies an explicit foreign "
-        "term the user chose."
+        "summary in that language unless the cited evidence explicitly uses a "
+        "foreign term that should be preserved."
     )
 
 
@@ -328,30 +311,28 @@ def render_phase2_integrate_prompt(
     *,
     phase1_result: dict[str, Any],
     focal_subject: dict[str, Any],
-    source_integration_instructions: str | None = None,
-    evidence_packet: dict[str, Any] | None = None,
+    summary_instructions: str | None = None,
 ) -> str:
-    """Render a Markdown-formatted Phase 2 integration prompt."""
+    """Render the optional Phase 2 summary prompt."""
     parts: list[str] = []
 
-    _append_source_integration_instructions(parts, source_integration_instructions)
+    _append_summary_instructions(parts, summary_instructions)
     _append_phase1_results(parts, phase1_result)
-    _append_evidence_packet(parts, evidence_packet)
     _append_phase2_focal_subject(parts, focal_subject)
 
     return "\n".join(parts)
 
 
-def _append_source_integration_instructions(
+def _append_summary_instructions(
     parts: list[str],
-    source_integration_instructions: str | None,
+    summary_instructions: str | None,
 ) -> None:
-    if not source_integration_instructions:
+    if not summary_instructions:
         return
-    instructions = str(source_integration_instructions).strip()
+    instructions = str(summary_instructions).strip()
     if not instructions:
         return
-    parts.append("## Source-Specific Integration Instructions")
+    parts.append("## Source-Specific Summary Instructions")
     parts.append(instructions)
     parts.append("")
 
@@ -451,116 +432,6 @@ def _append_phase1_resolved_refs(
     parts.append("")
 
 
-def _append_evidence_packet(
-    parts: list[str],
-    evidence_packet: dict[str, Any] | None,
-) -> None:
-    if not evidence_packet:
-        return
-    parts.append("## Deterministic Evidence Packet")
-    parts.append("No LLM was used to gather this packet; it is retrieval and statistics only.")
-    _append_packet_candidate_refs(parts, evidence_packet.get("candidate_refs") or [])
-    _append_packet_history_matches(parts, evidence_packet.get("history_contexts") or [])
-    _append_packet_history_support(parts, evidence_packet.get("history_support") or [])
-    _append_packet_related_edges(parts, evidence_packet.get("related_edges") or [])
-    _append_packet_assertion_state(parts, evidence_packet.get("existing_assertions") or [])
-    _append_packet_guardrails(parts, evidence_packet.get("promotion_guardrails") or [])
-
-
-def _append_packet_candidate_refs(parts: list[str], refs: list[dict[str, Any]]) -> None:
-    if not refs:
-        return
-    parts.append("### Current Candidate Anchors")
-    for ref in refs[:12]:
-        kind = ref.get("kind", "?")
-        label = ref.get("label") or ref.get("id") or "?"
-        ref_type = ref.get("type") or "unknown"
-        predicate = ref.get("predicate")
-        suffix = f", predicate={predicate}" if predicate else ""
-        parts.append(f"- {kind}: {label} [{ref_type}{suffix}]")
-    parts.append("")
-
-
-def _append_packet_history_matches(
-    parts: list[str],
-    history_items: list[dict[str, Any]],
-) -> None:
-    if not history_items:
-        return
-    parts.append("### History Matches")
-    for item in history_items[:3]:
-        event_id = item.get("event_id", "?")
-        name = item.get("canonical_name") or item.get("matched_text") or "matched item"
-        content = item.get("content", "")
-        parts.append(f"- [#{event_id}] {name}: {content}")
-    parts.append("")
-
-
-def _append_packet_history_support(
-    parts: list[str],
-    history_support: list[dict[str, Any]],
-) -> None:
-    if not history_support:
-        return
-    parts.append("### History Support Counts")
-    for item in history_support[:12]:
-        label = item.get("label") or item.get("id") or "matched item"
-        ref_type = item.get("type") or "unknown"
-        count = int(item.get("history_event_count", 0) or 0)
-        latest = _format_ts(float(item.get("latest_timestamp", 0.0) or 0.0))
-        parts.append(f"- {label} [{ref_type}] seen in {count} previous events, latest={latest}")
-    parts.append("")
-
-
-def _append_packet_related_edges(parts: list[str], related_edges: list[dict[str, Any]]) -> None:
-    if not related_edges:
-        return
-    parts.append("### Related Graph Evidence")
-    for edge in related_edges[:12]:
-        triple_id = edge.get("triple_id", "?")
-        predicate = edge.get("predicate", "?")
-        object_id = edge.get("object_id", "?")
-        object_type = edge.get("object_type", "?")
-        source_type = edge.get("source_type") or "unknown_source"
-        obs_count = int(edge.get("observation_count", 0) or 0)
-        event_count = int(edge.get("evidence_event_count", 0) or 0)
-        parts.append(
-            f"- [{triple_id}] {predicate} {object_id} [{object_type}] "
-            f"from {source_type}, observed={obs_count}x, events={event_count}"
-        )
-    parts.append("")
-
-
-def _append_packet_assertion_state(
-    parts: list[str],
-    packet_assertions: list[dict[str, Any]],
-) -> None:
-    if not packet_assertions:
-        return
-    parts.append("### Existing Assertion State")
-    for assertion in packet_assertions[:8]:
-        assertion_id = assertion.get("assertion_id", "?")
-        trait = assertion.get("trait_name", "?")
-        value = assertion.get("trait_value", "?")
-        family = assertion.get("trait_family", "?")
-        state = assertion.get("validation_state", "?")
-        source = assertion.get("source_domain", "?")
-        parts.append(
-            f"- [{assertion_id}] {family}/{trait} = {value} "
-            f"(state={state}, source={source})"
-        )
-    parts.append("")
-
-
-def _append_packet_guardrails(parts: list[str], guardrails: list[str]) -> None:
-    if not guardrails:
-        return
-    parts.append("### Promotion Guardrails")
-    for guardrail in guardrails:
-        parts.append(f"- {guardrail}")
-    parts.append("")
-
-
 def _append_phase2_focal_subject(parts: list[str], focal_subject: dict[str, Any]) -> None:
     focal_ref = focal_subject.get("entity_ref") or "user:self"
     parts.append(f"## Focal Subject: {focal_ref}")
@@ -600,10 +471,8 @@ __all__ = [
     "build_phase2_integrate_system_prompt",
     "ENTITY_RECONCILE_SYSTEM_PROMPT",
     "ENTITY_RESOLUTION_SYSTEM_PROMPT",
-    "CONFLICT_ARBITRATION_SYSTEM_PROMPT",
     "render_phase1_extract_prompt",
     "render_phase2_integrate_prompt",
-    "render_conflict_arbitration_prompt",
     "render_entity_reconcile_prompt",
     "render_entity_resolution_prompt",
     "BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT",

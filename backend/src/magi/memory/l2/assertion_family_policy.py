@@ -8,11 +8,10 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class AssertionFamilyPolicy:
-    """Policy metadata shared by prompts, validation, decay, and snapshots."""
+    """Policy metadata shared by materialization, decay, and snapshots."""
 
     family: str
     description: str
-    phase2_guidance: str
     default_temporal_scope: str
     default_decay_policy: str
     default_ttl_seconds: float | None
@@ -20,168 +19,161 @@ class AssertionFamilyPolicy:
     value_i18n: str
 
 
+def _policy(
+    family: str,
+    description: str,
+    temporal_scope: str,
+    decay_policy: str,
+    ttl_seconds: float | None,
+    snapshot_bucket: str,
+    value_i18n: str,
+) -> AssertionFamilyPolicy:
+    return AssertionFamilyPolicy(
+        family=family,
+        description=description,
+        default_temporal_scope=temporal_scope,
+        default_decay_policy=decay_policy,
+        default_ttl_seconds=ttl_seconds,
+        snapshot_bucket=snapshot_bucket,
+        value_i18n=value_i18n,
+    )
+
+
 ASSERTION_FAMILY_POLICIES: dict[str, AssertionFamilyPolicy] = {
-    "stress": AssertionFamilyPolicy(
-        family="stress",
-        description="Short-lived stress or pressure level grounded in user-authored evidence.",
-        phase2_guidance="Use for current stress signals, not durable identity or preference facts.",
-        default_temporal_scope="daily",
-        default_decay_policy="time_window",
-        default_ttl_seconds=24 * 60 * 60,
-        snapshot_bucket="state",
-        value_i18n="controlled",
+    "stress": _policy(
+        "stress",
+        "Short-lived stress or pressure level grounded in user-authored evidence.",
+        "daily",
+        "time_window",
+        24 * 60 * 60,
+        "state",
+        "controlled",
     ),
-    "mood": AssertionFamilyPolicy(
-        family="mood",
-        description="Short-lived emotional state.",
-        phase2_guidance="Use only when the user's own words clearly indicate mood.",
-        default_temporal_scope="session",
-        default_decay_policy="session_decay",
-        default_ttl_seconds=12 * 60 * 60,
-        snapshot_bucket="state",
-        value_i18n="controlled",
+    "mood": _policy(
+        "mood",
+        "Short-lived emotional state.",
+        "session",
+        "session_decay",
+        12 * 60 * 60,
+        "state",
+        "controlled",
     ),
-    "engagement": AssertionFamilyPolicy(
-        family="engagement",
-        description="Current attention, participation, or task engagement state.",
-        phase2_guidance="Use for temporary engagement signals, not stable work habits.",
-        default_temporal_scope="session",
-        default_decay_policy="session_decay",
-        default_ttl_seconds=12 * 60 * 60,
-        snapshot_bucket="state",
-        value_i18n="controlled",
+    "engagement": _policy(
+        "engagement",
+        "Current attention, participation, or task engagement state.",
+        "session",
+        "session_decay",
+        12 * 60 * 60,
+        "state",
+        "controlled",
     ),
-    "trigger": AssertionFamilyPolicy(
-        family="trigger",
-        description="A stable factor that tends to cause a user state or strong reaction.",
-        phase2_guidance="Use for recurring triggers with clear evidence, not one-off annoyances.",
-        default_temporal_scope="stable",
-        default_decay_policy="evidence_only",
-        default_ttl_seconds=None,
-        snapshot_bucket="sensitive_triggers",
-        value_i18n="literal",
+    "trigger": _policy(
+        "trigger",
+        "A stable factor that tends to cause a user state or strong reaction.",
+        "stable",
+        "evidence_only",
+        None,
+        "sensitive_triggers",
+        "literal",
     ),
-    "relationship_shift": AssertionFamilyPolicy(
-        family="relationship_shift",
-        description="Short-lived change in relationship state or social dynamics.",
-        phase2_guidance="Use for recent relationship changes, not stable relationship topology.",
-        default_temporal_scope="session",
-        default_decay_policy="session_decay",
-        default_ttl_seconds=6 * 60 * 60,
-        snapshot_bucket="relationship",
-        value_i18n="literal",
+    "relationship_shift": _policy(
+        "relationship_shift",
+        "Short-lived change in relationship state or social dynamics.",
+        "session",
+        "session_decay",
+        6 * 60 * 60,
+        "relationship",
+        "literal",
     ),
-    "group_atmosphere": AssertionFamilyPolicy(
-        family="group_atmosphere",
-        description="Short-lived tone of a group conversation or shared context.",
-        phase2_guidance="Use only when the group context is explicit.",
-        default_temporal_scope="session",
-        default_decay_policy="session_decay",
-        default_ttl_seconds=6 * 60 * 60,
-        snapshot_bucket="context",
-        value_i18n="controlled",
+    "group_atmosphere": _policy(
+        "group_atmosphere",
+        "Short-lived tone of a group conversation or shared context.",
+        "session",
+        "session_decay",
+        6 * 60 * 60,
+        "context",
+        "controlled",
     ),
-    "public_sentiment": AssertionFamilyPolicy(
-        family="public_sentiment",
-        description="External or public sentiment about an entity, not the user's own preference.",
-        phase2_guidance="Do not use for the user's likes or dislikes.",
-        default_temporal_scope="session",
-        default_decay_policy="session_decay",
-        default_ttl_seconds=6 * 60 * 60,
-        snapshot_bucket="public_sentiment",
-        value_i18n="controlled",
+    "public_sentiment": _policy(
+        "public_sentiment",
+        "External or public sentiment about an entity, not the user's own preference.",
+        "session",
+        "session_decay",
+        6 * 60 * 60,
+        "public_sentiment",
+        "controlled",
     ),
-    "identity_profile": AssertionFamilyPolicy(
-        family="identity_profile",
-        description="Stable user identity facts such as name, birthday, age, or home location.",
-        phase2_guidance="Use only for explicit profile-signal facts from current user-authored text.",
-        default_temporal_scope="stable",
-        default_decay_policy="evidence_only",
-        default_ttl_seconds=None,
-        snapshot_bucket="core_traits",
-        value_i18n="literal",
+    "identity_profile": _policy(
+        "identity_profile",
+        "Stable user identity facts such as name, birthday, age, or home location.",
+        "stable",
+        "evidence_only",
+        None,
+        "core_traits",
+        "literal",
     ),
-    "communication_profile": AssertionFamilyPolicy(
-        family="communication_profile",
-        description="How the user wants the assistant to address, respond to, or interact with them.",
-        phase2_guidance="Use for explicit communication preferences, preserving the user's wording.",
-        default_temporal_scope="stable",
-        default_decay_policy="evidence_only",
-        default_ttl_seconds=None,
-        snapshot_bucket="core_traits",
-        value_i18n="literal",
+    "communication_profile": _policy(
+        "communication_profile",
+        "How the user wants the assistant to address, respond to, or interact with them.",
+        "stable",
+        "evidence_only",
+        None,
+        "core_traits",
+        "literal",
     ),
-    "preference_profile": AssertionFamilyPolicy(
-        family="preference_profile",
-        description="Explicit likes, dislikes, affinities, and tastes.",
-        phase2_guidance=(
-            "Use only for actual preference claims such as LIKES or DISLIKES; "
-            "do not use it for attention, activity, or project participation."
-        ),
-        default_temporal_scope="stable",
-        default_decay_policy="evidence_only",
-        default_ttl_seconds=None,
-        snapshot_bucket="preferences",
-        value_i18n="literal",
+    "preference_profile": _policy(
+        "preference_profile",
+        "Explicit likes, dislikes, affinities, and tastes.",
+        "stable",
+        "evidence_only",
+        None,
+        "preferences",
+        "literal",
     ),
-    "interest_profile": AssertionFamilyPolicy(
-        family="interest_profile",
-        description="Topics, domains, and subjects that hold the user's attention or interest.",
-        phase2_guidance=(
-            "Use for INTERESTED_IN or sustained engagement evidence, not as a synonym "
-            "for liking something and not for a single exposure."
-        ),
-        default_temporal_scope="stable",
-        default_decay_policy="evidence_only",
-        default_ttl_seconds=None,
-        snapshot_bucket="preferences",
-        value_i18n="literal",
+    "interest_profile": _policy(
+        "interest_profile",
+        "Topics, domains, and subjects that hold the user's attention or interest.",
+        "stable",
+        "evidence_only",
+        None,
+        "preferences",
+        "literal",
     ),
-    "project_profile": AssertionFamilyPolicy(
-        family="project_profile",
-        description="Projects the user is actively building, maintaining, or contributing to.",
-        phase2_guidance=(
-            "Use for grounded project participation, not for merely viewing, mentioning, "
-            "or asking about a project."
-        ),
-        default_temporal_scope="stable",
-        default_decay_policy="evidence_only",
-        default_ttl_seconds=None,
-        snapshot_bucket="core_traits",
-        value_i18n="literal",
+    "project_profile": _policy(
+        "project_profile",
+        "Projects the user is actively building, maintaining, or contributing to.",
+        "stable",
+        "evidence_only",
+        None,
+        "core_traits",
+        "literal",
     ),
-    "goal_profile": AssertionFamilyPolicy(
-        family="goal_profile",
-        description="A concrete near-term goal or plan explicitly stated by the user.",
-        phase2_guidance=(
-            "Use only for direct future-intent Claims with a resolved concrete target; "
-            "never promote goals into durable identity or core traits."
-        ),
-        default_temporal_scope="recent",
-        default_decay_policy="time_window",
-        default_ttl_seconds=30 * 24 * 60 * 60,
-        snapshot_bucket="context",
-        value_i18n="literal",
+    "goal_profile": _policy(
+        "goal_profile",
+        "A concrete near-term goal or plan explicitly stated by the user.",
+        "recent",
+        "time_window",
+        30 * 24 * 60 * 60,
+        "context",
+        "literal",
     ),
-    "routine_profile": AssertionFamilyPolicy(
-        family="routine_profile",
-        description="Stable behavior patterns and rhythms such as recurring tools, times, or habits.",
-        phase2_guidance="Use for repeated behavior patterns, not a single interaction event.",
-        default_temporal_scope="stable",
-        default_decay_policy="evidence_only",
-        default_ttl_seconds=None,
-        snapshot_bucket="core_traits",
-        value_i18n="literal",
+    "routine_profile": _policy(
+        "routine_profile",
+        "Stable behavior patterns and rhythms such as recurring tools, times, or habits.",
+        "stable",
+        "evidence_only",
+        None,
+        "core_traits",
+        "literal",
     ),
-    "state_profile": AssertionFamilyPolicy(
-        family="state_profile",
-        description="Slowly changing user state that is more durable than mood/stress/engagement.",
-        phase2_guidance="Use for stable state traits; use mood/stress/engagement for temporary states.",
-        default_temporal_scope="stable",
-        default_decay_policy="evidence_only",
-        default_ttl_seconds=None,
-        snapshot_bucket="core_traits",
-        value_i18n="controlled",
+    "state_profile": _policy(
+        "state_profile",
+        "Slowly changing user state that is more durable than mood or stress.",
+        "stable",
+        "evidence_only",
+        None,
+        "core_traits",
+        "controlled",
     ),
 }
 
@@ -191,8 +183,7 @@ ASSERTION_FAMILY_ALLOWLIST: frozenset[str] = frozenset(ASSERTION_FAMILY_POLICIES
 def get_assertion_family_policy(family: str | None) -> AssertionFamilyPolicy | None:
     """Return the canonical policy for an assertion family."""
 
-    key = str(family or "").strip().casefold()
-    policy = ASSERTION_FAMILY_POLICIES.get(key)
+    policy = ASSERTION_FAMILY_POLICIES.get(str(family or "").strip().casefold())
     if policy is None:
         return None
     try:
@@ -204,21 +195,6 @@ def get_assertion_family_policy(family: str | None) -> AssertionFamilyPolicy | N
     if ttl_seconds == policy.default_ttl_seconds:
         return policy
     return replace(policy, default_ttl_seconds=ttl_seconds)
-
-
-def render_assertion_family_list() -> str:
-    """Render the canonical family allowlist for prompts."""
-
-    return ", ".join(ASSERTION_FAMILY_POLICIES)
-
-
-def render_assertion_family_semantics() -> str:
-    """Render concise Phase 2 guidance for assertion-family selection."""
-
-    lines = ["## Assertion Family Semantics"]
-    for policy in ASSERTION_FAMILY_POLICIES.values():
-        lines.append(f"- `{policy.family}`: {policy.description} {policy.phase2_guidance}")
-    return "\n".join(lines)
 
 
 def decorate_assertion_family_metadata(assertion: dict[str, Any]) -> dict[str, Any]:
@@ -240,6 +216,4 @@ __all__ = [
     "AssertionFamilyPolicy",
     "decorate_assertion_family_metadata",
     "get_assertion_family_policy",
-    "render_assertion_family_list",
-    "render_assertion_family_semantics",
 ]

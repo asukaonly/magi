@@ -14,17 +14,16 @@ from magi.memory.l2.phase1_models import (
 )
 
 
-def test_phase1_prompt_requires_claim_objects_as_entities():
-    assert "Every concrete object_ref used in fact_claims must also appear in entities" in PHASE1_EXTRACT_SYSTEM_PROMPT
+def test_phase1_prompt_requires_only_reusable_claim_objects_as_entities():
+    assert "when it names a reusable catalog object" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "Assertion-only literal values" in PHASE1_EXTRACT_SYSTEM_PROMPT
 
 
-def test_phase1_prompt_requires_complete_future_intent_target_entity() -> None:
-    assert "represent the complete planned action referenced by `object_ref`" in (
+def test_phase1_prompt_keeps_complete_future_intent_as_goal_text() -> None:
+    assert "complete `PLANS_TO` action text do not require an entity" in (
         PHASE1_EXTRACT_SYSTEM_PROMPT
     )
-    assert "Extracting only nested nouns from that action does not satisfy this rule" in (
-        PHASE1_EXTRACT_SYSTEM_PROMPT
-    )
+    assert "keep the complete planned action in `object_ref`" in PHASE1_EXTRACT_SYSTEM_PROMPT
 
 
 def test_phase1_prompt_allows_external_observation_facts():

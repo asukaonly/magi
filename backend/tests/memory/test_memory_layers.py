@@ -24,15 +24,15 @@ from magi.timeline.contracts import TimelineContentBlock, TimelineEvent
 from magi.timeline.service import TimelineService
 
 
-# Phase 1 + Phase 2 mock responses that extract stress_level from user messages
+# Phase 1 plus optional Phase 2 wording for a current mood assertion.
 _STRESS_PHASE1 = json.dumps({
     "entities": [],
     "fact_claims": [
         {
             "subject_ref": "user:self",
-            "predicate": "HAS_METRIC",
-            "object_ref": "stress_level",
-            "object_type": "health_metric",
+            "predicate": "FEELS",
+            "object_ref": "stressed",
+            "object_type": "concept",
             "fact_kind": "explicit_fact",
             "temporal_cue": "recent",
             "polarity": "negative",
@@ -46,20 +46,7 @@ _STRESS_PHASE1 = json.dumps({
     "diagnostics": {"entity_status": "none"},
 })
 
-_STRESS_PHASE2 = json.dumps({
-    "claim_assessments": [],
-    "assertion_candidates": [
-        {
-            "entity_ref": "user:u1",
-            "entity_type": "user",
-            "trait_family": "stress",
-            "trait_name": "stress_level",
-            "trait_value": "high",
-            "natural_summary": "Work has recently felt stressful.",
-            "supporting_claim_ids": ["claim:1"],
-        }
-    ],
-})
+_STRESS_PHASE2 = json.dumps({"summaries": []})
 
 _PLACE_PHASE1 = json.dumps({
     "entities": [
@@ -93,10 +80,7 @@ _PLACE_PHASE1 = json.dumps({
     "diagnostics": {"entity_status": "found"},
 })
 
-_PLACE_PHASE2 = json.dumps({
-    "claim_assessments": [],
-    "assertion_candidates": [],
-})
+_PLACE_PHASE2 = json.dumps({"summaries": []})
 
 
 class _FakeAdapter:
@@ -118,8 +102,11 @@ class _FakeAdapter:
         messages = kwargs.get("messages") or []
         if isinstance(messages, list) and messages and isinstance(messages[0], dict):
             system_prompt = str(messages[0].get("content") or "")
-        # Detect Phase 2 by its narrow inference contract.
-        text = self._phase2 if "claim_assessments" in system_prompt else self._phase1
+        text = (
+            self._phase2
+            if "optional natural-language summaries" in system_prompt
+            else self._phase1
+        )
         message = SimpleNamespace(content=text, tool_calls=[], role="assistant")
         return SimpleNamespace(
             choices=[SimpleNamespace(message=message, finish_reason="stop")],
@@ -228,7 +215,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(workbench["session"])
         self.assertEqual(workbench["attention_items"], [])
         self.assertEqual(l1_count, 1)
-        self.assertEqual(assertions[0]["trait_name"], "stress_level")
+        self.assertEqual(assertions[0]["trait_name"], "mood")
         self.assertIsNotNone(summary)
         self.assertEqual(summary["summary_type"], "temporal")
         self.assertGreaterEqual(len(procedures), 1)

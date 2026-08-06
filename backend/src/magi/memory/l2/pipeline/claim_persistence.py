@@ -327,7 +327,18 @@ class L2ClaimPersistenceMixin:
                     route_contract_version=ROUTE_CONTRACT_VERSION,
                     outcome=decision.disposition.value,
                     reason_code=decision.reason_code,
-                    details=_route_outcome_details(decision),
+                    details=_route_outcome_details(
+                        decision,
+                        subject_resolution_version=(
+                            ENTITY_RESOLUTION_VERSION
+                            if batch.self_entity_id
+                            and decision.subject_id == batch.self_entity_id
+                            else 0
+                        ),
+                        object_resolution_version=(
+                            ENTITY_RESOLUTION_VERSION if object_ref is not None else 0
+                        ),
+                    ),
                 ),
                 projection_leases=batch.projection_leases,
             )
@@ -556,7 +567,12 @@ def _evidence_locator(
     return locator
 
 
-def _route_outcome_details(decision: SemanticRouteDecision) -> dict[str, Any]:
+def _route_outcome_details(
+    decision: SemanticRouteDecision,
+    *,
+    subject_resolution_version: int,
+    object_resolution_version: int,
+) -> dict[str, Any]:
     return {
         "semantic_route_id": decision.semantic_route_id,
         "family": decision.family,
@@ -571,6 +587,8 @@ def _route_outcome_details(decision: SemanticRouteDecision) -> dict[str, Any]:
         "goal_lineage_key": decision.goal_lineage_key,
         "target_window_key": decision.target_window_key,
         "scope_key": decision.scope_key,
+        "subject_resolution_version": max(0, int(subject_resolution_version)),
+        "object_resolution_version": max(0, int(object_resolution_version)),
     }
 
 

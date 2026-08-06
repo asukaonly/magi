@@ -216,7 +216,6 @@ async def _real_l0_memory(
             enable_l3_vectors=False,
             enable_l4_vectors=False,
             enable_l3_llm_summary=False,
-            enable_l2_conflict_arbitration=False,
             async_embeddings=False,
         ),
     )

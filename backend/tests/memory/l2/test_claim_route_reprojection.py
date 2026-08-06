@@ -203,17 +203,31 @@ async def _seed_target_outcome(
     return outcome_id
 
 
-def _route_details(decision: SemanticRouteDecision) -> dict[str, object]:
-    return {
+def _route_details(
+    decision: SemanticRouteDecision,
+    *,
+    subject_resolution_version: int | None = None,
+    object_resolution_version: int | None = None,
+) -> dict[str, object]:
+    details: dict[str, object] = {
         "semantic_route_id": decision.semantic_route_id,
         "family": decision.family,
         "trait_code": decision.trait_code,
         "object_role": decision.object_role.value,
         "value_fingerprint": decision.value_fingerprint,
+        "semantic_target_key": decision.semantic_target_key,
+        "object_surface": decision.object_surface,
+        "normalized_target_text": decision.normalized_target_text,
         "target_entity_type": decision.target_entity_type,
+        "goal_lineage_key": decision.goal_lineage_key,
         "target_window_key": decision.target_window_key,
         "scope_key": decision.scope_key,
     }
+    if subject_resolution_version is not None:
+        details["subject_resolution_version"] = subject_resolution_version
+    if object_resolution_version is not None:
+        details["object_resolution_version"] = object_resolution_version
+    return details
 
 
 def _derive_route(
@@ -603,7 +617,7 @@ async def test_reprojection_retries_after_object_resolution_changes(
 
     assert unresolved.candidates_selected == 1
     assert unresolved.outcomes_appended == 1
-    assert unresolved.unrouted == 1
+    assert unresolved.routed == 1
     assert unchanged.candidates_selected == 0
     assert resolved.candidates_selected == 1
     assert resolved.outcomes_appended == 1
@@ -614,7 +628,7 @@ async def test_reprojection_retries_after_object_resolution_changes(
         claim_id="claim-resolves-later"
     )
     assert len(history) == 3
-    assert [row["outcome"] for row in history] == ["unrouted", "unrouted", "routed"]
+    assert [row["outcome"] for row in history] == ["unrouted", "routed", "routed"]
     assert [row["attempt_key"] for row in history[1:]] == [
         f"route-reproject:v{ROUTE_CONTRACT_VERSION}:r0:claim-resolves-later",
         f"route-reproject:v{ROUTE_CONTRACT_VERSION}:r1:claim-resolves-later",
@@ -674,7 +688,8 @@ async def test_reprojection_prefers_current_resolution_during_clock_rollback(
         object_type="topic",
         object_value="Jazz",
     )
-    assert unresolved_route.disposition.value == "unrouted"
+    assert unresolved_route.disposition.value == "routed"
+    assert unresolved_route.target_entity_id is None
     await _seed_claim(
         l2_store_with_schema,
         claim_id=claim_id,
@@ -688,7 +703,7 @@ async def test_reprojection_prefers_current_resolution_during_clock_rollback(
         outcome=unresolved_route.disposition.value,
         route_contract_version=ROUTE_CONTRACT_VERSION,
         target_id="predicate:LIKES",
-        details=_route_details(unresolved_route),
+        details=_route_details(unresolved_route, object_resolution_version=0),
         reason_code=unresolved_route.reason_code,
         created_at=4_000_000_000.0,
     )
@@ -1014,7 +1029,11 @@ async def test_reprojection_keeps_existing_current_receipt_and_retires_stale_dup
         route_contract_version=ROUTE_CONTRACT_VERSION,
         target_id=route.route_key,
         target_slot_key=route.slot_key,
-        details=_route_details(route),
+        details=_route_details(
+            route,
+            subject_resolution_version=0,
+            object_resolution_version=1,
+        ),
         reason_code=route.reason_code,
         created_at=13.0,
     )
@@ -1536,7 +1555,11 @@ async def test_reprojection_repairs_targets_after_route_was_already_upgraded(
         route_contract_version=ROUTE_CONTRACT_VERSION,
         target_id="predicate:BIRTH_DATE",
         target_slot_key=None,
-        details=_route_details(current_route),
+        details=_route_details(
+            current_route,
+            subject_resolution_version=0,
+            object_resolution_version=0,
+        ),
         reason_code=current_route.reason_code,
         created_at=13.0,
     )
