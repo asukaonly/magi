@@ -22,6 +22,8 @@ class HistoryImportRecord:
     content: str
     event_at: float
     timestamp_confidence: str
+    timestamp_anchor_source: str
+    calendar_timezone_id: str
     meaningful: bool
     event_id: str
     speaker_role: str = "unknown"

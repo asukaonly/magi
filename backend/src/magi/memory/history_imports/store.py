@@ -29,6 +29,8 @@ _RECORD_SELECT = """
            source.content,
            source.event_at,
            source.timestamp_confidence,
+           source.timestamp_anchor_source,
+           source.calendar_timezone_id,
            source.meaningful,
            source.event_id,
            membership.raw_state,
@@ -117,8 +119,9 @@ class HistoryImportStore:
                         source_record_key, file_fingerprint, source_name,
                         parsed_session_key, session_id, session_seq,
                         speaker_name, speaker_role, content, event_at,
-                        timestamp_confidence, meaningful, event_id, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        timestamp_confidence, timestamp_anchor_source,
+                        calendar_timezone_id, meaningful, event_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(source_record_key) DO NOTHING
                     """,
                     [
@@ -134,6 +137,8 @@ class HistoryImportStore:
                             record.content,
                             record.event_at,
                             record.timestamp_confidence,
+                            record.timestamp_anchor_source,
+                            record.calendar_timezone_id,
                             1 if record.meaningful else 0,
                             record.event_id,
                             record.created_at,
@@ -965,6 +970,8 @@ def _record_from_row(row: Any) -> HistoryImportRecord:
         content=str(row["content"]),
         event_at=float(row["event_at"]),
         timestamp_confidence=str(row["timestamp_confidence"]),
+        timestamp_anchor_source=str(row["timestamp_anchor_source"]),
+        calendar_timezone_id=str(row["calendar_timezone_id"]),
         meaningful=bool(row["meaningful"]),
         event_id=str(row["event_id"]),
         raw_state=str(row["raw_state"]),

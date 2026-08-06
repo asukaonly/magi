@@ -19,6 +19,7 @@ from typing import Any
 
 from ...core.logger import get_logger
 from ...core.operation_barrier import AsyncOperationBarrier
+from ...utils.calendar_timezone import local_calendar_timezone_id, with_calendar_timezone
 from ...identity import CANONICAL_LOCAL_USER
 from ..event_contracts import (
     AuthorType,
@@ -126,6 +127,9 @@ class HistoryImportService:
         file_fingerprints: dict[str, str] = {}
         fingerprint_parts: list[bytes] = []
         total_bytes = 0
+        calendar_timezone_id = local_calendar_timezone_id()
+        if calendar_timezone_id is None:
+            raise HistoryImportValidationError("history_import_timezone_unavailable")
         for path, source_name in files:
             size = int(path.stat().st_size)
             if size > MAX_MARKDOWN_FILE_BYTES:
@@ -148,6 +152,7 @@ class HistoryImportService:
                     source_name=source_name,
                     text=text,
                     file_mtime=float(path.stat().st_mtime),
+                    calendar_timezone_id=calendar_timezone_id,
                 )
             )
             fingerprint_parts.append(bytes.fromhex(file_fingerprint))
@@ -891,6 +896,8 @@ def _build_records(
                     content=str(item["content"]),
                     event_at=float(item["event_at"]),
                     timestamp_confidence=str(item["timestamp_confidence"]),
+                    timestamp_anchor_source=str(item["timestamp_anchor_source"]),
+                    calendar_timezone_id=str(item["calendar_timezone_id"]),
                     meaningful=bool(item["meaningful"]),
                     event_id=f"hi_{event_digest[:32]}",
                     created_at=now,
@@ -929,7 +936,7 @@ def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
         importance_score=0.72 if is_user else 0.3,
         level=0,
         idempotency_key=f"history-import:{record.source_record_key}",
-        metadata_json={
+        metadata_json=with_calendar_timezone({
             "history_import": {
                 "source_record_key": record.source_record_key,
                 "file_fingerprint": record.file_fingerprint,
@@ -937,13 +944,14 @@ def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
                 "speaker_name": record.speaker_name,
                 "speaker_role": record.speaker_role,
                 "timestamp_confidence": record.timestamp_confidence,
+                "timestamp_anchor_source": record.timestamp_anchor_source,
                 "historical": True,
             },
             "l2_batch_owner": f"history-import:{record.session_id}",
             "l2_batch_max_events": 40,
             "l2_batch_min_ready_events": 20,
             "l2_batch_max_wait_seconds": 1,
-        },
+        }, calendar_timezone_id=record.calendar_timezone_id),
     )
 
 

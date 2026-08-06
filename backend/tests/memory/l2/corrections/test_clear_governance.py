@@ -528,11 +528,13 @@ async def test_shared_clear_removes_manual_location_and_rebuild_rows(tmp_path) -
                 source_record_key, file_fingerprint, source_name,
                 parsed_session_key, session_id, session_seq,
                 speaker_name, content, event_at, timestamp_confidence,
+                timestamp_anchor_source, calendar_timezone_id,
                 meaningful, event_id, created_at
             ) VALUES (
                 'private-source-record', 'private-file', 'private.md',
                 'private-session-key', 'private-session', 0,
                 '__document_author__', 'Private history', ?, 'explicit',
+                'message_timestamp', 'UTC',
                 1, 'private-event', ?
             )
             """,

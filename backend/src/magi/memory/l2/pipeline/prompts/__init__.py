@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from magi.events.first_context import first_context_from_metadata
 
+from magi.utils.calendar_timezone import calendar_timezone_id_from_metadata
 from ...models import L2EventWindow
 from .workflows import (
     BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
@@ -181,11 +183,16 @@ def build_phase2_integrate_system_prompt(user_language: str | None = None) -> st
 # ---------------------------------------------------------------------------
 
 
-def _format_ts(ts: float) -> str:
+def _format_ts(ts: float, *, metadata: dict[str, Any] | None = None) -> str:
     if ts <= 0:
         return "unknown"
     try:
-        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        timezone_id = calendar_timezone_id_from_metadata(metadata)
+        event_timezone = ZoneInfo(timezone_id) if timezone_id is not None else timezone.utc
+        return datetime.fromtimestamp(ts, tz=event_timezone).isoformat(
+            sep=" ",
+            timespec="seconds",
+        )
     except (OSError, ValueError):
         return "unknown"
 
@@ -235,7 +242,7 @@ def render_phase1_extract_prompt(
     parts.append("## Messages to Analyze")
     for event in event_window.events:
         role = str(event.author_type or "user").upper()
-        ts = _format_ts(event.timestamp)
+        ts = _format_ts(event.timestamp, metadata=event.metadata_json)
         parts.append(f"### [{role}] [#{event.event_id}] {ts}")
         parts.append(str(event.content).strip())
         parts.append("")

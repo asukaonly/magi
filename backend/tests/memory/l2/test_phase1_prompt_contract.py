@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from magi.memory.l2.models import L2BatchEvent, L2EventWindow
 from magi.memory.l2.pipeline.prompts import (
     PHASE1_EXTRACT_SYSTEM_PROMPT,
@@ -129,3 +131,25 @@ def test_phase1_render_separates_user_language_from_evidence_script() -> None:
     assert "not permission to translate evidence-derived fields" in prompt
     assert "Letter scripts detected in current evidence: Han, Latin" in prompt
     assert "Keep JSON keys, enum values, and protocol identifiers in English" in prompt
+
+
+def test_phase1_render_uses_each_event_captured_timezone_with_offset() -> None:
+    timestamp = datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc).timestamp()
+    prompt = render_phase1_extract_prompt(
+        event_window=L2EventWindow(
+            events=[
+                L2BatchEvent(
+                    event_id="evt-history",
+                    content="I started learning pottery.",
+                    timestamp=timestamp,
+                    author_type="user",
+                    metadata_json={
+                        "_temporal": {"calendar_timezone_id": "Asia/Shanghai"}
+                    },
+                )
+            ]
+        ),
+        focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+    )
+
+    assert "2026-07-01 09:00:00+08:00" in prompt

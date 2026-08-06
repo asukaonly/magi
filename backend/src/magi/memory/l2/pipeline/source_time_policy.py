@@ -20,6 +20,7 @@ TRUSTED_CURRENTNESS_QUALITIES = frozenset({"exact", "calendar_anchor"})
 
 _HISTORY_CONFIDENCE_POLICY = {
     "exact": ("exact", "message_timestamp"),
+    "explicit": ("exact", "message_timestamp"),
     "message_timestamp": ("exact", "message_timestamp"),
     "frontmatter": ("calendar_anchor", "frontmatter"),
     "source_name": ("calendar_anchor", "source_name"),

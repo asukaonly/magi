@@ -37,6 +37,22 @@ approximate. Preserve relative or ambiguous time expressions as written unless
 the document itself supplies a clear anchor; do not invent an exact date.
 """
 
+_HISTORY_CHAT_INSTRUCTIONS = """\
+These events are user-authored turns from an imported historical conversation,
+not live chat messages.
+
+Extract only facts supported by the current [USER] turn. Other participants'
+turns may clarify references and dialogue flow, but they are context rather
+than facts about the user. Do not attribute a counterpart's preferences,
+identity, plans, or suggestions to the user. Preserve the historical meaning
+of words such as "today" or "next week"; never reinterpret them relative to
+the current runtime clock.
+
+The displayed event time is source provenance. Use it as a temporal anchor
+only when the host marks the imported message timestamp as trusted. File order,
+file modification time, and import time do not prove that a fact is current.
+"""
+
 
 @dataclass(slots=True, frozen=True)
 class DefaultSubjectPolicy:
@@ -107,6 +123,13 @@ DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
         event_types=frozenset({"history_import.document"}),
         extraction_instructions=_HISTORY_DOCUMENT_INSTRUCTIONS,
         phase1_instructions=_HISTORY_DOCUMENT_INSTRUCTIONS,
+    ),
+    "history_import.chat": ExtractionProfile(
+        profile_id="history_import.chat",
+        source_types=frozenset({"history_import_markdown"}),
+        event_types=frozenset({"history_import.chat"}),
+        extraction_instructions=_HISTORY_CHAT_INSTRUCTIONS,
+        phase1_instructions=_HISTORY_CHAT_INSTRUCTIONS,
     ),
 }
 
@@ -232,6 +255,8 @@ def _load_profiles_from_yaml(path: Path) -> dict[str, ExtractionProfile]:
         ]
     if "history_import.document" not in profiles:
         profiles["history_import.document"] = DEFAULT_EXTRACTION_PROFILES["history_import.document"]
+    if "history_import.chat" not in profiles:
+        profiles["history_import.chat"] = DEFAULT_EXTRACTION_PROFILES["history_import.chat"]
 
     return profiles
 

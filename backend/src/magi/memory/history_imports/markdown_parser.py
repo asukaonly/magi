@@ -6,7 +6,9 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from ...utils.calendar_timezone import canonical_timezone_id, local_calendar_timezone_id
 from .models import ParsedHistoryFile
 
 DOCUMENT_AUTHOR = "__document_author__"
@@ -88,10 +90,14 @@ def parse_markdown_path(path: Path) -> ParsedHistoryFile:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise ValueError("markdown_not_utf8") from exc
+    calendar_timezone_id = local_calendar_timezone_id()
+    if calendar_timezone_id is None:
+        raise ValueError("history_import_timezone_unavailable")
     return parse_markdown(
         source_name=path.name,
         text=text,
         file_mtime=float(path.stat().st_mtime),
+        calendar_timezone_id=calendar_timezone_id,
     )
 
 
@@ -100,18 +106,24 @@ def parse_markdown(
     source_name: str,
     text: str,
     file_mtime: float,
+    calendar_timezone_id: str,
 ) -> ParsedHistoryFile:
     """Parse chat-shaped Markdown, falling back to one authored document."""
 
+    normalized_timezone_id = canonical_timezone_id(calendar_timezone_id)
+    if normalized_timezone_id is None:
+        raise ValueError("history_import_timezone_invalid")
+    local_timezone = ZoneInfo(normalized_timezone_id)
     frontmatter, body = _extract_frontmatter(str(text or ""))
     clean_text = body.strip()
     if not clean_text:
         raise ValueError("markdown_empty")
-    source_timestamp, source_timestamp_confidence = _source_timestamp(
+    source_timestamp, _source_timestamp_confidence = _source_timestamp(
         source_name=source_name,
         text=clean_text,
         frontmatter=frontmatter,
         file_mtime=file_mtime,
+        local_timezone=local_timezone,
     )
 
     inline_records = _parse_inline_chat(clean_text)
@@ -121,6 +133,8 @@ def parse_markdown(
         records, used_fallback_time = _finalize_chat_timestamps(
             chat_records,
             fallback_timestamp=source_timestamp,
+            calendar_timezone_id=normalized_timezone_id,
+            local_timezone=local_timezone,
         )
         warnings = ["timestamps_from_file_order"] if used_fallback_time else []
         return ParsedHistoryFile(
@@ -135,6 +149,7 @@ def parse_markdown(
         source_name=source_name,
         frontmatter=frontmatter,
         file_mtime=file_mtime,
+        local_timezone=local_timezone,
     )
     warnings = ["document_author_confirmation_required"]
     if document_timestamp_confidence == "file_mtime":
@@ -149,6 +164,10 @@ def parse_markdown(
                 "content": clean_text,
                 "event_at": document_timestamp,
                 "timestamp_confidence": document_timestamp_confidence,
+                "timestamp_anchor_source": _timestamp_anchor_source(
+                    document_timestamp_confidence
+                ),
+                "calendar_timezone_id": normalized_timezone_id,
                 "meaningful": is_meaningful_content(clean_text),
             }
         ],
@@ -183,13 +202,17 @@ def _source_timestamp(
     text: str,
     frontmatter: dict[str, str],
     file_mtime: float,
+    local_timezone: ZoneInfo,
 ) -> tuple[float, str]:
     for key in ("date", "created", "created_at", "createdat", "timestamp"):
-        parsed = _parse_timestamp(frontmatter.get(key))
+        parsed = _parse_timestamp(frontmatter.get(key), local_timezone=local_timezone)
         if parsed is not None:
             return parsed, "frontmatter"
 
-    filename_timestamp = _parse_source_date(Path(source_name).stem)
+    filename_timestamp = _parse_source_date(
+        Path(source_name).stem,
+        local_timezone=local_timezone,
+    )
     if filename_timestamp is not None:
         return filename_timestamp, "source_name"
 
@@ -197,7 +220,7 @@ def _source_timestamp(
         match = _DATE_HEADING_RE.match(line.strip())
         if not match:
             continue
-        parsed = _parse_timestamp(match.group("value"))
+        parsed = _parse_timestamp(match.group("value"), local_timezone=local_timezone)
         if parsed is not None:
             return parsed, "document_heading"
     return float(file_mtime), "file_mtime"
@@ -208,27 +231,32 @@ def _document_timestamp(
     source_name: str,
     frontmatter: dict[str, str],
     file_mtime: float,
+    local_timezone: ZoneInfo,
 ) -> tuple[float, str]:
     """Resolve document-level time without interpreting body headings."""
 
     for key in ("date", "created", "created_at", "createdat", "timestamp"):
-        parsed = _parse_timestamp(frontmatter.get(key))
+        parsed = _parse_timestamp(frontmatter.get(key), local_timezone=local_timezone)
         if parsed is not None:
             return parsed, "frontmatter"
 
-    filename_timestamp = _parse_source_date(Path(source_name).stem)
+    filename_timestamp = _parse_source_date(
+        Path(source_name).stem,
+        local_timezone=local_timezone,
+    )
     if filename_timestamp is not None:
         return filename_timestamp, "source_name"
     return float(file_mtime), "file_mtime"
 
 
-def _parse_source_date(value: str) -> float | None:
+def _parse_source_date(value: str, *, local_timezone: ZoneInfo) -> float | None:
     for pattern in (_SOURCE_DATE_RE, _COMPACT_SOURCE_DATE_RE):
         match = pattern.search(value)
         if not match:
             continue
         return _parse_timestamp(
-            f"{match.group('year')}-{match.group('month')}-{match.group('day')}"
+            f"{match.group('year')}-{match.group('month')}-{match.group('day')}",
+            local_timezone=local_timezone,
         )
     return None
 
@@ -362,9 +390,14 @@ def _finalize_chat_timestamps(
     records: list[dict[str, Any]],
     *,
     fallback_timestamp: float,
+    calendar_timezone_id: str,
+    local_timezone: ZoneInfo,
 ) -> tuple[list[dict[str, Any]], bool]:
     parsed: list[dict[str, Any]] = []
-    parsed_timestamps = [_parse_timestamp(record.get("timestamp_text")) for record in records]
+    parsed_timestamps = [
+        _parse_timestamp(record.get("timestamp_text"), local_timezone=local_timezone)
+        for record in records
+    ]
     used_fallback = any(value is None for value in parsed_timestamps)
     first_known = next((value for value in parsed_timestamps if value is not None), None)
     fallback_anchor = float(first_known if first_known is not None else fallback_timestamp)
@@ -390,13 +423,15 @@ def _finalize_chat_timestamps(
                 "content": str(record["content"]).strip(),
                 "event_at": float(timestamp),
                 "timestamp_confidence": confidence,
+                "timestamp_anchor_source": _timestamp_anchor_source(confidence),
+                "calendar_timezone_id": calendar_timezone_id,
                 "meaningful": is_meaningful_content(str(record["content"])),
             }
         )
     return parsed, used_fallback
 
 
-def _parse_timestamp(value: object) -> float | None:
+def _parse_timestamp(value: object, *, local_timezone: ZoneInfo) -> float | None:
     text = str(value or "").strip()
     if not text:
         return None
@@ -421,9 +456,25 @@ def _parse_timestamp(value: object) -> float | None:
         except ValueError:
             continue
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=datetime.now().astimezone().tzinfo)
+            parsed = parsed.replace(tzinfo=local_timezone)
         return float(parsed.timestamp())
     return None
+
+
+def _timestamp_anchor_source(timestamp_confidence: str) -> str:
+    anchors = {
+        "explicit": "message_timestamp",
+        "frontmatter": "frontmatter",
+        "source_name": "source_name",
+        "document_heading": "document_heading",
+        "file_mtime": "file_mtime",
+        "file_order": "file_order",
+        "source_order": "source_order",
+    }
+    try:
+        return anchors[timestamp_confidence]
+    except KeyError as exc:
+        raise ValueError("history_import_timestamp_confidence_invalid") from exc
 
 
 def _looks_time_only(value: str) -> bool:

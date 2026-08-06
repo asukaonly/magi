@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS history_import_source_records (
     content TEXT NOT NULL,
     event_at REAL NOT NULL,
     timestamp_confidence TEXT NOT NULL,
+    timestamp_anchor_source TEXT NOT NULL,
+    calendar_timezone_id TEXT NOT NULL,
     meaningful INTEGER NOT NULL DEFAULT 0,
     event_id TEXT NOT NULL UNIQUE,
     created_at REAL NOT NULL

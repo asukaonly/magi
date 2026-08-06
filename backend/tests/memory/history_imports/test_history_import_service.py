@@ -118,7 +118,13 @@ async def _wait_for_completed_job(
 async def test_confirm_prepares_recent_context_then_projects_user_turns_in_order(
     tmp_path: Path,
     history_store: HistoryImportStore,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        history_import_service_module,
+        "local_calendar_timezone_id",
+        lambda: "Asia/Shanghai",
+    )
     markdown = tmp_path / "chat.md"
     markdown.write_text(
         """
@@ -171,6 +177,32 @@ async def test_confirm_prepares_recent_context_then_projects_user_turns_in_order
         "It helps me slow down.",
         "That sounds peaceful.",
     ]
+    first_event = memory.raw_events[0]
+    assert first_event.metadata_json["history_import"]["timestamp_anchor_source"] == (
+        "message_timestamp"
+    )
+    assert first_event.metadata_json["_temporal"]["calendar_timezone_id"] == (
+        "Asia/Shanghai"
+    )
+
+    from magi.memory.l2.batch_models import L2BatchEvent, L2EventWindow
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
+    from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
+    from magi.memory.l2.pipeline.source_time_policy import resolve_event_time_semantics
+
+    profile = resolve_extraction_profile(first_event)
+    time_semantics = resolve_event_time_semantics(first_event)
+    prompt = render_phase1_extract_prompt(
+        event_window=L2EventWindow(events=[L2BatchEvent.from_dict(first_event.to_dict())]),
+        focal_subject={"entity_ref": "user:local-user", "entity_type": "user"},
+        extraction_instructions=profile.phase1_instructions,
+    )
+
+    assert profile.profile_id == "history_import.chat"
+    assert "not live chat messages" in str(profile.phase1_instructions)
+    assert time_semantics.timestamp_quality == "exact"
+    assert time_semantics.timestamp_anchor_source == "message_timestamp"
+    assert "2026-07-01 09:00:00+08:00" in prompt
     await service.stop()
 
 
@@ -435,6 +467,9 @@ async def test_personal_markdown_headings_import_as_one_source_event(
     assert (
         event.metadata_json["history_import"]["timestamp_confidence"]
         == preview.preview_records[0].timestamp_confidence
+    )
+    assert event.metadata_json["history_import"]["timestamp_anchor_source"] == (
+        preview.preview_records[0].timestamp_anchor_source
     )
 
     from magi.memory.evidence import classify_event_evidence

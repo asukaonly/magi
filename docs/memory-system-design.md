@@ -796,9 +796,14 @@ initial trusted policies. Claim evidence stores both the normalized quality and
 the accepted `timestamp_anchor_source` for audit.
 
 New L1 writes attach the validated IANA calendar timezone captured at ingestion
-when the host can resolve one. Calendar-sensitive Claim resolution requires that
-persisted timezone and resolves relative expressions only against trusted
-supporting-event timestamps. An ordered host rule table handles absolute dates,
+when the host can resolve one. History imports capture that timezone before
+parsing source-local timestamps and persist it with the source record, so a
+later worker or process-timezone change cannot reinterpret the imported wall
+clock. Phase 1 renders each event time in its captured timezone with an explicit
+UTC offset instead of formatting every event in UTC or in the worker's current
+timezone. Calendar-sensitive Claim resolution requires that persisted timezone
+and resolves relative expressions only against trusted supporting-event
+timestamps. An ordered host rule table handles absolute dates,
 relative days, weeks and months, named weekdays, year-bound seasons, half-year
 periods, and bounded `N`-unit offsets. A season without a year, such as `秋天`,
 remains `unresolved_text`; the host never silently chooses the next season.
@@ -1010,7 +1015,8 @@ changes only that file's records, while an unchanged file keeps the same source
 records and event IDs in a later import job.
 
 `history_import_source_records` owns source/session identity, speaker role,
-content, event time semantics, and the stable event ID.
+content, event time semantics (including the parser-declared anchor source and
+captured IANA timezone), and the stable event ID.
 `history_import_job_records` owns only membership and that job's raw/projection
 progress. Its key derives from the job and source-record keys, and the pair is
 unique. The complete selected-file fingerprint still identifies an identical
@@ -1021,6 +1027,11 @@ choices fail validation instead of mutating an already imported event.
 User-authored records are submitted for L2 work oldest-first within each source
 session, while other participants remain non-cognitive L1 context. Approximate
 timestamps preserve source order but must not be presented as exact history.
+Imported chat turns and authored documents resolve to separate extraction
+profiles. Chat extraction treats counterpart turns only as dialogue context and
+never reinterprets historical relative-time wording against the current runtime
+clock. Document extraction evaluates author-prose spans across the whole
+document and does not treat headings or requests as live chat speech acts.
 Deleting one job forgets an event only when no other active, selected membership
 references that source record; deleting the final membership triggers governed
 source-event forgetting. A global memory clear removes source records, job

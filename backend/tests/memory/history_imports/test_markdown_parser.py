@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from magi.memory.history_imports.markdown_parser import (
     DOCUMENT_AUTHOR,
     parse_markdown,
 )
+
+_TEST_TIMEZONE_ID = "Asia/Shanghai"
 
 
 def test_parses_inline_chat_in_source_order() -> None:
     parsed = parse_markdown(
         source_name="alice.md",
         file_mtime=1_800_000_000,
+        calendar_timezone_id=_TEST_TIMEZONE_ID,
         text="""
 # 和 Alice 的聊天
 ## 2026-07-01
@@ -30,12 +36,25 @@ def test_parses_inline_chat_in_source_order() -> None:
         item["event_at"] for item in parsed.records
     )
     assert parsed.warnings == []
+    assert all(
+        item["timestamp_anchor_source"] == "message_timestamp"
+        for item in parsed.records
+    )
+    assert all(
+        item["calendar_timezone_id"] == _TEST_TIMEZONE_ID
+        for item in parsed.records
+    )
+    assert datetime.fromtimestamp(
+        parsed.records[0]["event_at"],
+        tz=ZoneInfo(_TEST_TIMEZONE_ID),
+    ).isoformat() == "2026-07-01T09:00:00+08:00"
 
 
 def test_parses_role_heading_chat_without_fabricating_timestamps() -> None:
     parsed = parse_markdown(
         source_name="assistant.md",
         file_mtime=1_800_000_000,
+        calendar_timezone_id=_TEST_TIMEZONE_ID,
         text="""
 ## User
 I have been learning pottery lately.
@@ -56,12 +75,14 @@ It makes me slow down.
     ]
     assert parsed.warnings == ["timestamps_from_file_order"]
     assert all(item["timestamp_confidence"] == "file_order" for item in parsed.records)
+    assert all(item["timestamp_anchor_source"] == "file_order" for item in parsed.records)
 
 
 def test_falls_back_to_one_personal_document() -> None:
     parsed = parse_markdown(
         source_name="journal.md",
         file_mtime=1_800_000_000,
+        calendar_timezone_id=_TEST_TIMEZONE_ID,
         text="""
 # 七月
 
@@ -95,6 +116,7 @@ def test_distinct_document_headings_are_not_misread_as_speakers() -> None:
     parsed = parse_markdown(
         source_name="notes.md",
         file_mtime=1_800_000_000,
+        calendar_timezone_id=_TEST_TIMEZONE_ID,
         text="""
 ## 背景
 这是项目的背景。
@@ -114,6 +136,7 @@ def test_uses_frontmatter_date_for_personal_writing() -> None:
     parsed = parse_markdown(
         source_name="journal.md",
         file_mtime=1_900_000_000,
+        calendar_timezone_id=_TEST_TIMEZONE_ID,
         text="""
 ---
 date: 2024-03-16
@@ -127,6 +150,7 @@ tags: [daily]
 
     assert parsed.detected_kind == "document"
     assert parsed.records[0]["timestamp_confidence"] == "frontmatter"
+    assert parsed.records[0]["timestamp_anchor_source"] == "frontmatter"
     assert "timestamps_from_file_mtime" not in parsed.warnings
 
 
@@ -134,11 +158,13 @@ def test_uses_date_from_daily_note_filename() -> None:
     parsed = parse_markdown(
         source_name="日记/2025-11-02.md",
         file_mtime=1_900_000_000,
+        calendar_timezone_id=_TEST_TIMEZONE_ID,
         text="# 今天\n\n和朋友去看了电影。",
     )
 
     assert parsed.detected_kind == "document"
     assert parsed.records[0]["timestamp_confidence"] == "source_name"
+    assert parsed.records[0]["timestamp_anchor_source"] == "source_name"
     assert "timestamps_from_file_mtime" not in parsed.warnings
 
 
@@ -146,6 +172,7 @@ def test_preserves_multiple_dated_sections_inside_one_document() -> None:
     parsed = parse_markdown(
         source_name="weekly.md",
         file_mtime=1_900_000_000,
+        calendar_timezone_id=_TEST_TIMEZONE_ID,
         text="""
 ## 2025-11-01
 
@@ -159,6 +186,7 @@ def test_preserves_multiple_dated_sections_inside_one_document() -> None:
 
     assert len(parsed.records) == 1
     assert parsed.records[0]["timestamp_confidence"] == "file_mtime"
+    assert parsed.records[0]["timestamp_anchor_source"] == "file_mtime"
     assert parsed.records[0]["event_at"] == 1_900_000_000
     assert "## 2025-11-01" in parsed.records[0]["content"]
     assert "## 2025-11-03" in parsed.records[0]["content"]
@@ -170,6 +198,7 @@ def test_keeps_long_personal_writing_as_one_document() -> None:
     parsed = parse_markdown(
         source_name="long-note.md",
         file_mtime=1_900_000_000,
+        calendar_timezone_id=_TEST_TIMEZONE_ID,
         text=f"# 长文\n\n{paragraph}\n\n## 结尾\n\n准备下次继续写。",
     )
 
