@@ -10,9 +10,12 @@ from typing import Any
 class HistoryImportRecord:
     """One normalized source record kept in original conversation order."""
 
-    record_id: str
+    job_record_id: str
     job_id: str
+    source_record_key: str
+    file_fingerprint: str
     source_name: str
+    parsed_session_key: str
     session_id: str
     session_seq: int
     speaker_name: str

@@ -12,6 +12,7 @@ import hashlib
 import os
 import re
 import time
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,7 @@ class HistoryImportService:
         self._memory = memory
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._deletion_lock = asyncio.Lock()
         self._operation_barrier = AsyncOperationBarrier()
 
     async def start(self) -> None:
@@ -121,6 +123,7 @@ class HistoryImportService:
 
         files = _expand_markdown_paths(paths)
         parsed_files: list[ParsedHistoryFile] = []
+        file_fingerprints: dict[str, str] = {}
         fingerprint_parts: list[bytes] = []
         total_bytes = 0
         for path, source_name in files:
@@ -135,6 +138,11 @@ class HistoryImportService:
                 text = raw.decode("utf-8-sig")
             except UnicodeDecodeError as exc:
                 raise HistoryImportValidationError("markdown_not_utf8") from exc
+            normalized_source_name = _normalized_relative_source_name(source_name)
+            file_fingerprint = hashlib.sha256(
+                normalized_source_name.encode("utf-8") + b"\x00" + raw
+            ).hexdigest()
+            file_fingerprints[source_name] = file_fingerprint
             parsed_files.append(
                 parse_markdown(
                     source_name=source_name,
@@ -142,8 +150,7 @@ class HistoryImportService:
                     file_mtime=float(path.stat().st_mtime),
                 )
             )
-            fingerprint_parts.append(source_name.encode("utf-8"))
-            fingerprint_parts.append(hashlib.sha256(raw).digest())
+            fingerprint_parts.append(bytes.fromhex(file_fingerprint))
 
         fingerprint = hashlib.sha256(b"\x00".join(fingerprint_parts)).hexdigest()
         existing = await self._store.find_active_by_fingerprint(fingerprint)
@@ -159,7 +166,7 @@ class HistoryImportService:
         )
         records = _build_records(
             job_id=job_id,
-            fingerprint=fingerprint,
+            file_fingerprints=file_fingerprints,
             parsed_files=parsed_files,
             now=now,
         )
@@ -371,11 +378,16 @@ class HistoryImportService:
                 quick_ready=job.quick_ready,
             )
             if not job.quick_ready:
-                await self._store.set_scope(
-                    job_id=job_id,
-                    self_participants=selected,
-                    included_files=selected_files,
-                )
+                try:
+                    await self._store.set_scope(
+                        job_id=job_id,
+                        self_participants=selected,
+                        included_files=selected_files,
+                    )
+                except ValueError as exc:
+                    if str(exc) != "history_import_speaker_role_conflict":
+                        raise
+                    raise HistoryImportValidationError(str(exc)) from exc
                 quick_records = await self._store.select_quick_records(job_id=job_id)
                 expected_epoch = self._memory.memory_operation_epoch()
                 try:
@@ -420,9 +432,9 @@ class HistoryImportService:
             if len(selected) >= 4:
                 break
         if len(selected) < 4:
-            selected_ids = {record.record_id for record in selected}
+            selected_ids = {record.job_record_id for record in selected}
             for record in records:
-                if record.record_id in selected_ids:
+                if record.job_record_id in selected_ids:
                     continue
                 selected.append(record)
                 if len(selected) >= 4:
@@ -457,25 +469,28 @@ class HistoryImportService:
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-        async with self._lock_for(job_id):
-            job = await self._get_job(job_id)
-            if job.status == "deleted":
-                return
-            event_ids = await self._store.list_imported_event_ids(job_id=job_id)
-            logger.info(
-                "History import deletion started",
-                process_id=os.getpid(),
-                job_id=job_id,
-                imported_event_count=len(event_ids),
-            )
-            if event_ids:
-                await self._memory.forget_known_source_events(
-                    event_ids,
-                    reason="history_import_deleted",
-                    block_source_item=False,
+        async with self._deletion_lock:
+            async with self._lock_for(job_id):
+                job = await self._get_job(job_id)
+                if job.status == "deleted":
+                    return
+                event_ids = await self._store.list_unreferenced_event_ids_for_delete(
+                    job_id=job_id
                 )
-            await self._store.mark_deleted(job_id=job_id)
-            await self._log_integrity_audit(checkpoint="deleted")
+                logger.info(
+                    "History import deletion started",
+                    process_id=os.getpid(),
+                    job_id=job_id,
+                    unreferenced_event_count=len(event_ids),
+                )
+                if event_ids:
+                    await self._memory.forget_known_source_events(
+                        event_ids,
+                        reason="history_import_deleted",
+                        block_source_item=False,
+                    )
+                await self._store.mark_deleted(job_id=job_id)
+                await self._log_integrity_audit(checkpoint="deleted")
 
     def _start_background(self, job_id: str) -> None:
         existing = self._tasks.get(job_id)
@@ -610,18 +625,18 @@ class HistoryImportService:
                 "History import raw event was not stored",
                 process_id=os.getpid(),
                 job_id=record.job_id,
-                record_id=record.record_id,
+                job_record_id=record.job_record_id,
                 event_id=event.event_id,
                 quick=quick,
             )
             await self._store.mark_raw_skipped(
                 job_id=record.job_id,
-                record_id=record.record_id,
+                job_record_id=record.job_record_id,
             )
             return
         await self._store.mark_raw_stored(
             job_id=record.job_id,
-            record_id=record.record_id,
+            job_record_id=record.job_record_id,
             quick=quick,
         )
 
@@ -642,18 +657,18 @@ class HistoryImportService:
                 "History import projection was skipped",
                 process_id=os.getpid(),
                 job_id=record.job_id,
-                record_id=record.record_id,
+                job_record_id=record.job_record_id,
                 event_id=record.event_id,
                 skip_reason=result.get("skip_reason"),
             )
             await self._store.mark_projection_skipped(
                 job_id=record.job_id,
-                record_id=record.record_id,
+                job_record_id=record.job_record_id,
             )
             return
         await self._store.mark_projected(
             job_id=record.job_id,
-            record_id=record.record_id,
+            job_record_id=record.job_record_id,
         )
 
     async def _log_job_checkpoint(
@@ -686,12 +701,12 @@ class HistoryImportService:
 
         try:
             jobs = await self._store.list_active_jobs(limit=100)
-            ledger_imported_count = sum(job.imported_count for job in jobs)
+            ledger_imported_count = await self._store.count_active_imported_events()
             l1_event_count = await self._l1_history_event_count()
             audit_truncated = len(jobs) == 100
             consistent = (
                 None
-                if l1_event_count is None or audit_truncated
+                if l1_event_count is None
                 else ledger_imported_count == l1_event_count
             )
             log = logger.warning if consistent is False else logger.info
@@ -833,33 +848,43 @@ def _validate_included_files(
 def _build_records(
     *,
     job_id: str,
-    fingerprint: str,
+    file_fingerprints: dict[str, str],
     parsed_files: list[ParsedHistoryFile],
     now: float,
 ) -> list[HistoryImportRecord]:
     records: list[HistoryImportRecord] = []
     for parsed in parsed_files:
+        file_fingerprint = file_fingerprints[parsed.source_name]
         session_digest = hashlib.sha256(
-            f"{fingerprint}:{parsed.session_key}".encode("utf-8")
+            f"{file_fingerprint}\x00{parsed.session_key}".encode("utf-8")
         ).hexdigest()[:24]
         session_id = f"history_{session_digest}"
         for session_seq, item in enumerate(parsed.records):
             identity = "\x00".join(
                 (
-                    fingerprint,
-                    parsed.source_name,
+                    file_fingerprint,
+                    parsed.session_key,
                     str(session_seq),
                     str(item["speaker_name"]),
                     str(item["content"]),
                 )
             )
-            record_digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
-            record_id = f"hir_{record_digest[:32]}"
+            source_digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+            source_record_key = f"hisr_{source_digest[:32]}"
+            event_digest = hashlib.sha256(
+                f"history-event\x00{source_record_key}".encode("utf-8")
+            ).hexdigest()
+            job_record_digest = hashlib.sha256(
+                f"{job_id}\x00{source_record_key}".encode("utf-8")
+            ).hexdigest()
             records.append(
                 HistoryImportRecord(
-                    record_id=record_id,
+                    job_record_id=f"hijr_{job_record_digest[:32]}",
                     job_id=job_id,
+                    source_record_key=source_record_key,
+                    file_fingerprint=file_fingerprint,
                     source_name=parsed.source_name,
+                    parsed_session_key=parsed.session_key,
                     session_id=session_id,
                     session_seq=session_seq,
                     speaker_name=str(item["speaker_name"]),
@@ -867,7 +892,7 @@ def _build_records(
                     event_at=float(item["event_at"]),
                     timestamp_confidence=str(item["timestamp_confidence"]),
                     meaningful=bool(item["meaningful"]),
-                    event_id=f"hi_{record_digest[:32]}",
+                    event_id=f"hi_{event_digest[:32]}",
                     created_at=now,
                     updated_at=now,
                 )
@@ -882,12 +907,12 @@ def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
     now = time.time()
     return MemoryEvent(
         event_id=record.event_id,
-        correlation_id=f"history-import:{record.job_id}",
+        correlation_id=f"history-import:{record.source_record_key}",
         timestamp=float(record.event_at),
         created_at=now,
         event_type=f"history_import.{source_kind}",
         source=HISTORY_IMPORT_SOURCE,
-        source_item_id=record.record_id,
+        source_item_id=record.source_record_key,
         memory_domain=(MemoryDomain.USER_AUTHORED if is_user else MemoryDomain.INTERACTION),
         ingest_target=IngestTarget.L1_ONLY,
         cognition_eligible=is_user,
@@ -903,11 +928,11 @@ def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
         content_type=ContentType.TEXT.label,
         importance_score=0.72 if is_user else 0.3,
         level=0,
-        idempotency_key=f"history-import:{record.record_id}",
+        idempotency_key=f"history-import:{record.source_record_key}",
         metadata_json={
             "history_import": {
-                "job_id": record.job_id,
-                "record_id": record.record_id,
+                "source_record_key": record.source_record_key,
+                "file_fingerprint": record.file_fingerprint,
                 "source_name": record.source_name,
                 "speaker_name": record.speaker_name,
                 "speaker_role": record.speaker_role,
@@ -920,6 +945,10 @@ def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
             "l2_batch_max_wait_seconds": 1,
         },
     )
+
+
+def _normalized_relative_source_name(source_name: str) -> str:
+    return unicodedata.normalize("NFKC", str(source_name)).replace("\\", "/").strip()
 
 
 __all__ = [

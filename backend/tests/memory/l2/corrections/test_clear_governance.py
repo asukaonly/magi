@@ -524,17 +524,31 @@ async def test_shared_clear_removes_manual_location_and_rebuild_rows(tmp_path) -
         )
         await db.execute(
             """
-            INSERT INTO history_import_records(
-                record_id, job_id, source_name, session_id, session_seq,
+            INSERT INTO history_import_source_records(
+                source_record_key, file_fingerprint, source_name,
+                parsed_session_key, session_id, session_seq,
                 speaker_name, content, event_at, timestamp_confidence,
-                meaningful, event_id, created_at, updated_at
+                meaningful, event_id, created_at
             ) VALUES (
-                'private-record', 'private-import', 'private.md',
-                'private-session', 0, '__document_author__', 'Private history',
-                ?, 'explicit', 1, 'private-event', ?, ?
+                'private-source-record', 'private-file', 'private.md',
+                'private-session-key', 'private-session', 0,
+                '__document_author__', 'Private history', ?, 'explicit',
+                1, 'private-event', ?
             )
             """,
-            (now, now, now),
+            (now, now),
+        )
+        await db.execute(
+            """
+            INSERT INTO history_import_job_records(
+                job_record_id, job_id, source_record_key,
+                raw_state, projection_state, created_at, updated_at
+            ) VALUES (
+                'private-job-record', 'private-import', 'private-source-record',
+                'stored', 'projected', ?, ?
+            )
+            """,
+            (now, now),
         )
         await db.execute("""
             CREATE TABLE timeline_cover_preferences (
@@ -557,7 +571,8 @@ async def test_shared_clear_removes_manual_location_and_rebuild_rows(tmp_path) -
         "place_geocode_cache",
         "embedding_rebuild_job_layers",
         "embedding_rebuild_jobs",
-        "history_import_records",
+        "history_import_job_records",
+        "history_import_source_records",
         "history_import_jobs",
         "timeline_cover_preferences",
     )

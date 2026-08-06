@@ -1002,12 +1002,29 @@ Historical chat and writing imports use the same memory pipeline with an
 additional ordering boundary. After explicit authorship confirmation, a bounded
 recent slice may enter L1 immediately so onboarding can finish without claiming
 that durable understanding already exists. The full import persists normalized
-records with source session, sequence, speaker role, event time, and timestamp
-confidence. User-authored records are then submitted for L2 work oldest-first
-within each source session, while other participants remain non-cognitive L1
-context. Approximate timestamps preserve source order but must not be presented
-as exact history. Import progress belongs to a durable host-owned job, and a
-global memory clear removes both its normalized records and job state.
+source records separately from per-job work state. A file fingerprint hashes its
+normalized relative source name and bytes. The source-record key hashes that file
+identity with parsed session key, sequence, speaker, and content; the L1 event and
+session IDs derive only from those source identities. Editing one file therefore
+changes only that file's records, while an unchanged file keeps the same source
+records and event IDs in a later import job.
+
+`history_import_source_records` owns source/session identity, speaker role,
+content, event time semantics, and the stable event ID.
+`history_import_job_records` owns only membership and that job's raw/projection
+progress. Its key derives from the job and source-record keys, and the pair is
+unique. The complete selected-file fingerprint still identifies an identical
+preview job for fast reuse. Shared source records must retain one consistent
+authorship interpretation across active jobs; conflicting self-participant
+choices fail validation instead of mutating an already imported event.
+
+User-authored records are submitted for L2 work oldest-first within each source
+session, while other participants remain non-cognitive L1 context. Approximate
+timestamps preserve source order but must not be presented as exact history.
+Deleting one job forgets an event only when no other active, selected membership
+references that source record; deleting the final membership triggers governed
+source-event forgetting. A global memory clear removes source records, job
+memberships, and job state under the same import boundary.
 
 An authorship declaration for an imported Markdown document applies to ordinary
 author prose, not every byte in the file. Before a document Claim can use direct

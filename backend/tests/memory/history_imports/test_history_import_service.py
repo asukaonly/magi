@@ -219,6 +219,177 @@ async def test_delete_forgets_every_imported_raw_event(
 
 
 @pytest.mark.asyncio
+async def test_partial_file_change_reuses_unchanged_source_record_identity(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    unchanged = tmp_path / "unchanged.md"
+    changed = tmp_path / "changed.md"
+    unchanged.write_text("# Notes\n\nI keep learning pottery.", encoding="utf-8")
+    changed.write_text("# Notes\n\nFirst version.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+
+    first = await service.preview_markdown_paths([str(unchanged), str(changed)])
+    first_unchanged = (
+        await history_store.list_source_records(
+            job_id=first.job_id,
+            source_name="unchanged.md",
+            limit=10,
+        )
+    )[0]
+    first_changed = (
+        await history_store.list_source_records(
+            job_id=first.job_id,
+            source_name="changed.md",
+            limit=10,
+        )
+    )[0]
+
+    changed.write_text("# Notes\n\nSecond version.", encoding="utf-8")
+    second = await service.preview_markdown_paths([str(unchanged), str(changed)])
+    second_unchanged = (
+        await history_store.list_source_records(
+            job_id=second.job_id,
+            source_name="unchanged.md",
+            limit=10,
+        )
+    )[0]
+    second_changed = (
+        await history_store.list_source_records(
+            job_id=second.job_id,
+            source_name="changed.md",
+            limit=10,
+        )
+    )[0]
+
+    assert second.job_id != first.job_id
+    assert second_unchanged.source_record_key == first_unchanged.source_record_key
+    assert second_unchanged.event_id == first_unchanged.event_id
+    assert second_unchanged.session_id == first_unchanged.session_id
+    assert second_unchanged.job_record_id != first_unchanged.job_record_id
+    assert second_changed.source_record_key != first_changed.source_record_key
+    assert second_changed.event_id != first_changed.event_id
+
+    async with aiosqlite.connect(history_store.db_path) as db:
+        source_count = (
+            await (
+                await db.execute("SELECT COUNT(*) FROM history_import_source_records")
+            ).fetchone()
+        )[0]
+        membership_count = (
+            await (
+                await db.execute("SELECT COUNT(*) FROM history_import_job_records")
+            ).fetchone()
+        )[0]
+    assert source_count == 3
+    assert membership_count == 4
+
+
+@pytest.mark.asyncio
+async def test_identical_file_selection_reuses_existing_job(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    markdown = tmp_path / "notes.md"
+    markdown.write_text("# Notes\n\nStable content.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+
+    first = await service.preview_markdown_paths([str(markdown)])
+    second = await service.preview_markdown_paths([str(markdown)])
+
+    assert second.job_id == first.job_id
+    async with aiosqlite.connect(history_store.db_path) as db:
+        async with db.execute("SELECT COUNT(*) FROM history_import_jobs") as cursor:
+            assert await cursor.fetchone() == (1,)
+        async with db.execute("SELECT COUNT(*) FROM history_import_source_records") as cursor:
+            assert await cursor.fetchone() == (1,)
+        async with db.execute("SELECT COUNT(*) FROM history_import_job_records") as cursor:
+            assert await cursor.fetchone() == (1,)
+
+
+@pytest.mark.asyncio
+async def test_delete_forgets_shared_event_only_after_final_active_membership(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    shared = tmp_path / "shared.md"
+    changed = tmp_path / "changed.md"
+    shared.write_text("# Notes\n\nShared source.", encoding="utf-8")
+    changed.write_text("# Notes\n\nFirst version.", encoding="utf-8")
+    memory = _MemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+
+    first = await service.preview_markdown_paths([str(shared), str(changed)])
+    await service.confirm(
+        job_id=first.job_id,
+        self_participants=[],
+        confirm_personal_writing=True,
+        included_files=first.included_files,
+    )
+    changed.write_text("# Notes\n\nSecond version.", encoding="utf-8")
+    second = await service.preview_markdown_paths([str(shared), str(changed)])
+    await service.confirm(
+        job_id=second.job_id,
+        self_participants=[],
+        confirm_personal_writing=True,
+        included_files=second.included_files,
+    )
+    first_events = set(await history_store.list_imported_event_ids(job_id=first.job_id))
+    second_events = set(await history_store.list_imported_event_ids(job_id=second.job_id))
+    shared_event_id = next(iter(first_events & second_events))
+    first_only_event_id = next(iter(first_events - second_events))
+    second_only_event_id = next(iter(second_events - first_events))
+
+    await service.delete(first.job_id)
+
+    assert memory.forgotten_event_ids == [first_only_event_id]
+    assert shared_event_id not in memory.forgotten_event_ids
+
+    await service.delete(second.job_id)
+
+    assert set(memory.forgotten_event_ids) == {
+        first_only_event_id,
+        shared_event_id,
+        second_only_event_id,
+    }
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_shared_source_record_rejects_conflicting_self_identity(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    shared = tmp_path / "shared.md"
+    changed = tmp_path / "changed.md"
+    shared.write_text("- Me: Shared line.\n- Alice: Shared reply.", encoding="utf-8")
+    changed.write_text("- Me: First version.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+
+    first = await service.preview_markdown_paths([str(shared), str(changed)])
+    await service.confirm(
+        job_id=first.job_id,
+        self_participants=["Me"],
+        confirm_personal_writing=True,
+        included_files=first.included_files,
+    )
+    changed.write_text("- Me: Second version.", encoding="utf-8")
+    second = await service.preview_markdown_paths([str(shared), str(changed)])
+
+    with pytest.raises(
+        HistoryImportValidationError,
+        match="history_import_speaker_role_conflict",
+    ):
+        await service.confirm(
+            job_id=second.job_id,
+            self_participants=["Alice"],
+            confirm_personal_writing=True,
+            included_files=second.included_files,
+        )
+    await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_personal_markdown_headings_import_as_one_source_event(
     tmp_path: Path,
     history_store: HistoryImportStore,
