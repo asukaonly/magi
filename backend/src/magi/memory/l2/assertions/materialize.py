@@ -75,6 +75,7 @@ class MaterializationDecision:
     evidence_event_ids: tuple[str, ...]
     natural_summary: str | None
     candidate: dict[str, Any] | None = None
+    review_proposal: dict[str, Any] | None = None
 
 
 def materialize_assertion(material: MaterializationInput) -> MaterializationDecision:
@@ -205,6 +206,7 @@ def materialize_assertion(material: MaterializationInput) -> MaterializationDeci
         evidence_event_ids=material.occurrence_stats.supporting_event_ids,
         natural_summary=summary,
         candidate=candidate,
+        review_proposal=None,
     )
 
 
@@ -227,6 +229,7 @@ def _decision_base(material: MaterializationInput) -> dict[str, Any]:
         "evidence_event_ids": material.occurrence_stats.supporting_event_ids,
         "natural_summary": _natural_summary(material),
         "candidate": None,
+        "review_proposal": _review_proposal(material),
     }
 
 
@@ -337,6 +340,63 @@ def _natural_summary(material: MaterializationInput) -> str:
         if evidence:
             return evidence[:500]
     return str(material.route.object_surface or _trait_value(material)).strip()[:500]
+
+
+def _review_proposal(material: MaterializationInput) -> dict[str, Any] | None:
+    route = material.route
+    trait_value = _trait_value(material)
+    if not route.family or not route.trait_code or not route.slot_key or not trait_value:
+        return None
+    family_policy = get_assertion_family_policy(route.family)
+    observed_at = float(
+        material.occurrence_stats.last_observed_at
+        or material.occurrence_stats.first_observed_at
+        or material.observed_at
+    )
+    target_window = _target_window(material.claims) if route.family == "goal_profile" else None
+    expires_at = None
+    if target_window and target_window.get("target_to") is not None:
+        expires_at = float(target_window["target_to"])
+    return {
+        "entity_id": route.subject_id or material.self_entity_id,
+        "entity_type": route.subject_type or "user",
+        "trait_family": route.family,
+        "trait_name": route.trait_code,
+        "trait_value": trait_value,
+        "confidence_score": min(float(claim.confidence or 0.0) for claim in material.claims),
+        "evidence_events": list(material.occurrence_stats.supporting_event_ids),
+        "volatility_index": 0.2,
+        "source_domain": material.source_domain,
+        "inference_depth": material.inference_depth,
+        "validation_state": "tentative",
+        "first_inferred_at": float(
+            material.occurrence_stats.first_observed_at or material.observed_at
+        ),
+        "last_validated_at": observed_at,
+        "target_entity_id": route.target_entity_id or "",
+        "target_entity_type": route.target_entity_type or "",
+        "target_scope": "entity_bound" if route.target_entity_id else "global",
+        "temporal_scope": (
+            family_policy.default_temporal_scope if family_policy is not None else "persistent"
+        ),
+        "decay_policy": (
+            family_policy.default_decay_policy if family_policy is not None else "evidence_only"
+        ),
+        "decay_anchor_at": observed_at,
+        "context_ref_id": route.target_entity_id or "",
+        "expires_at": expires_at,
+        "memory_subdomain": classify_memory_subdomain(
+            family_policy.default_temporal_scope if family_policy is not None else "persistent",
+            family_policy.default_decay_policy if family_policy is not None else "evidence_only",
+        ),
+        "natural_summary": _natural_summary(material),
+        "semantic_route_key": route.route_key or "",
+        "semantic_route_slot_key": route.slot_key,
+        "route_contract_version": ROUTE_CONTRACT_VERSION,
+        "supporting_claim_ids": [claim.claim_id for claim in material.claims],
+        "semantic_lineage_key": route.goal_lineage_key or "",
+        "target_window": target_window or {},
+    }
 
 
 def _target_window(claims: tuple[L2Phase1FactClaim, ...]) -> dict[str, Any] | None:

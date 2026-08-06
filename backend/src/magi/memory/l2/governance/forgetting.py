@@ -348,6 +348,7 @@ class L2StoreForgettingMixin:
             counts["tom_trait_assertions"] = (
                 max(int(cursor.rowcount or 0), 0) + claim_target_retirement.assertions_archived
             )
+            counts["l2_pending_reviews"] = claim_target_retirement.reviews_closed
             await db.execute(
                 """
                 UPDATE tom_trait_assertions

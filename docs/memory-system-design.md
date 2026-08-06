@@ -637,6 +637,7 @@ L2 holds:
 - Knowledge graph edges (with `fact_kind`, temporal validity, privacy scope)
 - Entity facets (sidecar structured attributes)
 - Grounded Claim ledger with normalized evidence links, host-owned temporal fields, and exhaustive semantic-route and projection outcomes
+- Governed pending-memory reviews for Claim groups that are meaningful but cannot yet be materialized safely
 - ToM trait assertions (versioned, with lifecycle states and supersession)
 - ToM snapshots (periodically refreshed entity portraits)
 - Episodes (bounded activity and theme segments formed from L1 events)
@@ -844,20 +845,43 @@ expiry follows the resolved target end, or a host-owned fallback when no schedul
 was stated; ambiguous or low-confidence timing produces a review outcome, and an
 elapsed target produces an expired outcome without creating a current assertion.
 
+Pending review is durable pre-materialization truth, not a tentative Assertion
+status and not a model-authored decision. One active review is keyed by subject,
+review kind, semantic slot, and value fingerprint; its exact decision identity
+also includes the supporting Claim set, host proposal, route contract, evidence
+rule, and memory clear generation. Creating or merging the review and appending
+its Claim receipts is one fenced transaction, so a projection retry cannot leave
+an orphan work item or complete the Claim without its review provenance. An
+identical retry is a timestamp no-op.
+
+Review resolution is an optimistically versioned command. The host reloads the
+active Claim receipts and current policy versions while holding an immediate
+write transaction. Rejecting closes only the review. Confirming, or confirming
+with an edit to the literal value or user-facing summary, writes the authoritative
+user-feedback Assertion, invalidates pending receipts, appends the resolution and
+Assertion receipts, and records the audit identity atomically. Clients cannot
+choose the actor or semantic routing fields. A stale version, cleared generation,
+changed Claim set, or changed policy returns a conflict instead of applying an
+old decision. Pending reviews never enter portrait or chat prompt facts; they are
+exposed only as a governance task until resolved.
+
 Semantic-route maintenance is host-owned. Maintenance callers provide only a
 Claim identity and a bounded pass size; the host derives the current route
 contract, resolution-aware attempt identity, and route decision from durable
 Claim state. The highest non-invalidated contract version is the current route,
 even if an older outcome has a later wall-clock timestamp after clock rollback.
-Reprojection appends the current route and reconciles that Claim's assertion and
-relationship receipts in one immediate transaction. Semantically unchanged
+Reprojection appends the current route and reconciles that Claim's assertion,
+relationship, and pending-review receipts in one immediate transaction. Semantically unchanged
 targets receive a current-contract receipt, while changed targets lose only the
 retired Claim provenance. Reconciliation coalesces duplicate active receipts per
 canonical target, preserves an already-current receipt, and maps an
 `entity_merged` receipt to the rekeyed target identity before revalidation. A
 target is archived only when no other active Claim still authorizes it and it
 has no independent correction or non-Claim authority; otherwise its Claim-backed
-evidence is recomputed from the remaining valid ledger support. Outcome
+evidence is recomputed from the remaining valid ledger support. A pending review
+similarly updates its exact Claim/evidence set while shared support remains and
+closes when its final authority disappears or the route no longer authorizes an
+Assertion target. Outcome
 invalidation and replacement receipts retain the audit trail, while archived
 targets disappear immediately at governed assertion, relationship, and portrait
 read boundaries. Portrait tentative-Claim deduplication is scoped to the route
@@ -1050,7 +1074,7 @@ Profile assertion confidence and profile assertion horizon are separate decision
 Claim-backed promotion recomputes both occurrence statistics and policy metadata from the complete active Claim/evidence ledger for the routed slot and canonical value. Fact kind, predicate, temporal cue, evidence class, source strength, and durable permission do not come from the event currently being processed. Direct user self-report has authority over weaker replay evidence; without it, whitelisted sustained-engagement predicates outrank passive external exposure, and unknown or conflicting metadata falls back conservatively. Removing the stronger evidence may legitimately recompute a weaker horizon, but processing order and restart must not change the result for the same ledger.
 
 Source-event forgetting captures the affected route/value identities before it
-redacts Claim receipts, then recomputes materialized assertion evidence,
+redacts Claim receipts, then recomputes materialized assertion and pending-review evidence,
 validation state, confidence, retention horizon, expiry, and portrait/snapshot
 invalidation from the surviving active ledger in the same immediate
 transaction. Ordinary writes remain monotonic and cannot shorten a stronger
@@ -1061,6 +1085,9 @@ Claim linked through supporting or antecedent evidence from occurrence statistic
 and performs this reconciliation before readable Claim state is destroyed, so a
 crash between admission and full cleanup cannot leave an authoritative stale
 assertion.
+Pending reviews participate in the same Claim-authority retirement before
+readable Claim data is scrubbed: shared reviews retain only surviving support,
+and the last removed support closes the review in the forget transaction.
 
 Forgetting also deletes every affected materialized user snapshot and its
 dependency rows inside the forget transaction, before the subject revision is
@@ -1447,6 +1474,7 @@ full evidence, scope, and validity state are not exposed as historical facts.
 
 Users can interact with L2 artifacts directly:
 
+- **Pending-memory decision**: confirm, reject, or confirm with a literal-value/summary edit through the versioned review command; the host creates any resulting authoritative Assertion atomically.
 - **Assertion confirmation**: `apply_user_feedback(assertion_id, "confirmed")` strengthens the current evidence-backed interpretation without creating a correction.
 - **Assertion or relationship correction**: the unified correction service records `record_error`, `situation_changed`, or `scope_refinement` and applies the same governance rules regardless of whether the caller is About You, Manage Memory, or a future chat flow.
 - **Correction history and revert**: the correction action and safe immutable versions remain queryable; forgotten content is redacted rather than exposed through history. Revert eligibility is computed by the backend, and only the latest applicable correction can be reverted. If a future-dated correction is made irrelevant by an explicit forget action, it remains visible as cancelled history and is never activated or offered for revert.

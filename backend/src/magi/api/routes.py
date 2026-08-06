@@ -30,6 +30,8 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/relations": {"GET"},
         "/l2/assertions": {"GET"},
         "/l2/assertions/{assertion_id}/feedback": {"PATCH"},
+        "/l2/reviews": {"GET"},
+        "/l2/reviews/{review_id}/resolve": {"POST"},
         "/l2/corrections": {"GET", "POST"},
         "/l2/corrections/{correction_id}/revert": {"POST"},
         "/l2/context-options": {"GET"},

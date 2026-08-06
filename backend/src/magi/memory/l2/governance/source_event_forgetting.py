@@ -227,13 +227,13 @@ class L2StoreSourceEventForgettingMixin:
                         claims=edge_claims,
                         event_ids=normalized,
                     )
-                    result["tom_trait_assertions"] = await _remove_assertion_evidence(
+                    result["tom_trait_assertions"] += await _remove_assertion_evidence(
                         db,
                         claims=assertion_claims,
                         forgotten_by_claim=assertion_events,
                         now=now,
                     )
-                    result["knowledge_graph"] = await _remove_relationship_evidence(
+                    result["knowledge_graph"] += await _remove_relationship_evidence(
                         db,
                         claims=edge_claims,
                         forgotten_by_claim=edge_events,
@@ -328,6 +328,7 @@ def _empty_result() -> dict[str, int]:
         "l2_claim_entity_refs": 0,
         "l2_grounded_claims": 0,
         "l2_claim_projection_outcomes": 0,
+        "l2_pending_reviews": 0,
         "tom_trait_assertions": 0,
         "knowledge_graph": 0,
         "entity_mentions": 0,

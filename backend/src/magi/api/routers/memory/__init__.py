@@ -43,6 +43,7 @@ from .l2 import experiences_routes as _l2_experiences_routes  # noqa: F401
 from .l2 import forget_routes as _l2_forget_routes  # noqa: F401
 from .l2 import knowledge_routes as _l2_knowledge_routes  # noqa: F401
 from .l2 import operations_routes as _l2_operations_routes  # noqa: F401
+from .l2 import review_routes as _l2_review_routes  # noqa: F401
 from .l2 import status_routes as _l2_status_routes  # noqa: F401
 from .l3 import routes as _l3_routes  # noqa: F401
 from .l4 import routes as _l4_routes  # noqa: F401

@@ -17,9 +17,12 @@ from ..assertions.occurrence_stats import (
     ClaimRouteValueKey,
     load_routed_claim_occurrence_stats,
 )
+from ..claims.outcomes import ClaimTargetOutcomeContext
 from ..llm_json_client import L2LLMJsonError
 from ..phase1_models import L2Phase1FactClaim
+from ..reviews import PendingReviewProposal
 from ..semantic_routing import ROUTE_CONTRACT_VERSION, SemanticRouteDecision
+from .claim_persistence import EVIDENCE_RULE_VERSION
 from .event_entity_map import build_event_entity_map
 from .extraction_contracts import (
     ClaimProjectionOutcomeDraft,
@@ -133,7 +136,7 @@ def _materialization_outcomes(
     decision: MaterializationDecision,
     claims: tuple[L2Phase1FactClaim, ...],
 ) -> list[ClaimProjectionOutcomeDraft]:
-    if decision.action == "write":
+    if decision.action in {"write", "review"}:
         return []
     target_id = f"slot:{decision.slot_key}" if decision.slot_key else "assertion:unrouted"
     return [
@@ -147,6 +150,14 @@ def _materialization_outcomes(
         )
         for claim in claims
     ]
+
+
+def _pending_review_kind(decision: MaterializationDecision) -> str:
+    if decision.family == "goal_profile":
+        return "goal_currentness"
+    if decision.reason_code in {"low_time_confidence", "assertion_currentness"}:
+        return "assertion_currentness"
+    return "materialization"
 
 
 def _ensure_terminal_assertion_outcomes(
@@ -224,6 +235,7 @@ class L2Phase2FlowMixin:
         occurrence_stats = await self._load_materialization_occurrence_stats(groups)
         decisions: list[MaterializationDecision] = []
         assertion_candidates: list[dict[str, Any]] = []
+        pending_review_proposals: list[PendingReviewProposal] = []
         for key, (route, claims) in sorted(groups.items(), key=lambda item: item[0].target_slot_key):
             stats = occurrence_stats.get(key)
             if stats is None:
@@ -253,12 +265,30 @@ class L2Phase2FlowMixin:
             phase1_flow.claim_outcomes.extend(_materialization_outcomes(decision, claims))
             if decision.candidate is not None:
                 assertion_candidates.append(decision.candidate)
+            if decision.action == "review":
+                if decision.review_proposal is None or not decision.slot_key:
+                    raise RuntimeError("review materialization is missing its host proposal")
+                pending_review_proposals.append(
+                    PendingReviewProposal(
+                        subject_id=route.subject_id or str(batch.self_entity_id or ""),
+                        kind=_pending_review_kind(decision),  # type: ignore[arg-type]
+                        slot_key=decision.slot_key,
+                        value_fingerprint=decision.value_fingerprint or "",
+                        semantic_lineage_key=decision.semantic_lineage_key or "",
+                        claim_ids=tuple(claim.claim_id for claim in claims),
+                        reason_code=decision.reason_code,
+                        proposed=decision.review_proposal,
+                        route_contract_version=ROUTE_CONTRACT_VERSION,
+                        evidence_rule_version=EVIDENCE_RULE_VERSION,
+                    )
+                )
 
         return await self._persist_materialization_result(
             batch=batch,
             phase1_flow=phase1_flow,
             graph_candidates=graph_candidates,
             assertion_candidates=assertion_candidates,
+            pending_review_proposals=pending_review_proposals,
             decisions=decisions,
             rejected_graph_count=len(graph_rejections),
             summary_attempted=summary_attempted,
@@ -315,6 +345,7 @@ class L2Phase2FlowMixin:
         phase1_flow: _Phase1ExtractionFlow,
         graph_candidates: list[dict[str, Any]],
         assertion_candidates: list[dict[str, Any]],
+        pending_review_proposals: list[PendingReviewProposal],
         decisions: list[MaterializationDecision],
         rejected_graph_count: int,
         summary_attempted: bool,
@@ -342,6 +373,23 @@ class L2Phase2FlowMixin:
             for claim_id in candidate.get("supporting_claim_ids", [])
             if str(claim_id or "").strip()
         }
+        review_count = 0
+        if pending_review_proposals:
+            if self._cognition_store is None:
+                raise RuntimeError("L2 cognition store is unavailable for pending reviews")
+            for proposal in pending_review_proposals:
+                result = await self._cognition_store.upsert_pending_review_with_receipt(
+                    proposal,
+                    claim_outcome_context=ClaimTargetOutcomeContext(
+                        claim_ids=proposal.claim_ids,
+                        attempt_key=batch.attempt_key,
+                        route_contract_version=ROUTE_CONTRACT_VERSION,
+                    ),
+                    projection_leases=batch.projection_leases,
+                )
+                atomic_claim_ids.update(result.atomically_completed_claim_ids)
+                if result.status == "pending":
+                    review_count += 1
         _ensure_terminal_assertion_outcomes(
             phase1_flow,
             atomically_completed_claim_ids=atomic_claim_ids,
@@ -365,6 +413,7 @@ class L2Phase2FlowMixin:
             event_id=batch.stored_event.event_id,
             relation_count=relation_count,
             assertion_count=assertion_count,
+            review_count=review_count,
             materialization_by_action=materialization_by_action,
             summary_count=summary_count,
             accepted_summary_count=accepted_summary_count,
@@ -373,6 +422,7 @@ class L2Phase2FlowMixin:
         return {
             "relation_count": relation_count,
             "assertion_count": assertion_count,
+            "review_count": review_count,
             "touched_entity_ids": touched_entity_ids,
             "touched_place_ids": touched_place_ids,
             "touched_topic_keys": touched_topic_keys,
