@@ -13,7 +13,6 @@ from unittest.mock import patch
 
 import aiosqlite
 
-from _shared.memory_schema import apply_memory_shared_schema
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
@@ -144,27 +143,6 @@ async def _wait_for_async_condition(predicate, *, timeout: float = 1.0, interval
             return result
         await asyncio.sleep(interval)
     return await predicate()
-
-
-class _RecordingL1Store:
-    def __init__(self) -> None:
-        self.stored_event_ids: list[str] = []
-
-    async def store(self, event) -> str:  # type: ignore[no-untyped-def]
-        self.stored_event_ids.append(event.event_id)
-        return str(event.event_id)
-
-
-class _BlockingL2Pipeline:
-    def __init__(self, release_first_enqueue: asyncio.Event) -> None:
-        self.release_first_enqueue = release_first_enqueue
-        self.first_enqueue_started = asyncio.Event()
-
-    async def enqueue_event(self, event) -> bool:  # type: ignore[no-untyped-def]
-        if event.event_id == "evt-lock-1":
-            self.first_enqueue_started.set()
-            await self.release_first_enqueue.wait()
-        return True
 
 
 class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
@@ -550,68 +528,6 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["summary_type"], "thematic")
         self.assertEqual(summary["summary_category"], "topic")
         self.assertEqual(summary["key_topics"], ["job"])
-
-    async def test_ingest_event_does_not_hold_write_lock_while_enqueuing_l2(self):
-        local_store = UnifiedMemoryStore(
-            l1_db_path=str(self.base / "lock_l1_events.db"),
-            memory_db_path=str(self.base / "lock_memory.db"),
-            persist_dir=str(self.base / "lock_memories"),
-            enable_l0=False,
-            enable_l1=False,
-            enable_l2=False,
-            enable_l3=False,
-            enable_l4=False,
-        )
-        release_first_enqueue = asyncio.Event()
-        recording_l1 = _RecordingL1Store()
-        local_store.l1 = recording_l1  # type: ignore[assignment]
-        local_store.l2_pipeline = _BlockingL2Pipeline(release_first_enqueue)  # type: ignore[assignment]
-        await apply_memory_shared_schema(local_store.memory_db_path)
-
-        first_task = asyncio.create_task(
-            local_store.ingest_event(
-                {
-                    "id": "evt-lock-1",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "first",
-                    },
-                }
-            )
-        )
-
-        await asyncio.wait_for(local_store.l2_pipeline.first_enqueue_started.wait(), timeout=1.0)  # type: ignore[union-attr]
-
-        second_task = asyncio.create_task(
-            local_store.ingest_event(
-                {
-                    "id": "evt-lock-2",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time() + 1,
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "second",
-                    },
-                }
-            )
-        )
-
-        async def _both_l1_writes_completed() -> bool:
-            return recording_l1.stored_event_ids == ["evt-lock-1", "evt-lock-2"]
-
-        self.assertTrue(await _wait_for_async_condition(_both_l1_writes_completed, timeout=0.2))
-
-        release_first_enqueue.set()
-        await first_task
-        await second_task
 
     async def test_timeline_events_round_trip_through_l1_and_l2(self):
         service = TimelineService(self.store)

@@ -1008,8 +1008,8 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/manual-event', payload)),
   replayL2Extraction: async (eventId: string): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>(`/memory/l2/extract/${eventId}`)),
-  flushL2Microbatches: async (): Promise<L2QueuedActionResponse> =>
-    unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/microbatch-flush')),
+  flushL2ProjectionJobs: async (): Promise<L2QueuedActionResponse> =>
+    unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/projection-flush')),
   reconcileL2Entities: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds })),
   refreshL2Snapshots: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>

@@ -301,7 +301,7 @@ def projection_attempt_descriptor_json(
 
 @dataclass(slots=True)
 class L2BatchJob:
-    """Queue payload for one flushed L2 microbatch."""
+    """Lease-fenced extract queue payload built from durable projection rows."""
 
     job_id: str
     bucket_key: str
@@ -371,7 +371,7 @@ class L2BatchJob:
 
 @dataclass(slots=True)
 class L2PendingBatchBucket:
-    """In-memory staging bucket used before L2 microbatch flush."""
+    """Process-local batch assembled from claimed durable projection rows."""
 
     bucket_key: str
     session_id: str | None = None

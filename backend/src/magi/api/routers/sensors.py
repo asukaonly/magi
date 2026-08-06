@@ -443,7 +443,7 @@ async def get_sensor_memory_readiness(
         description="Max time to wait for the L2 projection backlog to drain before reporting not-ready.",
     ),
 ):
-    """Honest readiness: count this source's L1 events, force an L2 flush, then poll
+    """Count source L1 events, claim pending L2 projections, then poll
     the projection backlog until it drains (or the bounded wait elapses)."""
     try:
         unified_memory = get_unified_memory()
@@ -458,9 +458,9 @@ async def get_sensor_memory_readiness(
     if l1_count == 0:
         return MemoryReadinessResponse(source_name=source_name, l1_event_count=0, l2_ready=False)
 
-    # Force staged L2 micro-batches into projection jobs now (don't wait the ~60s worker interval).
+    # Claim durable projection jobs now instead of waiting for the poll worker.
     try:
-        await unified_memory.flush_l2_microbatches()
+        await unified_memory.flush_l2_projection_jobs()
     except Exception:  # best-effort; readiness falls back to polling
         logger.exception("memory-readiness: L2 flush failed for %s", source_name)
 

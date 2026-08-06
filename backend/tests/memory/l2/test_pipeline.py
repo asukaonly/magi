@@ -814,246 +814,23 @@ def test_unified_memory_store_wires_l2_batch_flush_interval_into_pipeline():
     assert store.l2_pipeline._conflict_arbitration_min_confidence == 0.9
 
 
-@pytest.mark.asyncio
-async def test_enqueue_event_stages_session_owned_events_before_extraction():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
-        try:
-            queued = await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-1", session_id="s-session"))
-
-            assert queued is True
-            assert "session:s-session" in pipeline._staging_buckets
-            assert pipeline._extract_queue.qsize() == 0
-            stats = pipeline.get_statistics()
-            assert stats["extract_enqueued"] == 0
-            assert stats["pending_staged_event_count"] == 1
-            assert stats["active_bucket_count"] == 1
-        finally:
-            await pipeline.shutdown()
-
 
 @pytest.mark.asyncio
-async def test_enqueue_event_reuses_same_bucket_for_matching_session():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        now = time.time()
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
-        try:
-            await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-2a", session_id="s-shared", timestamp=now))
-            await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-2b", session_id="s-shared", timestamp=now + 1.0))
-
-            bucket = pipeline._staging_buckets["session:s-shared"]
-            assert [item["event_id"] for item in bucket.events] == ["evt-stage-2a", "evt-stage-2b"]
-            assert pipeline.get_statistics()["pending_staged_event_count"] == 2
-        finally:
-            await pipeline.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_enqueue_event_falls_back_to_user_bucket_without_session():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
-        try:
-            await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-3", session_id=None, user_id="u-bucket"))
-
-            assert "source:chat|user:u-bucket" in pipeline._staging_buckets
-            assert pipeline._extract_queue.qsize() == 0
-        finally:
-            await pipeline.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_enqueue_event_without_session_or_user_uses_direct_fallback_job():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
-        try:
-            await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-4", session_id=None, user_id=None))
-
-            assert pipeline._staging_buckets == {}
-            assert pipeline._extract_queue.qsize() == 1
-            stats = pipeline.get_statistics()
-            assert stats["extract_enqueued"] == 1
-            assert stats["pending_staged_event_count"] == 0
-        finally:
-            await pipeline.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_enqueue_event_uses_explicit_l2_batch_owner_without_session_or_user():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
-        try:
-            event = _make_memory_event(event_id="evt-stage-4b", session_id=None, user_id=None)
-            event.metadata_json = {"l2_batch_owner": "chrome_history:Default"}
-
-            await pipeline.enqueue_event(event)
-
-            assert "source:chat|owner:chrome_history:Default" in pipeline._staging_buckets
-            assert pipeline._extract_queue.qsize() == 0
-            stats = pipeline.get_statistics()
-            assert stats["extract_enqueued"] == 0
-            assert stats["pending_staged_event_count"] == 1
-        finally:
-            await pipeline.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_enqueue_event_separates_sensor_sources_for_same_user():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
-        try:
-            chrome = _make_memory_event(
-                event_id="evt-source-chrome",
-                session_id=None,
-                user_id="u-source",
-            )
-            chrome.source = "chrome_history"
-            music = _make_memory_event(
-                event_id="evt-source-music",
-                session_id=None,
-                user_id="u-source",
-            )
-            music.source = "netease_music"
-
-            await pipeline.enqueue_event(chrome)
-            await pipeline.enqueue_event(music)
-
-            assert set(pipeline._staging_buckets) == {
-                "source:chrome_history|user:u-source",
-                "source:netease_music|user:u-source",
-            }
-        finally:
-            await pipeline.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_enqueue_event_uses_owner_batch_size_hint_for_flush():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
-        try:
-            first = _make_memory_event(event_id="evt-stage-hint-1", session_id=None, user_id=None)
-            first.metadata_json = {
-                "l2_batch_owner": "chrome_history:Default:github.com",
-                "l2_batch_max_events": 2,
-            }
-            second = _make_memory_event(event_id="evt-stage-hint-2", session_id=None, user_id=None)
-            second.metadata_json = {
-                "l2_batch_owner": "chrome_history:Default:github.com",
-                "l2_batch_max_events": 2,
-            }
-
-            await pipeline.enqueue_event(first)
-            bucket_key = "source:chat|owner:chrome_history:Default:github.com"
-            assert bucket_key in pipeline._staging_buckets
-            assert pipeline._extract_queue.qsize() == 0
-
-            await pipeline.enqueue_event(second)
-
-            assert bucket_key not in pipeline._staging_buckets
-            assert pipeline._extract_queue.qsize() == 1
-            job = pipeline._extract_queue.get_nowait()
-            assert job is not None
-            assert job.flush_reason == "max_events"
-            assert job.event_ids == ["evt-stage-hint-1", "evt-stage-hint-2"]
-        finally:
-            await pipeline.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_flush_ready_buckets_enqueues_interval_elapsed_batch_job():
-    from magi.memory.l2.models import L2PendingBatchBucket
+async def test_extract_queue_rejects_jobs_without_projection_leases():
+    from magi.memory.l2.models import L2BatchJob
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
-        try:
-            bucket = L2PendingBatchBucket.for_owner(session_id="s-flush", user_id="u1")
-            bucket.add_event(
-                {"event_id": "evt-flush-1", "timestamp": time.time() - 61, "session_id": "s-flush", "user_id": "u1"},
-                estimated_tokens=8,
-                queued_at=time.time() - 61,
-            )
-            pipeline._staging_buckets[bucket.bucket_key] = bucket
-            pipeline._refresh_staging_stats_locked()
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+        job = L2BatchJob(
+            job_id="unleased",
+            bucket_key="event:unleased",
+            events=[{"event_id": "unleased", "content": "ignored"}],
+            flush_reason="direct",
+            estimated_tokens=1,
+        )
 
-            await pipeline._flush_ready_buckets()
-
-            assert pipeline._extract_queue.qsize() == 1
-            job = pipeline._extract_queue.get_nowait()
-            assert job is not None
-            assert job.flush_reason == "interval_elapsed"
-            assert job.event_ids == ["evt-flush-1"]
-        finally:
-            await pipeline.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_enqueue_event_flushes_when_bucket_hits_event_cap():
-    from magi.memory.l2.pipeline import DEFAULT_L2_MAX_EVENTS_PER_BATCH
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        now = time.time()
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
-        try:
-            for index in range(DEFAULT_L2_MAX_EVENTS_PER_BATCH):
-                await pipeline.enqueue_event(
-                    _make_memory_event(
-                        event_id=f"evt-cap-{index}",
-                        session_id="s-cap",
-                        timestamp=now + index,
-                    )
-                )
-
-            assert "session:s-cap" not in pipeline._staging_buckets
-            assert pipeline._extract_queue.qsize() == 1
-            job = pipeline._extract_queue.get_nowait()
-            assert job is not None
-            assert job.flush_reason == "max_events"
-            assert len(job.event_ids) == DEFAULT_L2_MAX_EVENTS_PER_BATCH
-        finally:
-            await pipeline.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_enqueue_event_does_not_flush_immediately_for_historical_business_timestamp():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
-        try:
-            await pipeline.enqueue_event(
-                _make_memory_event(
-                    event_id="evt-historical-1",
-                    session_id="s-historical",
-                    timestamp=1.0,
-                )
-            )
-
-            assert pipeline._extract_queue.qsize() == 0
-            assert "session:s-historical" in pipeline._staging_buckets
-            stats = pipeline.get_statistics()
-            assert stats["pending_staged_event_count"] == 1
-        finally:
-            await pipeline.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_enqueue_event_flushes_when_bucket_hits_token_cap():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
-        try:
-            await pipeline.enqueue_event(
-                _make_memory_event(
-                    event_id="evt-token-cap",
-                    session_id="s-token",
-                    content="x" * 10000,
-                )
-            )
-
-            assert "session:s-token" not in pipeline._staging_buckets
-            assert pipeline._extract_queue.qsize() == 1
-            job = pipeline._extract_queue.get_nowait()
-            assert job is not None
-            assert job.flush_reason == "token_cap"
-            assert job.estimated_tokens >= 2400
-        finally:
-            await pipeline.shutdown()
+        with pytest.raises(ValueError, match="durable projection leases"):
+            await pipeline._enqueue_extract_job(job)
 
 
 def test_reconcile_prompt_rendering_is_deterministic():
@@ -4226,30 +4003,6 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
 # ── Session-end review tests ──────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_flush_session_flushes_bucket_and_returns_empty_when_no_entities_accumulated():
-    """flush_session should flush the session bucket even when no entities have
-    been accumulated yet (e.g. first turn with only staged events)."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=9999)
-
-        event = _make_memory_event(event_id="evt-1", session_id="s-flush", content="hello")
-        await pipeline.enqueue_event(event)
-
-        # Bucket should exist before flush
-        assert "session:s-flush" in pipeline._staging_buckets
-
-        result = await pipeline.flush_session("s-flush")
-
-        # Bucket should be drained
-        assert "session:s-flush" not in pipeline._staging_buckets
-        # No entities accumulated yet → empty list
-        assert result == []
-        # An extract job should have been enqueued
-        assert pipeline._stats.extract_enqueued >= 1
-        stats = pipeline.get_statistics()
-        assert stats["batch_flush_by_reason"].get("session_end", 0) >= 1
-
 
 @pytest.mark.asyncio
 async def test_flush_session_returns_accumulated_entities():
@@ -4270,25 +4023,6 @@ async def test_flush_session_returns_accumulated_entities():
         assert pipeline._stats.reconcile_enqueued >= 1
         assert pipeline._stats.snapshot_enqueued >= 1
 
-
-@pytest.mark.asyncio
-async def test_flush_all_pending_batches_drains_all_staging_buckets():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=9999)
-
-        await pipeline.enqueue_event(_make_memory_event(event_id="evt-1", session_id="s-alpha", content="alpha"))
-        await pipeline.enqueue_event(_make_memory_event(event_id="evt-2", session_id="s-beta", content="beta"))
-
-        assert "session:s-alpha" in pipeline._staging_buckets
-        assert "session:s-beta" in pipeline._staging_buckets
-
-        flushed = await pipeline.flush_all_pending_batches()
-
-        assert flushed == 2
-        assert pipeline._staging_buckets == {}
-        assert pipeline._stats.extract_enqueued >= 2
-        stats = pipeline.get_statistics()
-        assert stats["batch_flush_by_reason"].get("manual_flush", 0) == 2
 
 
 @pytest.mark.asyncio

@@ -1,11 +1,4 @@
-"""Single source of truth for L2 micro-batch flush decisions.
-
-Both the in-memory staging path (`pipeline/staging.py`) and the durable
-projection-claim path (`projection/claiming.py`) call into `decide_flush`
-to decide whether a bucket has grown enough or waited long enough to be
-extracted. Keeping the rule in one place prevents the two paths from
-drifting (which is how the chat-message-not-batching bug got introduced).
-"""
+"""Single source of truth for durable L2 projection batch decisions."""
 
 from __future__ import annotations
 

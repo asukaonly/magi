@@ -38,7 +38,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/snapshots": {"GET"},
         "/l2/conflict-rules": {"GET"},
         "/l2/conflict-rules/{predicate}": {"PUT"},
-        "/l2/microbatch-flush": {"POST"},
+        "/l2/projection-flush": {"POST"},
         "/l2/episodes": {"GET"},
         "/l2/episodes/{episode_id}": {"GET", "PATCH"},
         "/l2/episodes/{episode_id}/event-candidates": {"GET"},

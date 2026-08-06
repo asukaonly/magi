@@ -90,7 +90,7 @@ class BackendEvalService:
         *,
         period_types: list[str] | None = None,
         generate_summaries: bool = True,
-        flush_l2: bool = True,
+        flush_l2_projection_jobs: bool = True,
         drain_l2_edge_embeddings: bool = True,
     ) -> dict[str, Any]:
         return await asyncio.to_thread(
@@ -99,7 +99,7 @@ class BackendEvalService:
             {
                 "period_types": list(period_types or ["hour", "day", "week", "month"]),
                 "generate_summaries": bool(generate_summaries),
-                "flush_l2": bool(flush_l2),
+                "flush_l2_projection_jobs": bool(flush_l2_projection_jobs),
                 "drain_l2_edge_embeddings": bool(drain_l2_edge_embeddings),
             },
         )
@@ -191,7 +191,7 @@ def _eval_l2_status_payload() -> dict[str, Any]:
     return {
         "period_types": [],
         "generate_summaries": False,
-        "flush_l2": False,
+        "flush_l2_projection_jobs": False,
         "drain_l2_edge_embeddings": False,
     }
 

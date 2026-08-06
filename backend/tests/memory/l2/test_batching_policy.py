@@ -1,9 +1,4 @@
-"""Unit tests for the L2 batching policy module.
-
-This module is the single source of truth for the question
-"should this bucket flush now?". Both the in-memory staging path and the
-durable projection-claim path delegate to it.
-"""
+"""Unit tests for durable L2 projection batching policy."""
 
 from __future__ import annotations
 

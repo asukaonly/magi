@@ -41,7 +41,7 @@ class SupportsReplayService(Protocol):
         self,
         *,
         generate_summaries: bool = True,
-        flush_l2: bool = True,
+        flush_l2_projection_jobs: bool = True,
         drain_l2_edge_embeddings: bool = True,
     ) -> dict[str, Any]:
         """Run post-replay summary generation and return L2 pipeline status."""
@@ -138,7 +138,7 @@ async def replay_locomo_samples(
         post_replay = {
             "l2_prepare": await eval_service.finalize_replay(
                 generate_summaries=False,
-                flush_l2=True,
+                flush_l2_projection_jobs=True,
                 drain_l2_edge_embeddings=False,
             )
         }
@@ -156,7 +156,7 @@ async def replay_locomo_samples(
     if finalize:
         post_replay["post_l2_finalize"] = await eval_service.finalize_replay(
             generate_summaries=True,
-            flush_l2=False,
+            flush_l2_projection_jobs=False,
             drain_l2_edge_embeddings=True,
         )
     if wait_for_background and finalize:

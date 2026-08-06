@@ -1014,7 +1014,9 @@ Key properties:
 - All artifacts carry evidence references
 - Confidence-scored
 - Supports conflict handling and subsequent correction
-- Defaults to durable projection jobs from `L1`, not in-memory queues
+- Has exactly one extraction ingress: durable projection jobs written from `L1`
+- Does not accept runtime-only events or maintain an in-memory event staging path
+- Manual flushing claims pending durable projection rows; it never fabricates unleased extract jobs
 
 #### L2 Product Subdomains
 
@@ -1218,7 +1220,7 @@ Batch policy:
 
 Extraction flow:
 
-- L2 microbatches are profile-isolated. Session events stay session-scoped; events without a session are separated by source, optional plugin batch owner, and user. Structured hints are admitted and written per event under that event's evidence policy rather than inheriting the last event's batch context.
+- Durable L2 projection batches are owner-isolated. Session events stay session-scoped; events without a session are separated by source, optional plugin batch owner, and user. Structured hints are admitted and written per event under that event's evidence policy rather than inheriting the last event's batch context.
 - A claimed row is not yet an executable attempt. Final worker batching persists
   the exact descriptor on every member, and batch-state/result writes verify the
   descriptor, bound event set, lease tokens, and attempt counts. Derivation,

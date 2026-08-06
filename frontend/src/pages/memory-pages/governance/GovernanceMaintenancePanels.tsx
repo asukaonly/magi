@@ -51,7 +51,7 @@ export function ManualMaintenancePanel({
   reconsolidateResult,
   reconsolidateError,
   onReconsolidate,
-  onFlushMicrobatches,
+  onFlushProjectionJobs,
   l2ActionLoading,
 }: {
   label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string;
@@ -59,7 +59,7 @@ export function ManualMaintenancePanel({
   reconsolidateResult: EpisodeReconsolidateResult | null;
   reconsolidateError: string | null;
   onReconsolidate: () => Promise<void>;
-  onFlushMicrobatches: () => Promise<void>;
+  onFlushProjectionJobs: () => Promise<void>;
   l2ActionLoading: boolean;
 }) {
   return (
@@ -76,7 +76,7 @@ export function ManualMaintenancePanel({
         description={label('manual.flushStructureBody', '立即提交当前暂存的结构抽取批次，适合调试抽取延迟。')}
         buttonLabel={label('manual.flushRun', '立即处理')}
         busy={l2ActionLoading}
-        onClick={() => void onFlushMicrobatches()}
+        onClick={() => void onFlushProjectionJobs()}
       />
       {reconsolidateResult ? (
         <div className="mx-1 mb-1 rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.54)] px-4 py-3 text-sm leading-6 text-[hsl(var(--memory-body))]">

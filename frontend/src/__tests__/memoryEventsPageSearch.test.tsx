@@ -82,7 +82,7 @@ describe('MemoryEventsPage search interactions', () => {
       l2ActionLoading: false,
       submitManualL2Event: vi.fn(),
       replayL2Extraction: vi.fn(),
-      flushL2Microbatches: vi.fn(),
+      flushL2ProjectionJobs: vi.fn(),
       runL2Reconcile: vi.fn(),
       runL2SnapshotRefresh: vi.fn(),
       upsertL2GraphConflictRule: vi.fn(),

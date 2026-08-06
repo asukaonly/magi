@@ -57,7 +57,8 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/skills/" in paths
     assert "/api/memory/identity/links" in paths
     assert "/api/memory/clear" in paths
-    assert "/api/memory/l2/microbatch-flush" in paths
+    assert "/api/memory/l2/projection-flush" in paths
+    assert "/api/memory/l2/microbatch-flush" not in paths
     assert "/api/memory/eval/replay" in paths
     assert "/api/memory/eval/query" in paths
     assert "/api/memory/eval/judge-answer" in paths

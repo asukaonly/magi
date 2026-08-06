@@ -1,4 +1,4 @@
-"""L2 cognition layer adapters: projection-job (in-lock) and pipeline (deferred)."""
+"""Durable L1-to-L2 projection layer adapter."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from ..evidence import (
     policy_allows_l2_projection,
     resolve_l2_policy,
 )
+from ..l2.batching_policy import DEFAULT_L2_MAX_EVENTS_PER_BATCH
 from ..l2.pipeline.lifecycle import DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS
-from ..l2.pipeline.staging import DEFAULT_L2_MAX_EVENTS_PER_BATCH
 from ..layer_protocol import FanOutContext, LayerIngestResult, WILDCARD_EVENT_TYPES
 
 
@@ -144,33 +144,4 @@ class L2ProjectionLayer:
         return self._batch_flush_interval_seconds
 
 
-class L2PipelineLayer:
-    layer_name = "l2_pipeline"
-    requires_write_lock = False
-    required_for_acceptance = False
-    accepts_event_types = WILDCARD_EVENT_TYPES
-
-    def __init__(self, store: Any, pipeline: Any) -> None:
-        self._store = store
-        self._pipeline = pipeline
-
-    def accepts(self, event: MemoryEvent, ctx: FanOutContext) -> bool:
-        if self._pipeline is None:
-            return False
-        if not event.cognition_eligible:
-            return False
-        return not event.ingest_target.includes_l1 or self._store is None
-
-    async def ingest(self, event: MemoryEvent, ctx: FanOutContext) -> LayerIngestResult:
-        stored_event_id = ctx.markers.get("stored_event_id")
-        if stored_event_id is not None and stored_event_id != event.event_id:
-            event.event_id = stored_event_id
-        await self._pipeline.enqueue_event(event)
-        return LayerIngestResult(
-            layer_name=self.layer_name,
-            ok=True,
-            markers={"l2_pipeline_enqueued": True},
-        )
-
-
-__all__ = ["L2ProjectionLayer", "L2PipelineLayer"]
+__all__ = ["L2ProjectionLayer"]

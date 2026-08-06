@@ -182,9 +182,11 @@ async def finalize_eval_replay(body: EvalFinalizeReplayRequest):
             detail=memory_t("memory.errors.system_uninitialized", "Memory system not initialized"),
         )
 
-    l2_flush_batch_count = 0
-    if body.flush_l2 and hasattr(unified_memory, "flush_l2_microbatches"):
-        l2_flush_batch_count = await unified_memory.flush_l2_microbatches()
+    l2_projection_batch_count = 0
+    if body.flush_l2_projection_jobs and hasattr(
+        unified_memory, "flush_l2_projection_jobs"
+    ):
+        l2_projection_batch_count = await unified_memory.flush_l2_projection_jobs()
 
     l2_edge_embedding_count = 0
     if body.drain_l2_edge_embeddings and hasattr(unified_memory, "drain_l2_edge_embeddings"):
@@ -204,7 +206,7 @@ async def finalize_eval_replay(body: EvalFinalizeReplayRequest):
         l2_pipeline_stats["projection_backlog"] = await unified_memory.get_l2_projection_backlog()
     return {
         "summaries": summaries,
-        "l2_flush_batch_count": int(l2_flush_batch_count or 0),
+        "l2_projection_batch_count": int(l2_projection_batch_count or 0),
         "l2_edge_embedding_count": int(l2_edge_embedding_count or 0),
         "l2_pipeline_stats": l2_pipeline_stats,
     }

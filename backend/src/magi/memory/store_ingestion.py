@@ -12,7 +12,7 @@ from ..utils.diagnostic_logging import full_content_logging_enabled
 from .event_contracts import MemoryEvent, normalize_runtime_event
 from .l2.models import ManualL2EventRequest
 from .layer_protocol import FanOutContext, MemoryLayer, WILDCARD_EVENT_TYPES
-from .layers import L1Layer, L2PipelineLayer, L2ProjectionLayer, L4Layer
+from .layers import L1Layer, L2ProjectionLayer, L4Layer
 from .source_event_governance import (
     TimeRangeGovernanceDecision,
     govern_source_events_by_time_range,
@@ -227,7 +227,6 @@ class MemoryIngestionMixin:
                     self, "_l2_batch_flush_interval_seconds", None
                 ),
             ),
-            L2PipelineLayer(self.l2, self.l2_pipeline),
             L4Layer(self.l4),
         ]
 

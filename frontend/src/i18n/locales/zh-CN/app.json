@@ -1761,7 +1761,7 @@
           "extractionTitle": "知识抽取",
           "extractionDescription": "控制知识层是否启用，以及模型是否参与实体、关系与断言抽取。",
           "flushTitle": "批次冲刷",
-          "flushDescription": "控制临时微批写入正式知识图谱前的等待节奏。",
+          "flushDescription": "控制持久化投影任务在进入知识抽取前的等待节奏。",
           "arbitrationTitle": "冲突仲裁",
           "arbitrationDescription": "当知识层出现高置信冲突时，决定是否触发更谨慎的仲裁流程。"
         },
@@ -3892,7 +3892,7 @@
       "reconsolidateResult": "升级 {{promoted}} 条 · 标志 {{standouts}} 条 · 新章节 {{summaries}} 条",
       "manual": {
         "flushTitle": "处理 L2 积压",
-        "flushBody": "立即提交当前暂存的 L2 微批次，适合调试抽取延迟。",
+        "flushBody": "立即处理持久化的 L2 投影任务，适合调试抽取延迟。",
         "flushRun": "立即处理"
       },
       "forgetDrawerHint": "遗忘和删除从具体记录发起：先在「对象明细」里打开一条记录，再在抽屉中查看影响。",
@@ -4624,8 +4624,8 @@
         "saveRule": "保存规则",
         "manualEventQueued": "手动事件已入队",
         "replayQueued": "抽取重放已入队",
-        "microbatchFlushQueued": "已触发 L2 微批生成",
-        "microbatchFlushIdle": "当前没有待生成的 L2 微批",
+        "projectionFlushQueued": "已触发 L2 投影处理",
+        "projectionFlushIdle": "当前没有待处理的 L2 投影任务",
         "reconcileQueued": "实体合并已入队",
         "snapshotQueued": "快照刷新已入队",
         "ruleSaved": "冲突规则已保存",
