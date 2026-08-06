@@ -163,13 +163,14 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
             CASE fe.evidence_class \
                 WHEN 1 THEN 'unknown' \
                 WHEN 2 THEN 'user_self_report' \
-                WHEN 3 THEN 'user_report_about_others' \
-                WHEN 4 THEN 'assistant_quote' \
-                WHEN 5 THEN 'assistant_tool_grounded' \
-                WHEN 6 THEN 'assistant_freeform' \
-                WHEN 7 THEN 'assistant_runtime_derivation' \
-                WHEN 8 THEN 'external_observation' \
-                WHEN 9 THEN 'system_runtime' \
+                WHEN 3 THEN 'assistant_quote' \
+                WHEN 4 THEN 'assistant_tool_grounded' \
+                WHEN 5 THEN 'assistant_freeform' \
+                WHEN 6 THEN 'assistant_runtime_derivation' \
+                WHEN 7 THEN 'external_observation' \
+                WHEN 8 THEN 'system_runtime' \
+                WHEN 9 THEN 'user_question' \
+                WHEN 10 THEN 'user_request' \
                 ELSE 'unknown' \
             END AS evidence_class, \
             fe.evidence_rule_version, \
@@ -335,8 +336,8 @@ mod tests {
                 'sensor_event', 'netease_music', 'source-1', 'idem-1', 2,
                 1, 2, 'session-1', 'turn-1', 'user-1',
                 'in-range event', 4, 1, 0.5, NULL,
-                '{"timeline":{"source_app":"NetEase"}}', 2, 8,
-                1, 2, NULL
+                '{"timeline":{"source_app":"NetEase"}}', 2, 7,
+                6, 2, NULL
             );
 
             INSERT INTO l1_event_embedding_state (
@@ -362,7 +363,7 @@ mod tests {
                 'sensor_event', 'netease_music', 'source-2', 'idem-2', 2,
                 1, 2, 'session-1', 'turn-2', 'user-1',
                 'out-of-range event', 4, 1, 0.5, NULL,
-                '{}', 1, 8, 1, 1, NULL
+                '{}', 1, 7, 6, 1, NULL
             );
 
             INSERT INTO l1_event_embedding_state (

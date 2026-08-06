@@ -1232,9 +1232,7 @@ Extraction flow:
 - Before Phase 2, the pipeline may build a deterministic evidence packet from current Phase 1 output, bounded L1 history contexts, existing L2 graph edges, and existing assertion state. This retrieval step must not call an LLM; it is a cost-controlled recall step that gives Phase 2 corroboration, conflict, and prior-state context. The packet also reports how many prior history contexts support each current candidate, so Phase 2 can distinguish a one-off mention from a recurring signal without adding another LLM recall step. The model packet remains bounded, but host conflict arbitration separately pages the complete current slot domain before persistence; truncating prompt context cannot truncate the safety check.
 - Phase 1 resolved entities may be used to fetch directly linked L1 event text through the event-entity index; this is preferred over asking the model to rediscover history. External sensor events without a session must not fall back to arbitrary same-user recent chat context.
 - Phase 2 runs only when the active profile permits direct higher-order assertion inference. Its output may reference deterministic Phase 1 claim IDs and exact existing record IDs, but it may not provide event IDs, confidence, lifecycle fields, expiry, or persistence actions. Assertions without valid supporting claim references and record assessments without an exact existing target are rejected. The host validates that the selected semantic family matches the grounded claims, then derives evidence, confidence, horizon, volatility, lifecycle, and safe conflict actions from validated inputs. Explicit one-off profile material remains event-only; explicit recent wording creates bounded recent context; explicit identity, communication, preference, or interest statements may form durable profile understanding when their semantics permit it.
-- Passive observations remain graph or episode evidence until they cross the host's recent-evidence floor; they may then become expiring recent context, but never durable profile conclusions. Durable graph-derived profile assertions require a plugin-declared non-passive signal preset, explicit durable permission, and the host's higher observation, distinct-day, time-span, and recency floors.
-
-A rare set of runtime-only events without `L1` durable anchors can use the in-process dispatch path, but they are not considered regular inputs to `L2` durable projection.
+- Passive observations remain graph or episode evidence. They never enter the direct Assertion write path. A graph-derived rule may independently promote aggregated observations into expiring recent context after its own observation, distinct-day, time-span, and recency thresholds; durable profile conclusions additionally require a plugin-declared non-passive signal preset and explicit durable permission.
 
 #### Evidence Classification and Write Policy
 
@@ -1242,9 +1240,11 @@ L2 ingestion uses shared evidence classification before LLM extraction. The impl
 
 Classifier and policy responsibilities:
 
-- Active classifier outputs: `user_self_report`, `assistant_tool_grounded`, `assistant_freeform`, `assistant_runtime_derivation`, `system_runtime`, `external_observation`
-- Reserved policy classes: `user_report_about_others`, `assistant_quote`; these are present in the policy matrix for provenance-specific classifiers and explicit policy tests, but ordinary assistant quote-like text currently classifies as `assistant_freeform` unless upstream marks it more specifically
+- Active classifier outputs: `user_self_report`, `user_question`, `user_request`, `assistant_tool_grounded`, `assistant_freeform`, `assistant_runtime_derivation`, `system_runtime`, `external_observation`
+- `assistant_quote` remains a reserved provenance class; ordinary assistant quote-like text classifies as `assistant_freeform` unless upstream marks it more specifically
 - Each class maps to a `PolicyDecision` controlling `allow_graph_write`, `allow_assertion_write`, `evidence_weight`, etc.
+- Event policy uses exact capability booleans rather than an assertion-family scope: direct Assertion writes require `user_self_report`; `external_observation` may extract entities and write Graph facts, while any higher-level Assertion promotion is owned by derived rules with their own thresholds
+- Whether a user-authored Claim describes the user or another subject is Claim-level route semantics, not a second event-level evidence class
 - `public_topology` and `stable_preference` fact kinds require explicit or structured extraction sources
 - User questions, user requests/commands, assistant memory answers, and assistant freeform text must not become new user-profile facts through L2 graph/assertion writes
 - Unknown evidence can be retained as raw L1 and episode/audit material, but must not be promoted into fact-like retrieval or L2 graph/assertion state without an explicit policy decision

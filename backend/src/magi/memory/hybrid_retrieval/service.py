@@ -35,56 +35,6 @@ from .service_postprocessing import HybridRetrievalPostProcessingMixin
 logger = logging.getLogger(__name__)
 
 
-# Round 5 #7: evidence_class staleness check is fire-once per process per
-# db_path so test suites + repeated service instantiation don't spam ops.
-_EVIDENCE_CLASS_WARNED_PATHS: set[str] = set()
-# Above this ratio of NULL evidence_class rows, log a WARNING pointing the
-# operator to the backfill script. Empirically: a freshly-migrated DB sits
-# near 1.0; a backfilled DB sits near 0.0.
-_EVIDENCE_CLASS_STALENESS_THRESHOLD: float = 0.10
-
-
-def _warn_if_evidence_class_stale(db_path: Optional[str]) -> None:
-    """Emit a one-shot WARNING when knowledge_graph still has many NULL
-    evidence_class rows — the Phase 1 evidence-aware routing degrades to a
-    no-op for those rows. Tolerant of missing DB / missing table / missing
-    column so a fresh install never breaks startup.
-    """
-    if not db_path or db_path in _EVIDENCE_CLASS_WARNED_PATHS:
-        return
-    _EVIDENCE_CLASS_WARNED_PATHS.add(db_path)  # warn-once guard runs first
-    try:
-        import sqlite3
-
-        with sqlite3.connect(db_path) as conn:
-            cur = conn.execute(
-                "SELECT COUNT(*), "
-                "       SUM(CASE WHEN evidence_class IS NULL THEN 1 ELSE 0 END) "
-                "FROM knowledge_graph"
-            )
-            row = cur.fetchone()
-            if not row or not row[0]:
-                return
-            total, null_count = int(row[0]), int(row[1] or 0)
-    except Exception:  # noqa: BLE001 — missing table / column / DB; skip silently
-        return
-
-    if total == 0:
-        return
-    ratio = null_count / total
-    if ratio < _EVIDENCE_CLASS_STALENESS_THRESHOLD:
-        return
-    logger.warning(
-        "knowledge_graph.evidence_class is unset for %d/%d rows (%.1f%%) — "
-        "run scripts/backfill_kg_evidence_class.py against %s to restore "
-        "Phase 1 evidence-aware routing.",
-        null_count,
-        total,
-        ratio * 100.0,
-        db_path,
-    )
-
-
 # Round 5 I2: trace keys emitted to ops logs so the routing decisions
 # (mode_source, indexical_resolved, etc.) and quality counters
 # (dropped_unresolved_entity_count) are visible without dumping
@@ -226,9 +176,6 @@ class HybridRetrievalService(
             timeout_seconds=getattr(self._config, "grounding_filter_timeout_seconds", 3.0),
             enabled=getattr(self._config, "grounding_filter_enabled", True),
         )
-
-        # Round 5 #7: one-shot evidence_class staleness warning per db_path.
-        _warn_if_evidence_class_stale(getattr(unified_memory, "memory_db_path", None))
 
     @property
     def memory_db_path(self) -> Optional[str]:

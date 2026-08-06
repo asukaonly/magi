@@ -353,7 +353,6 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
                 allow_assertion_write=policy.allow_assertion_write,
                 allow_snapshot_impact=policy.allow_snapshot_impact,
                 graph_scope=policy.graph_scope,
-                assertion_scope=policy.assertion_scope,
                 skip_reason=policy.skip_reason,
             )
 

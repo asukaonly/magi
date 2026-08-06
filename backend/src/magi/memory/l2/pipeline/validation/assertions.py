@@ -39,7 +39,6 @@ from ...semantic_routing import (
 from .evidence import validate_supporting_event_ids
 from ..extraction_contracts import ClaimProjectionOutcomeDraft
 
-_TOPOLOGY_ONLY_TRAIT_FAMILIES = {"public_sentiment", "group_atmosphere", "relationship_shift"}
 _SEMANTIC_TEMPORAL_SCOPES = {"persistent", "stable", ""}
 _SEMANTIC_DECAY_POLICIES = {"none", "evidence_only", ""}
 _PROFILE_FAMILIES = frozenset(
@@ -371,7 +370,6 @@ class Phase2AssertionValidationContext:
     claims_by_id: dict[str, L2Phase1FactClaim]
     semantic_routes: dict[str, SemanticRouteDecision]
     occurrence_stats_by_key: dict[ClaimRouteValueKey, ClaimOccurrenceStats]
-    assertion_scope: str
     claim_outcomes: list[ClaimProjectionOutcomeDraft]
 
 
@@ -421,18 +419,6 @@ class L2AssertionValidationMixin:
                 )
             return [], len(raw_assertions)
 
-        assertion_scope = str(getattr(policy, "assertion_scope", None) or "full")
-        scoped_assertions = [] if assertion_scope == "none" else raw_assertions
-        if assertion_scope == "none":
-            for assertion in raw_assertions:
-                _append_assertion_rejection_outcomes(
-                    outcome_drafts,
-                    assertion=assertion,
-                    claims_by_id=claims_by_id,
-                    semantic_routes=semantic_routes,
-                    reason_code="assertion_scope_rejected",
-                )
-
         context = Phase2AssertionValidationContext(
             event=event,
             profile=profile,
@@ -445,12 +431,11 @@ class L2AssertionValidationMixin:
             claims_by_id=claims_by_id,
             semantic_routes=dict(semantic_routes),
             occurrence_stats_by_key=dict(occurrence_stats_by_key),
-            assertion_scope=assertion_scope,
             claim_outcomes=outcome_drafts,
         )
         prepared: list[dict[str, Any]] = []
-        rejected_count = max(0, len(raw_assertions) - len(scoped_assertions))
-        for assertion in scoped_assertions:
+        rejected_count = 0
+        for assertion in raw_assertions:
             prepared_assertion = self._prepare_phase2_assertion(assertion, context)
             if prepared_assertion is None:
                 rejected_count += 1
@@ -640,11 +625,6 @@ class L2AssertionValidationMixin:
     ) -> bool:
         if trait_family not in context.profile.allowed_assertion_families:
             return False
-        if (
-            context.assertion_scope == "topology_only"
-            and trait_family not in _TOPOLOGY_ONLY_TRAIT_FAMILIES
-        ):
-            return False
         if not _profile_allows_assertion_trait(context.profile, trait_name):
             return False
         assertion_dict = {
@@ -770,12 +750,8 @@ class L2AssertionValidationMixin:
         if not policy.allow_assertion_write or not profile.allow_assertion:
             return [], 0
 
-        scoped_assertions = self._apply_assertion_scope(
-            raw_candidates=raw_candidates,
-            assertion_scope=policy.assertion_scope,
-        )
         prepared: list[dict[str, Any]] = []
-        rejected_count = max(0, len(raw_candidates) - len(scoped_assertions))
+        rejected_count = 0
         duplicate_check_candidates = [
             {
                 "predicate": candidate["predicate"],
@@ -783,7 +759,7 @@ class L2AssertionValidationMixin:
             }
             for candidate in graph_candidates
         ]
-        for raw_candidate in scoped_assertions:
+        for raw_candidate in raw_candidates:
             if raw_candidate.trait_family.casefold() not in profile.allowed_assertion_families:
                 rejected_count += 1
                 continue
@@ -923,24 +899,6 @@ class L2AssertionValidationMixin:
             )
             return policy.default_temporal_scope, policy.default_decay_policy, expires_at
         return "stable", "evidence_only", None
-
-    def _apply_assertion_scope(
-        self,
-        *,
-        raw_candidates: list[Any],
-        assertion_scope: str,
-    ) -> list[Any]:
-        if assertion_scope == "none":
-            return []
-        if assertion_scope == "full":
-            return list(raw_candidates)
-        if assertion_scope == "topology_only":
-            return [
-                candidate
-                for candidate in raw_candidates
-                if candidate.trait_family.casefold() in _TOPOLOGY_ONLY_TRAIT_FAMILIES
-            ]
-        return []
 
     def _assertion_host(self) -> _L2AssertionHostProtocol:
         return self  # type: ignore[return-value]

@@ -417,7 +417,7 @@ def test_classifier_external_plugin_source_classifies_as_external_observation():
     assert classification.reason_code == "external_source"
 
 
-def test_classifier_evidence_rule_version_is_five():
+def test_classifier_evidence_rule_version_is_six():
     """Bumping EVIDENCE_RULE_VERSION triggers stale-row backfill.
 
     The version is part of the L1 backfill contract: any rule semantics
@@ -425,7 +425,7 @@ def test_classifier_evidence_rule_version_is_five():
     """
     from magi.memory.evidence import EVIDENCE_RULE_VERSION
 
-    assert EVIDENCE_RULE_VERSION == 5
+    assert EVIDENCE_RULE_VERSION == 6
 
 
 @pytest.mark.parametrize(
