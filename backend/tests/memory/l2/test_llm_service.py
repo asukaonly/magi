@@ -378,6 +378,33 @@ def test_integrate_phase2_passes_source_summary_instructions():
     assert "Keep song names in their source language" in user_prompt
 
 
+def test_integrate_phase2_retries_undeclared_fields():
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary, L2Phase1Result
+
+    adapter = _FakeAdapter(
+        [
+            json.dumps({"summaries": [], "semantic_actions": []}),
+            json.dumps({"summaries": []}),
+        ]
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    result = asyncio.run(
+        service.integrate_phase2(
+            phase1_result=L2Phase1Result(),
+            event_window=L2EventWindow(
+                events=[{"event_id": "evt-1", "content": "I like tea.", "timestamp": 1.0}],
+                summary=L2EventWindowSummary(session_id="s1"),
+            ),
+            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+        )
+    )
+
+    assert result.to_dict() == {"summaries": []}
+    assert len(adapter.calls) == 2
+
+
 def test_chat_source_l2_extraction_uses_medium_priority_limiter(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -770,9 +797,11 @@ def test_phase1_applies_language_and_entity_grounding_contract(
         )
     )
 
-    assert result.entities[0].normalized_name == surface
-    assert result.entities[0].alias_signals == []
+    assert result.entities == []
     assert result.fact_claims[0].object_ref == surface
+    assert result.diagnostics["entity_status"] == "none"
+    assert result.diagnostics["rejected_entity_count"] == 1
+    assert result.diagnostics["rejected_sentence_like_entity_count"] == 1
     assert result.diagnostics["repaired_entity_name_count"] == 1
     messages = adapter.calls[0]["messages"]
     assert isinstance(messages, list)

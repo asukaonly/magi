@@ -55,12 +55,10 @@ def _claim(claim_id: str, object_ref: str) -> L2Phase1FactClaim:
     )
 
 
-def test_phase2_result_contains_only_summaries() -> None:
+def test_phase2_result_normalizes_summaries() -> None:
     result = L2Phase2Result.from_dict(
         {
             "summaries": [{"claim_ids": ["clm_1", "clm_1"], "text": "  我喜欢咖啡。 "}],
-            "claim_assessments": [{"claim_id": "clm_1"}],
-            "assertion_candidates": [{"trait_name": "preference.affinity"}],
         }
     )
 

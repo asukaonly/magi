@@ -2405,25 +2405,8 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
                         "diagnostics": {"entity_status": "none"},
                     }
                 ),
-                # Undeclared semantic fields are ignored; the host owns all actions.
-                json.dumps(
-                    {
-                        "summaries": [],
-                        "claim_assessments": [
-                            {
-                                "claim_id": "claim:1",
-                                "relationship": "evolves",
-                                "related_record_id": existing_assertion_id,
-                            }
-                        ],
-                        "assertion_candidates": [
-                            {
-                                "assertion_id": existing_assertion_id,
-                                "conflict_action": "invalidate",
-                            }
-                        ],
-                    }
-                ),
+                # Phase 2 supplies wording only; the host owns all semantic actions.
+                json.dumps({"summaries": []}),
             ]
 
             await store.ingest_event(
@@ -2454,8 +2437,8 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
                 item for item in assertions if item["assertion_id"] == existing_assertion_id
             )
             # The independent reconcile worker may normalize a stable row to
-            # corroborated while this test waits. The incompatible Phase 2
-            # assessment must not contradict or supersede it.
+            # corroborated while this test waits. Optional Phase 2 wording must
+            # not contradict or supersede it.
             assert existing["validation_state"] in {"stable", "corroborated"}
             assert existing["confidence_score"] == pytest.approx(0.84)
             assert any(item["trait_value"] == "calm" for item in assertions)

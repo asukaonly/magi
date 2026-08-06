@@ -28,7 +28,32 @@ PHASE1_EXTRACT_SYSTEM_PROMPT = """You are a memory extraction engine for a perso
 Your task: identify entities, resolve references, and extract factual claims from user messages and trusted external observations.
 
 ## Allowed Entity Types
-person, place, organization, group, product, food, software, technology, hardware, virtual_object, project, activity, event, animal, pet, health_metric, concept, skill, media, topic, weather_state, other
+- `person` — an individual human.
+- `place` — a named physical or geographic location.
+- `organization` — a formal company, institution, or organization.
+- `group` — a named band, team, community, or other collective.
+- `product` — a named non-software commercial product.
+- `food` — a specific dish, drink, snack, or ingredient.
+- `software` — an app, service, platform, operating system, or database.
+- `technology` — a language, framework, algorithm, model, standard, or protocol.
+- `hardware` — a physical device or computing component.
+- `virtual_object` — a specific digital asset, account, document, or virtual item.
+- `project` — a named, reusable body of work, not a one-time action sentence.
+- `activity` — a reusable practice or activity, not a complete plan or action clause.
+- `event` — a named or clearly bounded occurrence.
+- `animal` — an animal species or non-personal animal.
+- `pet` — a specific companion animal.
+- `health_metric` — a named measurable health quantity.
+- `concept` — an abstract idea, quality, style, or preference.
+- `skill` — a learnable and reusable capability.
+- `media` — a named song, album, film, book, podcast, or creative work.
+- `topic` — a reusable subject area, not a sentence about that subject.
+- `weather_state` — a specific weather condition.
+- `location_state` — a structured location or movement state.
+- `time_point` — a specific named temporal point or anchor.
+- `session_topic` — the bounded subject of a conversation session.
+- `presence` — a structured presence or availability state.
+- `other` — a concrete reusable entity that fits no more specific type.
 
 ### Entity Type Aliases (map to canonical type)
 dish/drink/snack/ingredient → food | app/application/service/platform/os/database → software | language/framework/algorithm/model → technology | device/console/phone → hardware | idea/principle/theory → concept
@@ -58,6 +83,7 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
 7. Each entity must include a specificity rating: "concrete" for specific items, "underspecified" for vague/category-level references.
 8. Preserve the evidence language and script for every entity type, including activity, concept, topic, event, and other abstract entities. `surface` must be an exact current-evidence span. `normalized_name` may normalize spelling, spacing, or punctuation only while retaining every letter script used by `surface`; never translate, romanize, transliterate, summarize, or slugify it. This applies to common nouns and phrases as well as proper nouns. The protocol rules and JSON schema are instructions, not evidence: never emit an entity surface or claim value copied from them. Add an item to `alias_signals` only when that exact alternate name appears in a current evidence message. Existing catalog aliases may be used for matching but must not be copied into output unless current evidence also contains them.
 9. Extract only concrete, named, reusable entities. Pronouns and vague placeholders such as "他", "她", "它", "这个", "那个", "this one", "that one", "the file", "the image", generic "app", or generic "PDF" may appear only in `resolved_refs`; do not emit them as `entities` unless they are confidently resolved to a specific existing entity or asset with a concrete canonical name.
+   New entity names must be reusable noun-like catalog labels. Do not emit complete sentences, long action clauses, or plans containing multiple actions as entities. Keep complete planned action text only in the Claim `object_ref`; independently reusable nested places, projects, skills, activities, or named objects may still be entities.
 10. For web pages and external-source metadata, never use a URL domain/path slug as the canonical entity name when the title or source text contains a readable subject name. Treat domains and platforms as provenance or separate platform entities, not as replacements for the content entity.
 11. Addressing instructions such as "叫我子涵" or "call me Zihan" are communication-profile signals. Emit one fact claim with `predicate = "PREFERRED_FORM_OF_ADDRESS"`, `object_ref` set to the requested name, and `object_type = "concept"`. Do NOT turn the requested name into a LIKES, DISLIKES, INTERESTED_IN, KNOWS, or other graph relationship.
 12. Explicit self-profile facts such as real name, birthday, birth year, age, preferred language, or preferred communication style should use the matching profile-signal predicate, not graph predicates.

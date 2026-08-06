@@ -50,6 +50,7 @@ from ..storage.utils import (
     normalize_store_entity_ref,
     normalize_store_entity_type,
 )
+from .logging import assertion_value_log_preview
 from .settings import (
     CONTRADICTED_CONFIDENCE_CEILING,
     assertion_float_setting,
@@ -1083,8 +1084,10 @@ class L2StoreAssertionMixin:
             authoritative_id=str(existing["assertion_id"]),
             entity_id=candidate["entity_id"],
             trait_name=trait_name,
-            authoritative_value=merge_context.existing_value,
-            inferred_value=merge_context.next_value,
+            authoritative_value_preview=assertion_value_log_preview(
+                merge_context.existing_value
+            ),
+            inferred_value_preview=assertion_value_log_preview(merge_context.next_value),
         )
         return _AssertionWriteResult(
             assertion_id=shadow_id,
@@ -1165,8 +1168,8 @@ class L2StoreAssertionMixin:
             new_assertion_id=new_assertion_id,
             entity_id=candidate["entity_id"],
             trait_name=trait_name,
-            old_value=merge_context.existing_value,
-            new_value=merge_context.next_value,
+            old_value_preview=assertion_value_log_preview(merge_context.existing_value),
+            new_value_preview=assertion_value_log_preview(merge_context.next_value),
             evidence_count=len(merge_context.merged_evidence),
             validation_state=validation_state,
         )

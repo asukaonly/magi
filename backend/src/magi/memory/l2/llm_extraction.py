@@ -104,7 +104,7 @@ class L2LLMExtractionMixin:
             entity_status=result.diagnostics.get("entity_status"),
         )
         if full_content_logging_enabled():
-            logger.info(
+            logger.debug(
                 "L2 Phase 1 candidate summary",
                 event_ids=event_ids,
                 entities=_summarize_phase1_entities(result),
@@ -148,6 +148,7 @@ class L2LLMExtractionMixin:
             ),
             priority=l2_llm_priority_for_event_window(event_window),
             required_fields={"summaries": list},
+            contract_validator=_validate_phase2_payload_contract,
         )
         result = L2Phase2Result.from_dict(payload)
         _log_phase2_completed(
@@ -156,6 +157,31 @@ class L2LLMExtractionMixin:
             result=result,
         )
         return result
+
+
+def _validate_phase2_payload_contract(payload: dict[str, Any]) -> list[str]:
+    """Reject fields outside the summaries-only Phase 2 contract."""
+
+    issues = [
+        f"undeclared top-level field: {field}"
+        for field in sorted(set(payload) - {"summaries"})
+    ]
+    summaries = payload.get("summaries")
+    if not isinstance(summaries, list):
+        return issues
+    for index, item in enumerate(summaries):
+        if not isinstance(item, dict):
+            issues.append(f"summaries[{index}] must be an object")
+            continue
+        issues.extend(
+            f"summaries[{index}] undeclared field: {field}"
+            for field in sorted(set(item) - {"claim_ids", "text"})
+        )
+        if not isinstance(item.get("claim_ids"), list):
+            issues.append(f"summaries[{index}].claim_ids must be a list")
+        if not isinstance(item.get("text"), str):
+            issues.append(f"summaries[{index}].text must be a string")
+    return issues
 
 
 def _log_phase2_started(
@@ -237,7 +263,7 @@ def _log_phase2_completed(
         summary_count=len(result.summaries),
     )
     if full_content_logging_enabled():
-        logger.info(
+        logger.debug(
             "L2 Phase 2 wording summary",
             event_ids=event_ids,
             summaries=_summarize_phase2_summaries(result),

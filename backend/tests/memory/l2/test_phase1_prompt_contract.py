@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from magi.memory.l2.models import L2BatchEvent, L2EventWindow
+from magi.memory.l2.ontology import ENTITY_TYPE_REGISTRY
 from magi.memory.l2.pipeline.prompts import (
     PHASE1_EXTRACT_SYSTEM_PROMPT,
     render_phase1_extract_prompt,
@@ -109,6 +110,15 @@ def test_phase1_prompt_reserves_other_for_unclassified_entities() -> None:
         PHASE1_EXTRACT_SYSTEM_PROMPT
     )
     assert "Use `other` only when no other allowed type fits" in PHASE1_EXTRACT_SYSTEM_PROMPT
+
+
+def test_phase1_prompt_defines_every_allowed_entity_type() -> None:
+    for entity_type in ENTITY_TYPE_REGISTRY:
+        assert f"- `{entity_type}` —" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "not a complete plan or action clause" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "Do not emit complete sentences, long action clauses" in (
+        PHASE1_EXTRACT_SYSTEM_PROMPT
+    )
 
 
 def test_phase1_render_separates_user_language_from_evidence_script() -> None:

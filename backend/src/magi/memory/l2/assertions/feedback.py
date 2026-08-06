@@ -18,6 +18,7 @@ from ..corrections.models import (
 )
 from ..corrections.repository import MemoryCorrectionRepository
 from ..corrections.service import MemoryCorrectionConflictError, MemoryCorrectionService
+from .logging import assertion_value_log_preview
 from .settings import (
     CONFIDENCE_CEILING,
     USER_CONFIRMED_CONFIDENCE_FLOOR,
@@ -380,7 +381,7 @@ class L2StoreFeedbackMixin:
             entity_id=context.entity_id,
             entity_type=context.entity_type,
             trait_name=context.trait_name,
-            promoted_value=context.trait_value,
+            promoted_value_preview=assertion_value_log_preview(context.trait_value),
             new_confidence=promotion.new_confidence,
         )
 
@@ -389,7 +390,6 @@ class L2StoreFeedbackMixin:
         result = await host.get_tom_assertion(assertion_id=shadow_id)
         await _notify_feedback_assertion_changed(host, result)
         return result
-
 
 async def _notify_feedback_assertion_changed(
     host: _FeedbackHostProtocol,
