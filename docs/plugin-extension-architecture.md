@@ -680,16 +680,19 @@ Current target examples:
   - `ON_PLATFORM`
   - `LOCATED_IN`
 
-Plugins may reference these via structured hints, but the runtime should continue treating them as internal graph semantics rather than free-form LLM-generated ontology.
-In practice this means extraction profiles may allow them for structured hints while keeping them out of the default LLM-facing predicate / entity allowlists.
+Plugins should normally provide these through structured hints. They remain part
+of the single canonical registry, while extraction profiles may exclude them from
+model extraction and allow them only for source-owned structured hints. Internal
+topology predicates must not be exposed as ordinary free-form relationship choices.
 
 See also:
 
 - [memory-system-design.md](./memory-system-design.md)
 
-### L2 Batch Policy
+### L2 Projection Batch Policy
 
-Sensors can influence L2 microbatch grouping by returning an `L2BatchPolicy` from `l2_batch_policy(output)`:
+Sensors can influence how durable L2 projection jobs are grouped for worker
+execution by returning an `L2BatchPolicy` from `l2_batch_policy(output)`:
 
 ```python
 @dataclass(slots=True)
@@ -700,19 +703,25 @@ class L2BatchPolicy:
     max_wait_seconds: int | None = None
 ```
 
-- `owner`: stable key for durable microbatch grouping. Chrome history uses `chrome_history:{profile}:{domain}` to batch by site rather than mixing all browsing into one bucket.
+- `owner`: stable key for durable projection grouping. Chrome history uses `chrome_history:{profile}:{domain}` to batch by site rather than mixing all browsing into one execution group.
 - `max_events`: preferred batch size for this source (e.g., Chrome uses 20 instead of the global default 12).
 - `max_estimated_tokens`: optional token cap per execution batch.
 - `max_wait_seconds`: how long an underfilled bucket may wait before it becomes ready.
 
-These values are advisory. L2 remains the final owner of batching decisions: it decides when a bucket is ready, how much work to claim under backpressure, and when a forced flush may bypass waiting.
+These values are advisory. L2 remains the final owner of batching decisions: it
+first claims durable projection rows, then decides how already leased work is
+grouped under backpressure and when a forced projection flush may bypass waiting.
+The policy cannot enqueue a raw event or create an in-memory ingestion path.
 
 Conversation events with a session are grouped by session. Events without a session are grouped by
 normalized source, optional plugin owner, and user together. A plugin owner therefore refines a
 source batch; it never replaces source or user isolation. Every event in a flushed batch keeps its
 own evidence policy and structured hints, even when multiple events share one owner bucket.
 
-The ingestion gateway propagates these hints into `MemoryEvent.metadata_json` as `l2_batch_owner`, `l2_batch_max_events`, `l2_batch_max_estimated_tokens`, and `l2_batch_max_wait_seconds`. The L2 pipeline reads them back to create appropriately scoped `L2PendingBatchBucket` instances.
+The ingestion gateway propagates these hints into `MemoryEvent.metadata_json` as
+`l2_batch_owner`, `l2_batch_max_events`, `l2_batch_max_estimated_tokens`, and
+`l2_batch_max_wait_seconds`. After L1 commit has created a durable projection row,
+the L2 worker reads them while grouping claimed, leased projection jobs.
 
 ### Extraction Profiles
 

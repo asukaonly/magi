@@ -800,14 +800,17 @@ Use `fallback` for resilient display when a translation file is missing. Use `em
 **L2 cognition hooks:**
 
 - `l2_batch_policy(output)`: return an `L2BatchPolicy` describing batching preferences:
-  - `owner`: stable owner key for durable microbatch grouping (e.g., `chrome_history:Default:github.com`)
+  - `owner`: stable owner key for durable projection-job grouping (e.g., `chrome_history:Default:github.com`)
   - `catch_up_owner`: optional secondary owner key used only when backlog is large and L2 enters catch-up mode
   - `max_events`: preferred full-batch size for this source
   - `min_ready_events`: preferred smaller ready threshold for steady-state incremental sync
   - `max_estimated_tokens`: optional token cap for one execution batch
   - `max_wait_seconds`: how long an underfilled bucket may wait before it becomes ready
 
-L2 remains the final owner of batching policy. Plugins suggest a tighter bucket key or preferred batch shape, but the runtime decides when a bucket is ready, how much work to claim under backpressure, and when a forced flush may bypass waiting.
+L2 remains the final owner of batching policy. Plugins suggest a tighter grouping
+key or preferred execution shape, but the runtime first claims durable projection
+rows and then decides how leased work is grouped under backpressure. This hook
+cannot enqueue raw events or create an in-memory ingestion path.
 
 For high-volume sources such as browser history, a practical pattern is:
 
@@ -843,7 +846,7 @@ Each event source is mapped to an `ExtractionProfile` that controls L2 cognition
 
 Phase 1 instructions guide entity and grounded Claim extraction. The host then owns semantic routing and every Assertion field, including family, trait, slot, target, value, evidence, confidence, promotion horizon, lifecycle, and governance action. Phase 2 is optional and may return only concise summaries bound to host-assigned Claim IDs. Empty or invalid summaries do not change materialization. Plugins can declare derived assertion specs when they know source-specific accumulated evidence patterns, but the host still validates assertion families, traits, lifecycle, and source-tier governance.
 
-Canonical assertion families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `routine_profile`, and `state_profile`. Use `preference_profile` for durable interests, affinities, tastes, and preferences. Use `routine_profile` for repeated behavior rhythms and habits. Do not use assertion family names as graph predicates or graph object refs.
+Canonical assertion families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `interest_profile`, `project_profile`, `goal_profile`, `routine_profile`, and `state_profile`. Use `preference_profile` only for grounded likes and dislikes, `interest_profile` for grounded attention or interest without affinity, `project_profile` for active project work, `goal_profile` for concrete intentions, and `routine_profile` for repeated behavior rhythms and habits. Do not use assertion family names as graph predicates or graph object refs.
 
 Plugins contribute source profiles with `get_extraction_profiles()`:
 

@@ -1709,7 +1709,9 @@ Two rules matter here:
   a bounded, disposable projection of what still matters for the next
   conversational turn
 - `ActionExecuted` stays execution-scoped and does not enter `L1`, even though its outcome may still update `L4` procedural memory
-- `L2` progress is tracked by durable projection jobs, while microbatching remains an in-process execution optimization
+- `L2` progress is tracked by durable projection jobs. Workers may batch already
+  leased projection jobs locally for execution; that local grouping is not an
+  event-ingest or staging path.
 
 Destructive memory clear adds a separate user-content admission boundary around this
 flow. User-message dispatch holds its shared side from attachment preparation
