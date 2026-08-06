@@ -297,6 +297,7 @@ class L2StoreForgettingMixin:
             claim_target_retirement = await retire_claim_target_authority_on_connection(
                 db,
                 claim_ids=grounded_claim_ids,
+                target_kinds=frozenset({"assertion", "relationship", "review"}),
                 invalidated_reason="entity_forgotten",
                 changed_at=now,
             )

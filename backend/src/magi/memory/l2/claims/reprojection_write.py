@@ -319,6 +319,7 @@ async def retire_claim_target_authority_on_connection(
     db: aiosqlite.Connection,
     *,
     claim_ids: Iterable[str],
+    target_kinds: frozenset[str],
     invalidated_reason: str,
     changed_at: float,
 ) -> ClaimTargetRetirementResult:
@@ -340,6 +341,22 @@ async def retire_claim_target_authority_on_connection(
         raise ValueError("invalidated_reason must not be blank")
     if not normalized_claim_ids:
         return ClaimTargetRetirementResult()
+    normalized_target_kinds = frozenset(
+        str(target_kind).strip().casefold()
+        for target_kind in target_kinds
+        if str(target_kind).strip()
+    )
+    unknown_target_kinds = normalized_target_kinds - {
+        "assertion",
+        "relationship",
+        "review",
+    }
+    if unknown_target_kinds:
+        raise ValueError(
+            f"unsupported Claim target retirement kinds: {sorted(unknown_target_kinds)}"
+        )
+    if not normalized_target_kinds:
+        return ClaimTargetRetirementResult()
 
     affected_targets: set[tuple[str, str]] = set()
     retired_evidence_event_ids: set[str] = set()
@@ -353,6 +370,8 @@ async def retire_claim_target_authority_on_connection(
         receipts = await _active_target_receipts(db, claim_id=claim_id)
         for receipt in receipts:
             target_kind = str(receipt["target_kind"])
+            if target_kind not in normalized_target_kinds:
+                continue
             target_id = str(receipt["target_id"])
             affected_targets.add((target_kind, target_id))
             if candidate is not None and decision is not None:
