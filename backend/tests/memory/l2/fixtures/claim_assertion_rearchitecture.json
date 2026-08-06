@@ -1,0 +1,139 @@
+[
+  {
+    "name": "live_preference",
+    "event": {
+      "event_id": "evt-live-preference",
+      "content": "昨晚重听了几张专辑。我很喜欢 DIIV。",
+      "source": "chat",
+      "event_type": "chat.message",
+      "author_type": "user"
+    },
+    "phase1": {
+      "entities": [],
+      "fact_claims": [
+        {
+          "subject_ref": "user:self",
+          "subject_type": "user",
+          "predicate": "LIKES",
+          "object_ref": "DIIV",
+          "object_type": "group",
+          "fact_kind": "stable_preference",
+          "temporal_cue": "unspecified",
+          "raw_time_expression": "",
+          "polarity": "positive",
+          "specificity": "concrete",
+          "evidence_text": "我很喜欢 DIIV。",
+          "confidence": 0.98,
+          "supporting_event_ids": []
+        }
+      ],
+      "resolved_refs": [],
+      "diagnostics": {
+        "entity_status": "none"
+      }
+    },
+    "expected": {
+      "predicate": "LIKES",
+      "object_ref": "DIIV",
+      "object_type": "group",
+      "fact_kind": "stable_preference",
+      "evidence_text": "我很喜欢 DIIV。",
+      "supporting_event_ids": [
+        "evt-live-preference"
+      ],
+      "attribution": null
+    }
+  },
+  {
+    "name": "historical_goal",
+    "event": {
+      "event_id": "evt-historical-goal",
+      "content": "# 秋季计划\n\n我计划今年秋天去一次海边。\n",
+      "source": "history_import_markdown",
+      "event_type": "history_import.document",
+      "author_type": "user"
+    },
+    "phase1": {
+      "entities": [],
+      "fact_claims": [
+        {
+          "subject_ref": "user:self",
+          "subject_type": "user",
+          "predicate": "PLANS_TO",
+          "object_ref": "今年秋天去一次海边",
+          "object_type": "activity",
+          "fact_kind": "future_intent",
+          "temporal_cue": "one_off",
+          "raw_time_expression": "今年秋天",
+          "polarity": "positive",
+          "specificity": "concrete",
+          "evidence_text": "我计划今年秋天去一次海边。",
+          "confidence": 0.96,
+          "supporting_event_ids": [
+            "evt-outside-window"
+          ]
+        }
+      ],
+      "resolved_refs": [],
+      "diagnostics": {
+        "entity_status": "none"
+      }
+    },
+    "expected": {
+      "predicate": "PLANS_TO",
+      "object_ref": "今年秋天去一次海边",
+      "object_type": "activity",
+      "fact_kind": "future_intent",
+      "evidence_text": "我计划今年秋天去一次海边。",
+      "supporting_event_ids": [
+        "evt-historical-goal"
+      ],
+      "attribution": "author_prose"
+    }
+  },
+  {
+    "name": "external_observation",
+    "event": {
+      "event_id": "evt-browser-observation",
+      "content": "Visited the Rust language documentation.",
+      "source": "browser_history",
+      "event_type": "browser.history",
+      "author_type": "sensor"
+    },
+    "phase1": {
+      "entities": [],
+      "fact_claims": [
+        {
+          "subject_ref": "user:self",
+          "subject_type": "user",
+          "predicate": "VISITED",
+          "object_ref": "Rust language documentation",
+          "object_type": "web_resource",
+          "fact_kind": "interaction_evidence",
+          "temporal_cue": "one_off",
+          "raw_time_expression": "",
+          "polarity": "positive",
+          "specificity": "concrete",
+          "evidence_text": "Visited the Rust language documentation.",
+          "confidence": 0.99,
+          "supporting_event_ids": []
+        }
+      ],
+      "resolved_refs": [],
+      "diagnostics": {
+        "entity_status": "none"
+      }
+    },
+    "expected": {
+      "predicate": "VISITED",
+      "object_ref": "Rust language documentation",
+      "object_type": "web_resource",
+      "fact_kind": "interaction_evidence",
+      "evidence_text": "Visited the Rust language documentation.",
+      "supporting_event_ids": [
+        "evt-browser-observation"
+      ],
+      "attribution": null
+    }
+  }
+]
