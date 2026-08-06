@@ -23,7 +23,7 @@ from magi.memory.l2.corrections.relationship_conflict_effects import (
 )
 from magi.memory.l2.store import L2CognitionStore
 
-MEMORY_HEAD_REVISION = "v43_assertion_semantic_lineage"
+MEMORY_HEAD_REVISION = "v45_profile_projection_highwaters"
 
 
 def _memory_migration_config(db_path: Path):

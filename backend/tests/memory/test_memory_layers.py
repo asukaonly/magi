@@ -1281,7 +1281,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        base = Path(self.temp_dir.name)
+        base = Path(self.temp_dir.name).resolve()
 
         self.memory = UnifiedMemoryStore(
             l1_db_path=str(base / "l1_events.db"),

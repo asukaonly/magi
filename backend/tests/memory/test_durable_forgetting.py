@@ -2163,7 +2163,16 @@ async def test_entity_forget_snapshots_late_alias_for_every_blocked_event(
                 FROM entity_aliases
                 WHERE entity_id = 'place:late-secret-alias'
                 """) as cursor:
-                assert await cursor.fetchall() == [("late secret alias",)]
+                assert await cursor.fetchall() == []
+        assert await catalog.resolve_alias(
+            "Late Secret Alias",
+            entity_type="place",
+        ) == {
+            "decision": "match",
+            "entity_id": "place:late-secret-alias",
+            "candidate_count": 1,
+            "matched_confidence": 1.0,
+        }
     finally:
         await memory.shutdown()
 
