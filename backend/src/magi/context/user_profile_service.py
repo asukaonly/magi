@@ -20,12 +20,16 @@ from ..memory.l2.corrections.cache_signals import subject_change_signal
 from ..user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from ..user_profile.portrait_projection_freshness import portrait_projection_is_stale
 from ..user_profile.portrait_projection_repository import UserPortraitProjectionRepository
+from ..user_profile.projection_builder import UserProfileProjectionBuilder
+from ..user_profile.projection_freshness import profile_projection_is_stale
 from ..user_profile.projection_repository import UserProfileProjectionRepository
+from ..user_profile.query_service import UserProfileQueryService
 
 logger = get_logger(__name__)
 
 _DEFAULT_CACHE_TTL = 300  # 5 minutes
 _DEFAULT_EMPTY_CACHE_TTL = 5  # Refresh empty profile reads quickly while L2 catches up.
+_DEFAULT_ERROR_CACHE_TTL = 5
 _ADDRESS_PREFERRED_KEY = "address.preferred"
 _ADDRESS_DISALLOWED_KEY = "address.disallowed"
 _ADDRESS_REAL_NAME_KEY = "address.real_name"
@@ -40,6 +44,7 @@ class _CacheEntry:
     prompt_summary: list[str] = field(default_factory=list)
     correction_signal: int = 0
     source_revision: int | None = None
+    dependency_error: bool = False
     fetched_at: float = 0.0
 
 
@@ -113,6 +118,7 @@ class UserProfileService:
                     current_revision is not None
                     and entry.source_revision == current_revision
                 )
+                or (current_revision is None and entry.dependency_error)
             )
             and (now - entry.fetched_at) < self._ttl_for_entry(entry)
         ):
@@ -129,14 +135,14 @@ class UserProfileService:
             )
             revision_supported = revision_supported or completed_supported
             entry.source_revision = completed_revision
+            entry.dependency_error = revision_supported and completed_revision is None
             if (
                 not revision_supported
                 or current_revision is None
                 or completed_revision is None
                 or current_revision == completed_revision
             ):
-                if not revision_supported or completed_revision is not None:
-                    self._cache[user_id] = entry
+                self._cache[user_id] = entry
                 return entry
             if read_attempt == 0:
                 current_revision = completed_revision
@@ -181,8 +187,15 @@ class UserProfileService:
             return False, None
         try:
             return True, int(await getter(f"user:{user_id}"))
-        except Exception:
-            logger.debug("Failed to read profile source revision for %s", user_id)
+        except Exception as exc:
+            logger.error(
+                "User profile source revision read failed",
+                user_id=user_id,
+                projection_kind="profile",
+                stage="source_revision",
+                cached_kept=user_id in self._cache,
+                error_type=type(exc).__name__,
+            )
             return True, None
 
     async def _fetch_portrait_prompt_summary(self, user_id: str) -> list[str]:
@@ -192,17 +205,28 @@ class UserProfileService:
         repo = UserPortraitProjectionRepository(db_path)
         try:
             projection = await repo.get(user_id)
-        except Exception:
-            logger.debug("Failed to get portrait projection for %s", user_id)
+        except Exception as exc:
+            _log_prompt_projection_failure(
+                user_id=user_id,
+                stage="cache_lookup",
+                error=exc,
+                cached_kept=False,
+            )
             return []
+        cached_projection = projection
         l2 = getattr(self._unified_memory, "l2", None) if self._unified_memory is not None else None
         if l2 is None:
             return [line for line in projection.prompt_summary if str(line).strip()] if projection is not None else []
         try:
-            profile_projection = await UserProfileProjectionRepository(db_path).get(user_id)
-        except Exception:
-            logger.debug("Failed to get profile projection for portrait prompt %s", user_id)
-            profile_projection = None
+            profile_projection = await self._current_profile_projection(user_id)
+        except Exception as exc:
+            _log_prompt_projection_failure(
+                user_id=user_id,
+                stage="profile_freshness",
+                error=exc,
+                cached_kept=projection is not None,
+            )
+            return _prompt_lines(projection)
         try:
             is_stale = (
                 projection is not None
@@ -213,9 +237,14 @@ class UserProfileService:
                     profile_projection=profile_projection,
                 )
             )
-        except Exception:
-            logger.debug("Failed to check portrait projection freshness for %s", user_id)
-            is_stale = False
+        except Exception as exc:
+            _log_prompt_projection_failure(
+                user_id=user_id,
+                stage="freshness",
+                error=exc,
+                cached_kept=projection is not None,
+            )
+            return _prompt_lines(projection)
         if projection is None or is_stale:
             try:
                 projection = await UserPortraitProjectionBuilder(
@@ -223,19 +252,31 @@ class UserProfileService:
                     profile_projection=profile_projection,
                 ).build(user_id)
                 projection = await repo.upsert(projection)
-            except Exception:
-                logger.debug("Failed to build portrait projection for %s", user_id)
-                return []
-        return [line for line in projection.prompt_summary if str(line).strip()]
+            except Exception as exc:
+                _log_prompt_projection_failure(
+                    user_id=user_id,
+                    stage="rebuild",
+                    error=exc,
+                    cached_kept=cached_projection is not None,
+                )
+                return _prompt_lines(cached_projection)
+        return _prompt_lines(projection)
 
     async def _fetch_projection_entry(self, user_id: str) -> _CacheEntry | None:
         db_path = self._memory_db_path()
         if not db_path:
             return None
         try:
-            projection = await UserProfileProjectionRepository(db_path).get(user_id)
-        except Exception:
-            logger.debug("Failed to get profile projection for %s", user_id)
+            projection = await self._current_profile_projection(user_id)
+        except Exception as exc:
+            logger.error(
+                "User profile prompt projection input failed",
+                user_id=user_id,
+                projection_kind="profile",
+                stage="read",
+                cached_kept=True,
+                error_type=type(exc).__name__,
+            )
             return None
         if projection is None:
             return None
@@ -254,10 +295,39 @@ class UserProfileService:
         disallowed = projection.communication.get("disallowed_forms_of_address")
         if disallowed:
             preferences["communication.address.disallowed"] = disallowed
+        l2 = getattr(self._unified_memory, "l2", None)
+        if l2 is not None:
+            assertion_preferences = await self._fetch_assertion_preferences(
+                l2=l2,
+                entity_id=f"user:{user_id}",
+            )
+            for key, value in assertion_preferences.items():
+                preferences.setdefault(key, value)
         return _CacheEntry(
             display_name=projection.display_name or "unknown",
             preferences={key: value for key, value in preferences.items() if value not in (None, "")},
         )
+
+    async def _current_profile_projection(self, user_id: str):
+        db_path = self._memory_db_path()
+        if not db_path:
+            return None
+        repository = UserProfileProjectionRepository(db_path)
+        l2 = getattr(self._unified_memory, "l2", None)
+        if l2 is None:
+            return await repository.get(user_id)
+        service = UserProfileQueryService(
+            repository=repository,
+            builder=UserProfileProjectionBuilder(l2),
+        )
+        projection = await service.get_current_profile(user_id)
+        if await profile_projection_is_stale(
+            projection,
+            user_id=user_id,
+            l2_store=l2,
+        ):
+            raise RuntimeError("User profile projection remained stale after refresh")
+        return projection
 
     def _memory_db_path(self) -> str:
         if self._unified_memory is None:
@@ -356,6 +426,8 @@ class UserProfileService:
         return preferences
 
     def _ttl_for_entry(self, entry: _CacheEntry) -> float:
+        if entry.dependency_error:
+            return min(self._cache_ttl, _DEFAULT_ERROR_CACHE_TTL)
         if entry.display_name != "unknown" or entry.preferences or entry.prompt_summary:
             return self._cache_ttl
         return min(self._cache_ttl, self._empty_cache_ttl)
@@ -418,3 +490,26 @@ class UserProfileService:
             candidate = value.get("value")
             return str(candidate or "").strip()
         return ""
+
+
+def _prompt_lines(projection: Any) -> list[str]:
+    if projection is None:
+        return []
+    return [line for line in projection.prompt_summary if str(line).strip()]
+
+
+def _log_prompt_projection_failure(
+    *,
+    user_id: str,
+    stage: str,
+    error: Exception,
+    cached_kept: bool,
+) -> None:
+    logger.error(
+        "User portrait prompt projection input failed",
+        user_id=user_id,
+        projection_kind="portrait",
+        stage=stage,
+        cached_kept=cached_kept,
+        error_type=type(error).__name__,
+    )

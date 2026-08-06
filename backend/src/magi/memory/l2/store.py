@@ -364,6 +364,14 @@ class L2CognitionStore(
             limit=limit,
         )
 
+    async def latest_pending_review_change_at(self, *, subject_id: str) -> float:
+        """Return the newest governed-review mutation for one subject."""
+
+        await self.initialize()
+        return await PendingReviewRepository(self.db_path).latest_change_at(
+            subject_id=subject_id,
+        )
+
     async def resolve_pending_review(
         self,
         *,

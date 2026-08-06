@@ -233,7 +233,7 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(um.l2_entity_catalog.call_count, 2)
 
-    async def test_revision_read_failure_does_not_reuse_cache(self):
+    async def test_revision_read_failure_reuses_short_lived_last_good_cache(self):
         um = _FakeUnifiedMemory()
         um.l2 = _BrokenRevisionL2Store()
         svc = UserProfileService(unified_memory=um, cache_ttl=300)
@@ -241,7 +241,7 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         await svc.get_display_name("alice")
         await svc.get_display_name("alice")
 
-        self.assertEqual(um.l2_entity_catalog.call_count, 2)
+        self.assertEqual(um.l2_entity_catalog.call_count, 1)
 
     async def test_cache_returns_independent_dict_copy(self):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())

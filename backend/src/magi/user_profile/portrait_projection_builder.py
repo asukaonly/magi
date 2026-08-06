@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 import time
-from typing import Any, Protocol
+from typing import Any
 
 from ..memory.derivation_revision import DerivationRevision
 from .models import (
@@ -14,7 +15,12 @@ from .models import (
 )
 from .portrait_claim_query import (
     TentativePortraitClaim,
+    latest_portrait_claim_change_at,
     list_tentative_portrait_claims,
+)
+from .projection_freshness import (
+    assertion_records_highwater,
+    profile_projection_highwater,
 )
 from .portrait_signal_policy import (
     PORTRAIT_WORLD_GROUP_IDS,
@@ -48,13 +54,6 @@ _MAX_PROTECTED_GOAL_LINES = 2
 TENTATIVE_SELECTION_REF_PREFIX = "tentative:"
 
 
-class UserPortraitLLMClient(Protocol):
-    """Optional LLM post-processor for portrait projection wording."""
-
-    async def generate_portrait(self, *, material: dict[str, Any]) -> dict[str, Any]:
-        """Return structured portrait overrides grounded in *material*."""
-
-
 class UserPortraitProjectionBuilder:
     """Create a clean self-portrait projection from L2 profile evidence."""
 
@@ -63,11 +62,9 @@ class UserPortraitProjectionBuilder:
         l2_store: Any,
         *,
         profile_projection: UserProfileProjection | None = None,
-        llm_client: UserPortraitLLMClient | None = None,
     ):
         self._l2_store = l2_store
         self._profile_projection = profile_projection
-        self._llm_client = llm_client
 
     def with_profile_projection(
         self,
@@ -77,7 +74,6 @@ class UserPortraitProjectionBuilder:
         return UserPortraitProjectionBuilder(
             self._l2_store,
             profile_projection=profile_projection,
-            llm_client=self._llm_client,
         )
 
     async def build(self, user_id: str = DEFAULT_USER_ID) -> UserPortraitProjection:
@@ -100,7 +96,6 @@ class UserPortraitProjectionBuilder:
             assertions=assertions,
         )
         tentative_lines = [candidate.prompt_line for candidate in tentative_claims[:2]]
-        protected_goal_lines = _goal_prompt_lines(recent)
         # Keep main-model context grounded in governed assertions, explicit profile
         # fields, and deterministic Claim material.
         prompt_summary = render_portrait_rule_prompt_summary(
@@ -121,32 +116,12 @@ class UserPortraitProjectionBuilder:
             source_counts["user_authored"] = source_counts.get("user_authored", 0) + len(
                 selected_tentative_claims
             )
-        generated_by = "rule"
-
-        material = {
-            "world": world,
-            "review": review,
-            "recent": recent,
-            "prompt_summary": prompt_summary,
-            "evidence_refs": evidence_refs,
-            "source_counts": source_counts,
-            "tentative_claims": [
-                {
-                    "claim_id": candidate.claim_id,
-                    "prompt_line": candidate.prompt_line,
-                    "basis_refs": list(candidate.basis_refs),
-                }
-                for candidate in selected_tentative_claims
-            ],
-        }
-        llm_payload = await self._llm_overrides(material)
-        llm_summary = _string_list(llm_payload.get("prompt_summary"))
-        if llm_summary and not selected_tentative_claims:
-            prompt_summary = _merge_protected_prompt_lines(
-                llm_summary,
-                protected_goal_lines,
-            )
-            generated_by = "llm"
+        assertion_highwater = assertion_records_highwater(assertions)
+        claim_highwater = await latest_portrait_claim_change_at(
+            self._l2_store,
+            user_id=user_id,
+        )
+        review_highwater = await self._latest_review_change_at(entity_id)
 
         await derivation_revision.ensure_current(self._l2_store)
         return UserPortraitProjection(
@@ -158,18 +133,22 @@ class UserPortraitProjectionBuilder:
             prompt_summary=prompt_summary,
             evidence_refs=evidence_refs,
             source_counts=source_counts,
-            generated_by=generated_by,
+            generated_by="rule",
+            input_assertion_highwater=assertion_highwater,
+            input_claim_highwater=claim_highwater,
+            input_review_highwater=review_highwater,
+            input_profile_highwater=profile_projection_highwater(
+                self._profile_projection
+            ),
             source_revision=derivation_revision.source_revision,
             source_generation=int(derivation_revision.clear_generation or 0),
             generated_at=time.time(),
         )
 
     async def _list_assertions(self, entity_id: str) -> list[dict[str, Any]]:
-        if self._l2_store is None:
-            return []
         list_assertions = getattr(self._l2_store, "list_current_assertions", None)
-        if list_assertions is None:
-            return []
+        if not callable(list_assertions):
+            raise RuntimeError("L2 current Assertion reads are unavailable")
         assertions = await list_assertions(
             entity_id=entity_id,
             entity_type="user",
@@ -181,6 +160,18 @@ class UserPortraitProjectionBuilder:
             for assertion in assertions
             if assertion.get("trait_family") in PORTRAIT_ASSERTION_FAMILIES
         ]
+
+    async def _latest_review_change_at(self, entity_id: str) -> float:
+        if inspect.getattr_static(
+            self._l2_store,
+            "latest_pending_review_change_at",
+            None,
+        ) is None:
+            return 0.0
+        getter = getattr(self._l2_store, "latest_pending_review_change_at", None)
+        if not callable(getter):
+            return 0.0
+        return float(await getter(subject_id=entity_id) or 0.0)
 
     async def _list_tentative_claims(
         self,
@@ -315,15 +306,6 @@ class UserPortraitProjectionBuilder:
             if item:
                 items.append(item)
         return {"items": _dedupe_items_in_order(items)[:6]}
-
-    async def _llm_overrides(self, material: dict[str, Any]) -> dict[str, Any]:
-        if self._llm_client is None:
-            return {}
-        try:
-            payload = await self._llm_client.generate_portrait(material=material)
-        except Exception:
-            return {}
-        return payload if isinstance(payload, dict) else {}
 
     @staticmethod
     def _evidence_refs(
@@ -579,7 +561,6 @@ def _optional_float(value: Any) -> float | None:
 
 __all__ = [
     "TENTATIVE_SELECTION_REF_PREFIX",
-    "UserPortraitLLMClient",
     "UserPortraitProjectionBuilder",
     "render_portrait_rule_prompt_summary",
     "select_rendered_tentative_portrait_claims",

@@ -21,6 +21,8 @@ def _app() -> FastAPI:
 
 
 def _get(*, profile_repo=None, portrait_repo=None, l2=None) -> dict:
+    if profile_repo is not None and not isinstance(profile_repo.upsert, AsyncMock):
+        profile_repo.upsert = AsyncMock(side_effect=lambda projection: projection)
     with override_dependencies_for_test(
         profile_repo=profile_repo,
         portrait_repo=portrait_repo,
@@ -89,7 +91,9 @@ def test_cold_start_returns_only_empty_grouped_view():
 
 def test_returns_existing_portrait_projection_without_rebuilding():
     profile_repo = MagicMock()
-    profile_repo.get = AsyncMock(return_value=None)
+    profile_repo.get = AsyncMock(
+        return_value=UserProfileProjection(user_id="u1", entity_id="user:u1")
+    )
     portrait_repo = MagicMock()
     portrait_repo.get = AsyncMock(return_value=_portrait())
     portrait_repo.upsert = AsyncMock()
@@ -214,7 +218,7 @@ def test_portrait_keeps_structured_assertion_value_for_correction_round_trip():
     assert item["correction_value"] == '["子涵", "哈基米"]'
 
 
-def test_hides_stale_cached_portrait_when_metadata_rebuild_fails():
+def test_keeps_stale_cached_portrait_when_dependency_read_fails():
     profile_repo = MagicMock()
     profile_repo.get = AsyncMock(return_value=None)
     portrait_repo = MagicMock()
@@ -232,6 +236,7 @@ def test_hides_stale_cached_portrait_when_metadata_rebuild_fails():
     assert body["is_cold_start"] is False
     assert body["is_stale"] is True
     assert body["cold_start_reason"] is None
+    assert "Magi 记忆系统" in str(body["self_view"])
     portrait_repo.upsert.assert_not_awaited()
 
 

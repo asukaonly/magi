@@ -11,9 +11,11 @@ from ..memory.derivation_revision import DerivationRevision
 from .derivation import derive_age_years, derive_birth_year, parse_iso_date
 from .models import (
     DEFAULT_USER_ID,
-    PROFILE_ASSERTION_FAMILIES,
-    PROFILE_ASSERTION_STATES,
     UserProfileProjection,
+)
+from .projection_freshness import (
+    assertion_records_highwater,
+    list_current_profile_assertions,
 )
 
 _FIELD_TRAITS: dict[str, str] = {
@@ -42,6 +44,12 @@ class UserProfileProjectionBuilder:
 
     def __init__(self, l2_store: Any):
         self._l2_store = l2_store
+
+    @property
+    def l2_store(self) -> Any:
+        """Return the authoritative source used for freshness checks."""
+
+        return self._l2_store
 
     async def build(self, user_id: str = DEFAULT_USER_ID) -> UserProfileProjection:
         entity_id = f"user:{user_id}"
@@ -78,26 +86,14 @@ class UserProfileProjectionBuilder:
         await derivation_revision.ensure_current(self._l2_store)
         projection.source_revision = derivation_revision.source_revision
         projection.source_generation = int(derivation_revision.clear_generation or 0)
+        projection.input_assertion_highwater = assertion_records_highwater(assertions)
         return projection
 
     async def _list_profile_assertions(self, entity_id: str) -> list[dict[str, Any]]:
-        if self._l2_store is None:
-            return []
-        list_assertions = getattr(self._l2_store, "list_current_assertions", None)
-        if list_assertions is None:
-            return []
-        assertions = await list_assertions(
+        return await list_current_profile_assertions(
+            self._l2_store,
             entity_id=entity_id,
-            entity_type="user",
-            context_scope=None,
-            limit=500,
         )
-        return [
-            assertion
-            for assertion in assertions
-            if assertion.get("trait_family") in PROFILE_ASSERTION_FAMILIES
-            and assertion.get("validation_state") in PROFILE_ASSERTION_STATES
-        ][:200]
 
     def _select_current_assertions(
         self,

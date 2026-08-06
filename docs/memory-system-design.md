@@ -894,6 +894,14 @@ selected Claim/event provenance, so a same-text fallback cannot retain evidence
 for an expired Claim. Validity-window transitions, conflict resolution, prompt
 limits, and protected Goal lines therefore cannot leave a stale hidden or newly
 visible self-report indefinitely cached.
+The persisted portrait also records exact highwaters for portrait-eligible
+Assertions, portrait-eligible Claim and tombstone changes, governed review
+mutations, and the profile projection it consumed. Source revision and memory
+clear generation remain independent fences. Freshness reads must distinguish a
+successful empty result from an unavailable or failed dependency: a failed read
+is never converted to an empty collection or a fresh verdict. Pending reviews
+invalidate the portrait read model for governance consistency, but their proposed
+content is not injected as a current user fact.
 Host conflict discovery is exhaustive over the current slot even when the
 bounded Phase 2 context omits records or the model returns no assessments.
 Model assessments may explain a conflict but never define the comparison set or
@@ -909,10 +917,16 @@ evidence: they create an L1 audit event, write confirmed L2 profile assertions,
 and then refresh the profile projection and self-portrait projection together.
 Product code and prompt assembly should read the projection first and fall back
 to raw L2 assertions only when the projection does not yet exist.
+The profile row persists the newest consumed Assertion timestamp and the exact
+Assertion IDs used by selected fields and conflicts. Reads compare those inputs,
+the subject revision, and the memory clear generation before reusing the row;
+ordinary Assertion writes therefore do not depend on a correction revision bump
+to invalidate the profile. Assertion-driven refresh always rebuilds Profile
+before Portrait so the portrait cannot consume a known-stale profile row.
 
 `user_portrait_projection` is the product-facing self-portrait read model for
 the local user. It is not an authority over L2 facts. It packages L2 assertions,
-explicit profile fields, and review state into a stable `world/review/recent`
+explicit profile fields, and governed Assertion review state into a stable `world/review/recent`
 page model plus a short `prompt_summary` for main-chat context injection. Raw
 graph edges and ToM snapshots do not enter this projection directly because they
 lack the assertion-level retention decision. Prompt assembly must use that
@@ -921,6 +935,14 @@ raw preference dictionaries, internal assertion keys, source tiers, or affinity
 metadata into the main model prompt. Clearing L2 cognition artifacts must also
 clear profile and portrait projections so local re-imports do not keep stale
 user-understanding caches.
+Portrait wording and prompt selection are deterministic host logic. There is no
+optional portrait LLM post-processor in the runtime path. A transient freshness,
+input, or rebuild failure retains the last successfully persisted projection and
+marks the product response stale; when no successful row exists, the product
+returns unavailable/omits prompt context and does not persist an empty projection.
+Only a successful dependency read whose real result is empty may materialize an
+empty profile or portrait. Projection failures are logged with projection kind,
+stage, cache-retention decision, user ID, and error type without evidence text.
 
 Portrait projection is a qualification layer above raw assertions. Assertion
 promotion owns evidence thresholds and retention; portrait projection consumes
@@ -1734,8 +1756,10 @@ contract.
 Correction-sensitive derived views use a monotonically increasing subject
 revision. Snapshots, profile projections, portrait projections, and dependent L3
 insights are hidden as soon as their source revision is stale, then rebuilt by
-durable retryable jobs. Failed rebuilds therefore reduce available context instead
-of leaking a known-wrong view. A future-dated situation change stores its time
+durable retryable jobs. A view fenced by a known revision or clear-generation
+change remains hidden, while an unrelated transient dependency failure may retain
+the last successfully fenced Profile or Portrait as explicitly stale instead of
+overwriting it with an empty result. A future-dated situation change stores its time
 range immediately but advances the subject revision only when that time arrives.
 The pending transition is durable and idempotent; the scheduler keeps the earliest
 activation time while the periodic sweep recovers missed wakeups. Page-originated

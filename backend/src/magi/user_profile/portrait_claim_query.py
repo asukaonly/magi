@@ -323,14 +323,11 @@ async def _visible_l1_event_ids(l2_store: Any, event_ids: list[str]) -> set[str]
     resolver = getattr(l2_store, "resolve_evidence_timestamps", None)
     if not callable(resolver):
         return set()
-    try:
-        resolved = resolver(event_ids)
-        if inspect.isawaitable(resolved):
-            resolved = await resolved
-    except Exception:
-        return set()
+    resolved = resolver(event_ids)
+    if inspect.isawaitable(resolved):
+        resolved = await resolved
     if not isinstance(resolved, Mapping):
-        return set()
+        raise RuntimeError("L1 evidence visibility read returned an invalid payload")
     requested = set(event_ids)
     return {str(event_id) for event_id in resolved if str(event_id) in requested}
 

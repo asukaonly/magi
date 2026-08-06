@@ -196,6 +196,21 @@ class PendingReviewRepository:
             ) as cursor:
                 return [_decode_review(row) for row in await cursor.fetchall()]
 
+    async def latest_change_at(self, *, subject_id: str) -> float:
+        """Return the newest review mutation for one subject."""
+
+        async with sqlite_connection_async(self._db_path) as db:
+            async with db.execute(
+                """
+                SELECT MAX(updated_at)
+                FROM l2_pending_reviews
+                WHERE subject_id = ?
+                """,
+                (_required_text(subject_id, "subject_id"),),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return float(row[0] or 0.0) if row is not None else 0.0
+
     async def resolve(
         self,
         *,
