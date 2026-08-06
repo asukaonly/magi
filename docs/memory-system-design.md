@@ -721,15 +721,20 @@ type against the registry, but it does not guess a replacement type from an enti
 name when the evidence cannot support that semantic decision.
 
 Knowledge graph endpoints must resolve through the entity catalog before they are
-persisted. The LLM is not an authority for inventing `entity_id` values. Grounded
-Phase 1 claims are projected into graph candidates only after their endpoints
-resolve to catalog IDs produced by Phase 1 entity resolution or source-owned
-structured hints that have first been registered in the catalog. Phase 2 does not
-emit graph edges. Graph storage and internal retrieval continue to use those stable
-IDs, while product-facing relationship read models must batch-hydrate endpoint
-names from the entity catalog. A client may cache catalog entities for reuse, but
-it must not infer a user-visible name from an ID prefix such as `concept:` or
-`other:`; an unresolved opaque endpoint is presented as unknown instead.
+persisted. The LLM is not an authority for inventing `entity_id` values. Every
+semantic route declares its projection targets explicitly: graph, assertion, or
+both. A graph projection is eligible only after its endpoints resolve to catalog
+IDs produced by Phase 1 entity resolution or source-owned structured hints that
+have first been registered in the catalog. An assertion route may remain eligible
+when its meaning is grounded but the graph endpoint is unresolved. In particular,
+preference and interest routes derive a stable semantic target from either the
+catalog entity ID or the complete normalized evidence text; display truncation is
+never used as identity. Phase 2 does not emit graph edges. Graph storage and
+internal retrieval continue to use stable catalog IDs, while product-facing
+relationship read models must batch-hydrate endpoint names from the entity
+catalog. A client may cache catalog entities for reuse, but it must not infer a
+user-visible name from an ID prefix such as `concept:` or `other:`; an unresolved
+opaque endpoint is presented as unknown instead.
 Evidence-derived entity text and model-generated summaries have
 different language contracts. The configured user language guides Phase 2
 natural-language summaries, but it is interpretation context only in Phase 1 and
@@ -803,33 +808,25 @@ without trustworthy time provenance is review-only, while `stable` or
 `unspecified` Claims are not rejected merely because their evidence lacks an
 exact timestamp.
 
-A concrete `PLANS_TO` Claim with `fact_kind = future_intent` and a resolved
-target is routed to `goal_profile` / `goal.intent`, not to the knowledge graph.
-Phase 1 should represent the complete planned action referenced by the Claim as
-a concrete entity rather than extracting only nested nouns. When the model omits
-that representation, the host may complete it only after the Claim has passed
-current-evidence grounding, only when the exact concrete `object_ref` occurs in
-that Claim's evidence quote, and only by submitting the target through ordinary
-entity quality, catalog, and resolution rules. It must not invent an entity ID or
-route directly from an unresolved surface string.
-Only direct user evidence may become a current goal assertion. The host creates
-the minimal assertion candidate independently of optional Phase 2 output, so an
-empty or failed Phase 2 cannot discard a qualifying goal, and derives its literal
-user-facing value from the Claim target rather than model synthesis or an
-internal entity ID. Goal identity includes the target window so plans for
-different windows do not collapse into one slot. A trusted current goal is
-bounded recent context whose expiry follows the resolved target end, or a
-30-day fallback when no schedule was stated; ambiguous or low-confidence timing
-produces a review outcome, and an elapsed target produces an expired outcome,
-without creating a current assertion.
+A concrete `PLANS_TO` Claim with `fact_kind = future_intent` is routed to
+`goal_profile` / `goal.intent`, never to the knowledge graph. Its object is the
+complete grounded action text, not an entity endpoint. Nested people, projects,
+places, and concepts may still be extracted as entities for other claims, but
+the goal itself must not be converted into a synthetic `concept` or `other`
+node merely to satisfy graph shape.
 
-For a complete current calendar frame, Goal slot identity uses canonical civil
-precision and bounds, while expression spelling, evidence-anchor IDs, timezone
-aliases, and runtime epoch representation remain provenance rather than slot
-identity. Legacy frames that lack a complete civil descriptor fall back to their
-already persisted `target_from` / `target_to`; two historical `tomorrow` Claims
-with different durable epoch windows therefore cannot collapse during route
-upgrade.
+Only direct user evidence may become a current goal assertion. The host derives
+its literal user-facing value from the complete Claim object text rather than
+model synthesis or an internal entity ID. Goal slot identity is based on the
+subject and normalized goal meaning; its target window is mutable state, not
+identity. The assertion stores an opaque `semantic_lineage_key` for deterministic
+renewal and a separate `target_window` envelope containing the resolved bounds,
+raw expression, resolution, and calendar provenance. Rephrasing or rescheduling
+the same goal can therefore update one lineage without creating a new identity
+for every date expression. A trusted current goal is bounded recent context whose
+expiry follows the resolved target end, or a host-owned fallback when no schedule
+was stated; ambiguous or low-confidence timing produces a review outcome, and an
+elapsed target produces an expired outcome without creating a current assertion.
 
 Semantic-route maintenance is host-owned. Maintenance callers provide only a
 Claim identity and a bounded pass size; the host derives the current route
@@ -1017,6 +1014,7 @@ Key properties:
 - Has exactly one extraction ingress: durable projection jobs written from `L1`
 - Does not accept runtime-only events or maintain an in-memory event staging path
 - Manual flushing claims pending durable projection rows; it never fabricates unleased extract jobs
+- Routes every grounded Claim to explicit graph/assertion projection targets before downstream materialization
 
 #### L2 Product Subdomains
 
@@ -1229,7 +1227,7 @@ Extraction flow:
   queued work to `pending`; a subset of leases can never complete the whole batch.
 - Phase 1 extracts current-batch entities, facts, and candidate observations from admitted events, using source-owned hints and extraction-profile instructions as anchors. Each fact includes a grounded linguistic temporal cue (`one_off`, `recent`, `recurring`, `stable`, or `unspecified`) that reflects explicit source wording only; it never owns retention policy. The host then assigns each retained fact a deterministic claim reference and verifies its current quote, evidence mode, and bounded antecedent IDs. Missing, out-of-batch, context-only, or unmatchable support rejects that candidate without retrying the full response and without expanding evidence to the whole batch.
 - Phase 1 entity candidates are admitted only when their exact surface occurs in eligible current evidence. Cross-script translated normalized names are restored to that surface before typed entity resolution, and alias signals absent from the same evidence are discarded. Imported Markdown occurrence checks exclude blockquotes, code, and pasted dialogue. Extracted entity mentions are then attributed only to events that literally contain the surface or retained normalized name. A context-only entity may be used transiently only for a validated contextual claim when its exact catalog ID and canonical name already exist, but it cannot create catalog records, aliases, event-entity links, or mention evidence for the current event. Underspecified entities are not registered.
-- Grounded Phase 1 claims are projected deterministically into graph candidates. The graph store owns merge, corroboration, exclusivity, and opposite-predicate handling; Phase 2 never restates those facts as graph writes.
+- Grounded Phase 1 claims receive a deterministic semantic route before projection. Only routes that explicitly target the graph and have resolved catalog endpoints become graph candidates; independently eligible assertion routes are not discarded merely because an optional graph endpoint is unresolved. The graph store owns merge, corroboration, exclusivity, and opposite-predicate handling; Phase 2 never restates those facts as graph writes.
 - Entity disambiguation and Phase 2 are optional enrichments. If entity disambiguation exhausts its model/JSON retries, affected mentions remain unresolved and no fallback entity is created. If Phase 2 or conflict arbitration exhausts its retries, validated Phase 1 graph facts, structured facets, and host-owned qualifying Goal assertions are still persisted; model-owned higher-order candidates are discarded, and the projection is completed with the degraded stage recorded in diagnostics and logs.
 - Before Phase 2, the pipeline may build a deterministic evidence packet from current Phase 1 output, bounded L1 history contexts, existing L2 graph edges, and existing assertion state. This retrieval step must not call an LLM; it is a cost-controlled recall step that gives Phase 2 corroboration, conflict, and prior-state context. The packet also reports how many prior history contexts support each current candidate, so Phase 2 can distinguish a one-off mention from a recurring signal without adding another LLM recall step. The model packet remains bounded, but host conflict arbitration separately pages the complete current slot domain before persistence; truncating prompt context cannot truncate the safety check.
 - Phase 1 resolved entities may be used to fetch directly linked L1 event text through the event-entity index; this is preferred over asking the model to rediscover history. External sensor events without a session must not fall back to arbitrary same-user recent chat context.

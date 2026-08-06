@@ -562,8 +562,13 @@ def _route_outcome_details(decision: SemanticRouteDecision) -> dict[str, Any]:
         "family": decision.family,
         "trait_code": decision.trait_code,
         "object_role": decision.object_role.value,
+        "projection_targets": sorted(target.value for target in decision.projection_targets),
         "value_fingerprint": decision.value_fingerprint,
+        "semantic_target_key": decision.semantic_target_key,
+        "object_surface": decision.object_surface,
+        "normalized_target_text": decision.normalized_target_text,
         "target_entity_type": decision.target_entity_type,
+        "goal_lineage_key": decision.goal_lineage_key,
         "target_window_key": decision.target_window_key,
         "scope_key": decision.scope_key,
     }

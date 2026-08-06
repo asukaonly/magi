@@ -96,6 +96,8 @@ class L2StoreRowMappingMixin:
                 if "scope_json" in columns
                 else {}
             ),
+            "semantic_lineage_key": str(row["semantic_lineage_key"] or ""),
+            "target_window": json.loads(row["target_window_json"] or "{}"),
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         })

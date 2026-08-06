@@ -17,8 +17,8 @@ from .claims.identity import canonical_json
 from .ontology import PROFILE_SIGNAL_PREDICATES
 from .predicate_catalog import SPEC_BY_CANONICAL
 
-ROUTE_CONTRACT_VERSION = 4
-SLOT_SCHEMA_VERSION = 1
+ROUTE_CONTRACT_VERSION = 5
+SLOT_SCHEMA_VERSION = 2
 
 
 class ObjectRole(str, Enum):
@@ -26,8 +26,17 @@ class ObjectRole(str, Enum):
 
     CANONICAL_VALUE = "canonical_value"
     TARGET_IDENTITY = "target_identity"
+    TARGET_ID_OR_TEXT = "target_id_or_text"
+    GOAL_TEXT = "goal_text"
     STRUCTURED_TARGET_AND_VALUE = "structured_target_and_value"
     UNSUPPORTED = "unsupported"
+
+
+class ProjectionTarget(str, Enum):
+    """Product projection explicitly supported by one semantic route."""
+
+    GRAPH = "graph"
+    ASSERTION = "assertion"
 
 
 class RouteDisposition(str, Enum):
@@ -79,12 +88,28 @@ class SemanticRouteDecision:
     subject_type: str | None = None
     target_entity_id: str | None = None
     target_entity_type: str | None = None
+    object_surface: str | None = None
+    normalized_target_text: str | None = None
+    semantic_target_key: str | None = None
+    goal_lineage_key: str | None = None
     target_window_key: str | None = None
+    projection_targets: frozenset[ProjectionTarget] = frozenset()
     scope_key: str = "global"
 
     @property
     def can_project_assertion(self) -> bool:
-        return self.disposition is RouteDisposition.ROUTED and bool(self.slot_key)
+        return (
+            self.disposition is RouteDisposition.ROUTED
+            and ProjectionTarget.ASSERTION in self.projection_targets
+            and bool(self.slot_key)
+        )
+
+    @property
+    def can_project_graph(self) -> bool:
+        return (
+            ProjectionTarget.GRAPH in self.projection_targets
+            and bool(self.target_entity_id)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,8 +119,16 @@ class _RouteSpec:
     trait_code: str
     object_role: ObjectRole
     allowed_fact_kinds: frozenset[str]
+    projection_targets: frozenset[ProjectionTarget]
     canonical_value: str | None = None
     required_object_type: str | None = None
+
+
+_ASSERTION_ONLY = frozenset({ProjectionTarget.ASSERTION})
+_GRAPH_AND_ASSERTION = frozenset(
+    {ProjectionTarget.GRAPH, ProjectionTarget.ASSERTION}
+)
+_GRAPH_ONLY = frozenset({ProjectionTarget.GRAPH})
 
 
 _STATED_AGE_SPEC = _RouteSpec(
@@ -104,6 +137,7 @@ _STATED_AGE_SPEC = _RouteSpec(
     "identity.age.stated",
     ObjectRole.CANONICAL_VALUE,
     frozenset({"explicit_fact"}),
+    _ASSERTION_ONLY,
 )
 
 _ASCII_INTEGER = re.compile(r"[0-9]+")
@@ -116,6 +150,7 @@ _LITERAL_SPECS: dict[str, _RouteSpec] = {
         "identity.real_name",
         ObjectRole.CANONICAL_VALUE,
         frozenset({"explicit_fact"}),
+        _ASSERTION_ONLY,
     ),
     "BIRTH_DATE": _RouteSpec(
         "identity.birth_date",
@@ -123,6 +158,7 @@ _LITERAL_SPECS: dict[str, _RouteSpec] = {
         "identity.birth_date",
         ObjectRole.CANONICAL_VALUE,
         frozenset({"explicit_fact"}),
+        _ASSERTION_ONLY,
     ),
     "BIRTH_YEAR": _RouteSpec(
         "identity.birth_year",
@@ -130,6 +166,7 @@ _LITERAL_SPECS: dict[str, _RouteSpec] = {
         "identity.birth_year",
         ObjectRole.CANONICAL_VALUE,
         frozenset({"explicit_fact"}),
+        _ASSERTION_ONLY,
     ),
     "STATED_AGE": _STATED_AGE_SPEC,
     # AGE is retained as a declared profile signal. Canonicalization normally
@@ -142,6 +179,7 @@ _LITERAL_SPECS: dict[str, _RouteSpec] = {
         "communication.address.preferred",
         ObjectRole.CANONICAL_VALUE,
         frozenset({"explicit_fact"}),
+        _ASSERTION_ONLY,
     ),
     "DISALLOWED_FORM_OF_ADDRESS": _RouteSpec(
         "communication.address.disallowed",
@@ -149,6 +187,7 @@ _LITERAL_SPECS: dict[str, _RouteSpec] = {
         "communication.address.disallowed",
         ObjectRole.CANONICAL_VALUE,
         frozenset({"explicit_fact"}),
+        _ASSERTION_ONLY,
     ),
     "PREFERRED_COMMUNICATION_STYLE": _RouteSpec(
         "communication.response_style.preferred",
@@ -156,6 +195,7 @@ _LITERAL_SPECS: dict[str, _RouteSpec] = {
         "communication.response_style.preferred",
         ObjectRole.CANONICAL_VALUE,
         frozenset({"explicit_fact"}),
+        _ASSERTION_ONLY,
     ),
 }
 
@@ -164,24 +204,27 @@ _TARGET_SPECS: dict[str, _RouteSpec] = {
         "preference.affinity",
         "preference_profile",
         "preference.affinity",
-        ObjectRole.TARGET_IDENTITY,
+        ObjectRole.TARGET_ID_OR_TEXT,
         frozenset({"explicit_fact", "stable_preference"}),
+        _GRAPH_AND_ASSERTION,
         canonical_value="like",
     ),
     "DISLIKES": _RouteSpec(
         "preference.affinity",
         "preference_profile",
         "preference.affinity",
-        ObjectRole.TARGET_IDENTITY,
+        ObjectRole.TARGET_ID_OR_TEXT,
         frozenset({"explicit_fact", "stable_preference"}),
+        _GRAPH_AND_ASSERTION,
         canonical_value="dislike",
     ),
     "INTERESTED_IN": _RouteSpec(
         "interest.attention",
         "interest_profile",
         "interest.attention",
-        ObjectRole.TARGET_IDENTITY,
+        ObjectRole.TARGET_ID_OR_TEXT,
         frozenset({"explicit_fact"}),
+        _GRAPH_AND_ASSERTION,
         canonical_value="interested",
     ),
     "CREATES": _RouteSpec(
@@ -190,6 +233,7 @@ _TARGET_SPECS: dict[str, _RouteSpec] = {
         "project.role.creator",
         ObjectRole.TARGET_IDENTITY,
         frozenset({"explicit_fact"}),
+        _GRAPH_AND_ASSERTION,
         canonical_value="creator",
         required_object_type="project",
     ),
@@ -199,6 +243,7 @@ _TARGET_SPECS: dict[str, _RouteSpec] = {
         "project.engagement.active",
         ObjectRole.TARGET_IDENTITY,
         frozenset({"explicit_fact"}),
+        _GRAPH_AND_ASSERTION,
         canonical_value="active",
         required_object_type="project",
     ),
@@ -208,6 +253,7 @@ _TARGET_SPECS: dict[str, _RouteSpec] = {
         "project.role.developer",
         ObjectRole.TARGET_IDENTITY,
         frozenset({"explicit_fact"}),
+        _GRAPH_AND_ASSERTION,
         canonical_value="developer",
         required_object_type="project",
     ),
@@ -217,6 +263,7 @@ _TARGET_SPECS: dict[str, _RouteSpec] = {
         "project.role.maintainer",
         ObjectRole.TARGET_IDENTITY,
         frozenset({"explicit_fact"}),
+        _GRAPH_AND_ASSERTION,
         canonical_value="maintainer",
         required_object_type="project",
     ),
@@ -226,6 +273,7 @@ _TARGET_SPECS: dict[str, _RouteSpec] = {
         "project.role.contributor",
         ObjectRole.TARGET_IDENTITY,
         frozenset({"explicit_fact"}),
+        _GRAPH_AND_ASSERTION,
         canonical_value="contributor",
         required_object_type="project",
     ),
@@ -237,14 +285,16 @@ _FEELS_SPEC = _RouteSpec(
     "mood",
     ObjectRole.CANONICAL_VALUE,
     frozenset({"explicit_fact"}),
+    _ASSERTION_ONLY,
 )
 
 _GOAL_SPEC = _RouteSpec(
     "goal.intent",
     "goal_profile",
     "goal.intent",
-    ObjectRole.TARGET_IDENTITY,
+    ObjectRole.GOAL_TEXT,
     frozenset({"future_intent"}),
+    _ASSERTION_ONLY,
     canonical_value="planned",
 )
 
@@ -362,21 +412,37 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
                 disposition=RouteDisposition.UNROUTED,
                 reason_code="goal_target_not_concrete",
                 object_role=_GOAL_SPEC.object_role,
+                projection_targets=_GOAL_SPEC.projection_targets,
             )
-        target_id = str(route_input.object_entity_id or "").strip()
-        if not target_id:
+        goal_text = _normalize_semantic_text(route_input.object_value)
+        if not goal_text:
             return _non_routed(
                 route_input,
                 disposition=RouteDisposition.UNROUTED,
-                reason_code="unresolved_target",
+                reason_code="invalid_goal_text",
                 object_role=_GOAL_SPEC.object_role,
+                projection_targets=_GOAL_SPEC.projection_targets,
             )
+        scope_key = "global"
+        semantic_target_key = _text_target_key("goal", goal_text)
         return _routed(
             route_input,
             spec=_GOAL_SPEC,
             canonical_value=_GOAL_SPEC.canonical_value,
-            target_entity_id=target_id,
-            target_entity_type=object_type,
+            semantic_target_key=semantic_target_key,
+            target_entity_id=None,
+            target_entity_type=None,
+            object_surface=str(route_input.object_value or "").strip(),
+            normalized_target_text=goal_text[:200],
+            goal_lineage_key=_opaque_key(
+                "gln",
+                {
+                    "subject_type": _required(route_input.subject_type),
+                    "subject_id": _required(route_input.subject_id),
+                    "normalized_goal_text": goal_text,
+                    "scope_key": scope_key,
+                },
+            ),
             target_window_key=_goal_target_window_key(route_input),
         )
 
@@ -390,13 +456,16 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
                 disposition=RouteDisposition.UNROUTED,
                 reason_code="invalid_typed_value",
                 object_role=_FEELS_SPEC.object_role,
+                projection_targets=_FEELS_SPEC.projection_targets,
             )
         return _routed(
             route_input,
             spec=_FEELS_SPEC,
             canonical_value=canonical_value,
+            semantic_target_key="literal",
             target_entity_id=None,
             target_entity_type=None,
+            object_surface=str(route_input.object_value or "").strip(),
         )
 
     if predicate == "HAS_METRIC":
@@ -413,6 +482,7 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
             disposition=RouteDisposition.DEFERRED,
             reason_code="derived_rule_required",
             object_role=ObjectRole.TARGET_IDENTITY,
+            projection_targets=_GRAPH_ONLY,
         )
 
     if predicate in _RELATIONSHIP_ONLY_PREDICATES:
@@ -421,6 +491,7 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
             disposition=RouteDisposition.NOT_APPLICABLE,
             reason_code="relationship_only",
             object_role=ObjectRole.TARGET_IDENTITY,
+            projection_targets=_GRAPH_ONLY,
         )
 
     spec = _LITERAL_SPECS.get(predicate)
@@ -434,13 +505,16 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
                 disposition=RouteDisposition.UNROUTED,
                 reason_code="invalid_typed_value",
                 object_role=spec.object_role,
+                projection_targets=spec.projection_targets,
             )
         return _routed(
             route_input,
             spec=spec,
             canonical_value=canonical_value,
+            semantic_target_key="literal",
             target_entity_id=None,
             target_entity_type=None,
+            object_surface=str(route_input.object_value or "").strip(),
         )
 
     spec = _TARGET_SPECS.get(predicate)
@@ -451,6 +525,7 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
                 disposition=RouteDisposition.DEFERRED,
                 reason_code="derived_rule_required",
                 object_role=spec.object_role,
+                projection_targets=_GRAPH_ONLY,
             )
         if fact_kind not in spec.allowed_fact_kinds:
             return _mismatch(route_input, spec)
@@ -460,21 +535,40 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
                 disposition=RouteDisposition.NOT_APPLICABLE,
                 reason_code="relationship_only",
                 object_role=spec.object_role,
+                projection_targets=_GRAPH_ONLY,
             )
         target_id = str(route_input.object_entity_id or "").strip()
-        if not target_id:
+        normalized_text = _normalize_semantic_text(route_input.object_value)
+        if spec.object_role is ObjectRole.TARGET_IDENTITY and not target_id:
             return _non_routed(
                 route_input,
                 disposition=RouteDisposition.UNROUTED,
                 reason_code="unresolved_target",
                 object_role=spec.object_role,
+                projection_targets=spec.projection_targets,
             )
+        if spec.object_role is ObjectRole.TARGET_ID_OR_TEXT and not target_id and not normalized_text:
+            return _non_routed(
+                route_input,
+                disposition=RouteDisposition.UNROUTED,
+                reason_code="invalid_target_text",
+                object_role=spec.object_role,
+                projection_targets=spec.projection_targets,
+            )
+        semantic_target_key = (
+            f"entity:{target_id}"
+            if target_id
+            else _text_target_key("text", normalized_text)
+        )
         return _routed(
             route_input,
             spec=spec,
             canonical_value=spec.canonical_value,
-            target_entity_id=target_id,
-            target_entity_type=object_type,
+            semantic_target_key=semantic_target_key,
+            target_entity_id=target_id or None,
+            target_entity_type=object_type if target_id else None,
+            object_surface=str(route_input.object_value or "").strip(),
+            normalized_target_text=normalized_text[:200] if normalized_text else None,
         )
 
     if predicate in ROUTE_DISPOSITION_BY_PREDICATE:
@@ -493,8 +587,12 @@ def _routed(
     *,
     spec: _RouteSpec,
     canonical_value: Any,
+    semantic_target_key: str,
     target_entity_id: str | None,
     target_entity_type: str | None,
+    object_surface: str | None = None,
+    normalized_target_text: str | None = None,
+    goal_lineage_key: str | None = None,
     target_window_key: str | None = None,
 ) -> SemanticRouteDecision:
     subject_id = _required(route_input.subject_id)
@@ -506,12 +604,9 @@ def _routed(
         "subject_id": subject_id,
         "semantic_route_id": spec.semantic_route_id,
         "fact_kind": _required(route_input.fact_kind).casefold(),
-        "target_entity_id": target_entity_id or "",
-        "object_identity_or_typed_value": target_entity_id or canonical_value,
+        "semantic_target_key": semantic_target_key,
         "scope_key": scope_key,
     }
-    if target_window_key is not None:
-        identity["target_window_key"] = target_window_key
     route_key = _opaque_key("srk", identity)
     slot_identity: dict[str, Any] = {
         "slot_schema_version": SLOT_SCHEMA_VERSION,
@@ -519,11 +614,9 @@ def _routed(
         "subject_id": subject_id,
         "family": spec.family,
         "trait_code": spec.trait_code,
-        "target_entity_id": target_entity_id or "",
+        "semantic_target_key": semantic_target_key,
         "scope_key": scope_key,
     }
-    if target_window_key is not None:
-        slot_identity["target_window_key"] = target_window_key
     slot_key = _opaque_key(
         "slt",
         slot_identity,
@@ -551,7 +644,12 @@ def _routed(
         subject_type=subject_type,
         target_entity_id=target_entity_id,
         target_entity_type=target_entity_type,
+        object_surface=object_surface,
+        normalized_target_text=normalized_target_text,
+        semantic_target_key=semantic_target_key,
+        goal_lineage_key=goal_lineage_key,
         target_window_key=target_window_key,
+        projection_targets=spec.projection_targets,
         scope_key=scope_key,
     )
 
@@ -628,6 +726,7 @@ def _mismatch(
         disposition=RouteDisposition.UNROUTED,
         reason_code="predicate_fact_kind_mismatch",
         object_role=spec.object_role,
+        projection_targets=spec.projection_targets,
     )
 
 
@@ -637,12 +736,14 @@ def _non_routed(
     disposition: RouteDisposition,
     reason_code: str,
     object_role: ObjectRole,
+    projection_targets: frozenset[ProjectionTarget] = frozenset(),
 ) -> SemanticRouteDecision:
     return SemanticRouteDecision(
         claim_id=_required(route_input.claim_id),
         disposition=disposition,
         reason_code=reason_code,
         object_role=object_role,
+        projection_targets=projection_targets,
         subject_id=_required(route_input.subject_id),
         subject_type=_required(route_input.subject_type),
     )
@@ -681,6 +782,16 @@ def _canonical_literal(predicate: str, value: Any) -> Any | None:
     return text[:200]
 
 
+def _normalize_semantic_text(value: Any) -> str:
+    text = unicodedata.normalize("NFKC", str(value or "")).casefold().strip()
+    return " ".join(text.split())
+
+
+def _text_target_key(prefix: str, normalized_text: str) -> str:
+    digest = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
+    return f"{prefix}:{digest}"
+
+
 def _opaque_key(prefix: str, material: dict[str, Any]) -> str:
     digest = hashlib.sha256(canonical_json(material).encode("utf-8")).hexdigest()
     return f"{prefix}_{digest[:32]}"
@@ -695,6 +806,7 @@ def _required(value: Any) -> str:
 
 __all__ = [
     "ObjectRole",
+    "ProjectionTarget",
     "ROUTE_CONTRACT_VERSION",
     "ROUTE_DISPOSITION_BY_PREDICATE",
     "ROUTE_EXTENSION_PREDICATES",

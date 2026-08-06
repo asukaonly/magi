@@ -221,6 +221,8 @@ export interface L2Assertion {
   valid_from?: number | null;
   valid_to?: number | null;
   scope?: Record<string, unknown> | null;
+  semantic_lineage_key?: string;
+  target_window?: Record<string, unknown> | null;
   status?: string | null;
   superseded_by?: string | null;
   superseded_at?: number | null;
