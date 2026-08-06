@@ -30,12 +30,13 @@ from .history_markdown import (
     HISTORY_DOCUMENT_EVENT_TYPE,
     find_history_document_author_occurrence,
 )
+from .source_time_policy import resolve_event_time_semantics
 from .temporal_claims import resolve_claim_temporal_fields
 
 logger = get_logger("magi.memory.l2.pipeline")
 
-EXTRACTOR_CONTRACT_VERSION = 3
-EVIDENCE_RULE_VERSION = 1
+EXTRACTOR_CONTRACT_VERSION = 4
+EVIDENCE_RULE_VERSION = 2
 ENTITY_RESOLUTION_VERSION = 1
 
 
@@ -414,9 +415,7 @@ def _claim_event_links(
         batch_event = events.get(event_id)
         if batch_event is None:
             continue
-        timestamp_source, timestamp_quality, anchor_source = _timestamp_provenance(
-            batch_event.metadata_json
-        )
+        time_semantics = resolve_event_time_semantics(batch_event)
         classification = classifications.get(event_id)
         links.append(
             ClaimEvidenceInput(
@@ -424,9 +423,9 @@ def _claim_event_links(
                 link_role="supporting",
                 required_for_grounding=False,
                 event_time=batch_event.timestamp,
-                timestamp_confidence=timestamp_source,
-                timestamp_quality=timestamp_quality,
-                timestamp_anchor_source=anchor_source,
+                timestamp_confidence=time_semantics.timestamp_confidence,
+                timestamp_quality=time_semantics.timestamp_quality,
+                timestamp_anchor_source=time_semantics.timestamp_anchor_source,
                 evidence_rule_version=EVIDENCE_RULE_VERSION,
                 evidence_mode=evidence_mode,
                 source_type=batch_event.source,
@@ -449,9 +448,7 @@ def _claim_event_links(
         antecedent_event = antecedent_events.get(event_id)
         if antecedent_event is None:
             continue
-        timestamp_source, timestamp_quality, anchor_source = _timestamp_provenance(
-            antecedent_event.metadata_json or {}
-        )
+        time_semantics = resolve_event_time_semantics(antecedent_event)
         classification = classify_event_evidence(antecedent_event)
         links.append(
             ClaimEvidenceInput(
@@ -459,9 +456,9 @@ def _claim_event_links(
                 link_role="antecedent",
                 required_for_grounding=True,
                 event_time=antecedent_event.timestamp,
-                timestamp_confidence=timestamp_source,
-                timestamp_quality=timestamp_quality,
-                timestamp_anchor_source=anchor_source,
+                timestamp_confidence=time_semantics.timestamp_confidence,
+                timestamp_quality=time_semantics.timestamp_quality,
+                timestamp_anchor_source=time_semantics.timestamp_anchor_source,
                 evidence_rule_version=EVIDENCE_RULE_VERSION,
                 evidence_mode=evidence_mode,
                 source_type=antecedent_event.source,
@@ -508,32 +505,6 @@ async def _load_antecedent_events(
             raise RuntimeError(f"Claim antecedent event is unavailable: {event_id}")
         hydrated[event_id] = event
     return hydrated
-
-
-def _timestamp_provenance(
-    metadata: dict[str, Any],
-) -> tuple[str, str, str | None]:
-    history = metadata.get("history_import") if isinstance(metadata, dict) else None
-    history_payload = history if isinstance(history, dict) else {}
-    source = (
-        str(
-            history_payload.get("timestamp_confidence")
-            or metadata.get("timestamp_confidence")
-            or ("unknown" if isinstance(history, dict) else "exact")
-        )
-        .strip()
-        .casefold()
-    )
-    if source == "exact":
-        quality = "exact"
-    elif source in {"frontmatter", "source_name", "document_heading", "calendar_anchor"}:
-        quality = "calendar_anchor"
-    elif source in {"file_order", "source_order", "derived_order"}:
-        quality = "derived_order"
-    else:
-        quality = "low"
-    anchor = str(history_payload.get("timestamp_anchor_source") or "").strip() or None
-    return source, quality, anchor
 
 
 def _event_memory_domain(batch: _PreparedExtractionBatch, event_id: str) -> str | None:

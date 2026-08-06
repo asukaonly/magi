@@ -269,7 +269,7 @@ async def test_personal_markdown_headings_import_as_one_source_event(
     from magi.memory.evidence import classify_event_evidence
     from magi.memory.l2.batch_models import L2BatchEvent, L2EventWindow
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
-    from magi.memory.l2.pipeline.claim_persistence import _timestamp_provenance
+    from magi.memory.l2.pipeline.source_time_policy import resolve_event_time_semantics
     from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
 
     classification = classify_event_evidence(event)
@@ -287,12 +287,10 @@ async def test_personal_markdown_headings_import_as_one_source_event(
         batch_event.metadata_json["history_import"]["timestamp_confidence"]
         == preview.preview_records[0].timestamp_confidence
     )
-    timestamp_source, timestamp_quality, timestamp_anchor = _timestamp_provenance(
-        batch_event.metadata_json
-    )
-    assert timestamp_source == preview.preview_records[0].timestamp_confidence
-    assert timestamp_quality == "low"
-    assert timestamp_anchor is None
+    time_semantics = resolve_event_time_semantics(event)
+    assert time_semantics.timestamp_confidence == preview.preview_records[0].timestamp_confidence
+    assert time_semantics.timestamp_quality == "approximate_recorded"
+    assert time_semantics.timestamp_anchor_source == "file_mtime"
     assert prompt.count(event.content) == 1
     assert "historical documents, not live chat turns" in prompt
     await service.stop()

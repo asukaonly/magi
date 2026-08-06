@@ -781,19 +781,35 @@ implementation details from the other.
 The grounded Claim is the durable handoff between extraction and downstream
 projections. Phase 1 may emit only a `raw_time_expression` copied verbatim from
 the current evidence quote, or an empty value; it never calculates or rewrites
-dates. New L1 writes attach the validated IANA calendar timezone captured at
-ingestion when the host can resolve one. Calendar-sensitive Claim resolution
-requires that persisted timezone and resolves relative expressions only against
-trusted supporting-event timestamps. Missing timezone provenance, conflicting
-resolved ranges, or a non-positive civil interval fail closed. A supporting
-timestamp beyond the bounded future clock-skew window is specifically invalid as
-a relative-time anchor, even when the source labels it `exact` or
-`calendar_anchor`; an absolute grounded calendar expression does not depend on
-that event-time anchor. Equivalent IANA aliases may converge only when they
-produce the same actual calendar range. Non-intent Claims populate fact-validity
-fields, while `future_intent` Claims populate a separate target window. Ambiguous
-or low-quality relative anchors preserve the raw expression without inventing a
-numeric range.
+dates. The host classifies every supporting event through a closed source-time
+policy before Claim persistence. `timestamp_quality` has exactly five meanings:
+`exact`, `calendar_anchor`, `approximate_recorded`, `derived_order`, and `low`.
+Only `exact` and `calendar_anchor` may prove currentness or anchor relative
+expressions. File modification, sync, capture, and import timestamps are
+`approximate_recorded`; file or message order without a timestamp is
+`derived_order`. Neither can activate a current Goal, calculate recency, or
+anchor decay. Unknown sensors are `low` even if arbitrary plugin metadata claims
+to be exact. Live chat/channel message timestamps, declared calendar sources,
+manual-entry event times, and host-owned history-import provenance are the only
+initial trusted policies. Claim evidence stores both the normalized quality and
+the accepted `timestamp_anchor_source` for audit.
+
+New L1 writes attach the validated IANA calendar timezone captured at ingestion
+when the host can resolve one. Calendar-sensitive Claim resolution requires that
+persisted timezone and resolves relative expressions only against trusted
+supporting-event timestamps. An ordered host rule table handles absolute dates,
+relative days, weeks and months, named weekdays, year-bound seasons, half-year
+periods, and bounded `N`-unit offsets. A season without a year, such as `秋天`,
+remains `unresolved_text`; the host never silently chooses the next season.
+Winter ranges cross the civil year boundary. Missing timezone provenance,
+conflicting resolved ranges, or a non-positive civil interval fail closed. A
+supporting timestamp beyond the bounded future clock-skew window is invalid as a
+relative-time anchor even when its quality is trusted; an absolute grounded
+calendar expression does not depend on that event-time anchor. Equivalent IANA
+aliases may converge only when they produce the same actual calendar range.
+Non-intent Claims populate fact-validity fields, while `future_intent` Claims
+populate a separate target window. Ambiguous or low-quality relative anchors
+preserve the raw expression without inventing a numeric range.
 
 The immutable Claim identity includes the grounded raw expression, temporal
 kind, and resolution class, but excludes the host-derived epoch projection and
