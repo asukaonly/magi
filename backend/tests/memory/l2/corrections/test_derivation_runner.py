@@ -14,6 +14,7 @@ from magi.memory.l2.corrections.models import (
     CorrectionKind,
 )
 from magi.memory.l2.corrections.service import MemoryCorrectionService
+from magi.user_profile.models import UserProfileProjection
 from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from magi.user_profile.portrait_projection_repository import (
     UserPortraitProjectionRepository,
@@ -488,9 +489,11 @@ async def test_portrait_builder_rejects_superseded_profile_input() -> None:
         async def list_current_assertions(self, **_kwargs):  # type: ignore[no-untyped-def]
             return []
 
-    stale_profile = UserProfileProjectionBuilder(None)
-    profile = await stale_profile.build("u1")
-    assert profile.source_revision == 0
+    profile = UserProfileProjection(
+        user_id="u1",
+        entity_id="user:u1",
+        source_revision=0,
+    )
 
     with pytest.raises(DerivationRevisionChangedError):
         await UserPortraitProjectionBuilder(

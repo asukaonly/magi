@@ -658,7 +658,7 @@ describe('MemoryKnowledgePage correction entry', () => {
       l2ActionLoading: false,
       submitManualL2Event: vi.fn().mockResolvedValue(undefined),
       replayL2Extraction: vi.fn().mockResolvedValue(undefined),
-      flushL2Microbatches: vi.fn().mockResolvedValue(undefined),
+      flushL2ProjectionJobs: vi.fn().mockResolvedValue(undefined),
       runL2Reconcile: vi.fn().mockResolvedValue(undefined),
       runL2SnapshotRefresh: vi.fn().mockResolvedValue(undefined),
       upsertL2GraphConflictRule: vi.fn().mockResolvedValue(undefined),

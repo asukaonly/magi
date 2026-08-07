@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
+from ..batching_policy import (
+    DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH,
+    DEFAULT_L2_MAX_EVENTS_PER_BATCH,
+)
 from ..models import ResolvedEntityMention
-from .conflict import L2ConflictArbitrationMixin
 from .context import L2PipelineContextMixin
 from .entities.resolution import L2EntityResolutionMixin
 from .entities.side_effects import L2EntitySideEffectMixin
 from .extraction import L2PipelineExtractionMixin
 from .lifecycle import (
-    DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
     DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS,
-    DEFAULT_L2_BATCH_SHUTDOWN_TIMEOUT_SECONDS,
-    DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE,
     DEFAULT_L2_EXTRACT_WORKER_COUNT,
     DEFAULT_L2_PROJECTION_CLAIM_LIMIT,
     DEFAULT_L2_PROJECTION_STALE_QUEUED_TIMEOUT_SECONDS,
@@ -21,11 +21,9 @@ from .lifecycle import (
     L2PipelineStats,
 )
 from .persistence import L2PipelinePersistenceMixin
-from .staging import (
+from .queueing import (
     DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS,
-    DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH,
-    DEFAULT_L2_MAX_EVENTS_PER_BATCH,
-    L2PipelineStagingMixin,
+    L2PipelineQueueMixin,
 )
 from .utils import L2PipelineUtilityMixin
 from .validation import L2ValidationMixin
@@ -35,11 +33,10 @@ from .workers import L2PipelineWorkerMixin
 class L2Pipeline(
     L2PipelineLifecycleMixin,
     L2PipelineUtilityMixin,
-    L2PipelineStagingMixin,
+    L2PipelineQueueMixin,
     L2PipelineContextMixin,
     L2PipelineWorkerMixin,
     L2PipelineExtractionMixin,
-    L2ConflictArbitrationMixin,
     L2EntityResolutionMixin,
     L2EntitySideEffectMixin,
     L2PipelinePersistenceMixin,
@@ -49,10 +46,7 @@ class L2Pipeline(
 
 
 __all__ = [
-    "DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION",
     "DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS",
-    "DEFAULT_L2_BATCH_SHUTDOWN_TIMEOUT_SECONDS",
-    "DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE",
     "DEFAULT_L2_EXTRACT_WORKER_COUNT",
     "DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS",
     "DEFAULT_L2_MAX_ESTIMATED_TOKENS_PER_BATCH",

@@ -43,7 +43,7 @@ def _music_profile_spec(
         allowed_predicates=["LISTENED"],
         allowed_assertion_families=["interest_profile"],
         allowed_assertion_traits=["music.*"],
-        assertion_mode="derived",
+        allow_assertion=False,
         derived_assertion_specs=[
             {
                 "rule_id": "netease_music.listened",

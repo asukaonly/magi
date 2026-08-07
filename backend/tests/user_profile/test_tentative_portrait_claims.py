@@ -12,7 +12,10 @@ from _shared.memory_schema import apply_memory_shared_schema
 from magi.memory.l2.store import L2CognitionStore
 from magi.memory.l2.semantic_routing import ROUTE_CONTRACT_VERSION
 from magi.user_profile.models import UserPortraitProjection
-from magi.user_profile.portrait_claim_query import list_tentative_portrait_claims
+from magi.user_profile.portrait_claim_query import (
+    latest_portrait_claim_change_at,
+    list_tentative_portrait_claims,
+)
 from magi.user_profile.portrait_projection_builder import (
     UserPortraitProjectionBuilder,
     render_portrait_rule_prompt_summary,
@@ -326,7 +329,7 @@ def test_tentative_claim_policy_rejects_non_profile_and_stale_routes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_builder_limits_visible_self_reports_and_preserves_them_from_llm_override(
+async def test_builder_limits_visible_self_reports_deterministically(
     tmp_path,
 ) -> None:
     db_path = str(tmp_path / "memory.db")
@@ -404,16 +407,7 @@ async def test_builder_limits_visible_self_reports_and_preserves_them_from_llm_o
         },
     )
 
-    class _LLM:
-        async def generate_portrait(self, *, material: dict[str, Any]) -> dict[str, Any]:
-            assert all(
-                ref.startswith("event:")
-                for item in material["tentative_claims"]
-                for ref in item["basis_refs"]
-            )
-            return {"prompt_summary": ["模型覆盖了确定性自述行"]}
-
-    projection = await UserPortraitProjectionBuilder(store, llm_client=_LLM()).build("local_user")
+    projection = await UserPortraitProjectionBuilder(store).build("local_user")
 
     assert projection.prompt_summary == [
         "用户曾自述：喜欢「没有人声的音乐」（尚未形成长期结论）",
@@ -1138,6 +1132,10 @@ async def test_candidate_crossing_before_projection_timestamp_invalidates_empty_
         prompt_summary=[],
         source_revision=await store.current_subject_revision("user:local_user"),
         source_generation=await store.current_clear_generation(),
+        input_claim_highwater=await latest_portrait_claim_change_at(
+            store,
+            user_id="local_user",
+        ),
         generated_at=clock[0],
     )
 
@@ -1196,6 +1194,10 @@ async def test_future_candidate_displaced_by_protected_goals_keeps_cache_fresh(
         prompt_summary=cached_summary,
         source_revision=await store.current_subject_revision("user:local_user"),
         source_generation=await store.current_clear_generation(),
+        input_claim_highwater=await latest_portrait_claim_change_at(
+            store,
+            user_id="local_user",
+        ),
         generated_at=clock[0],
     )
 

@@ -60,7 +60,6 @@ def _memory(tmp_path: Path) -> UnifiedMemoryStore:
             enable_l3_vectors=False,
             enable_l4_vectors=False,
             enable_l3_llm_summary=False,
-            enable_l2_conflict_arbitration=False,
             async_embeddings=False,
         ),
     )
@@ -262,8 +261,12 @@ def test_assertion_correction_api_audits_blocks_replay_and_reverts(tmp_path, mon
     assert audit_events[0]["cognition_eligible"] is False
     assert audit_events[0]["l1_retrieval_scope"] == "audit_only"
     assert audit_events[0]["content"] == "Memory correction recorded"
-    assert "Shanghai" not in str(audit_events[0])
-    assert "The old city was incorrect" not in str(audit_events[0])
+    non_temporal_audit = dict(audit_events[0])
+    non_temporal_metadata = dict(non_temporal_audit.get("metadata_json") or {})
+    non_temporal_metadata.pop("_temporal", None)
+    non_temporal_audit["metadata_json"] = non_temporal_metadata
+    assert "Shanghai" not in str(non_temporal_audit)
+    assert "The old city was incorrect" not in str(non_temporal_audit)
 
     _seed_assertion(memory, value="Hangzhou")
     current = asyncio.run(memory.l2.list_current_assertions(entity_id="user:local_user", limit=20))

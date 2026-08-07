@@ -37,7 +37,7 @@ export const MemoryKnowledgePage = () => {
     l2ActionLoading,
     submitManualL2Event,
     replayL2Extraction,
-    flushL2Microbatches,
+    flushL2ProjectionJobs,
     runL2Reconcile,
     runL2SnapshotRefresh,
     upsertL2GraphConflictRule,
@@ -197,7 +197,7 @@ export const MemoryKnowledgePage = () => {
                 knowledgeStatusFilter={knowledgeStatusFilter}
                 knowledgeEntityTypeFilter={knowledgeEntityTypeFilter}
                 actionLoading={l2ActionLoading}
-                onFlushMicrobatches={flushL2Microbatches}
+                onFlushProjectionJobs={flushL2ProjectionJobs}
                 onSubmitManualEvent={submitManualL2Event}
                 onReplayExtraction={replayL2Extraction}
                 onRunReconcile={runL2Reconcile}

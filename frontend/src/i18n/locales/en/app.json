@@ -1762,7 +1762,7 @@
           "extractionTitle": "Knowledge extraction",
           "extractionDescription": "Control whether the knowledge layer is enabled and whether the model participates in entity, relation, and assertion extraction.",
           "flushTitle": "Batch flushing",
-          "flushDescription": "Control how long staged microbatches wait before being written into the formal knowledge graph.",
+          "flushDescription": "Control how long durable projection jobs wait before being claimed for knowledge extraction.",
           "arbitrationTitle": "Conflict arbitration",
           "arbitrationDescription": "When the knowledge layer sees high-confidence conflicts, decide whether to trigger a more cautious arbitration pass."
         },
@@ -2040,14 +2040,6 @@
         "l2_batch_flush_interval_seconds": {
           "label": "Knowledge extraction batch interval (seconds)",
           "description": "How long to wait before processing a batch of new conversations for knowledge extraction. Minimum 30 seconds."
-        },
-        "enable_l2_conflict_arbitration": {
-          "label": "Enable fact conflict resolution",
-          "description": "When new information highly contradicts existing memory, use AI to analyze deeply before deciding whether to update."
-        },
-        "l2_conflict_arbitration_min_confidence": {
-          "label": "Conflict resolution threshold",
-          "description": "Only trigger deep analysis when contradiction confidence reaches this level."
         },
         "enable_l3_llm_summary": {
           "label": "Enable AI summaries",
@@ -2731,6 +2723,7 @@
         "noEvents": "No events"
       },
       "pendingKinds": {
+        "review": "Memory to confirm",
         "assertion": "Structured assertion",
         "story": "Memory update"
       },
@@ -2739,7 +2732,11 @@
         "startChat": "Start a conversation",
         "connectSource": "Connect your first source",
         "confirm": "Confirm",
+        "edit": "Edit",
         "reject": "Not right",
+        "confirmReview": "Confirm this memory",
+        "editReview": "Edit and confirm",
+        "rejectReview": "Do not use this memory",
         "confirmAssertion": "Confirm assertion",
         "rejectAssertion": "Reject assertion",
         "confirmStory": "Confirm memory update",
@@ -3001,6 +2998,7 @@
       "emptyTitle": "Nothing needs review right now",
       "emptyBody": "New judgments or experience signals will appear here.",
       "meta": {
+        "preMaterializationReview": "Confirm before saving",
         "assertion": "About-you judgment",
         "conflict": "Preference conflict",
         "summary": "Summary",
@@ -3018,13 +3016,29 @@
         "uncertainBody": "The evidence is not consistent enough, and there is no clear opposite judgment yet. Confirm whether this is accurate.",
         "traitBody": "Judgment type: {{trait}}"
       },
+      "reviews": {
+        "title": "Do you want Magi to remember “{{value}}”?",
+        "body": "This may shape how Magi understands you later, so it needs your confirmation first.",
+        "unknownValue": "this"
+      },
+      "reviewEdit": {
+        "title": "Edit and confirm",
+        "description": "Edit only what you want Magi to remember. Once confirmed, it is stored as a memory you approved.",
+        "valueLabel": "Memory",
+        "summaryLabel": "Note (optional)",
+        "summaryPlaceholder": "Describe this memory in one sentence",
+        "confirm": "Confirm and save"
+      },
       "fallbackMemoryUpdateTitle": "Summary to review",
       "fallbackConflictTitle": "Preference conflict",
       "conflictMeta": "Differs from confirmed memory",
       "evidenceCount": "{{count}} pieces of evidence",
+      "claimCount": "{{count}} source claim(s)",
       "fragmentCount": "{{count}} fragments",
       "actions": {
         "confirm": "Confirm",
+        "confirmReview": "Yes",
+        "editReview": "Edit",
         "confirmJudgment": "Yes",
         "reject": "Not right",
         "confirmObservation": "Looks right",
@@ -3894,7 +3908,7 @@
       "reconsolidateResult": "{{promoted}} promoted · {{standouts}} standout · {{summaries}} new chapters",
       "manual": {
         "flushTitle": "Process L2 backlog",
-        "flushBody": "Flush currently staged L2 microbatches, useful when debugging extraction latency.",
+        "flushBody": "Claim pending durable L2 projection jobs now, useful when debugging extraction latency.",
         "flushRun": "Process now"
       },
       "forgetDrawerHint": "Forgetting and deletion start from a concrete record: open one in Object details, then inspect its impact in the drawer.",
@@ -4626,8 +4640,8 @@
         "saveRule": "Save Rule",
         "manualEventQueued": "Manual event queued",
         "replayQueued": "Extraction replay queued",
-        "microbatchFlushQueued": "L2 microbatch generation triggered",
-        "microbatchFlushIdle": "No pending L2 microbatches to generate",
+        "projectionFlushQueued": "L2 projection processing triggered",
+        "projectionFlushIdle": "No pending L2 projection jobs",
         "reconcileQueued": "Reconcile queued",
         "snapshotQueued": "Snapshot refresh queued",
         "ruleSaved": "Conflict rule saved",

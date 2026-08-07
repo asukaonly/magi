@@ -5,8 +5,8 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
-# scripts/ is NOT on the pytest import path (pyproject: pythonpath = ["src"]),
-# so load the script by file path — mirrors tests/scripts/test_backfill_kg_evidence_class.py.
+# scripts/ is not on the pytest import path, so load the operational report by
+# file path instead of depending on packaging side effects.
 _SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "evidence_stats.py"
 _SPEC = importlib.util.spec_from_file_location("evidence_stats", _SCRIPT_PATH)
 _MODULE = importlib.util.module_from_spec(_SPEC)
@@ -29,11 +29,11 @@ async def _seed(db_path):
     async with aiosqlite.connect(db_path) as db:
         await db.executescript(_SCHEMA)
         rows = [
-            # evidence_class: 2=user_self_report, 10=user_question, 1=unknown
+            # evidence_class: 2=user_self_report, 9=user_question, 1=unknown
             # evidence_status: 2=classified, 3=classification_error
             ("e1", 2, 2, 2, '{"_evidence": {"reason_code": "user_default"}}'),
             ("e2", 2, 2, 2, '{"_evidence": {"reason_code": "user_default"}}'),
-            ("e3", 2, 10, 3, '{"_evidence": {"reason_code": "user_question_lead_or_mark"}}'),
+            ("e3", 2, 9, 3, '{"_evidence": {"reason_code": "user_question_lead_or_mark"}}'),
             ("e4", 3, 1, 1, None),  # classification_error, no reason_code
         ]
         await db.executemany(

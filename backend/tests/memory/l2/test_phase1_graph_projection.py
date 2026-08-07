@@ -155,34 +155,3 @@ def test_phase1_graph_projection_rejects_missing_support() -> None:
     assert outcomes[0].outcome == "rejected"
     assert outcomes[0].reason_code == "missing_grounded_support"
     assert outcomes[0].claim_id == "claim:diiv"
-
-
-def test_phase2_runs_only_when_higher_order_assertions_are_enabled() -> None:
-    phase1_result = L2Phase1Result(
-        fact_claims=[
-            L2Phase1FactClaim(
-                claim_id="claim:diiv",
-                supporting_event_ids=["evt-diiv"],
-            )
-        ]
-    )
-    harness = _ProjectionHarness()
-
-    assert harness._phase2_inference_required(
-        phase1_result=phase1_result,
-        profile=_profile(allow_assertion=True),
-        policy=SimpleNamespace(allow_assertion_write=True),
-    ) is True
-    assert harness._phase2_inference_required(
-        phase1_result=phase1_result,
-        profile=_profile(allow_assertion=False),
-        policy=SimpleNamespace(allow_assertion_write=True),
-    ) is False
-    assert harness._phase2_inference_required(
-        phase1_result=phase1_result,
-        profile=ExtractionProfile(
-            profile_id="source.derived",
-            assertion_mode="derived",
-        ),
-        policy=SimpleNamespace(allow_assertion_write=True),
-    ) is False

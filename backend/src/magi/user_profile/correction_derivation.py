@@ -10,6 +10,7 @@ from .portrait_projection_builder import UserPortraitProjectionBuilder
 from .portrait_projection_repository import UserPortraitProjectionRepository
 from .projection_builder import UserProfileProjectionBuilder
 from .projection_repository import UserProfileProjectionRepository
+from .query_service import UserProfileQueryService
 
 CorrectionDerivationHandler = Callable[[Mapping[str, Any]], Awaitable[None]]
 
@@ -51,7 +52,11 @@ class UserProfileCorrectionDerivationHandlers:
         user_id = _user_id(entity_id)
         if user_id is None:
             return
-        profile = await UserProfileProjectionRepository(self._db_path).get(user_id)
+        profile_repository = UserProfileProjectionRepository(self._db_path)
+        profile = await UserProfileQueryService(
+            repository=profile_repository,
+            builder=UserProfileProjectionBuilder(self._l2_store),
+        ).get_current_profile(user_id)
         projection = await UserPortraitProjectionBuilder(
             self._l2_store,
             profile_projection=profile,

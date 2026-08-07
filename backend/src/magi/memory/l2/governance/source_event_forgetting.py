@@ -36,6 +36,7 @@ from ..assertions.state_machine import (
     compute_confidence,
     derive_validation_state,
 )
+from ..assertions.subdomain import classify_memory_subdomain
 from ..claims.route_selection import (
     CURRENT_ENTITY_REF_VERSIONS_CTE,
     LATEST_ROUTE_ORDER_SQL,
@@ -226,13 +227,13 @@ class L2StoreSourceEventForgettingMixin:
                         claims=edge_claims,
                         event_ids=normalized,
                     )
-                    result["tom_trait_assertions"] = await _remove_assertion_evidence(
+                    result["tom_trait_assertions"] += await _remove_assertion_evidence(
                         db,
                         claims=assertion_claims,
                         forgotten_by_claim=assertion_events,
                         now=now,
                     )
-                    result["knowledge_graph"] = await _remove_relationship_evidence(
+                    result["knowledge_graph"] += await _remove_relationship_evidence(
                         db,
                         claims=edge_claims,
                         forgotten_by_claim=edge_events,
@@ -327,6 +328,7 @@ def _empty_result() -> dict[str, int]:
         "l2_claim_entity_refs": 0,
         "l2_grounded_claims": 0,
         "l2_claim_projection_outcomes": 0,
+        "l2_pending_reviews": 0,
         "tom_trait_assertions": 0,
         "knowledge_graph": 0,
         "entity_mentions": 0,
@@ -799,10 +801,7 @@ async def _archive_assertion_after_promotion_loss(
             decay_policy,
             anchor,
             expires_at,
-            _memory_subdomain(
-                temporal_scope=temporal_scope,
-                decay_policy=decay_policy,
-            ),
+            classify_memory_subdomain(temporal_scope, decay_policy),
             now,
             assertion_id,
         ),
@@ -846,9 +845,9 @@ async def _apply_recomputed_assertion_lifecycle(
     else:
         next_status = validation_state
     persisted_validation_state = "expired" if next_status == "expired" else validation_state
-    memory_subdomain = _memory_subdomain(
-        temporal_scope=expiry.temporal_scope,
-        decay_policy=expiry.decay_policy,
+    memory_subdomain = classify_memory_subdomain(
+        expiry.temporal_scope,
+        expiry.decay_policy,
     )
     cursor = await db.execute(
         """
@@ -1040,16 +1039,6 @@ def _assertion_status_is_terminal(value: Any) -> bool:
         "superseded",
         "user_rejected",
     }
-
-
-def _memory_subdomain(*, temporal_scope: str, decay_policy: str) -> str:
-    if temporal_scope in {"persistent", "stable", ""} and decay_policy in {
-        "none",
-        "evidence_only",
-        "",
-    }:
-        return "semantic"
-    return "state"
 
 
 def _safe_float(value: Any) -> float:

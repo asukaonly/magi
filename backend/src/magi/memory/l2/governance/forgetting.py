@@ -297,6 +297,7 @@ class L2StoreForgettingMixin:
             claim_target_retirement = await retire_claim_target_authority_on_connection(
                 db,
                 claim_ids=grounded_claim_ids,
+                target_kinds=frozenset({"assertion", "relationship", "review"}),
                 invalidated_reason="entity_forgotten",
                 changed_at=now,
             )
@@ -348,6 +349,7 @@ class L2StoreForgettingMixin:
             counts["tom_trait_assertions"] = (
                 max(int(cursor.rowcount or 0), 0) + claim_target_retirement.assertions_archived
             )
+            counts["l2_pending_reviews"] = claim_target_retirement.reviews_closed
             await db.execute(
                 """
                 UPDATE tom_trait_assertions

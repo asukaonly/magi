@@ -200,7 +200,7 @@ def test_backend_client_posts_finalize_replay_request() -> None:
     result = asyncio.run(
         service.finalize_replay(
             generate_summaries=False,
-            flush_l2=True,
+            flush_l2_projection_jobs=True,
             drain_l2_edge_embeddings=False,
         )
     )
@@ -211,7 +211,7 @@ def test_backend_client_posts_finalize_replay_request() -> None:
             {
                 "period_types": ["hour", "day", "week", "month"],
                 "generate_summaries": False,
-                "flush_l2": True,
+                "flush_l2_projection_jobs": True,
                 "drain_l2_edge_embeddings": False,
             },
         )
@@ -252,7 +252,7 @@ def test_backend_client_reads_l2_stats_from_eval_finalize_status() -> None:
             {
                 "period_types": [],
                 "generate_summaries": False,
-                "flush_l2": False,
+                "flush_l2_projection_jobs": False,
                 "drain_l2_edge_embeddings": False,
             },
         )
@@ -311,7 +311,7 @@ def test_backend_client_overlays_eval_l2_stats_on_background_pending() -> None:
             {
                 "period_types": [],
                 "generate_summaries": False,
-                "flush_l2": False,
+                "flush_l2_projection_jobs": False,
                 "drain_l2_edge_embeddings": False,
             },
         )

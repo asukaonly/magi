@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from ...models import (
     L2BatchEntityResolutionItem,
-    L2CandidateSet,
     L2EntityCandidate,
     L2EntityResolutionMention,
-    L2EventWindow,
-    L2ExistingRecord,
     L2ReconcileAssertion,
     L2ReconcileEntity,
     L2ReconcileGraphFact,
@@ -37,13 +33,6 @@ Be conservative:
 - Do not overfit to a single recent statement if long-term evidence disagrees.
 - Separate stable traits from temporary states.
 - Return JSON only.
-"""
-
-CONFLICT_ARBITRATION_SYSTEM_PROMPT = """You are a conflict arbitration assistant for a memory system.
-
-Your task is to review new evidence, conflicting existing memory records, and supporting source events.
-Return exactly one final arbitration decision: keep_new, keep_existing, or mark_evolution.
-Do not hedge, and do not return multiple competing outcomes.
 """
 
 BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT = """You are an entity resolution engine for a memory graph.
@@ -89,29 +78,6 @@ def render_batch_entity_resolution_prompt(
     )
 
 
-def render_conflict_arbitration_prompt(
-    *,
-    new_event_window: L2EventWindow,
-    new_candidates: L2CandidateSet,
-    contradiction_hints: list[dict[str, Any]],
-    existing_records: list[L2ExistingRecord],
-    source_events: list[L2SourceEvent],
-) -> str:
-    return (
-        "Arbitrate the conflict between new evidence and existing memory records.\n\n"
-        f"New event window:\n{json.dumps(new_event_window.to_dict(), ensure_ascii=False, indent=2)}\n\n"
-        f"New candidates:\n{json.dumps(new_candidates.to_dict(), ensure_ascii=False, indent=2)}\n\n"
-        f"Contradiction hints:\n{json.dumps(contradiction_hints, ensure_ascii=False, indent=2)}\n\n"
-        f"Existing records:\n{json.dumps([item.to_dict() for item in existing_records], ensure_ascii=False, indent=2)}\n\n"
-        f"Supporting source events:\n{json.dumps([item.to_dict() for item in source_events], ensure_ascii=False, indent=2)}\n\n"
-        "Return JSON with this schema:\n"
-        '{\n  "decision": "keep_new|keep_existing|mark_evolution",\n'
-        '  "winning_record_ids": ["string"],\n'
-        '  "superseded_record_ids": ["string"],\n'
-        '  "reason": "string"\n}'
-    )
-
-
 def render_entity_reconcile_prompt(
     *,
     entity: L2ReconcileEntity,
@@ -137,11 +103,9 @@ def render_entity_reconcile_prompt(
 
 __all__ = [
     "BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT",
-    "CONFLICT_ARBITRATION_SYSTEM_PROMPT",
     "ENTITY_RECONCILE_SYSTEM_PROMPT",
     "ENTITY_RESOLUTION_SYSTEM_PROMPT",
     "render_batch_entity_resolution_prompt",
-    "render_conflict_arbitration_prompt",
     "render_entity_reconcile_prompt",
     "render_entity_resolution_prompt",
 ]

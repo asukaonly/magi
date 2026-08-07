@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from magi.memory.l2.models import L2BatchEvent, L2EventWindow
+from magi.memory.l2.ontology import ENTITY_TYPE_REGISTRY
 from magi.memory.l2.pipeline.prompts import (
     PHASE1_EXTRACT_SYSTEM_PROMPT,
     render_phase1_extract_prompt,
@@ -14,17 +17,16 @@ from magi.memory.l2.phase1_models import (
 )
 
 
-def test_phase1_prompt_requires_claim_objects_as_entities():
-    assert "Every concrete object_ref used in fact_claims must also appear in entities" in PHASE1_EXTRACT_SYSTEM_PROMPT
+def test_phase1_prompt_requires_only_reusable_claim_objects_as_entities():
+    assert "when it names a reusable catalog object" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "Assertion-only literal values" in PHASE1_EXTRACT_SYSTEM_PROMPT
 
 
-def test_phase1_prompt_requires_complete_future_intent_target_entity() -> None:
-    assert "represent the complete planned action referenced by `object_ref`" in (
+def test_phase1_prompt_keeps_complete_future_intent_as_goal_text() -> None:
+    assert "complete `PLANS_TO` action text do not require an entity" in (
         PHASE1_EXTRACT_SYSTEM_PROMPT
     )
-    assert "Extracting only nested nouns from that action does not satisfy this rule" in (
-        PHASE1_EXTRACT_SYSTEM_PROMPT
-    )
+    assert "keep the complete planned action in `object_ref`" in PHASE1_EXTRACT_SYSTEM_PROMPT
 
 
 def test_phase1_prompt_allows_external_observation_facts():
@@ -110,6 +112,15 @@ def test_phase1_prompt_reserves_other_for_unclassified_entities() -> None:
     assert "Use `other` only when no other allowed type fits" in PHASE1_EXTRACT_SYSTEM_PROMPT
 
 
+def test_phase1_prompt_defines_every_allowed_entity_type() -> None:
+    for entity_type in ENTITY_TYPE_REGISTRY:
+        assert f"- `{entity_type}` —" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "not a complete plan or action clause" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert "Do not emit complete sentences, long action clauses" in (
+        PHASE1_EXTRACT_SYSTEM_PROMPT
+    )
+
+
 def test_phase1_render_separates_user_language_from_evidence_script() -> None:
     prompt = render_phase1_extract_prompt(
         event_window=L2EventWindow(
@@ -130,3 +141,25 @@ def test_phase1_render_separates_user_language_from_evidence_script() -> None:
     assert "not permission to translate evidence-derived fields" in prompt
     assert "Letter scripts detected in current evidence: Han, Latin" in prompt
     assert "Keep JSON keys, enum values, and protocol identifiers in English" in prompt
+
+
+def test_phase1_render_uses_each_event_captured_timezone_with_offset() -> None:
+    timestamp = datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc).timestamp()
+    prompt = render_phase1_extract_prompt(
+        event_window=L2EventWindow(
+            events=[
+                L2BatchEvent(
+                    event_id="evt-history",
+                    content="I started learning pottery.",
+                    timestamp=timestamp,
+                    author_type="user",
+                    metadata_json={
+                        "_temporal": {"calendar_timezone_id": "Asia/Shanghai"}
+                    },
+                )
+            ]
+        ),
+        focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+    )
+
+    assert "2026-07-01 09:00:00+08:00" in prompt

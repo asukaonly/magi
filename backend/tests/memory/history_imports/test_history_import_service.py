@@ -97,7 +97,6 @@ def _build_real_memory(tmp_path: Path) -> UnifiedMemoryStore:
             enable_l3_vectors=False,
             enable_l4_vectors=False,
             enable_l3_llm_summary=False,
-            enable_l2_conflict_arbitration=False,
             async_embeddings=False,
         ),
     )
@@ -119,7 +118,13 @@ async def _wait_for_completed_job(
 async def test_confirm_prepares_recent_context_then_projects_user_turns_in_order(
     tmp_path: Path,
     history_store: HistoryImportStore,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        history_import_service_module,
+        "local_calendar_timezone_id",
+        lambda: "Asia/Shanghai",
+    )
     markdown = tmp_path / "chat.md"
     markdown.write_text(
         """
@@ -172,6 +177,32 @@ async def test_confirm_prepares_recent_context_then_projects_user_turns_in_order
         "It helps me slow down.",
         "That sounds peaceful.",
     ]
+    first_event = memory.raw_events[0]
+    assert first_event.metadata_json["history_import"]["timestamp_anchor_source"] == (
+        "message_timestamp"
+    )
+    assert first_event.metadata_json["_temporal"]["calendar_timezone_id"] == (
+        "Asia/Shanghai"
+    )
+
+    from magi.memory.l2.batch_models import L2BatchEvent, L2EventWindow
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
+    from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
+    from magi.memory.l2.pipeline.source_time_policy import resolve_event_time_semantics
+
+    profile = resolve_extraction_profile(first_event)
+    time_semantics = resolve_event_time_semantics(first_event)
+    prompt = render_phase1_extract_prompt(
+        event_window=L2EventWindow(events=[L2BatchEvent.from_dict(first_event.to_dict())]),
+        focal_subject={"entity_ref": "user:local-user", "entity_type": "user"},
+        extraction_instructions=profile.phase1_instructions,
+    )
+
+    assert profile.profile_id == "history_import.chat"
+    assert "not live chat messages" in str(profile.phase1_instructions)
+    assert time_semantics.timestamp_quality == "exact"
+    assert time_semantics.timestamp_anchor_source == "message_timestamp"
+    assert "2026-07-01 09:00:00+08:00" in prompt
     await service.stop()
 
 
@@ -216,6 +247,177 @@ async def test_delete_forgets_every_imported_raw_event(
     deleted = await service.get_job(preview.job_id)
     assert deleted.status == "deleted"
     assert memory.forgotten_event_ids == [memory.raw_events[0].event_id]
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_partial_file_change_reuses_unchanged_source_record_identity(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    unchanged = tmp_path / "unchanged.md"
+    changed = tmp_path / "changed.md"
+    unchanged.write_text("# Notes\n\nI keep learning pottery.", encoding="utf-8")
+    changed.write_text("# Notes\n\nFirst version.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+
+    first = await service.preview_markdown_paths([str(unchanged), str(changed)])
+    first_unchanged = (
+        await history_store.list_source_records(
+            job_id=first.job_id,
+            source_name="unchanged.md",
+            limit=10,
+        )
+    )[0]
+    first_changed = (
+        await history_store.list_source_records(
+            job_id=first.job_id,
+            source_name="changed.md",
+            limit=10,
+        )
+    )[0]
+
+    changed.write_text("# Notes\n\nSecond version.", encoding="utf-8")
+    second = await service.preview_markdown_paths([str(unchanged), str(changed)])
+    second_unchanged = (
+        await history_store.list_source_records(
+            job_id=second.job_id,
+            source_name="unchanged.md",
+            limit=10,
+        )
+    )[0]
+    second_changed = (
+        await history_store.list_source_records(
+            job_id=second.job_id,
+            source_name="changed.md",
+            limit=10,
+        )
+    )[0]
+
+    assert second.job_id != first.job_id
+    assert second_unchanged.source_record_key == first_unchanged.source_record_key
+    assert second_unchanged.event_id == first_unchanged.event_id
+    assert second_unchanged.session_id == first_unchanged.session_id
+    assert second_unchanged.job_record_id != first_unchanged.job_record_id
+    assert second_changed.source_record_key != first_changed.source_record_key
+    assert second_changed.event_id != first_changed.event_id
+
+    async with aiosqlite.connect(history_store.db_path) as db:
+        source_count = (
+            await (
+                await db.execute("SELECT COUNT(*) FROM history_import_source_records")
+            ).fetchone()
+        )[0]
+        membership_count = (
+            await (
+                await db.execute("SELECT COUNT(*) FROM history_import_job_records")
+            ).fetchone()
+        )[0]
+    assert source_count == 3
+    assert membership_count == 4
+
+
+@pytest.mark.asyncio
+async def test_identical_file_selection_reuses_existing_job(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    markdown = tmp_path / "notes.md"
+    markdown.write_text("# Notes\n\nStable content.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+
+    first = await service.preview_markdown_paths([str(markdown)])
+    second = await service.preview_markdown_paths([str(markdown)])
+
+    assert second.job_id == first.job_id
+    async with aiosqlite.connect(history_store.db_path) as db:
+        async with db.execute("SELECT COUNT(*) FROM history_import_jobs") as cursor:
+            assert await cursor.fetchone() == (1,)
+        async with db.execute("SELECT COUNT(*) FROM history_import_source_records") as cursor:
+            assert await cursor.fetchone() == (1,)
+        async with db.execute("SELECT COUNT(*) FROM history_import_job_records") as cursor:
+            assert await cursor.fetchone() == (1,)
+
+
+@pytest.mark.asyncio
+async def test_delete_forgets_shared_event_only_after_final_active_membership(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    shared = tmp_path / "shared.md"
+    changed = tmp_path / "changed.md"
+    shared.write_text("# Notes\n\nShared source.", encoding="utf-8")
+    changed.write_text("# Notes\n\nFirst version.", encoding="utf-8")
+    memory = _MemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+
+    first = await service.preview_markdown_paths([str(shared), str(changed)])
+    await service.confirm(
+        job_id=first.job_id,
+        self_participants=[],
+        confirm_personal_writing=True,
+        included_files=first.included_files,
+    )
+    changed.write_text("# Notes\n\nSecond version.", encoding="utf-8")
+    second = await service.preview_markdown_paths([str(shared), str(changed)])
+    await service.confirm(
+        job_id=second.job_id,
+        self_participants=[],
+        confirm_personal_writing=True,
+        included_files=second.included_files,
+    )
+    first_events = set(await history_store.list_imported_event_ids(job_id=first.job_id))
+    second_events = set(await history_store.list_imported_event_ids(job_id=second.job_id))
+    shared_event_id = next(iter(first_events & second_events))
+    first_only_event_id = next(iter(first_events - second_events))
+    second_only_event_id = next(iter(second_events - first_events))
+
+    await service.delete(first.job_id)
+
+    assert memory.forgotten_event_ids == [first_only_event_id]
+    assert shared_event_id not in memory.forgotten_event_ids
+
+    await service.delete(second.job_id)
+
+    assert set(memory.forgotten_event_ids) == {
+        first_only_event_id,
+        shared_event_id,
+        second_only_event_id,
+    }
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_shared_source_record_rejects_conflicting_self_identity(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    shared = tmp_path / "shared.md"
+    changed = tmp_path / "changed.md"
+    shared.write_text("- Me: Shared line.\n- Alice: Shared reply.", encoding="utf-8")
+    changed.write_text("- Me: First version.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+
+    first = await service.preview_markdown_paths([str(shared), str(changed)])
+    await service.confirm(
+        job_id=first.job_id,
+        self_participants=["Me"],
+        confirm_personal_writing=True,
+        included_files=first.included_files,
+    )
+    changed.write_text("- Me: Second version.", encoding="utf-8")
+    second = await service.preview_markdown_paths([str(shared), str(changed)])
+
+    with pytest.raises(
+        HistoryImportValidationError,
+        match="history_import_speaker_role_conflict",
+    ):
+        await service.confirm(
+            job_id=second.job_id,
+            self_participants=["Alice"],
+            confirm_personal_writing=True,
+            included_files=second.included_files,
+        )
     await service.stop()
 
 
@@ -266,11 +468,14 @@ async def test_personal_markdown_headings_import_as_one_source_event(
         event.metadata_json["history_import"]["timestamp_confidence"]
         == preview.preview_records[0].timestamp_confidence
     )
+    assert event.metadata_json["history_import"]["timestamp_anchor_source"] == (
+        preview.preview_records[0].timestamp_anchor_source
+    )
 
     from magi.memory.evidence import classify_event_evidence
     from magi.memory.l2.batch_models import L2BatchEvent, L2EventWindow
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
-    from magi.memory.l2.pipeline.claim_persistence import _timestamp_provenance
+    from magi.memory.l2.pipeline.source_time_policy import resolve_event_time_semantics
     from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
 
     classification = classify_event_evidence(event)
@@ -288,12 +493,10 @@ async def test_personal_markdown_headings_import_as_one_source_event(
         batch_event.metadata_json["history_import"]["timestamp_confidence"]
         == preview.preview_records[0].timestamp_confidence
     )
-    timestamp_source, timestamp_quality, timestamp_anchor = _timestamp_provenance(
-        batch_event.metadata_json
-    )
-    assert timestamp_source == preview.preview_records[0].timestamp_confidence
-    assert timestamp_quality == "low"
-    assert timestamp_anchor is None
+    time_semantics = resolve_event_time_semantics(event)
+    assert time_semantics.timestamp_confidence == preview.preview_records[0].timestamp_confidence
+    assert time_semantics.timestamp_quality == "approximate_recorded"
+    assert time_semantics.timestamp_anchor_source == "file_mtime"
     assert prompt.count(event.content) == 1
     assert "historical documents, not live chat turns" in prompt
     await service.stop()

@@ -53,22 +53,20 @@ class EvidenceStatus(_LabeledIntEnum):
 class EvidenceClass(_LabeledIntEnum):
     UNKNOWN = 1
     USER_SELF_REPORT = 2
-    USER_REPORT_ABOUT_OTHERS = 3
-    ASSISTANT_QUOTE = 4
-    ASSISTANT_TOOL_GROUNDED = 5
-    ASSISTANT_FREEFORM = 6
-    ASSISTANT_RUNTIME_DERIVATION = 7
-    EXTERNAL_OBSERVATION = 8
-    SYSTEM_RUNTIME = 9
-    USER_QUESTION = 10
-    USER_REQUEST = 11
+    ASSISTANT_QUOTE = 3
+    ASSISTANT_TOOL_GROUNDED = 4
+    ASSISTANT_FREEFORM = 5
+    ASSISTANT_RUNTIME_DERIVATION = 6
+    EXTERNAL_OBSERVATION = 7
+    SYSTEM_RUNTIME = 8
+    USER_QUESTION = 9
+    USER_REQUEST = 10
 
     @classmethod
     def _labels(cls) -> dict["EvidenceClass", str]:
         return {
             cls.UNKNOWN: "unknown",
             cls.USER_SELF_REPORT: "user_self_report",
-            cls.USER_REPORT_ABOUT_OTHERS: "user_report_about_others",
             cls.ASSISTANT_QUOTE: "assistant_quote",
             cls.ASSISTANT_TOOL_GROUNDED: "assistant_tool_grounded",
             cls.ASSISTANT_FREEFORM: "assistant_freeform",
@@ -115,24 +113,9 @@ class GraphScope(_LabeledIntEnum):
         }
 
 
-class AssertionScope(_LabeledIntEnum):
-    NONE = 1
-    TOPOLOGY_ONLY = 2
-    FULL = 3
-
-    @classmethod
-    def _labels(cls) -> dict["AssertionScope", str]:
-        return {
-            cls.NONE: "none",
-            cls.TOPOLOGY_ONLY: "topology_only",
-            cls.FULL: "full",
-        }
-
-
-# Version 5 recognizes the exact user-authored history-document contract before
-# conversational question/request heuristics. The bump reclassifies existing
-# imported documents that may otherwise be excluded from L2 projection.
-EVIDENCE_RULE_VERSION = 5
+# Version 6 removes the unreachable event-level "report about others" class
+# and aligns external observations with their graph-only write capability.
+EVIDENCE_RULE_VERSION = 6
 
 
 @dataclass(slots=True)
@@ -159,7 +142,6 @@ class PolicyDecision:
     allow_snapshot_impact: bool
     l1_retrieval_scope: str
     graph_scope: str
-    assertion_scope: str
     evidence_weight: float
     count_as_new_evidence: bool
     require_source_backlink: bool
@@ -167,7 +149,6 @@ class PolicyDecision:
 
 
 __all__ = [
-    "AssertionScope",
     "EVIDENCE_RULE_VERSION",
     "EvidenceClass",
     "EvidenceClassification",

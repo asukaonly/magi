@@ -103,3 +103,28 @@ profiles:
       be approximate. Preserve relative or ambiguous time expressions as
       written unless the document itself supplies a clear anchor; do not invent
       an exact date.
+
+  history_import.chat:
+    source_types:
+      - history_import_markdown
+    event_types:
+      - history_import.chat
+    allowed_entity_types: all
+    allowed_predicates: all
+    allow_graph: true
+    allow_assertion: true
+    extraction_instructions: |
+      These events are user-authored turns from an imported historical
+      conversation, not live chat messages.
+
+      Extract only facts supported by the current [USER] turn. Other
+      participants' turns may clarify references and dialogue flow, but they
+      are context rather than facts about the user. Do not attribute a
+      counterpart's preferences, identity, plans, or suggestions to the user.
+      Preserve the historical meaning of words such as "today" or "next week";
+      never reinterpret them relative to the current runtime clock.
+
+      The displayed event time is source provenance. Use it as a temporal
+      anchor only when the host marks the imported message timestamp as
+      trusted. File order, file modification time, and import time do not prove
+      that a fact is current.

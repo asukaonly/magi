@@ -58,8 +58,10 @@ def test_family_policy_reads_configured_ttl(monkeypatch) -> None:
 def test_phase2_prompt_assigns_assertion_semantics_to_the_host() -> None:
     from magi.memory.l2.pipeline.prompts import PHASE2_INTEGRATE_SYSTEM_PROMPT
 
-    assert "The host deterministically owns semantic routes" in PHASE2_INTEGRATE_SYSTEM_PROMPT
-    assert "Do not return family, trait name/code, slot, route" in PHASE2_INTEGRATE_SYSTEM_PROMPT
+    assert "host deterministically owns every semantic decision" in PHASE2_INTEGRATE_SYSTEM_PROMPT
+    assert "Do not return entities, record IDs, families, traits, slots" in (
+        PHASE2_INTEGRATE_SYSTEM_PROMPT
+    )
     assert '"trait_family"' not in PHASE2_INTEGRATE_SYSTEM_PROMPT
     assert '"trait_name"' not in PHASE2_INTEGRATE_SYSTEM_PROMPT
 

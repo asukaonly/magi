@@ -267,175 +267,6 @@ def test_phase1_prompt_includes_context_and_resolved_ref_schema():
     assert "reference_type" in PHASE1_EXTRACT_SYSTEM_PROMPT
 
 
-def test_phase2_prompt_includes_deterministic_evidence_packet():
-    from magi.memory.l2.models import (
-        L2BatchEvent,
-        L2EventWindow,
-        L2EventWindowSummary,
-        L2HistoryContext,
-    )
-    from magi.memory.l2.pipeline.evidence_packet import build_phase2_evidence_packet
-    from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt
-
-    event_window = L2EventWindow(
-        event_ids=["evt-current"],
-        events=[
-            L2BatchEvent(
-                event_id="evt-current",
-                content="Visited DeepSeek docs",
-                timestamp=1_710_000_600.0,
-                source="chrome_history",
-                author_type="user",
-            )
-        ],
-        history_contexts=[
-            L2HistoryContext(
-                event_id="evt-history",
-                content="Visited DeepSeek API pricing",
-                timestamp=1_710_000_000.0,
-                matched_entity_id="product:deepseek",
-                canonical_name="DeepSeek",
-                match_source="alias_exact",
-            )
-        ],
-        summary=L2EventWindowSummary(event_count=1, user_id="local_user"),
-    )
-    phase1_payload = {
-        "entities": [
-            {
-                "surface": "DeepSeek",
-                "entity_type": "product",
-                "specificity": "concrete",
-                "resolved_id": "product:deepseek",
-                "is_new": False,
-            }
-        ],
-        "fact_claims": [
-            {
-                "claim_id": "claim:deepseek",
-                "subject_ref": "user:local_user",
-                "predicate": "VIEWED",
-                "object_ref": "DeepSeek",
-                "object_type": "product",
-                "confidence": 0.7,
-                "evidence_text": "Visited DeepSeek docs",
-            }
-        ],
-        "resolved_refs": [],
-    }
-    existing_edges = [
-        {
-            "triple_id": "edge-1",
-            "subject_id": "user:local_user",
-            "predicate": "VIEWED",
-            "object_id": "product:deepseek",
-            "object_type": "product",
-            "source_type": "chrome_history",
-            "observation_count": 4,
-            "evidence_event_ids": ["a", "b", "c", "d"],
-            "first_observed_at": 1_709_900_000.0,
-            "last_observed_at": 1_710_000_500.0,
-            "confidence": 0.74,
-        }
-    ]
-    existing_assertions = [
-        {
-            "assertion_id": "assert-1",
-            "trait_family": "preference_profile",
-            "trait_name": "interest.deepseek",
-            "trait_value": "DeepSeek",
-            "validation_state": "tentative",
-            "confidence_score": 0.44,
-            "source_domain": "external_activity",
-        }
-    ]
-    evidence_packet = build_phase2_evidence_packet(
-        phase1_result=phase1_payload,
-        existing_graph_edges=existing_edges,
-        existing_assertions=existing_assertions,
-        event_window=event_window,
-    )
-
-    prompt = render_phase2_integrate_prompt(
-        phase1_result=phase1_payload,
-        focal_subject={"entity_ref": "user:local_user", "entity_type": "user"},
-        evidence_packet=evidence_packet,
-    )
-
-    assert "Deterministic Evidence Packet" in prompt
-    assert "No LLM was used to gather this packet" in prompt
-    assert "evt-history" in prompt
-    assert "observed=4x" in prompt
-    assert "single passive behavior" in prompt.lower()
-    assert "interest.deepseek" in prompt
-
-
-def test_phase2_evidence_packet_counts_history_support_for_candidates():
-    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary, L2HistoryContext
-    from magi.memory.l2.phase1_models import L2Phase1Entity, L2Phase1FactClaim, L2Phase1Result
-    from magi.memory.l2.pipeline.evidence_packet import build_phase2_evidence_packet
-
-    phase1 = L2Phase1Result(
-        entities=[
-            L2Phase1Entity(
-                surface="Docker",
-                normalized_name="Docker",
-                entity_type="software",
-                resolved_id="software:docker",
-            )
-        ],
-        fact_claims=[
-            L2Phase1FactClaim(
-                subject_ref="user:local_user",
-                predicate="USES",
-                object_ref="Docker",
-                object_type="software",
-            )
-        ],
-    )
-    window = L2EventWindow(
-        event_ids=["evt-now"],
-        events=[],
-        texts=[],
-        history_contexts=[
-            L2HistoryContext(
-                event_id="evt-old-1",
-                timestamp=1_710_000_000.0,
-                content="Used Docker to inspect the local stack.",
-                matched_entity_id="software:docker",
-                matched_text="Docker",
-                canonical_name="Docker",
-            ),
-            L2HistoryContext(
-                event_id="evt-old-2",
-                timestamp=1_710_100_000.0,
-                content="Debugged containers with docker compose.",
-                matched_entity_id="software:docker",
-                matched_text="docker",
-                canonical_name="Docker",
-            ),
-        ],
-        summary=L2EventWindowSummary(event_count=1, history_context_count=2),
-    )
-
-    packet = build_phase2_evidence_packet(
-        phase1_result=phase1,
-        existing_graph_edges=[],
-        existing_assertions=[],
-        event_window=window,
-    )
-
-    assert packet["history_support"] == [
-        {
-            "id": "software:docker",
-            "label": "Docker",
-            "type": "software",
-            "history_event_count": 2,
-            "latest_timestamp": 1_710_100_000.0,
-        }
-    ]
-
-
 def test_phase1_prompt_includes_batch_window_events():
     from magi.memory.l2.models import L2BatchEvent, L2EventWindow, L2EventWindowSummary
     from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
@@ -517,15 +348,14 @@ def test_phase1_prompt_rejects_unregistered_first_context_question_text():
     assert "## Conversation Question Context (not evidence)" not in prompt
 
 
-def test_integrate_phase2_passes_source_integration_instructions():
+def test_integrate_phase2_passes_source_summary_instructions():
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary, L2Phase1Result
 
     adapter = _FakeAdapter(
         json.dumps(
             {
-                "claim_assessments": [],
-                "assertion_candidates": [],
+                "summaries": [],
             }
         )
     )
@@ -534,20 +364,45 @@ def test_integrate_phase2_passes_source_integration_instructions():
     asyncio.run(
         service.integrate_phase2(
             phase1_result=L2Phase1Result(),
-            existing_graph_edges=[],
-            existing_assertions=[],
             event_window=L2EventWindow(
                 events=[{"event_id": "evt-song", "content": "played Track A", "timestamp": 1.0}],
                 summary=L2EventWindowSummary(session_id="s1"),
             ),
             focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
-            phase2_instructions="For play history, emit preference_profile only after repeated plays.",
+            summary_instructions="Keep song names in their source language.",
         )
     )
 
     user_prompt = adapter._client.completions.kwargs["messages"][-1]["content"]
-    assert "## Source-Specific Integration Instructions" in user_prompt
-    assert "preference_profile only after repeated plays" in user_prompt
+    assert "## Source-Specific Summary Instructions" in user_prompt
+    assert "Keep song names in their source language" in user_prompt
+
+
+def test_integrate_phase2_retries_undeclared_fields():
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary, L2Phase1Result
+
+    adapter = _FakeAdapter(
+        [
+            json.dumps({"summaries": [], "semantic_actions": []}),
+            json.dumps({"summaries": []}),
+        ]
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    result = asyncio.run(
+        service.integrate_phase2(
+            phase1_result=L2Phase1Result(),
+            event_window=L2EventWindow(
+                events=[{"event_id": "evt-1", "content": "I like tea.", "timestamp": 1.0}],
+                summary=L2EventWindowSummary(session_id="s1"),
+            ),
+            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+        )
+    )
+
+    assert result.to_dict() == {"summaries": []}
+    assert len(adapter.calls) == 2
 
 
 def test_chat_source_l2_extraction_uses_medium_priority_limiter(
@@ -560,8 +415,7 @@ def test_chat_source_l2_extraction_uses_medium_priority_limiter(
     adapter = _FakeAdapter(
         json.dumps(
             {
-                "claim_assessments": [],
-                "assertion_candidates": [],
+                "summaries": [],
             }
         )
     )
@@ -570,8 +424,6 @@ def test_chat_source_l2_extraction_uses_medium_priority_limiter(
     asyncio.run(
         service.integrate_phase2(
             phase1_result=L2Phase1Result(),
-            existing_graph_edges=[],
-            existing_assertions=[],
             event_window=L2EventWindow(
                 events=[
                     {
@@ -600,8 +452,7 @@ def test_non_chat_source_l2_extraction_keeps_low_priority_limiter(
     adapter = _FakeAdapter(
         json.dumps(
             {
-                "claim_assessments": [],
-                "assertion_candidates": [],
+                "summaries": [],
             }
         )
     )
@@ -610,8 +461,6 @@ def test_non_chat_source_l2_extraction_keeps_low_priority_limiter(
     asyncio.run(
         service.integrate_phase2(
             phase1_result=L2Phase1Result(),
-            existing_graph_edges=[],
-            existing_assertions=[],
             event_window=L2EventWindow(
                 events=[
                     {
@@ -673,78 +522,6 @@ def test_chat_source_entity_resolution_uses_medium_priority_limiter(
     )
 
     assert limiter.calls[-1]["priority"] is LLMRequestPriority.MEDIUM
-
-
-def test_conflict_arbitration_uses_core_scenario_adapter():
-    from magi.config.models import LLMScenario
-    from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import (
-        ContradictionHint,
-        L2CandidateSet,
-        L2ConflictArbitrationResult,
-        L2ExistingRecord,
-        L2EventWindow,
-        L2EventWindowSummary,
-        L2SourceEvent,
-    )
-
-    fast_adapter = _FakeAdapter("{}")
-    deep_adapter = _FakeAdapter(
-        json.dumps(
-            {
-                "decision": "keep_existing",
-                "winning_record_ids": ["triple-1"],
-                "superseded_record_ids": [],
-                "reason": "Older evidence is stronger.",
-            }
-        ),
-        model_name="gpt-deep",
-    )
-    service = L2LLMService(
-        _ScenarioAwarePool(
-            {
-                LLMScenario.CONTEXT_DECIDER: fast_adapter,
-                LLMScenario.CORE: deep_adapter,
-            }
-        )
-    )
-
-    result = asyncio.run(
-        service.arbitrate_conflict(
-            new_event_window=L2EventWindow(
-                event_ids=["evt-1"],
-                events=[],
-                summary=L2EventWindowSummary(event_count=1, session_id="s1"),
-            ),
-            new_candidates=L2CandidateSet(graph_candidates=[], assertion_candidates=[]),
-            contradiction_hints=[
-                ContradictionHint(
-                    target_record_id="triple-1",
-                    target_record_type="knowledge_graph",
-                    contradiction_kind="preference_reversal",
-                    confidence=0.9,
-                    evidence_text="I do not like sushi anymore.",
-                    recommended_action="mark_deprecated",
-                )
-            ],
-            existing_records=[L2ExistingRecord(record_id="triple-1", record_type="knowledge_graph")],
-            source_events=[
-                L2SourceEvent(
-                    event_id="evt-1",
-                    timestamp=1710000000.0,
-                    source="chat",
-                    event_type="UserMessage",
-                    content="I do not like sushi anymore.",
-                    author_type="user",
-                )
-            ],
-        )
-    )
-
-    assert isinstance(result, L2ConflictArbitrationResult)
-    assert result.decision == "keep_existing"
-    assert fast_adapter._client.completions.kwargs == {}
-    assert deep_adapter._client.completions.kwargs["messages"][0]["content"]
 
 
 def test_entity_reconcile_returns_typed_outcomes():
@@ -1020,86 +797,16 @@ def test_phase1_applies_language_and_entity_grounding_contract(
         )
     )
 
-    assert result.entities[0].normalized_name == surface
-    assert result.entities[0].alias_signals == []
+    assert result.entities == []
     assert result.fact_claims[0].object_ref == surface
+    assert result.diagnostics["entity_status"] == "none"
+    assert result.diagnostics["rejected_entity_count"] == 1
+    assert result.diagnostics["rejected_sentence_like_entity_count"] == 1
     assert result.diagnostics["repaired_entity_name_count"] == 1
     messages = adapter.calls[0]["messages"]
     assert isinstance(messages, list)
     assert "Configured user language: `zh-CN`" in messages[1]["content"]
     assert "Letter scripts detected in current evidence: Han" in messages[1]["content"]
-
-
-def test_phase1_materializes_omitted_grounded_future_intent_target() -> None:
-    from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2BatchEvent, L2EventWindow
-
-    evidence = "我计划秋天去一次海边"
-    target = "秋天去一次海边"
-    adapter = _FakeAdapter(
-        json.dumps(
-            {
-                "entities": [
-                    {
-                        "surface": "海边",
-                        "normalized_name": "海边",
-                        "entity_type": "place",
-                        "specificity": "concrete",
-                        "resolved_id": None,
-                        "is_new": True,
-                        "alias_signals": [],
-                        "confidence": 0.94,
-                    }
-                ],
-                "fact_claims": [
-                    {
-                        "subject_ref": "user:self",
-                        "subject_type": "user",
-                        "predicate": "PLANS_TO",
-                        "object_ref": target,
-                        "object_type": "activity",
-                        "fact_kind": "future_intent",
-                        "temporal_cue": "unspecified",
-                        "raw_time_expression": "秋天",
-                        "polarity": "positive",
-                        "specificity": "concrete",
-                        "evidence_text": evidence,
-                        "confidence": 0.96,
-                        "supporting_event_ids": ["evt-plan"],
-                        "evidence_mode": "direct",
-                        "antecedent_event_ids": [],
-                    }
-                ],
-                "resolved_refs": [],
-                "diagnostics": {"entity_status": "found"},
-            },
-            ensure_ascii=False,
-        )
-    )
-    service = L2LLMService(_FakeScenarioPool(adapter))
-
-    result = asyncio.run(
-        service.extract_phase1(
-            event_window=L2EventWindow(
-                events=[
-                    L2BatchEvent(
-                        event_id="evt-plan",
-                        content=evidence,
-                        author_type="user",
-                    )
-                ]
-            ),
-            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
-        )
-    )
-
-    assert [(entity.surface, entity.entity_type) for entity in result.entities] == [
-        ("海边", "place"),
-        (target, "activity"),
-    ]
-    assert result.entities[1].normalized_name == target
-    assert result.entities[1].alias_signals == []
-    assert result.diagnostics["materialized_future_intent_entity_count"] == 1
 
 
 def test_phase1_short_reply_does_not_reuse_prior_user_text_as_current_evidence():

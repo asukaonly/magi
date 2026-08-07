@@ -14,6 +14,8 @@ from magi.memory.l2.ontology_aliases import (
 )
 from magi.memory.l2.predicate_catalog import ALL_SPECS, SPEC_BY_CANONICAL
 from magi.memory.l2.semantic_routing import (
+    ObjectRole,
+    ProjectionTarget,
     ROUTE_DISPOSITION_BY_PREDICATE,
     ROUTE_EXTENSION_PREDICATES,
     RouteDisposition,
@@ -278,7 +280,7 @@ def test_slot_identity_ignores_fact_kind_temporal_route_version_and_surface_valu
     assert first_name.value_fingerprint != changed_name.value_fingerprint
 
 
-def test_target_route_never_falls_back_to_object_surface() -> None:
+def test_preference_route_uses_text_identity_when_entity_resolution_is_missing() -> None:
     for surface in ("Jazz", "爵士乐", "  jazz music  "):
         decision = derive_semantic_route(
             _route_input(
@@ -289,15 +291,47 @@ def test_target_route_never_falls_back_to_object_surface() -> None:
             )
         )
 
-        assert decision.disposition is RouteDisposition.UNROUTED
-        assert decision.reason_code == "unresolved_target"
-        assert decision.route_key is None
-        assert decision.slot_key is None
-        assert decision.canonical_value is None
-        assert not decision.can_project_assertion
+        assert decision.disposition is RouteDisposition.ROUTED
+        assert decision.object_role is ObjectRole.TARGET_ID_OR_TEXT
+        assert decision.semantic_target_key
+        assert decision.semantic_target_key.startswith("text:")
+        assert decision.normalized_target_text == " ".join(surface.casefold().split())
+        assert decision.target_entity_id is None
+        assert decision.can_project_assertion
+        assert not decision.can_project_graph
 
 
-def test_goal_route_requires_concrete_resolved_target_and_keys_time_window() -> None:
+def test_text_target_hash_uses_full_normalized_text_beyond_display_limit() -> None:
+    shared_prefix = "x" * 200
+    first = derive_semantic_route(
+        _route_input("LIKES", object_value=shared_prefix + "a", object_entity_id=None)
+    )
+    second = derive_semantic_route(
+        _route_input(
+            "LIKES",
+            claim_id="claim:second",
+            object_value=shared_prefix + "b",
+            object_entity_id=None,
+        )
+    )
+
+    assert first.normalized_target_text == second.normalized_target_text == shared_prefix
+    assert first.semantic_target_key != second.semantic_target_key
+    assert first.slot_key != second.slot_key
+
+
+def test_resolved_preference_declares_graph_and_assertion_projection() -> None:
+    decision = derive_semantic_route(_route_input("LIKES"))
+
+    assert decision.semantic_target_key == "entity:entity:jazz"
+    assert decision.projection_targets == frozenset(
+        {ProjectionTarget.GRAPH, ProjectionTarget.ASSERTION}
+    )
+    assert decision.can_project_assertion
+    assert decision.can_project_graph
+
+
+def test_goal_route_requires_concrete_text_and_keeps_window_out_of_slot() -> None:
     unscheduled = derive_semantic_route(_route_input("PLANS_TO"))
     scheduled = derive_semantic_route(
         _route_input(
@@ -323,13 +357,20 @@ def test_goal_route_requires_concrete_resolved_target_and_keys_time_window() -> 
     assert unscheduled.disposition is RouteDisposition.ROUTED
     assert unscheduled.family == "goal_profile"
     assert unscheduled.trait_code == "goal.intent"
+    assert unscheduled.object_role is ObjectRole.GOAL_TEXT
+    assert unscheduled.target_entity_id is None
+    assert unscheduled.semantic_target_key
+    assert unscheduled.goal_lineage_key
     assert unscheduled.target_window_key
-    assert scheduled.slot_key != unscheduled.slot_key
+    assert scheduled.slot_key == unscheduled.slot_key
+    assert scheduled.goal_lineage_key == unscheduled.goal_lineage_key
     assert scheduled.target_window_key != unscheduled.target_window_key
 
-    unresolved = derive_semantic_route(_route_input("PLANS_TO", object_entity_id=None))
+    blank = derive_semantic_route(
+        _route_input("PLANS_TO", object_value=" ", object_entity_id=None)
+    )
     vague = derive_semantic_route(_route_input("PLANS_TO", specificity="underspecified"))
-    assert unresolved.reason_code == "unresolved_target"
+    assert blank.reason_code == "invalid_goal_text"
     assert vague.reason_code == "goal_target_not_concrete"
 
 
@@ -421,9 +462,10 @@ def test_goal_window_identity_uses_civil_descriptor_instead_of_runtime_epoch() -
     assert first.target_window_key == timezone_alias.target_window_key
     assert first.slot_key == timezone_alias.slot_key
     assert different_day.target_window_key != first.target_window_key
+    assert different_day.slot_key == first.slot_key
 
 
-def test_goal_window_identity_falls_back_to_legacy_persisted_epochs() -> None:
+def test_goal_window_audit_identity_falls_back_to_resolved_epochs() -> None:
     first = derive_semantic_route(
         _route_input(
             "PLANS_TO",
@@ -458,7 +500,7 @@ def test_goal_window_identity_falls_back_to_legacy_persisted_epochs() -> None:
     )
 
     assert first.target_window_key != different_window.target_window_key
-    assert first.slot_key != different_window.slot_key
+    assert first.slot_key == different_window.slot_key
 
 
 def test_unknown_predicate_remains_visible_as_unrouted() -> None:

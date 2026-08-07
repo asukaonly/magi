@@ -401,7 +401,7 @@ Product expectations:
 - vector writes should always stay on the async sqlite path rather than being user-configurable
 - changing the active embedding model must run a save preflight: model or dimension changes for existing vectors require a strong confirmation and should prompt users to rebuild vectors; remote provider/base URL changes with the same model and dimension may show a softer provenance warning
 - general memory settings should expose vector ready counts and a rebuild action backed by a persisted background job. Same-model rebuilds keep previous searchable material available while each current item is refreshed, let newer normal writes win over older rebuild work, and report cancellation or an embedding-identity change instead of claiming a partial mixed rebuild succeeded. Saving a vector-affecting configuration change must first stop and await the current rebuild and briefly prevent a new one from starting until the runtime has refreshed; ordinary embedding requests that started under the previous configuration must be discarded if they return after that boundary. The selected local embedding variant is part of this identity-affecting configuration and must round-trip through Settings. After switching to an incompatible embedding model, search coverage becomes complete progressively during rebuild; zero-gap atomic switching would require a separate shadow-index workflow and is not part of the current product contract
-- the Knowledge Memory workspace should let operators manually trigger immediate L2 microbatch generation for all currently staged batches
+- the Knowledge Memory workspace should let operators manually claim and run currently pending durable L2 projection jobs
 - L1 event memory should default to a 30-day hot retention window
 - graph-spreading recall should default to enabled for relation-assisted memory retrieval
 
@@ -522,7 +522,7 @@ Current storage implementation notes:
 - Layer vectors are stored per layer (`L1/L2 entity/L2 relation/L3/L4` vector tables) instead of a shared `embeddings.db`.
 - The vector backend is fixed to sqlite and vector writes stay async; Settings no longer exposes backend or scheduling switches.
 - Vector table identity is strict for incompatible embeddings. Remote vectors are keyed by model, dimension, and text-builder version; local vectors are keyed by model file hash, dimension, and text-builder version. Provider provenance changes are surfaced as warnings but do not invalidate the hard identity by themselves.
-- L2 batch flush timing and conflict arbitration thresholds remain internal pipeline strategy defaults rather than ordinary user-facing settings.
+- L2 projection batching timing and host conflict policy remain internal runtime behavior rather than ordinary user-facing settings.
 - `agent.memory.l2.portrait_projection_refresh_delay_seconds` controls the debounced About You portrait refresh after L2 assertion changes. The default is 120 seconds, and repeated changes for the same user during that window are merged into one refresh.
 - `agent.memory.l2.experience_seed_llm_selection_max_per_run` bounds automatic experience-seed LLM selection during each consolidation run; seeds beyond the cap use local selection so background maintenance remains bounded.
 - Profile-memory conflict notifications should be routed through the Pending memory page so users can either accept the newer inferred memory or keep the existing user-authoritative memory.

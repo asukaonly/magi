@@ -9,9 +9,15 @@ import pytest
 
 from magi.user_profile.portrait_projection_scheduler import (
     UserPortraitProjectionScheduler,
+    get_portrait_projection_scheduler,
     register_l2_portrait_projection_refresh,
     schedule_portrait_projection_refresh,
 )
+from magi.user_profile.portrait_projection_repository import (
+    UserPortraitProjectionRepository,
+)
+from magi.user_profile.projection_freshness import profile_projection_highwater
+from magi.user_profile.projection_repository import UserProfileProjectionRepository
 
 
 @pytest.mark.asyncio
@@ -100,6 +106,51 @@ def test_runtime_registration_includes_correction_derivations(tmp_path):
 
     assert set(l2.handlers) == {"profile", "portrait"}
     assert callable(l2.assertion_callback)
+
+
+@pytest.mark.asyncio
+async def test_runtime_refresh_rebuilds_profile_before_portrait(tmp_path):
+    class _L2:
+        db_path = str(tmp_path / "memory.db")
+
+        async def list_current_assertions(self, **_kwargs):
+            return [
+                {
+                    "assertion_id": "assert-name",
+                    "trait_family": "identity_profile",
+                    "trait_name": "identity.real_name",
+                    "trait_value": "明日香",
+                    "validation_state": "stable",
+                    "source_domain": "user_authored",
+                    "updated_at": 10.0,
+                }
+            ]
+
+        async def current_subject_revision(self, _entity_id: str) -> int:
+            return 0
+
+        async def current_clear_generation(self) -> int:
+            return 0
+
+    memory = SimpleNamespace(
+        l2=_L2(),
+        _memory_config_getter=lambda: SimpleNamespace(
+            l2=SimpleNamespace(portrait_projection_refresh_delay_seconds=0.0)
+        ),
+    )
+    scheduler = get_portrait_projection_scheduler(memory)
+    assert scheduler is not None
+
+    await scheduler.schedule_user("local_user")
+    await scheduler.wait_idle()
+
+    profile = await UserProfileProjectionRepository(memory.l2.db_path).get("local_user")
+    portrait = await UserPortraitProjectionRepository(memory.l2.db_path).get("local_user")
+    assert profile is not None
+    assert portrait is not None
+    assert profile.real_name == "明日香"
+    assert portrait.input_profile_highwater == profile_projection_highwater(profile)
+    assert "明日香" in str(portrait.world)
 
 
 def _assertion(

@@ -2350,8 +2350,6 @@ describe('config forms', () => {
               enabled: true,
               batch_flush_interval_seconds: 60,
               auto_extract_relations: true,
-              conflict_arbitration_enabled: true,
-              conflict_arbitration_min_confidence: 0.85,
             },
             l3: {
               enabled: true,

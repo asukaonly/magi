@@ -101,6 +101,8 @@ _RESTORABLE_ASSERTION_COLUMNS = (
     "valid_to",
     "scope_key",
     "scope_json",
+    "semantic_lineage_key",
+    "target_window_json",
 )
 
 
@@ -916,10 +918,12 @@ async def _insert_replacement_assertion(
             expires_at, user_feedback, user_feedback_at, status, superseded_by,
             superseded_at, memory_subdomain, natural_summary, created_at, updated_at,
             slot_key, claim_fingerprint, authority_ref, version_root_id,
-            previous_version_id, valid_from, valid_to, scope_key, scope_json
+            previous_version_id, valid_from, valid_to, scope_key, scope_json,
+            semantic_lineage_key, target_window_json
         ) VALUES (
             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?
         )
         """,
         (
@@ -963,6 +967,8 @@ async def _insert_replacement_assertion(
             None,
             scope_key_value,
             canonical_scope_json(scope),
+            str(before["semantic_lineage_key"] or ""),
+            str(before["target_window_json"] or "{}"),
         ),
     )
 

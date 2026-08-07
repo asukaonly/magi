@@ -618,7 +618,7 @@ class _FakeReadinessMemory:
         self._flush_result = flush_result
         self.backlog_source_filters = []
 
-    async def flush_l2_microbatches(self):
+    async def flush_l2_projection_jobs(self):
         self.flush_calls += 1
         return self._flush_result
 

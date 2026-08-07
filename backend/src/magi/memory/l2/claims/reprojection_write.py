@@ -19,6 +19,10 @@ from ..semantic_routing import (
     SemanticRouteInput,
     derive_semantic_route,
 )
+from ..reviews.repository import (
+    close_pending_review_on_connection,
+    reconcile_pending_review_support_on_connection,
+)
 from ..storage.utils import max_evidence_event_ids
 from .identity import projection_outcome_id
 from .outcomes import (
@@ -51,6 +55,7 @@ class ClaimTargetRetirementResult:
     target_outcomes_invalidated: int = 0
     assertions_archived: int = 0
     relationships_archived: int = 0
+    reviews_closed: int = 0
     shared_targets_preserved: int = 0
     authority_targets_preserved: int = 0
     affected_subject_keys: tuple[str, ...] = ()
@@ -120,7 +125,15 @@ async def reproject_claim_route(
                 target_slot_key=decision.slot_key,
                 outcome=decision.disposition.value,
                 reason_code=decision.reason_code,
-                details=_route_outcome_details(decision),
+                details=_route_outcome_details(
+                    decision,
+                    subject_resolution_version=int(
+                        candidate.get("subject_resolution_version") or 0
+                    ),
+                    object_resolution_version=int(
+                        candidate.get("object_resolution_version") or 0
+                    ),
+                ),
                 created_at=changed_at,
             )
             retirement = await _reconcile_downstream_provenance(
@@ -261,16 +274,27 @@ def _reprojection_attempt_key(candidate: Mapping[str, Any]) -> str:
     )
 
 
-def _route_outcome_details(decision: SemanticRouteDecision) -> dict[str, Any]:
+def _route_outcome_details(
+    decision: SemanticRouteDecision,
+    *,
+    subject_resolution_version: int,
+    object_resolution_version: int,
+) -> dict[str, Any]:
     return {
         "semantic_route_id": decision.semantic_route_id,
         "family": decision.family,
         "trait_code": decision.trait_code,
         "object_role": decision.object_role.value,
         "value_fingerprint": decision.value_fingerprint,
+        "semantic_target_key": decision.semantic_target_key,
+        "object_surface": decision.object_surface,
+        "normalized_target_text": decision.normalized_target_text,
         "target_entity_type": decision.target_entity_type,
+        "goal_lineage_key": decision.goal_lineage_key,
         "target_window_key": decision.target_window_key,
         "scope_key": decision.scope_key,
+        "subject_resolution_version": max(0, int(subject_resolution_version)),
+        "object_resolution_version": max(0, int(object_resolution_version)),
     }
 
 
@@ -295,6 +319,7 @@ async def retire_claim_target_authority_on_connection(
     db: aiosqlite.Connection,
     *,
     claim_ids: Iterable[str],
+    target_kinds: frozenset[str],
     invalidated_reason: str,
     changed_at: float,
 ) -> ClaimTargetRetirementResult:
@@ -316,6 +341,22 @@ async def retire_claim_target_authority_on_connection(
         raise ValueError("invalidated_reason must not be blank")
     if not normalized_claim_ids:
         return ClaimTargetRetirementResult()
+    normalized_target_kinds = frozenset(
+        str(target_kind).strip().casefold()
+        for target_kind in target_kinds
+        if str(target_kind).strip()
+    )
+    unknown_target_kinds = normalized_target_kinds - {
+        "assertion",
+        "relationship",
+        "review",
+    }
+    if unknown_target_kinds:
+        raise ValueError(
+            f"unsupported Claim target retirement kinds: {sorted(unknown_target_kinds)}"
+        )
+    if not normalized_target_kinds:
+        return ClaimTargetRetirementResult()
 
     affected_targets: set[tuple[str, str]] = set()
     retired_evidence_event_ids: set[str] = set()
@@ -329,6 +370,8 @@ async def retire_claim_target_authority_on_connection(
         receipts = await _active_target_receipts(db, claim_id=claim_id)
         for receipt in receipts:
             target_kind = str(receipt["target_kind"])
+            if target_kind not in normalized_target_kinds:
+                continue
             target_id = str(receipt["target_id"])
             affected_targets.add((target_kind, target_id))
             if candidate is not None and decision is not None:
@@ -349,6 +392,7 @@ async def retire_claim_target_authority_on_connection(
 
     assertion_archives = 0
     relationship_archives = 0
+    review_closures = 0
     shared_preserved = 0
     authority_preserved = 0
     affected_subject_keys: set[str] = set()
@@ -394,6 +438,8 @@ async def retire_claim_target_authority_on_connection(
         )
         if target_kind == "assertion":
             assertion_archives += archived
+        elif target_kind == "review":
+            review_closures += archived
         else:
             relationship_archives += archived
 
@@ -401,6 +447,7 @@ async def retire_claim_target_authority_on_connection(
         target_outcomes_invalidated=invalidated,
         assertions_archived=assertion_archives,
         relationships_archived=relationship_archives,
+        reviews_closed=review_closures,
         shared_targets_preserved=shared_preserved,
         authority_targets_preserved=authority_preserved,
         affected_subject_keys=tuple(sorted(affected_subject_keys)),
@@ -490,7 +537,7 @@ async def _reconcile_downstream_provenance(
                 target_kind=target_kind,
                 target_id=canonical_target_id,
                 target_slot_key=canonical_target.target_slot_key,
-                outcome="projected",
+                outcome="pending" if target_kind == "review" else "projected",
                 reason_code=_ROUTE_REVALIDATED_REASON,
                 details={"supersedes_outcome_ids": superseded_outcome_ids},
                 created_at=changed_at,
@@ -600,8 +647,11 @@ async def _active_target_receipts(
               LIMIT 1
           )
         WHERE targets.claim_id = ?
-          AND targets.target_kind IN ('assertion', 'relationship')
-          AND targets.outcome = 'projected'
+          AND targets.target_kind IN ('assertion', 'relationship', 'review')
+          AND (
+                targets.outcome = 'projected'
+                OR (targets.target_kind = 'review' AND targets.outcome = 'pending')
+          )
           AND targets.invalidated_at IS NULL
         ORDER BY targets.created_at, targets.outcome_id
         """,
@@ -712,6 +762,11 @@ async def _canonical_target_after_entity_merge(
             claim_id=str(candidate.get("claim_id") or ""),
             candidate=candidate,
             decision=decision,
+        )
+    if target_kind == "review" and decision.can_project_assertion:
+        return _CanonicalTarget(
+            target_id=str(receipt.get("target_id") or ""),
+            target_slot_key=decision.slot_key,
         )
     return None
 
@@ -937,6 +992,8 @@ def _decision_allows_target(
             decision.disposition is RouteDisposition.NOT_APPLICABLE
             and decision.reason_code == "relationship_only"
         )
+    if target_kind == "review":
+        return decision.can_project_assertion
     return False
 
 
@@ -983,7 +1040,10 @@ async def _current_target_support(
                 receipts.target_id = ?
                 OR routes.invalidated_reason = 'entity_merged'
           )
-          AND receipts.outcome = 'projected'
+          AND (
+                receipts.outcome = 'projected'
+                OR (receipts.target_kind = 'review' AND receipts.outcome = 'pending')
+          )
           AND receipts.invalidated_at IS NULL
         ORDER BY receipts.claim_id, receipts.created_at DESC, receipts.outcome_id DESC
         """,
@@ -1061,6 +1121,8 @@ async def _target_has_independent_authority(
             (target_id,),
         ) as cursor:
             return await cursor.fetchone() is not None
+    if target_kind == "review":
+        return False
     async with db.execute(
         """
         SELECT 1
@@ -1090,11 +1152,17 @@ async def _target_subject_keys(
             FROM tom_trait_assertions
             WHERE assertion_id = ?
         """
-    else:
+    elif target_kind == "relationship":
         query = """
             SELECT subject_id AS entity_id, object_id AS target_entity_id
             FROM knowledge_graph
             WHERE triple_id = ?
+        """
+    else:
+        query = """
+            SELECT subject_id AS entity_id, '' AS target_entity_id
+            FROM l2_pending_reviews
+            WHERE review_id = ?
         """
     async with db.execute(query, (target_id,)) as cursor:
         row = await cursor.fetchone()
@@ -1123,6 +1191,16 @@ async def _refresh_target_evidence(
             preserve_existing=preserve_existing,
             retired_evidence_event_ids=retired_evidence_event_ids,
             changed_at=changed_at,
+        )
+        return
+    if target_kind == "review":
+        await reconcile_pending_review_support_on_connection(
+            db,
+            review_id=target_id,
+            claim_ids=support.claim_ids,
+            evidence_event_ids=support.evidence_event_ids,
+            changed_at=changed_at,
+            close_reason=_ROUTE_CHANGED_REASON,
         )
         return
     await _refresh_relationship_evidence(
@@ -1262,6 +1340,13 @@ async def _archive_target(
             (changed_at, changed_at, target_id),
         )
         return max(int(cursor.rowcount or 0), 0)
+    if target_kind == "review":
+        return await close_pending_review_on_connection(
+            db,
+            review_id=target_id,
+            reason=reason,
+            changed_at=changed_at,
+        )
     cursor = await db.execute(
         """
         UPDATE knowledge_graph

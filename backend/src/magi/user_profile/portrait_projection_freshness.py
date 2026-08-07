@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from .models import UserPortraitProjection, UserProfileProjection
@@ -17,6 +18,13 @@ from .portrait_projection_builder import (
     tentative_portrait_selection_refs,
 )
 from .portrait_signal_policy import assertion_portrait_role
+from .projection_freshness import (
+    assertion_records_highwater,
+    current_clear_generation,
+    current_subject_revision,
+    highwaters_equal,
+    profile_projection_highwater,
+)
 
 
 async def portrait_projection_is_stale(
@@ -30,34 +38,43 @@ async def portrait_projection_is_stale(
     if _missing_correction_version_metadata(projection):
         return True
     entity_id = f"user:{user_id}"
-    if await _source_revision_changed(projection, l2_store, entity_id):
+    if int(projection.source_revision) != await current_subject_revision(
+        l2_store,
+        entity_id=entity_id,
+    ):
         return True
-    if await _clear_generation_changed(projection, l2_store):
+    if int(projection.source_generation) != await current_clear_generation(l2_store):
         return True
 
-    newest_input_at = _profile_timestamp(profile_projection)
-    assertions: list[dict[str, Any]] = []
-    if l2_store is not None:
-        assertions = await _current_portrait_assertions(l2_store, entity_id)
-        if _cached_assertion_is_no_longer_current(projection, assertions):
-            return True
-        newest_input_at = max(
-            newest_input_at,
-            _records_timestamp(assertions, ("updated_at", "last_validated_at", "created_at")),
-            await latest_portrait_claim_change_at(l2_store, user_id=user_id),
-        )
-        if await _tentative_prompt_selection_changed(
-            projection,
-            l2_store=l2_store,
-            user_id=user_id,
-            assertions=assertions,
-        ):
-            return True
-    projection_at = max(
-        _float_value(projection.generated_at),
-        _float_value(projection.updated_at),
+    assertions = await _current_portrait_assertions(l2_store, entity_id)
+    if not highwaters_equal(
+        projection.input_assertion_highwater,
+        assertion_records_highwater(assertions),
+    ):
+        return True
+    if _cached_assertion_is_no_longer_current(projection, assertions):
+        return True
+    if not highwaters_equal(
+        projection.input_claim_highwater,
+        await latest_portrait_claim_change_at(l2_store, user_id=user_id),
+    ):
+        return True
+    if not highwaters_equal(
+        projection.input_review_highwater,
+        await _latest_review_change_at(l2_store, entity_id=entity_id),
+    ):
+        return True
+    if not highwaters_equal(
+        projection.input_profile_highwater,
+        profile_projection_highwater(profile_projection),
+    ):
+        return True
+    return await _tentative_prompt_selection_changed(
+        projection,
+        l2_store=l2_store,
+        user_id=user_id,
+        assertions=assertions,
     )
-    return newest_input_at > projection_at + 0.000001
 
 
 def _cached_assertion_is_no_longer_current(
@@ -128,17 +145,14 @@ async def _current_portrait_assertions(
     entity_id: str,
 ) -> list[dict[str, Any]]:
     list_assertions = getattr(l2_store, "list_current_assertions", None)
-    if list_assertions is None:
-        return []
-    try:
-        assertions = await list_assertions(
-            entity_id=entity_id,
-            entity_type="user",
-            context_scope=None,
-            limit=500,
-        )
-    except Exception:
-        return []
+    if not callable(list_assertions):
+        raise RuntimeError("L2 current Assertion reads are unavailable")
+    assertions = await list_assertions(
+        entity_id=entity_id,
+        entity_type="user",
+        context_scope=None,
+        limit=500,
+    )
     return [
         assertion
         for assertion in assertions
@@ -199,53 +213,17 @@ async def _tentative_prompt_selection_changed(
     return cached_lines != current_lines or cached_selection_refs != current_selection_refs
 
 
-async def _source_revision_changed(
-    projection: UserPortraitProjection,
-    l2_store: Any,
-    entity_id: str,
-) -> bool:
-    getter = getattr(l2_store, "current_subject_revision", None)
-    if not callable(getter):
-        return False
-    try:
-        return int(await getter(entity_id)) != int(projection.source_revision)
-    except Exception:
-        return False
-
-
-async def _clear_generation_changed(
-    projection: UserPortraitProjection,
-    l2_store: Any,
-) -> bool:
-    getter = getattr(l2_store, "current_clear_generation", None)
-    if not callable(getter):
-        return False
-    try:
-        return int(await getter()) != int(projection.source_generation)
-    except Exception:
-        return False
-
-
-def _profile_timestamp(profile: UserProfileProjection | None) -> float:
-    if profile is None:
+async def _latest_review_change_at(l2_store: Any, *, entity_id: str) -> float:
+    if inspect.getattr_static(
+        l2_store,
+        "latest_pending_review_change_at",
+        None,
+    ) is None:
         return 0.0
-    return max(
-        _float_value(profile.updated_at),
-        _float_value(profile.refreshed_at),
-        _float_value(profile.created_at),
-    )
-
-
-def _records_timestamp(records: Any, keys: tuple[str, ...]) -> float:
-    if not isinstance(records, list):
+    getter = getattr(l2_store, "latest_pending_review_change_at", None)
+    if not callable(getter):
         return 0.0
-    best = 0.0
-    for record in records:
-        if not isinstance(record, dict):
-            continue
-        for key in keys:
-            best = max(best, _float_value(record.get(key)))
-    return best
+    return float(await getter(subject_id=entity_id) or 0.0)
 
 
 def _float_value(value: Any) -> float:

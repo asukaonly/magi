@@ -18,31 +18,27 @@ from ..llm_service import L2LLMService
 from ..models import (
     L2BatchJob,
     L2FocalEntityRef,
-    L2PendingBatchBucket,
     ReconciledTraitOutcome,
 )
 from ..promotion_counter import L2PromotionCounter
 from ..store import L2CognitionStore
-from .staging import DEFAULT_L2_MAX_EVENTS_PER_BATCH
+from ..batching_policy import DEFAULT_L2_MAX_EVENTS_PER_BATCH
 
 logger = get_logger(__name__)
 
 DEFAULT_L2_EXTRACT_WORKER_COUNT = 5
 DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS = 60
-DEFAULT_L2_BATCH_SHUTDOWN_TIMEOUT_SECONDS = 2.0
 DEFAULT_L2_PROJECTION_CLAIM_LIMIT = (
     DEFAULT_L2_MAX_EVENTS_PER_BATCH * DEFAULT_L2_EXTRACT_WORKER_COUNT
 )
 DEFAULT_L2_PROJECTION_STALE_QUEUED_TIMEOUT_SECONDS = 1800.0
 DEFAULT_L2_PROJECTION_STALE_RUNNING_TIMEOUT_SECONDS = 300.0
 DEFAULT_L2_PROJECTION_HEARTBEAT_INTERVAL_SECONDS = 30.0
-DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION = True
-DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE = 0.85
 
 
 @dataclass(slots=True)
 class L2PipelineStats:
-    """Counters for the staged L2 background pipeline."""
+    """Counters for the durable-projection L2 background pipeline."""
 
     is_running: bool = False
     extract_enqueued: int = 0
@@ -62,14 +58,10 @@ class L2PipelineStats:
     assertions_written: int = 0
     batch_flush_count: int = 0
     batch_flush_by_reason: dict[str, int] = field(default_factory=dict)
-    pending_staged_event_count: int = 0
-    active_bucket_count: int = 0
     avg_batch_event_count: float = 0.0
     avg_batch_estimated_tokens: float = 0.0
     extract_by_evidence_class: dict[str, int] = field(default_factory=dict)
     skip_by_reason: dict[str, int] = field(default_factory=dict)
-    conflict_arbitration_triggered: int = 0
-    conflict_arbitration_by_decision: dict[str, int] = field(default_factory=dict)
     severe_contradiction_hint_count: int = 0
 
 
@@ -86,8 +78,6 @@ class _L2PipelineLifecycleHostProtocol(Protocol):
     _active_entity_callback: Callable[[MemoryEvent, list[L2FocalEntityRef]], Awaitable[None]] | None
     _extraction_profile_provider: Callable[[], Iterable[Any]] | None
     _batch_flush_interval_seconds: int
-    _enable_conflict_arbitration: bool
-    _conflict_arbitration_min_confidence: float
     _extract_queue: asyncio.Queue[L2BatchJob | None]
     _reconcile_queue: asyncio.Queue[list[str] | None]
     _snapshot_queue: asyncio.Queue[list[str] | None]
@@ -96,8 +86,6 @@ class _L2PipelineLifecycleHostProtocol(Protocol):
     _flush_worker: asyncio.Task[None] | None
     _reconcile_worker: asyncio.Task[None] | None
     _snapshot_worker: asyncio.Task[None] | None
-    _staging_buckets: dict[str, L2PendingBatchBucket]
-    _staging_lock: asyncio.Lock
     _entity_locks: dict[str, asyncio.Lock]
     _entity_locks_guard: asyncio.Lock
     _session_touched_entities: dict[str, set[str]]
@@ -118,8 +106,6 @@ class _L2PipelineLifecycleHostProtocol(Protocol):
     async def _run_reconcile_worker(self) -> None: ...
 
     async def _run_snapshot_worker(self) -> None: ...
-
-    async def _flush_all_buckets(self, *, flush_reason: str) -> None: ...
 
     async def _drain_event_entity_link_outbox(self) -> int: ...
 
@@ -142,8 +128,6 @@ class L2PipelineLifecycleMixin:
         ) = None,
         extraction_profile_provider: Callable[[], Iterable[Any]] | None = None,
         batch_flush_interval_seconds: int = DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS,
-        enable_conflict_arbitration: bool = DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION,
-        conflict_arbitration_min_confidence: float = DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE,
         semantic_edge_builder: Optional[EntityScopedSemanticBuilder] = None,
         promotion_counter: Optional[L2PromotionCounter] = None,
     ) -> None:
@@ -162,10 +146,6 @@ class L2PipelineLifecycleMixin:
         host._active_entity_callback = active_entity_callback
         host._extraction_profile_provider = extraction_profile_provider
         host._batch_flush_interval_seconds = max(0, int(batch_flush_interval_seconds))
-        host._enable_conflict_arbitration = bool(enable_conflict_arbitration)
-        host._conflict_arbitration_min_confidence = max(
-            0.0, min(1.0, float(conflict_arbitration_min_confidence))
-        )
         host._extract_queue = asyncio.Queue()
         host._reconcile_queue = asyncio.Queue()
         host._snapshot_queue = asyncio.Queue()
@@ -174,8 +154,6 @@ class L2PipelineLifecycleMixin:
         host._flush_worker = None
         host._reconcile_worker = None
         host._snapshot_worker = None
-        host._staging_buckets = {}
-        host._staging_lock = asyncio.Lock()
         host._entity_locks = {}
         host._entity_locks_guard = asyncio.Lock()
         host._session_touched_entities = {}
@@ -259,13 +237,6 @@ class L2PipelineLifecycleMixin:
                 await host._flush_worker
             except asyncio.CancelledError:
                 pass
-        try:
-            await asyncio.wait_for(
-                host._flush_all_buckets(flush_reason="shutdown"),
-                timeout=DEFAULT_L2_BATCH_SHUTDOWN_TIMEOUT_SECONDS,
-            )
-        except (asyncio.TimeoutError, Exception):
-            logger.warning("L2 shutdown flush timed out")
         for _ in host._extract_workers:
             await host._extract_queue.put(None)
         if host._reconcile_worker is not None:
@@ -315,8 +286,6 @@ class L2PipelineLifecycleMixin:
         if host._stats.is_running:
             raise RuntimeError("L2 pipeline must be stopped before reset")
         host._lifecycle_epoch += 1
-        async with host._staging_lock:
-            host._staging_buckets = {}
         host._extract_queue = asyncio.Queue()
         host._reconcile_queue = asyncio.Queue()
         host._snapshot_queue = asyncio.Queue()
@@ -349,14 +318,11 @@ class L2PipelineLifecycleMixin:
 
 
 __all__ = [
-    "DEFAULT_ENABLE_L2_CONFLICT_ARBITRATION",
     "DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS",
-    "DEFAULT_L2_BATCH_SHUTDOWN_TIMEOUT_SECONDS",
     "DEFAULT_L2_EXTRACT_WORKER_COUNT",
     "DEFAULT_L2_PROJECTION_CLAIM_LIMIT",
     "DEFAULT_L2_PROJECTION_STALE_QUEUED_TIMEOUT_SECONDS",
     "DEFAULT_L2_PROJECTION_STALE_RUNNING_TIMEOUT_SECONDS",
-    "DEFAULT_L2_CONFLICT_ARBITRATION_MIN_CONFIDENCE",
     "L2PipelineLifecycleMixin",
     "L2PipelineStats",
 ]

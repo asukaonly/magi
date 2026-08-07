@@ -42,6 +42,7 @@ class UserProfileProjection(BaseModel):
     field_sources: dict[str, Any] = Field(default_factory=dict)
     field_conflicts: dict[str, Any] = Field(default_factory=dict)
     completeness_score: float = 0.0
+    input_assertion_highwater: float = 0.0
     source_revision: int = 0
     source_generation: int = 0
     refreshed_at: float = 0.0
@@ -62,6 +63,10 @@ class UserPortraitProjection(BaseModel):
     evidence_refs: list[str] = Field(default_factory=list)
     source_counts: dict[str, int] = Field(default_factory=dict)
     generated_by: str = "rule"
+    input_assertion_highwater: float = 0.0
+    input_claim_highwater: float = 0.0
+    input_review_highwater: float = 0.0
+    input_profile_highwater: float = 0.0
     source_revision: int = 0
     source_generation: int = 0
     generated_at: float = 0.0

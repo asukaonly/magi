@@ -28,7 +28,7 @@ class FakeReplayService:
         self,
         *,
         generate_summaries: bool = True,
-        flush_l2: bool = True,
+        flush_l2_projection_jobs: bool = True,
         drain_l2_edge_embeddings: bool = True,
     ):
         self.finalize_calls += 1
@@ -37,7 +37,7 @@ class FakeReplayService:
                 "finalize_replay",
                 {
                     "generate_summaries": generate_summaries,
-                    "flush_l2": flush_l2,
+                    "flush_l2_projection_jobs": flush_l2_projection_jobs,
                     "drain_l2_edge_embeddings": drain_l2_edge_embeddings,
                 },
             )
@@ -235,7 +235,7 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
             "finalize_replay",
             {
                 "generate_summaries": False,
-                "flush_l2": True,
+                "flush_l2_projection_jobs": True,
                 "drain_l2_edge_embeddings": False,
             },
         ),
@@ -246,7 +246,7 @@ def test_replay_script_writes_records_and_manifest(tmp_path) -> None:
             "finalize_replay",
             {
                 "generate_summaries": True,
-                "flush_l2": False,
+                "flush_l2_projection_jobs": False,
                 "drain_l2_edge_embeddings": True,
             },
         ),

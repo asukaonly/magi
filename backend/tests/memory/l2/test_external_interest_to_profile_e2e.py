@@ -56,8 +56,7 @@ def _external_interest_phase1() -> str:
 def _external_interest_phase2() -> str:
     return json.dumps(
         {
-            "claim_assessments": [],
-            "assertion_candidates": [],
+            "summaries": [],
         }
     )
 

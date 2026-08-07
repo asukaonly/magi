@@ -64,6 +64,9 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "v40_l2_entity_link_outbox.py",
     "v41_l2_claim_subject_revisions.py",
     "v42_l2_projection_batch_descriptors.py",
+    "v43_assertion_semantic_lineage.py",
+    "v44_l2_pending_reviews.py",
+    "v45_profile_projection_highwaters.py",
 )
 
 

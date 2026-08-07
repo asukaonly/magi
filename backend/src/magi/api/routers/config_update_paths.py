@@ -391,8 +391,6 @@ def _memory_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.l2.vectors_enabled": config.memory.l2.vectors_enabled,
         "agent.memory.l2.batch_flush_interval_seconds": config.memory.l2.batch_flush_interval_seconds,
         "agent.memory.l2.auto_extract_relations": config.memory.l2.auto_extract_relations,
-        "agent.memory.l2.conflict_arbitration_enabled": config.memory.l2.conflict_arbitration_enabled,
-        "agent.memory.l2.conflict_arbitration_min_confidence": config.memory.l2.conflict_arbitration_min_confidence,
         "agent.memory.l2.shadow_conflict_notification_enabled": config.memory.l2.shadow_conflict_notification_enabled,
         "agent.memory.l2.portrait_projection_refresh_delay_seconds": config.memory.l2.portrait_projection_refresh_delay_seconds,
         "agent.memory.l3.enabled": config.memory.l3.enabled,

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import date
 
+from magi.user_profile.models import UserProfileProjection
 from magi.user_profile.projection_builder import UserProfileProjectionBuilder
+from magi.user_profile.projection_repository import UserProfileProjectionRepository
 
 
 class _FakeL2:
@@ -79,6 +81,7 @@ async def test_projection_builder_selects_profile_assertions_and_derives_age():
     )
     assert projection.field_sources["preferred_form_of_address"]["source"] == "settings_profile"
     assert projection.identity["birth_date"] == "2000-05-06"
+    assert projection.input_assertion_highwater == 1_700_000_002
 
 
 async def test_projection_builder_prefers_user_authored_profile_assertions():
@@ -86,3 +89,19 @@ async def test_projection_builder_prefers_user_authored_profile_assertions():
 
     assert projection.real_name == "用户自己说的名字"
     assert projection.field_sources["real_name"]["source"] == "user_authored"
+
+
+async def test_profile_projection_repository_roundtrips_assertion_highwater(tmp_path):
+    repository = UserProfileProjectionRepository(str(tmp_path / "memory.db"))
+
+    await repository.upsert(
+        UserProfileProjection(
+            user_id="local_user",
+            entity_id="user:local_user",
+            input_assertion_highwater=42.0,
+        )
+    )
+
+    loaded = await repository.get("local_user")
+    assert loaded is not None
+    assert loaded.input_assertion_highwater == 42.0

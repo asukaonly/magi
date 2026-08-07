@@ -56,8 +56,6 @@ class MemoryStoreTuning:
     enable_l3_vectors: bool = True
     enable_l4_vectors: bool = True
     enable_l3_llm_summary: bool = True
-    enable_l2_conflict_arbitration: bool = True
-    l2_conflict_arbitration_min_confidence: float = 0.85
     async_embeddings: bool = True
     l0_checkpoint_interval_seconds: int = 30
     session_timeout_seconds: int = 3600
@@ -306,10 +304,6 @@ class UnifiedMemoryStore(
             llm_service=self.l2_llm_service,
             state_change_callback=self._handle_l2_state_change_outcomes,
             batch_flush_interval_seconds=self._l2_batch_flush_interval_seconds,
-            enable_conflict_arbitration=context.tuning.enable_l2_conflict_arbitration,
-            conflict_arbitration_min_confidence=(
-                context.tuning.l2_conflict_arbitration_min_confidence
-            ),
             semantic_edge_builder=semantic_edge_builder,
             extraction_profile_provider=context.extraction_profile_provider,
             promotion_counter=self.l2_promotion_counter,

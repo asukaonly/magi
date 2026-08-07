@@ -32,6 +32,8 @@ vi.mock('react-i18next', () => ({
         'memory.pending.emptyTitle': '现在没有需要处理的内容',
         'memory.pending.emptyBody': 'Magi 有新的判断或经历线索时会放到这里。',
         'memory.pending.actions.confirm': '确认',
+        'memory.pending.actions.confirmReview': '是的',
+        'memory.pending.actions.editReview': '修改',
         'memory.pending.actions.confirmJudgment': '是的',
         'memory.pending.actions.reject': '不对',
         'memory.pending.actions.confirmObservation': '说得对',
@@ -41,6 +43,7 @@ vi.mock('react-i18next', () => ({
         'memory.pending.actions.promoteExperience': '保存为经历',
         'memory.pending.actions.rejectExperience': '忽略',
         'memory.pending.meta.assertion': '关于你的判断',
+        'memory.pending.meta.preMaterializationReview': '写入前确认',
         'memory.pending.meta.conflict': '偏好冲突',
         'memory.pending.meta.summary': '总结',
         'memory.pending.meta.experienceSeed': '经历线索',
@@ -58,6 +61,18 @@ vi.mock('react-i18next', () => ({
         'memory.pending.conflictMeta': '和已确认记忆不一致',
         'memory.pending.evidenceCount': '{{count}} 条证据',
         'memory.pending.fragmentCount': '{{count}} 个片段',
+        'memory.pending.claimCount': '{{count}} 条来源判断',
+        'memory.pending.reviews.title': '你希望 Magi 记住「{{value}}」吗？',
+        'memory.pending.reviews.body': '这条内容可能会影响 Magi 之后对你的理解，需要你先确认。',
+        'memory.pending.reviews.unknownValue': '这条内容',
+        'memory.pending.reviewEdit.title': '修改后确认',
+        'memory.pending.reviewEdit.description': '修改你想让 Magi 记住的内容。',
+        'memory.pending.reviewEdit.valueLabel': '记忆内容',
+        'memory.pending.reviewEdit.summaryLabel': '补充说明（可选）',
+        'memory.pending.reviewEdit.summaryPlaceholder': '用一句话说明这条记忆',
+        'memory.pending.reviewEdit.confirm': '确认并写入',
+        'common.cancel': '取消',
+        'common.close': '关闭',
       };
       let result = labels[key] ?? key;
       if (opts) {
@@ -77,6 +92,8 @@ vi.mock('@/api/modules/memory', async () => {
     ...actual,
     memoryApi: {
       getDashboard: vi.fn(),
+      listPendingReviews: vi.fn(),
+      resolvePendingReview: vi.fn(),
       submitAssertionFeedback: vi.fn(),
       applyCorrection: vi.fn(),
       listExperienceSeeds: vi.fn(),
@@ -259,6 +276,13 @@ describe('MemoryPendingPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(memoryApi.getDashboard).mockResolvedValue(dashboardPayload as never);
+    vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items: [], total: 0 });
+    vi.mocked(memoryApi.resolvePendingReview).mockResolvedValue({
+      review_id: 'review-1',
+      status: 'confirmed',
+      version: 2,
+      assertion_id: 'assert-review-1',
+    });
     vi.mocked(memoryStoriesApi.list).mockResolvedValue(storyPayload as never);
     vi.mocked(memoryApi.listExperienceSeeds).mockResolvedValue(seedPayload as never);
     vi.mocked(listNotifications).mockResolvedValue(notificationPayload as never);
@@ -309,9 +333,64 @@ describe('MemoryPendingPage', () => {
     expect(screen.getByText('可能是一段记忆页面改版')).toBeInTheDocument();
     expect(screen.getByText('你最近常关注「安静圣地巡礼」，但你说过「城市热门路线」—— 要更新偏好吗？')).toBeInTheDocument();
     expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 25 });
+    expect(memoryApi.listPendingReviews).toHaveBeenCalledWith(100);
     expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 50, offset: 0, surface: 'all' });
     expect(memoryApi.listExperienceSeeds).toHaveBeenCalledWith({ status: 'candidate', limit: 50, offset: 0 });
     expect(listNotifications).toHaveBeenCalled();
+  });
+
+  it('edits and confirms a pre-materialization review through the shared lane', async () => {
+    const review = {
+      review_id: 'review-1',
+      subject_id: 'user:self',
+      kind: 'goal_currentness',
+      slot_key: 'goal-slot:seaside',
+      value_fingerprint: 'goal-value:seaside',
+      semantic_lineage_key: 'goal-lineage:seaside',
+      claim_ids: ['claim-1'],
+      reason_code: 'goal_ambiguous_time',
+      proposed: {
+        trait_value: '秋天去海边',
+        natural_summary: '你提到想在秋天去海边，但具体年份还不明确。',
+      },
+      route_contract_version: 5,
+      evidence_rule_version: 2,
+      source_generation: 0,
+      status: 'pending',
+      version: 1,
+      created_at: 1710000000,
+      updated_at: 1710000000,
+    };
+    vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({
+      items: [review],
+      total: 1,
+    } as never);
+    const user = userEvent.setup();
+    renderPage();
+
+    const card = await screen.findByTestId('pending-review-review-1');
+    expect(within(card).getByText('你希望 Magi 记住「秋天去海边」吗？')).toBeInTheDocument();
+    expect(within(card).getByText('你提到想在秋天去海边，但具体年份还不明确。')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: '是的' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: '不对' })).toBeInTheDocument();
+
+    await user.click(within(card).getByRole('button', { name: '修改' }));
+    const input = await screen.findByLabelText('记忆内容');
+    await user.clear(input);
+    await user.type(input, '明年春天去海边');
+    await user.click(screen.getByRole('button', { name: '确认并写入' }));
+
+    await waitFor(() => {
+      expect(memoryApi.resolvePendingReview).toHaveBeenCalledWith('review-1', {
+        action: 'confirm_with_edit',
+        expected_version: 1,
+        edit: {
+          trait_value: '明年春天去海边',
+          natural_summary: '你提到想在秋天去海边，但具体年份还不明确。',
+        },
+      });
+    });
+    expect(screen.queryByTestId('pending-review-review-1')).not.toBeInTheDocument();
   });
 
   it('explains conflicted L2 assertions without exposing internal trait identifiers', async () => {

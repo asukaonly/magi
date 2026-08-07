@@ -257,8 +257,8 @@ class DerivedAssertionRuleSpec(BaseModel):
 class ExtractionProfileSpec(BaseModel):
     """Declarative L2 extraction profile contributed by a plugin.
 
-    Plugins declare source-local extraction preferences here. The host owns
-    ontology validation, prompt assembly, and final write guards.
+    Plugins declare source-local extraction and presentation preferences here.
+    The host owns ontology routing, materialization, and final write guards.
     """
 
     profile_id: str
@@ -272,8 +272,7 @@ class ExtractionProfileSpec(BaseModel):
     allow_assertion: bool = True
     extraction_instructions: str | None = None
     phase1_instructions: str | None = None
-    phase2_instructions: str | None = None
-    assertion_mode: Literal["none", "derived", "phase2_candidate"] | None = None
+    summary_instructions: str | None = None
     allowed_assertion_traits: list[str] | Literal["all"] | None = None
     derived_assertion_specs: list[DerivedAssertionRuleSpec] = Field(default_factory=list)
 

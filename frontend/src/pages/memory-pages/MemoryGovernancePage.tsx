@@ -493,7 +493,7 @@ export const MemoryGovernancePage = () => {
               reconsolidateResult={reconsolidateResult}
               reconsolidateError={reconsolidateError}
               onReconsolidate={handleReconsolidate}
-              onFlushMicrobatches={memory.flushL2Microbatches}
+              onFlushProjectionJobs={memory.flushL2ProjectionJobs}
               l2ActionLoading={memory.l2ActionLoading}
             />
           </TabsContent>

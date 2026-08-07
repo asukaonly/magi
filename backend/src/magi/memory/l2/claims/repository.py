@@ -674,6 +674,18 @@ async def redact_grounded_claims_for_source_events(
     ) as cursor:
         affected_rows = await cursor.fetchall()
     affected_claim_ids = sorted({str(row[0]) for row in affected_rows})
+    from .reprojection_write import retire_claim_target_authority_on_connection
+
+    # Source-event governance recomputes assertion and relationship lifecycles
+    # from retained evidence after redaction. Only pending reviews use the
+    # generic target-retirement path here.
+    retirement = await retire_claim_target_authority_on_connection(
+        db,
+        claim_ids=affected_claim_ids,
+        target_kinds=frozenset({"review"}),
+        invalidated_reason="source_event_forgotten",
+        changed_at=now,
+    )
     deleted = await db.execute(
         """
         DELETE FROM l2_claim_evidence
@@ -690,6 +702,9 @@ async def redact_grounded_claims_for_source_events(
         now=now,
     )
     counts["l2_claim_evidence"] += max(int(deleted.rowcount or 0), 0)
+    counts["tom_trait_assertions"] = retirement.assertions_archived
+    counts["knowledge_graph"] = retirement.relationships_archived
+    counts["l2_pending_reviews"] = retirement.reviews_closed
     return counts
 
 
@@ -815,6 +830,9 @@ def _empty_claim_redaction_counts() -> dict[str, int]:
         "l2_claim_entity_refs": 0,
         "l2_grounded_claims": 0,
         "l2_claim_projection_outcomes": 0,
+        "tom_trait_assertions": 0,
+        "knowledge_graph": 0,
+        "l2_pending_reviews": 0,
     }
 
 

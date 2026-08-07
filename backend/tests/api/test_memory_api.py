@@ -684,7 +684,7 @@ class _FakeUnifiedMemory:
         self.l3 = _FakeL3Store()
         self.l4 = _FakeL4Store()
         self.ingested_events: list = []
-        self.flush_l2_microbatches_calls = 0
+        self.flush_l2_projection_jobs_calls = 0
         self.drain_l2_edge_embedding_calls = 0
 
     def memory_operation_guard(self):
@@ -814,8 +814,8 @@ class _FakeUnifiedMemory:
     async def refresh_l2_snapshots(self, entity_ids: list[str]):
         return bool(entity_ids)
 
-    async def flush_l2_microbatches(self):
-        self.flush_l2_microbatches_calls += 1
+    async def flush_l2_projection_jobs(self):
+        self.flush_l2_projection_jobs_calls += 1
         return 2
 
     async def drain_l2_edge_embeddings(self):
@@ -2190,11 +2190,11 @@ def test_memory_eval_finalize_replay_api_generates_summaries_and_returns_l2_stat
     body = response.json()
     assert body["summaries"]["hour"]["summary_id"] == "sum-hour-1"
     assert body["summaries"]["month"]["summary_id"] == "sum-month-1"
-    assert body["l2_flush_batch_count"] == 2
+    assert body["l2_projection_batch_count"] == 2
     assert body["l2_edge_embedding_count"] == 5
     assert body["l2_pipeline_stats"]["extract_completed"] == 3
     assert body["l2_pipeline_stats"]["projection_backlog"]["claimed"] == 2
-    assert fake_memory.flush_l2_microbatches_calls == 1
+    assert fake_memory.flush_l2_projection_jobs_calls == 1
     assert fake_memory.drain_l2_edge_embedding_calls == 1
 
 
@@ -2217,7 +2217,7 @@ def test_memory_eval_finalize_replay_api_can_split_l2_flush_from_post_l2_work(mo
         json={
             "period_types": ["hour"],
             "generate_summaries": False,
-            "flush_l2": True,
+            "flush_l2_projection_jobs": True,
             "drain_l2_edge_embeddings": False,
         },
     )
@@ -2225,9 +2225,9 @@ def test_memory_eval_finalize_replay_api_can_split_l2_flush_from_post_l2_work(mo
     assert response.status_code == 200
     body = response.json()
     assert body["summaries"] == {}
-    assert body["l2_flush_batch_count"] == 2
+    assert body["l2_projection_batch_count"] == 2
     assert body["l2_edge_embedding_count"] == 0
-    assert fake_memory.flush_l2_microbatches_calls == 1
+    assert fake_memory.flush_l2_projection_jobs_calls == 1
     assert fake_memory.drain_l2_edge_embedding_calls == 0
 
 
@@ -2276,7 +2276,7 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     materialize_response = client.post(
         "/api/memory/l2/snapshot-refresh", json={"entity_ids": ["user:u1"]}
     )
-    flush_response = client.post("/api/memory/l2/microbatch-flush")
+    flush_response = client.post("/api/memory/l2/projection-flush")
     update_rule_response = client.put(
         "/api/memory/l2/conflict-rules/ENDORSES",
         json={

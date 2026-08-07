@@ -1,4 +1,4 @@
-import { Check, X } from 'lucide-react';
+import { Check, Pencil, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,7 +14,7 @@ export function OverviewPendingSection({
 }: {
   items: PendingOverviewItem[];
   actionBusyId: string | null;
-  onAction: (item: PendingOverviewItem, action: 'confirmed' | 'rejected') => void;
+  onAction: (item: PendingOverviewItem, action: 'confirmed' | 'rejected' | 'edit') => void;
 }) {
   const { t } = useTranslation('app');
 
@@ -38,7 +38,7 @@ export function OverviewPendingSection({
               <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{item.title}</div>
               <div className="mt-1 line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{item.body}</div>
               <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
-                {item.kind === 'assertion' ? t('memory.overview.pendingKinds.assertion') : t('memory.overview.pendingKinds.story')}
+                {t(`memory.overview.pendingKinds.${item.kind}`)}
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -47,19 +47,41 @@ export function OverviewPendingSection({
                 variant="outline"
                 size="sm"
                 className={MEMORY_ACTION_BUTTON_CLASS}
-                aria-label={item.kind === 'assertion' ? t('memory.overview.actions.confirmAssertion') : t('memory.overview.actions.confirmStory')}
+                aria-label={item.kind === 'assertion'
+                  ? t('memory.overview.actions.confirmAssertion')
+                  : item.kind === 'review'
+                    ? t('memory.overview.actions.confirmReview')
+                    : t('memory.overview.actions.confirmStory')}
                 disabled={actionBusyId === item.id}
                 onClick={() => onAction(item, 'confirmed')}
               >
                 <Check className="mr-1 h-3.5 w-3.5" />
                 {t('memory.overview.actions.confirm')}
               </Button>
+              {item.kind === 'review' ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={MEMORY_ACTION_BUTTON_CLASS}
+                  aria-label={t('memory.overview.actions.editReview')}
+                  disabled={actionBusyId === item.id}
+                  onClick={() => onAction(item, 'edit')}
+                >
+                  <Pencil className="mr-1 h-3.5 w-3.5" />
+                  {t('memory.overview.actions.edit')}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 className={MEMORY_ACTION_BUTTON_CLASS}
-                aria-label={item.kind === 'assertion' ? t('memory.overview.actions.rejectAssertion') : t('memory.overview.actions.rejectStory')}
+                aria-label={item.kind === 'assertion'
+                  ? t('memory.overview.actions.rejectAssertion')
+                  : item.kind === 'review'
+                    ? t('memory.overview.actions.rejectReview')
+                    : t('memory.overview.actions.rejectStory')}
                 disabled={actionBusyId === item.id}
                 onClick={() => onAction(item, 'rejected')}
               >

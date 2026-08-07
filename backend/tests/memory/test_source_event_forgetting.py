@@ -431,7 +431,6 @@ async def test_l1_forgetting_clears_daily_mood_without_l2(tmp_path: Path) -> Non
             enable_l3_vectors=False,
             enable_l4_vectors=False,
             enable_l3_llm_summary=False,
-            enable_l2_conflict_arbitration=False,
             async_embeddings=False,
         ),
     )
@@ -511,7 +510,6 @@ async def test_real_unified_forgetting_governs_distinct_chat_turn_identity(
             enable_l3_vectors=False,
             enable_l4_vectors=False,
             enable_l3_llm_summary=False,
-            enable_l2_conflict_arbitration=False,
             async_embeddings=False,
         ),
     )

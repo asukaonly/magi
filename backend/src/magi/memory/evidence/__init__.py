@@ -2,7 +2,6 @@
 
 from .classifier import classify_event_evidence
 from .models import (
-    AssertionScope,
     EVIDENCE_RULE_VERSION,
     EvidenceClass,
     EvidenceClassification,
@@ -19,7 +18,6 @@ from .policy import (
 )
 
 __all__ = [
-    "AssertionScope",
     "EVIDENCE_RULE_VERSION",
     "EvidenceClass",
     "EvidenceClassification",

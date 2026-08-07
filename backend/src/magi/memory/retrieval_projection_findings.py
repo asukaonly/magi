@@ -684,7 +684,6 @@ _CONVERSATIONAL_EVIDENCE_CLASSES = frozenset(
 _FACTUAL_EVIDENCE_CLASSES = frozenset(
     {
         "user_self_report",
-        "user_report_about_others",
         "assistant_tool_grounded",
         "external_observation",
     }

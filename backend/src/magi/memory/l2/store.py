@@ -33,7 +33,7 @@ from .graph_conflicts import (
     build_graph_conflict_matrix,
     relationship_predicate_slot,
 )
-from .models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
+from .models import L2KnowledgeEdgeWrite
 from .batch_models import L2ProjectionLease
 from .corrections.repository import (
     DEFAULT_DERIVATION_MAX_ATTEMPTS,
@@ -44,6 +44,8 @@ from .corrections.cache_signals import mark_all_subjects_changed, mark_subject_c
 from .claims.repository import L2GroundedClaimStoreMixin
 from .claims.outcomes import ClaimTargetOutcomeContext
 from .projection.queue import ProjectionJobQueue
+from .reviews import PendingReviewProposal, PendingReviewRepository, PendingReviewWriteResult
+from .reviews.models import PendingReviewAction, PendingReviewResolution
 from .assertions.contradictions import L2StoreContradictionMixin
 from .assertions.feedback import L2StoreFeedbackMixin
 from .assertions.reconcile import L2StoreReconcileMixin
@@ -293,10 +295,6 @@ class L2CognitionStore(
         """Build deterministic graph candidates from lightweight rules."""
         return self._extract_graph_candidates(event)
 
-    def build_rule_assertion_candidates(self, event: MemoryEvent) -> list[L2TomAssertionWrite]:
-        """Build deterministic ToM assertion candidates from lightweight rules."""
-        return self._extract_assertion_candidates(event)
-
     async def upsert_assertion_candidate(
         self,
         candidate: Dict[str, Any],
@@ -333,6 +331,89 @@ class L2CognitionStore(
             "persisted": result.persisted,
             "reason_code": result.reason_code,
         }
+
+    async def upsert_pending_review_with_receipt(
+        self,
+        proposal: PendingReviewProposal,
+        *,
+        claim_outcome_context: ClaimTargetOutcomeContext,
+        projection_leases: Iterable[L2ProjectionLease],
+    ) -> PendingReviewWriteResult:
+        """Atomically persist a pending review and its Claim target receipts."""
+
+        await self.initialize()
+        return await PendingReviewRepository(self.db_path).upsert_with_receipt(
+            proposal,
+            claim_outcome_context=claim_outcome_context,
+            projection_leases=projection_leases,
+        )
+
+    async def list_pending_reviews(
+        self,
+        *,
+        subject_id: str | None = None,
+        status: str = "pending",
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List governed pending-memory review records."""
+
+        await self.initialize()
+        return await PendingReviewRepository(self.db_path).list(
+            subject_id=subject_id,
+            status=status,
+            limit=limit,
+        )
+
+    async def latest_pending_review_change_at(self, *, subject_id: str) -> float:
+        """Return the newest governed-review mutation for one subject."""
+
+        await self.initialize()
+        return await PendingReviewRepository(self.db_path).latest_change_at(
+            subject_id=subject_id,
+        )
+
+    async def resolve_pending_review(
+        self,
+        *,
+        review_id: str,
+        action: PendingReviewAction,
+        expected_version: int,
+        resolved_by: str,
+        resolution_event_id: str,
+        edit: Mapping[str, Any] | None = None,
+        route_contract_version: int,
+        evidence_rule_version: int,
+    ) -> PendingReviewResolution:
+        """Resolve one pending review through the transactional command path."""
+
+        await self.initialize()
+        resolution = await PendingReviewRepository(self.db_path).resolve(
+            store=self,
+            review_id=review_id,
+            action=action,
+            expected_version=expected_version,
+            resolved_by=resolved_by,
+            resolution_event_id=resolution_event_id,
+            edit=edit,
+            route_contract_version=route_contract_version,
+            evidence_rule_version=evidence_rule_version,
+        )
+        if resolution.assertion_id is not None:
+            async with sqlite_connection_async(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
+                    (resolution.assertion_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+            if row is not None:
+                assertion = dict(row)
+                await self.refresh_entity_snapshot(
+                    entity_id=str(assertion["entity_id"]),
+                    entity_type=str(assertion["entity_type"]),
+                )
+                await self._notify_assertion_changed(assertion)
+        return resolution
 
     def set_assertion_change_callback(
         self,
@@ -528,6 +609,7 @@ class L2CognitionStore(
 
 
 L2_USER_CONTENT_TABLES = (
+    "l2_pending_reviews",
     "l2_claim_projection_outcomes",
     "l2_claim_entity_refs",
     "l2_claim_evidence",

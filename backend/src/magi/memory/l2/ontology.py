@@ -458,35 +458,6 @@ def validate_assertion_candidate(candidate: dict[str, Any]) -> tuple[bool, str |
     return True, None
 
 
-def is_leaf_fact_duplicate(
-    graph_candidates: list[dict[str, Any]],
-    assertion_candidate: dict[str, Any],
-) -> bool:
-    """Return whether an assertion only restates a concrete graph preference fact."""
-
-    trait_name = str(assertion_candidate.get("trait_name", "")).strip().lower()
-    trait_value = str(assertion_candidate.get("trait_value", "")).strip().lower()
-    if trait_name not in {"taste_preference", "preference", "preference.food"}:
-        return False
-    for candidate in graph_candidates:
-        predicate = str(candidate.get("predicate", "")).strip().upper()
-        object_ref = str(candidate.get("object_ref", "")).strip().lower()
-        object_type, _, _ = object_ref.partition(":")
-        if predicate == "DISLIKES" and trait_value in {
-            f"dislikes_food:{object_ref}",
-            f"dislikes_{object_type}:{object_ref}" if object_type else "",
-            f"dislikes:{object_ref}",
-        }:
-            return True
-        if predicate == "LIKES" and trait_value in {
-            f"likes_food:{object_ref}",
-            f"likes_{object_type}:{object_ref}" if object_type else "",
-            f"likes:{object_ref}",
-        }:
-            return True
-    return False
-
-
 __all__ = [
     "ASSERTION_FAMILY_ALLOWLIST",
     "ENTITY_TYPE_ALIASES",
@@ -502,7 +473,6 @@ __all__ = [
     "is_reserved_assertion_graph_identifier",
     "is_reserved_assertion_graph_predicate",
     "is_profile_signal_predicate",
-    "is_leaf_fact_duplicate",
     "is_predicate_compatible",
     "is_valid_entity_type",
     "is_valid_open_predicate",

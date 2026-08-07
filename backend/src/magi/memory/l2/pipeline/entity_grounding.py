@@ -14,6 +14,31 @@ from .history_markdown import (
 )
 
 _WHITESPACE_RE = re.compile(r"\s+")
+_LATIN_WORD_RE = re.compile(r"[A-Za-z]+(?:['’-][A-Za-z]+)?")
+_CJK_RE = re.compile(r"[\u3400-\u9fff]")
+_SENTENCE_END_RE = re.compile(r"[.!?。！？；;]\s*$")
+_ENGLISH_INTENT_CLAUSE_RE = re.compile(
+    r"\b(?:i|we)\s+(?:want|plan|hope|intend|need|will|shall|decided|would\s+like)\b",
+    re.IGNORECASE,
+)
+_ENGLISH_TIME_ACTION_RE = re.compile(
+    r"\b(?:tomorrow|tonight|next\s+(?:week|month|year)|someday|this\s+year)\b"
+    r".{0,40}\b(?:go|visit|move|learn|start|finish|build|make|buy|attend|organize)\b",
+    re.IGNORECASE,
+)
+_CHINESE_INTENT_ACTION_RE = re.compile(
+    r"(?:我|我们)?(?:今年|明年|下周|下个月|以后|有一天|找时间)?"
+    r"(?:想|希望|计划|准备|打算|需要|决定|要|会)"
+    r".{0,12}(?:去|做|开始|完成|学习|整理|搬|住|买|看|参加|实现|建立|尝试)"
+)
+_CHINESE_TIME_ACTION_RE = re.compile(
+    r"^(?:今天|明天|今年|明年|下周|下个月|以后|有一天|找时间)"
+    r".{0,12}(?:去|做|开始|完成|学习|整理|搬|住|买|看|参加|实现|建立|尝试)"
+)
+_CHINESE_ACTION_RE = re.compile(
+    r"散步|觅食|跑步|攀岩|旅行|学习|整理|开发|编程|搬家|居住|购买|观看|参加|建立|尝试"
+)
+_CHINESE_ACTION_JOIN_RE = re.compile(r"和|以及|并且|然后|再|同时")
 
 
 def evidence_script_names(event_window: L2EventWindow) -> tuple[str, ...]:
@@ -42,6 +67,7 @@ def normalize_phase1_entity_contract(
     rejected_count = 0
     repaired_name_count = 0
     dropped_alias_count = 0
+    rejected_sentence_like_count = 0
 
     for index, raw_entity in enumerate(raw_entities):
         if not isinstance(raw_entity, dict):
@@ -78,6 +104,20 @@ def normalize_phase1_entity_contract(
         else:
             entity["normalized_name"] = normalized_name
 
+        if _is_new_entity_candidate(entity) and (
+            _is_sentence_like_entity_name(surface, entity_type=entity_type)
+            or _is_sentence_like_entity_name(
+                str(entity["normalized_name"]),
+                entity_type=entity_type,
+            )
+        ):
+            rejected_count += 1
+            rejected_sentence_like_count += 1
+            normalizations.append(
+                f"entities[{index}]: dropped sentence-like new entity candidate"
+            )
+            continue
+
         aliases = entity.get("alias_signals")
         grounded_aliases: list[str] = []
         seen_aliases: set[str] = {
@@ -112,6 +152,7 @@ def normalize_phase1_entity_contract(
         "repaired_entity_name_count",
         "dropped_entity_alias_count",
         "rewritten_claim_entity_ref_count",
+        "rejected_sentence_like_entity_count",
     ):
         diagnostics.pop(key, None)
     diagnostics["entity_status"] = "found" if kept_entities else "none"
@@ -124,66 +165,14 @@ def normalize_phase1_entity_contract(
         normalizations.append(
             f"entities: dropped {dropped_alias_count} alias signals without current evidence"
         )
+    if rejected_sentence_like_count:
+        diagnostics["rejected_sentence_like_entity_count"] = rejected_sentence_like_count
     if rewritten_claim_ref_count:
         diagnostics["rewritten_claim_entity_ref_count"] = rewritten_claim_ref_count
         normalizations.append(
             f"fact_claims: restored {rewritten_claim_ref_count} translated entity references"
         )
     return normalizations
-
-
-def materialize_grounded_future_intent_entities(
-    payload: dict[str, object],
-) -> list[str]:
-    """Complete omitted goal targets from already-grounded Phase 1 Claims."""
-
-    raw_entities = payload.get("entities")
-    raw_claims = payload.get("fact_claims")
-    if not isinstance(raw_entities, list) or not isinstance(raw_claims, list):
-        return []
-
-    diagnostics = payload.get("diagnostics")
-    if not isinstance(diagnostics, dict):
-        diagnostics = {}
-        payload["diagnostics"] = diagnostics
-    diagnostics.pop("materialized_future_intent_entity_count", None)
-
-    known_refs = _entity_reference_keys(raw_entities)
-    materialized_count = 0
-    for claim in raw_claims:
-        if not isinstance(claim, dict) or not _is_concrete_future_intent(claim):
-            continue
-        object_ref = _non_empty_text(claim.get("object_ref"))
-        object_type = _non_empty_text(claim.get("object_type"))
-        evidence_text = _non_empty_text(claim.get("evidence_text"))
-        if object_ref is None or object_type is None or evidence_text is None:
-            continue
-        key = (object_type.casefold(), _canonical_text(object_ref))
-        if key in known_refs or key[1] not in _canonical_text(evidence_text):
-            continue
-        raw_entities.append(
-            {
-                "surface": object_ref,
-                "normalized_name": object_ref,
-                "entity_type": object_type,
-                "specificity": "concrete",
-                "resolved_id": None,
-                "is_new": True,
-                "alias_signals": [],
-                "confidence": _grounded_entity_confidence(claim.get("confidence")),
-            }
-        )
-        known_refs.add(key)
-        materialized_count += 1
-
-    if not materialized_count:
-        return []
-    diagnostics["entity_status"] = "found"
-    diagnostics["materialized_future_intent_entity_count"] = materialized_count
-    return [
-        "entities: materialized "
-        f"{materialized_count} grounded future-intent targets omitted by the model"
-    ]
 
 
 def _eligible_evidence_sources(
@@ -207,39 +196,6 @@ def _eligible_evidence_sources(
     return sources
 
 
-def _entity_reference_keys(
-    raw_entities: list[object],
-) -> set[tuple[str, str]]:
-    keys: set[tuple[str, str]] = set()
-    for entity in raw_entities:
-        if not isinstance(entity, dict):
-            continue
-        entity_type = _non_empty_text(entity.get("entity_type"))
-        if entity_type is None:
-            continue
-        for field_name in ("surface", "normalized_name", "resolved_id"):
-            value = _non_empty_text(entity.get(field_name))
-            if value is not None:
-                keys.add((entity_type.casefold(), _canonical_text(value)))
-    return keys
-
-
-def _is_concrete_future_intent(claim: dict[str, object]) -> bool:
-    return (
-        str(claim.get("predicate") or "").strip().upper() == "PLANS_TO"
-        and str(claim.get("fact_kind") or "").strip().casefold() == "future_intent"
-        and str(claim.get("specificity") or "").strip().casefold() == "concrete"
-    )
-
-
-def _grounded_entity_confidence(value: object) -> float:
-    try:
-        confidence = float(value or 0.0)
-    except (TypeError, ValueError):
-        confidence = 0.0
-    return min(1.0, max(0.9, confidence))
-
-
 def _is_grounded_surface(
     surface: str,
     eligible_sources: Iterable[tuple[L2BatchEvent | None, str, bool]],
@@ -261,6 +217,42 @@ def _loses_source_script(surface: str, normalized_name: str) -> bool:
     source_scripts = _letter_scripts(surface)
     normalized_scripts = _letter_scripts(normalized_name)
     return bool(source_scripts and not source_scripts.issubset(normalized_scripts))
+
+
+def _is_new_entity_candidate(entity: dict[str, object]) -> bool:
+    """Return whether a Phase 1 candidate would create catalog identity."""
+
+    return _non_empty_text(entity.get("resolved_id")) is None
+
+
+def _is_sentence_like_entity_name(value: str, *, entity_type: str) -> bool:
+    """Reject clauses while retaining concise reusable catalog names."""
+
+    text = _WHITESPACE_RE.sub(" ", str(value or "")).strip()
+    if not text:
+        return False
+    if "\n" in str(value) or "\r" in str(value):
+        return True
+
+    latin_words = _LATIN_WORD_RE.findall(text)
+    cjk_length = len(_CJK_RE.findall(text))
+    normalized_type = str(entity_type or "").strip().casefold()
+    if normalized_type == "media":
+        return len(text) > 200
+    if len(latin_words) > 12 or cjk_length > 32:
+        return True
+    if _SENTENCE_END_RE.search(text) and (len(latin_words) >= 4 or cjk_length >= 6):
+        return True
+    if _ENGLISH_INTENT_CLAUSE_RE.search(text) or _ENGLISH_TIME_ACTION_RE.search(text):
+        return True
+    if _CHINESE_INTENT_ACTION_RE.search(text) or _CHINESE_TIME_ACTION_RE.search(text):
+        return True
+    chinese_actions = _CHINESE_ACTION_RE.findall(text)
+    return bool(
+        cjk_length >= 8
+        and len(chinese_actions) >= 2
+        and _CHINESE_ACTION_JOIN_RE.search(text)
+    )
 
 
 def _letter_scripts(value: object) -> set[str]:
@@ -334,6 +326,5 @@ def _non_empty_text(value: Any) -> str | None:
 
 __all__ = [
     "evidence_script_names",
-    "materialize_grounded_future_intent_entities",
     "normalize_phase1_entity_contract",
 ]

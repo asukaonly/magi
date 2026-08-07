@@ -1,6 +1,6 @@
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { L2Assertion, L2ExperienceSeed } from '@/api/modules/memory';
+import type { L2Assertion, L2ExperienceSeed, L2PendingReview } from '@/api/modules/memory';
 import type { StoryItem } from '@/api/modules/memoryStories';
 import type { NotificationItem } from '@/api/modules/notifications';
 import { Button } from '@/components/ui/button';
@@ -15,14 +15,18 @@ import {
 import {
   conflictBody,
   conflictTitle,
+  pendingReviewSummary,
+  pendingReviewValue,
   seedBody,
   seedTitle,
   storyTitle,
   type ConflictAction,
   type PendingAction,
+  type PendingReviewAction,
 } from './pendingModel';
 
 export function PendingReviewGroups({
+  reviews,
   assertions,
   stories,
   seeds,
@@ -34,11 +38,13 @@ export function PendingReviewGroups({
   showMemory,
   showExperiences,
   showObservations,
+  onReview,
   onAssertion,
   onStory,
   onSeed,
   onConflict,
 }: {
+  reviews: L2PendingReview[];
   assertions: L2Assertion[];
   stories: StoryItem[];
   seeds: L2ExperienceSeed[];
@@ -50,6 +56,7 @@ export function PendingReviewGroups({
   showMemory: boolean;
   showExperiences: boolean;
   showObservations: boolean;
+  onReview: (review: L2PendingReview, action: PendingReviewAction) => void;
   onAssertion: (assertion: L2Assertion, action: PendingAction) => void;
   onStory: (story: StoryItem, action: PendingAction) => void;
   onSeed: (seed: L2ExperienceSeed, action: 'promote' | 'reject') => void;
@@ -66,6 +73,55 @@ export function PendingReviewGroups({
           count={memoryCount}
           tone="amber"
         >
+          {reviews.map((review) => {
+            const busy = actionId === `review:${review.review_id}`;
+            const value = pendingReviewValue(review, t('memory.pending.reviews.unknownValue'));
+            return (
+              <PendingCard
+                key={review.review_id}
+                testId={`pending-review-${review.review_id}`}
+                label={t('memory.pending.meta.preMaterializationReview')}
+                title={t('memory.pending.reviews.title', { value })}
+                body={pendingReviewSummary(review, t('memory.pending.reviews.body'))}
+                meta={t('memory.pending.claimCount', { count: review.claim_ids.length })}
+                actions={(
+                  <div className="flex flex-wrap items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={MEMORY_PRIMARY_ACTION_CLASS}
+                      disabled={busy}
+                      onClick={() => onReview(review, 'confirm')}
+                    >
+                      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                      {t('memory.pending.actions.confirmReview')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={MEMORY_GHOST_ACTION_CLASS}
+                      disabled={busy}
+                      onClick={() => onReview(review, 'edit')}
+                    >
+                      {t('memory.pending.actions.editReview')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={MEMORY_GHOST_ACTION_CLASS}
+                      disabled={busy}
+                      onClick={() => onReview(review, 'reject')}
+                    >
+                      {t('memory.pending.actions.reject')}
+                    </Button>
+                  </div>
+                )}
+              />
+            );
+          })}
           {assertions.map((assertion) => {
             const busy = actionId === `assertion:${assertion.assertion_id}`;
             const copy = getPendingAssertionCopy(assertion, t);

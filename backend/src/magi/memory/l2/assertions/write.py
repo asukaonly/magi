@@ -50,6 +50,7 @@ from ..storage.utils import (
     normalize_store_entity_ref,
     normalize_store_entity_type,
 )
+from .logging import assertion_value_log_preview
 from .settings import (
     CONTRADICTED_CONFIDENCE_CEILING,
     assertion_float_setting,
@@ -128,8 +129,9 @@ INSERT INTO tom_trait_assertions(
     decay_policy, decay_anchor_at, context_ref_id, expires_at,
     status, memory_subdomain, natural_summary,
     created_at, updated_at, slot_key, claim_fingerprint, authority_ref,
-    version_root_id, previous_version_id, valid_from, valid_to, scope_key, scope_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    version_root_id, previous_version_id, valid_from, valid_to, scope_key, scope_json,
+    semantic_lineage_key, target_window_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _ACTIVE_ASSERTION_SQL = """
@@ -148,7 +150,8 @@ SET trait_value = ?, confidence_score = ?, evidence_events = ?,
     first_inferred_at = ?,
     target_entity_type = ?, target_scope = ?, temporal_scope = ?,
     decay_policy = ?, decay_anchor_at = ?, context_ref_id = ?,
-    expires_at = ?, natural_summary = ?, updated_at = ?
+    expires_at = ?, natural_summary = ?, updated_at = ?,
+    semantic_lineage_key = ?, target_window_json = ?
 WHERE assertion_id = ?
 """
 
@@ -167,7 +170,8 @@ SET trait_value = ?, confidence_score = ?, evidence_events = ?,
     last_validated_at = ?, first_inferred_at = ?,
     target_entity_type = ?, target_scope = ?, temporal_scope = ?,
     decay_policy = ?, decay_anchor_at = ?, context_ref_id = ?,
-    expires_at = ?, natural_summary = ?, updated_at = ?
+    expires_at = ?, natural_summary = ?, updated_at = ?,
+    semantic_lineage_key = ?, target_window_json = ?
 WHERE assertion_id = ?
 """
 
@@ -208,6 +212,8 @@ def _normalized_assertion_context(
         candidate.get("decay_anchor_at", candidate.get("last_validated_at", now)) or now
     )
     trait_name = str(candidate.get("trait_name", "")).strip()
+    raw_target_window = candidate.get("target_window")
+    target_window = dict(raw_target_window) if isinstance(raw_target_window, dict) else {}
     return {
         "decay_policy": host._optional_text(candidate.get("decay_policy")),
         "decay_anchor_at": decay_anchor_at,
@@ -221,6 +227,13 @@ def _normalized_assertion_context(
         ),
         "memory_subdomain": str(candidate.get("memory_subdomain", "")).strip() or "",
         "natural_summary": str(candidate.get("natural_summary", "") or "").strip()[:500],
+        "semantic_lineage_key": str(candidate.get("semantic_lineage_key") or "").strip(),
+        "target_window_json": json.dumps(
+            target_window,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
     }
 
 
@@ -400,6 +413,8 @@ def _assertion_insert_values(
         None,
         candidate["scope_key"],
         candidate["scope_json"],
+        candidate["semantic_lineage_key"],
+        candidate["target_window_json"],
     )
 
 
@@ -433,6 +448,8 @@ def _existing_assertion_update_values(
         candidate["expires_at"],
         candidate["natural_summary"],
         now,
+        candidate["semantic_lineage_key"],
+        candidate["target_window_json"],
         assertion_id,
     )
 
@@ -1067,8 +1084,10 @@ class L2StoreAssertionMixin:
             authoritative_id=str(existing["assertion_id"]),
             entity_id=candidate["entity_id"],
             trait_name=trait_name,
-            authoritative_value=merge_context.existing_value,
-            inferred_value=merge_context.next_value,
+            authoritative_value_preview=assertion_value_log_preview(
+                merge_context.existing_value
+            ),
+            inferred_value_preview=assertion_value_log_preview(merge_context.next_value),
         )
         return _AssertionWriteResult(
             assertion_id=shadow_id,
@@ -1149,8 +1168,8 @@ class L2StoreAssertionMixin:
             new_assertion_id=new_assertion_id,
             entity_id=candidate["entity_id"],
             trait_name=trait_name,
-            old_value=merge_context.existing_value,
-            new_value=merge_context.next_value,
+            old_value_preview=assertion_value_log_preview(merge_context.existing_value),
+            new_value_preview=assertion_value_log_preview(merge_context.next_value),
             evidence_count=len(merge_context.merged_evidence),
             validation_state=validation_state,
         )

@@ -194,18 +194,6 @@ class _ExpiringGoalL2:
         ]
 
 
-class _UnrelatedPortraitLLM:
-    async def generate_portrait(self, *, material):
-        return {
-            "prompt_summary": [
-                "模型摘要一",
-                "模型摘要二",
-                "模型摘要三",
-                "模型摘要四",
-            ]
-        }
-
-
 class _FragmentedProfileSignalL2:
     async def list_current_assertions(self, **kwargs):
         return [
@@ -283,6 +271,10 @@ async def test_portrait_projection_repository_roundtrips_prompt_and_page_model(t
         evidence_refs=["assertion:a-interest-rag"],
         source_counts={"conversation": 1},
         generated_by="rule",
+        input_assertion_highwater=11.0,
+        input_claim_highwater=12.0,
+        input_review_highwater=13.0,
+        input_profile_highwater=14.0,
     )
 
     saved = await repo.upsert(projection)
@@ -294,6 +286,10 @@ async def test_portrait_projection_repository_roundtrips_prompt_and_page_model(t
     assert loaded.prompt_summary == ["用户关注 RAG。"]
     assert loaded.evidence_refs == ["assertion:a-interest-rag"]
     assert loaded.source_counts == {"conversation": 1}
+    assert loaded.input_assertion_highwater == 11.0
+    assert loaded.input_claim_highwater == 12.0
+    assert loaded.input_review_highwater == 13.0
+    assert loaded.input_profile_highwater == 14.0
     with sqlite3.connect(db_path) as db:
         columns = {
             str(row[1])
@@ -324,6 +320,34 @@ async def test_portrait_projection_builder_filters_internal_fields_and_separates
     assert "assertion:a-interest-rag" in projection.evidence_refs
 
 
+async def test_pending_review_change_invalidates_portrait_projection():
+    class _ReviewChangedL2:
+        async def current_subject_revision(self, _entity_id: str) -> int:
+            return 0
+
+        async def current_clear_generation(self) -> int:
+            return 0
+
+        async def list_current_assertions(self, **_kwargs):
+            return []
+
+        async def latest_pending_review_change_at(self, *, subject_id: str) -> float:
+            assert subject_id == "user:local_user"
+            return 20.0
+
+    projection = UserPortraitProjection(
+        user_id="local_user",
+        entity_id="user:local_user",
+        input_review_highwater=10.0,
+    )
+
+    assert await portrait_projection_is_stale(
+        projection,
+        user_id="local_user",
+        l2_store=_ReviewChangedL2(),
+    )
+
+
 async def test_portrait_projection_requires_world_ready_profile_assertions():
     projection = await UserPortraitProjectionBuilder(_PassiveProfileSignalL2()).build("local_user")
 
@@ -347,16 +371,14 @@ async def test_portrait_projection_treats_confirmed_feedback_as_user_qualified()
     assert "DeepSeek" in "\n".join(projection.prompt_summary)
 
 
-async def test_goal_prompt_line_survives_llm_override_and_expires_from_portrait():
+async def test_goal_prompt_line_is_deterministic_and_expires_from_portrait():
     store = _ExpiringGoalL2()
-    builder = UserPortraitProjectionBuilder(store, llm_client=_UnrelatedPortraitLLM())
+    builder = UserPortraitProjectionBuilder(store)
 
     projection = await builder.build("local_user")
 
-    assert len(projection.prompt_summary) == 4
-    assert "近期计划：去海边" in projection.prompt_summary
-    assert "模型摘要四" not in projection.prompt_summary
-    assert projection.generated_by == "llm"
+    assert projection.prompt_summary == ["近期计划：去海边"]
+    assert projection.generated_by == "rule"
 
     store.now = 250.0
     assert await portrait_projection_is_stale(

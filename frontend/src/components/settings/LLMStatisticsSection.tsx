@@ -46,7 +46,6 @@ const REQUEST_KIND_DISPLAY_KEYS: Record<string, { scenario: string; stage: strin
   'memory:l2_phase2_integrate': { scenario: 'memoryL2', stage: 'graphIntegration' },
   'memory:l2_entity_resolution': { scenario: 'memoryL2', stage: 'entityResolution' },
   'memory:l2_contradiction_hint': { scenario: 'memoryL2', stage: 'contradictionHint' },
-  'memory:l2_conflict_arbitration': { scenario: 'memoryL2', stage: 'conflictArbitration' },
   'memory:l2_entity_reconcile': { scenario: 'memoryL2', stage: 'entityReconcile' },
   'memory:l3_temporal_summary': { scenario: 'memoryL3', stage: 'temporalSummary' },
   'memory:l3_thematic_topic_summary': { scenario: 'memoryL3', stage: 'thematicTopicSummary' },

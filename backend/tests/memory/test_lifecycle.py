@@ -105,8 +105,6 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(
                     vectors_enabled=True,
                     batch_flush_interval_seconds=90,
                     auto_extract_relations=True,
-                    conflict_arbitration_enabled=True,
-                    conflict_arbitration_min_confidence=0.85,
                 ),
                 l3=SimpleNamespace(
                     enabled=True,
@@ -144,9 +142,6 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(
 
     assert captured["l2_batch_flush_interval_seconds"] == 90
     assert captured["archive_dir_path"] == str(tmp_path / "custom-archive")
-    # Advanced tuning knobs are bundled into MemoryStoreTuning.
-    assert captured["tuning"].enable_l2_conflict_arbitration is True
-    assert captured["tuning"].l2_conflict_arbitration_min_confidence == 0.85
     assert registered_stores == [context.memory.unified_memory]
     assert usage_store.started is False
     assert usage_store.message_bus is None
@@ -228,8 +223,6 @@ async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdo
                     enabled=True,
                     vectors_enabled=False,
                     batch_flush_interval_seconds=0,
-                    conflict_arbitration_enabled=False,
-                    conflict_arbitration_min_confidence=0.85,
                 ),
                 l3=SimpleNamespace(
                     enabled=True,

@@ -18,7 +18,6 @@ from magi.memory.l2.entities.maintenance import (
     L2EntityMaintenance,
     L2MaintenanceLifecycle,
 )
-from magi.memory.l2.assertions.promotion import PromotionHorizon
 from magi.memory.l2.episode_formation import (
     MERGE_GAP_FACTOR,
     MIN_ENTITY_OVERLAP_FOR_MERGE,
@@ -30,8 +29,6 @@ from magi.memory.l2.episode_formation import (
     StandoutGate,
     _passes_standout_gate,
 )
-from magi.memory.l2.extraction_profiles import ExtractionProfile
-from magi.memory.l2.phase1_models import L2Phase1FactClaim, L2TemporalCue
 from magi.memory.l2.storage.utils import (
     CONFIDENCE_ACCUMULATION_CAP,
     MAX_EVIDENCE_EVENT_IDS,
@@ -521,72 +518,28 @@ def test_contradiction_confidence_honors_state_threshold_overrides(monkeypatch):
     ) == 0.04
 
 
-def test_phase2_assertion_decay_reads_configured_family_ttl(monkeypatch):
+def test_host_assertion_decay_reads_configured_family_ttl(monkeypatch):
     import magi.config
-    from magi.memory.l2.pipeline.validation.assertions import L2AssertionValidationMixin
+    from magi.memory.l2.assertion_family_policy import get_assertion_family_policy
+    from magi.memory.l2.assertions.reconcile_state import L2ReconcileStateMixin
 
     cfg = AppConfig()
     cfg.agent.memory.l2.assertion.momentary_ttl_seconds = 45.0
     cfg.agent.memory.l2.assertion.mood_ttl_seconds = 123.0
     monkeypatch.setattr(magi.config, "get_config", lambda: cfg)
 
-    class Host(L2AssertionValidationMixin):
-        def _non_empty_text(self, value):
-            if value is None:
-                return None
-            text = str(value).strip()
-            return text or None
+    mood = get_assertion_family_policy("mood")
+    assert mood is not None
+    assert mood.default_temporal_scope == "session"
+    assert mood.default_decay_policy == "session_decay"
+    assert mood.default_ttl_seconds == 123.0
 
-    event = type(
-        "Event",
-        (),
-        {
-            "timestamp": 1000.0,
-            "memory_domain": type("MemoryDomain", (), {"label": "user_authored"})(),
-            "metadata_json": {},
-        },
-    )()
-
-    promotion = Host()._evaluate_phase2_assertion_promotion(
-        event=event,
-        profile=ExtractionProfile(profile_id="test"),
+    expires_at = L2ReconcileStateMixin()._coerce_expires_at(
+        None,
         trait_family="mood",
-        trait_name="mood",
-        supporting_claims=[
-            L2Phase1FactClaim(
-                claim_id="claim-1",
-                fact_kind="explicit_fact",
-                predicate="HAS_MOOD",
-                temporal_cue=L2TemporalCue.RECENT,
-                supporting_event_ids=["event-1"],
-            )
-        ],
-        supporting_event_ids=["event-1"],
-    )
-
-    assert promotion.horizon is PromotionHorizon.RECENT
-    assert promotion.expiry.temporal_scope == "session"
-    assert promotion.expiry.decay_policy == "session_decay"
-    assert promotion.expiry.ttl_seconds == 123.0
-    assert event.timestamp + promotion.expiry.ttl_seconds == 1123.0
-
-    candidate = type(
-        "Candidate",
-        (),
-        {
-            "temporal_scope": "",
-            "decay_policy": "",
-            "expires_at": None,
-            "trait_family": "mood",
-            "trait_name": "annoyance",
-        },
-    )()
-    temporal_scope, decay_policy, expires_at = Host()._derive_assertion_decay(
-        event=event,
-        candidate=candidate,
+        trait_name="annoyance",
         target_entity_id="person:alice",
+        anchor_at=1000.0,
     )
 
-    assert temporal_scope == "momentary"
-    assert decay_policy == "fast_decay"
     assert expires_at == 1045.0

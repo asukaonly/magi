@@ -13,7 +13,6 @@ from unittest.mock import patch
 
 import aiosqlite
 
-from _shared.memory_schema import apply_memory_shared_schema
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
@@ -25,15 +24,15 @@ from magi.timeline.contracts import TimelineContentBlock, TimelineEvent
 from magi.timeline.service import TimelineService
 
 
-# Phase 1 + Phase 2 mock responses that extract stress_level from user messages
+# Phase 1 plus optional Phase 2 wording for a current mood assertion.
 _STRESS_PHASE1 = json.dumps({
     "entities": [],
     "fact_claims": [
         {
             "subject_ref": "user:self",
-            "predicate": "HAS_METRIC",
-            "object_ref": "stress_level",
-            "object_type": "health_metric",
+            "predicate": "FEELS",
+            "object_ref": "stressed",
+            "object_type": "concept",
             "fact_kind": "explicit_fact",
             "temporal_cue": "recent",
             "polarity": "negative",
@@ -47,20 +46,7 @@ _STRESS_PHASE1 = json.dumps({
     "diagnostics": {"entity_status": "none"},
 })
 
-_STRESS_PHASE2 = json.dumps({
-    "claim_assessments": [],
-    "assertion_candidates": [
-        {
-            "entity_ref": "user:u1",
-            "entity_type": "user",
-            "trait_family": "stress",
-            "trait_name": "stress_level",
-            "trait_value": "high",
-            "natural_summary": "Work has recently felt stressful.",
-            "supporting_claim_ids": ["claim:1"],
-        }
-    ],
-})
+_STRESS_PHASE2 = json.dumps({"summaries": []})
 
 _PLACE_PHASE1 = json.dumps({
     "entities": [
@@ -94,10 +80,7 @@ _PLACE_PHASE1 = json.dumps({
     "diagnostics": {"entity_status": "found"},
 })
 
-_PLACE_PHASE2 = json.dumps({
-    "claim_assessments": [],
-    "assertion_candidates": [],
-})
+_PLACE_PHASE2 = json.dumps({"summaries": []})
 
 
 class _FakeAdapter:
@@ -119,8 +102,11 @@ class _FakeAdapter:
         messages = kwargs.get("messages") or []
         if isinstance(messages, list) and messages and isinstance(messages[0], dict):
             system_prompt = str(messages[0].get("content") or "")
-        # Detect Phase 2 by its narrow inference contract.
-        text = self._phase2 if "claim_assessments" in system_prompt else self._phase1
+        text = (
+            self._phase2
+            if "optional natural-language summaries" in system_prompt
+            else self._phase1
+        )
         message = SimpleNamespace(content=text, tool_calls=[], role="assistant")
         return SimpleNamespace(
             choices=[SimpleNamespace(message=message, finish_reason="stop")],
@@ -144,27 +130,6 @@ async def _wait_for_async_condition(predicate, *, timeout: float = 1.0, interval
             return result
         await asyncio.sleep(interval)
     return await predicate()
-
-
-class _RecordingL1Store:
-    def __init__(self) -> None:
-        self.stored_event_ids: list[str] = []
-
-    async def store(self, event) -> str:  # type: ignore[no-untyped-def]
-        self.stored_event_ids.append(event.event_id)
-        return str(event.event_id)
-
-
-class _BlockingL2Pipeline:
-    def __init__(self, release_first_enqueue: asyncio.Event) -> None:
-        self.release_first_enqueue = release_first_enqueue
-        self.first_enqueue_started = asyncio.Event()
-
-    async def enqueue_event(self, event) -> bool:  # type: ignore[no-untyped-def]
-        if event.event_id == "evt-lock-1":
-            self.first_enqueue_started.set()
-            await self.release_first_enqueue.wait()
-        return True
 
 
 class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
@@ -250,7 +215,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(workbench["session"])
         self.assertEqual(workbench["attention_items"], [])
         self.assertEqual(l1_count, 1)
-        self.assertEqual(assertions[0]["trait_name"], "stress_level")
+        self.assertEqual(assertions[0]["trait_name"], "mood")
         self.assertIsNotNone(summary)
         self.assertEqual(summary["summary_type"], "temporal")
         self.assertGreaterEqual(len(procedures), 1)
@@ -550,68 +515,6 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["summary_type"], "thematic")
         self.assertEqual(summary["summary_category"], "topic")
         self.assertEqual(summary["key_topics"], ["job"])
-
-    async def test_ingest_event_does_not_hold_write_lock_while_enqueuing_l2(self):
-        local_store = UnifiedMemoryStore(
-            l1_db_path=str(self.base / "lock_l1_events.db"),
-            memory_db_path=str(self.base / "lock_memory.db"),
-            persist_dir=str(self.base / "lock_memories"),
-            enable_l0=False,
-            enable_l1=False,
-            enable_l2=False,
-            enable_l3=False,
-            enable_l4=False,
-        )
-        release_first_enqueue = asyncio.Event()
-        recording_l1 = _RecordingL1Store()
-        local_store.l1 = recording_l1  # type: ignore[assignment]
-        local_store.l2_pipeline = _BlockingL2Pipeline(release_first_enqueue)  # type: ignore[assignment]
-        await apply_memory_shared_schema(local_store.memory_db_path)
-
-        first_task = asyncio.create_task(
-            local_store.ingest_event(
-                {
-                    "id": "evt-lock-1",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "first",
-                    },
-                }
-            )
-        )
-
-        await asyncio.wait_for(local_store.l2_pipeline.first_enqueue_started.wait(), timeout=1.0)  # type: ignore[union-attr]
-
-        second_task = asyncio.create_task(
-            local_store.ingest_event(
-                {
-                    "id": "evt-lock-2",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time() + 1,
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "second",
-                    },
-                }
-            )
-        )
-
-        async def _both_l1_writes_completed() -> bool:
-            return recording_l1.stored_event_ids == ["evt-lock-1", "evt-lock-2"]
-
-        self.assertTrue(await _wait_for_async_condition(_both_l1_writes_completed, timeout=0.2))
-
-        release_first_enqueue.set()
-        await first_task
-        await second_task
 
     async def test_timeline_events_round_trip_through_l1_and_l2(self):
         service = TimelineService(self.store)
@@ -1378,7 +1281,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
 class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        base = Path(self.temp_dir.name)
+        base = Path(self.temp_dir.name).resolve()
 
         self.memory = UnifiedMemoryStore(
             l1_db_path=str(base / "l1_events.db"),

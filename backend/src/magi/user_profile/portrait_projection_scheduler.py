@@ -12,7 +12,10 @@ from .correction_derivation import (
 )
 from .portrait_projection_builder import UserPortraitProjectionBuilder
 from .portrait_projection_repository import UserPortraitProjectionRepository
+from .projection_builder import UserProfileProjectionBuilder
+from .projection_freshness import profile_projection_is_stale
 from .projection_repository import UserProfileProjectionRepository
+from .query_service import UserProfileQueryService
 
 logger = logging.getLogger(__name__)
 
@@ -158,14 +161,18 @@ def get_portrait_projection_scheduler(unified_memory: Any) -> UserPortraitProjec
         return None
 
     async def refresh(user_id: str) -> None:
-        profile_projection = None
-        try:
-            profile_projection = await UserProfileProjectionRepository(db_path).get(user_id)
-        except Exception as exc:  # pragma: no cover - defensive runtime guard
-            logger.debug(
-                "User portrait profile projection lookup failed",
-                extra={"user_id": user_id, "error": str(exc)},
-            )
+        profile_repository = UserProfileProjectionRepository(db_path)
+        profile_service = UserProfileQueryService(
+            repository=profile_repository,
+            builder=UserProfileProjectionBuilder(l2),
+        )
+        profile_projection = await profile_service.get_current_profile(user_id)
+        if await profile_projection_is_stale(
+            profile_projection,
+            user_id=user_id,
+            l2_store=l2,
+        ):
+            raise RuntimeError("User profile projection remained stale after refresh")
         projection = await UserPortraitProjectionBuilder(
             l2,
             profile_projection=profile_projection,

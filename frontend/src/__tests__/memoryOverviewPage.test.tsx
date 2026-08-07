@@ -21,6 +21,19 @@ vi.mock('react-i18next', () => ({
         'memory.overview.sections.sources': 'Source coverage',
         'memory.overview.sections.pending': 'Pending review',
         'memory.overview.sections.recent': 'Latest summaries',
+        'memory.overview.pendingKinds.review': 'Memory to confirm',
+        'memory.overview.pendingKinds.assertion': 'Structured assertion',
+        'memory.overview.pendingKinds.story': 'Memory update',
+        'memory.overview.actions.confirm': 'Confirm',
+        'memory.overview.actions.edit': 'Edit',
+        'memory.overview.actions.reject': 'Not right',
+        'memory.overview.actions.confirmReview': 'Confirm this memory',
+        'memory.overview.actions.editReview': 'Edit and confirm',
+        'memory.overview.actions.rejectReview': 'Do not use this memory',
+        'memory.overview.actions.confirmAssertion': 'Confirm assertion',
+        'memory.overview.actions.rejectAssertion': 'Reject assertion',
+        'memory.overview.actions.confirmStory': 'Confirm memory update',
+        'memory.overview.actions.rejectStory': 'Reject memory update',
         'memory.overview.sourceColumns.source': 'Source',
         'memory.overview.sourceColumns.status': 'Status',
         'memory.overview.sourceColumns.events': 'Stored',
@@ -52,6 +65,17 @@ vi.mock('react-i18next', () => ({
         'memory.pending.assertions.conflictPairBody': 'The older judgment was "{{oldValue}}". Newer evidence supports "{{newValue}}" more. Confirm whether the older judgment is still accurate.',
         'memory.pending.assertions.uncertainTitle': 'I am not sure about "{{value}}"',
         'memory.pending.assertions.uncertainBody': 'The evidence is not consistent enough. Confirm whether this is accurate.',
+        'memory.pending.reviews.title': 'Do you want Magi to remember “{{value}}”?',
+        'memory.pending.reviews.body': 'This needs your confirmation first.',
+        'memory.pending.reviews.unknownValue': 'this',
+        'memory.pending.reviewEdit.title': 'Edit and confirm',
+        'memory.pending.reviewEdit.description': 'Edit what you want Magi to remember.',
+        'memory.pending.reviewEdit.valueLabel': 'Memory',
+        'memory.pending.reviewEdit.summaryLabel': 'Note (optional)',
+        'memory.pending.reviewEdit.summaryPlaceholder': 'Describe this memory',
+        'memory.pending.reviewEdit.confirm': 'Confirm and save',
+        'common.cancel': 'Cancel',
+        'common.close': 'Close',
         'memory.pages.knowledge.readable.assertions.communication_address_preferred': 'You want me to call you "{{value}}".',
       };
       let result = translations[key] ?? '';
@@ -79,6 +103,8 @@ vi.mock('@/api/modules/memory', async () => {
     ...actual,
     memoryApi: {
       getDashboard: vi.fn(),
+      listPendingReviews: vi.fn(),
+      resolvePendingReview: vi.fn(),
       submitAssertionFeedback: vi.fn(),
       applyCorrection: vi.fn(),
     },
@@ -355,6 +381,13 @@ describe('MemoryOverviewPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(memoryApi.getDashboard).mockResolvedValue(dashboardPayload as any);
+    vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items: [], total: 0 });
+    vi.mocked(memoryApi.resolvePendingReview).mockResolvedValue({
+      review_id: 'review-1',
+      status: 'confirmed',
+      version: 2,
+      assertion_id: 'assert-review-1',
+    });
     vi.mocked(sensorsApi.getStatus).mockResolvedValue(sensorPayload as any);
     vi.mocked(memoryStoriesApi.list).mockResolvedValue(storyPayload as any);
     vi.mocked(memoryApi.submitAssertionFeedback).mockResolvedValue(dashboardPayload.pending_assertions.items[0] as any);
@@ -419,6 +452,7 @@ describe('MemoryOverviewPage', () => {
     expect(screen.getAllByText('A normal Chat day.')).toHaveLength(1);
     expect(screen.queryByText(/chat projector/i)).not.toBeInTheDocument();
     expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 8 });
+    expect(memoryApi.listPendingReviews).toHaveBeenCalledWith(8);
     expect(sensorsApi.getStatus).toHaveBeenCalled();
     expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 12, offset: 0, surface: 'all' });
   });
@@ -556,7 +590,7 @@ describe('MemoryOverviewPage', () => {
     renderOverview();
 
     await screen.findByText('I found an about-you judgment: "Python"');
-    await user.click(screen.getByRole('button', { name: 'memory.overview.actions.confirmAssertion' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm assertion' }));
 
     expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledWith('assert-1', 'confirmed');
 
@@ -564,9 +598,49 @@ describe('MemoryOverviewPage', () => {
       expect(screen.queryByText('favorite_language')).not.toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: 'memory.overview.actions.confirmStory' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm memory update' }));
 
     expect(memoryStoriesApi.review).toHaveBeenCalledWith('story-1', { review_state: 'confirmed' });
+  });
+
+  it('includes pre-materialization reviews in the overview decision list', async () => {
+    vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({
+      items: [
+        {
+          review_id: 'review-1',
+          subject_id: 'user:self',
+          kind: 'goal_currentness',
+          slot_key: 'goal-slot:seaside',
+          value_fingerprint: 'goal-value:seaside',
+          semantic_lineage_key: 'goal-lineage:seaside',
+          claim_ids: ['claim-1'],
+          reason_code: 'goal_ambiguous_time',
+          proposed: {
+            trait_value: 'Visit the seaside in autumn',
+            natural_summary: 'The year is still unclear.',
+          },
+          route_contract_version: 5,
+          evidence_rule_version: 2,
+          source_generation: 0,
+          status: 'pending',
+          version: 1,
+          created_at: 1710000000,
+          updated_at: 1710000100,
+        },
+      ],
+      total: 1,
+    });
+    const user = userEvent.setup();
+    renderOverview();
+
+    expect(await screen.findByText('Do you want Magi to remember “Visit the seaside in autumn”?')).toBeInTheDocument();
+    expect(screen.getByText('Memory to confirm')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Confirm this memory' }));
+
+    expect(memoryApi.resolvePendingReview).toHaveBeenCalledWith('review-1', {
+      action: 'confirm',
+      expected_version: 1,
+    });
   });
 
   it('opens governed correction instead of rejecting an assertion through feedback', async () => {
@@ -574,7 +648,7 @@ describe('MemoryOverviewPage', () => {
     renderOverview();
 
     await screen.findByText('I found an about-you judgment: "Python"');
-    await user.click(screen.getByRole('button', { name: 'memory.overview.actions.rejectAssertion' }));
+    await user.click(screen.getByRole('button', { name: 'Reject assertion' }));
 
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText('memory.correction.title')).toBeInTheDocument();

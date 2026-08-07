@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
-import logging
 import time
 from contextlib import contextmanager
 from typing import Any
 
 from fastapi import APIRouter, Query
 
+from ....core.logger import get_logger
 from ....memory.provider import get_unified_memory
 from ....user_profile.models import UserPortraitProjection
 from ....user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from ....user_profile.portrait_projection_freshness import portrait_projection_is_stale
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.portrait_signal_policy import PORTRAIT_WORLD_GROUP_IDS
+from ....user_profile.projection_builder import UserProfileProjectionBuilder
+from ....user_profile.projection_freshness import profile_projection_is_stale
 from ....user_profile.projection_repository import UserProfileProjectionRepository
+from ....user_profile.query_service import UserProfileQueryService
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _profile_repo_override: Any = None
 _portrait_repo_override: Any = None
@@ -59,11 +62,15 @@ def build_router() -> APIRouter:
 
 async def _get_self_portrait(user_id: str) -> dict[str, Any]:
     l2 = _resolve_l2()
-    profile_projection = await _load_profile_projection(user_id)
+    profile_projection, profile_unavailable = await _load_profile_projection(
+        user_id,
+        l2=l2,
+    )
     portrait_projection, rebuild_failed = await _load_or_build_portrait_projection(
         user_id=user_id,
         l2=l2,
         profile_projection=profile_projection,
+        input_unavailable=profile_unavailable,
     )
     return _portrait_payload(
         portrait_projection,
@@ -77,9 +84,12 @@ async def _load_or_build_portrait_projection(
     user_id: str,
     l2: Any,
     profile_projection: Any,
+    input_unavailable: bool = False,
 ) -> tuple[UserPortraitProjection | None, bool]:
     portrait_repo = _resolve_portrait_repo()
     cached = await _load_portrait_projection(portrait_repo, user_id)
+    if input_unavailable:
+        return cached, True
     if cached is not None:
         try:
             is_stale = await portrait_projection_is_stale(
@@ -89,8 +99,13 @@ async def _load_or_build_portrait_projection(
                 profile_projection=profile_projection,
             )
         except Exception as exc:
-            logger.debug("self portrait: freshness check failed: %s", exc)
-            is_stale = False
+            _log_portrait_failure(
+                user_id=user_id,
+                stage="freshness",
+                error=exc,
+                cached_kept=True,
+            )
+            return cached, True
         if not is_stale:
             return cached, False
 
@@ -98,27 +113,63 @@ async def _load_or_build_portrait_projection(
         user_id=user_id,
         l2=l2,
         profile_projection=profile_projection,
+        cached_kept=cached is not None,
     )
     if rebuilt is None:
-        return None, True
+        return cached, True
     if portrait_repo is None:
         return rebuilt, False
     try:
         return await portrait_repo.upsert(rebuilt), False
     except Exception as exc:
-        logger.debug("self portrait: projection persistence failed: %s", exc)
+        _log_portrait_failure(
+            user_id=user_id,
+            stage="persist",
+            error=exc,
+            cached_kept=cached is not None,
+        )
         return rebuilt, False
 
 
-async def _load_profile_projection(user_id: str) -> Any:
+async def _load_profile_projection(user_id: str, *, l2: Any) -> tuple[Any, bool]:
     profile_repo = _resolve_profile_repo()
     if profile_repo is None:
-        return None
+        return None, l2 is not None
+    if l2 is None:
+        try:
+            return await profile_repo.get(user_id), True
+        except Exception as exc:
+            _log_portrait_failure(
+                user_id=user_id,
+                stage="profile_lookup",
+                error=exc,
+                cached_kept=False,
+            )
+            return None, True
     try:
-        return await profile_repo.get(user_id)
+        service = UserProfileQueryService(
+            repository=profile_repo,
+            builder=UserProfileProjectionBuilder(l2),
+        )
+        projection = await service.get_current_profile(user_id)
+        is_stale = await profile_projection_is_stale(
+            projection,
+            user_id=user_id,
+            l2_store=l2,
+        )
+        return projection, is_stale
     except Exception as exc:
-        logger.debug("self portrait: profile lookup failed: %s", exc)
-        return None
+        try:
+            cached = await profile_repo.get(user_id)
+        except Exception:
+            cached = None
+        _log_portrait_failure(
+            user_id=user_id,
+            stage="profile_freshness",
+            error=exc,
+            cached_kept=cached is not None,
+        )
+        return cached, True
 
 
 async def _load_portrait_projection(
@@ -130,7 +181,12 @@ async def _load_portrait_projection(
     try:
         return await portrait_repo.get(user_id)
     except Exception as exc:
-        logger.debug("self portrait: portrait projection lookup failed: %s", exc)
+        _log_portrait_failure(
+            user_id=user_id,
+            stage="cache_lookup",
+            error=exc,
+            cached_kept=False,
+        )
         return None
 
 
@@ -139,6 +195,7 @@ async def _build_portrait_projection(
     user_id: str,
     l2: Any,
     profile_projection: Any,
+    cached_kept: bool,
 ) -> UserPortraitProjection | None:
     try:
         return await UserPortraitProjectionBuilder(
@@ -146,8 +203,30 @@ async def _build_portrait_projection(
             profile_projection=profile_projection,
         ).build(user_id)
     except Exception as exc:
-        logger.debug("self portrait: projection build failed: %s", exc)
+        _log_portrait_failure(
+            user_id=user_id,
+            stage="rebuild",
+            error=exc,
+            cached_kept=cached_kept,
+        )
         return None
+
+
+def _log_portrait_failure(
+    *,
+    user_id: str,
+    stage: str,
+    error: Exception,
+    cached_kept: bool,
+) -> None:
+    logger.error(
+        "User portrait projection input failed",
+        user_id=user_id,
+        projection_kind="portrait",
+        stage=stage,
+        cached_kept=cached_kept,
+        error_type=type(error).__name__,
+    )
 
 
 def _portrait_payload(

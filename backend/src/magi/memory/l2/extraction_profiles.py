@@ -22,8 +22,6 @@ from ...utils.packaged_paths import get_backend_root
 
 logger = logging.getLogger(__name__)
 
-ASSERTION_MODES: frozenset[str] = frozenset({"none", "derived", "phase2_candidate"})
-
 _HISTORY_DOCUMENT_INSTRUCTIONS = """\
 These events are user-authored historical documents, not live chat turns.
 
@@ -37,6 +35,22 @@ user without explicit authorship.
 The displayed event time is document-level evidence provenance and may be
 approximate. Preserve relative or ambiguous time expressions as written unless
 the document itself supplies a clear anchor; do not invent an exact date.
+"""
+
+_HISTORY_CHAT_INSTRUCTIONS = """\
+These events are user-authored turns from an imported historical conversation,
+not live chat messages.
+
+Extract only facts supported by the current [USER] turn. Other participants'
+turns may clarify references and dialogue flow, but they are context rather
+than facts about the user. Do not attribute a counterpart's preferences,
+identity, plans, or suggestions to the user. Preserve the historical meaning
+of words such as "today" or "next week"; never reinterpret them relative to
+the current runtime clock.
+
+The displayed event time is source provenance. Use it as a temporal anchor
+only when the host marks the imported message timestamp as trusted. File order,
+file modification time, and import time do not prove that a fact is current.
 """
 
 
@@ -69,8 +83,7 @@ class ExtractionProfile:
     allow_assertion: bool = True
     extraction_instructions: str | None = None
     phase1_instructions: str | None = None
-    phase2_instructions: str | None = None
-    assertion_mode: str = "phase2_candidate"
+    summary_instructions: str | None = None
     allowed_assertion_traits: frozenset[str] | None = None
     derived_assertion_specs: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
@@ -111,6 +124,13 @@ DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
         extraction_instructions=_HISTORY_DOCUMENT_INSTRUCTIONS,
         phase1_instructions=_HISTORY_DOCUMENT_INSTRUCTIONS,
     ),
+    "history_import.chat": ExtractionProfile(
+        profile_id="history_import.chat",
+        source_types=frozenset({"history_import_markdown"}),
+        event_types=frozenset({"history_import.chat"}),
+        extraction_instructions=_HISTORY_CHAT_INSTRUCTIONS,
+        phase1_instructions=_HISTORY_CHAT_INSTRUCTIONS,
+    ),
 }
 
 _BUILTIN_YAML_PATH = get_backend_root() / "configs" / "l2_extraction_profiles.yaml"
@@ -148,11 +168,7 @@ def _parse_profile_from_dict(profile_id: str, raw: dict[str, Any]) -> Extraction
         allow_assertion=allow_assertion,
         extraction_instructions=phase1_instructions,
         phase1_instructions=phase1_instructions,
-        phase2_instructions=_coalesce_text(raw.get("phase2_instructions")),
-        assertion_mode=_parse_assertion_mode(
-            raw.get("assertion_mode"),
-            allow_assertion=allow_assertion,
-        ),
+        summary_instructions=_coalesce_text(raw.get("summary_instructions")),
         allowed_assertion_traits=_parse_profile_assertion_traits(
             raw.get("allowed_assertion_traits")
         ),
@@ -190,13 +206,6 @@ def _parse_optional_set(val: Any, parser: Any) -> frozenset[str] | None:
     if val is None:
         return None
     return parser(val)
-
-
-def _parse_assertion_mode(val: Any, *, allow_assertion: bool) -> str:
-    if val is None:
-        return "phase2_candidate" if allow_assertion else "none"
-    mode = str(val).strip().lower()
-    return mode if mode in ASSERTION_MODES else ""
 
 
 def _parse_profile_assertion_traits(val: Any) -> frozenset[str] | None:
@@ -246,6 +255,8 @@ def _load_profiles_from_yaml(path: Path) -> dict[str, ExtractionProfile]:
         ]
     if "history_import.document" not in profiles:
         profiles["history_import.document"] = DEFAULT_EXTRACTION_PROFILES["history_import.document"]
+    if "history_import.chat" not in profiles:
+        profiles["history_import.chat"] = DEFAULT_EXTRACTION_PROFILES["history_import.chat"]
 
     return profiles
 
@@ -314,10 +325,6 @@ def _validate_profile(profile: ExtractionProfile) -> None:
         raise ValueError(
             f"profile {profile.profile_id} declares unknown assertion families: "
             f"{sorted(unknown_assertion_families)}"
-        )
-    if profile.assertion_mode not in ASSERTION_MODES:
-        raise ValueError(
-            f"profile {profile.profile_id} declares unknown assertion_mode: {profile.assertion_mode}"
         )
 
 
@@ -408,10 +415,10 @@ def _apply_overrides(profile: ExtractionProfile, overrides: dict[str, Any]) -> E
     if isinstance(override_instructions, str) and override_instructions.strip():
         phase1_instructions = override_instructions.strip()
         extraction_instructions = phase1_instructions
-    phase2_instructions = profile.phase2_instructions
-    override_phase2_instructions = overrides.get("phase2_instructions")
-    if isinstance(override_phase2_instructions, str) and override_phase2_instructions.strip():
-        phase2_instructions = override_phase2_instructions.strip()
+    summary_instructions = profile.summary_instructions
+    override_summary_instructions = overrides.get("summary_instructions")
+    if isinstance(override_summary_instructions, str) and override_summary_instructions.strip():
+        summary_instructions = override_summary_instructions.strip()
     allow_assertion = _coerce_bool(
         overrides.get("allow_assertion"), default=profile.allow_assertion
     )
@@ -453,12 +460,7 @@ def _apply_overrides(profile: ExtractionProfile, overrides: dict[str, Any]) -> E
         allow_assertion=allow_assertion,
         extraction_instructions=extraction_instructions,
         phase1_instructions=phase1_instructions,
-        phase2_instructions=phase2_instructions,
-        assertion_mode=_coerce_assertion_mode(
-            overrides.get("assertion_mode"),
-            fallback=profile.assertion_mode,
-            allow_assertion=allow_assertion,
-        ),
+        summary_instructions=summary_instructions,
         allowed_assertion_traits=_coerce_assertion_traits(
             overrides.get("allowed_assertion_traits"),
             fallback=profile.allowed_assertion_traits,
@@ -530,13 +532,6 @@ def _coerce_event_type_set(value: Any, *, fallback: frozenset[str]) -> frozenset
     return frozenset(normalized) if normalized else fallback
 
 
-def _coerce_assertion_mode(value: Any, *, fallback: str, allow_assertion: bool) -> str:
-    if value is None:
-        return fallback or ("phase2_candidate" if allow_assertion else "none")
-    mode = str(value).strip().lower()
-    return mode if mode in ASSERTION_MODES else fallback
-
-
 def _coerce_assertion_traits(
     value: Any,
     *,
@@ -605,7 +600,6 @@ def _coalesce_text(*values: Any) -> str | None:
 
 
 __all__ = [
-    "ASSERTION_MODES",
     "DEFAULT_EXTRACTION_PROFILES",
     "DefaultSubjectPolicy",
     "ExtractionProfile",

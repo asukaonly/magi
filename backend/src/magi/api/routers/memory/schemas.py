@@ -97,9 +97,9 @@ class EvalFinalizeReplayRequest(BaseModel):
         default=True,
         description="Whether to generate temporal L3 summaries.",
     )
-    flush_l2: bool = Field(
+    flush_l2_projection_jobs: bool = Field(
         default=True,
-        description="Whether to flush staged L2 batches into extraction jobs.",
+        description="Whether to claim pending durable L2 projection jobs.",
     )
     drain_l2_edge_embeddings: bool = Field(
         default=True,

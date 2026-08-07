@@ -72,7 +72,7 @@ interface L2TabProps {
   knowledgeStatusFilter?: string;
   knowledgeEntityTypeFilter?: string;
   actionLoading: boolean;
-  onFlushMicrobatches?: () => Promise<void>;
+  onFlushProjectionJobs?: () => Promise<void>;
   onSubmitManualEvent: (payload: ManualL2EventPayload) => Promise<void>;
   onReplayExtraction: (eventId: string) => Promise<void>;
   onRunReconcile: (entityIds: string[]) => Promise<void>;
@@ -99,7 +99,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
   knowledgeStatusFilter = 'all',
   knowledgeEntityTypeFilter = 'all',
   actionLoading,
-  onFlushMicrobatches,
+  onFlushProjectionJobs,
   onSubmitManualEvent,
   onReplayExtraction,
   onRunReconcile,
@@ -318,11 +318,11 @@ export const L2Tab: React.FC<L2TabProps> = ({
             <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">{t('memory.pages.knowledge.sections.maintenance')}</h2>
             <p className="mt-1 text-sm leading-6 text-[hsl(var(--memory-body))]">{t('memory.pages.knowledge.advancedHint')}</p>
           </div>
-          {onFlushMicrobatches ? (
+          {onFlushProjectionJobs ? (
             <Button
               variant="outline"
               className="h-9 rounded-sm border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 text-sm text-[hsl(var(--memory-title))]"
-              onClick={() => void onFlushMicrobatches()}
+              onClick={() => void onFlushProjectionJobs()}
               disabled={actionLoading}
             >
               {actionLoading ? <RefreshCcw className="mr-2 h-4 w-4 animate-spin" /> : <DatabaseZap className="mr-2 h-4 w-4" />}

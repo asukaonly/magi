@@ -157,8 +157,6 @@ class MemoryStoreModule(LifecycleModule):
             enable_l3_vectors=memory_config.l3.vectors_enabled and vectors_enabled,
             enable_l4_vectors=memory_config.l4.vectors_enabled and vectors_enabled,
             enable_l3_llm_summary=memory_config.l3.llm_summary_enabled,
-            enable_l2_conflict_arbitration=memory_config.l2.conflict_arbitration_enabled,
-            l2_conflict_arbitration_min_confidence=memory_config.l2.conflict_arbitration_min_confidence,
             l0_checkpoint_interval_seconds=memory_config.l0.checkpoint_interval_seconds,
             temporal_l3_llm_timeout_seconds=memory_config.l3.temporal_llm_timeout_seconds,
             temporal_l3_llm_min_event_count=memory_config.l3.temporal_llm_min_event_count,

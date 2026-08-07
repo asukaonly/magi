@@ -44,10 +44,11 @@ CREATE INDEX IF NOT EXISTS idx_history_import_jobs_status
     ON history_import_jobs(status, updated_at)
 """,
     """
-CREATE TABLE IF NOT EXISTS history_import_records (
-    record_id TEXT PRIMARY KEY,
-    job_id TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS history_import_source_records (
+    source_record_key TEXT PRIMARY KEY,
+    file_fingerprint TEXT NOT NULL,
     source_name TEXT NOT NULL,
+    parsed_session_key TEXT NOT NULL,
     session_id TEXT NOT NULL,
     session_seq INTEGER NOT NULL,
     speaker_name TEXT NOT NULL,
@@ -55,26 +56,42 @@ CREATE TABLE IF NOT EXISTS history_import_records (
     content TEXT NOT NULL,
     event_at REAL NOT NULL,
     timestamp_confidence TEXT NOT NULL,
+    timestamp_anchor_source TEXT NOT NULL,
+    calendar_timezone_id TEXT NOT NULL,
     meaningful INTEGER NOT NULL DEFAULT 0,
-    event_id TEXT NOT NULL,
+    event_id TEXT NOT NULL UNIQUE,
+    created_at REAL NOT NULL
+)
+""",
+    """
+CREATE INDEX IF NOT EXISTS idx_history_import_source_file_order
+    ON history_import_source_records(file_fingerprint, session_id, session_seq)
+""",
+    """
+CREATE TABLE IF NOT EXISTS history_import_job_records (
+    job_record_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    source_record_key TEXT NOT NULL,
     raw_state TEXT NOT NULL DEFAULT 'pending',
     projection_state TEXT NOT NULL DEFAULT 'pending',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
-    FOREIGN KEY(job_id) REFERENCES history_import_jobs(job_id)
+    FOREIGN KEY(job_id) REFERENCES history_import_jobs(job_id),
+    FOREIGN KEY(source_record_key) REFERENCES history_import_source_records(source_record_key),
+    UNIQUE(job_id, source_record_key)
 )
 """,
     """
-CREATE UNIQUE INDEX IF NOT EXISTS idx_history_import_record_source_order
-    ON history_import_records(job_id, session_id, session_seq)
+CREATE INDEX IF NOT EXISTS idx_history_import_job_records_source
+    ON history_import_job_records(source_record_key, job_id)
 """,
     """
-CREATE INDEX IF NOT EXISTS idx_history_import_records_import_order
-    ON history_import_records(job_id, event_at, session_id, session_seq)
+CREATE INDEX IF NOT EXISTS idx_history_import_job_records_job
+    ON history_import_job_records(job_id, source_record_key)
 """,
     """
-CREATE INDEX IF NOT EXISTS idx_history_import_records_work
-    ON history_import_records(job_id, raw_state, projection_state)
+CREATE INDEX IF NOT EXISTS idx_history_import_job_records_work
+    ON history_import_job_records(job_id, raw_state, projection_state)
 """,
 )
 CREATE_SQL = ";\n".join(
@@ -82,10 +99,12 @@ CREATE_SQL = ";\n".join(
 ) + ";"
 
 DROP_STATEMENTS = (
-    "DROP INDEX IF EXISTS idx_history_import_records_work",
-    "DROP INDEX IF EXISTS idx_history_import_records_import_order",
-    "DROP INDEX IF EXISTS idx_history_import_record_source_order",
-    "DROP TABLE IF EXISTS history_import_records",
+    "DROP INDEX IF EXISTS idx_history_import_job_records_work",
+    "DROP INDEX IF EXISTS idx_history_import_job_records_job",
+    "DROP INDEX IF EXISTS idx_history_import_job_records_source",
+    "DROP TABLE IF EXISTS history_import_job_records",
+    "DROP INDEX IF EXISTS idx_history_import_source_file_order",
+    "DROP TABLE IF EXISTS history_import_source_records",
     "DROP INDEX IF EXISTS idx_history_import_jobs_status",
     "DROP INDEX IF EXISTS idx_history_import_jobs_fingerprint",
     "DROP TABLE IF EXISTS history_import_jobs",

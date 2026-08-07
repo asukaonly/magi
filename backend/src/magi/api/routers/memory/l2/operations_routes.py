@@ -87,9 +87,9 @@ async def trigger_l2_snapshot_refresh(body: L2EntityActionBody):
     return {"queued": True, "entity_ids": body.entity_ids}
 
 
-@memory_router.post("/l2/microbatch-flush")
-async def trigger_l2_microbatch_flush():
-    """Immediately flush all currently staged L2 microbatches."""
+@memory_router.post("/l2/projection-flush")
+async def trigger_l2_projection_flush():
+    """Immediately claim pending durable L2 projection jobs."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory:
         raise HTTPException(
@@ -97,5 +97,5 @@ async def trigger_l2_microbatch_flush():
             detail=memory_t("memory.errors.system_uninitialized", "Memory system not initialized"),
         )
 
-    batch_count = await unified_memory.flush_l2_microbatches()
+    batch_count = await unified_memory.flush_l2_projection_jobs()
     return {"queued": batch_count > 0, "batch_count": batch_count}

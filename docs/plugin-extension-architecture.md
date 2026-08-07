@@ -680,16 +680,19 @@ Current target examples:
   - `ON_PLATFORM`
   - `LOCATED_IN`
 
-Plugins may reference these via structured hints, but the runtime should continue treating them as internal graph semantics rather than free-form LLM-generated ontology.
-In practice this means extraction profiles may allow them for structured hints while keeping them out of the default LLM-facing predicate / entity allowlists.
+Plugins should normally provide these through structured hints. They remain part
+of the single canonical registry, while extraction profiles may exclude them from
+model extraction and allow them only for source-owned structured hints. Internal
+topology predicates must not be exposed as ordinary free-form relationship choices.
 
 See also:
 
 - [memory-system-design.md](./memory-system-design.md)
 
-### L2 Batch Policy
+### L2 Projection Batch Policy
 
-Sensors can influence L2 microbatch grouping by returning an `L2BatchPolicy` from `l2_batch_policy(output)`:
+Sensors can influence how durable L2 projection jobs are grouped for worker
+execution by returning an `L2BatchPolicy` from `l2_batch_policy(output)`:
 
 ```python
 @dataclass(slots=True)
@@ -700,23 +703,29 @@ class L2BatchPolicy:
     max_wait_seconds: int | None = None
 ```
 
-- `owner`: stable key for durable microbatch grouping. Chrome history uses `chrome_history:{profile}:{domain}` to batch by site rather than mixing all browsing into one bucket.
+- `owner`: stable key for durable projection grouping. Chrome history uses `chrome_history:{profile}:{domain}` to batch by site rather than mixing all browsing into one execution group.
 - `max_events`: preferred batch size for this source (e.g., Chrome uses 20 instead of the global default 12).
 - `max_estimated_tokens`: optional token cap per execution batch.
 - `max_wait_seconds`: how long an underfilled bucket may wait before it becomes ready.
 
-These values are advisory. L2 remains the final owner of batching decisions: it decides when a bucket is ready, how much work to claim under backpressure, and when a forced flush may bypass waiting.
+These values are advisory. L2 remains the final owner of batching decisions: it
+first claims durable projection rows, then decides how already leased work is
+grouped under backpressure and when a forced projection flush may bypass waiting.
+The policy cannot enqueue a raw event or create an in-memory ingestion path.
 
 Conversation events with a session are grouped by session. Events without a session are grouped by
 normalized source, optional plugin owner, and user together. A plugin owner therefore refines a
 source batch; it never replaces source or user isolation. Every event in a flushed batch keeps its
 own evidence policy and structured hints, even when multiple events share one owner bucket.
 
-The ingestion gateway propagates these hints into `MemoryEvent.metadata_json` as `l2_batch_owner`, `l2_batch_max_events`, `l2_batch_max_estimated_tokens`, and `l2_batch_max_wait_seconds`. The L2 pipeline reads them back to create appropriately scoped `L2PendingBatchBucket` instances.
+The ingestion gateway propagates these hints into `MemoryEvent.metadata_json` as
+`l2_batch_owner`, `l2_batch_max_events`, `l2_batch_max_estimated_tokens`, and
+`l2_batch_max_wait_seconds`. After L1 commit has created a durable projection row,
+the L2 worker reads them while grouping claimed, leased projection jobs.
 
 ### Extraction Profiles
 
-Each event source is mapped to an `ExtractionProfile` that controls what the L2 LLM is allowed to produce:
+Each event source is mapped to an `ExtractionProfile` that constrains Phase 1 extraction, host materialization, and optional summary wording:
 
 ```python
 @dataclass(slots=True, frozen=True)
@@ -734,10 +743,9 @@ class ExtractionProfile:
     subject_policy: DefaultSubjectPolicy
     allow_graph: bool
     allow_assertion: bool
-    assertion_mode: str
     extraction_instructions: str | None
     phase1_instructions: str | None
-    phase2_instructions: str | None
+    summary_instructions: str | None
     derived_assertion_specs: tuple[dict[str, Any], ...]
 ```
 
@@ -746,16 +754,15 @@ Key fields:
 - `allowed_entity_types`: LLM-extracted entities with types outside this set are filtered out before catalog registration.
 - `allowed_predicates`: LLM-extracted graph edges with predicates outside this set are dropped.
 - `structured_allowed_*`: allowlists for source-owned structured hints; these can be broader or narrower than LLM-facing extraction allowlists.
-- `allow_assertion`: master switch for assertion writes from this profile.
-- `assertion_mode`: `none` rejects assertions, `derived` allows only host-owned graph-derived assertion rules, and `phase2_candidate` allows Phase 2 LLM candidates subject to policy/family/trait gates.
-- `allowed_assertion_families`: canonical assertion families this source may emit or derive. Current families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `routine_profile`, and `state_profile`.
+- `allow_assertion`: master switch for direct Claim-to-Assertion materialization from this profile. Host-owned graph-derived rules remain separate and must be declared through `derived_assertion_specs`.
+- `allowed_assertion_families`: canonical assertion families this source may materialize or derive. Current families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `interest_profile`, `project_profile`, `goal_profile`, `routine_profile`, and `state_profile`.
 - `allowed_assertion_traits`: optional exact or namespace allowlist (`music.*`) for assertion trait names.
 - `source_types`: normalized event sources routed to this profile.
 - `phase1_instructions` / `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt under a `## Source-Specific Instructions` section.
-- `phase2_instructions`: source-specific semantic guidance injected into the Phase 2 prompt. It may guide higher-order assertion meaning, but cannot alter graph writes, evidence binding, confidence, lifecycle, expiry, or conflict actions.
+- `summary_instructions`: optional source-specific wording guidance for claim-bound Phase 2 summaries. It cannot introduce or alter semantic fields, and summary failure does not affect materialization.
 - `derived_assertion_specs`: plugin-declared graph-derived assertion specs. The host compiles these into validated rules and runs them in the L2 derive schedule; plugins never bypass assertion lifecycle, source-tier, or conflict protection.
 
-Assertion families and assertion trait/schema identifiers are assertion-only. They must not be emitted as graph predicates, graph object refs, or concept nodes; graph admission validates this boundary before persistence. `preference_profile` covers durable interests, affinities, tastes, and preferences; `routine_profile` covers repeated behavior rhythms and habits. Family policy is host-owned and determines Phase 2 guidance, default lifecycle/decay, snapshot placement, and value-localization expectations. Trust and conflict decisions remain source-tier governed, so plugin-derived inference cannot overwrite user-authored assertions.
+Assertion families and assertion trait/schema identifiers are assertion-only. They must not be emitted as graph predicates, graph object refs, or concept nodes; graph admission validates this boundary before persistence. `preference_profile` covers explicit affinities and tastes, while `interest_profile` covers attention and interests; `routine_profile` covers repeated behavior rhythms and habits. Family policy is host-owned and determines default lifecycle/decay, snapshot placement, and value-localization expectations. Trust and governance decisions remain source-tier controlled, so plugin-derived inference cannot overwrite user-authored assertions.
 
 Profile mapping uses the normalized event source. Source-specific profiles are contributed by loaded plugins through `Plugin.get_extraction_profiles()` using the SDK `ExtractionProfileSpec` contract. The host owns ontology, schema validation, prompt assembly, and final write guards. Profile IDs use the `source.*` namespace for external/source-specific events so they are not confused with the product Timeline surface. New source types fall back to the unrestricted `chat.user_message` default profile.
 

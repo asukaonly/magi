@@ -41,7 +41,7 @@ class UnifiedMemoryL2OperationsMixin:
             )
             accepted = inserted or await self.l2.request_projection_replay(event.event_id)
             if accepted:
-                await self.l2_pipeline.flush_all_pending_batches()
+                await self.l2_pipeline.flush_pending_projection_jobs()
             return accepted
 
     async def reconcile_entities(self, entity_ids: list[str]) -> bool:
@@ -58,12 +58,12 @@ class UnifiedMemoryL2OperationsMixin:
                 return False
             return await self.l2_pipeline.enqueue_snapshot_refresh(entity_ids)
 
-    async def flush_l2_microbatches(self) -> int:
-        """Flush all currently staged L2 microbatches into extract jobs."""
+    async def flush_l2_projection_jobs(self) -> int:
+        """Claim all pending durable L2 projection jobs for extraction."""
         async with self.memory_operation_guard():  # type: ignore[attr-defined]
             if self.l2_pipeline is None:
                 return 0
-            return await self.l2_pipeline.flush_all_pending_batches()
+            return await self.l2_pipeline.flush_pending_projection_jobs()
 
     async def drain_l2_edge_embeddings(
         self,
@@ -100,7 +100,7 @@ class UnifiedMemoryL2OperationsMixin:
         return {"pending": int(row[0] if row is not None else 0)}
 
     async def on_session_end(self, session_id: str) -> list[str]:
-        """Flush staged L2 session work and enqueue touched-entity reconciliation."""
+        """Enqueue touched-entity reconciliation at session end."""
         async with self.memory_operation_guard():  # type: ignore[attr-defined]
             if not session_id or self.l2_pipeline is None:
                 return []

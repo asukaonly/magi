@@ -201,63 +201,6 @@ def test_validator_rejects_removed_taste_profile_family():
     assert reason == "invalid_trait_family"
 
 
-def test_validator_can_identify_leaf_level_duplicates():
-    from magi.memory.l2.ontology import is_leaf_fact_duplicate
-
-    duplicate = is_leaf_fact_duplicate(
-        graph_candidates=[
-            {
-                "predicate": "DISLIKES",
-                "object_ref": "food:west-lake-vinegar-fish",
-            }
-        ],
-        assertion_candidate={
-            "trait_name": "taste_preference",
-            "trait_value": "dislikes_food:food:west-lake-vinegar-fish",
-        },
-    )
-
-    assert duplicate is True
-
-
-def test_validator_can_identify_generic_leaf_preference_duplicates():
-    from magi.memory.l2.ontology import is_leaf_fact_duplicate
-
-    duplicate = is_leaf_fact_duplicate(
-        graph_candidates=[
-            {
-                "predicate": "LIKES",
-                "object_ref": "technology:rust",
-            }
-        ],
-        assertion_candidate={
-            "trait_name": "preference",
-            "trait_value": "likes_technology:technology:rust",
-        },
-    )
-
-    assert duplicate is True
-
-
-def test_validator_allows_higher_order_assertion_alongside_graph_fact():
-    from magi.memory.l2.ontology import is_leaf_fact_duplicate
-
-    duplicate = is_leaf_fact_duplicate(
-        graph_candidates=[
-            {
-                "predicate": "DISLIKES",
-                "object_ref": "food:west-lake-vinegar-fish",
-            }
-        ],
-        assertion_candidate={
-            "trait_name": "preference.food.pattern",
-            "trait_value": "avoids_vinegar_heavy_dishes",
-        },
-    )
-
-    assert duplicate is False
-
-
 # ── _PREDICATE_SYNONYM_GROUPS ──
 
 

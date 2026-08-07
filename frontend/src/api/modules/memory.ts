@@ -221,10 +221,58 @@ export interface L2Assertion {
   valid_from?: number | null;
   valid_to?: number | null;
   scope?: Record<string, unknown> | null;
+  semantic_lineage_key?: string;
+  target_window?: Record<string, unknown> | null;
   status?: string | null;
   superseded_by?: string | null;
   superseded_at?: number | null;
   conflict_context?: L2AssertionConflictContext | null;
+}
+
+export type L2PendingReviewKind =
+  | 'goal_currentness'
+  | 'assertion_currentness'
+  | 'materialization'
+  | 'conflict';
+
+export interface L2PendingReviewProposal {
+  trait_value?: string;
+  natural_summary?: string;
+  evidence_events?: string[];
+  trait_family?: string;
+  trait_name?: string;
+  target_window?: Record<string, unknown> | null;
+  [key: string]: unknown;
+}
+
+export interface L2PendingReview {
+  review_id: string;
+  subject_id: string;
+  kind: L2PendingReviewKind;
+  slot_key: string;
+  value_fingerprint: string;
+  semantic_lineage_key: string;
+  claim_ids: string[];
+  reason_code: string;
+  proposed: L2PendingReviewProposal;
+  route_contract_version: number;
+  evidence_rule_version: number;
+  source_generation: number;
+  status: 'pending' | 'confirmed' | 'rejected' | 'closed';
+  version: number;
+  created_at: number;
+  updated_at: number;
+  resolved_at?: number | null;
+  close_reason?: string | null;
+}
+
+export type L2PendingReviewAction = 'confirm' | 'reject' | 'confirm_with_edit';
+
+export interface L2PendingReviewResolution {
+  review_id: string;
+  status: 'confirmed' | 'rejected';
+  version: number;
+  assertion_id: string | null;
 }
 
 export type MemoryCorrectionTargetKind = 'assertion' | 'edge';
@@ -978,6 +1026,23 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Relation>>('/memory/l2/relations', { params })),
   getL2Assertions: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Assertion>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params })),
+  listPendingReviews: async (limit = 100): Promise<{ items: L2PendingReview[]; total: number }> =>
+    unwrapMemoryResponse(await api.get<{ items: L2PendingReview[]; total: number }>(
+      '/memory/l2/reviews',
+      { params: { status: 'pending', limit } },
+    )),
+  resolvePendingReview: async (
+    reviewId: string,
+    payload: {
+      action: L2PendingReviewAction;
+      expected_version: number;
+      edit?: { trait_value?: string; natural_summary?: string };
+    },
+  ): Promise<L2PendingReviewResolution> =>
+    unwrapMemoryResponse(await api.post<L2PendingReviewResolution>(
+      `/memory/l2/reviews/${encodeURIComponent(reviewId)}/resolve`,
+      payload,
+    )),
   submitAssertionFeedback: async (assertionId: string, feedback: 'confirmed'): Promise<L2Assertion> =>
     unwrapMemoryResponse(await api.patch<L2Assertion>(`/memory/l2/assertions/${assertionId}/feedback`, { feedback })),
   applyCorrection: async (payload: MemoryCorrectionRequest): Promise<MemoryCorrectionCommandResponse> =>
@@ -1008,8 +1073,8 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/manual-event', payload)),
   replayL2Extraction: async (eventId: string): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>(`/memory/l2/extract/${eventId}`)),
-  flushL2Microbatches: async (): Promise<L2QueuedActionResponse> =>
-    unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/microbatch-flush')),
+  flushL2ProjectionJobs: async (): Promise<L2QueuedActionResponse> =>
+    unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/projection-flush')),
   reconcileL2Entities: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds })),
   refreshL2Snapshots: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>

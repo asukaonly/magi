@@ -129,5 +129,15 @@ async def test_replay_l2_extraction_uses_the_durable_projection_queue():
         event_type="UserMessage",
     )
     l2.request_projection_replay.assert_awaited_once_with("event-replay")
-    pipeline.enqueue_event.assert_not_awaited()
-    pipeline.flush_all_pending_batches.assert_awaited_once_with()
+    pipeline.flush_pending_projection_jobs.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_flush_l2_projection_jobs_claims_only_durable_work():
+    pipeline = AsyncMock()
+    pipeline.flush_pending_projection_jobs.return_value = 3
+    harness = _Harness(AsyncMock(), l2_pipeline=pipeline)
+
+    assert await harness.flush_l2_projection_jobs() == 3
+
+    pipeline.flush_pending_projection_jobs.assert_awaited_once_with()

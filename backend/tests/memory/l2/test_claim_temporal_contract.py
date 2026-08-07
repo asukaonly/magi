@@ -12,7 +12,7 @@ from magi.memory.l2.claims.models import ClaimEvidenceInput
 from magi.memory.l2.pipeline.claim_grounding import (
     normalize_phase1_claim_raw_time_expressions,
 )
-from magi.memory.l2.pipeline.claim_persistence import _timestamp_provenance
+from magi.memory.l2.pipeline.source_time_policy import resolve_source_time_semantics
 from magi.memory.l2.pipeline.temporal_claims import resolve_claim_temporal_fields
 from magi.memory.l2.temporal_trust import MAX_FUTURE_CLOCK_SKEW_SECONDS
 
@@ -31,7 +31,7 @@ def _evidence(
         event_time=event_time,
         timestamp_confidence=timestamp_quality,
         timestamp_quality=timestamp_quality,
-        evidence_rule_version=1,
+        evidence_rule_version=2,
         evidence_mode="direct",
         source_type="chat",
         source_domain="user_authored",
@@ -95,9 +95,76 @@ def test_relative_day_anchors_to_each_evidence_in_local_timezone() -> None:
 
 
 @pytest.mark.parametrize(
+    ("raw", "expected_start", "expected_end", "precision"),
+    [
+        ("下周一", (2026, 8, 10), (2026, 8, 11), "day"),
+        ("今年秋天", (2026, 9, 1), (2026, 12, 1), "season"),
+        ("明年冬天", (2027, 12, 1), (2028, 3, 1), "season"),
+        ("年底", (2026, 12, 1), (2027, 1, 1), "month"),
+        ("上半年", (2026, 1, 1), (2026, 7, 1), "half_year"),
+        ("2个月后", (2026, 10, 1), (2026, 11, 1), "month"),
+        ("3周后", (2026, 8, 24), (2026, 8, 25), "day"),
+    ],
+)
+def test_ordered_relative_rules_use_frozen_anchor_and_timezone(
+    raw: str,
+    expected_start: tuple[int, int, int],
+    expected_end: tuple[int, int, int],
+    precision: str,
+) -> None:
+    timezone = ZoneInfo("Asia/Shanghai")
+    anchor = datetime(2026, 8, 3, 12, tzinfo=timezone).timestamp()
+
+    resolution = resolve_claim_temporal_fields(
+        raw_expression=raw,
+        future_intent=True,
+        evidence=[_evidence(event_time=anchor)],
+        now=anchor,
+    )
+
+    assert resolution.target_from == datetime(*expected_start, tzinfo=timezone).timestamp()
+    assert resolution.target_to == datetime(*expected_end, tzinfo=timezone).timestamp()
+    assert resolution.raw_time_frame is not None
+    calendar = resolution.raw_time_frame["calendar"]
+    assert isinstance(calendar, dict)
+    assert calendar["precision"] == precision
+
+
+def test_explicit_winter_crosses_year_without_trusted_event_time() -> None:
+    timezone = ZoneInfo("Asia/Shanghai")
+    resolution = resolve_claim_temporal_fields(
+        raw_expression="2026年冬天",
+        future_intent=True,
+        evidence=[_evidence(timestamp_quality="approximate_recorded")],
+    )
+
+    assert resolution.target_from == datetime(2026, 12, 1, tzinfo=timezone).timestamp()
+    assert resolution.target_to == datetime(2027, 3, 1, tzinfo=timezone).timestamp()
+
+
+@pytest.mark.parametrize(
+    "timestamp_quality",
+    ["approximate_recorded", "derived_order", "low"],
+)
+def test_untrusted_source_time_cannot_anchor_relative_expression(
+    timestamp_quality: str,
+) -> None:
+    resolution = resolve_claim_temporal_fields(
+        raw_expression="今年秋天",
+        future_intent=True,
+        evidence=[_evidence(timestamp_quality=timestamp_quality)],
+    )
+
+    assert resolution.target_from is None
+    assert resolution.target_to is None
+    assert resolution.raw_time_frame is not None
+    assert resolution.raw_time_frame["resolution"] == "low"
+
+
+@pytest.mark.parametrize(
     ("raw", "evidence", "reason"),
     [
-        ("秋天", [_evidence()], "ambiguous"),
+        ("秋天", [_evidence()], "unresolved_text"),
         ("明天", [_evidence(timestamp_quality="low")], "low"),
         (
             "明天",
@@ -200,20 +267,55 @@ def test_one_future_supporting_anchor_makes_relative_time_unresolved() -> None:
 
 
 def test_timestamp_quality_is_normalized_per_evidence_source() -> None:
-    assert _timestamp_provenance({})[:2] == ("exact", "exact")
-    assert _timestamp_provenance({"history_import": {}})[:2] == ("unknown", "low")
-    assert _timestamp_provenance({"history_import": {"timestamp_confidence": "frontmatter"}})[
-        :2
-    ] == ("frontmatter", "calendar_anchor")
-    assert _timestamp_provenance({"history_import": {"timestamp_confidence": "source_order"}})[
-        :2
-    ] == ("source_order", "derived_order")
+    live_chat = resolve_source_time_semantics(
+        source="chat",
+        event_type="UserMessage",
+        metadata={},
+    )
+    unknown_sensor = resolve_source_time_semantics(
+        source="unknown_sensor",
+        event_type="SENSOR_EVENT",
+        metadata={"timestamp_confidence": "exact"},
+    )
+    frontmatter = resolve_source_time_semantics(
+        source="history_import",
+        event_type="history_import.document",
+        metadata={"history_import": {"timestamp_confidence": "frontmatter"}},
+    )
+    file_mtime = resolve_source_time_semantics(
+        source="history_import",
+        event_type="history_import.document",
+        metadata={"history_import": {"timestamp_confidence": "file_mtime"}},
+    )
+    source_order = resolve_source_time_semantics(
+        source="history_import",
+        event_type="history_import.document",
+        metadata={"history_import": {"timestamp_confidence": "source_order"}},
+    )
+
+    assert (live_chat.timestamp_confidence, live_chat.timestamp_quality) == ("exact", "exact")
+    assert (unknown_sensor.timestamp_confidence, unknown_sensor.timestamp_quality) == (
+        "unknown",
+        "low",
+    )
+    assert (frontmatter.timestamp_confidence, frontmatter.timestamp_quality) == (
+        "frontmatter",
+        "calendar_anchor",
+    )
+    assert (file_mtime.timestamp_confidence, file_mtime.timestamp_quality) == (
+        "file_mtime",
+        "approximate_recorded",
+    )
+    assert (source_order.timestamp_confidence, source_order.timestamp_quality) == (
+        "source_order",
+        "derived_order",
+    )
 
 
 def test_claim_identity_includes_temporal_semantics() -> None:
     base = dict(
-        extractor_contract_version=2,
-        evidence_rule_version=1,
+        extractor_contract_version=4,
+        evidence_rule_version=2,
         user_id="u1",
         subject_ref="user:u1",
         subject_type="user",
@@ -249,8 +351,8 @@ def test_claim_identity_includes_temporal_semantics() -> None:
 
 def test_claim_identity_excludes_runtime_calendar_epoch_projection() -> None:
     base = dict(
-        extractor_contract_version=3,
-        evidence_rule_version=1,
+        extractor_contract_version=4,
+        evidence_rule_version=2,
         user_id="u1",
         subject_ref="user:u1",
         subject_type="user",
