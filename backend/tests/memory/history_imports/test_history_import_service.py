@@ -115,7 +115,7 @@ async def _wait_for_completed_job(
 
 
 @pytest.mark.asyncio
-async def test_confirm_prepares_recent_context_then_projects_user_turns_in_order(
+async def test_confirm_projects_chat_shaped_markdown_as_one_personal_document(
     tmp_path: Path,
     history_store: HistoryImportStore,
     monkeypatch: pytest.MonkeyPatch,
@@ -140,17 +140,17 @@ async def test_confirm_prepares_recent_context_then_projects_user_turns_in_order
     service = HistoryImportService(store=history_store, memory=memory)
 
     preview = await service.preview_markdown_paths([str(markdown)])
-    assert preview.detected_kind == "chat"
-    assert {item.name for item in preview.participants} == {"Me", "Alice"}
+    assert preview.detected_kind == "document"
+    assert preview.total_records == 1
+    assert {item.name for item in preview.participants} == {"__document_author__"}
 
     ready = await service.confirm(
         job_id=preview.job_id,
-        self_participants=["Me"],
-        confirm_personal_writing=False,
+        confirm_personal_writing=True,
         included_files=preview.included_files,
     )
     assert ready.quick_ready is True
-    assert ready.quick_imported_count == 4
+    assert ready.quick_imported_count == 1
 
     for _ in range(50):
         current = await service.get_job(preview.job_id)
@@ -160,26 +160,12 @@ async def test_confirm_prepares_recent_context_then_projects_user_turns_in_order
     else:
         pytest.fail("History import did not complete")
 
-    assert [event.content for event in memory.projected_events] == [
-        "I started learning pottery.",
-        "It helps me slow down.",
-    ]
-    assert all(
-        earlier.session_seq < later.session_seq
-        for earlier, later in zip(
-            memory.projected_events,
-            memory.projected_events[1:],
-        )
-    )
-    assert [event.content for event in memory.raw_events] == [
-        "I started learning pottery.",
-        "What do you like about it?",
-        "It helps me slow down.",
-        "That sounds peaceful.",
-    ]
+    expected_content = markdown.read_text(encoding="utf-8").strip()
+    assert [event.content for event in memory.projected_events] == [expected_content]
+    assert [event.content for event in memory.raw_events] == [expected_content]
     first_event = memory.raw_events[0]
     assert first_event.metadata_json["history_import"]["timestamp_anchor_source"] == (
-        "message_timestamp"
+        "file_mtime"
     )
     assert first_event.metadata_json["_temporal"]["calendar_timezone_id"] == (
         "Asia/Shanghai"
@@ -198,11 +184,11 @@ async def test_confirm_prepares_recent_context_then_projects_user_turns_in_order
         extraction_instructions=profile.phase1_instructions,
     )
 
-    assert profile.profile_id == "history_import.chat"
-    assert "not live chat messages" in str(profile.phase1_instructions)
-    assert time_semantics.timestamp_quality == "exact"
-    assert time_semantics.timestamp_anchor_source == "message_timestamp"
-    assert "2026-07-01 09:00:00+08:00" in prompt
+    assert profile.profile_id == "history_import.document"
+    assert "historical documents, not live chat turns" in str(profile.phase1_instructions)
+    assert time_semantics.timestamp_quality == "approximate_recorded"
+    assert time_semantics.timestamp_anchor_source == "file_mtime"
+    assert expected_content in prompt
     await service.stop()
 
 
@@ -238,7 +224,6 @@ async def test_delete_forgets_every_imported_raw_event(
     preview = await service.preview_markdown_paths([str(markdown)])
     await service.confirm(
         job_id=preview.job_id,
-        self_participants=[],
         confirm_personal_writing=True,
         included_files=preview.included_files,
     )
@@ -354,7 +339,6 @@ async def test_delete_forgets_shared_event_only_after_final_active_membership(
     first = await service.preview_markdown_paths([str(shared), str(changed)])
     await service.confirm(
         job_id=first.job_id,
-        self_participants=[],
         confirm_personal_writing=True,
         included_files=first.included_files,
     )
@@ -362,7 +346,6 @@ async def test_delete_forgets_shared_event_only_after_final_active_membership(
     second = await service.preview_markdown_paths([str(shared), str(changed)])
     await service.confirm(
         job_id=second.job_id,
-        self_participants=[],
         confirm_personal_writing=True,
         included_files=second.included_files,
     )
@@ -388,35 +371,27 @@ async def test_delete_forgets_shared_event_only_after_final_active_membership(
 
 
 @pytest.mark.asyncio
-async def test_shared_source_record_rejects_conflicting_self_identity(
+async def test_confirm_requires_personal_writing_authorship(
     tmp_path: Path,
     history_store: HistoryImportStore,
 ) -> None:
-    shared = tmp_path / "shared.md"
-    changed = tmp_path / "changed.md"
-    shared.write_text("- Me: Shared line.\n- Alice: Shared reply.", encoding="utf-8")
-    changed.write_text("- Me: First version.", encoding="utf-8")
+    markdown = tmp_path / "chat-shaped.md"
+    markdown.write_text(
+        "- Me: Shared line.\n- Alice: Shared reply.",
+        encoding="utf-8",
+    )
     service = HistoryImportService(store=history_store, memory=_MemoryStub())
 
-    first = await service.preview_markdown_paths([str(shared), str(changed)])
-    await service.confirm(
-        job_id=first.job_id,
-        self_participants=["Me"],
-        confirm_personal_writing=True,
-        included_files=first.included_files,
-    )
-    changed.write_text("- Me: Second version.", encoding="utf-8")
-    second = await service.preview_markdown_paths([str(shared), str(changed)])
+    preview = await service.preview_markdown_paths([str(markdown)])
 
     with pytest.raises(
         HistoryImportValidationError,
-        match="history_import_speaker_role_conflict",
+        match="personal_writing_confirmation_required",
     ):
         await service.confirm(
-            job_id=second.job_id,
-            self_participants=["Alice"],
-            confirm_personal_writing=True,
-            included_files=second.included_files,
+            job_id=preview.job_id,
+            confirm_personal_writing=False,
+            included_files=preview.included_files,
         )
     await service.stop()
 
@@ -450,7 +425,6 @@ async def test_personal_markdown_headings_import_as_one_source_event(
 
     ready = await service.confirm(
         job_id=preview.job_id,
-        self_participants=[],
         confirm_personal_writing=True,
         included_files=preview.included_files,
     )
@@ -503,7 +477,7 @@ async def test_personal_markdown_headings_import_as_one_source_event(
 
 
 @pytest.mark.asyncio
-async def test_quick_context_expands_but_stops_at_the_bounded_maximum(
+async def test_quick_context_keeps_long_chat_shaped_markdown_as_one_document(
     tmp_path: Path,
     history_store: HistoryImportStore,
 ) -> None:
@@ -520,17 +494,17 @@ async def test_quick_context_expands_but_stops_at_the_bounded_maximum(
     service = HistoryImportService(store=history_store, memory=_MemoryStub())
 
     preview = await service.preview_markdown_paths([str(markdown)])
+    assert preview.total_records == 1
     await history_store.set_scope(
         job_id=preview.job_id,
-        self_participants=["Me"],
+        self_participants=["__document_author__"],
         included_files=preview.included_files,
     )
     selected = await history_store.select_quick_records(job_id=preview.job_id)
 
-    assert len(selected) == 500
-    assert selected[0].session_seq == 100
-    assert selected[-1].session_seq == 599
-    assert [item.session_seq for item in selected] == sorted(item.session_seq for item in selected)
+    assert len(selected) == 1
+    assert selected[0].session_seq == 0
+    assert selected[0].content == markdown.read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio
@@ -544,7 +518,7 @@ async def test_confirm_writes_previewed_markdown_into_the_real_l1_store(
         store=HistoryImportStore(db_path=str(memory_db_path)),
         memory=memory,
     )
-    markdown = tmp_path / "real-chat.md"
+    markdown = tmp_path / "personal-notes.md"
     markdown.write_text(
         "- Me: I started learning pottery.\n"
         "- Alice: What do you enjoy about it?\n"
@@ -556,8 +530,7 @@ async def test_confirm_writes_previewed_markdown_into_the_real_l1_store(
         preview = await service.preview_markdown_paths([str(markdown)])
         ready = await service.confirm(
             job_id=preview.job_id,
-            self_participants=["Me"],
-            confirm_personal_writing=False,
+            confirm_personal_writing=True,
             included_files=preview.included_files,
         )
 
@@ -567,11 +540,7 @@ async def test_confirm_writes_previewed_markdown_into_the_real_l1_store(
         assert [item["content"] for item in stored if item is not None] == [
             record.content for record in preview.preview_records
         ]
-        assert [item["author_type"] for item in stored if item is not None] == [
-            "user",
-            "external",
-            "user",
-        ]
+        assert [item["author_type"] for item in stored if item is not None] == ["user"]
     finally:
         await service.stop()
         await memory.shutdown()
@@ -599,7 +568,6 @@ async def test_diagnostics_trace_import_and_detect_a_missing_l1_projection(
         preview = await service.preview_markdown_paths([str(markdown)])
         await service.confirm(
             job_id=preview.job_id,
-            self_participants=[],
             confirm_personal_writing=True,
             included_files=preview.included_files,
         )
@@ -872,7 +840,6 @@ async def test_selection_excludes_unwanted_files_before_any_memory_write(
 
     ready = await service.confirm(
         job_id=preview.job_id,
-        self_participants=[],
         confirm_personal_writing=True,
         included_files=["journal.md"],
     )
@@ -906,7 +873,6 @@ async def test_preview_selection_can_be_empty_but_confirmation_cannot(
     ):
         await service.confirm(
             job_id=preview.job_id,
-            self_participants=[],
             confirm_personal_writing=True,
             included_files=[],
         )
@@ -939,11 +905,11 @@ async def test_first_contact_snippet_uses_only_confirmed_user_writing(
     tmp_path: Path,
     history_store: HistoryImportStore,
 ) -> None:
-    markdown = tmp_path / "chat.md"
+    markdown = tmp_path / "journal.md"
     markdown.write_text(
-        "- Me: I keep returning to this pottery class.\n"
-        "- Alice: You should make another bowl.\n"
-        "- Me: Working with clay helps me slow down.\n",
+        "# Pottery notes\n\n"
+        "I keep returning to this pottery class.\n\n"
+        "Working with clay helps me slow down.\n",
         encoding="utf-8",
     )
     service = HistoryImportService(store=history_store, memory=_MemoryStub())
@@ -951,8 +917,7 @@ async def test_first_contact_snippet_uses_only_confirmed_user_writing(
     preview = await service.preview_markdown_paths([str(markdown)])
     await service.confirm(
         job_id=preview.job_id,
-        self_participants=["Me"],
-        confirm_personal_writing=False,
+        confirm_personal_writing=True,
         included_files=preview.included_files,
     )
 
@@ -961,5 +926,4 @@ async def test_first_contact_snippet_uses_only_confirmed_user_writing(
     assert snippet is not None
     assert "pottery class" in snippet
     assert "Working with clay" in snippet
-    assert "make another bowl" not in snippet
     await service.stop()

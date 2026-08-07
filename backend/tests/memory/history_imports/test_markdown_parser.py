@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from magi.memory.history_imports.markdown_parser import (
     DOCUMENT_AUTHOR,
     parse_markdown,
@@ -11,7 +8,7 @@ from magi.memory.history_imports.markdown_parser import (
 _TEST_TIMEZONE_ID = "Asia/Shanghai"
 
 
-def test_parses_inline_chat_in_source_order() -> None:
+def test_keeps_inline_chat_shaped_markdown_as_one_personal_document() -> None:
     parsed = parse_markdown(
         source_name="alice.md",
         file_mtime=1_800_000_000,
@@ -25,32 +22,24 @@ def test_parses_inline_chat_in_source_order() -> None:
 """,
     )
 
-    assert parsed.detected_kind == "chat"
-    assert [item["speaker_name"] for item in parsed.records] == ["我", "Alice", "我"]
-    assert [item["content"] for item in parsed.records] == [
-        "最近一直在听这张专辑。",
-        "哪一张？",
-        "Oshin，越听越喜欢。",
+    assert parsed.detected_kind == "document"
+    assert len(parsed.records) == 1
+    assert parsed.records[0]["speaker_name"] == DOCUMENT_AUTHOR
+    assert parsed.records[0]["content"] == (
+        "# 和 Alice 的聊天\n"
+        "## 2026-07-01\n"
+        "- [09:00] 我：最近一直在听这张专辑。\n"
+        "- [09:01] Alice：哪一张？\n"
+        "- [09:02] 我：Oshin，越听越喜欢。"
+    )
+    assert parsed.records[0]["timestamp_confidence"] == "file_mtime"
+    assert parsed.warnings == [
+        "document_author_confirmation_required",
+        "timestamps_from_file_mtime",
     ]
-    assert [item["event_at"] for item in parsed.records] == sorted(
-        item["event_at"] for item in parsed.records
-    )
-    assert parsed.warnings == []
-    assert all(
-        item["timestamp_anchor_source"] == "message_timestamp"
-        for item in parsed.records
-    )
-    assert all(
-        item["calendar_timezone_id"] == _TEST_TIMEZONE_ID
-        for item in parsed.records
-    )
-    assert datetime.fromtimestamp(
-        parsed.records[0]["event_at"],
-        tz=ZoneInfo(_TEST_TIMEZONE_ID),
-    ).isoformat() == "2026-07-01T09:00:00+08:00"
 
 
-def test_parses_role_heading_chat_without_fabricating_timestamps() -> None:
+def test_keeps_role_heading_markdown_as_one_personal_document() -> None:
     parsed = parse_markdown(
         source_name="assistant.md",
         file_mtime=1_800_000_000,
@@ -67,15 +56,18 @@ It makes me slow down.
 """,
     )
 
-    assert parsed.detected_kind == "chat"
-    assert [item["speaker_name"] for item in parsed.records] == [
-        "User",
-        "Assistant",
-        "User",
-    ]
-    assert parsed.warnings == ["timestamps_from_file_order"]
-    assert all(item["timestamp_confidence"] == "file_order" for item in parsed.records)
-    assert all(item["timestamp_anchor_source"] == "file_order" for item in parsed.records)
+    assert parsed.detected_kind == "document"
+    assert len(parsed.records) == 1
+    assert parsed.records[0]["speaker_name"] == DOCUMENT_AUTHOR
+    assert parsed.records[0]["content"] == (
+        "## User\n"
+        "I have been learning pottery lately.\n\n"
+        "## Assistant\n"
+        "What do you enjoy about it?\n\n"
+        "## User\n"
+        "It makes me slow down."
+    )
+    assert parsed.records[0]["timestamp_confidence"] == "file_mtime"
 
 
 def test_falls_back_to_one_personal_document() -> None:

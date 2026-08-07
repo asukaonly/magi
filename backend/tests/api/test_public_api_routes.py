@@ -97,6 +97,17 @@ def test_register_api_routes_exposes_only_l2_assertion_confirmation_feedback() -
     assert "/api/memory/l2/edges/{triple_id}/reject" not in openapi_paths
 
 
+def test_markdown_import_confirmation_has_no_chat_identity_input() -> None:
+    app = FastAPI()
+    register_api_routes(app)
+    schema = app.openapi()["components"]["schemas"]["HistoryImportConfirmBody"]
+
+    assert set(schema["properties"]) == {
+        "confirm_personal_writing",
+        "included_files",
+    }
+
+
 def test_register_api_routes_excludes_deprecated_and_internal_surfaces() -> None:
     paths = _build_registered_paths()
 

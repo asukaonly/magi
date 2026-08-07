@@ -122,6 +122,18 @@ describe("first-context onboarding copy", () => {
     );
   });
 
+  it("does not present generic Markdown as a chat importer", () => {
+    for (const resource of [zhCnOnboarding, enOnboarding]) {
+      expect(resource.firstContext.history.picker.scenarios).not.toHaveProperty(
+        "conversation",
+      );
+      expect(resource.firstContext.history).not.toHaveProperty("identity");
+      expect(resource.firstContext.history.preview.kind).toEqual({
+        document: expect.any(String),
+      });
+    }
+  });
+
   it("keeps personal and everyday question ids aligned", () => {
     expect(Object.keys(zhCnOnboarding.firstContext.story.questions)).toEqual(
       QUESTION_IDS,

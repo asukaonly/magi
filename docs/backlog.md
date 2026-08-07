@@ -145,17 +145,20 @@ Status: planned
 
 Current state:
 
-- the host supports one-shot Markdown files and folders with preview, speaker
-  confirmation, per-file inclusion, resumable progress, post-onboarding
-  management, deletion, first-contact context, and ordered memory handoff
+- the host supports one-shot personal-writing Markdown files and folders with
+  preview, authorship confirmation, per-file inclusion, resumable progress,
+  post-onboarding management, deletion, first-contact context, and ordered memory
+  handoff
+- generic Markdown intentionally treats one file as one document and does not
+  infer chat messages, speakers, or timestamps
 - there is no plugin importer contribution type yet
 
 Open items:
 
 - define a narrow importer contribution that converts one platform export into
   normalized sessions, speakers, source order, timestamps, and content
-- keep file selection, identity confirmation, progress, deletion, and memory
-  writes host-owned
+- keep file selection, participant identity confirmation, progress, deletion,
+  and memory writes host-owned
 - add supported export adapters only after representative samples lock their
   parsing and privacy behavior
 

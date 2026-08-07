@@ -843,7 +843,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     await waitFor(() =>
       expect(confirmImport).toHaveBeenCalledWith("him-onboarding", {
-        selfParticipants: [],
         confirmPersonalWriting: true,
         includedFiles: ["journal.md"],
       }),

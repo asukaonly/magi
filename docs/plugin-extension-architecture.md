@@ -449,20 +449,23 @@ as first-contact context solely because it was just backfilled.
 #### One-Shot History Imports
 
 Plain Markdown history import is host-owned because file selection, durable
-per-file inclusion, preview, speaker identity, authorship confirmation,
-progress, retry, deletion, first-contact use, and memory governance must behave
-the same regardless of source format. The same host flow is available during
-onboarding and later under Memory → Sources. That page presents completed or
+per-file inclusion, preview, authorship confirmation, progress, retry, deletion,
+first-contact use, and memory governance must remain consistent. The generic
+Markdown path accepts personal writing only and treats each file as one authored
+document; it never infers chat messages or participant identity. The same host
+flow is available during onboarding and later under Memory → Sources. That page presents completed or
 active imports in a separate, secondary history-import section rather than in
 the ongoing source ledger. It is not modeled as a sensor: an import has a
 bounded input, an explicit user confirmation, and a completed lifecycle rather
 than an ongoing polling schedule.
 
-Future platform-specific import plugins should only adapt an export into the
-host's normalized history records. They must not write memory directly, decide
-which participant is the user, or own the preview and deletion experience. A
-dedicated importer contribution contract is still future work; the current
-runtime supports the host Markdown importer only.
+Future platform-specific chat import plugins should adapt one declared export
+format into normalized sessions, messages, speakers, source order, and timestamps.
+They must not write memory directly, decide which participant is the user, or own
+the preview and deletion experience; the host asks for participant identity only
+after the adapter has provided trustworthy structure. A dedicated importer
+contribution contract is still future work; the current runtime supports only the
+host personal-writing Markdown importer.
 
 ### Channel Registry
 

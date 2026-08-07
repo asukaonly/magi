@@ -357,7 +357,7 @@
       },
       "history": {
         "title": "Bring in things you wrote before",
-        "body": "Start with journals, notes, or chats so Magi can understand something real about you.",
+        "body": "Start with journals, notes, or personal reflections so Magi can understand something real about you.",
         "meta": "Preview before importing"
       },
       "activity": {
@@ -419,7 +419,7 @@
     "history": {
       "kicker": "Past records",
       "title": "Bring in things you wrote before",
-      "body": "Choose journals, notes, or chat records. Magi previews them locally and imports only after you confirm.",
+      "body": "Choose journals, notes, or personal reflections written mainly by you. Magi previews them locally and imports only after you confirm.",
       "badge": "Local preview · Entirely optional",
       "loading": "Restoring your previous import…",
       "picker": {
@@ -427,7 +427,7 @@
         "body": "Select one or more files, or choose the folder where you keep them.",
         "files": "Choose Markdown files",
         "folder": "Choose a folder",
-        "note": "Supports .md and .markdown. Your originals are never changed, and you can preview each file first.",
+        "note": "Supports .md and .markdown; each file is treated as one piece of personal writing. Chat history is not supported through Markdown import.",
         "scenarios": {
           "journal": {
             "title": "Journals and daily notes",
@@ -436,10 +436,6 @@
           "notes": {
             "title": "Notes and personal thoughts",
             "body": "Interests, reflections, plans, and ideas"
-          },
-          "conversation": {
-            "title": "Chats and AI conversations",
-            "body": "What you said before, together with its conversation context"
           }
         }
       },
@@ -447,12 +443,10 @@
         "files": "{{count}} files",
         "selectedFiles": "{{selected}} of {{total}} files selected",
         "kind": {
-          "chat": "Chat records",
-          "document": "Personal writing",
-          "mixed": "Chats and personal writing"
+          "document": "Personal writing"
         },
         "chooseContent": "Choose files to bring in",
-        "chooseContentBody": "For personal writing, select only files you wrote. For chats, you will identify your name next.",
+        "chooseContentBody": "Keep only files written mainly by you that you want Magi to understand.",
         "includeFile": "Import file: {{file}}",
         "selectAll": "Select all",
         "invertSelection": "Invert",
@@ -465,11 +459,6 @@
         "confirm": "Confirm and import",
         "importing": "Preparing the first items…"
       },
-      "identity": {
-        "title": "Which name in the chat is you?",
-        "body": "Only your own words can shape Magi's understanding of you. Other messages are used only as context.",
-        "messageCount": "{{count}} messages"
-      },
       "sourcePreview": {
         "description": "For review only. The original file will not be changed.",
         "loading": "Loading preview…",
@@ -479,7 +468,6 @@
         "close": "Close preview"
       },
       "warnings": {
-        "timestamps_from_file_order": "Some messages have no timestamp. Magi preserves their file order without treating estimated times as exact.",
         "timestamps_from_file_mtime": "The writing has no individual timestamps, so file modification time is used and marked as approximate.",
         "document_author_confirmation_required": "These files look like personal writing, so author confirmation is required before import."
       },
@@ -503,15 +491,13 @@
         "markdown_selection_too_large": "The selected content is larger than 25 MB. Import it in smaller groups.",
         "markdown_not_utf8": "One file is not standard UTF-8 text. Convert its encoding and try again.",
         "markdown_empty": "The selected file contains no text to import.",
-        "self_participant_required": "Choose the name that represents you in the chat.",
-        "unknown_self_participant": "The participant list changed. Please confirm again.",
         "personal_writing_confirmation_required": "Confirm that you wrote most of the personal content.",
-        "self_participant_locked_after_import": "Your identity cannot change after import starts. Choose the files again.",
+        "history_import_unsupported_source_kind": "The selected content is not a supported personal-writing import. Choose the files again. Chat history is not supported through Markdown import.",
         "history_import_selection_empty": "Keep at least one file selected for import.",
         "history_import_selection_changed": "The file list changed. Please confirm what to import again.",
         "history_import_selection_locked": "The file selection cannot change after import starts.",
         "memory_cleared_during_import": "Memory was cleared during import, so this import was stopped as well.",
-        "history_import_not_confirmed": "Confirm your identity and content scope first.",
+        "history_import_not_confirmed": "Confirm the personal writing and file scope first.",
         "history_import_not_found": "This import no longer exists. Choose the files again.",
         "history_import_unavailable": "Import is still getting ready. Please try again shortly.",
         "unknown": "These files could not be read right now. Your originals were not changed; please try again."

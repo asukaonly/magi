@@ -57,16 +57,16 @@ vi.mock("@/api/modules/historyImports", () => ({
 import HistoryImportFlow from "@/components/history-imports/HistoryImportFlow";
 import type { HistoryImportJob } from "@/api/modules/historyImports";
 
-function chatPreview(): HistoryImportJob {
+function documentPreview(): HistoryImportJob {
   return {
     job_id: "him-1",
     source_type: "markdown",
-    source_files: ["chat.md"],
-    included_files: ["chat.md"],
-    detected_kind: "chat",
+    source_files: ["notes.md"],
+    included_files: ["notes.md"],
+    detected_kind: "document",
     status: "preview_ready",
-    total_records: 4,
-    meaningful_records: 4,
+    total_records: 1,
+    meaningful_records: 1,
     quick_target_records: 200,
     quick_max_records: 500,
     quick_imported_count: 0,
@@ -80,43 +80,36 @@ function chatPreview(): HistoryImportJob {
     updated_at: 1_800_000_000,
     participants: [
       {
-        name: "Me",
-        is_document_author: false,
-        message_count: 2,
-        meaningful_count: 2,
-        sample: "I started learning pottery.",
-      },
-      {
-        name: "Alice",
-        is_document_author: false,
-        message_count: 2,
-        meaningful_count: 2,
-        sample: "What do you like about it?",
+        name: "__document_author__",
+        is_document_author: true,
+        message_count: 1,
+        meaningful_count: 1,
+        sample: "# Notes\n\nMe: I started learning pottery.",
       },
     ],
     sources: [
       {
-        source_name: "chat.md",
-        detected_kind: "chat",
-        record_count: 4,
-        meaningful_count: 4,
+        source_name: "notes.md",
+        detected_kind: "document",
+        record_count: 1,
+        meaningful_count: 1,
         first_event_at: 1_800_000_000,
-        last_event_at: 1_800_000_003,
-        timestamp_confidence: "file_order",
-        sample: "I started learning pottery.",
+        last_event_at: 1_800_000_000,
+        timestamp_confidence: "file_mtime",
+        sample: "# Notes\n\nMe: I started learning pottery.",
         included: true,
       },
     ],
     preview_records: [
       {
-        source_name: "chat.md",
+        source_name: "notes.md",
         session_id: "session-1",
         session_seq: 0,
-        speaker_name: "Me",
-        is_document_author: false,
-        content: "I started learning pottery.",
+        speaker_name: "__document_author__",
+        is_document_author: true,
+        content: "# Notes\n\nMe: I started learning pottery.\n\nAlice: What do you like about it?",
         event_at: 1_800_000_000,
-        timestamp_confidence: "file_order",
+        timestamp_confidence: "file_mtime",
       },
     ],
   };
@@ -124,11 +117,11 @@ function chatPreview(): HistoryImportJob {
 
 function readyJob(): HistoryImportJob {
   return {
-    ...chatPreview(),
+    ...documentPreview(),
     status: "ready",
-    quick_imported_count: 4,
-    imported_count: 4,
-    self_participants: ["Me"],
+    quick_imported_count: 1,
+    imported_count: 1,
+    self_participants: ["__document_author__"],
     quick_ready: true,
   };
 }
@@ -136,23 +129,23 @@ function readyJob(): HistoryImportJob {
 describe("FirstContextHistoryImport", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    pickMarkdownFilesMock.mockResolvedValue(["/tmp/chat.md"]);
+    pickMarkdownFilesMock.mockResolvedValue(["/tmp/notes.md"]);
     pickDirectoryMock.mockResolvedValue(undefined);
-    previewMock.mockResolvedValue(chatPreview());
+    previewMock.mockResolvedValue(documentPreview());
     confirmMock.mockResolvedValue(readyJob());
     getMock.mockResolvedValue(readyJob());
     getSourcePreviewMock.mockResolvedValue({
-      source_name: "chat.md",
-      detected_kind: "chat",
-      records: chatPreview().preview_records,
+      source_name: "notes.md",
+      detected_kind: "document",
+      records: documentPreview().preview_records,
       truncated: false,
     });
     deleteMock.mockResolvedValue(undefined);
     updateSelectionMock.mockImplementation(
       async (_jobId: string, includedFiles: string[]) => ({
-        ...chatPreview(),
+        ...documentPreview(),
         included_files: includedFiles,
-        sources: chatPreview().sources.map((source) => ({
+        sources: documentPreview().sources.map((source) => ({
           ...source,
           included: includedFiles.includes(source.source_name),
         })),
@@ -160,7 +153,7 @@ describe("FirstContextHistoryImport", () => {
     );
   });
 
-  it("previews Markdown, confirms the user's speaker, and reaches quick-ready", async () => {
+  it("previews Markdown as personal writing and reaches quick-ready", async () => {
     const user = userEvent.setup();
     const onJobUpdate = vi.fn();
     render(
@@ -176,7 +169,7 @@ describe("FirstContextHistoryImport", () => {
     const sourceList = screen.getByTestId("history-import-source-list");
     expect(sourceList).not.toHaveClass("max-h-[360px]");
     expect(sourceList).not.toHaveClass("overflow-y-auto");
-    expect(previewMock).toHaveBeenCalledWith(["/tmp/chat.md"]);
+    expect(previewMock).toHaveBeenCalledWith(["/tmp/notes.md"]);
     expect(
       screen.getByRole("button", {
         name: "firstContext.history.preview.previewFile",
@@ -190,8 +183,9 @@ describe("FirstContextHistoryImport", () => {
       name: "firstContext.history.preview.includeFile",
     });
     expect(sourceCheckbox).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /Me/ })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /Alice/ })).not.toBeChecked();
+    expect(
+      screen.queryByText("firstContext.history.identity.title"),
+    ).not.toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", {
@@ -199,16 +193,15 @@ describe("FirstContextHistoryImport", () => {
       }),
     );
     expect(confirmMock).toHaveBeenCalledWith("him-1", {
-      selfParticipants: ["Me"],
-      confirmPersonalWriting: false,
-      includedFiles: ["chat.md"],
+      confirmPersonalWriting: true,
+      includedFiles: ["notes.md"],
     });
     expect(await screen.findByTestId("history-import-ready")).toBeInTheDocument();
     expect(onJobUpdate).toHaveBeenLastCalledWith(
       expect.objectContaining({
         job_id: "him-1",
         quick_ready: true,
-        quick_imported_count: 4,
+        quick_imported_count: 1,
       }),
     );
   });
@@ -216,11 +209,11 @@ describe("FirstContextHistoryImport", () => {
   it("treats selecting a personal file as its authorship confirmation", async () => {
     const user = userEvent.setup();
     previewMock.mockResolvedValue({
-      ...chatPreview(),
+      ...documentPreview(),
       detected_kind: "document",
       sources: [
         {
-          ...chatPreview().sources[0],
+          ...documentPreview().sources[0],
           detected_kind: "document",
           timestamp_confidence: "file_mtime",
         },
@@ -236,7 +229,7 @@ describe("FirstContextHistoryImport", () => {
       ],
       preview_records: [
         {
-          ...chatPreview().preview_records[0],
+          ...documentPreview().preview_records[0],
           is_document_author: true,
           speaker_name: "__document_author__",
           timestamp_confidence: "file_mtime",
@@ -263,9 +256,8 @@ describe("FirstContextHistoryImport", () => {
 
     await user.click(confirm);
     expect(confirmMock).toHaveBeenCalledWith("him-1", {
-      selfParticipants: [],
       confirmPersonalWriting: true,
-      includedFiles: ["chat.md"],
+      includedFiles: ["notes.md"],
     });
   });
 
@@ -284,9 +276,9 @@ describe("FirstContextHistoryImport", () => {
       }),
     );
 
-    expect(getSourcePreviewMock).toHaveBeenCalledWith("him-1", "chat.md");
+    expect(getSourcePreviewMock).toHaveBeenCalledWith("him-1", "notes.md");
     expect(
-      await screen.findByText("I started learning pottery."),
+      await screen.findByText("Me: I started learning pottery."),
     ).toBeInTheDocument();
     expect(
       screen.getByText("firstContext.history.sourcePreview.description"),
@@ -296,11 +288,11 @@ describe("FirstContextHistoryImport", () => {
   it("renders document previews as Markdown instead of raw text", async () => {
     const user = userEvent.setup();
     getSourcePreviewMock.mockResolvedValue({
-      source_name: "chat.md",
+      source_name: "notes.md",
       detected_kind: "document",
       records: [
         {
-          ...chatPreview().preview_records[0],
+          ...documentPreview().preview_records[0],
           speaker_name: "__document_author__",
           is_document_author: true,
           content: "# 周末记录\n\n- 去了书店\n- 听了一张专辑",

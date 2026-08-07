@@ -2785,7 +2785,7 @@
       },
       "historyImports": {
         "title": "History imports",
-        "body": "Import journals, notes, or chats once. Changes to the original files are not synced.",
+        "body": "Import journals, notes, or personal reflections once. Changes to the original files are not synced.",
         "add": "Import Markdown",
         "close": "Close import",
         "loading": "Loading past imports.",

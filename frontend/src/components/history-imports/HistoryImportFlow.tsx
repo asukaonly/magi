@@ -18,10 +18,8 @@ import {
   FileText,
   FolderOpen,
   Loader2,
-  MessageSquareText,
   NotebookPen,
   RotateCcw,
-  Users,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -59,17 +57,7 @@ export interface HistoryImportFlowActionState {
   busy: boolean;
 }
 
-const SELF_ALIASES = new Set([
-  "user",
-  "human",
-  "me",
-  "我",
-  "本人",
-  "自己",
-]);
-
 const documentPreviewMarkdownComponents = createMarkdownComponents("comfortable");
-const chatPreviewMarkdownComponents = createMarkdownComponents("compact");
 
 function errorReason(error: unknown): string {
   if (!error || typeof error !== "object") {
@@ -108,7 +96,6 @@ export const HistoryImportFlow = forwardRef<
   >(null);
   const [selectionBusy, setSelectionBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedParticipants, setSelectedParticipants] = useState<string[]>([]);
   const [previewSource, setPreviewSource] =
     useState<HistoryImportSourceSummary | null>(null);
   const [sourcePreview, setSourcePreview] =
@@ -121,34 +108,6 @@ export const HistoryImportFlow = forwardRef<
   const applyJob = useCallback(
     (nextJob: HistoryImportJob): void => {
       setJob(nextJob);
-      setSelectedParticipants((current) => {
-        const available = new Set(
-          nextJob.participants
-            .filter((participant) => !participant.is_document_author)
-            .map((participant) => participant.name),
-        );
-        const retained = current.filter((name) => available.has(name));
-        if (retained.length > 0) {
-          return retained;
-        }
-        const saved = nextJob.self_participants.filter(
-          (name) =>
-            !nextJob.participants.find(
-              (participant) =>
-                participant.name === name && participant.is_document_author,
-            ),
-        );
-        if (saved.length > 0) {
-          return saved;
-        }
-        return nextJob.participants
-          .filter(
-            (participant) =>
-              !participant.is_document_author &&
-              SELF_ALIASES.has(participant.name.trim().toLocaleLowerCase()),
-          )
-          .map((participant) => participant.name);
-      });
       onJobUpdateRef.current(nextJob);
     },
     [],
@@ -223,14 +182,6 @@ export const HistoryImportFlow = forwardRef<
     if (folder) {
       await previewPaths([folder]);
     }
-  };
-
-  const toggleParticipant = (name: string): void => {
-    setSelectedParticipants((current) =>
-      current.includes(name)
-        ? current.filter((item) => item !== name)
-        : [...current, name],
-    );
   };
 
   const updateIncludedSources = async (
@@ -321,21 +272,9 @@ export const HistoryImportFlow = forwardRef<
     () => job?.sources.filter((source) => source.included) ?? [],
     [job],
   );
-  const requiresChatIdentity =
-    includedSources.some(
-      (source) =>
-        source.detected_kind === "chat" || source.detected_kind === "mixed",
-    );
-  const requiresWritingConfirmation =
-    includedSources.some(
-      (source) =>
-        source.detected_kind === "document" ||
-        source.detected_kind === "mixed",
-    );
   const canConfirm = Boolean(
     job &&
       includedSources.length > 0 &&
-      (!requiresChatIdentity || selectedParticipants.length > 0) &&
       !selectionBusy,
   );
 
@@ -355,8 +294,7 @@ export const HistoryImportFlow = forwardRef<
     try {
       applyJob(
         await historyImportsApi.confirm(job.job_id, {
-          selfParticipants: selectedParticipants,
-          confirmPersonalWriting: requiresWritingConfirmation,
+          confirmPersonalWriting: true,
           includedFiles: job.included_files,
         }),
       );
@@ -367,13 +305,7 @@ export const HistoryImportFlow = forwardRef<
     } finally {
       setAction(null);
     }
-  }, [
-    applyJob,
-    canConfirm,
-    job,
-    requiresWritingConfirmation,
-    selectedParticipants,
-  ]);
+  }, [applyJob, canConfirm, job]);
 
   const resumeImport = async (): Promise<void> => {
     if (!job) {
@@ -399,7 +331,6 @@ export const HistoryImportFlow = forwardRef<
     try {
       await historyImportsApi.delete(job.job_id);
       setJob(null);
-      setSelectedParticipants([]);
       setPreviewSource(null);
       setSourcePreview(null);
       onJobUpdateRef.current(null);
@@ -421,10 +352,6 @@ export const HistoryImportFlow = forwardRef<
     [chooseAgain, confirmImport],
   );
 
-  const chatParticipants = useMemo(
-    () => job?.participants.filter((participant) => !participant.is_document_author) ?? [],
-    [job],
-  );
   const progress = job
     ? Math.min(100, Math.round((job.imported_count / Math.max(job.total_records, 1)) * 100))
     : 0;
@@ -441,9 +368,8 @@ export const HistoryImportFlow = forwardRef<
     firstEventAt: number,
     lastEventAt: number,
     confidence: string,
-    detectedKind: HistoryImportJob["detected_kind"],
   ): string => {
-    if (confidence === "file_mtime" && detectedKind === "document") {
+    if (confidence === "file_mtime") {
       return t("firstContext.history.preview.approximateFileTime");
     }
     if (["file_order", "file_mtime", "mixed", "source_order"].includes(confidence)) {
@@ -483,15 +409,11 @@ export const HistoryImportFlow = forwardRef<
         key: "notes",
         icon: <NotebookPen className="h-4 w-4" aria-hidden="true" />,
       },
-      {
-        key: "conversation",
-        icon: <MessageSquareText className="h-4 w-4" aria-hidden="true" />,
-      },
     ];
     return (
       <div className="space-y-5" data-testid="history-import-empty">
         <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
-          <div className="grid divide-y divide-border/50 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div className="grid divide-y divide-border/50 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
             {scenarios.map((scenario) => (
               <div key={scenario.key} className="flex gap-3 px-4 py-4 sm:block sm:px-5">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/9 text-primary">
@@ -700,14 +622,13 @@ export const HistoryImportFlow = forwardRef<
                       {source.source_name}
                     </p>
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
-                      <span>{t(`firstContext.history.preview.kind.${source.detected_kind}`)}</span>
+                      <span>{t("firstContext.history.preview.kind.document")}</span>
                       <span aria-hidden="true">·</span>
                       <span>
                         {sourceDateRange(
                           source.first_event_at,
                           source.last_event_at,
                           source.timestamp_confidence,
-                          source.detected_kind,
                         )}
                       </span>
                     </p>
@@ -730,47 +651,6 @@ export const HistoryImportFlow = forwardRef<
             })}
           </div>
         </section>
-
-        {requiresChatIdentity ? (
-          <section className="border-y border-border/60 py-4">
-            <div className="flex items-start gap-3">
-              <Users className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-              <div className="min-w-0 flex-1">
-                <h4 className="text-sm font-semibold text-foreground">
-                  {t("firstContext.history.identity.title")}
-                </h4>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {t("firstContext.history.identity.body")}
-                </p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {chatParticipants.map((participant) => (
-                    <label
-                      key={participant.name}
-                      className="flex cursor-pointer items-start gap-3 rounded-lg bg-muted/35 px-3 py-2.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.55)] transition-colors hover:bg-accent/45"
-                    >
-                      <input
-                        type="checkbox"
-                        className="mt-1 h-4 w-4 rounded border-border accent-primary"
-                        checked={selectedParticipants.includes(participant.name)}
-                        onChange={() => toggleParticipant(participant.name)}
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-foreground">
-                          {participant.name}
-                        </span>
-                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {t("firstContext.history.identity.messageCount", {
-                            count: participant.message_count,
-                          })}
-                        </span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-        ) : null}
 
         {translatedError ? (
           <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
@@ -862,38 +742,19 @@ export const HistoryImportFlow = forwardRef<
               </div>
             ) : sourcePreview ? (
               <div className="mx-auto max-w-[640px] space-y-5">
-                {sourcePreview.records.map((record) =>
-                  record.is_document_author ? (
-                    <article
-                      key={`${record.session_id}:${record.session_seq}`}
-                      className="break-words border-b border-border/45 pb-5 last:border-b-0 last:pb-0"
+                {sourcePreview.records.map((record) => (
+                  <article
+                    key={`${record.session_id}:${record.session_seq}`}
+                    className="break-words border-b border-border/45 pb-5 last:border-b-0 last:pb-0"
+                  >
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={documentPreviewMarkdownComponents}
                     >
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={documentPreviewMarkdownComponents}
-                      >
-                        {record.content}
-                      </ReactMarkdown>
-                    </article>
-                  ) : (
-                    <article
-                      key={`${record.session_id}:${record.session_seq}`}
-                      className="rounded-xl border border-border/45 bg-background/75 px-4 py-3.5"
-                    >
-                      <p className="text-xs font-semibold text-foreground/75">
-                        {record.speaker_name}
-                      </p>
-                      <div className="mt-1 break-words text-foreground/90">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={chatPreviewMarkdownComponents}
-                        >
-                          {record.content}
-                        </ReactMarkdown>
-                      </div>
-                    </article>
-                  ),
-                )}
+                      {record.content}
+                    </ReactMarkdown>
+                  </article>
+                ))}
                 {sourcePreview.truncated ? (
                   <p className="border-t border-border/55 pt-4 text-xs leading-5 text-muted-foreground">
                     {t("firstContext.history.sourcePreview.truncated")}

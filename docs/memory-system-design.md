@@ -1002,8 +1002,8 @@ the L2 derive task, and successful derived-profile writes explicitly enqueue the
 same debounced portrait refresh used by ordinary assertion changes. This keeps
 cold-start personalization timely without creating a second profile pipeline.
 
-Historical chat and writing imports use the same memory pipeline with an
-additional ordering boundary. After explicit authorship confirmation, a bounded
+Historical personal-writing imports use the same memory pipeline with an
+additional source boundary. After explicit authorship confirmation, a bounded
 recent slice may enter L1 immediately so onboarding can finish without claiming
 that durable understanding already exists. The full import persists normalized
 source records separately from per-job work state. A file fingerprint hashes its
@@ -1013,24 +1013,36 @@ session IDs derive only from those source identities. Editing one file therefore
 changes only that file's records, while an unchanged file keeps the same source
 records and event IDs in a later import job.
 
+The host Markdown importer treats each file as exactly one user-authored
+document. It does not infer chat messages, speakers, sessions, or timestamps from
+Markdown syntax or prose. Its complete-selection fingerprint includes a parser
+policy version so previews made under an older structural interpretation are not
+silently reused. Chat-shaped text remains content inside the document; quoted or
+attributed spans still pass through the document authorship gate below rather
+than inheriting user authority.
+
 `history_import_source_records` owns source/session identity, speaker role,
 content, event time semantics (including the parser-declared anchor source and
 captured IANA timezone), and the stable event ID.
 `history_import_job_records` owns only membership and that job's raw/projection
 progress. Its key derives from the job and source-record keys, and the pair is
-unique. The complete selected-file fingerprint still identifies an identical
-preview job for fast reuse. Shared source records must retain one consistent
-authorship interpretation across active jobs; conflicting self-participant
-choices fail validation instead of mutating an already imported event.
+unique. The versioned complete selected-file fingerprint still identifies an
+identical preview job for fast reuse. Shared source records retain one consistent
+document-author interpretation across active jobs.
 
-User-authored records are submitted for L2 work oldest-first within each source
-session, while other participants remain non-cognitive L1 context. Approximate
-timestamps preserve source order but must not be presented as exact history.
-Imported chat turns and authored documents resolve to separate extraction
-profiles. Chat extraction treats counterpart turns only as dialogue context and
-never reinterprets historical relative-time wording against the current runtime
-clock. Document extraction evaluates author-prose spans across the whole
-document and does not treat headings or requests as live chat speech acts.
+User-authored documents are submitted to ordinary L2 work. Approximate document
+timestamps may support ordering but must not be presented as exact history.
+Document extraction evaluates author-prose spans across the whole document and
+does not treat headings, dialogue-shaped text, or requests as live chat speech
+acts.
+
+A future channel-specific chat importer may reuse the normalized history store
+and memory handoff only after it supplies explicit session, message, speaker,
+source-order, and timestamp semantics. The user must then identify their own
+participant identity in the host-owned confirmation UI. Counterpart turns remain
+non-cognitive L1 context, and chat extraction must treat historical wording as
+archive evidence rather than live instructions. An LLM may analyze normalized
+messages, but it must not be used to invent those structural identities.
 Deleting one job forgets an event only when no other active, selected membership
 references that source record; deleting the final membership triggers governed
 source-event forgetting. A global memory clear removes source records, job

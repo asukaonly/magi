@@ -357,7 +357,7 @@
       },
       "history": {
         "title": "带入过去写过的内容",
-        "body": "从日记、笔记或聊天里，让 Magi 先了解一些真实的你。",
+        "body": "从日记、笔记或个人复盘里，让 Magi 先了解一些真实的你。",
         "meta": "先预览，再决定是否导入"
       },
       "activity": {
@@ -419,7 +419,7 @@
     "history": {
       "kicker": "过去的记录",
       "title": "带入你过去写过的内容",
-      "body": "选择日记、笔记或聊天记录。Magi 会先在本机展示识别结果，只有你确认后才会导入。",
+      "body": "选择主要由你写成的日记、笔记或个人复盘。Magi 会先在本机展示内容，只有你确认后才会导入。",
       "badge": "本地预览 · 完全可选",
       "loading": "正在恢复上次的导入进度…",
       "picker": {
@@ -427,7 +427,7 @@
         "body": "选择一个或多个文件，也可以直接选择保存这些内容的文件夹。",
         "files": "选择 Markdown 文件",
         "folder": "选择文件夹",
-        "note": "支持 .md 和 .markdown。原文件不会被修改，导入前可以逐个预览。",
+        "note": "支持 .md 和 .markdown；一个文件作为一篇个人文字。聊天记录暂不支持通过 Markdown 导入。",
         "scenarios": {
           "journal": {
             "title": "日记与日常记录",
@@ -436,10 +436,6 @@
           "notes": {
             "title": "笔记与个人想法",
             "body": "兴趣、复盘、计划和随手记下的想法"
-          },
-          "conversation": {
-            "title": "聊天与 AI 对话",
-            "body": "你曾经说过什么，以及当时的对话背景"
           }
         }
       },
@@ -447,12 +443,10 @@
         "files": "{{count}} 个文件",
         "selectedFiles": "已选择 {{selected}} / {{total}} 个文件",
         "kind": {
-          "chat": "聊天记录",
-          "document": "个人文字",
-          "mixed": "聊天与个人文字"
+          "document": "个人文字"
         },
         "chooseContent": "选择要带入的文件",
-        "chooseContentBody": "个人文字只选择你本人写的；聊天记录会在下一步确认你的名字。",
+        "chooseContentBody": "只保留主要由你本人写成、并希望 Magi 了解的文件。",
         "includeFile": "导入文件：{{file}}",
         "selectAll": "全选",
         "invertSelection": "反选",
@@ -465,11 +459,6 @@
         "confirm": "确认并开始导入",
         "importing": "正在准备第一批内容…"
       },
-      "identity": {
-        "title": "聊天里哪个名字是你？",
-        "body": "只有你本人说过的话会影响 Magi 对你的认识；其他人的发言只作为上下文。",
-        "messageCount": "{{count}} 条发言"
-      },
       "sourcePreview": {
         "description": "仅用于确认内容，不会修改原文件。",
         "loading": "正在读取预览…",
@@ -479,7 +468,6 @@
         "close": "关闭预览"
       },
       "warnings": {
-        "timestamps_from_file_order": "部分消息没有时间，Magi 会保留文件中的先后顺序，但不会把推测的时间当作精确信息。",
         "timestamps_from_file_mtime": "文字没有单独标注时间，暂时使用文件修改时间，并标记为非精确时间。",
         "document_author_confirmation_required": "这些文件更像个人文字，需要你确认作者身份后才能导入。"
       },
@@ -503,15 +491,13 @@
         "markdown_selection_too_large": "所选内容总计超过 25 MB，请分批导入。",
         "markdown_not_utf8": "其中一个文件不是标准 UTF-8 文本，请转换编码后再试。",
         "markdown_empty": "所选文件没有可导入的文字。",
-        "self_participant_required": "请选择聊天中代表你的名字。",
-        "unknown_self_participant": "参与者列表已经变化，请重新确认。",
         "personal_writing_confirmation_required": "请先确认这些个人文字主要由你写成。",
-        "self_participant_locked_after_import": "导入开始后不能再更改本人身份，请重新选择文件。",
+        "history_import_unsupported_source_kind": "所选内容不是受支持的个人文字，请重新选择文件。聊天记录暂不支持通过 Markdown 导入。",
         "history_import_selection_empty": "至少保留一个要导入的文件。",
         "history_import_selection_changed": "文件列表已经变化，请重新确认要导入的内容。",
         "history_import_selection_locked": "导入开始后不能再更改文件范围。",
         "memory_cleared_during_import": "导入期间记忆已被清空，这次导入也已停止。",
-        "history_import_not_confirmed": "请先确认本人身份和内容范围。",
+        "history_import_not_confirmed": "请先确认要导入的个人文字和文件范围。",
         "history_import_not_found": "这次导入已经不存在，请重新选择文件。",
         "history_import_unavailable": "导入功能还在准备中，请稍后重试。",
         "unknown": "暂时无法读取这些文件。你的原文件没有被修改，请稍后重试。"

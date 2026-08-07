@@ -21,7 +21,6 @@ class MarkdownHistoryPreviewBody(BaseModel):
 
 
 class HistoryImportConfirmBody(BaseModel):
-    self_participants: list[str] = Field(default_factory=list, max_length=20)
     confirm_personal_writing: bool = False
     included_files: list[str] = Field(default_factory=list, max_length=50)
 
@@ -297,7 +296,6 @@ async def confirm_history_import(
     try:
         job = await _require_service().confirm(
             job_id=job_id,
-            self_participants=body.self_participants,
             confirm_personal_writing=body.confirm_personal_writing,
             included_files=body.included_files,
         )

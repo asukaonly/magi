@@ -51,6 +51,7 @@ PROJECTION_BATCH_SIZE = 40
 SOURCE_PREVIEW_MAX_RECORDS = 200
 SOURCE_PREVIEW_MAX_CHARS = 48_000
 HISTORY_IMPORT_SOURCE = "history_import_markdown"
+MARKDOWN_IMPORT_POLICY_VERSION = b"personal-writing-v1"
 
 
 class HistoryImportError(RuntimeError):
@@ -157,7 +158,9 @@ class HistoryImportService:
             )
             fingerprint_parts.append(bytes.fromhex(file_fingerprint))
 
-        fingerprint = hashlib.sha256(b"\x00".join(fingerprint_parts)).hexdigest()
+        fingerprint = hashlib.sha256(
+            b"\x00".join([MARKDOWN_IMPORT_POLICY_VERSION, *fingerprint_parts])
+        ).hexdigest()
         existing = await self._store.find_active_by_fingerprint(fingerprint)
         if existing is not None:
             return existing
@@ -308,16 +311,14 @@ class HistoryImportService:
         self,
         *,
         job_id: str,
-        self_participants: list[str],
         confirm_personal_writing: bool,
         included_files: list[str] | None = None,
     ) -> HistoryImportJob:
-        """Confirm identity, prepare recent raw context, and continue in order."""
+        """Confirm authorship, prepare recent raw context, and continue in order."""
 
         async with self._operation():
             return await self._confirm(
                 job_id=job_id,
-                self_participants=self_participants,
                 confirm_personal_writing=confirm_personal_writing,
                 included_files=included_files,
             )
@@ -326,7 +327,6 @@ class HistoryImportService:
         self,
         *,
         job_id: str,
-        self_participants: list[str],
         confirm_personal_writing: bool,
         included_files: list[str] | None = None,
     ) -> HistoryImportJob:
@@ -348,25 +348,13 @@ class HistoryImportService:
                     job_id=job_id,
                     included_files=selected_files,
                 )
-            selected = list(
-                dict.fromkeys(str(item).strip() for item in self_participants if str(item).strip())
-            )
             participant_names = {item.name for item in job.participants}
-            if any(item not in participant_names for item in selected):
-                raise HistoryImportValidationError("unknown_self_participant")
             selected_kinds = {source.detected_kind for source in job.sources if source.included}
-            includes_chat = bool(selected_kinds & {"chat", "mixed"})
-            includes_documents = bool(selected_kinds & {"document", "mixed"})
-            if includes_chat and not selected:
-                raise HistoryImportValidationError("self_participant_required")
-            if includes_documents:
-                if not confirm_personal_writing:
-                    raise HistoryImportValidationError("personal_writing_confirmation_required")
-                if DOCUMENT_AUTHOR in participant_names:
-                    selected.append(DOCUMENT_AUTHOR)
-            selected = list(dict.fromkeys(selected))
-            if not selected:
-                raise HistoryImportValidationError("self_participant_required")
+            if selected_kinds != {"document"} or DOCUMENT_AUTHOR not in participant_names:
+                raise HistoryImportValidationError("history_import_unsupported_source_kind")
+            if not confirm_personal_writing:
+                raise HistoryImportValidationError("personal_writing_confirmation_required")
+            selected = [DOCUMENT_AUTHOR]
             if (
                 job.imported_count > 0
                 and job.self_participants

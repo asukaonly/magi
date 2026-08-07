@@ -1,6 +1,6 @@
 import { api, unwrapGatewayPayload } from '../client';
 
-export type HistoryImportDetectedKind = 'chat' | 'document' | 'mixed';
+export type HistoryImportDetectedKind = 'document';
 export type HistoryImportStatus =
   | 'preview_ready'
   | 'running'
@@ -120,7 +120,6 @@ export const historyImportsApi = {
   async confirm(
     jobId: string,
     input: {
-      selfParticipants: string[];
       confirmPersonalWriting: boolean;
       includedFiles: string[];
     },
@@ -128,7 +127,6 @@ export const historyImportsApi = {
     const response = await api.post<HistoryImportJob>(
       `/memory/history-imports/${encodeURIComponent(jobId)}/confirm`,
       {
-        self_participants: input.selfParticipants,
         confirm_personal_writing: input.confirmPersonalWriting,
         included_files: input.includedFiles,
       },
