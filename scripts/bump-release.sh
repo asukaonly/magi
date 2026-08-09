@@ -11,6 +11,7 @@
 #
 # Usage:
 #   scripts/bump-release.sh <major|minor|patch>
+#   scripts/bump-release.sh resume  # continue the current untagged version
 #   scripts/bump-release.sh patch   # 0.1.14 -> 0.1.15
 #   scripts/bump-release.sh minor   # 0.1.14 -> 0.2.0
 #   scripts/bump-release.sh major   # 0.1.14 -> 1.0.0
@@ -19,8 +20,8 @@ set -euo pipefail
 
 PART="${1:-}"
 case "$PART" in
-  major|minor|patch) ;;
-  *) echo "usage: $0 <major|minor|patch>" >&2; exit 2 ;;
+  major|minor|patch|resume) ;;
+  *) echo "usage: $0 <major|minor|patch|resume>" >&2; exit 2 ;;
 esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -46,21 +47,30 @@ case "$PART" in
   major) MA=$((MA + 1)); MI=0; PA=0 ;;
   minor) MI=$((MI + 1)); PA=0 ;;
   patch) PA=$((PA + 1)) ;;
+  resume) ;;
 esac
 NEW="${MA}.${MI}.${PA}"
 TAG="v${NEW}"
 
-echo ">>> Release ${CURRENT} -> ${NEW} (${PART}) on branch ${BRANCH}; tag ${TAG}"
+if [[ "$PART" == "resume" ]]; then
+  echo ">>> Resume release ${NEW} on branch ${BRANCH}; tag ${TAG}"
+else
+  echo ">>> Release ${CURRENT} -> ${NEW} (${PART}) on branch ${BRANCH}; tag ${TAG}"
+fi
 if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
   echo "ERROR: tag ${TAG} already exists." >&2
   exit 1
 fi
 
 # --- sync version metadata + commit ---------------------------------------
-python scripts/release-version.py sync "${NEW}"
+if [[ "$PART" != "resume" ]]; then
+  python scripts/release-version.py sync "${NEW}"
+fi
 python scripts/release-version.py validate --version "${NEW}"
-git add -A
-git commit -m "chore(release): ${TAG}"
+if [[ "$PART" != "resume" ]]; then
+  git add -A
+  git commit -m "chore(release): ${TAG}"
+fi
 
 # --- local sanity (environment-independent: batch suite avoids fastapi) ---
 echo ">>> Local sanity: backend batch suite"
@@ -82,8 +92,7 @@ RUN_ID="$(gh run list --branch "${BRANCH}" --workflow ci.yml --limit 20 \
   --json databaseId,headSha -q "[.[] | select(.headSha==\"${HEAD_SHA}\")][0].databaseId")"
 if [[ -z "${RUN_ID}" ]]; then
   echo "ERROR: no ci.yml run found for ${HEAD_SHA}." >&2
-  echo "       Check 'gh run list'; once it's green, tag manually:" >&2
-  echo "       git tag -a ${TAG} -m 'Release ${TAG}' && git push origin ${TAG}" >&2
+  echo "       Check 'gh run list', then retry with: $0 resume" >&2
   exit 1
 fi
 
@@ -91,7 +100,7 @@ echo ">>> Watching CI run ${RUN_ID} (this blocks until CI finishes) ..."
 if ! gh run watch "${RUN_ID}" --exit-status; then
   echo "" >&2
   echo ">>> CI FAILED. The commit is pushed on ${BRANCH}, but NO tag was created" >&2
-  echo ">>> (release.yml NOT triggered). Fix forward and re-run, or revert on remote." >&2
+  echo ">>> (release.yml NOT triggered). Fix forward, then run: $0 resume" >&2
   exit 1
 fi
 

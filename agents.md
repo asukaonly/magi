@@ -383,6 +383,7 @@ Use the automated script — do **not** hand-edit version files or create tags m
 
 ```bash
 scripts/bump-release.sh <major|minor|patch>   # e.g. patch: 0.1.14 -> 0.1.15
+scripts/bump-release.sh resume                # continue a pushed, untagged version after fixing CI
 ```
 
 It reads the current version from `VERSION`, bumps the requested part, syncs **all**
@@ -391,6 +392,10 @@ metadata via `scripts/release-version.py sync` (VERSION, Cargo.lock, frontend
 runs an environment-independent sanity check, pushes the branch, then **gates on the
 remote `ci.yml` run** (`gh run watch`) and only creates + pushes the `v<version>` tag
 once CI is green. The tag triggers `release.yml` (desktop bundle builds).
+If the remote CI gate fails after the version commit is pushed, fix forward and
+run `scripts/bump-release.sh resume`. Resume mode validates the current version,
+reruns the same local and remote gates, and creates the still-missing tag without
+incrementing the version again.
 
 Remote CI is the source of truth because it installs the supported dependency
 versions from a clean environment and runs the complete cross-platform validation;
