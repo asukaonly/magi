@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import logging
 from pathlib import Path
 from types import ModuleType
 
@@ -48,3 +49,24 @@ def test_gateway_api_contract_rejects_new_public_business_route() -> None:
     errors = checker.validate_access_policy(manifest)
 
     assert "Only /api/health may be a public native route" in errors
+
+
+def test_contract_checker_closes_runtime_log_handlers(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[3]
+    checker = _load_contract_checker(root)
+    log_path = tmp_path / "logs" / "contract.log"
+    log_path.parent.mkdir()
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    logger = logging.getLogger("magi.tests.gateway_contract_cleanup")
+    logger.addHandler(handler)
+
+    try:
+        checker.close_log_handlers_in_directory(tmp_path)
+
+        assert handler not in logger.handlers
+        assert handler.stream is None
+        log_path.unlink()
+        assert not log_path.exists()
+    finally:
+        logger.removeHandler(handler)
+        handler.close()

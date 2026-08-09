@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import sys
 import tempfile
@@ -107,6 +108,29 @@ def parse_rust_static_mounts(root: Path, router_source: str) -> set[str]:
     return mounts
 
 
+def close_log_handlers_in_directory(directory: Path) -> None:
+    """Close log handlers that keep files inside ``directory`` open."""
+    resolved_directory = directory.resolve()
+    loggers = [logging.getLogger()]
+    loggers.extend(
+        logger
+        for logger in logging.root.manager.loggerDict.values()
+        if isinstance(logger, logging.Logger)
+    )
+
+    for logger in loggers:
+        for handler in list(logger.handlers):
+            base_filename = getattr(handler, "baseFilename", None)
+            if not base_filename:
+                continue
+            try:
+                Path(base_filename).resolve().relative_to(resolved_directory)
+            except ValueError:
+                continue
+            logger.removeHandler(handler)
+            handler.close()
+
+
 def parse_python_routes(root: Path) -> dict[str, set[str]]:
     backend_src = root / "backend" / "src"
     sys.path.insert(0, str(backend_src))
@@ -143,14 +167,18 @@ def parse_python_routes(root: Path) -> dict[str, set[str]]:
                 yield from iter_leaf_routes(child, child_prefix)
 
     with tempfile.TemporaryDirectory(prefix="magi-api-contract-") as runtime_dir:
-        set_runtime_dir(Path(runtime_dir))
-        from magi.transport.http_app import create_transport_app
+        runtime_path = Path(runtime_dir)
+        set_runtime_dir(runtime_path)
+        try:
+            from magi.transport.http_app import create_transport_app
 
-        app = create_transport_app()
-        routes: dict[str, set[str]] = {}
-        for path, methods in iter_leaf_routes(app):
-            routes.setdefault(path, set()).update(methods)
-        return routes
+            app = create_transport_app()
+            routes: dict[str, set[str]] = {}
+            for path, methods in iter_leaf_routes(app):
+                routes.setdefault(path, set()).update(methods)
+            return routes
+        finally:
+            close_log_handlers_in_directory(runtime_path)
 
 
 def normalize_methods(methods: Any, *, context: str) -> set[str]:
