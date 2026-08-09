@@ -1,6 +1,6 @@
 {
   "name": "magi-ui",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "Magi AI Agent Framework - Web UI",
   "type": "module",
   "packageManager": "npm@11.16.0",
