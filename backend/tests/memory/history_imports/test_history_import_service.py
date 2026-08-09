@@ -108,7 +108,7 @@ async def _wait_for_completed_job(
 ) -> None:
     for _ in range(100):
         current = await service.get_job(job_id)
-        if current.status == "completed":
+        if current.status == "completed" and job_id not in service._tasks:
             return
         await asyncio.sleep(0.01)
     pytest.fail("History import did not complete")
