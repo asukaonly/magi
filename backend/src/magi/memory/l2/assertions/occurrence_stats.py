@@ -8,7 +8,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
-from typing import Any
+from typing import Any, TypedDict
 
 import aiosqlite
 
@@ -94,6 +94,34 @@ class OccurrenceTimelineStats:
     recency_days: float | None
 
 
+class AssertionPromotionFields(TypedDict):
+    """Typed subset forwarded to the assertion promotion evaluator."""
+
+    fact_kind: str
+    predicate: str
+    temporal_cue: str
+    evidence_class: str
+    source_strength: str
+    durable_permitted: bool
+    observation_count: int
+    evidence_count: int
+    distinct_days: int
+    span_days: float
+    recency_days: float | None
+
+
+class _AggregatedPromotionPolicy(TypedDict):
+    """Deterministic policy fields aggregated from supporting claims."""
+
+    fact_kind: str
+    canonical_predicate: str
+    temporal_cue: str
+    recent_policy_event_ids: tuple[str, ...]
+    evidence_class: str
+    source_strength: str
+    durable_permitted: bool
+
+
 @dataclass(frozen=True, slots=True)
 class ClaimOccurrenceStats:
     """Full-ledger promotion statistics for one routed slot and typed value."""
@@ -117,7 +145,7 @@ class ClaimOccurrenceStats:
     span_days: float
     recency_days: float | None
 
-    def promotion_fields(self) -> dict[str, object]:
+    def promotion_fields(self) -> AssertionPromotionFields:
         """Return all ledger-owned fields consumed by AssertionPromotionInput."""
 
         return {
@@ -147,7 +175,7 @@ class _ClaimPolicyEvidence:
 
 def _aggregate_promotion_policy(
     rows: Iterable[_ClaimPolicyEvidence],
-) -> dict[str, object]:
+) -> _AggregatedPromotionPolicy:
     """Aggregate promotion semantics by deterministic source-authority tiers."""
 
     material = tuple(rows)

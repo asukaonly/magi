@@ -74,10 +74,17 @@ TYPE_GATE_FILES=(
   magi/memory/l2/pipeline/lifecycle.py
   magi/memory/l2/pipeline/persistence.py
   magi/memory/l2/pipeline/projection.py
-  magi/memory/l2/pipeline/staging.py
+  magi/memory/l2/pipeline/queueing.py
   magi/memory/l2/pipeline/utils.py
   magi/memory/l2/pipeline/workers.py
 )
+
+for target in "${TYPE_GATE_DIRS[@]}" "${TYPE_GATE_FILES[@]}"; do
+  if [[ ! -e "$target" ]]; then
+    echo "ERROR: backend type gate target does not exist: $target" >&2
+    exit 2
+  fi
+done
 
 "$PYTHON_BIN" -m mypy \
   --config-file ../pyproject.toml \

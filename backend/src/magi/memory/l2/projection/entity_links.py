@@ -459,7 +459,7 @@ async def begin_event_entity_link_projection_clear(db_path: str) -> int:
     async with sqlite_connection_async(db_path, profile="hot_write") as db:
         await db.execute("BEGIN IMMEDIATE")
         try:
-            generation = await advance_memory_clear_generation(db)
+            generation = cast(int, await advance_memory_clear_generation(db))
             await db.commit()
             return generation
         except BaseException:
@@ -506,7 +506,10 @@ async def _next_event_revision(db: aiosqlite.Connection, event_id: str) -> int:
         (event_id,),
     ) as cursor:
         row = await cursor.fetchone()
-    return int(row[0])
+    raw_revision: object = row[0]
+    if isinstance(raw_revision, bool) or not isinstance(raw_revision, int):
+        raise RuntimeError("SQLite returned a non-integer entity link revision")
+    return raw_revision
 
 
 async def _count_projection_recovery_rows(db: aiosqlite.Connection) -> int:

@@ -570,6 +570,8 @@ async def _reconcile_assertion_promotion_after_forget(
             scope_key=str(row.get("scope_key") or "global"),
         ):
             continue
+        if stats is None:
+            raise RuntimeError("Promotion decision is missing occurrence statistics")
         await _bind_surviving_claims_to_assertion(
             db,
             assertion_id=assertion_id,
@@ -728,6 +730,9 @@ def _promotion_after_forget(
     family = str(row.get("trait_family") or "").strip().casefold()
     trait_name = str(row.get("trait_name") or "").strip().casefold()
     policy = get_assertion_family_policy(family)
+    baseline_scope: str | None
+    baseline_decay: str | None
+    baseline_ttl: float | None
     if trait_name in {"annoyance", "irritation", "frustration"}:
         baseline_scope = "momentary"
         baseline_decay = "fast_decay"
