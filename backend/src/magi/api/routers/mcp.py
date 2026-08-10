@@ -72,6 +72,25 @@ def _mask_transport(transport_data: dict[str, Any]) -> dict[str, Any]:
     return transport_data
 
 
+def _restore_masked_http_headers(
+    raw: dict[str, Any],
+    existing: MCPServerConfig,
+) -> None:
+    """Keep stored HTTP header values when an edit sends the mask sentinel."""
+
+    transport = raw.get("transport")
+    if not isinstance(transport, dict) or transport.get("kind") != "http":
+        return
+    if existing.transport.kind != "http":
+        return
+    incoming_headers = transport.get("headers")
+    if not isinstance(incoming_headers, dict):
+        return
+    for name, value in list(incoming_headers.items()):
+        if value == "***" and name in existing.transport.headers:
+            incoming_headers[name] = existing.transport.headers[name]
+
+
 def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
     rt = mgr._runtimes.get(cfg.server.id)  # type: ignore[attr-defined]
     if rt is None:
@@ -237,6 +256,7 @@ async def update_server(server_id: str, payload: CreateOrUpdatePayload) -> dict[
 
     raw = payload.model_dump(exclude_none=True)
     raw.setdefault("server", {})["id"] = server_id  # id is path-locked
+    _restore_masked_http_headers(raw, existing)
     register_mcp_transport_secrets(raw)
     try:
         cfg = MCPServerConfig.model_validate(raw)

@@ -346,6 +346,35 @@ def test_http_transport_headers_masked_in_responses(client):
     assert r.json()["transport"]["headers"]["Authorization"] == "***"
 
 
+def test_patch_preserves_masked_http_header_values(client, tmp_path):
+    c, mgr = client
+    secret = "secret-token-123"
+    create = {
+        "server": {"id": "httpsrv", "name": "HTTP"},
+        "transport": {
+            "kind": "http",
+            "url": "https://example.com/mcp",
+            "headers": {"Authorization": f"Bearer {secret}"},
+        },
+    }
+    created = c.post("/api/mcp/servers", json=create).json()
+
+    update = {
+        "server": {"id": "httpsrv", "name": "HTTP"},
+        "transport": created["transport"],
+        "runtime": created["runtime"],
+        "tools": {"include": []},
+    }
+    response = c.patch("/api/mcp/servers/httpsrv", json=update)
+
+    assert response.status_code == 200, response.text
+    cfg = next(item for item in mgr.list_configs() if item.server.id == "httpsrv")
+    assert cfg.transport.headers["Authorization"] == f"Bearer {secret}"
+    config_text = (tmp_path / "config" / "mcp" / "httpsrv.toml").read_text()
+    assert f"Bearer {secret}" in config_text
+    assert 'Authorization = "***"' not in config_text
+
+
 def test_404_when_unknown_server(client):
     c, _ = client
     assert c.post("/api/mcp/servers/nope/start").status_code == 404
