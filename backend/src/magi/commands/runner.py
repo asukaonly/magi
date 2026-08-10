@@ -333,6 +333,7 @@ class CommandRunner:
         if gateway is None:
             return None
         info = self._registry.get_tool_info(tool_name) or {}
+        metadata = info.get("metadata") or {}
         return await gateway.gate(
             tool_name=tool_name,
             arguments=arguments,
@@ -342,6 +343,10 @@ class CommandRunner:
             turn_id=turn_id,
             workspace=workspace,
             tool_is_dangerous=bool(info.get("dangerous", False)),
+            tool_risk_level=metadata.get("permission_risk"),
+            tool_risk_authoritative=bool(
+                metadata.get("permission_risk_authoritative", False)
+            ),
         )
 
     async def _append_invocation_message(

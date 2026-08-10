@@ -64,7 +64,10 @@ def test_default_dangerous_when_no_annotation():
     cls = build_adapter_class(
         "s", remote, manager=None, call_timeout_ms=1000, override=None
     )
-    assert cls().schema.dangerous is True
+    schema = cls().schema
+    assert schema.dangerous is True
+    assert schema.metadata["permission_risk"] == "high"
+    assert schema.metadata["permission_risk_source"] == "missing_annotations"
 
 
 def test_readonly_hint_makes_safe():
@@ -79,6 +82,7 @@ def test_readonly_hint_makes_safe():
     )
     schema = cls().schema
     assert schema.dangerous is False
+    assert schema.metadata["permission_risk"] == "low"
     # readOnlyHint also surfaces the tool in the `/`-picker by default.
     assert schema.metadata.get("user_invocable") is True
 
@@ -105,7 +109,41 @@ def test_destructive_hint_keeps_user_invocable_off():
     cls = build_adapter_class(
         "s", remote, manager=None, call_timeout_ms=1000, override=None
     )
-    assert "user_invocable" not in cls().schema.metadata
+    schema = cls().schema
+    assert "user_invocable" not in schema.metadata
+    assert schema.metadata["permission_risk"] == "destructive"
+
+
+def test_additive_update_hint_is_medium_risk():
+    remote = {
+        "name": "create_item",
+        "description": "d",
+        "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"destructiveHint": False},
+    }
+    cls = build_adapter_class(
+        "s", remote, manager=None, call_timeout_ms=1000, override=None
+    )
+    schema = cls().schema
+    assert schema.dangerous is False
+    assert schema.metadata["permission_risk"] == "medium"
+
+
+def test_conflicting_annotations_fail_closed():
+    remote = {
+        "name": "x",
+        "description": "d",
+        "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"readOnlyHint": True, "destructiveHint": True},
+    }
+    cls = build_adapter_class(
+        "s", remote, manager=None, call_timeout_ms=1000, override=None
+    )
+    schema = cls().schema
+    assert schema.dangerous is True
+    assert schema.metadata["permission_risk"] == "high"
+    assert schema.metadata["permission_risk_source"] == "conflicting_annotations"
+    assert "user_invocable" not in schema.metadata
 
 
 @pytest.mark.asyncio
@@ -182,4 +220,29 @@ def test_override_forces_dangerous_off():
         call_timeout_ms=1000,
         override=ToolOverride(dangerous=False),
     )
-    assert cls().schema.dangerous is False
+    schema = cls().schema
+    assert schema.dangerous is False
+    assert schema.metadata["permission_risk"] == "low"
+    assert schema.metadata["permission_risk_authoritative"] is True
+
+
+def test_risk_override_takes_precedence_over_legacy_dangerous_override():
+    from magi.mcp.config import ToolOverride
+
+    remote = {
+        "name": "create_issue",
+        "description": "d",
+        "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"readOnlyHint": True},
+    }
+    cls = build_adapter_class(
+        "s",
+        remote,
+        manager=None,
+        call_timeout_ms=1000,
+        override=ToolOverride(dangerous=False, risk="destructive"),
+    )
+    schema = cls().schema
+    assert schema.dangerous is True
+    assert schema.metadata["permission_risk"] == "destructive"
+    assert schema.metadata["permission_risk_source"] == "local_override"

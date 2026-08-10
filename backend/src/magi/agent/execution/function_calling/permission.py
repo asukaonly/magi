@@ -89,6 +89,7 @@ class FunctionCallingPermissionMixin:
             start_time=start_time,
         )
         tool_info = host.tool_registry.get_tool_info(tool_name) or {}
+        tool_metadata = tool_info.get("metadata") or {}
 
         if _is_skill_preapproved(tool_name, arguments):
             return None
@@ -106,6 +107,10 @@ class FunctionCallingPermissionMixin:
                 turn_id=turn_id,
                 workspace=workspace,
                 tool_is_dangerous=bool(tool_info.get("dangerous", False)),
+                tool_risk_level=tool_metadata.get("permission_risk"),
+                tool_risk_authoritative=bool(
+                    tool_metadata.get("permission_risk_authoritative", False)
+                ),
             )
         except Exception as exc:
             logger.exception("[FunctionCalling] permission gateway raised")

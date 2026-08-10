@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Protocol
 
+from magi_plugin_sdk.permissions import RiskLevel
 from magi_plugin_sdk.tools import (
     ParameterType,
     Tool,
@@ -54,18 +55,34 @@ def _translate_params(input_schema: dict | None) -> list[ToolParameter]:
     return out
 
 
-def _infer_dangerous(annotations: dict | None, override) -> bool:
+def _infer_risk(annotations: dict | None, override) -> tuple[RiskLevel, str, bool]:
+    """Translate MCP hints into Magi's host-owned permission vocabulary.
+
+    MCP annotations are descriptive hints, not an authorization boundary. A
+    local override is therefore authoritative, while remote annotations remain
+    inputs that host-side classifier rules may promote.
+    """
+
+    if override is not None and override.risk is not None:
+        return RiskLevel(override.risk), "local_override", True
     if override is not None and override.dangerous is not None:
-        return bool(override.dangerous)
+        legacy_risk = RiskLevel.HIGH if override.dangerous else RiskLevel.LOW
+        return legacy_risk, "legacy_local_override", True
+
     if not annotations:
-        return True
-    if annotations.get("readOnlyHint") is True:
-        return False
-    if annotations.get("destructiveHint") is True:
-        return True
-    if annotations.get("destructiveHint") is False:
-        return False
-    return True
+        return RiskLevel.HIGH, "missing_annotations", False
+
+    read_only = annotations.get("readOnlyHint") is True
+    destructive = annotations.get("destructiveHint")
+    if read_only and destructive is True:
+        return RiskLevel.HIGH, "conflicting_annotations", False
+    if read_only:
+        return RiskLevel.LOW, "read_only_hint", False
+    if destructive is True:
+        return RiskLevel.DESTRUCTIVE, "destructive_hint", False
+    if destructive is False:
+        return RiskLevel.MEDIUM, "additive_update_hint", False
+    return RiskLevel.HIGH, "ambiguous_annotations", False
 
 
 def _infer_user_invocable(annotations: dict | None) -> bool:
@@ -80,7 +97,10 @@ def _infer_user_invocable(annotations: dict | None) -> bool:
     """
     if not annotations:
         return False
-    return annotations.get("readOnlyHint") is True
+    return (
+        annotations.get("readOnlyHint") is True
+        and annotations.get("destructiveHint") is not True
+    )
 
 
 def build_adapter_class(
@@ -94,12 +114,16 @@ def build_adapter_class(
     description = remote.get("description") or ""
     annotations = remote.get("annotations") or {}
     parameters = _translate_params(remote.get("inputSchema"))
-    dangerous = _infer_dangerous(annotations, override)
+    risk, risk_source, risk_authoritative = _infer_risk(annotations, override)
+    dangerous = risk >= RiskLevel.HIGH
     user_invocable = _infer_user_invocable(annotations)
 
     metadata: dict[str, Any] = {
         "mcp_server_id": server_id,
         "mcp_tool_name": remote["name"],
+        "permission_risk": risk.value,
+        "permission_risk_source": risk_source,
+        "permission_risk_authoritative": risk_authoritative,
     }
     if user_invocable:
         metadata["user_invocable"] = True

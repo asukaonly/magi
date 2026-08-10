@@ -86,6 +86,8 @@ class _GateContext:
     turn_id: str | None
     workspace: str | None
     tool_is_dangerous: bool
+    tool_risk_level: RiskLevel | str | None
+    tool_risk_authoritative: bool
 
 
 class PermissionPrompter(Protocol):
@@ -192,6 +194,8 @@ class PermissionGateway:
         turn_id: str | None = None,
         workspace: str | None = None,
         tool_is_dangerous: bool = False,
+        tool_risk_level: RiskLevel | str | None = None,
+        tool_risk_authoritative: bool = False,
     ) -> PermissionDecision:
         """Evaluate a single tool invocation."""
         started = time.time()
@@ -204,6 +208,8 @@ class PermissionGateway:
             turn_id=turn_id,
             workspace=workspace,
             tool_is_dangerous=tool_is_dangerous,
+            tool_risk_level=tool_risk_level,
+            tool_risk_authoritative=tool_risk_authoritative,
         )
         logger.info(
             "permission.decision",
@@ -232,6 +238,8 @@ class PermissionGateway:
         turn_id: str | None,
         workspace: str | None,
         tool_is_dangerous: bool,
+        tool_risk_level: RiskLevel | str | None,
+        tool_risk_authoritative: bool,
     ) -> PermissionDecision:
         context = _GateContext(
             tool_name=tool_name,
@@ -242,6 +250,8 @@ class PermissionGateway:
             turn_id=turn_id,
             workspace=workspace,
             tool_is_dangerous=tool_is_dangerous,
+            tool_risk_level=tool_risk_level,
+            tool_risk_authoritative=tool_risk_authoritative,
         )
         for decision in (
             self._kill_list_decision(context),
@@ -317,6 +327,8 @@ class PermissionGateway:
             arguments=context.arguments,
             workspace=context.workspace,
             tool_is_dangerous=context.tool_is_dangerous,
+            tool_risk_level=context.tool_risk_level,
+            tool_risk_authoritative=context.tool_risk_authoritative,
         )
 
     def _matched_rule_decision(self, context: _GateContext) -> PermissionDecision | None:

@@ -61,22 +61,31 @@ Authorization = "Bearer ${env:REMOTE_TOKEN}"
 
 The `[runtime]` section accepts `call_timeout_ms`, `init_timeout_ms`, and `max_restart_attempts`; defaults are 60s/15s/5.
 
-`[tool_overrides.<remote-tool-name>]` lets you force `dangerous` on or off:
+`[tool_overrides.<remote-tool-name>]` lets you assign the host-owned risk level:
 
 ```toml
 [tool_overrides.create_issue]
-dangerous = true
+risk = "high"
 ```
+
+Accepted levels are `low`, `medium`, `high`, and `destructive`. The older
+`dangerous = true|false` form remains accepted and maps to `high|low`; when both
+fields are present, `risk` wins.
 
 ## Tool naming and permission gating
 
-Remote tools are exposed as `mcp__<server-id>__<remote-name>` in the registry, in a synthetic `mcp` category. Their `dangerous` flag is inferred from MCP `annotations`:
+Remote tools are exposed as `mcp__<server-id>__<remote-name>` in the registry, in a synthetic `mcp` category. MCP annotations are descriptive hints rather than authorization. The adapter translates them into the existing four-level permission vocabulary:
 
-- `readOnlyHint: true` → safe (no prompt at default mode)
-- `destructiveHint: true` → dangerous (prompted)
-- absent or ambiguous → **dangerous** (conservative default — flip via `tool_overrides`)
+- `readOnlyHint: true` → `low`
+- `readOnlyHint: false` and `destructiveHint: false` → `medium` (additive mutation)
+- `destructiveHint: true` → `destructive`
+- absent, ambiguous, or contradictory annotations → `high`
 
-The existing risk classifier picks up the flag from `Tool.get_info()["dangerous"]`, which the function-calling permission gate already reads. There is no MCP-specific permission code path.
+Local `tool_overrides.<name>.risk` values are authoritative. Remote hints are
+not: deterministic host rules may still promote a remotely declared risk, for
+example when an MCP tool name identifies an external-send operation. The
+existing risk classifier and permission gateway consume the translated level;
+there is no MCP-specific approval code path.
 
 ## Surfacing in the `/`-picker
 
@@ -119,7 +128,7 @@ Each running server has a watchdog task. When `conn.state` becomes `DISCONNECTED
 
 **Server won't connect.** stdio: confirm the `command` is on PATH and the package can run; e.g. `npx -y @modelcontextprotocol/server-everything` from a terminal. HTTP: confirm `Accept: application/json, text/event-stream` is supported by the server.
 
-**Tool runs without prompting that should require approval.** Check the tool's `annotations.readOnlyHint`/`destructiveHint`; force with `tool_overrides.<name>.dangerous`.
+**Tool runs without prompting that should require approval.** Check the tool's `annotations.readOnlyHint`/`destructiveHint`; force the host policy with `tool_overrides.<name>.risk`.
 
 **MCP tool not in the `/`-picker.** Either the server didn't mark it `readOnlyHint`, or you haven't added it to the whitelist. See *Surfacing in the `/`-picker* above.
 

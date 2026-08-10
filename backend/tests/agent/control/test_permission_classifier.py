@@ -157,6 +157,47 @@ def test_external_send_substring_fallback_high(
     assert any(s.key == "external_side_effect" for s in result.signals)
 
 
+def test_remote_tool_risk_cannot_lower_host_external_send_rule(
+    classifier: RiskClassifier,
+) -> None:
+    result = classifier.classify(
+        tool_name="mcp__chat__send_message",
+        arguments={"channel": "#x"},
+        tool_risk_level="low",
+    )
+
+    assert result.level is RiskLevel.HIGH
+    assert any(s.key == "external_side_effect" for s in result.signals)
+
+
+def test_authoritative_host_override_can_lower_heuristic_risk(
+    classifier: RiskClassifier,
+) -> None:
+    result = classifier.classify(
+        tool_name="mcp__chat__send_message",
+        arguments={"channel": "#x"},
+        tool_risk_level="low",
+        tool_risk_authoritative=True,
+    )
+
+    assert result.level is RiskLevel.LOW
+    assert any(s.key == "tool_risk_authoritative" for s in result.signals)
+
+
+def test_invalid_declared_risk_falls_back_to_dangerous_flag(
+    classifier: RiskClassifier,
+) -> None:
+    result = classifier.classify(
+        tool_name="mcp__demo__unknown",
+        arguments={},
+        tool_is_dangerous=True,
+        tool_risk_level="invalid",
+    )
+
+    assert result.level is RiskLevel.HIGH
+    assert any(s.key == "tool_flagged_dangerous" for s in result.signals)
+
+
 def test_empty_shell_command_low(classifier: RiskClassifier) -> None:
     result = classifier.classify(tool_name="bash", arguments={"command": "   "})
     assert result.level is RiskLevel.LOW
