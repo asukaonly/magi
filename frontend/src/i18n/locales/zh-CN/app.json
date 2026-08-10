@@ -4052,7 +4052,10 @@
         "focusHeadline": "从来源和内容去看记忆流入的密度",
         "focusBody": "这一层更像时间沉淀后的底稿，适合先按来源缩小范围，再逐步查看事件内容。",
         "matchedEventsLabel": "命中事件",
-        "visibleEventsLabel": "当前页"
+        "visibleEventsLabel": "当前页",
+        "loadFailedTitle": "暂时无法读取原始事件",
+        "loadFailedBody": "记忆事件库当前不可用。这不是空记录，请稍后重试；如果持续出现，请重新启动 Magi。",
+        "retryButton": "重新读取"
       },
       "knowledge": {
         "eyebrow": "L2 知识花园",

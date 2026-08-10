@@ -1401,7 +1401,7 @@ async fn chat_attachment_ticket_binds_user_and_supports_head() {
 }
 
 #[tokio::test]
-async fn native_read_routes_return_stable_empty_payloads_when_databases_are_missing() {
+async fn native_read_routes_distinguish_missing_l1_store_from_empty_data() {
     let home = isolated_home("missing-dbs");
     let state = test_state().await;
     let router = api::build_router(state);
@@ -1421,11 +1421,9 @@ async fn native_read_routes_return_stable_empty_payloads_when_databases_are_miss
         None,
     )
     .await;
-    assert_eq!(status, 200);
-    assert_eq!(events["items"].as_array().unwrap().len(), 0);
-    assert_eq!(events["total"], 0);
-    assert_eq!(events["limit"], 7);
-    assert_eq!(events["offset"], 3);
+    assert_eq!(status, 503);
+    assert_eq!(events["success"], false);
+    assert_eq!(events["error_code"], "memory_l1_store_unavailable");
     drop(home);
 }
 

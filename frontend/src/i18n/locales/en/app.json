@@ -4054,7 +4054,10 @@
         "focusHeadline": "Read the density of memory intake by source and content",
         "focusBody": "This layer behaves like a retained draft of experience. Narrow by source first, then move into the event contents.",
         "matchedEventsLabel": "Matching events",
-        "visibleEventsLabel": "This page"
+        "visibleEventsLabel": "This page",
+        "loadFailedTitle": "Raw events are temporarily unavailable",
+        "loadFailedBody": "The event memory store cannot be read right now. This is not an empty result. Retry shortly, or restart Magi if the issue continues.",
+        "retryButton": "Read again"
       },
       "knowledge": {
         "eyebrow": "L2 Knowledge Garden",

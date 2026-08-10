@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -31,7 +32,7 @@ const normalizeDateRange = (startDate: string, endDate: string) => {
 
 export const MemoryEventsPage = () => {
   const { t } = useTranslation('app');
-  const { loading, stats, l1Events, l1Total, queryL1Events } = useMemory({ initialLoadScope: 'l1' });
+  const { loading, stats, l1Events, l1Total, l1LoadFailed, queryL1Events } = useMemory({ initialLoadScope: 'l1' });
   const [contentQuery, setContentQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [startDate, setStartDate] = useState('');
@@ -210,6 +211,28 @@ export const MemoryEventsPage = () => {
       {loading ? (
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <LoadingSpinner />
+        </div>
+      ) : l1LoadFailed ? (
+        <div className="flex min-h-0 flex-1 items-start justify-center px-6 pt-[clamp(3.5rem,11vh,7rem)]" role="alert">
+          <div className="max-w-md text-center">
+            <AlertCircle className="mx-auto h-5 w-5 text-red-600" aria-hidden="true" />
+            <h2 className="mt-3 text-base font-semibold text-[hsl(var(--memory-title))]">
+              {t('memory.pages.events.loadFailedTitle')}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">
+              {t('memory.pages.events.loadFailedBody')}
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-4 rounded-lg px-4"
+              onClick={() => void queryL1Events(appliedFilters)}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+              {t('memory.pages.events.retryButton')}
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3">

@@ -1,4 +1,6 @@
 use axum::extract::Query;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::{json, Value};
 
@@ -11,21 +13,47 @@ use super::query::{clamp_limit, clamp_offset, L1EventsQuery, DEFAULT_LIMIT};
 // ---------------------------------------------------------------------------
 
 /// GET /api/memory/l1/events — query fact_events from l1_events.db.
-pub async fn list_l1_events(Query(params): Query<L1EventsQuery>) -> Json<Value> {
-    let result = tokio::task::spawn_blocking(move || build_l1_events_response(&params))
-        .await
-        .unwrap_or_else(|_| json!({"items": [], "total": 0, "limit": 50, "offset": 0}));
-    Json(result)
+pub async fn list_l1_events(Query(params): Query<L1EventsQuery>) -> Response {
+    match tokio::task::spawn_blocking(move || build_l1_events_response(&params)).await {
+        Ok(Ok(result)) => Json(result).into_response(),
+        Ok(Err(error)) => {
+            eprintln!("Failed to read L1 event store: {error:?}");
+            l1_store_unavailable_response()
+        }
+        Err(error) => {
+            eprintln!("L1 event store read task failed: {error}");
+            l1_store_unavailable_response()
+        }
+    }
 }
 
-fn build_l1_events_response(params: &L1EventsQuery) -> Value {
+#[derive(Debug, PartialEq, Eq)]
+enum L1EventsReadError {
+    StoreUnavailable,
+    ReadFailed(String),
+}
+
+fn l1_store_unavailable_response() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({
+            "success": false,
+            "message": "The L1 event store is temporarily unavailable",
+            "error_code": "memory_l1_store_unavailable",
+        })),
+    )
+        .into_response()
+}
+
+fn build_l1_events_response(params: &L1EventsQuery) -> Result<Value, L1EventsReadError> {
     let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
     let offset = clamp_offset(params.offset);
     let path = db::l1_events_db_path();
-    let conn = match db::open_readonly(&path) {
-        Some(c) => c,
-        None => return json!({"items": [], "total": 0, "limit": limit, "offset": offset}),
-    };
+    if !path.is_file() {
+        return Err(L1EventsReadError::StoreUnavailable);
+    }
+    let conn = db::open_readonly_result(&path)
+        .map_err(|error| L1EventsReadError::ReadFailed(error.to_string()))?;
 
     let mut where_parts = vec!["fe.deleted_at IS NULL".to_string()];
     let mut bind: Vec<rusqlite::types::Value> = Vec::new();
@@ -85,7 +113,8 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
         .iter()
         .map(|v| v as &dyn rusqlite::types::ToSql)
         .collect();
-    let total = db::count_rows(&conn, &count_sql, &count_refs);
+    let total = db::count_rows_result(&conn, &count_sql, &count_refs)
+        .map_err(|error| L1EventsReadError::ReadFailed(error.to_string()))?;
 
     bind.push(rusqlite::types::Value::Integer(limit));
     bind.push(rusqlite::types::Value::Integer(offset));
@@ -193,8 +222,9 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Value {
         .map(|v| v as &dyn rusqlite::types::ToSql)
         .collect();
 
-    let items = db::query_to_json_array(&conn, &sql, &refs);
-    json!({"items": items, "total": total, "limit": limit, "offset": offset})
+    let items = db::query_to_json_array_result(&conn, &sql, &refs)
+        .map_err(|error| L1EventsReadError::ReadFailed(error.to_string()))?;
+    Ok(json!({"items": items, "total": total, "limit": limit, "offset": offset}))
 }
 
 fn bind_date_filter(
@@ -396,7 +426,8 @@ mod tests {
             idempotency_key: None,
             start_date: Some("2026-05-04".to_string()),
             end_date: Some("2026-05-06".to_string()),
-        });
+        })
+        .expect("read seeded L1 events");
 
         assert_eq!(response["total"], 1);
         let items = response["items"].as_array().unwrap();
@@ -419,5 +450,27 @@ mod tests {
             items[0]["metadata_json"]["timeline"]["source_app"],
             "NetEase"
         );
+    }
+
+    #[test]
+    fn build_l1_events_response_fails_when_store_is_missing() {
+        let _base_dir = isolated_base_dir("missing-store");
+
+        let result = build_l1_events_response(&L1EventsQuery {
+            limit: Some(50),
+            offset: None,
+            event_id: None,
+            event_type: None,
+            user_id: None,
+            session_id: None,
+            query: None,
+            source: None,
+            source_item_id: None,
+            idempotency_key: None,
+            start_date: None,
+            end_date: None,
+        });
+
+        assert_eq!(result.unwrap_err(), L1EventsReadError::StoreUnavailable);
     }
 }

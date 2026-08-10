@@ -70,6 +70,7 @@ describe('MemoryEventsPage search interactions', () => {
         },
       ],
       l1Total: 1,
+      l1LoadFailed: false,
       queryL1Events,
       l2Relations: [],
       l2Assertions: [],
@@ -220,5 +221,28 @@ describe('MemoryEventsPage search interactions', () => {
       query: undefined,
       source: undefined,
     });
+  });
+
+  it('shows a retryable error instead of an empty event list when L1 is unavailable', async () => {
+    const user = userEvent.setup();
+    mockUseMemory.mockReturnValue({
+      ...mockUseMemory(),
+      l1Events: [],
+      l1Total: 0,
+      l1LoadFailed: true,
+    } as any);
+
+    render(
+      <MemoryRouter>
+        <MemoryEventsPage />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('memory.pages.events.loadFailedTitle');
+    expect(screen.queryByText('memory.l1.noEvents')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'memory.pages.events.retryButton' }));
+
+    expect(queryL1Events).toHaveBeenCalledWith(undefined);
   });
 });

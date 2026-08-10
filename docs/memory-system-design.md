@@ -129,6 +129,11 @@ Holds:
 
 Read here when you need historical recall, structured cognition, summaries, long-term insights, or procedural experience.
 
+Product reads must distinguish a successfully opened L1 store with zero matching
+events from an unavailable, missing, or unreadable `l1_events.db`. Store failures
+return an explicit service-unavailable error and the UI presents a retryable error
+state; they must never be rendered as an empty memory history.
+
 ### Rebuildable Cache
 
 - `~/.magi/cache/plugins/<plugin_id>/`

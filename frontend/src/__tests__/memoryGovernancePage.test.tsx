@@ -86,6 +86,7 @@ const baseMemoryState = {
     },
   ],
   l1Total: 1,
+  l1LoadFailed: false,
   queryL1Events: vi.fn().mockResolvedValue(true),
   l2Relations: [
     {

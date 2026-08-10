@@ -60,6 +60,7 @@ export interface UseMemoryReturn {
   // L1 data
   l1Events: L1Event[];
   l1Total: number;
+  l1LoadFailed: boolean;
   queryL1Events: (params?: Omit<L1EventQueryParams, 'limit'> & { limit?: number }) => Promise<boolean>;
 
   // L2 data
@@ -184,6 +185,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   // L1 data
   const [l1Events, setL1Events] = useState<L1Event[]>([]);
   const [l1Total, setL1Total] = useState(0);
+  const [l1LoadFailed, setL1LoadFailed] = useState(false);
 
   // L2 data
   const [l2Relations, setL2Relations] = useState<L2Relation[]>([]);
@@ -260,9 +262,11 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
       const data = await memoryApi.getL1Events({ limit: 50, ...params });
       setL1Events(data.items || []);
       setL1Total(data.total || 0);
+      setL1LoadFailed(false);
       return true;
     } catch (error) {
       console.error('Failed to load L1 events:', error);
+      setL1LoadFailed(true);
       return false;
     }
   }, []);
@@ -679,6 +683,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     setSelectedSessionId(null);
     setL1Events([]);
     setL1Total(0);
+    setL1LoadFailed(false);
     setL2Relations([]);
     setL2RelationsTotal(0);
     setL2Assertions([]);
@@ -760,6 +765,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     // L1 data
     l1Events,
     l1Total,
+    l1LoadFailed,
     queryL1Events,
 
     // L2 data
