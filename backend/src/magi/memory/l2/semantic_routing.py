@@ -17,7 +17,7 @@ from .claims.identity import canonical_json
 from .ontology import PROFILE_SIGNAL_PREDICATES
 from .predicate_catalog import SPEC_BY_CANONICAL
 
-ROUTE_CONTRACT_VERSION = 5
+ROUTE_CONTRACT_VERSION = 6
 SLOT_SCHEMA_VERSION = 2
 
 
@@ -106,10 +106,7 @@ class SemanticRouteDecision:
 
     @property
     def can_project_graph(self) -> bool:
-        return (
-            ProjectionTarget.GRAPH in self.projection_targets
-            and bool(self.target_entity_id)
-        )
+        return ProjectionTarget.GRAPH in self.projection_targets and bool(self.target_entity_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,10 +122,21 @@ class _RouteSpec:
 
 
 _ASSERTION_ONLY = frozenset({ProjectionTarget.ASSERTION})
-_GRAPH_AND_ASSERTION = frozenset(
-    {ProjectionTarget.GRAPH, ProjectionTarget.ASSERTION}
-)
+_GRAPH_AND_ASSERTION = frozenset({ProjectionTarget.GRAPH, ProjectionTarget.ASSERTION})
 _GRAPH_ONLY = frozenset({ProjectionTarget.GRAPH})
+
+
+def allows_preference_graph_projection(
+    canonical_predicate: str,
+    temporal_cue: str,
+) -> bool:
+    """Return whether a preference Claim may authorize a durable graph edge."""
+
+    predicate = (
+        str(getattr(canonical_predicate, "value", canonical_predicate) or "").strip().upper()
+    )
+    cue = str(getattr(temporal_cue, "value", temporal_cue) or "").strip().casefold()
+    return not (predicate in {"LIKES", "DISLIKES"} and cue == "one_off")
 
 
 _STATED_AGE_SPEC = _RouteSpec(
@@ -547,7 +555,11 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
                 object_role=spec.object_role,
                 projection_targets=spec.projection_targets,
             )
-        if spec.object_role is ObjectRole.TARGET_ID_OR_TEXT and not target_id and not normalized_text:
+        if (
+            spec.object_role is ObjectRole.TARGET_ID_OR_TEXT
+            and not target_id
+            and not normalized_text
+        ):
             return _non_routed(
                 route_input,
                 disposition=RouteDisposition.UNROUTED,
@@ -556,10 +568,14 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
                 projection_targets=spec.projection_targets,
             )
         semantic_target_key = (
-            f"entity:{target_id}"
-            if target_id
-            else _text_target_key("text", normalized_text)
+            f"entity:{target_id}" if target_id else _text_target_key("text", normalized_text)
         )
+        projection_targets = spec.projection_targets
+        if not allows_preference_graph_projection(
+            predicate,
+            route_input.temporal_cue,
+        ):
+            projection_targets = _ASSERTION_ONLY
         return _routed(
             route_input,
             spec=spec,
@@ -569,6 +585,7 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
             target_entity_type=object_type if target_id else None,
             object_surface=str(route_input.object_value or "").strip(),
             normalized_target_text=normalized_text[:200] if normalized_text else None,
+            projection_targets=projection_targets,
         )
 
     if predicate in ROUTE_DISPOSITION_BY_PREDICATE:
@@ -594,6 +611,7 @@ def _routed(
     normalized_target_text: str | None = None,
     goal_lineage_key: str | None = None,
     target_window_key: str | None = None,
+    projection_targets: frozenset[ProjectionTarget] | None = None,
 ) -> SemanticRouteDecision:
     subject_id = _required(route_input.subject_id)
     subject_type = _required(route_input.subject_type)
@@ -649,7 +667,9 @@ def _routed(
         semantic_target_key=semantic_target_key,
         goal_lineage_key=goal_lineage_key,
         target_window_key=target_window_key,
-        projection_targets=spec.projection_targets,
+        projection_targets=(
+            spec.projection_targets if projection_targets is None else projection_targets
+        ),
         scope_key=scope_key,
     )
 
@@ -814,5 +834,6 @@ __all__ = [
     "SLOT_SCHEMA_VERSION",
     "SemanticRouteDecision",
     "SemanticRouteInput",
+    "allows_preference_graph_projection",
     "derive_semantic_route",
 ]

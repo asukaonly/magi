@@ -8,13 +8,13 @@ from ....event_contracts import MemoryEvent
 from ....evidence import EvidenceClassification
 from ...extraction_profiles import ExtractionProfile
 from ...models import L2Phase1Result, ResolvedEntityMention
-from ...phase1_models import L2TemporalCue
 from ...ontology import (
     PREDICATE_REGISTRY,
     is_low_value_open_predicate,
     is_valid_open_predicate,
     validate_graph_candidate,
 )
+from ...semantic_routing import allows_preference_graph_projection
 from .evidence import validate_supporting_event_ids
 from ..extraction_contracts import ClaimProjectionOutcomeDraft
 
@@ -94,10 +94,7 @@ class L2Phase1GraphProjectionMixin:
         fact_kind = self._non_empty_text(claim.fact_kind) or "explicit_fact"  # type: ignore[attr-defined]
         if predicate == "PLANS_TO" and fact_kind == "future_intent":
             return None, "goal_assertion_only"
-        if (
-            predicate in {"LIKES", "DISLIKES"}
-            and L2TemporalCue.from_value(claim.temporal_cue) is L2TemporalCue.ONE_OFF
-        ):
+        if not allows_preference_graph_projection(predicate, claim.temporal_cue):
             return None, "one_off_preference_event_only"
         object_type = self._normalize_entity_type(claim.object_type)  # type: ignore[attr-defined]
         if not self._phase1_graph_shape_allowed(
@@ -170,5 +167,6 @@ class L2Phase1GraphProjectionMixin:
             return False
         is_valid, _ = validate_graph_candidate({"predicate": predicate, "object_type": object_type})
         return is_valid
+
 
 __all__ = ["L2Phase1GraphProjectionMixin"]

@@ -130,9 +130,7 @@ async def reproject_claim_route(
                     subject_resolution_version=int(
                         candidate.get("subject_resolution_version") or 0
                     ),
-                    object_resolution_version=int(
-                        candidate.get("object_resolution_version") or 0
-                    ),
+                    object_resolution_version=int(candidate.get("object_resolution_version") or 0),
                 ),
                 created_at=changed_at,
             )
@@ -988,7 +986,7 @@ def _decision_allows_target(
     if target_kind == "assertion":
         return decision.can_project_assertion
     if target_kind == "relationship":
-        return decision.disposition is RouteDisposition.ROUTED or (
+        return decision.can_project_graph or (
             decision.disposition is RouteDisposition.NOT_APPLICABLE
             and decision.reason_code == "relationship_only"
         )

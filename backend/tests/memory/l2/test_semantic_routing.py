@@ -242,6 +242,18 @@ def test_likes_and_dislikes_share_target_slot_but_not_value() -> None:
     assert likes.value_fingerprint != dislikes.value_fingerprint
 
 
+@pytest.mark.parametrize("predicate", ["LIKES", "DISLIKES"])
+def test_one_off_preference_routes_to_assertion_without_graph(
+    predicate: str,
+) -> None:
+    decision = derive_semantic_route(_route_input(predicate, temporal_cue="one_off"))
+
+    assert decision.disposition is RouteDisposition.ROUTED
+    assert decision.can_project_assertion is True
+    assert decision.can_project_graph is False
+    assert decision.projection_targets == frozenset({ProjectionTarget.ASSERTION})
+
+
 def test_slot_identity_ignores_fact_kind_temporal_route_version_and_surface_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -366,9 +378,7 @@ def test_goal_route_requires_concrete_text_and_keeps_window_out_of_slot() -> Non
     assert scheduled.goal_lineage_key == unscheduled.goal_lineage_key
     assert scheduled.target_window_key != unscheduled.target_window_key
 
-    blank = derive_semantic_route(
-        _route_input("PLANS_TO", object_value=" ", object_entity_id=None)
-    )
+    blank = derive_semantic_route(_route_input("PLANS_TO", object_value=" ", object_entity_id=None))
     vague = derive_semantic_route(_route_input("PLANS_TO", specificity="underspecified"))
     assert blank.reason_code == "invalid_goal_text"
     assert vague.reason_code == "goal_target_not_concrete"

@@ -42,6 +42,7 @@ async def _seed_claim(
     object_value: object = "Jazz",
     evidence_event_id: str | None = None,
     evidence_event_time: float | None = None,
+    temporal_cue: str = "current",
 ) -> None:
     async with sqlite_connection_async(store.db_path) as db:
         await db.execute(
@@ -57,7 +58,7 @@ async def _seed_claim(
                 :claim_id, :identity_key, 1, 1, 'attempt:seed', 'test', :user_id,
                 :subject_ref, :subject_type, :predicate, :fact_kind,
                 :object_type, 'positive', 'concrete', 0.9,
-                :object_value_json, :object_surface, 'current', 'active',
+                :object_value_json, :object_surface, :temporal_cue, 'active',
                 :created_at, :created_at
             )
             """,
@@ -72,6 +73,7 @@ async def _seed_claim(
                 "object_type": object_type,
                 "object_value_json": json.dumps(object_value, ensure_ascii=False),
                 "object_surface": str(object_value),
+                "temporal_cue": temporal_cue,
                 "created_at": created_at,
             },
         )
@@ -238,6 +240,7 @@ def _derive_route(
     object_type: str,
     object_value: object,
     object_entity_id: str | None = None,
+    temporal_cue: str = "current",
 ) -> SemanticRouteDecision:
     return derive_semantic_route(
         SemanticRouteInput(
@@ -249,7 +252,7 @@ def _derive_route(
             object_type=object_type,
             object_value=object_value,
             object_entity_id=object_entity_id,
-            temporal_cue="current",
+            temporal_cue=temporal_cue,
             specificity="concrete",
             target_from=None,
             target_to=None,
@@ -582,6 +585,107 @@ async def test_reproject_stale_routes_appends_history_once_per_contract(
         )
         == 1
     )
+
+
+@pytest.mark.asyncio
+async def test_route_upgrade_retires_one_off_preference_relationship_only(
+    l2_store_with_schema,
+) -> None:
+    claim_id = "claim-one-off-preference"
+    attempt_key = "attempt:one-off-preference"
+    event_id = "event-one-off-preference"
+    object_entity_id = "topic:jazz"
+    await _seed_claim(
+        l2_store_with_schema,
+        claim_id=claim_id,
+        predicate="LIKES",
+        fact_kind="explicit_fact",
+        object_type="topic",
+        object_value="Jazz",
+        object_entity_id=object_entity_id,
+        user_id="u1",
+        subject_ref="user:u1",
+        subject_type="user",
+        evidence_event_id=event_id,
+        temporal_cue="one_off",
+        created_at=10.0,
+    )
+    route = _derive_route(
+        claim_id=claim_id,
+        predicate="LIKES",
+        fact_kind="explicit_fact",
+        object_type="topic",
+        object_value="Jazz",
+        object_entity_id=object_entity_id,
+        temporal_cue="one_off",
+    )
+    assert route.slot_key is not None
+    await _seed_route_outcome(
+        l2_store_with_schema,
+        claim_id=claim_id,
+        attempt_key=attempt_key,
+        outcome="routed",
+        route_contract_version=ROUTE_CONTRACT_VERSION - 1,
+        target_id=route.route_key,
+        target_slot_key=route.slot_key,
+        details=_route_details(route),
+        reason_code=route.reason_code,
+        created_at=11.0,
+    )
+    assertion_id = await _seed_assertion_target(
+        l2_store_with_schema,
+        slot_key=route.slot_key,
+        family="preference_profile",
+        trait_name="preference.affinity",
+        trait_value="like",
+        evidence_event_ids=[event_id],
+        target_entity_id=object_entity_id,
+        target_entity_type="topic",
+    )
+    triple_id, relationship_slot_key = await _seed_relationship_target(
+        l2_store_with_schema,
+        predicate="LIKES",
+        object_id=object_entity_id,
+        object_type="topic",
+        evidence_event_ids=[event_id],
+    )
+    for target_kind, target_id, target_slot_key in (
+        ("assertion", assertion_id, route.slot_key),
+        ("relationship", triple_id, relationship_slot_key),
+    ):
+        await _seed_target_outcome(
+            l2_store_with_schema,
+            claim_id=claim_id,
+            attempt_key=attempt_key,
+            target_kind=target_kind,
+            target_id=target_id,
+            target_slot_key=target_slot_key,
+            route_contract_version=ROUTE_CONTRACT_VERSION - 1,
+            created_at=12.0,
+        )
+
+    result = await reproject_stale_claim_routes(l2_store_with_schema)
+
+    assert result.candidates_selected == 1
+    assert result.target_outcomes_invalidated == 2
+    assert result.target_outcomes_revalidated == 1
+    assert result.targets_archived == 1
+    async with sqlite_connection_async(l2_store_with_schema.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT status FROM tom_trait_assertions WHERE assertion_id = ?",
+            (assertion_id,),
+        ) as cursor:
+            assertion = await cursor.fetchone()
+        async with db.execute(
+            "SELECT status, status_reason FROM knowledge_graph WHERE triple_id = ?",
+            (triple_id,),
+        ) as cursor:
+            relationship = await cursor.fetchone()
+    assert assertion is not None and assertion["status"] != "archived"
+    assert relationship is not None
+    assert relationship["status"] == "archived"
+    assert relationship["status_reason"] == "route_contract_changed"
 
 
 @pytest.mark.asyncio

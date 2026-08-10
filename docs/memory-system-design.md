@@ -718,6 +718,14 @@ pronouns and vague placeholders such as “那个”, “他”, generic “app�
 “PDF” may help resolve references, but should not become canonical L2 entities
 unless they resolve to a concrete named entity or asset.
 
+Preference Claims follow the same stability boundary. An explicit `LIKES` or
+`DISLIKES` Claim marked `one_off` may still authorize an Assertion for cautious
+profile interpretation, but it cannot authorize a durable knowledge-graph edge.
+The semantic route contract owns this distinction and Phase 1 graph projection
+reuses that contract-level policy. Route-contract reprojection removes only the
+obsolete relationship authority from older Claims; it preserves the Assertion,
+shared Claim support, and independent user-correction authority.
+
 Phase 1 must choose the most specific evidence-supported type from the canonical
 entity registry. Named collectives belong to `group`, named creative works belong
 to `media`, and abstract qualities or styles belong to `concept`. `other` is a
