@@ -85,6 +85,12 @@ jobs:
           pip install -e ../sdk
           pip install -e ".[dev]"
 
+      - name: Install Python dependency auditor
+        run: python -m pip install pip-audit==2.10.1
+
+      - name: Audit Python dependencies
+        run: python -m pip_audit --local --skip-editable
+
       - name: Run backend smoke validation
         run: ./scripts/run-backend-smoke.sh
 

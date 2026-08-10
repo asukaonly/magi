@@ -40,9 +40,10 @@ non-security bugs should use the normal issue tracker.
 
 ## Dependency Audit Exceptions
 
-CI audits frontend production dependencies and the Rust lockfile. Rust
-exceptions are exact and self-expiring: a changed package version, dependency
-path, or feature reachability fails the check and requires a new review.
+CI audits frontend production dependencies, the clean Python environment, and
+the Rust lockfile. Rust exceptions are exact and self-expiring: a changed
+package version, dependency path, or feature reachability fails the check and
+requires a new review.
 
 - `RUSTSEC-2026-0194` and `RUSTSEC-2026-0195` remain associated with
   `quick-xml 0.37.5` only because `tauri-winrt-notification 0.7.2` uses its
