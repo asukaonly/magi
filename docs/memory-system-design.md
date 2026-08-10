@@ -987,6 +987,11 @@ prompt summary without allowing model wording to replace it. When the assertion
 expires or disappears, or when a newer Claim route or projection outcome changes
 its eligibility, the cached portrait is stale and must rebuild so an obsolete
 plan is not retained.
+Historical goals whose source time cannot establish currentness remain governed
+pending reviews. The product may let the user select and confirm several such
+plans together, but each selection resolves through the ordinary versioned
+review contract and becomes user-feedback authority. Unselected plans remain
+pending for later; omission from a batch is never interpreted as rejection.
 The self-portrait API returns this grouped projection directly. It does not
 return a second raw-observation shape, and the frontend must not reclassify
 assertions or graph material with its own policy.

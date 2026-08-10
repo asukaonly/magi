@@ -17,6 +17,7 @@ import {
   conflictTitle,
   pendingReviewSummary,
   pendingReviewValue,
+  isCurrentPlanReview,
   seedBody,
   seedTitle,
   storyTitle,
@@ -39,6 +40,10 @@ export function PendingReviewGroups({
   showExperiences,
   showObservations,
   onReview,
+  selectedPlanReviewIds,
+  onPlanReviewSelection,
+  onSelectAllPlanReviews,
+  onBatchConfirmPlans,
   onAssertion,
   onStory,
   onSeed,
@@ -57,12 +62,20 @@ export function PendingReviewGroups({
   showExperiences: boolean;
   showObservations: boolean;
   onReview: (review: L2PendingReview, action: PendingReviewAction) => void;
+  selectedPlanReviewIds: ReadonlySet<string>;
+  onPlanReviewSelection: (reviewId: string, selected: boolean) => void;
+  onSelectAllPlanReviews: (selected: boolean) => void;
+  onBatchConfirmPlans: () => void;
   onAssertion: (assertion: L2Assertion, action: PendingAction) => void;
   onStory: (story: StoryItem, action: PendingAction) => void;
   onSeed: (seed: L2ExperienceSeed, action: 'promote' | 'reject') => void;
   onConflict: (notification: NotificationItem, action: ConflictAction) => void;
 }) {
   const { t } = useTranslation('app');
+  const planReviews = reviews.filter(isCurrentPlanReview);
+  const batchBusy = actionId === 'review-batch';
+  const allPlanReviewsSelected = planReviews.length > 0
+    && planReviews.every((review) => selectedPlanReviewIds.has(review.review_id));
 
   return (
     <>
@@ -73,9 +86,47 @@ export function PendingReviewGroups({
           count={memoryCount}
           tone="amber"
         >
+          {planReviews.length > 1 ? (
+            <div className="mt-5 flex flex-col gap-3 rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.56)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-[hsl(var(--memory-title))]">
+                  {t('memory.pending.planBatch.title')}
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-[hsl(var(--memory-muted))]">
+                  {t('memory.pending.planBatch.body')}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={MEMORY_GHOST_ACTION_CLASS}
+                  disabled={batchBusy}
+                  onClick={() => onSelectAllPlanReviews(!allPlanReviewsSelected)}
+                >
+                  {t(allPlanReviewsSelected
+                    ? 'memory.pending.planBatch.clearSelection'
+                    : 'memory.pending.planBatch.selectAll')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={MEMORY_PRIMARY_ACTION_CLASS}
+                  disabled={batchBusy || selectedPlanReviewIds.size === 0}
+                  onClick={onBatchConfirmPlans}
+                >
+                  {batchBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {t('memory.pending.planBatch.confirmSelected', { count: selectedPlanReviewIds.size })}
+                </Button>
+              </div>
+            </div>
+          ) : null}
           {reviews.map((review) => {
-            const busy = actionId === `review:${review.review_id}`;
+            const busy = batchBusy || actionId === `review:${review.review_id}`;
             const value = pendingReviewValue(review, t('memory.pending.reviews.unknownValue'));
+            const selectablePlan = isCurrentPlanReview(review) && planReviews.length > 1;
             return (
               <PendingCard
                 key={review.review_id}
@@ -84,6 +135,16 @@ export function PendingReviewGroups({
                 title={t('memory.pending.reviews.title', { value })}
                 body={pendingReviewSummary(review, t('memory.pending.reviews.body'))}
                 meta={t('memory.pending.claimCount', { count: review.claim_ids.length })}
+                selection={selectablePlan ? (
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-[hsl(var(--memory-input-border))] accent-[hsl(var(--memory-accent))]"
+                    aria-label={t('memory.pending.planBatch.selectLabel', { value })}
+                    checked={selectedPlanReviewIds.has(review.review_id)}
+                    disabled={batchBusy}
+                    onChange={(event) => onPlanReviewSelection(review.review_id, event.target.checked)}
+                  />
+                ) : undefined}
                 actions={(
                   <div className="flex flex-wrap items-center gap-1">
                     <Button

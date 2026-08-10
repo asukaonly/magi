@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
 import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 import {
@@ -21,6 +22,7 @@ import { PendingMemoryReviewEditDialog } from './pending/PendingMemoryReviewEdit
 import { PendingReviewGroups } from './pending/PendingReviewGroups';
 import {
   buildPendingFilterOptions,
+  isCurrentPlanReview,
   isOpenProfileConflict,
   type ConflictAction,
   type PendingAction,
@@ -42,6 +44,7 @@ export const MemoryPendingPage = () => {
   const [activeFilter, setActiveFilter] = useState<PendingFilter>('all');
   const [editingReview, setEditingReview] = useState<L2PendingReview | null>(null);
   const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
+  const [selectedPlanReviewIds, setSelectedPlanReviewIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,6 +111,62 @@ export const MemoryPendingPage = () => {
         expected_version: review.version,
       });
       setReviews((items) => items.filter((item) => item.review_id !== review.review_id));
+      setSelectedPlanReviewIds((items) => {
+        const next = new Set(items);
+        next.delete(review.review_id);
+        return next;
+      });
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const currentPlanReviews = useMemo(() => reviews.filter(isCurrentPlanReview), [reviews]);
+
+  const handlePlanReviewSelection = (reviewId: string, selected: boolean) => {
+    setSelectedPlanReviewIds((items) => {
+      const next = new Set(items);
+      if (selected) next.add(reviewId);
+      else next.delete(reviewId);
+      return next;
+    });
+  };
+
+  const handleSelectAllPlanReviews = (selected: boolean) => {
+    setSelectedPlanReviewIds(selected
+      ? new Set(currentPlanReviews.map((review) => review.review_id))
+      : new Set());
+  };
+
+  const handleBatchConfirmPlans = async () => {
+    const selectedReviews = currentPlanReviews.filter((review) => selectedPlanReviewIds.has(review.review_id));
+    if (selectedReviews.length === 0) return;
+    setActionId('review-batch');
+    try {
+      const results = await Promise.allSettled(selectedReviews.map((review) => (
+        memoryApi.resolvePendingReview(review.review_id, {
+          action: 'confirm',
+          expected_version: review.version,
+        })
+      )));
+      const confirmedIds = new Set(selectedReviews
+        .filter((_, index) => results[index].status === 'fulfilled')
+        .map((review) => review.review_id));
+      setReviews((items) => items.filter((item) => !confirmedIds.has(item.review_id)));
+      setSelectedPlanReviewIds((items) => new Set(
+        Array.from(items).filter((reviewId) => !confirmedIds.has(reviewId)),
+      ));
+      const failedCount = selectedReviews.length - confirmedIds.size;
+      if (failedCount === 0) {
+        toast.success(t('memory.pending.planBatch.confirmed', { count: confirmedIds.size }));
+      } else if (confirmedIds.size > 0) {
+        toast.warning(t('memory.pending.planBatch.partialFailure', {
+          confirmed: confirmedIds.size,
+          failed: failedCount,
+        }));
+      } else {
+        toast.error(t('memory.pending.planBatch.failed'));
+      }
     } finally {
       setActionId(null);
     }
@@ -219,6 +278,10 @@ export const MemoryPendingPage = () => {
               showExperiences={showExperiences}
               showObservations={showObservations}
               onReview={handleReview}
+              selectedPlanReviewIds={selectedPlanReviewIds}
+              onPlanReviewSelection={handlePlanReviewSelection}
+              onSelectAllPlanReviews={handleSelectAllPlanReviews}
+              onBatchConfirmPlans={handleBatchConfirmPlans}
               onAssertion={handleAssertion}
               onStory={handleStory}
               onSeed={handleSeed}

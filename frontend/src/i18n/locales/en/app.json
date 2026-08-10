@@ -3029,6 +3029,17 @@
         "body": "This may shape how Magi understands you later, so it needs your confirmation first.",
         "unknownValue": "this"
       },
+      "planBatch": {
+        "title": "Which plans are still current?",
+        "body": "Select the plans that still apply. Unselected plans stay here for later and are not treated as rejected.",
+        "selectAll": "Select all",
+        "clearSelection": "Clear selection",
+        "confirmSelected": "Confirm {{count}} selected",
+        "selectLabel": "Select plan: {{value}}",
+        "confirmed": "Confirmed {{count}} current plan(s).",
+        "partialFailure": "Confirmed {{confirmed}}; {{failed}} did not finish and can be retried.",
+        "failed": "These plans could not be confirmed. Please retry."
+      },
       "reviewEdit": {
         "title": "Edit and confirm",
         "description": "Edit only what you want Magi to remember. Once confirmed, it is stored as a memory you approved.",

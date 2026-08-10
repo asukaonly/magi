@@ -65,6 +65,12 @@ vi.mock('react-i18next', () => ({
         'memory.pending.reviews.title': '你希望 Magi 记住「{{value}}」吗？',
         'memory.pending.reviews.body': '这条内容可能会影响 Magi 之后对你的理解，需要你先确认。',
         'memory.pending.reviews.unknownValue': '这条内容',
+        'memory.pending.planBatch.title': '哪些计划现在仍然有效？',
+        'memory.pending.planBatch.body': '选择仍然有效的计划。未选择的会继续保留在这里。',
+        'memory.pending.planBatch.selectAll': '全选',
+        'memory.pending.planBatch.clearSelection': '取消全选',
+        'memory.pending.planBatch.confirmSelected': '确认选中的 {{count}} 项',
+        'memory.pending.planBatch.selectLabel': '选择计划：{{value}}',
         'memory.pending.reviewEdit.title': '修改后确认',
         'memory.pending.reviewEdit.description': '修改你想让 Magi 记住的内容。',
         'memory.pending.reviewEdit.valueLabel': '记忆内容',
@@ -391,6 +397,99 @@ describe('MemoryPendingPage', () => {
       });
     });
     expect(screen.queryByTestId('pending-review-review-1')).not.toBeInTheDocument();
+  });
+
+  it('batch confirms only the selected current-plan reviews', async () => {
+    const reviews = [
+      {
+        review_id: 'review-plan-1',
+        subject_id: 'user:self',
+        kind: 'goal_currentness',
+        slot_key: 'goal-slot:seaside',
+        value_fingerprint: 'goal-value:seaside',
+        semantic_lineage_key: 'goal-lineage:seaside',
+        claim_ids: ['claim-1'],
+        reason_code: 'goal_low_time_confidence',
+        proposed: { trait_value: '去海边旅行', natural_summary: '过去写下的旅行计划。' },
+        route_contract_version: 5,
+        evidence_rule_version: 2,
+        source_generation: 0,
+        status: 'pending',
+        version: 1,
+        created_at: 1710000000,
+        updated_at: 1710000000,
+      },
+      {
+        review_id: 'review-plan-2',
+        subject_id: 'user:self',
+        kind: 'goal_currentness',
+        slot_key: 'goal-slot:lamp',
+        value_fingerprint: 'goal-value:lamp',
+        semantic_lineage_key: 'goal-lineage:lamp',
+        claim_ids: ['claim-2'],
+        reason_code: 'goal_low_time_confidence',
+        proposed: { trait_value: '更换书桌灯', natural_summary: '过去写下的家居计划。' },
+        route_contract_version: 5,
+        evidence_rule_version: 2,
+        source_generation: 0,
+        status: 'pending',
+        version: 3,
+        created_at: 1710000001,
+        updated_at: 1710000001,
+      },
+    ];
+    vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items: reviews, total: 2 } as never);
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText('哪些计划现在仍然有效？')).toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox', { name: '选择计划：去海边旅行' }));
+    await user.click(screen.getByRole('button', { name: '确认选中的 1 项' }));
+
+    await waitFor(() => {
+      expect(memoryApi.resolvePendingReview).toHaveBeenCalledTimes(1);
+    });
+    expect(memoryApi.resolvePendingReview).toHaveBeenCalledWith('review-plan-1', {
+      action: 'confirm',
+      expected_version: 1,
+    });
+    expect(screen.queryByTestId('pending-review-review-plan-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pending-review-review-plan-2')).toBeInTheDocument();
+  });
+
+  it('keeps failed plan confirmations available after a partial batch result', async () => {
+    const reviews = [
+      {
+        review_id: 'review-plan-ok', subject_id: 'user:self', kind: 'goal_currentness',
+        slot_key: 'goal-slot:ok', value_fingerprint: 'goal-value:ok', semantic_lineage_key: 'goal-lineage:ok',
+        claim_ids: ['claim-ok'], reason_code: 'goal_low_time_confidence',
+        proposed: { trait_value: '整理书架' }, route_contract_version: 5, evidence_rule_version: 2,
+        source_generation: 0, status: 'pending', version: 1, created_at: 1710000000, updated_at: 1710000000,
+      },
+      {
+        review_id: 'review-plan-failed', subject_id: 'user:self', kind: 'goal_currentness',
+        slot_key: 'goal-slot:failed', value_fingerprint: 'goal-value:failed', semantic_lineage_key: 'goal-lineage:failed',
+        claim_ids: ['claim-failed'], reason_code: 'goal_low_time_confidence',
+        proposed: { trait_value: '学习摄影' }, route_contract_version: 5, evidence_rule_version: 2,
+        source_generation: 0, status: 'pending', version: 2, created_at: 1710000001, updated_at: 1710000001,
+      },
+    ];
+    vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items: reviews, total: 2 } as never);
+    vi.mocked(memoryApi.resolvePendingReview).mockImplementation(async (reviewId) => {
+      if (reviewId === 'review-plan-failed') throw new Error('stale review');
+      return { review_id: reviewId, status: 'confirmed', version: 2, assertion_id: 'assert-ok' };
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('哪些计划现在仍然有效？');
+    await user.click(screen.getByRole('button', { name: '全选' }));
+    await user.click(screen.getByRole('button', { name: '确认选中的 2 项' }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('pending-review-review-plan-ok')).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('pending-review-review-plan-failed')).toBeInTheDocument();
   });
 
   it('explains conflicted L2 assertions without exposing internal trait identifiers', async () => {

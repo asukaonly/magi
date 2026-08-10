@@ -3027,6 +3027,17 @@
         "body": "这条内容可能会影响 Magi 之后对你的理解，需要你先确认。",
         "unknownValue": "这条内容"
       },
+      "planBatch": {
+        "title": "哪些计划现在仍然有效？",
+        "body": "选择仍然有效的计划。未选择的会继续保留在这里，不会被当作否定。",
+        "selectAll": "全选",
+        "clearSelection": "取消全选",
+        "confirmSelected": "确认选中的 {{count}} 项",
+        "selectLabel": "选择计划：{{value}}",
+        "confirmed": "已确认 {{count}} 项当前计划。",
+        "partialFailure": "已确认 {{confirmed}} 项，另有 {{failed}} 项未完成，可再次重试。",
+        "failed": "暂时无法确认这些计划，请重试。"
+      },
       "reviewEdit": {
         "title": "修改后确认",
         "description": "只修改你想让 Magi 记住的内容。确认后，它会作为你亲自确认的记忆写入。",

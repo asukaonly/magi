@@ -74,6 +74,10 @@ export const pendingReviewSummary = (review: L2PendingReview, fallback: string):
   String(review.proposed.natural_summary || '').trim() || fallback
 );
 
+export const isCurrentPlanReview = (review: L2PendingReview): boolean => (
+  review.kind === 'goal_currentness'
+);
+
 export const isOpenProfileConflict = (notification: NotificationItem): boolean => (
   notification.payload?.conflict_type === 'profile_conflict' &&
   (notification.status === 'unread' || notification.status === 'read')

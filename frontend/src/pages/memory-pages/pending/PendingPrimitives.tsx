@@ -53,6 +53,7 @@ export function PendingCard({
   title,
   body,
   meta,
+  selection,
   actions,
 }: {
   testId: string;
@@ -60,13 +61,20 @@ export function PendingCard({
   title: string;
   body: string;
   meta: string;
+  selection?: ReactNode;
   actions: ReactNode;
 }) {
   return (
     <article
       data-testid={testId}
-      className="grid gap-3 py-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-8"
+      className={cn(
+        'grid gap-3 py-5 md:items-center md:gap-8',
+        selection
+          ? 'grid-cols-[auto_minmax(0,1fr)] md:grid-cols-[auto_minmax(0,1fr)_auto]'
+          : 'md:grid-cols-[minmax(0,1fr)_auto]',
+      )}
     >
+      {selection ? <div className="pt-1 md:self-start md:pt-1.5">{selection}</div> : null}
       <div className="min-w-0">
         {(label || meta) ? (
           <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[hsl(var(--memory-muted))]">
@@ -78,7 +86,7 @@ export function PendingCard({
         <h3 className="break-words text-[15px] font-medium leading-7 text-[hsl(var(--memory-title))]">{title}</h3>
         {body ? <p className="mt-1 line-clamp-2 text-[13px] leading-6 text-[hsl(var(--memory-body))]">{body}</p> : null}
       </div>
-      <div className="md:justify-self-end">{actions}</div>
+      <div className={cn(selection && 'col-start-2 md:col-start-3', 'md:justify-self-end')}>{actions}</div>
     </article>
   );
 }
