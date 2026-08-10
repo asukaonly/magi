@@ -133,6 +133,34 @@ def test_future_plan_is_assertion_only_and_never_uses_target_window_as_fact_vali
     assert outcomes[0].reason_code == "goal_assertion_only"
 
 
+def test_one_off_preference_stays_out_of_reusable_graph_relationships() -> None:
+    claim = L2Phase1FactClaim(
+        claim_id="claim:trip-moment",
+        subject_ref="user:u1",
+        predicate="LIKES",
+        object_ref="group:trip-moment",
+        object_type="group",
+        fact_kind="explicit_fact",
+        temporal_cue="one_off",
+        evidence_text="这次最喜欢的是随便找早餐店的过程",
+        supporting_event_ids=["evt-trip"],
+        confidence=0.8,
+    )
+
+    candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
+        phase1_result=L2Phase1Result(fact_claims=[claim]),
+        event=SimpleNamespace(timestamp=1_700_000_000.0, source="history_import"),
+        evidence_event_ids=["evt-trip"],
+        resolved_mentions=[],
+        profile=_profile(),
+    )
+
+    assert candidates == []
+    assert len(outcomes) == 1
+    assert outcomes[0].outcome == "skipped"
+    assert outcomes[0].reason_code == "one_off_preference_event_only"
+
+
 def test_phase1_graph_projection_rejects_missing_support() -> None:
     claim = L2Phase1FactClaim(
         claim_id="claim:diiv",

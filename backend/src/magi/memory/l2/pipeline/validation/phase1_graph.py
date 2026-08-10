@@ -8,6 +8,7 @@ from ....event_contracts import MemoryEvent
 from ....evidence import EvidenceClassification
 from ...extraction_profiles import ExtractionProfile
 from ...models import L2Phase1Result, ResolvedEntityMention
+from ...phase1_models import L2TemporalCue
 from ...ontology import (
     PREDICATE_REGISTRY,
     is_low_value_open_predicate,
@@ -47,7 +48,7 @@ class L2Phase1GraphProjectionMixin:
             if candidate is None:
                 outcome = (
                     "skipped"
-                    if reason_code == "goal_assertion_only"
+                    if reason_code in {"goal_assertion_only", "one_off_preference_event_only"}
                     else (
                         "unresolved_entity"
                         if reason_code in {"unresolved_object", "unresolved_subject"}
@@ -93,6 +94,11 @@ class L2Phase1GraphProjectionMixin:
         fact_kind = self._non_empty_text(claim.fact_kind) or "explicit_fact"  # type: ignore[attr-defined]
         if predicate == "PLANS_TO" and fact_kind == "future_intent":
             return None, "goal_assertion_only"
+        if (
+            predicate in {"LIKES", "DISLIKES"}
+            and L2TemporalCue.from_value(claim.temporal_cue) is L2TemporalCue.ONE_OFF
+        ):
+            return None, "one_off_preference_event_only"
         object_type = self._normalize_entity_type(claim.object_type)  # type: ignore[attr-defined]
         if not self._phase1_graph_shape_allowed(
             predicate=predicate,

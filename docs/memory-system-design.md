@@ -728,7 +728,9 @@ both. A graph projection is eligible only after its endpoints resolve to catalog
 IDs produced by Phase 1 entity resolution or source-owned structured hints that
 have first been registered in the catalog. An assertion route may remain eligible
 when its meaning is grounded but the graph endpoint is unresolved. In particular,
-preference and interest routes derive a stable semantic target from either the
+an explicit `one_off` `LIKES` or `DISLIKES` Claim remains event/Claim evidence and
+does not create a reusable preference relationship. All other preference and
+interest routes derive a stable semantic target from either the
 catalog entity ID or the complete normalized evidence text; display truncation is
 never used as identity. Phase 2 does not emit graph edges. Graph storage and
 internal retrieval continue to use stable catalog IDs, while product-facing
