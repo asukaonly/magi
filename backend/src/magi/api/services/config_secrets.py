@@ -6,25 +6,38 @@ from typing import Any, Optional
 
 from ..routers.config_schemas import LLMProviderConfigModel, SystemConfigModel
 
+MASKED_SECRET = "***"
+
 
 def mask_api_key(api_key: str) -> str:
-    """Mask an API key while preserving a short visible prefix."""
-    if not api_key:
-        return ""
-    visible_chars = 6
-    if len(api_key) <= visible_chars:
-        return api_key[:3] + "***" if len(api_key) > 3 else "***"
-    return api_key[:visible_chars] + "****"
+    """Replace a configured API key with the write-only sentinel."""
+    return MASKED_SECRET if api_key else ""
 
 
 def is_masked_api_key(api_key: Optional[str]) -> bool:
     """Return True only for explicit masked placeholders from UI payloads."""
     if not api_key:
         return False
-    masked_patterns = ["***", "****", "*****"]
-    if api_key in masked_patterns:
-        return True
-    return api_key.endswith("****") or api_key.endswith("***")
+    return api_key == MASKED_SECRET
+
+
+def mask_system_config_secrets(config: SystemConfigModel) -> SystemConfigModel:
+    """Return a response-safe config copy without readable credentials."""
+    masked = config.model_copy(deep=True)
+    for provider in masked.llm.providers.values():
+        provider.api_key = mask_api_key(provider.api_key or "") or None
+        for service_name in ("chat", "embedding", "image_generation", "tts"):
+            service = getattr(provider.services, service_name)
+            service.api_key = mask_api_key(service.api_key or "") or None
+
+    masked.network.password = mask_api_key(masked.network.password)
+    masked.tools.builtIn.weather.apiKey = (
+        mask_api_key(masked.tools.builtIn.weather.apiKey or "") or None
+    )
+    masked.tools.builtIn.webSearch.apiKey = (
+        mask_api_key(masked.tools.builtIn.webSearch.apiKey or "") or None
+    )
+    return masked
 
 
 def normalize_masked_llm_provider_secrets(
@@ -75,12 +88,17 @@ def normalize_masked_secrets(config: SystemConfigModel, runtime_config: Any) -> 
             runtime_web_search.api_key if runtime_web_search is not None else None
         )
 
+    if is_masked_api_key(normalized.network.password):
+        normalized.network.password = str(getattr(runtime_config.network, "password", "") or "")
+
     return normalized
 
 
 __all__ = [
+    "MASKED_SECRET",
     "is_masked_api_key",
     "mask_api_key",
+    "mask_system_config_secrets",
     "normalize_masked_llm_provider_secrets",
     "normalize_masked_secrets",
 ]

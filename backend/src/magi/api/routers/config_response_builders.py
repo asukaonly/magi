@@ -12,7 +12,6 @@ from ...config.llm_registry import (
 )
 from ...config.models import LLMCapabilitiesSettings
 from ...core.logger import get_logger
-from ..services.config_secrets import mask_api_key
 from .config_schemas import (
     BuiltInToolsConfigModel,
     CrossEncoderConfigModel,
@@ -218,14 +217,10 @@ def build_llm_config_model(
     runtime_config: Any,
     raw_llm: Dict[str, Any],
     registry: LLMProviderRegistryModel,
-    mask_api_key: bool,
 ) -> LLMConfigModel:
     providers: Dict[str, LLMProviderConfigModel] = {}
     for provider_id, provider in getattr(runtime_config.llm, "providers", {}).items():
-        providers[provider_id] = _build_llm_provider_config(
-            provider,
-            mask_api_key=mask_api_key,
-        )
+        providers[provider_id] = _build_llm_provider_config(provider)
 
     selections: Dict[str, LLMSelectionConfigModel] = {}
     for selection_id, selection in getattr(runtime_config.llm, "selections", {}).items():
@@ -247,17 +242,15 @@ def build_llm_config_model(
 
 def _build_llm_provider_config(
     provider: Any,
-    *,
-    mask_api_key: bool,
 ) -> LLMProviderConfigModel:
     return LLMProviderConfigModel(
         enabled=provider.enabled,
         provider_type=str(getattr(provider.provider_type, "value", provider.provider_type)),
         display_name=provider.display_name,
         provider_plan=getattr(provider, "provider_plan", None),
-        api_key=_maybe_mask_api_key(getattr(provider, "api_key", None), mask_api_key),
+        api_key=getattr(provider, "api_key", None),
         base_url=getattr(provider, "base_url", None),
-        services=_build_llm_provider_services_config(provider, mask_api_key=mask_api_key),
+        services=_build_llm_provider_services_config(provider),
         api_format=provider.api_format,
         custom_models=list(getattr(provider, "custom_models", []) or []),
         custom_default_model=getattr(provider, "custom_default_model", None),
@@ -267,8 +260,6 @@ def _build_llm_provider_config(
 
 def _build_llm_provider_services_config(
     provider: Any,
-    *,
-    mask_api_key: bool,
 ) -> LLMProviderServicesConfigModel:
     services = getattr(provider, "services", None)
     chat = getattr(services, "chat", None)
@@ -276,19 +267,13 @@ def _build_llm_provider_services_config(
     image_generation = getattr(services, "image_generation", None)
     tts = getattr(services, "tts", None)
     return LLMProviderServicesConfigModel(
-        chat=_build_provider_connection_config(
-            chat, default_enabled=True, mask_api_key=mask_api_key
-        ),
+        chat=_build_provider_connection_config(chat, default_enabled=True),
         embedding=_build_provider_connection_config(
             embedding,
             default_enabled=True,
-            mask_api_key=mask_api_key,
         ),
-        image_generation=_build_image_generation_connection_config(
-            image_generation,
-            mask_api_key=mask_api_key,
-        ),
-        tts=_build_tts_connection_config(tts, mask_api_key=mask_api_key),
+        image_generation=_build_image_generation_connection_config(image_generation),
+        tts=_build_tts_connection_config(tts),
     )
 
 
@@ -296,23 +281,20 @@ def _build_provider_connection_config(
     service: Any,
     *,
     default_enabled: bool,
-    mask_api_key: bool,
 ) -> LLMProviderConnectionConfigModel:
     return LLMProviderConnectionConfigModel(
         enabled=getattr(service, "enabled", default_enabled),
-        api_key=_maybe_mask_api_key(getattr(service, "api_key", None), mask_api_key),
+        api_key=getattr(service, "api_key", None),
         base_url=getattr(service, "base_url", None),
     )
 
 
 def _build_image_generation_connection_config(
     image_generation: Any,
-    *,
-    mask_api_key: bool,
 ) -> LLMProviderImageGenerationConfigModel:
     return LLMProviderImageGenerationConfigModel(
         enabled=getattr(image_generation, "enabled", False),
-        api_key=_maybe_mask_api_key(getattr(image_generation, "api_key", None), mask_api_key),
+        api_key=getattr(image_generation, "api_key", None),
         base_url=getattr(image_generation, "base_url", None),
         timeout=getattr(image_generation, "timeout", 180),
         native_protocol=getattr(image_generation, "native_protocol", None),
@@ -321,12 +303,10 @@ def _build_image_generation_connection_config(
 
 def _build_tts_connection_config(
     tts: Any,
-    *,
-    mask_api_key: bool,
 ) -> LLMProviderTTSConfigModel:
     return LLMProviderTTSConfigModel(
         enabled=getattr(tts, "enabled", False),
-        api_key=_maybe_mask_api_key(getattr(tts, "api_key", None), mask_api_key),
+        api_key=getattr(tts, "api_key", None),
         base_url=getattr(tts, "base_url", None),
         model=getattr(tts, "model", None),
         voice=getattr(tts, "voice", None),
@@ -456,20 +436,9 @@ def _build_chat_selection_config(
     )
 
 
-def _maybe_mask_api_key(api_key: str | None, should_mask: bool) -> str | None:
-    if should_mask and api_key:
-        return mask_api_key_value(api_key)
-    return api_key
-
-
-def mask_api_key_value(api_key: str) -> str:
-    return mask_api_key(api_key)
-
-
 __all__ = [
     "build_llm_config_model",
     "build_memory_config",
     "build_tools",
     "load_full_personality",
-    "mask_api_key_value",
 ]

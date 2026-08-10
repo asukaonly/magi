@@ -208,12 +208,12 @@ describe("onboarding progress restoration", () => {
       provider_type: "openai",
       display_name: "OpenAI",
       provider_plan: null,
-      api_key: "sk-ser****",
+      api_key: "***",
       base_url: "https://api.openai.com/v1",
       services: {
         chat: {
           enabled: true,
-          api_key: "sk-ser****",
+          api_key: "***",
           base_url: "https://api.openai.com/v1",
         },
         embedding: { enabled: false, api_key: "", base_url: "" },
@@ -256,14 +256,14 @@ describe("onboarding progress restoration", () => {
       null,
     );
 
-    expect(restored.values.llm.providers.openai.api_key).toBe("sk-ser****");
+    expect(restored.values.llm.providers.openai.api_key).toBe("***");
     expect(restored.values.llm.providers.openai.services.chat.api_key).toBe(
-      "sk-ser****",
+      "***",
     );
 
     const serialized = serializeOnboardingProgress(restored);
     expect(serialized).not.toContain("sk-legacy-browser-secret");
-    expect(serialized).not.toContain("sk-ser****");
+    expect(serialized).not.toContain('"***"');
     expect(serialized).not.toContain("api_key");
     expect(JSON.parse(serialized).values).toEqual({
       preferences: { language: backendConfig.preferences.language },

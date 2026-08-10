@@ -36,7 +36,7 @@ from ..services.config_onboarding import (
 )
 from ..services.config_secrets import (
     is_masked_api_key,
-    mask_api_key,
+    mask_system_config_secrets,
 )
 from ..services.llm_testing_service import get_llm_provider_registry as _load_llm_provider_registry
 from .config_update_paths import (
@@ -129,7 +129,7 @@ def _t(request: Request, key: str, fallback: str, **kwargs: Any) -> str:
     return core_i18n.t(key, language=_request_language(request), fallback=fallback, **kwargs)
 
 
-def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
+def _build_system_config(mask_secrets: bool = True) -> SystemConfigModel:
     runtime_config = get_config()
     raw = _read_raw_yaml()
     registry = _load_llm_provider_registry()
@@ -138,7 +138,7 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
     network_data = raw.get("network", {})
     diagnostics_data = raw.get("diagnostics", {})
 
-    return SystemConfigModel(
+    config = SystemConfigModel(
         agent=AgentConfigModel(
             name=runtime_config.agent.name,
             description=raw.get("agent", {}).get("description", "Magi AI Agent Framework"),
@@ -150,7 +150,6 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
             runtime_config=runtime_config,
             raw_llm=raw.get("llm", {}) if isinstance(raw.get("llm"), dict) else {},
             registry=registry,
-            mask_api_key=mask_api_key,
         ),
         memory=_build_memory_config(raw, runtime_config),
         preferences=UserPreferencesModel(**preferences_data),
@@ -173,12 +172,13 @@ def _build_system_config(mask_api_key: bool = False) -> SystemConfigModel:
             **(raw.get("timeline", {}) if isinstance(raw.get("timeline"), dict) else {})
         ),
     )
+    return mask_system_config_secrets(config) if mask_secrets else config
 
 
 def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     normalized = _normalize_masked_secrets(config)
     target_updates = _build_full_update_paths(normalized)
-    current_updates = _build_full_update_paths(_build_system_config(mask_api_key=False))
+    current_updates = _build_full_update_paths(_build_system_config(mask_secrets=False))
 
     return {
         path: value for path, value in target_updates.items() if current_updates.get(path) != value
@@ -195,10 +195,6 @@ def _embedding_execution_signature(config: Any) -> Dict[str, Any]:
 
 def _get_embedding_rebuild_manager() -> Any:
     return _resolve_embedding_rebuild_manager()
-
-
-def _mask_api_key(api_key: str) -> str:
-    return mask_api_key(api_key)
 
 
 async def _enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
@@ -489,7 +485,7 @@ async def test_config(request: Request, config: SystemConfigModel):
     return ConfigResponse(
         success=True,
         message=_t(request, "config.messages.valid", "Configuration valid"),
-        data=config,
+        data=mask_system_config_secrets(config),
     )
 
 
@@ -497,7 +493,7 @@ async def test_config(request: Request, config: SystemConfigModel):
 async def get_onboarding_template(request: Request):
     _ensure_onboarding_incomplete(request)
     template = _build_onboarding_template()
-    template.llm = _build_system_config(mask_api_key=True).llm
+    template.llm = _build_system_config().llm
     return OnboardingTemplateResponse(
         success=True,
         message=_t(request, "config.onboarding.template_loaded", "Onboarding template loaded"),
@@ -530,7 +526,7 @@ async def update_onboarding_draft(
             with core_i18n.language_context(_request_language(request)):
                 normalized = _normalize_masked_secrets(draft)
                 updates = _build_onboarding_update_paths(normalized, complete=False)
-            proposed_config = _build_system_config(mask_api_key=False).model_copy(
+            proposed_config = _build_system_config(mask_secrets=False).model_copy(
                 update={"llm": normalized.llm},
                 deep=True,
             )
@@ -549,7 +545,7 @@ async def update_onboarding_draft(
         return ConfigResponse(
             success=True,
             message=_t(request, "config.onboarding.draft_saved", "Onboarding draft saved"),
-            data=_build_system_config(mask_api_key=True),
+            data=_build_system_config(),
         )
     except HTTPException:
         raise
@@ -561,7 +557,7 @@ async def update_onboarding_draft(
 @config_router.post("/channels/telegram/test", response_model=TestTelegramConnectionResponse)
 async def test_telegram_connection(request: Request, payload: TestTelegramConnectionRequest):
     """Test Telegram bot token + proxy by calling getMe."""
-    if not payload.bot_token or payload.bot_token.endswith("****"):
+    if not payload.bot_token or is_masked_api_key(payload.bot_token):
         raise HTTPException(
             status_code=400,
             detail=_t(
@@ -630,7 +626,7 @@ async def complete_onboarding(
             with core_i18n.language_context(_request_language(request)):
                 normalized = _normalize_masked_secrets(config)
                 updates = _build_onboarding_update_paths(normalized, complete=True)
-            proposed_config = _build_system_config(mask_api_key=False).model_copy(
+            proposed_config = _build_system_config(mask_secrets=False).model_copy(
                 update={"llm": normalized.llm},
                 deep=True,
             )
@@ -654,7 +650,7 @@ async def complete_onboarding(
         return ConfigResponse(
             success=True,
             message=_t(request, "config.onboarding.saved", "Onboarding configuration saved"),
-            data=_build_system_config(mask_api_key=True),
+            data=_build_system_config(),
         )
     except HTTPException:
         raise

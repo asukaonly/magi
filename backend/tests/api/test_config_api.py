@@ -24,6 +24,10 @@ from magi.api.routers.config_schemas import (
 )
 from magi.api.routers.config_response_builders import _build_memory_l0_config
 from magi.api.services.llm_testing_service import _default_llm_provider_registry
+from magi.api.services.config_secrets import (
+    mask_system_config_secrets,
+    normalize_masked_secrets,
+)
 from magi.api.routers.llm import llm_router
 from magi.config.loader import get_config
 from magi.config.models import (
@@ -307,7 +311,7 @@ def test_build_update_paths_includes_background_auto_dispatch_setting(
 ):
     monkeypatch.setattr(
         "magi.api.routers.config._build_system_config",
-        lambda mask_api_key=False: SystemConfigModel(),
+        lambda mask_secrets=True: SystemConfigModel(),
     )
     config = SystemConfigModel(agent={"background_tasks": {"auto_detect_long_task": True}})
 
@@ -330,7 +334,7 @@ def test_build_update_paths_keeps_preferences_yaml_safe_with_dismissals(
     """
     monkeypatch.setattr(
         "magi.api.routers.config._build_system_config",
-        lambda mask_api_key=False: SystemConfigModel(),
+        lambda mask_secrets=True: SystemConfigModel(),
     )
     config = SystemConfigModel()
     config.preferences.suggestion_dismissals = {
@@ -394,7 +398,7 @@ def test_build_update_paths_persists_diagnostic_logging_preference(
 ):
     monkeypatch.setattr(
         "magi.api.routers.config._build_system_config",
-        lambda mask_api_key=False: SystemConfigModel(),
+        lambda mask_secrets=True: SystemConfigModel(),
     )
     config = SystemConfigModel()
     config.diagnostics.full_content_logging_enabled = False
@@ -489,7 +493,7 @@ def test_custom_provider_default_model_must_be_in_model_list():
 
 
 def test_build_update_paths_contains_new_sections():
-    current = _build_system_config(mask_api_key=False)
+    current = _build_system_config(mask_secrets=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
     config.memory.db_path = "/tmp/magi-data/custom-memories"
     config.memory.archive_path = "/tmp/magi-data/custom-archive"
@@ -575,7 +579,7 @@ def test_build_system_config_hides_internal_memory_vector_backend_settings():
 
 
 def test_build_update_paths_persists_model_metadata_overrides():
-    current = _build_system_config(mask_api_key=False)
+    current = _build_system_config(mask_secrets=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
     config.llm.providers["openai"] = _provider_config_model()
     config.llm.providers["openai"].model_metadata_overrides = {
@@ -607,7 +611,7 @@ def test_build_update_paths_persists_model_metadata_overrides():
 
 
 def test_build_update_paths_prunes_empty_null_fields_from_model_metadata_overrides():
-    current = _build_system_config(mask_api_key=False)
+    current = _build_system_config(mask_secrets=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
     config.llm.providers["openai"] = _provider_config_model()
     config.llm.providers["openai"].model_metadata_overrides = {
@@ -657,7 +661,7 @@ def test_build_update_paths_skip_masked_api_key():
     runtime_config.llm.providers["openai"].services.image_generation.api_key = "sk-image-openai"
 
     try:
-        current = _build_system_config(mask_api_key=False)
+        current = _build_system_config(mask_secrets=False)
         config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
         config.llm.providers["openai"].display_name = "OpenAI Override"
         config.llm.providers["openai"].services.chat.api_key = "***"
@@ -678,7 +682,7 @@ def test_build_update_paths_skip_masked_api_key():
             runtime_config.llm.providers["openai"] = original_provider
 
 
-def test_build_system_config_returns_real_llm_api_keys_by_default(
+def test_build_system_config_masks_llm_api_keys_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ):
     runtime_config = get_config()
@@ -687,12 +691,64 @@ def test_build_system_config_returns_real_llm_api_keys_by_default(
 
     try:
         config = _build_system_config()
-        assert config.llm.providers["openai"].services.chat.api_key == "sk-visible-openai"
+        assert config.llm.providers["openai"].api_key == "***"
+        assert config.llm.providers["openai"].services.chat.api_key == "***"
+        assert (
+            _build_system_config(mask_secrets=False)
+            .llm.providers["openai"]
+            .services.chat.api_key
+            == "sk-visible-openai"
+        )
     finally:
         if original_provider is None:
             runtime_config.llm.providers.pop("openai", None)
         else:
             runtime_config.llm.providers["openai"] = original_provider
+
+
+def test_system_config_secrets_are_write_only_with_keep_replace_delete_semantics():
+    config = SystemConfigModel()
+    config.network.password = "proxy-secret"
+    config.tools.builtIn.weather.apiKey = "weather-secret"
+    config.tools.builtIn.webSearch.apiKey = "search-secret"
+
+    masked = mask_system_config_secrets(config)
+
+    assert masked.network.password == "***"
+    assert masked.tools.builtIn.weather.apiKey == "***"
+    assert masked.tools.builtIn.webSearch.apiKey == "***"
+    assert config.network.password == "proxy-secret"
+
+    runtime = SimpleNamespace(
+        llm=SimpleNamespace(providers={}),
+        network=SimpleNamespace(password="proxy-secret"),
+        tools=SimpleNamespace(
+            weather=SimpleNamespace(
+                providers={"openmeteo": SimpleNamespace(api_key="weather-secret")}
+            ),
+            web_search=SimpleNamespace(
+                providers={"duckduckgo": SimpleNamespace(api_key="search-secret")}
+            ),
+        ),
+    )
+    kept = normalize_masked_secrets(masked, runtime)
+    assert kept.network.password == "proxy-secret"
+    assert kept.tools.builtIn.weather.apiKey == "weather-secret"
+    assert kept.tools.builtIn.webSearch.apiKey == "search-secret"
+
+    replaced = masked.model_copy(deep=True)
+    replaced.network.password = "rotated-proxy-secret"
+    replaced.tools.builtIn.weather.apiKey = "rotated-weather-secret"
+    normalized_replacement = normalize_masked_secrets(replaced, runtime)
+    assert normalized_replacement.network.password == "rotated-proxy-secret"
+    assert normalized_replacement.tools.builtIn.weather.apiKey == "rotated-weather-secret"
+
+    cleared = masked.model_copy(deep=True)
+    cleared.network.password = ""
+    cleared.tools.builtIn.weather.apiKey = ""
+    normalized_clear = normalize_masked_secrets(cleared, runtime)
+    assert normalized_clear.network.password == ""
+    assert normalized_clear.tools.builtIn.weather.apiKey == ""
 
 
 def test_build_update_paths_applies_builtin_provider_defaults_before_save():
@@ -1597,27 +1653,27 @@ def test_llm_provider_test_endpoint_resolves_masked_key_from_backend_draft(
                 "enabled": True,
                 "provider_type": "openai",
                 "display_name": "OpenAI",
-                "api_key": "sk-bac****",
+                "api_key": "***",
                 "base_url": "https://api.openai.com/v1",
                 "services": {
                     "chat": {
                         "enabled": True,
-                        "api_key": "sk-bac****",
+                        "api_key": "***",
                         "base_url": "https://api.openai.com/v1",
                     },
                     "embedding": {
                         "enabled": True,
-                        "api_key": "sk-bac****",
+                        "api_key": "***",
                         "base_url": "https://api.openai.com/v1",
                     },
                     "image_generation": {
                         "enabled": True,
-                        "api_key": "sk-bac****",
+                        "api_key": "***",
                         "base_url": "https://api.openai.com/v1",
                     },
                     "tts": {
                         "enabled": True,
-                        "api_key": "sk-bac****",
+                        "api_key": "***",
                         "base_url": "https://api.openai.com/v1",
                     },
                 },
@@ -1829,7 +1885,7 @@ def test_embedding_config_change_waits_for_rebuild_cancel_before_save_and_resume
     monkeypatch.setattr(
         config_module,
         "_build_system_config",
-        lambda mask_api_key=True: proposed,
+        lambda mask_secrets=True: proposed,
     )
 
     response = client.put("/config/", json=proposed.model_dump(mode="json"))
@@ -1874,7 +1930,7 @@ def test_unrelated_config_change_does_not_interrupt_embedding_rebuild(
     monkeypatch.setattr(
         config_module,
         "_build_system_config",
-        lambda mask_api_key=True: proposed,
+        lambda mask_secrets=True: proposed,
     )
 
     response = client.put("/config/", json=proposed.model_dump(mode="json"))
@@ -2152,7 +2208,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     )
     monkeypatch.setattr(
         "magi.api.routers.config._build_system_config",
-        lambda mask_api_key=False: returned_config,
+        lambda mask_secrets=True: returned_config,
     )
 
     response = client.put("/config/", json=payload.model_dump(mode="json"))
@@ -2272,7 +2328,7 @@ def test_onboarding_embedding_change_uses_rebuild_coordination(
     monkeypatch.setattr(
         config_module,
         "_build_system_config",
-        lambda mask_api_key=True: current,
+        lambda mask_secrets=True: current,
     )
     monkeypatch.setattr(config_module, "_read_onboarding_completed", lambda: False)
 

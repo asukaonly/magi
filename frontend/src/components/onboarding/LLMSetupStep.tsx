@@ -82,7 +82,7 @@ function providerRequiresApiKey(provider: LLMProviderConfig): boolean {
 }
 
 function isMaskedApiKey(value?: string | null): boolean {
-  return Boolean(value && (value.endsWith('****') || value.endsWith('***')));
+  return value === '***';
 }
 
 function updateCommonBaseUrl(provider: LLMProviderConfig, baseUrl: string): void {

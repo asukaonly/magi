@@ -154,10 +154,10 @@ def test_onboarding_template_recovers_only_masked_backend_llm_draft(
     _patch_config_path(monkeypatch, config_path)
     calls: list[bool] = []
 
-    def _build_recovered_config(mask_api_key: bool = False) -> SystemConfigModel:
-        calls.append(mask_api_key)
+    def _build_recovered_config(mask_secrets: bool = True) -> SystemConfigModel:
+        calls.append(mask_secrets)
         return _config_with_provider_key(
-            "sk-dra****" if mask_api_key else "sk-draft-secret",
+            "***" if mask_secrets else "sk-draft-secret",
         )
 
     monkeypatch.setattr(config_module, "_build_system_config", _build_recovered_config)
@@ -167,11 +167,11 @@ def test_onboarding_template_recovers_only_masked_backend_llm_draft(
     assert response.status_code == 200
     assert calls == [True]
     payload = response.json()["data"]["config"]
-    assert payload["llm"]["providers"]["openai"]["api_key"] == "sk-dra****"
+    assert payload["llm"]["providers"]["openai"]["api_key"] == "***"
     for service_name in ("chat", "embedding", "image_generation", "tts"):
         assert payload["llm"]["providers"]["openai"]["services"][service_name][
             "api_key"
-        ] == "sk-dra****"
+        ] == "***"
     assert "sk-draft-secret" not in response.text
 
 
@@ -195,10 +195,10 @@ def test_onboarding_draft_only_saves_language_and_llm(
     monkeypatch.setattr(config_module, "reload_config", lambda: object())
     build_calls: list[bool] = []
 
-    def _build_saved_config(mask_api_key: bool = False) -> SystemConfigModel:
-        build_calls.append(mask_api_key)
+    def _build_saved_config(mask_secrets: bool = True) -> SystemConfigModel:
+        build_calls.append(mask_secrets)
         return _config_with_provider_key(
-            "sk-sav****" if mask_api_key else "sk-saved-secret",
+            "***" if mask_secrets else "sk-saved-secret",
         )
 
     monkeypatch.setattr(config_module, "_build_system_config", _build_saved_config)
@@ -219,7 +219,7 @@ def test_onboarding_draft_only_saves_language_and_llm(
     assert captured["preferences.language"] == "en"
     assert build_calls == [False, True]
     assert response.json()["data"]["llm"]["providers"]["openai"]["api_key"] == (
-        "sk-sav****"
+        "***"
     )
     assert "sk-saved-secret" not in response.text
 
@@ -249,10 +249,10 @@ def test_onboarding_completion_preserves_unrelated_settings(
     monkeypatch.setattr(config_module, "reload_config", lambda: object())
     build_calls: list[bool] = []
 
-    def _build_saved_config(mask_api_key: bool = False) -> SystemConfigModel:
-        build_calls.append(mask_api_key)
+    def _build_saved_config(mask_secrets: bool = True) -> SystemConfigModel:
+        build_calls.append(mask_secrets)
         return _config_with_provider_key(
-            "sk-fin****" if mask_api_key else "sk-finished-secret",
+            "***" if mask_secrets else "sk-finished-secret",
         )
 
     monkeypatch.setattr(config_module, "_build_system_config", _build_saved_config)
@@ -276,7 +276,7 @@ def test_onboarding_completion_preserves_unrelated_settings(
     assert captured["preferences.product_tour_completed"] is True
     assert build_calls == [False, True]
     assert response.json()["data"]["llm"]["providers"]["openai"]["api_key"] == (
-        "sk-fin****"
+        "***"
     )
     assert "sk-finished-secret" not in response.text
 
@@ -307,8 +307,8 @@ def test_onboarding_explicitly_cleared_key_is_not_restored(
 
     monkeypatch.setattr(config_module, "get_config", lambda: current)
 
-    def _build_config(mask_api_key: bool = False) -> SystemConfigModel:
-        return submitted.model_copy(deep=True) if mask_api_key else current.model_copy(deep=True)
+    def _build_config(mask_secrets: bool = True) -> SystemConfigModel:
+        return submitted.model_copy(deep=True) if mask_secrets else current.model_copy(deep=True)
 
     monkeypatch.setattr(config_module, "_build_system_config", _build_config)
 
@@ -457,7 +457,7 @@ def test_general_config_update_cannot_reset_onboarding_completion(
     monkeypatch.setattr(
         config_module,
         "_build_system_config",
-        lambda mask_api_key=False: SystemConfigModel(),
+        lambda mask_secrets=True: SystemConfigModel(),
     )
 
     response = client.put("/config/", json=submitted.model_dump(mode="json"))
