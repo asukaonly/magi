@@ -1,5 +1,9 @@
 import type { Components } from 'react-markdown';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { ImageOff } from 'lucide-react';
 
+import { ProtectedImage } from '@/components/media/ProtectedImage';
 import { openExternalUrl } from '@/runtime/desktop';
 import { CodeBlock } from './code-block';
 
@@ -16,6 +20,56 @@ import { CodeBlock } from './code-block';
  * inverted dark/terminal block. Inline code stays a small light pill.
  */
 export type MarkdownDensity = 'comfortable' | 'compact';
+
+function isRemoteNetworkImageSource(source: string): boolean {
+  const normalized = source.trim();
+  return /^https?:\/\//i.test(normalized) || normalized.startsWith('//');
+}
+
+function remoteImageHost(source: string): string {
+  try {
+    const normalized = source.startsWith('//') ? `https:${source}` : source;
+    return new URL(normalized).hostname || 'external';
+  } catch {
+    return 'external';
+  }
+}
+
+const MarkdownImage: NonNullable<Components['img']> = ({ node: _node, src, alt, className, ...props }) => {
+  const { t } = useTranslation('app');
+  const source = String(src || '').trim();
+  const [loadedRemoteSource, setLoadedRemoteSource] = useState<string | null>(null);
+  const blocked = isRemoteNetworkImageSource(source) && loadedRemoteSource !== source;
+
+  if (blocked) {
+    const host = remoteImageHost(source);
+    return (
+      <span className="my-2 inline-flex max-w-full items-center gap-2 rounded-xl border border-border/70 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
+        <ImageOff className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span className="truncate">
+          {t('markdown.remoteImage.blocked', { host })}
+        </span>
+        <button
+          type="button"
+          className="shrink-0 font-medium text-primary underline decoration-primary/40 underline-offset-4 hover:text-primary/80"
+          onClick={() => setLoadedRemoteSource(source)}
+        >
+          {t('markdown.remoteImage.load')}
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <ProtectedImage
+      {...props}
+      src={source}
+      alt={alt || ''}
+      referrerPolicy="no-referrer"
+      className={`my-2 max-h-[32rem] max-w-full rounded-xl object-contain ${className || ''}`.trim()}
+    />
+  );
+};
 
 // ---- fenced-code extraction -------------------------------------------------
 
@@ -111,6 +165,7 @@ const structuralComponents: Components = {
       {children}
     </a>
   ),
+  img: MarkdownImage,
 };
 
 // Text-flow elements whose type scale / spacing differ per density. Fenced

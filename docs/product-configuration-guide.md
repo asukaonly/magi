@@ -205,6 +205,7 @@ Current product expectations:
 - desktop chat composers should present selected attachments as removable blocks before send and preserve them in message history
 - desktop chat composers should separate attachment chips, message input, and toolbar controls so attachment UI does not shift the text caret region
 - image attachments preserved in message history should render as thumbnails on desktop chat surfaces
+- shared Markdown surfaces must not request `http`, `https`, or protocol-relative images until the user chooses to load that individual image; protected local attachments and relative local images continue to render normally
 - desktop chat history thumbnails should open a larger local preview when clicked
 - chat thumbnails, timeline images, and user-uploaded avatars should keep stable resource identities in product state and obtain short-lived read access only while rendering; expired access should renew transparently without changing history or requiring the user to reload
 - parsed text and PDF attachments should be injected into the chat prompt as active attachment context for the current turn

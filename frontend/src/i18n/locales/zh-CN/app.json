@@ -1,4 +1,10 @@
 {
+  "markdown": {
+    "remoteImage": {
+      "blocked": "外部图片来自 {{host}}",
+      "load": "加载这张图片"
+    }
+  },
   "productTour": {
     "next": "下一步",
     "back": "上一步",

@@ -1,4 +1,10 @@
 {
+  "markdown": {
+    "remoteImage": {
+      "blocked": "Remote image from {{host}}",
+      "load": "Load image"
+    }
+  },
   "productTour": {
     "next": "Next",
     "back": "Back",
