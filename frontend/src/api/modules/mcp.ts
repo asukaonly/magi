@@ -26,6 +26,24 @@ export interface MCPRuntime {
   max_restart_attempts: number;
 }
 
+export interface MCPToolSelection {
+  include: string[] | null;
+}
+
+export interface MCPAvailableTool {
+  name: string;
+  description: string;
+  enabled: boolean;
+  available: boolean;
+}
+
+export type MCPToolRisk = 'low' | 'medium' | 'high' | 'destructive';
+
+export interface MCPToolOverride {
+  dangerous?: boolean | null;
+  risk?: MCPToolRisk | null;
+}
+
 export type MCPServerState =
   | 'connecting'
   | 'connected'
@@ -41,6 +59,9 @@ export interface MCPServerStatus {
   autostart: boolean;
   transport: MCPTransport;
   runtime: MCPRuntime;
+  tools: MCPToolSelection;
+  available_tools: MCPAvailableTool[];
+  tool_overrides: Record<string, MCPToolOverride>;
   state: MCPServerState;
   tool_count: number;
   resource_count: number;
@@ -57,7 +78,8 @@ export interface MCPServerCreatePayload {
   };
   transport: MCPTransport;
   runtime?: Partial<MCPRuntime>;
-  tool_overrides?: Record<string, { dangerous?: boolean | null }>;
+  tools?: MCPToolSelection;
+  tool_overrides?: Record<string, MCPToolOverride>;
 }
 
 export interface MCPResource {

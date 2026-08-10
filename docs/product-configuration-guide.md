@@ -585,6 +585,10 @@ Expected product behavior:
 Tool-specific expectations:
 
 - users can enable or disable supported builtin or plugin-provided tools
+- MCP servers expose all discovered tools only until the user pins an explicit
+  per-server selection; after that point, newly advertised tools remain hidden
+  until selected, while runtime approval continues to use the shared permission
+  gateway rather than a separate MCP-specific prompt path
 - tool-specific configuration is shown only when relevant
 - built-in tool enable switches are enforced at execution time, not just displayed in settings
 - weather defaults to keyless Open-Meteo for global first-run usability; QWeather remains available for users who prefer it and requires an API key, with API host kept as an optional override when the default endpoint is not accepted by the account

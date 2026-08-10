@@ -17,6 +17,7 @@ import {
 import { mcpApi } from '@/api/modules/mcp';
 import type {
   MCPServerCreatePayload,
+  MCPAvailableTool,
   MCPServerLogs,
   MCPServerStatus,
   MCPTransport,
@@ -59,6 +60,8 @@ type DraftState = {
   callTimeoutMs: number;
   initTimeoutMs: number;
   maxRestartAttempts: number;
+  toolInclude: string[] | null;
+  availableTools: MCPAvailableTool[];
   toolOverridesJson: string;
 };
 
@@ -77,6 +80,8 @@ const EMPTY_DRAFT: DraftState = {
   callTimeoutMs: 60000,
   initTimeoutMs: 15000,
   maxRestartAttempts: 5,
+  toolInclude: null,
+  availableTools: [],
   toolOverridesJson: '{}',
 };
 
@@ -99,6 +104,9 @@ const draftFromServer = (server: MCPServerStatus): DraftState => {
     callTimeoutMs: server.runtime.call_timeout_ms,
     initTimeoutMs: server.runtime.init_timeout_ms,
     maxRestartAttempts: server.runtime.max_restart_attempts,
+    toolInclude: server.tools?.include ?? null,
+    availableTools: server.available_tools ?? [],
+    toolOverridesJson: JSON.stringify(server.tool_overrides ?? {}, null, 2),
   };
   if (server.transport.kind === 'stdio') {
     return {
@@ -163,7 +171,7 @@ const buildPayload = (
     };
   }
 
-  let toolOverrides: Record<string, { dangerous?: boolean | null }> | undefined;
+  let toolOverrides: MCPServerCreatePayload['tool_overrides'];
   if (draft.toolOverridesJson.trim() && draft.toolOverridesJson.trim() !== '{}') {
     try {
       toolOverrides = JSON.parse(draft.toolOverridesJson);
@@ -187,6 +195,7 @@ const buildPayload = (
         init_timeout_ms: draft.initTimeoutMs,
         max_restart_attempts: draft.maxRestartAttempts,
       },
+      tools: { include: draft.toolInclude },
       tool_overrides: toolOverrides,
     },
   };
@@ -275,6 +284,16 @@ const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
       setSaving(false);
     }
   }, [draft, isEdit, onClose, onSave, t]);
+
+  const setToolEnabled = useCallback((name: string, enabled: boolean) => {
+    setDraft((current) => {
+      const visibleNames = current.availableTools.map((tool) => tool.name);
+      const selected = new Set(current.toolInclude ?? visibleNames);
+      if (enabled) selected.add(name);
+      else selected.delete(name);
+      return { ...current, toolInclude: visibleNames.filter((item) => selected.has(item)) };
+    });
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? null : onClose())}>
@@ -479,6 +498,91 @@ const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
                     />
                   </label>
                 </div>
+                <div className="space-y-2 rounded-md border bg-background/60 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="font-medium">
+                        {t('settings.mcp.editor.exposedTools')}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {t('settings.mcp.editor.exposedToolsHint')}
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Switch
+                        checked={draft.toolInclude === null}
+                        onCheckedChange={(checked) =>
+                          setDraft({
+                            ...draft,
+                            toolInclude: checked
+                              ? null
+                              : draft.availableTools.map((tool) => tool.name),
+                          })
+                        }
+                      />
+                      {t('settings.mcp.editor.autoExposeTools')}
+                    </label>
+                  </div>
+                  {draft.availableTools.length > 0 ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            setDraft({
+                              ...draft,
+                              toolInclude: draft.availableTools.map((tool) => tool.name),
+                            })
+                          }
+                        >
+                          {t('settings.mcp.editor.selectAllTools')}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setDraft({ ...draft, toolInclude: [] })}
+                        >
+                          {t('settings.mcp.editor.clearTools')}
+                        </Button>
+                      </div>
+                      <ul className="max-h-48 space-y-1 overflow-auto rounded-md border p-2">
+                        {draft.availableTools.map((tool) => {
+                          const checked =
+                            draft.toolInclude === null || draft.toolInclude.includes(tool.name);
+                          return (
+                            <li key={tool.name} className="rounded px-2 py-1 hover:bg-accent/40">
+                              <label className="flex items-start gap-2">
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5"
+                                  checked={checked}
+                                  onChange={(event) =>
+                                    setToolEnabled(tool.name, event.target.checked)
+                                  }
+                                />
+                                <span className="min-w-0">
+                                  <span className="block font-mono text-xs">{tool.name}</span>
+                                  <span className="block text-xs text-muted-foreground">
+                                    {tool.available
+                                      ? tool.description || t('settings.mcp.editor.noToolDescription')
+                                      : t('settings.mcp.editor.toolUnavailable')}
+                                  </span>
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      {t('settings.mcp.editor.toolsUnavailableHint')}
+                    </p>
+                  )}
+                </div>
                 <label className="block">
                   <span className="mb-1 block text-muted-foreground">
                     {t('settings.mcp.editor.toolOverrides')}
@@ -489,7 +593,7 @@ const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
                     rows={4}
                     spellCheck={false}
                     className="font-mono text-xs"
-                    placeholder='{"create_issue": {"dangerous": true}}'
+                    placeholder='{"create_issue": {"risk": "high"}}'
                   />
                   <span className="mt-1 block text-xs text-muted-foreground">
                     {t('settings.mcp.editor.toolOverridesHint')}

@@ -61,6 +61,19 @@ Authorization = "Bearer ${env:REMOTE_TOKEN}"
 
 The `[runtime]` section accepts `call_timeout_ms`, `init_timeout_ms`, and `max_restart_attempts`; defaults are 60s/15s/5.
 
+`[tools].include` controls which discovered tools are registered and exposed to
+the model:
+
+```toml
+[tools]
+include = ["find_issues", "get_issue", "create_issue"]
+```
+
+When the section is absent, all discovered tools are exposed for compatibility.
+Once an explicit list is saved, including an empty list, newly advertised tools
+stay unavailable until the user selects them. The settings editor shows a
+checklist after the server has connected and completed `tools/list` discovery.
+
 `[tool_overrides.<remote-tool-name>]` lets you assign the host-owned risk level:
 
 ```toml

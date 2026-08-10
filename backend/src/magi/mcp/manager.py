@@ -25,6 +25,7 @@ class _ServerRuntime:
         self.cfg = cfg
         self.conn = conn
         self.registered_tool_names: list[str] = []
+        self.tools: list[dict] = []
         self.resources: list[dict] = []
         self.resource_templates: list[dict] = []
         self.prompts: list[dict] = []
@@ -191,8 +192,12 @@ class MCPManager:
                 rt.cfg.server.id,
                 redact_mcp_log_text(exc),
             )
+            rt.tools = []
             return
+        rt.tools = tools
         for remote in tools:
+            if not rt.cfg.tools.allows(remote["name"]):
+                continue
             override = rt.cfg.tool_overrides.get(remote["name"])
             cls = build_adapter_class(
                 server_id=rt.cfg.server.id,

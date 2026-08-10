@@ -80,6 +80,15 @@ def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
         resource_count = 0
         resource_template_count = 0
         prompt_count = 0
+        available_tools = [
+            {
+                "name": name,
+                "description": "",
+                "enabled": True,
+                "available": False,
+            }
+            for name in (cfg.tools.include or [])
+        ]
         last_error = None
     else:
         state_map = {
@@ -94,6 +103,31 @@ def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
         resource_count = len(rt.resources)
         resource_template_count = len(rt.resource_templates)
         prompt_count = len(rt.prompts)
+        configured_names = set(cfg.tools.include or [])
+        discovered_names: set[str] = set()
+        available_tools = []
+        for remote in rt.tools:
+            name = str(remote.get("name") or "")
+            if not name:
+                continue
+            discovered_names.add(name)
+            available_tools.append(
+                {
+                    "name": name,
+                    "description": str(remote.get("description") or ""),
+                    "enabled": cfg.tools.allows(name),
+                    "available": True,
+                }
+            )
+        for name in sorted(configured_names - discovered_names):
+            available_tools.append(
+                {
+                    "name": name,
+                    "description": "",
+                    "enabled": True,
+                    "available": False,
+                }
+            )
         last_error = redact_mcp_log_text(rt.last_error)
     return {
         "id": cfg.server.id,
@@ -103,6 +137,12 @@ def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
         "autostart": cfg.server.autostart,
         "transport": _mask_transport(cfg.transport.model_dump()),
         "runtime": cfg.runtime.model_dump(),
+        "tools": cfg.tools.model_dump(),
+        "available_tools": available_tools,
+        "tool_overrides": {
+            name: {k: v for k, v in override.model_dump().items() if v is not None}
+            for name, override in cfg.tool_overrides.items()
+        },
         "state": state,
         "tool_count": tool_count,
         "resource_count": resource_count,
@@ -121,6 +161,8 @@ def _config_to_toml_dict(cfg: MCPServerConfig) -> dict[str, Any]:
         "transport": transport,
         "runtime": runtime,
     }
+    if cfg.tools.include is not None:
+        out["tools"] = {"include": cfg.tools.include}
     if cfg.tool_overrides:
         out["tool_overrides"] = {
             name: {k: v for k, v in ov.model_dump().items() if v is not None}
@@ -139,6 +181,7 @@ class CreateOrUpdatePayload(BaseModel):
     server: dict
     transport: dict
     runtime: dict | None = None
+    tools: dict | None = None
     tool_overrides: dict | None = None
 
     @model_validator(mode="before")

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 vi.mock('@/api/client', () => ({
   api: {
@@ -179,6 +180,55 @@ describe('MCPServersSection', () => {
     await screen.findByText('Demo');
     const moreBtn = screen.getByRole('button', { name: /settings\.mcp\.actions\.more/ });
     expect(moreBtn).toBeTruthy();
+  });
+
+  it('pins selected MCP tools and preserves risk overrides when editing', async () => {
+    const user = userEvent.setup();
+    const server = {
+      id: 'demo',
+      name: 'Demo',
+      description: '',
+      enabled: true,
+      autostart: true,
+      transport: { kind: 'stdio', command: 'npx', args: [], cwd: '', env: {} },
+      runtime: { call_timeout_ms: 60000, init_timeout_ms: 15000, max_restart_attempts: 5 },
+      tools: { include: null },
+      available_tools: [
+        { name: 'read', description: 'Read data', enabled: true, available: true },
+        { name: 'write', description: 'Write data', enabled: true, available: true },
+      ],
+      tool_overrides: { write: { risk: 'high' } },
+      state: 'connected',
+      tool_count: 2,
+      resource_count: 0,
+      last_error: null,
+    };
+    vi.mocked(api.get).mockResolvedValue({ data: [server] } as any);
+    vi.mocked(api.patch).mockResolvedValue(server as any);
+    render(<MCPServersSection />);
+
+    await screen.findByText('Demo');
+    await user.click(
+      screen.getByRole('button', { name: /settings\.mcp\.actions\.more/ }),
+    );
+    await user.click(await screen.findByText('settings.mcp.actions.edit'));
+    await user.click(await screen.findByText('settings.mcp.editor.advancedShow'));
+
+    const writeLabel = (await screen.findByText('write')).closest('label');
+    const writeCheckbox = writeLabel?.querySelector('input[type="checkbox"]');
+    expect(writeCheckbox).toBeTruthy();
+    await user.click(writeCheckbox as HTMLInputElement);
+    await user.click(screen.getByText('settings.mcp.editor.save'));
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith(
+        '/mcp/servers/demo',
+        expect.objectContaining({
+          tools: { include: ['read'] },
+          tool_overrides: { write: { risk: 'high' } },
+        }),
+      );
+    });
   });
 
   it('shows an Import button that triggers a file picker', async () => {

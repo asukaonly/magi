@@ -41,12 +41,45 @@ class RuntimeSection(BaseModel):
     init_timeout_ms: int = 15_000
     max_restart_attempts: int = 5
 
+
+class ToolSelection(BaseModel):
+    """Host-owned allowlist for tools exposed by one MCP server.
+
+    ``None`` preserves the historical behavior of exposing every discovered
+    tool. An explicit list, including an empty one, prevents newly discovered
+    tools from becoming model-visible without a configuration update.
+    """
+
+    include: list[str] | None = None
+
+    @field_validator("include")
+    @classmethod
+    def _normalize_include(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw_name in value:
+            name = raw_name.strip()
+            if not name:
+                raise ValueError("tools.include entries must not be empty")
+            if name not in seen:
+                normalized.append(name)
+                seen.add(name)
+        return normalized
+
+    def allows(self, tool_name: str) -> bool:
+        return self.include is None or tool_name in self.include
+
+
 class ToolOverride(BaseModel):
     dangerous: bool | None = None
     risk: Literal["low", "medium", "high", "destructive"] | None = None
+
 
 class MCPServerConfig(BaseModel):
     server: ServerSection
     transport: Transport
     runtime: RuntimeSection = Field(default_factory=RuntimeSection)
+    tools: ToolSelection = Field(default_factory=ToolSelection)
     tool_overrides: dict[str, ToolOverride] = Field(default_factory=dict)

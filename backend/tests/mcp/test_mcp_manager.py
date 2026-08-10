@@ -151,6 +151,41 @@ async def test_manager_registers_tools_after_handshake():
 
 
 @pytest.mark.asyncio
+async def test_manager_registers_only_explicitly_included_tools():
+    registry = ToolRegistry()
+    factory, _ = _conn_with(
+        [
+            {
+                "name": name,
+                "description": name,
+                "inputSchema": {"type": "object", "properties": {}},
+            }
+            for name in ("read", "write", "delete")
+        ]
+    )
+    cfg = MCPServerConfig.model_validate(
+        {
+            "server": {"id": "filtered", "name": "Filtered"},
+            "transport": {"kind": "stdio", "command": "x"},
+            "tools": {"include": ["read"]},
+        }
+    )
+    mgr = MCPManager(registry=registry, connection_factory=factory)
+    mgr.add_config(cfg)
+
+    await mgr.start_server("filtered")
+
+    assert registry.get_tool("mcp__filtered__read") is not None
+    assert registry.get_tool("mcp__filtered__write") is None
+    assert registry.get_tool("mcp__filtered__delete") is None
+    assert [tool["name"] for tool in mgr._runtimes["filtered"].tools] == [
+        "read",
+        "write",
+        "delete",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_manager_unregisters_on_stop():
     registry = ToolRegistry()
     factory, _ = _conn_with(

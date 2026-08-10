@@ -117,6 +117,15 @@ def test_create_then_list_then_delete_server(client, tmp_path):
     assert payload["id"] == "demo"
     assert payload["state"] == "connected"
     assert payload["tool_count"] == 1
+    assert payload["tools"] == {"include": None}
+    assert payload["available_tools"] == [
+        {
+            "name": "echo",
+            "description": "",
+            "enabled": True,
+            "available": True,
+        }
+    ]
     assert payload["resource_count"] == 1
 
     cfg_path = tmp_path / "config" / "mcp" / "demo.toml"
@@ -136,6 +145,38 @@ def test_create_then_list_then_delete_server(client, tmp_path):
     assert r.status_code == 204
     assert not cfg_path.exists()
     assert mgr.is_running("demo") is False
+
+
+def test_explicit_tool_include_controls_registration_and_round_trips(client, tmp_path):
+    c, mgr = client
+    body = {
+        "server": {"id": "demo", "name": "Demo", "autostart": True},
+        "transport": {"kind": "stdio", "command": "x"},
+        "tools": {"include": []},
+        "tool_overrides": {"echo": {"risk": "medium"}},
+    }
+
+    response = c.post("/api/mcp/servers", json=body)
+
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    assert payload["tool_count"] == 0
+    assert payload["tools"] == {"include": []}
+    assert payload["available_tools"][0]["name"] == "echo"
+    assert payload["available_tools"][0]["enabled"] is False
+    assert payload["tool_overrides"] == {"echo": {"risk": "medium"}}
+    assert mgr._registry.get_tool("mcp__demo__echo") is None  # type: ignore[attr-defined]
+
+    cfg_path = tmp_path / "config" / "mcp" / "demo.toml"
+    config_text = cfg_path.read_text()
+    assert "[tools]" in config_text
+    assert "include = []" in config_text
+
+    from magi.mcp.loader import MCPConfigLoader
+
+    [loaded] = MCPConfigLoader(cfg_path.parent).load_all()
+    assert loaded.tools.include == []
+    assert loaded.tool_overrides["echo"].risk == "medium"
 
 
 def test_create_rejects_duplicate_id(client):
