@@ -31,6 +31,11 @@ from ...mcp.connection import ConnectionState, StdioConnection
 from ...mcp.lifecycle import get_active_manager
 from ...mcp.log_security import redact_mcp_log_text, register_mcp_transport_secrets
 from ...mcp.manager import MCPManager
+from ...mcp.transport_secrets import (
+    mask_mcp_transport,
+    reject_masked_mcp_transport,
+    restore_masked_mcp_transport,
+)
 from ...utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__)
@@ -56,39 +61,8 @@ def _config_path(server_id: str):
 
 
 def _mask_transport(transport_data: dict[str, Any]) -> dict[str, Any]:
-    """Mask sensitive header values for outbound API responses.
-
-    Header *names* are preserved (so the UI can show "Authorization is set"),
-    but non-empty values are replaced with a sentinel. This is read-side only;
-    on-disk config is never touched.
-    """
-    if transport_data.get("kind") != "http":
-        return transport_data
-    headers = transport_data.get("headers")
-    if not isinstance(headers, dict):
-        return transport_data
-    masked = {name: ("***" if value else "") for name, value in headers.items()}
-    transport_data["headers"] = masked
-    return transport_data
-
-
-def _restore_masked_http_headers(
-    raw: dict[str, Any],
-    existing: MCPServerConfig,
-) -> None:
-    """Keep stored HTTP header values when an edit sends the mask sentinel."""
-
-    transport = raw.get("transport")
-    if not isinstance(transport, dict) or transport.get("kind") != "http":
-        return
-    if existing.transport.kind != "http":
-        return
-    incoming_headers = transport.get("headers")
-    if not isinstance(incoming_headers, dict):
-        return
-    for name, value in list(incoming_headers.items()):
-        if value == "***" and name in existing.transport.headers:
-            incoming_headers[name] = existing.transport.headers[name]
+    """Return a write-only transport projection for outbound API responses."""
+    return mask_mcp_transport(transport_data)
 
 
 def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
@@ -222,6 +196,7 @@ async def create_server(payload: CreateOrUpdatePayload) -> dict[str, Any]:
     raw = payload.model_dump(exclude_none=True)
     register_mcp_transport_secrets(raw)
     try:
+        reject_masked_mcp_transport(raw["transport"])
         cfg = MCPServerConfig.model_validate(raw)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=redact_mcp_log_text(exc))
@@ -256,9 +231,12 @@ async def update_server(server_id: str, payload: CreateOrUpdatePayload) -> dict[
 
     raw = payload.model_dump(exclude_none=True)
     raw.setdefault("server", {})["id"] = server_id  # id is path-locked
-    _restore_masked_http_headers(raw, existing)
-    register_mcp_transport_secrets(raw)
     try:
+        raw["transport"] = restore_masked_mcp_transport(
+            raw["transport"],
+            existing.transport.model_dump(),
+        )
+        register_mcp_transport_secrets(raw)
         cfg = MCPServerConfig.model_validate(raw)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=redact_mcp_log_text(exc))

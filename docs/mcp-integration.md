@@ -59,6 +59,14 @@ Authorization = "Bearer ${env:REMOTE_TOKEN}"
 
 `${env:VAR}` expansion happens at load time and is applied to every string anywhere in the document. Missing env vars expand to the empty string.
 
+The settings API treats transport credentials as write-only. HTTP headers,
+stdio environment values, sensitive command arguments, URL user-info, and
+sensitive URL query values are returned only as `***`. Sending the unchanged
+masked transport preserves stored values; non-empty input replaces them and an
+explicit empty value deletes them. If the command, arguments, or HTTP origin
+changes, masked credentials are rejected and must be entered again so an old
+secret cannot be transferred silently to a new process or server.
+
 The `[runtime]` section accepts `call_timeout_ms`, `init_timeout_ms`, and `max_restart_attempts`; defaults are 60s/15s/5.
 
 `[tools].include` controls which discovered tools are registered and exposed to

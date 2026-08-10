@@ -375,6 +375,153 @@ def test_patch_preserves_masked_http_header_values(client, tmp_path):
     assert 'Authorization = "***"' not in config_text
 
 
+def test_stdio_transport_credentials_are_write_only(client, tmp_path):
+    c, mgr = client
+    secrets = {
+        "env": "stdio-env-secret",
+        "mode": "stdio-mode-value",
+        "arg": "stdio-arg-secret",
+        "url_user": "stdio-user",
+        "url_password": "stdio-password",
+        "url_token": "stdio-url-token",
+    }
+    body = {
+        "server": {"id": "stdio-secrets", "name": "Stdio secrets"},
+        "transport": {
+            "kind": "stdio",
+            "command": "example-mcp",
+            "args": [
+                "--api-key",
+                secrets["arg"],
+                (
+                    "--endpoint=https://"
+                    f"{secrets['url_user']}:{secrets['url_password']}@example.com/mcp"
+                    f"?token={secrets['url_token']}&mode=read"
+                ),
+            ],
+            "env": {"ACCESS_TOKEN": secrets["env"], "MODE": secrets["mode"]},
+        },
+    }
+
+    response = c.post("/api/mcp/servers", json=body)
+
+    assert response.status_code == 201, response.text
+    transport = response.json()["transport"]
+    assert transport["args"] == [
+        "--api-key",
+        "***",
+        "--endpoint=https://***:***@example.com/mcp?token=***&mode=read",
+    ]
+    assert transport["env"] == {"ACCESS_TOKEN": "***", "MODE": "***"}
+    assert all(secret not in response.text for secret in secrets.values())
+
+    round_trip = {
+        "server": {"id": "stdio-secrets", "name": "Stdio secrets"},
+        "transport": transport,
+        "runtime": response.json()["runtime"],
+    }
+    updated = c.patch("/api/mcp/servers/stdio-secrets", json=round_trip)
+    assert updated.status_code == 200, updated.text
+    config = next(item for item in mgr.list_configs() if item.server.id == "stdio-secrets")
+    assert config.transport.args == body["transport"]["args"]
+    assert config.transport.env == body["transport"]["env"]
+    config_text = (tmp_path / "config" / "mcp" / "stdio-secrets.toml").read_text()
+    assert secrets["arg"] in config_text
+    assert secrets["env"] in config_text
+
+    changed_target = {
+        **round_trip,
+        "transport": {**transport, "command": "different-mcp"},
+    }
+    rejected = c.patch("/api/mcp/servers/stdio-secrets", json=changed_target)
+    assert rejected.status_code == 400
+    assert "must be re-entered" in rejected.text
+
+    replacement = {
+        **round_trip,
+        "transport": {
+            "kind": "stdio",
+            "command": "different-mcp",
+            "args": ["--api-key", "new-arg-secret"],
+            "cwd": "",
+            "env": {"ACCESS_TOKEN": "new-env-secret", "MODE": "new-mode"},
+        },
+    }
+    replaced = c.patch("/api/mcp/servers/stdio-secrets", json=replacement)
+    assert replaced.status_code == 200, replaced.text
+    assert "new-arg-secret" not in replaced.text
+    assert "new-env-secret" not in replaced.text
+
+
+def test_http_url_credentials_are_write_only_and_origin_bound(client, tmp_path):
+    c, mgr = client
+    body = {
+        "server": {"id": "http-url-secrets", "name": "HTTP URL secrets"},
+        "transport": {
+            "kind": "http",
+            "url": (
+                "https://url-user:url-password@example.com/mcp"
+                "?access_token=url-token&mode=read"
+            ),
+            "headers": {"Authorization": "Bearer header-secret"},
+        },
+    }
+
+    response = c.post("/api/mcp/servers", json=body)
+
+    assert response.status_code == 201, response.text
+    transport = response.json()["transport"]
+    assert transport["url"] == (
+        "https://***:***@example.com/mcp?access_token=***&mode=read"
+    )
+    assert transport["headers"] == {"Authorization": "***"}
+    for secret in ("url-user", "url-password", "url-token", "header-secret"):
+        assert secret not in response.text
+
+    round_trip = {
+        "server": {"id": "http-url-secrets", "name": "HTTP URL secrets"},
+        "transport": transport,
+        "runtime": response.json()["runtime"],
+    }
+    updated = c.patch("/api/mcp/servers/http-url-secrets", json=round_trip)
+    assert updated.status_code == 200, updated.text
+    config = next(item for item in mgr.list_configs() if item.server.id == "http-url-secrets")
+    assert config.transport.url == body["transport"]["url"]
+    assert config.transport.headers == body["transport"]["headers"]
+    config_text = (tmp_path / "config" / "mcp" / "http-url-secrets.toml").read_text()
+    assert "url-password" in config_text
+    assert "header-secret" in config_text
+
+    changed_origin = {
+        **round_trip,
+        "transport": {
+            "kind": "http",
+            "url": "https://other.example/mcp",
+            "headers": {"Authorization": "***"},
+        },
+    }
+    rejected = c.patch("/api/mcp/servers/http-url-secrets", json=changed_origin)
+    assert rejected.status_code == 400
+    assert "must be re-entered" in rejected.text
+
+
+def test_create_rejects_masked_mcp_credentials_without_stored_values(client):
+    c, _ = client
+    response = c.post(
+        "/api/mcp/servers",
+        json={
+            "server": {"id": "masked-create", "name": "Masked create"},
+            "transport": {
+                "kind": "http",
+                "url": "https://example.com/mcp",
+                "headers": {"Authorization": "***"},
+            },
+        },
+    )
+
+    assert response.status_code == 400
+
+
 def test_404_when_unknown_server(client):
     c, _ = client
     assert c.post("/api/mcp/servers/nope/start").status_code == 404
