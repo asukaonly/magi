@@ -4,24 +4,30 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+from pathlib import Path, PurePosixPath
 import re
 import shutil
+import stat
 import sys
 import tarfile
 import time
 import urllib.error
 import urllib.request
 import zipfile
-from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 REPOSITORIES = (
     "astral-sh/python-build-standalone",
     "indygreg/python-build-standalone",
 )
+MAX_ARCHIVE_MEMBERS = 100_000
+MAX_UNCOMPRESSED_BYTES = 4 * 1024 * 1024 * 1024
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 TARGET_ALIASES = {
     "x86_64-apple-darwin": ("x86_64-apple-darwin",),
@@ -52,6 +58,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--asset-url",
         help="Optional explicit python-build-standalone archive URL",
+    )
+    parser.add_argument(
+        "--asset-sha256",
+        default=os.environ.get("MAGI_PLUGIN_PYTHON_SHA256"),
+        help="Required SHA-256 for an explicit asset URL",
     )
     parser.add_argument(
         "--dry-run",
@@ -110,7 +121,7 @@ def asset_priority(name: str) -> tuple[int, int, str]:
     return (stripped_rank, archive_rank, name)
 
 
-def find_asset_url(python_version: str, target: str) -> tuple[str, str, str]:
+def find_asset_url(python_version: str, target: str) -> tuple[str, str, str, str]:
     aliases = TARGET_ALIASES.get(target)
     if aliases is None:
         raise SystemExit(f"Unsupported plugin Python target: {target}")
@@ -139,23 +150,28 @@ def find_asset_url(python_version: str, target: str) -> tuple[str, str, str]:
             continue
 
         for releases in release_batches:
-            matches: list[tuple[tuple[int, int, str], str, str]] = []
+            matches: list[tuple[tuple[int, int, str], str, str, str]] = []
             for release in releases:
                 for asset in release.get("assets", []):
                     name = asset.get("name", "")
                     for alias in aliases:
                         if asset_pattern(python_version, alias).match(name):
+                            digest = _parse_github_sha256(asset.get("digest"))
+                            if digest is None:
+                                checked.append(f"{repository} {name}: missing SHA-256 digest")
+                                continue
                             matches.append(
                                 (
                                     asset_priority(name),
                                     name,
                                     asset["browser_download_url"],
+                                    digest,
                                 )
                             )
 
             if matches:
-                _, name, url = sorted(matches, key=lambda item: item[0])[0]
-                return repository, name, url
+                _, name, url, digest = sorted(matches, key=lambda item: item[0])[0]
+                return repository, name, url, digest
 
         checked.append(f"{repository}: no matching asset")
 
@@ -167,6 +183,9 @@ def find_asset_url(python_version: str, target: str) -> tuple[str, str, str]:
 
 
 def download(url: str, destination: Path) -> None:
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise SystemExit("Plugin Python runtime URL must use HTTPS and include a host")
     request = urllib.request.Request(
         url,
         headers={"User-Agent": "magi-release-runtime-preparer"},
@@ -177,6 +196,19 @@ def download(url: str, destination: Path) -> None:
             shutil.copyfileobj(response, handle)
 
 
+def verify_sha256(path: Path, expected_sha256: str) -> None:
+    """Fail closed unless a downloaded archive matches the trusted digest."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    actual = digest.hexdigest()
+    if actual != expected_sha256:
+        raise SystemExit(
+            f"Plugin Python runtime SHA-256 mismatch: expected {expected_sha256}, got {actual}"
+        )
+
+
 def extract_archive(archive_path: Path, extract_dir: Path) -> None:
     if extract_dir.exists():
         shutil.rmtree(extract_dir)
@@ -184,15 +216,122 @@ def extract_archive(archive_path: Path, extract_dir: Path) -> None:
 
     if archive_path.name.endswith(".tar.gz"):
         with tarfile.open(archive_path, "r:gz") as archive:
-            archive.extractall(extract_dir)
+            _extract_tar_safely(archive, extract_dir)
         return
 
     if archive_path.suffix == ".zip":
         with zipfile.ZipFile(archive_path) as archive:
-            archive.extractall(extract_dir)
+            _extract_zip_safely(archive, extract_dir)
         return
 
     raise SystemExit(f"Unsupported runtime archive format: {archive_path.name}")
+
+
+def _parse_github_sha256(value: Any) -> str | None:
+    raw = str(value or "").strip().lower()
+    if not raw.startswith("sha256:"):
+        return None
+    digest = raw.removeprefix("sha256:")
+    return digest if SHA256_PATTERN.fullmatch(digest) else None
+
+
+def _normalize_sha256(value: str | None) -> str | None:
+    raw = str(value or "").strip().lower()
+    if raw.startswith("sha256:"):
+        raw = raw.removeprefix("sha256:")
+    return raw if SHA256_PATTERN.fullmatch(raw) else None
+
+
+def _safe_archive_target(root: Path, member_name: str) -> Path:
+    normalized = member_name.replace("\\", "/")
+    if not normalized or "\x00" in normalized:
+        raise SystemExit(f"Unsafe empty archive member path: {member_name!r}")
+    relative = PurePosixPath(normalized)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise SystemExit(f"Archive member escapes extraction root: {member_name}")
+    if relative.parts and ":" in relative.parts[0]:
+        raise SystemExit(f"Archive member uses an absolute drive path: {member_name}")
+    parts = [part for part in relative.parts if part not in ("", ".")]
+    return root.joinpath(*parts)
+
+
+def _validate_archive_budget(member_count: int, total_size: int) -> None:
+    if member_count > MAX_ARCHIVE_MEMBERS:
+        raise SystemExit(f"Runtime archive contains too many entries: {member_count}")
+    if total_size > MAX_UNCOMPRESSED_BYTES:
+        raise SystemExit(f"Runtime archive expands beyond the {MAX_UNCOMPRESSED_BYTES} byte limit")
+
+
+def _extract_tar_safely(archive: tarfile.TarFile, extract_dir: Path) -> None:
+    members = archive.getmembers()
+    _validate_archive_budget(len(members), sum(max(member.size, 0) for member in members))
+    targets: dict[str, Path] = {}
+    seen_files: set[Path] = set()
+    links: list[tarfile.TarInfo] = []
+
+    for member in members:
+        target = _safe_archive_target(extract_dir, member.name)
+        targets[member.name] = target
+        if member.isdir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        if member.issym() or member.islnk():
+            links.append(member)
+            continue
+        if not member.isreg():
+            raise SystemExit(f"Runtime archive contains a special file: {member.name}")
+        if target in seen_files:
+            raise SystemExit(f"Runtime archive contains a duplicate file: {member.name}")
+        seen_files.add(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source = archive.extractfile(member)
+        if source is None:
+            raise SystemExit(f"Could not read runtime archive member: {member.name}")
+        with source, target.open("wb") as destination:
+            shutil.copyfileobj(source, destination)
+        target.chmod(member.mode & 0o777)
+
+    for member in links:
+        target = targets[member.name]
+        if target.exists() or target.is_symlink():
+            raise SystemExit(f"Runtime archive link overwrites an existing path: {member.name}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if member.issym():
+            link_target = PurePosixPath(member.name).parent / member.linkname
+            _safe_archive_target(extract_dir, str(link_target))
+            target.symlink_to(member.linkname)
+            continue
+        source = _safe_archive_target(extract_dir, member.linkname)
+        if not source.is_file() or source.is_symlink():
+            raise SystemExit(f"Runtime archive hard link target is invalid: {member.linkname}")
+        os.link(source, target)
+
+
+def _extract_zip_safely(archive: zipfile.ZipFile, extract_dir: Path) -> None:
+    members = archive.infolist()
+    _validate_archive_budget(len(members), sum(max(member.file_size, 0) for member in members))
+    seen_files: set[Path] = set()
+    for member in members:
+        if member.flag_bits & 0x1:
+            raise SystemExit(f"Encrypted runtime archive entry is not allowed: {member.filename}")
+        target = _safe_archive_target(extract_dir, member.filename)
+        mode = member.external_attr >> 16
+        if stat.S_ISLNK(mode):
+            raise SystemExit(f"Runtime ZIP contains a symbolic link: {member.filename}")
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        file_type = stat.S_IFMT(mode)
+        if file_type not in (0, stat.S_IFREG):
+            raise SystemExit(f"Runtime ZIP contains a special file: {member.filename}")
+        if target in seen_files:
+            raise SystemExit(f"Runtime ZIP contains a duplicate file: {member.filename}")
+        seen_files.add(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(member) as source, target.open("wb") as destination:
+            shutil.copyfileobj(source, destination)
+        if mode:
+            target.chmod(mode & 0o777)
 
 
 def find_runtime_root(extract_dir: Path) -> Path:
@@ -243,16 +382,21 @@ def main() -> None:
 
     if args.asset_url:
         repository = "explicit-url"
-        asset_name = Path(args.asset_url).name
+        asset_name = PurePosixPath(urlsplit(args.asset_url).path).name
         asset_url = args.asset_url
+        expected_sha256 = _normalize_sha256(args.asset_sha256)
+        if expected_sha256 is None and not args.dry_run:
+            raise SystemExit("--asset-sha256 is required for an explicit asset URL")
     else:
-        repository, asset_name, asset_url = find_asset_url(
+        repository, asset_name, asset_url, expected_sha256 = find_asset_url(
             args.python_version,
             args.target,
         )
 
     print(f"Selected plugin Python runtime from {repository}: {asset_name}")
     print(asset_url)
+    if expected_sha256:
+        print(f"sha256:{expected_sha256}")
     if args.dry_run:
         return
 
@@ -263,6 +407,7 @@ def main() -> None:
     archive_path = output_dir / asset_name
     print(f"Downloading runtime archive to {archive_path}")
     download(asset_url, archive_path)
+    verify_sha256(archive_path, expected_sha256)
 
     extract_dir = output_dir / "extract"
     print(f"Extracting runtime archive to {extract_dir}")

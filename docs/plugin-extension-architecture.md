@@ -1314,7 +1314,7 @@ Magi.
     installation seal. Changed or legacy managed packages without both records
     stay disabled until reinstalled
 
-Packaged desktop builds stage two generated runtime resources under `frontend/src-tauri/`: `sidecar-dist/` for the backend sidecar and `plugin-python/` for plugin dependency installation. Release CI runs `scripts/prepare-plugin-python-runtime.py` to download a python-build-standalone runtime for the target platform, writes it to `MAGI_PLUGIN_PYTHON_SOURCE`, and requires that source during sidecar staging. Local development builds may omit the variable and use a local venv fallback. macOS signing scripts sign Mach-O files in both runtime resource roots before notarization.
+Packaged desktop builds stage two generated runtime resources under `frontend/src-tauri/`: `sidecar-dist/` for the backend sidecar and `plugin-python/` for plugin dependency installation. Release CI runs `scripts/prepare-plugin-python-runtime.py` to download a python-build-standalone runtime for the target platform, requires the SHA-256 digest published in the GitHub Release asset metadata, verifies it before extraction, and rejects archive traversal, unsafe links, special files, duplicate files, and expansion beyond the host-owned limits. The script writes the validated runtime to `MAGI_PLUGIN_PYTHON_SOURCE`, and sidecar staging requires that source. Local development builds may omit the variable and use a local venv fallback. macOS signing scripts sign Mach-O files in both runtime resource roots before notarization.
 
 ### Frontend
 
