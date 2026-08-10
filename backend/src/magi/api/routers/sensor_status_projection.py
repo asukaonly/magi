@@ -12,6 +12,7 @@ from ...plugins.icon_assets import resolve_plugin_icon
 from ...scheduler import ScheduledTargetType
 from ...scheduler.contracts import build_sensor_schedule_id, build_sensor_target_key
 from ...scheduler.repository import ScheduleRepository
+from ..services.plugin_secrets import mask_plugin_setting_values
 from .plugins_common import (
     _get_plugin_i18n,
     _serialize_activation_flow,
@@ -588,10 +589,11 @@ def _serialize_source_fields(item: Any, i18n: Any) -> list[dict[str, Any]]:
 
 
 def _current_source_settings(item: Any, current_settings: dict[str, Any]) -> dict[str, Any]:
-    return {
+    values = {
         key: _get_nested_value(current_settings, key, default)
         for key, default in _collect_source_setting_defaults(item).items()
     }
+    return mask_plugin_setting_values(values, [item])
 
 
 def _serialize_activation_flow_payload(item: Any, i18n: Any) -> Any:

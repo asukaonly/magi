@@ -18,6 +18,7 @@ from ...plugins.icon_assets import resolve_plugin_icon
 from ...plugins.package_integrity import has_registry_install_record
 from ...plugins.provider import resolve_plugin_manager
 from ...plugins.registry_client import is_official_registry_source
+from ..services.plugin_secrets import mask_plugin_settings
 from .plugins_schemas import (
     PluginContributionResponse,
     PluginManifestResponse,
@@ -131,6 +132,8 @@ def _serialize_field(
     desc_key = f"fields.{contribution_id}.{field.key}.description"
 
     field_dict = field.model_dump()
+    if field.type == "secret":
+        field_dict["default"] = ""
     field_dict["label"] = i18n.t(label_key, fallback=field.label)
     field_dict["description"] = i18n.t(desc_key, fallback=field.description)
 
@@ -374,6 +377,8 @@ def _localize_activation_field(
 ) -> dict[str, Any]:
     """Add plugin-scoped translation mirrors to an activation-flow field dict."""
     out = dict(field)
+    if field.get("type") == "secret":
+        out["default"] = ""
     key = field.get("key")
     if not isinstance(key, str) or not key:
         return out
@@ -449,7 +454,7 @@ def _serialize_package(state: PluginPackageState, *, packages=None) -> PluginPac
         healthy=state.healthy,
         last_error=state.last_error,
         contributions=[_serialize_contribution(item, i18n) for item in state.contributions],
-        current_settings=dict(state.current_settings),
+        current_settings=mask_plugin_settings(state.current_settings, state.contributions),
     )
 
 
@@ -491,7 +496,7 @@ def _serialize_package_lightweight(
         healthy=state.healthy,
         last_error=state.last_error,
         contributions=[],
-        current_settings=dict(state.current_settings),
+        current_settings=mask_plugin_settings(state.current_settings, state.contributions),
     )
 
 

@@ -10,13 +10,14 @@ import pytest
 
 from magi.api.routers.plugins_common import _serialize_contribution
 from magi.api.routers.plugins import plugins_router
-from magi.plugins import ContributionType, PluginContribution
+from magi.plugins import ContributionType, ExtensionFieldSpec, PluginContribution
 
 
 class _FakeManager:
     def __init__(self) -> None:
         self._plugin_instances: dict = {}
         self.calls: list[str] = []
+        self.last_settings_updates: dict = {}
         self.state = type(
             "PluginState",
             (),
@@ -83,6 +84,7 @@ class _FakeManager:
 
     def update_plugin_settings(self, plugin_id: str, updates):
         self.calls.append(f"update:{plugin_id}")
+        self.last_settings_updates = dict(updates)
         self.state.current_settings.update(updates)
         return self.state
 
@@ -235,6 +237,65 @@ def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     assert update_response.status_code == 200
     assert update_response.json()["current_settings"]["display.label"] == "Core"
     assert queue.refresh_channel_reasons == ["plugin_core-tools_settings_updated"]
+
+
+def test_plugin_secret_settings_are_write_only(monkeypatch):
+    app = FastAPI()
+    app.include_router(plugins_router, prefix="/api/plugins")
+    manager = _FakeManager()
+    manager.state.current_settings = {
+        "auth.token": "stored-plugin-secret",
+        "display.label": "Core",
+    }
+    manager.state.contributions = [
+        PluginContribution(
+            plugin_id="core-tools",
+            contribution_id="tool.core",
+            contribution_type=ContributionType.TOOL,
+            display_name="Core",
+            fields=[
+                ExtensionFieldSpec(
+                    key="auth.token",
+                    type="secret",
+                    label="Access token",
+                    default="must-not-be-returned",
+                )
+            ],
+        )
+    ]
+    queue = _FakeRuntimeQueue()
+    monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
+    monkeypatch.setattr(
+        "magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue
+    )
+    client = TestClient(app)
+
+    listed = client.get("/api/plugins")
+    assert listed.status_code == 200
+    assert listed.json()["plugins"][0]["current_settings"]["auth.token"] == "***"
+    assert listed.json()["plugins"][0]["contributions"][0]["fields"][0]["default"] == ""
+    assert "stored-plugin-secret" not in listed.text
+    assert "must-not-be-returned" not in listed.text
+
+    kept = client.put(
+        "/api/plugins/core-tools/settings",
+        json={"updates": {"auth.token": "***", "display.label": "Renamed"}},
+    )
+    assert kept.status_code == 200
+    assert manager.last_settings_updates == {
+        "auth.token": "stored-plugin-secret",
+        "display.label": "Renamed",
+    }
+    assert kept.json()["current_settings"]["auth.token"] == "***"
+    assert "stored-plugin-secret" not in kept.text
+
+    cleared = client.put(
+        "/api/plugins/core-tools/settings",
+        json={"updates": {"auth.token": ""}},
+    )
+    assert cleared.status_code == 200
+    assert manager.last_settings_updates == {"auth.token": ""}
+    assert cleared.json()["current_settings"]["auth.token"] == ""
 
 
 def test_plugins_api_resolves_packaged_icon(monkeypatch, tmp_path):

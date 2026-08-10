@@ -597,6 +597,13 @@ The target shape of `SensorOutputMetadata` is:
 - `fact_hints`
   Structured facts supplied by the source integration
 - `tags`
+
+Fields declared as `secret` are write-only at the host API boundary. Package,
+sensor-status, and settings-action responses return `***` for configured values
+and never return the stored value or a secret default. Submitting `***` keeps
+the stored value, a non-empty value replaces it, and an explicit empty value
+deletes it. Secret-like setting names receive the same protection even when a
+plugin declaration is incomplete.
   Classification labels
 - `relation_candidates`
   Backward-compatibility field for older plugins and timeline projections; new L2 cognition work should use `fact_hints`

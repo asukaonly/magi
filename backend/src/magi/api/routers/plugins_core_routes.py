@@ -16,6 +16,10 @@ from ...plugins.operation_execution import (
     run_plugin_lifecycle_operation,
 )
 from ...plugins.contracts import PluginSettingsResourcePayload
+from ..services.plugin_secrets import (
+    mask_plugin_setting_values,
+    normalize_masked_plugin_updates,
+)
 from .plugins_common import (
     _get_plugin_i18n,
     _require_plugin_manager,
@@ -135,11 +139,16 @@ async def get_plugin_settings(plugin_id: str):
 
 @plugins_core_router.put("/{plugin_id}/settings", response_model=PluginPackageResponse)
 async def update_plugin_settings(plugin_id: str, request: PluginSettingsUpdateRequest):
-    manager, _ = _require_package(plugin_id)
-    state = await run_plugin_lifecycle_operation(
-        lambda: manager.update_plugin_settings(plugin_id, request.updates)
+    manager, package = _require_package(plugin_id)
+    updates = normalize_masked_plugin_updates(
+        request.updates,
+        package.current_settings,
+        package.contributions,
     )
-    if request.updates:
+    state = await run_plugin_lifecycle_operation(
+        lambda: manager.update_plugin_settings(plugin_id, updates)
+    )
+    if updates:
         await _refresh_channels_after_plugin_change(plugin_id, "settings_updated")
     return _serialize_package(state)
 
@@ -230,7 +239,12 @@ async def read_plugin_settings_resource(plugin_id: str, resource_name: str):
     return PluginSettingsResourceResponse(**payload_dict)
 
 
-def _serialize_action_run(plugin_id: str, action_id: str, run) -> PluginSettingsActionRunResponse:
+def _serialize_action_run(
+    plugin_id: str,
+    action_id: str,
+    run,
+    contributions,
+) -> PluginSettingsActionRunResponse:
     result = run.result
     return PluginSettingsActionRunResponse(
         plugin_id=plugin_id,
@@ -239,7 +253,10 @@ def _serialize_action_run(plugin_id: str, action_id: str, run) -> PluginSettings
         status=result.status,
         message=result.message,
         data=dict(result.data),
-        settings_updates=dict(result.settings_updates),
+        settings_updates=mask_plugin_setting_values(
+            dict(result.settings_updates),
+            contributions,
+        ),
     )
 
 
@@ -252,7 +269,7 @@ async def start_plugin_settings_action(
     action_id: str,
     request: PluginSettingsActionRequest,
 ):
-    manager, _ = _require_package(plugin_id)
+    manager, package = _require_package(plugin_id)
     settings_service = _plugin_settings_service(manager)
     try:
         run = await settings_service.start_plugin_settings_action(
@@ -276,7 +293,7 @@ async def start_plugin_settings_action(
         await _refresh_channels_after_plugin_change(
             plugin_id, f"settings_action_{action_id}_succeeded"
         )
-    return _serialize_action_run(plugin_id, action_id, run)
+    return _serialize_action_run(plugin_id, action_id, run, package.contributions)
 
 
 @plugins_core_router.post(
@@ -289,7 +306,7 @@ async def poll_plugin_settings_action(
     session_id: str,
     request: PluginSettingsActionRequest,
 ):
-    manager, _ = _require_package(plugin_id)
+    manager, package = _require_package(plugin_id)
     settings_service = _plugin_settings_service(manager)
     try:
         run = await settings_service.poll_plugin_settings_action(
@@ -314,7 +331,7 @@ async def poll_plugin_settings_action(
         await _refresh_channels_after_plugin_change(
             plugin_id, f"settings_action_{action_id}_succeeded"
         )
-    return _serialize_action_run(plugin_id, action_id, run)
+    return _serialize_action_run(plugin_id, action_id, run, package.contributions)
 
 
 @plugins_core_router.post(
@@ -326,7 +343,7 @@ async def cancel_plugin_settings_action(
     action_id: str,
     session_id: str,
 ):
-    manager, _ = _require_package(plugin_id)
+    manager, package = _require_package(plugin_id)
     settings_service = _plugin_settings_service(manager)
     try:
         run = await settings_service.cancel_plugin_settings_action(
@@ -344,7 +361,7 @@ async def cancel_plugin_settings_action(
         ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return _serialize_action_run(plugin_id, action_id, run)
+    return _serialize_action_run(plugin_id, action_id, run, package.contributions)
 
 
 __all__ = [

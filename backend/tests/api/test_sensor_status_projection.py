@@ -1,6 +1,55 @@
 from __future__ import annotations
 
-from magi.api.routers.sensor_status_projection import _serialize_sensor_sync_activity
+from types import SimpleNamespace
+
+from magi.api.routers.sensor_status_projection import (
+    _current_source_settings,
+    _serialize_sensor_sync_activity,
+)
+from magi.plugins import ExtensionFieldSpec
+
+
+def test_current_source_settings_masks_declared_and_secret_named_values() -> None:
+    item = SimpleNamespace(
+        fields=[
+            ExtensionFieldSpec(
+                key="sensors.example.access_token",
+                type="secret",
+                label="Access token",
+            ),
+            ExtensionFieldSpec(
+                key="sensors.example.label",
+                type="input",
+                label="Label",
+            ),
+        ],
+        metadata={
+            "activation_flow": {
+                "fields": [
+                    {
+                        "key": "sensors.example.client_secret",
+                        "type": "secret",
+                        "default": "",
+                    }
+                ]
+            }
+        },
+    )
+    settings = {
+        "sensors": {
+            "example": {
+                "access_token": "source-token",
+                "client_secret": "source-secret",
+                "label": "Example",
+            }
+        }
+    }
+
+    assert _current_source_settings(item, settings) == {
+        "sensors.example.access_token": "***",
+        "sensors.example.label": "Example",
+        "sensors.example.client_secret": "***",
+    }
 
 
 def test_serialize_sensor_sync_activity_exposes_backfill_range_and_result() -> None:
