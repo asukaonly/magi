@@ -892,6 +892,10 @@ targets disappear immediately at governed assertion, relationship, and portrait
 read boundaries. Portrait tentative-Claim deduplication is scoped to the route
 slot and value recorded by an assertion's source attempt, never to the Claim ID
 alone, so a later route/value can become visible without reviving the old value.
+Only assertions already visible in portrait `world` or `recent` suppress the same
+tentative Claim line. A current Assertion that remains in portrait `review` keeps
+its grounded self-report Claim eligible for the explicitly uncertain prompt path;
+all current assertion values still participate in slot-conflict quarantine.
 Portrait freshness recomputes the current eligible top-two tentative selection
 with the same deterministic renderer used by the builder, even when the cached
 portrait contains no tentative line. It compares both rendered lines and explicit
@@ -939,6 +943,11 @@ raw preference dictionaries, internal assertion keys, source tiers, or affinity
 metadata into the main model prompt. Clearing L2 cognition artifacts must also
 clear profile and portrait projections so local re-imports do not keep stale
 user-understanding caches.
+Assertion-backed portrait items display the accepted `natural_summary` when one
+exists and retain the typed `trait_value` as the correction payload; this prevents
+distinct preferences that share an enum-like value such as `like` from collapsing
+into one review item. This display rule does not make review Assertions prompt
+facts: only their independently grounded Claim may use the tentative path above.
 Portrait wording and prompt selection are deterministic host logic. There is no
 optional portrait LLM post-processor in the runtime path. A transient freshness,
 input, or rebuild failure retains the last successfully persisted projection and

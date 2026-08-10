@@ -395,7 +395,9 @@ def tentative_portrait_selection_refs(
 
 
 def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
-    text = _display_value(assertion.get("trait_value"))
+    text = _display_value(assertion.get("natural_summary")) or _display_value(
+        assertion.get("trait_value")
+    )
     if not text:
         return None
     if _text(assertion.get("trait_family")).casefold() == "goal_profile":

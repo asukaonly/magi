@@ -114,7 +114,11 @@ async def list_tentative_portrait_claims(
     }
 
     candidates: list[TentativePortraitClaim] = []
-    seen_route_values = set(current_route_value_keys).union(visible_route_value_keys)
+    # A current Assertion that is still in review is not visible in either the
+    # portrait world or recent context. Keep its source Claim eligible for the
+    # explicitly tentative prompt path, while still using every current value
+    # above to quarantine genuinely conflicted slots.
+    seen_route_values = set(visible_route_value_keys)
     for candidate in provisional:
         route_value_key = (candidate.slot_key, candidate.value_fingerprint)
         if candidate.slot_key in conflicted_slots or route_value_key in seen_route_values:

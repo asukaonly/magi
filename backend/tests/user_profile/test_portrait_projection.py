@@ -320,6 +320,46 @@ async def test_portrait_projection_builder_filters_internal_fields_and_separates
     assert "assertion:a-interest-rag" in projection.evidence_refs
 
 
+async def test_review_items_use_distinct_natural_summaries_instead_of_enum_values():
+    class _PreferenceReviewL2:
+        async def list_current_assertions(self, **_kwargs):
+            return [
+                {
+                    "assertion_id": "a-music-style",
+                    "trait_family": "preference_profile",
+                    "trait_name": "preference.affinity",
+                    "trait_value": "like",
+                    "natural_summary": "工作时更喜欢没有人声的音乐，不容易分心。",
+                    "source_domain": "user_authored",
+                    "validation_state": "tentative",
+                    "evidence_events": ["event-music"],
+                    "temporal_scope": "stable",
+                },
+                {
+                    "assertion_id": "a-story-style",
+                    "trait_family": "preference_profile",
+                    "trait_name": "preference.affinity",
+                    "trait_value": "like",
+                    "natural_summary": "比起强情节，更喜欢人物关系自然的作品。",
+                    "source_domain": "user_authored",
+                    "validation_state": "tentative",
+                    "evidence_events": ["event-story"],
+                    "temporal_scope": "stable",
+                },
+            ]
+
+    projection = await UserPortraitProjectionBuilder(_PreferenceReviewL2()).build("local_user")
+
+    assert [item["text"] for item in projection.review["items"]] == [
+        "工作时更喜欢没有人声的音乐，不容易分心。",
+        "比起强情节，更喜欢人物关系自然的作品。",
+    ]
+    assert [item["correction_value"] for item in projection.review["items"]] == [
+        "like",
+        "like",
+    ]
+
+
 async def test_pending_review_change_invalidates_portrait_projection():
     class _ReviewChangedL2:
         async def current_subject_revision(self, _entity_id: str) -> int:

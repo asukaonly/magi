@@ -557,7 +557,7 @@ async def test_query_hides_slot_conflicted_by_current_non_visible_assertion(
 
 
 @pytest.mark.asyncio
-async def test_query_dedupes_current_non_visible_assertion_value(tmp_path) -> None:
+async def test_query_keeps_claim_for_current_non_visible_assertion_value(tmp_path) -> None:
     db_path = str(tmp_path / "memory.db")
     await apply_memory_shared_schema(db_path)
     _seed_claim(
@@ -599,7 +599,7 @@ async def test_query_dedupes_current_non_visible_assertion_value(tmp_path) -> No
         visible_assertion_ids=set(),
     )
 
-    assert candidates == []
+    assert [candidate.claim_id for candidate in candidates] == ["claim-tentative-duplicate"]
 
 
 @pytest.mark.asyncio
