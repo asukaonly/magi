@@ -81,4 +81,32 @@ def test_package_label_normalizes_cargo_tree_lines() -> None:
         module._package_label("└── magi-desktop v0.1.23 (/workspace/frontend)")
         == "magi-desktop v0.1.23"
     )
+    assert (
+        module._package_label(
+            "\x1b[2m    \x1b[0m\x1b[2m└──\x1b[0m magi-desktop v0.1.24"
+        )
+        == "magi-desktop v0.1.24"
+    )
     assert module._package_label("    [build-dependencies]") is None
+
+
+def test_quick_xml_path_tracks_current_workspace_version() -> None:
+    module = _load_script()
+    version = (module.ROOT / "VERSION").read_text(encoding="utf-8").strip()
+
+    assert f"magi-desktop v{version}" in module.EXPECTED_QUICK_XML_PATH
+
+
+def test_cargo_tree_disables_colored_output(monkeypatch) -> None:
+    module = _load_script()
+    captured: dict[str, object] = {}
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+        return module.subprocess.CompletedProcess(args[0], 0, "", "")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    module._run_cargo_tree("-i", "quick-xml@0.37.5")
+
+    assert captured["env"]["CARGO_TERM_COLOR"] == "never"

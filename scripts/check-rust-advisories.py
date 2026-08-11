@@ -5,13 +5,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 @dataclass(frozen=True, order=True)
@@ -43,13 +46,13 @@ EXPECTED_QUICK_XML_PATH = {
     "tauri-winrt-notification v0.7.2",
     "notify-rust v4.18.0",
     "tauri-plugin-notification v2.3.3",
-    "magi-desktop v0.1.23",
+    f"magi-desktop v{(ROOT / 'VERSION').read_text(encoding='utf-8').strip()}",
 }
 
 
 def _package_label(line: str) -> str | None:
     """Extract a package label from one cargo-tree output line."""
-    label = line.lstrip(" │├└─")
+    label = ANSI_ESCAPE_RE.sub("", line).lstrip(" │├└─")
     if not label or label.startswith("["):
         return None
     return label.split(" (/", maxsplit=1)[0].removesuffix(" (*)")
@@ -80,11 +83,14 @@ def evaluate_report(report: dict[str, Any]) -> tuple[set[AdvisoryKey], set[Advis
 
 
 def _run_cargo_tree(*args: str) -> subprocess.CompletedProcess[str]:
+    environment = os.environ.copy()
+    environment["CARGO_TERM_COLOR"] = "never"
     return subprocess.run(
         ["cargo", "tree", "--locked", "--target", "all", *args],
         cwd=ROOT,
         capture_output=True,
         check=False,
+        env=environment,
         text=True,
     )
 
