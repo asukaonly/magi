@@ -10,8 +10,10 @@ from fastapi.testclient import TestClient
 
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers.memory import memory_router
+from magi.memory.l2.pipeline.claim_persistence import EVIDENCE_RULE_VERSION
 from magi.memory.l2.reviews.models import PendingReviewResolution
 from magi.memory.l2.reviews.repository import PendingReviewConflictError
+from magi.memory.l2.semantic_routing import ROUTE_CONTRACT_VERSION
 
 
 def _client(monkeypatch, store) -> TestClient:  # type: ignore[no-untyped-def]
@@ -87,8 +89,8 @@ def test_resolve_review_forwards_only_editable_fields(monkeypatch) -> None:
     assert call["edit"] == {"trait_value": "明年春天去海边"}
     assert call["resolved_by"] == "user:local_user"
     assert call["resolution_event_id"].startswith("review_event_")
-    assert call["route_contract_version"] == 5
-    assert call["evidence_rule_version"] == 2
+    assert call["route_contract_version"] == ROUTE_CONTRACT_VERSION
+    assert call["evidence_rule_version"] == EVIDENCE_RULE_VERSION
 
 
 def test_stale_review_version_returns_conflict(monkeypatch) -> None:
