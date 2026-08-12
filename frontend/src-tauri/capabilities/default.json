@@ -12,7 +12,6 @@
     "core:window:allow-set-decorations",
     "core:window:allow-start-dragging",
     "dialog:allow-open",
-    "shell:allow-open",
     "process:default",
     "log:default",
     "notification:default",
