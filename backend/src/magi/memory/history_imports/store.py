@@ -698,6 +698,29 @@ class HistoryImportStore:
             )
             await db.commit()
 
+    async def reset_skipped_projections(self, *, job_id: str) -> int:
+        """Make failed user-memory handoffs eligible for an explicit retry."""
+
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                UPDATE history_import_job_records
+                SET projection_state = 'pending', updated_at = ?
+                WHERE job_id = ?
+                  AND raw_state = 'stored'
+                  AND projection_state = 'skipped'
+                  AND source_record_key IN (
+                      SELECT source_record_key
+                      FROM history_import_source_records
+                      WHERE speaker_role = 'user'
+                  )
+                """,
+                (now, job_id),
+            )
+            await db.commit()
+        return max(0, int(cursor.rowcount or 0))
+
     async def mark_quick_ready(self, *, job_id: str) -> None:
         await self._update_job(
             job_id,

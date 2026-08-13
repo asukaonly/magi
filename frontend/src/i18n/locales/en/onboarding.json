@@ -472,13 +472,15 @@
         "document_author_confirmation_required": "These files look like personal writing, so author confirmation is required before import."
       },
       "ready": {
-        "title": "The first content is ready",
-        "background": "You can start the first chat now. When it fits naturally, Magi can use something you confirmed as a starting point while the rest continues organizing.",
-        "completed": "All selected content has been saved and entered organizing in its original order.",
-        "failed": "The first items are safe, but later organizing paused. You can continue it.",
-        "progress": "Organizing {{progress}}%",
-        "retry": "Continue organizing",
-        "note": "Quick context is only an initial view. Long-term understanding still comes from processing the complete history in order."
+        "title": "The first content is saved",
+        "background": "You can start the first chat now. The remaining source text will continue importing, and saved content will be handed to memory processing.",
+        "completed": "All selected source text has been saved and handed to memory processing.",
+        "partial": "Your source text is safe, but some content has not finished importing or entering memory processing.",
+        "failed": "The first content is saved, but the remaining import paused. You can continue it.",
+        "progress": "Imported {{progress}}%",
+        "memoryQueued": "Sent to memory processing: {{queued}} / {{saved}}",
+        "retry": "Continue import",
+        "note": "Being sent to memory processing does not mean Magi already understands everything. Long-term understanding forms gradually in the background."
       },
       "errors": {
         "markdown_selection_empty": "Choose at least one Markdown file or folder.",

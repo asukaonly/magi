@@ -445,13 +445,18 @@ class HistoryImportService:
             return await self._resume(job_id)
 
     async def _resume(self, job_id: str) -> HistoryImportJob:
-        job = await self._get_job(job_id)
-        if not job.quick_ready:
-            raise HistoryImportValidationError("history_import_not_confirmed")
-        if job.status not in {"completed", "deleted"}:
+        async with self._lock_for(job_id):
+            job = await self._get_job(job_id)
+            if not job.quick_ready:
+                raise HistoryImportValidationError("history_import_not_confirmed")
+            if job.status == "deleted":
+                return job
+            reset_count = await self._store.reset_skipped_projections(job_id=job_id)
+            if job.status == "completed" and reset_count == 0:
+                return job
             await self._store.mark_running(job_id=job_id)
             self._start_background(job_id)
-        return await self._get_job(job_id)
+            return await self._get_job(job_id)
 
     async def delete(self, job_id: str) -> None:
         async with self._operation():
@@ -645,13 +650,35 @@ class HistoryImportService:
         )
         if result.get("skip_reason") == "memory_clear_epoch_changed":
             raise _HistoryImportEpochChanged
-        if result.get("skipped") or not result.get("l2_job_enqueued"):
+        event_id = str(result.get("event_id") or record.event_id)
+        handed_off = bool(result.get("l2_job_enqueued"))
+        governed_skip = bool(
+            result.get("skipped")
+            or result.get("skipped_derivations")
+            or result.get("skip_reason")
+        )
+        if not handed_off and not governed_skip:
+            l2_store = getattr(self._memory, "l2", None)
+            has_projection_job = getattr(l2_store, "has_projection_job", None)
+            if callable(has_projection_job):
+                try:
+                    handed_off = bool(await has_projection_job(event_id=event_id))
+                except Exception as exc:
+                    logger.warning(
+                        "History import could not verify an existing L2 projection job",
+                        process_id=os.getpid(),
+                        job_id=record.job_id,
+                        job_record_id=record.job_record_id,
+                        event_id=event_id,
+                        error=type(exc).__name__,
+                    )
+        if governed_skip or not handed_off:
             logger.warning(
                 "History import projection was skipped",
                 process_id=os.getpid(),
                 job_id=record.job_id,
                 job_record_id=record.job_record_id,
-                event_id=record.event_id,
+                event_id=event_id,
                 skip_reason=result.get("skip_reason"),
             )
             await self._store.mark_projection_skipped(

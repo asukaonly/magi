@@ -70,6 +70,52 @@ class _MemoryStub:
         self.forgotten_event_ids.extend(event_ids)
 
 
+class _RetryProjectionMemoryStub(_MemoryStub):
+    def __init__(self) -> None:
+        super().__init__()
+        self.projection_attempts = 0
+
+    async def ingest_event(self, event, *, expected_epoch=None):
+        self.projection_attempts += 1
+        if self.projection_attempts == 1:
+            return {
+                "event_id": event.event_id,
+                "l2_job_enqueued": False,
+            }
+        self.projected_events.append(event)
+        return {
+            "event_id": event.event_id,
+            "l2_job_enqueued": True,
+        }
+
+
+class _ExistingProjectionStore:
+    async def has_projection_job(self, *, event_id: str) -> bool:
+        return bool(event_id)
+
+
+class _ExistingProjectionMemoryStub(_MemoryStub):
+    def __init__(self) -> None:
+        super().__init__()
+        self.l2 = _ExistingProjectionStore()
+
+    async def ingest_event(self, event, *, expected_epoch=None):
+        return {
+            "event_id": event.event_id,
+            "l2_job_enqueued": False,
+        }
+
+
+class _GovernedProjectionSkipMemoryStub(_ExistingProjectionMemoryStub):
+    async def ingest_event(self, event, *, expected_epoch=None):
+        return {
+            "event_id": event.event_id,
+            "l2_job_enqueued": False,
+            "skipped_derivations": True,
+            "skip_reason": "time_range_forgotten",
+        }
+
+
 @pytest.fixture
 async def history_store(tmp_path: Path) -> HistoryImportStore:
     db_path = tmp_path / "memory.db"
@@ -190,6 +236,117 @@ async def test_confirm_projects_chat_shaped_markdown_as_one_personal_document(
     assert time_semantics.timestamp_anchor_source == "file_mtime"
     assert expected_content in prompt
     await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_completed_import_retries_a_skipped_memory_handoff(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        history_import_service_module,
+        "local_calendar_timezone_id",
+        lambda: "Asia/Shanghai",
+    )
+    markdown = tmp_path / "journal.md"
+    markdown.write_text("I started learning pottery this week.", encoding="utf-8")
+    memory = _RetryProjectionMemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+
+    try:
+        preview = await service.preview_markdown_paths([str(markdown)])
+        await service.confirm(
+            job_id=preview.job_id,
+            confirm_personal_writing=True,
+            included_files=preview.included_files,
+        )
+        await _wait_for_completed_job(service, preview.job_id)
+        first_pass = await service.get_job(preview.job_id)
+
+        assert first_pass.imported_count == 1
+        assert first_pass.projected_count == 0
+        assert memory.projection_attempts == 1
+        assert len(memory.raw_events) == 1
+
+        resumed = await service.resume(preview.job_id)
+        assert resumed.status == "running"
+        await _wait_for_completed_job(service, preview.job_id)
+        completed = await service.get_job(preview.job_id)
+
+        assert completed.imported_count == 1
+        assert completed.projected_count == 1
+        assert memory.projection_attempts == 2
+        assert len(memory.raw_events) == 1
+    finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_existing_l2_job_counts_as_a_completed_memory_handoff(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        history_import_service_module,
+        "local_calendar_timezone_id",
+        lambda: "Asia/Shanghai",
+    )
+    markdown = tmp_path / "journal.md"
+    markdown.write_text("I started learning pottery this week.", encoding="utf-8")
+    memory = _ExistingProjectionMemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+
+    try:
+        preview = await service.preview_markdown_paths([str(markdown)])
+        await service.confirm(
+            job_id=preview.job_id,
+            confirm_personal_writing=True,
+            included_files=preview.included_files,
+        )
+        await _wait_for_completed_job(service, preview.job_id)
+        completed = await service.get_job(preview.job_id)
+
+        assert completed.imported_count == 1
+        assert completed.projected_count == 1
+        resumed = await service.resume(preview.job_id)
+        assert resumed.status == "completed"
+        assert resumed.projected_count == 1
+    finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_governed_skip_is_not_overridden_by_an_existing_l2_job(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        history_import_service_module,
+        "local_calendar_timezone_id",
+        lambda: "Asia/Shanghai",
+    )
+    markdown = tmp_path / "journal.md"
+    markdown.write_text("I started learning pottery this week.", encoding="utf-8")
+    memory = _GovernedProjectionSkipMemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+
+    try:
+        preview = await service.preview_markdown_paths([str(markdown)])
+        await service.confirm(
+            job_id=preview.job_id,
+            confirm_personal_writing=True,
+            included_files=preview.included_files,
+        )
+        await _wait_for_completed_job(service, preview.job_id)
+        completed = await service.get_job(preview.job_id)
+
+        assert completed.imported_count == 1
+        assert completed.projected_count == 0
+    finally:
+        await service.stop()
 
 
 @pytest.mark.asyncio

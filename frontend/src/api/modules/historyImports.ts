@@ -58,8 +58,11 @@ export interface HistoryImportJob {
   meaningful_records: number;
   quick_target_records: number;
   quick_max_records: number;
+  /** Number of source records saved during the bounded first-contact pass. */
   quick_imported_count: number;
+  /** Number of selected source records durably saved as original L1 events. */
   imported_count: number;
+  /** Number of saved records accepted by the durable L2 queue, not L2 completion. */
   projected_count: number;
   self_participants: string[];
   warnings: string[];

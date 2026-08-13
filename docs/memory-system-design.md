@@ -1065,6 +1065,14 @@ Document extraction evaluates author-prose spans across the whole document and
 does not treat headings, dialogue-shaped text, or requests as live chat speech
 acts.
 
+History-import completion describes the importer boundary, not completed
+cognition. Reader-facing counters distinguish source records durably stored in
+L1 from records accepted by the durable L2 projection queue. A duplicate enqueue
+is successful when the same stable event already has a projection job. Records
+that were stored but could not be handed to that queue remain visibly retryable;
+the import does not wait for assertion, graph, or portrait derivation before the
+user can continue.
+
 A future channel-specific chat importer may reuse the normalized history store
 and memory handoff only after it supplies explicit session, message, speaker,
 source-order, and timestamp semantics. The user must then identify their own

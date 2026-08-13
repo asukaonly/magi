@@ -41,6 +41,7 @@ vi.mock("@/runtime/desktop", () => ({
 
 import type { HistoryImportJob } from "@/api/modules/historyImports";
 import HistoryImportsSection from "@/components/history-imports/HistoryImportsSection";
+import { historyImportProgress } from "@/components/history-imports/historyImportProgress";
 
 function completedJob(): HistoryImportJob {
   return {
@@ -74,6 +75,10 @@ describe("HistoryImportsSection", () => {
     vi.clearAllMocks();
     listMock.mockResolvedValue([completedJob()]);
     deleteMock.mockResolvedValue(undefined);
+    resumeMock.mockResolvedValue({
+      ...completedJob(),
+      status: "running",
+    });
   });
 
   it("shows durable imports and deletes a whole batch after confirmation", async () => {
@@ -108,6 +113,40 @@ describe("HistoryImportsSection", () => {
     expect(
       screen.queryByText("journal/2026-07-01.md +1"),
     ).not.toBeInTheDocument();
+  });
+
+  it("distinguishes saved source text from memory-queue handoff", async () => {
+    const user = userEvent.setup();
+    const partialJob = {
+      ...completedJob(),
+      projected_count: 8,
+    };
+    listMock.mockResolvedValue([partialJob]);
+    render(<HistoryImportsSection />);
+
+    expect(
+      await screen.findByText("memory.sourcesPage.historyImports.status.partial"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("memory.sourcesPage.historyImports.status.completed"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("memory.sourcesPage.historyImports.memoryQueued"),
+    ).toBeInTheDocument();
+    expect(historyImportProgress(partialJob)).toMatchObject({
+      savedCount: 12,
+      queuedCount: 8,
+      savedPercent: 100,
+      hasMemoryQueueGap: true,
+      fullyTransferred: false,
+    });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "memory.sourcesPage.historyImports.continue",
+      }),
+    );
+    await waitFor(() => expect(resumeMock).toHaveBeenCalledWith("him-1"));
   });
 
   it("opens the same guided import flow outside onboarding", async () => {

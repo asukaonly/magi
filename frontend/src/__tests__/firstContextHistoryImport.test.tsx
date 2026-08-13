@@ -141,6 +141,10 @@ describe("FirstContextHistoryImport", () => {
       truncated: false,
     });
     deleteMock.mockResolvedValue(undefined);
+    resumeMock.mockResolvedValue({
+      ...readyJob(),
+      status: "running",
+    });
     updateSelectionMock.mockImplementation(
       async (_jobId: string, includedFiles: string[]) => ({
         ...documentPreview(),
@@ -365,5 +369,36 @@ describe("FirstContextHistoryImport", () => {
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("him-1"));
     expect(screen.getByTestId("history-import-empty")).toBeInTheDocument();
     expect(onJobUpdate).toHaveBeenLastCalledWith(null);
+  });
+
+  it("shows and retries a completed import with a memory handoff gap", async () => {
+    const user = userEvent.setup();
+    const partialJob = {
+      ...readyJob(),
+      status: "completed" as const,
+      projected_count: 0,
+    };
+    getMock.mockResolvedValue(partialJob);
+    render(
+      <HistoryImportFlow
+        initialJobId="him-1"
+        onJobUpdate={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByTestId("history-import-ready")).toBeInTheDocument();
+    expect(
+      screen.getByText("firstContext.history.ready.partial"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("firstContext.history.ready.memoryQueued"),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.ready.retry",
+      }),
+    );
+    await waitFor(() => expect(resumeMock).toHaveBeenCalledWith("him-1"));
   });
 });

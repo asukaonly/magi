@@ -39,6 +39,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { pickDirectory, pickMarkdownFiles } from "@/runtime/desktop";
+import {
+  canRetryHistoryImport,
+  historyImportProgress,
+} from "./historyImportProgress";
 
 interface HistoryImportFlowProps {
   initialJobId?: string | null;
@@ -352,9 +356,7 @@ export const HistoryImportFlow = forwardRef<
     [chooseAgain, confirmImport],
   );
 
-  const progress = job
-    ? Math.min(100, Math.round((job.imported_count / Math.max(job.total_records, 1)) * 100))
-    : 0;
+  const progress = job ? historyImportProgress(job) : null;
   const dayFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(i18n.resolvedLanguage ?? i18n.language, {
@@ -479,8 +481,10 @@ export const HistoryImportFlow = forwardRef<
   }
 
   if (job.quick_ready) {
-    const complete = job.status === "completed";
+    const complete = job.status === "completed" && progress?.fullyTransferred;
+    const partial = job.status === "completed" && !progress?.fullyTransferred;
     const failed = job.status === "failed";
+    const retryable = canRetryHistoryImport(job);
     return (
       <div className="space-y-5" data-testid="history-import-ready">
         <div className="rounded-2xl border border-primary/15 bg-primary/[0.045] p-5 sm:p-6">
@@ -493,6 +497,8 @@ export const HistoryImportFlow = forwardRef<
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 {complete
                   ? t("firstContext.history.ready.completed")
+                  : partial
+                    ? t("firstContext.history.ready.partial")
                   : failed
                     ? t("firstContext.history.ready.failed")
                     : t("firstContext.history.ready.background")}
@@ -500,18 +506,24 @@ export const HistoryImportFlow = forwardRef<
               <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-primary/10">
                 <div
                   className="h-full rounded-full bg-primary transition-[width] duration-300"
-                  style={{ width: `${progress}%` }}
+                  style={{ width: `${progress?.savedPercent ?? 0}%` }}
                 />
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
                 {t("firstContext.history.ready.progress", {
-                  progress,
+                  progress: progress?.savedPercent ?? 0,
+                })}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("firstContext.history.ready.memoryQueued", {
+                  queued: progress?.queuedCount ?? 0,
+                  saved: progress?.savedCount ?? 0,
                 })}
               </p>
             </div>
           </div>
         </div>
-        {failed ? (
+        {retryable ? (
           <Button
             type="button"
             variant="outline"

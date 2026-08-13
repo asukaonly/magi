@@ -24,6 +24,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import HistoryImportFlow from "./HistoryImportFlow";
+import {
+  canRetryHistoryImport,
+  historyImportProgress,
+  historyImportStatusKey,
+} from "./historyImportProgress";
 
 const ACTIVE_IMPORT_STATUSES = new Set(["ready", "running"]);
 
@@ -35,13 +40,6 @@ export type HistoryImportsAvailability =
 
 interface HistoryImportsSectionProps {
   onAvailabilityChange?: (availability: HistoryImportsAvailability) => void;
-}
-
-function jobProgress(job: HistoryImportJob): number {
-  return Math.min(
-    100,
-    Math.round((job.imported_count / Math.max(job.total_records, 1)) * 100),
-  );
 }
 
 function jobLabel(job: HistoryImportJob, fallback: string): string {
@@ -229,8 +227,10 @@ export default function HistoryImportsSection({
             ) : (
               <div className="divide-y divide-[hsl(var(--memory-border)/0.48)] border-t border-[hsl(var(--memory-border)/0.48)]">
                 {jobs.map((job) => {
-                  const progress = jobProgress(job);
+                  const progress = historyImportProgress(job);
                   const active = ACTIVE_IMPORT_STATUSES.has(job.status);
+                  const retryable = canRetryHistoryImport(job);
+                  const statusKey = historyImportStatusKey(job);
                   return (
                     <div
                       key={job.job_id}
@@ -250,12 +250,12 @@ export default function HistoryImportsSection({
                         </div>
                       </div>
                       <div className="text-xs text-[hsl(var(--memory-body))]">
-                        <p>{t(`memory.sourcesPage.historyImports.status.${job.status}`)}</p>
+                        <p>{t(`memory.sourcesPage.historyImports.status.${statusKey}`)}</p>
                         {active ? (
                           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[hsl(var(--memory-accent)/0.1)]">
                             <div
                               className="h-full rounded-full bg-[hsl(var(--memory-accent))] transition-[width] duration-300"
-                              style={{ width: `${progress}%` }}
+                              style={{ width: `${progress.savedPercent}%` }}
                             />
                           </div>
                         ) : null}
@@ -264,12 +264,18 @@ export default function HistoryImportsSection({
                         <p>{dateFormatter.format(new Date(job.created_at * 1000))}</p>
                         <p>
                           {t("memory.sourcesPage.historyImports.progress", {
-                            progress,
+                            progress: progress.savedPercent,
+                          })}
+                        </p>
+                        <p>
+                          {t("memory.sourcesPage.historyImports.memoryQueued", {
+                            queued: progress.queuedCount,
+                            saved: progress.savedCount,
                           })}
                         </p>
                       </div>
                       <div className="flex items-center gap-1 lg:justify-end">
-                        {job.status === "failed" ? (
+                        {retryable ? (
                           <Button
                             type="button"
                             variant="ghost"
