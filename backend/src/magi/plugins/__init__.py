@@ -11,6 +11,11 @@ from magi_plugin_sdk import (  # noqa: F401
     ExtractionProfileSpec,
     ExtensionFieldOption,
     ExtensionFieldSpec,
+    HistoryImportParseResult,
+    HistoryImportRecord,
+    HistoryImportSource,
+    HistoryImporter,
+    HistoryImporterSpec,
     Plugin,
     PluginContribution,
     PluginDisplayGroupSpec,
@@ -35,6 +40,7 @@ from magi_plugin_sdk import (  # noqa: F401
 from .manager import PluginManager
 from .projections import PluginProjectionService
 from .sensors import SensorRegistry
+from .history_importers import HistoryImporterRegistry
 
 __all__ = [
     "ActivationFlowSpec",
@@ -43,6 +49,11 @@ __all__ = [
     "ExtractionProfileSpec",
     "ExtensionFieldOption",
     "ExtensionFieldSpec",
+    "HistoryImportParseResult",
+    "HistoryImportRecord",
+    "HistoryImportSource",
+    "HistoryImporter",
+    "HistoryImporterSpec",
     "Plugin",
     "PluginContribution",
     "PluginDisplayGroupSpec",
@@ -58,6 +69,7 @@ __all__ = [
     "PluginSettingsResourcePayload",
     "PluginSettingsResourceSpec",
     "SensorRegistry",
+    "HistoryImporterRegistry",
     "SensorSpec",
     "SettingsUIBlockSpec",
     "SuggestionSurfaceSpec",

@@ -67,6 +67,7 @@ class PluginSystemModule(LifecycleModule):
         self._context.plugins.plugin_manager = bindings.plugin_manager
         self._context.plugins.plugin_projection_service = bindings.plugin_projection_service
         self._context.plugins.sensor_registry = bindings.sensor_registry
+        self._context.plugins.history_importer_registry = bindings.history_importer_registry
         self._context.plugins.user_content_clear_coordinator = PluginUserContentClearCoordinator(
             plugin_manager=bindings.plugin_manager,
             runtime_paths=require_initialized(
@@ -110,4 +111,5 @@ class PluginSystemModule(LifecycleModule):
         self._context.plugins.plugin_manager = None
         self._context.plugins.plugin_projection_service = None
         self._context.plugins.sensor_registry = None
+        self._context.plugins.history_importer_registry = None
         self._context.runtime_commands.full_clear_recovery_pending = False

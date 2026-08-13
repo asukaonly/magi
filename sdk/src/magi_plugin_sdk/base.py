@@ -1,9 +1,10 @@
 """Unified plugin base class."""
+
 from __future__ import annotations
 
 from abc import ABC
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from .channels import Channel
 from .contracts import (
@@ -21,6 +22,9 @@ from .ingress import PluginIngressHandlerRegistration
 from .i18n import PluginI18n, get_current_language
 from .sensors import PluginRuntimePaths, SensorSpec
 from .user_content import UserContentClearContext
+
+if TYPE_CHECKING:
+    from .history_imports import HistoryImporter, HistoryImporterSpec
 
 
 class Plugin(ABC):
@@ -42,7 +46,11 @@ class Plugin(ABC):
     @property
     def plugin_id(self) -> str:
         """Return the plugin identifier from the manifest, or the class name."""
-        return self.manifest.plugin_id if self.manifest is not None else self.__class__.__name__
+        return (
+            self.manifest.plugin_id
+            if self.manifest is not None
+            else self.__class__.__name__
+        )
 
     @property
     def plugin_dir(self) -> Path | None:
@@ -126,7 +134,9 @@ class Plugin(ABC):
             Translated and interpolated string, or *key* if no translation found.
         """
         effective_language = language or get_current_language()
-        return self.i18n.t(key, language=effective_language, fallback=fallback, **kwargs)
+        return self.i18n.t(
+            key, language=effective_language, fallback=fallback, **kwargs
+        )
 
     def get_tools(self) -> list[type[Any]]:
         """Return tool classes contributed by this plugin."""
@@ -134,6 +144,12 @@ class Plugin(ABC):
 
     def get_sensors(self) -> list[tuple[str, Any, SensorSpec]]:
         """Return ``(sensor_id, sensor_instance, SensorSpec)`` tuples."""
+        return []
+
+    def get_history_importers(
+        self,
+    ) -> list[tuple[str, "HistoryImporter", "HistoryImporterSpec"]]:
+        """Return ``(importer_id, importer, HistoryImporterSpec)`` tuples."""
         return []
 
     def get_channel(self) -> Channel | None:

@@ -120,6 +120,11 @@ contribution_types = ["tool", "sensor"]
 
 You only need to declare the contribution types you actually expose.
 
+Use `history_importer` for a one-shot parser of a declared platform export. Do
+not model a bounded archive as a sensor merely to reuse polling infrastructure;
+an importer has user-selected input and a completed lifecycle, while a sensor
+owns ongoing collection state.
+
 ### Plugin icons
 
 Choose one of two icon forms:
@@ -652,6 +657,101 @@ Guidelines:
 - keep event handlers host-agnostic; queue claiming, dispatch, and persistence stay in backend runtime modules
 - legacy imports from `magi.events.plugin_ingress` still work during the migration window
 - older plugins that typed events as `magi.runtime_trace.PluginIngressEventRecord` still resolve, but new code should import the SDK protocol instead
+
+## History Importer Plugins
+
+History importers return tuples from `get_history_importers()`:
+
+- `importer_id`
+- an async parser implementing `HistoryImporter`
+- `HistoryImporterSpec`
+
+The parser receives only host-validated user-selected paths and returns
+`HistoryImportParseResult`. One archive may produce many independently selectable
+`HistoryImportSource` values. `source_id`, `session_key`, and `message_key` must be
+stable across later exports containing the same conversation; display names,
+archive filenames, byte fingerprints, and list positions are not sufficient
+message identities. Use `parent_message_key` when the export declares reply or
+branch structure. Preserve missing/approximate time through
+`timestamp_confidence` instead of manufacturing an exact timestamp.
+
+The record timestamp contract is strict:
+
+- `exact` and `inferred` both require `occurred_at`; use `inferred` when the
+  export supplies a deterministic approximate time rather than an exact instant
+- `source_order` and `unknown` require `occurred_at=None`; ordering metadata is
+  not itself a timestamp
+- the host may assign an internal ordering anchor to an untimed record, but it
+  preserves the declared confidence and product surfaces must not render that
+  anchor, or an `inferred` timestamp, as exact history
+
+Participant identity is source-scoped by default. The host converts every
+adapter `speaker_id` into an opaque participant ID that also includes the source
+identity, so a local member ID reused by unrelated conversations cannot merge
+people. Set `participant_identity_scope="export"` only when the declared export
+format guarantees that one raw speaker ID has the same meaning across every
+source in the selected export. Adapters must never use host-reserved participant
+IDs such as `__document_author__`; platform sources are always persisted with
+their explicit source kind rather than inferred from a speaker value.
+
+The host owns the picker, preview, participant-to-user mapping, idempotency,
+progress, retry, deletion, and memory writes. An importer must never write host
+memory, choose the user's identity from a role label, or use an LLM to infer
+speakers, ordering, timestamps, or missing messages. Unsupported content should
+produce warnings and fail closed when structural identity is unavailable.
+
+`display_name` and `description` are required fallback strings. Put translated
+variants in `display_name_i18n` and `description_i18n` using bounded BCP 47-style
+locale keys such as `en` and `zh-CN`. The host selects from these maps at render
+time, so changing the application language does not require reloading the plugin.
+
+The parser must return within the host deadline and keep its output inside the
+SDK collection and text limits. It should bound warnings while parsing instead
+of accumulating an unbounded list. The host runs every parser in a worker thread
+(with a private event loop for an async parser) and admits at most two at once.
+The deadline includes waiting for a worker slot; timing out does not forcibly
+terminate Python code, and the occupied slot is not reused until `parse`
+actually returns. The host verifies the selected files before and after `parse`,
+so an importer must treat them as read-only and must not rewrite, extract beside,
+or otherwise mutate the selected archive.
+
+For an already imported session, a later export may reuse the existing stable
+message-key prefix and append new messages. It must not insert, remove, or
+reorder messages inside that prefix. Such a structurally revised export is a
+replacement snapshot: the user must delete the earlier import before importing
+the complete replacement.
+
+Example:
+
+```python
+from pathlib import Path
+
+from magi_plugin_sdk import (
+    HistoryImporterSpec,
+    HistoryImportParseResult,
+    Plugin,
+)
+
+
+class ExampleArchiveImporter:
+    async def parse(self, paths: list[Path]) -> HistoryImportParseResult:
+        return parse_declared_export(paths)
+
+
+class ExamplePlugin(Plugin):
+    def get_history_importers(self):
+        spec = HistoryImporterSpec(
+            importer_id="example_export",
+            display_name="Example history",
+            display_name_i18n={"zh-CN": "示例历史"},
+            description="Import an official account export.",
+            description_i18n={"zh-CN": "导入官方账户导出文件。"},
+            accepted_extensions=["zip", "json"],
+            format_version="example-export-v1",
+            export_help_url="https://example.com/export-help",
+        )
+        return [(spec.importer_id, ExampleArchiveImporter(), spec)]
+```
 
 ## Sensor Plugins
 

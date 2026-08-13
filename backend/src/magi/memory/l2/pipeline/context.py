@@ -62,10 +62,7 @@ def _is_allowed_conversation_context_row(row: dict[str, Any]) -> bool:
     author_role = str(row.get("author_type") or "").strip().casefold()
     if author_role in {"assistant", "user"}:
         return bool(row.get("cognition_eligible", True))
-    return (
-        author_role == "external"
-        and str(row.get("source") or "").strip() == "history_import_markdown"
-    )
+    return author_role == "external" and str(row.get("source") or "").strip() == "history_import"
 
 
 class _L2PipelineContextHostProtocol(Protocol):
@@ -122,9 +119,7 @@ class L2PipelineContextMixin:
             session_id=host._non_empty_text(payload.get("session_id")),
             turn_id=host._non_empty_text(payload.get("turn_id")),
             session_seq=(
-                int(payload["session_seq"])
-                if payload.get("session_seq") is not None
-                else None
+                int(payload["session_seq"]) if payload.get("session_seq") is not None else None
             ),
             user_id=host._non_empty_text(payload.get("user_id")),
             task_id=host._non_empty_text(payload.get("task_id")),

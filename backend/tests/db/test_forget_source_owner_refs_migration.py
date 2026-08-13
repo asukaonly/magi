@@ -10,13 +10,11 @@ from magi.db.runner import MIGRATION_TARGETS, _build_config
 
 V31_REVISION = "v31_correction_replacement_slot_index"
 V32_REVISION = "v32_forget_source_owner_refs"
-MEMORY_HEAD_REVISION = "v45_profile_projection_highwaters"
+MEMORY_HEAD_REVISION = "v46_history_import_adapters"
 
 
 def _memory_config(db_path: Path):
-    target = next(
-        item for item in MIGRATION_TARGETS if item.name == "memory_shared"
-    )
+    target = next(item for item in MIGRATION_TARGETS if item.name == "memory_shared")
     return _build_config(target, db_path)
 
 
@@ -58,9 +56,9 @@ def test_source_owner_ref_migration_preserves_and_downgrades_data(
 
     command.upgrade(config, V32_REVISION)
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchone() == (V32_REVISION,)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            V32_REVISION,
+        )
         assert connection.execute(
             """
             SELECT source_ref
@@ -84,9 +82,9 @@ def test_source_owner_ref_migration_preserves_and_downgrades_data(
 
     command.downgrade(config, V31_REVISION)
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchone() == (V31_REVISION,)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            V31_REVISION,
+        )
         assert connection.execute(
             """
             SELECT ref_type, source_ref
@@ -113,6 +111,6 @@ def test_memory_head_includes_source_owner_ref_revision(tmp_path: Path) -> None:
     db_path = tmp_path / "memory.db"
     command.upgrade(_memory_config(db_path), "head")
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchone() == (MEMORY_HEAD_REVISION,)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            MEMORY_HEAD_REVISION,
+        )

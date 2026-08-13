@@ -5,7 +5,7 @@ from .models import (
     HistoryImportParticipant,
     HistoryImportRecord,
     HistoryImportSourceSummary,
-    ParsedHistoryFile,
+    ParsedHistorySource,
 )
 
 __all__ = [
@@ -13,5 +13,5 @@ __all__ = [
     "HistoryImportParticipant",
     "HistoryImportRecord",
     "HistoryImportSourceSummary",
-    "ParsedHistoryFile",
+    "ParsedHistorySource",
 ]

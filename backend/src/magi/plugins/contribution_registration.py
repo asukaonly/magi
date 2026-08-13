@@ -8,6 +8,7 @@ from typing import Any
 
 from .base import Plugin
 from .contracts import ContributionType, PluginContribution, PluginManifest
+from .history_importers import HistoryImporterRegistry
 from .sensors import SensorRegistry
 from .settings_service import (
     collect_plugin_settings_actions,
@@ -25,14 +26,20 @@ class PluginContributionRegistrar:
         *,
         tool_registry: Any,
         sensor_registry: SensorRegistry,
+        history_importer_registry: HistoryImporterRegistry | None = None,
         hook_registry_provider: Callable[[], Any | None] | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._sensor_registry = sensor_registry
+        self._history_importer_registry = history_importer_registry or HistoryImporterRegistry()
         self._hook_registry_provider = hook_registry_provider or _resolve_hook_registry
         self._registered_tools: dict[str, list[str]] = {}
         self._registered_sensors: dict[str, list[str]] = {}
         self._registered_hooks: dict[str, list[tuple[Any, Any]]] = {}
+
+    @property
+    def history_importer_registry(self) -> HistoryImporterRegistry:
+        return self._history_importer_registry
 
     def register(
         self,
@@ -59,6 +66,11 @@ class PluginContributionRegistrar:
             settings_actions=settings_actions,
             registered_contributions=registered_contributions,
         )
+        self._register_history_importers(
+            plugin_id=plugin_id,
+            plugin_instance=plugin_instance,
+            registered_contributions=registered_contributions,
+        )
         self._register_channel(
             plugin_id=plugin_id,
             manifest=manifest,
@@ -80,6 +92,7 @@ class PluginContributionRegistrar:
             self._tool_registry.unregister(tool_name)
         for sensor_id in self._registered_sensors.pop(plugin_id, []):
             self._sensor_registry.unregister(sensor_id)
+        self._history_importer_registry.unregister_plugin(plugin_id)
 
         hook_entries = self._registered_hooks.pop(plugin_id, [])
         if not hook_entries:
@@ -128,7 +141,9 @@ class PluginContributionRegistrar:
                     display_name=tool_schema.name,
                     description=tool_schema.description,
                     surface="tools",
-                    metadata={"settings_actions": tool_action_metadata} if tool_action_metadata else {},
+                    metadata={"settings_actions": tool_action_metadata}
+                    if tool_action_metadata
+                    else {},
                 )
             )
 
@@ -200,9 +215,42 @@ class PluginContributionRegistrar:
                 description=manifest.description,
                 surface="extensions",
                 fields=list(plugin_instance.get_channel_fields()),
-                metadata={"settings_actions": channel_action_metadata} if channel_action_metadata else {},
+                metadata={"settings_actions": channel_action_metadata}
+                if channel_action_metadata
+                else {},
             )
         )
+
+    def _register_history_importers(
+        self,
+        *,
+        plugin_id: str,
+        plugin_instance: Plugin,
+        registered_contributions: list[PluginContribution],
+    ) -> None:
+        for importer_id, importer, spec in plugin_instance.get_history_importers():
+            self._history_importer_registry.register(
+                plugin_id=plugin_id,
+                importer_id=importer_id,
+                importer=importer,
+                spec=spec,
+            )
+            registered_contributions.append(
+                PluginContribution(
+                    plugin_id=plugin_id,
+                    contribution_id=importer_id,
+                    contribution_type=ContributionType.HISTORY_IMPORTER,
+                    display_name=spec.display_name,
+                    description=spec.description,
+                    surface="extensions",
+                    metadata={
+                        "accepted_extensions": list(spec.accepted_extensions),
+                        "format_version": spec.format_version,
+                        "participant_identity_scope": spec.participant_identity_scope,
+                        "export_help_url": spec.export_help_url,
+                    },
+                )
+            )
 
     def _register_hooks(
         self,

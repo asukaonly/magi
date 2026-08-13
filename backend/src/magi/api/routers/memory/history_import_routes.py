@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import HTTPException, Response, status
@@ -22,15 +23,17 @@ class MarkdownHistoryPreviewBody(BaseModel):
 
 class HistoryImportConfirmBody(BaseModel):
     confirm_personal_writing: bool = False
-    included_files: list[str] = Field(default_factory=list, max_length=50)
+    included_source_ids: list[str] = Field(default_factory=list, max_length=500)
+    self_participant_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
 class HistoryImportSelectionBody(BaseModel):
-    included_files: list[str] = Field(default_factory=list, max_length=50)
+    included_source_ids: list[str] = Field(default_factory=list, max_length=500)
 
 
 class HistoryImportParticipantResponse(BaseModel):
-    name: str
+    participant_id: str
+    display_name: str
     is_document_author: bool
     message_count: int
     meaningful_count: int
@@ -38,9 +41,11 @@ class HistoryImportParticipantResponse(BaseModel):
 
 
 class HistoryImportRecordPreviewResponse(BaseModel):
+    source_id: str
     source_name: str
     session_id: str
     session_seq: int
+    speaker_id: str
     speaker_name: str
     is_document_author: bool
     content: str
@@ -49,6 +54,7 @@ class HistoryImportRecordPreviewResponse(BaseModel):
 
 
 class HistoryImportSourceSummaryResponse(BaseModel):
+    source_id: str
     source_name: str
     detected_kind: str
     record_count: int
@@ -61,17 +67,24 @@ class HistoryImportSourceSummaryResponse(BaseModel):
 
 
 class HistoryImportSourcePreviewResponse(BaseModel):
+    source_id: str
     source_name: str
     detected_kind: str
     records: list[HistoryImportRecordPreviewResponse]
     truncated: bool
 
 
+class HistoryImportWarningSummaryResponse(BaseModel):
+    total_count: int
+    codes: list[str]
+    truncated: bool
+
+
 class HistoryImportJobResponse(BaseModel):
     job_id: str
     source_type: str
-    source_files: list[str]
-    included_files: list[str]
+    source_ids: list[str]
+    included_source_ids: list[str]
     detected_kind: str
     status: str
     total_records: int
@@ -81,8 +94,10 @@ class HistoryImportJobResponse(BaseModel):
     quick_imported_count: int
     imported_count: int
     projected_count: int
-    self_participants: list[str]
-    warnings: list[str]
+    self_participant_ids: list[str]
+    importer_plugin_id: str | None
+    importer_id: str | None
+    warning_summary: HistoryImportWarningSummaryResponse
     quick_ready: bool
     error_code: str | None
     created_at: float
@@ -90,6 +105,22 @@ class HistoryImportJobResponse(BaseModel):
     participants: list[HistoryImportParticipantResponse]
     sources: list[HistoryImportSourceSummaryResponse]
     preview_records: list[HistoryImportRecordPreviewResponse]
+
+
+class HistoryImporterResponse(BaseModel):
+    plugin_id: str
+    importer_id: str
+    display_name: str
+    display_name_i18n: dict[str, str]
+    description: str
+    description_i18n: dict[str, str]
+    accepted_extensions: list[str]
+    participant_identity_scope: str
+    export_help_url: str | None
+
+
+class HistoryImporterPreviewBody(BaseModel):
+    paths: list[str] = Field(min_length=1, max_length=10)
 
 
 def _resolve_history_import_service() -> Any:
@@ -103,8 +134,8 @@ def _response(job: Any) -> HistoryImportJobResponse:
     return HistoryImportJobResponse(
         job_id=job.job_id,
         source_type=job.source_type,
-        source_files=list(job.source_files),
-        included_files=list(job.included_files),
+        source_ids=list(job.source_ids),
+        included_source_ids=list(job.included_source_ids),
         detected_kind=job.detected_kind,
         status=job.status,
         total_records=job.total_records,
@@ -114,16 +145,19 @@ def _response(job: Any) -> HistoryImportJobResponse:
         quick_imported_count=job.quick_imported_count,
         imported_count=job.imported_count,
         projected_count=job.projected_count,
-        self_participants=list(job.self_participants),
-        warnings=list(job.warnings),
+        self_participant_ids=list(job.self_participant_ids),
+        importer_plugin_id=job.importer_plugin_id,
+        importer_id=job.importer_id,
+        warning_summary=_warning_summary(job.warnings),
         quick_ready=job.quick_ready,
         error_code=job.error_text,
         created_at=job.created_at,
         updated_at=job.updated_at,
         participants=[
             HistoryImportParticipantResponse(
-                name=participant.name,
-                is_document_author=participant.name == DOCUMENT_AUTHOR,
+                participant_id=participant.participant_id,
+                display_name=participant.display_name,
+                is_document_author=participant.participant_id == DOCUMENT_AUTHOR,
                 message_count=participant.message_count,
                 meaningful_count=participant.meaningful_count,
                 sample=participant.sample,
@@ -132,6 +166,7 @@ def _response(job: Any) -> HistoryImportJobResponse:
         ],
         sources=[
             HistoryImportSourceSummaryResponse(
+                source_id=source.source_id,
                 source_name=source.source_name,
                 detected_kind=source.detected_kind,
                 record_count=source.record_count,
@@ -146,17 +181,51 @@ def _response(job: Any) -> HistoryImportJobResponse:
         ],
         preview_records=[
             HistoryImportRecordPreviewResponse(
+                source_id=record.source_id,
                 source_name=record.source_name,
                 session_id=record.session_id,
                 session_seq=record.session_seq,
+                speaker_id=record.speaker_id,
                 speaker_name=record.speaker_name,
-                is_document_author=record.speaker_name == DOCUMENT_AUTHOR,
+                is_document_author=record.speaker_id == DOCUMENT_AUTHOR,
                 content=record.content,
                 event_at=record.event_at,
                 timestamp_confidence=record.timestamp_confidence,
             )
             for record in job.preview_records
         ],
+    )
+
+
+def _warning_summary(warnings: list[str]) -> HistoryImportWarningSummaryResponse:
+    truncation_prefix = "history_import_warnings_truncated:"
+    truncation_markers = [warning for warning in warnings if warning.startswith(truncation_prefix)]
+    truncated = bool(truncation_markers)
+    visible_warnings = [
+        warning for warning in warnings if not warning.startswith(truncation_prefix)
+    ]
+    total_count = len(visible_warnings)
+    if truncation_markers:
+        try:
+            total_count = max(
+                total_count,
+                int(truncation_markers[-1].removeprefix(truncation_prefix)),
+            )
+        except ValueError:
+            pass
+    codes: list[str] = []
+    for warning in visible_warnings:
+        candidate = str(warning).partition(":")[0].strip().casefold()
+        code = candidate if re.fullmatch(r"[a-z0-9_]{1,64}", candidate) else "unknown"
+        if code not in codes:
+            codes.append(code)
+        if len(codes) >= 20:
+            truncated = True
+            break
+    return HistoryImportWarningSummaryResponse(
+        total_count=total_count,
+        codes=codes,
+        truncated=truncated,
     )
 
 
@@ -209,6 +278,48 @@ async def preview_markdown_history(
 
 
 @memory_router.get(
+    "/history-imports/importers",
+    response_model=list[HistoryImporterResponse],
+)
+async def list_history_importers() -> list[HistoryImporterResponse]:
+    return [
+        HistoryImporterResponse(
+            plugin_id=item.plugin_id,
+            importer_id=item.importer_id,
+            display_name=item.spec.display_name,
+            display_name_i18n=dict(item.spec.display_name_i18n),
+            description=item.spec.description,
+            description_i18n=dict(item.spec.description_i18n),
+            accepted_extensions=list(item.spec.accepted_extensions),
+            participant_identity_scope=item.spec.participant_identity_scope,
+            export_help_url=item.spec.export_help_url,
+        )
+        for item in _require_service().list_importers()
+    ]
+
+
+@memory_router.post(
+    "/history-imports/importers/{plugin_id}/{importer_id}/preview",
+    response_model=HistoryImportJobResponse,
+)
+async def preview_importer_history(
+    plugin_id: str,
+    importer_id: str,
+    body: HistoryImporterPreviewBody,
+) -> HistoryImportJobResponse:
+    try:
+        job = await _require_service().preview_importer_paths(
+            plugin_id=plugin_id,
+            importer_id=importer_id,
+            paths=body.paths,
+        )
+    except Exception as exc:
+        _raise_service_error(exc)
+        raise
+    return _response(job)
+
+
+@memory_router.get(
     "/history-imports",
     response_model=list[HistoryImportJobResponse],
 )
@@ -236,26 +347,29 @@ async def get_history_import(job_id: str) -> HistoryImportJobResponse:
 )
 async def get_history_import_source_preview(
     job_id: str,
-    source_name: str,
+    source_id: str,
 ) -> HistoryImportSourcePreviewResponse:
     try:
         preview = await _require_service().get_source_preview(
             job_id=job_id,
-            source_name=source_name,
+            source_id=source_id,
         )
     except Exception as exc:
         _raise_service_error(exc)
         raise
     return HistoryImportSourcePreviewResponse(
+        source_id=preview.source_id,
         source_name=preview.source_name,
         detected_kind=preview.detected_kind,
         records=[
             HistoryImportRecordPreviewResponse(
+                source_id=record.source_id,
                 source_name=record.source_name,
                 session_id=record.session_id,
                 session_seq=record.session_seq,
+                speaker_id=record.speaker_id,
                 speaker_name=record.speaker_name,
-                is_document_author=record.speaker_name == DOCUMENT_AUTHOR,
+                is_document_author=record.speaker_id == DOCUMENT_AUTHOR,
                 content=record.content,
                 event_at=record.event_at,
                 timestamp_confidence=record.timestamp_confidence,
@@ -277,7 +391,7 @@ async def update_history_import_selection(
     try:
         job = await _require_service().update_selection(
             job_id=job_id,
-            included_files=body.included_files,
+            included_source_ids=body.included_source_ids,
         )
     except Exception as exc:
         _raise_service_error(exc)
@@ -297,7 +411,8 @@ async def confirm_history_import(
         job = await _require_service().confirm(
             job_id=job_id,
             confirm_personal_writing=body.confirm_personal_writing,
-            included_files=body.included_files,
+            included_source_ids=body.included_source_ids,
+            self_participant_ids=body.self_participant_ids,
         )
     except Exception as exc:
         _raise_service_error(exc)
@@ -339,6 +454,7 @@ __all__ = [
     "HistoryImportSelectionBody",
     "HistoryImportSourcePreviewResponse",
     "HistoryImportSourceSummaryResponse",
+    "HistoryImportWarningSummaryResponse",
     "MarkdownHistoryPreviewBody",
     "confirm_history_import",
     "delete_history_import",

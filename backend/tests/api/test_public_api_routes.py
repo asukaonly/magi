@@ -73,6 +73,8 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/memory/portrait" in paths
     assert "/api/memory/portrait/self" in paths
     assert "/api/memory/history-imports/markdown/preview" in paths
+    assert "/api/memory/history-imports/importers" in paths
+    assert "/api/memory/history-imports/importers/{plugin_id}/{importer_id}/preview" in paths
     assert "/api/memory/history-imports" in paths
     assert "/api/memory/history-imports/{job_id}" in paths
     assert "/api/memory/history-imports/{job_id}/source-preview" in paths
@@ -97,14 +99,15 @@ def test_register_api_routes_exposes_only_l2_assertion_confirmation_feedback() -
     assert "/api/memory/l2/edges/{triple_id}/reject" not in openapi_paths
 
 
-def test_markdown_import_confirmation_has_no_chat_identity_input() -> None:
+def test_history_import_confirmation_exposes_source_and_identity_scope() -> None:
     app = FastAPI()
     register_api_routes(app)
     schema = app.openapi()["components"]["schemas"]["HistoryImportConfirmBody"]
 
     assert set(schema["properties"]) == {
         "confirm_personal_writing",
-        "included_files",
+        "included_source_ids",
+        "self_participant_ids",
     }
 
 

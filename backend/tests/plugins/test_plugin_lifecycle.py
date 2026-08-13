@@ -29,6 +29,7 @@ def _patch_plugin_runtime(
             plugin_manager=object(),
             plugin_projection_service=object(),
             sensor_registry=object(),
+            history_importer_registry=object(),
         )
 
     monkeypatch.setattr(

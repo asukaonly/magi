@@ -17,6 +17,9 @@ from magi.db.migrations.memory_shared.versions.v36_history_imports import (
 from magi.db.migrations.memory_shared.versions.v37_history_import_selection import (
     SCHEMA_SQL as SELECTION_SCHEMA_SQL,
 )
+from magi.db.migrations.memory_shared.versions.v46_history_import_adapters import (
+    SCHEMA_SQL as IMPORTER_SCHEMA_SQL,
+)
 from magi.core.operation_barrier import AsyncOperationBarrier
 from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
 from magi.memory.history_imports import service as history_import_service_module
@@ -25,6 +28,7 @@ from magi.memory.history_imports.service import (
     HistoryImportService,
     HistoryImportValidationError,
 )
+from magi.memory.history_imports.models import HistoryImportJob
 from magi.memory.history_imports.store import HistoryImportStore
 
 
@@ -68,6 +72,18 @@ class _MemoryStub:
         block_source_item,
     ):
         self.forgotten_event_ids.extend(event_ids)
+
+
+class _PausedRawMemoryStub(_MemoryStub):
+    def __init__(self) -> None:
+        super().__init__()
+        self.raw_write_started = asyncio.Event()
+        self.release_raw_write = asyncio.Event()
+
+    async def store_governed_l1_event_under_write_lock(self, event):
+        self.raw_write_started.set()
+        await self.release_raw_write.wait()
+        return await super().store_governed_l1_event_under_write_lock(event)
 
 
 class _RetryProjectionMemoryStub(_MemoryStub):
@@ -120,9 +136,13 @@ class _GovernedProjectionSkipMemoryStub(_ExistingProjectionMemoryStub):
 async def history_store(tmp_path: Path) -> HistoryImportStore:
     db_path = tmp_path / "memory.db"
     async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "CREATE TABLE l2_projection_jobs(" "event_id TEXT PRIMARY KEY, source TEXT NOT NULL)"
+        )
         for statement in CREATE_STATEMENTS:
             await db.execute(statement)
         await db.executescript(SELECTION_SCHEMA_SQL)
+        await db.executescript(IMPORTER_SCHEMA_SQL)
         await db.commit()
     return HistoryImportStore(db_path=str(db_path))
 
@@ -160,6 +180,18 @@ async def _wait_for_completed_job(
     pytest.fail("History import did not complete")
 
 
+async def _wait_for_quick_ready_job(
+    service: HistoryImportService,
+    job_id: str,
+) -> None:
+    for _ in range(100):
+        current = await service.get_job(job_id)
+        if current.quick_ready:
+            return
+        await asyncio.sleep(0.01)
+    pytest.fail("History import did not reach quick ready")
+
+
 @pytest.mark.asyncio
 async def test_confirm_projects_chat_shaped_markdown_as_one_personal_document(
     tmp_path: Path,
@@ -188,12 +220,12 @@ async def test_confirm_projects_chat_shaped_markdown_as_one_personal_document(
     preview = await service.preview_markdown_paths([str(markdown)])
     assert preview.detected_kind == "document"
     assert preview.total_records == 1
-    assert {item.name for item in preview.participants} == {"__document_author__"}
+    assert {item.participant_id for item in preview.participants} == {"__document_author__"}
 
     ready = await service.confirm(
         job_id=preview.job_id,
         confirm_personal_writing=True,
-        included_files=preview.included_files,
+        included_source_ids=preview.included_source_ids,
     )
     assert ready.quick_ready is True
     assert ready.quick_imported_count == 1
@@ -210,12 +242,8 @@ async def test_confirm_projects_chat_shaped_markdown_as_one_personal_document(
     assert [event.content for event in memory.projected_events] == [expected_content]
     assert [event.content for event in memory.raw_events] == [expected_content]
     first_event = memory.raw_events[0]
-    assert first_event.metadata_json["history_import"]["timestamp_anchor_source"] == (
-        "file_mtime"
-    )
-    assert first_event.metadata_json["_temporal"]["calendar_timezone_id"] == (
-        "Asia/Shanghai"
-    )
+    assert first_event.metadata_json["history_import"]["timestamp_anchor_source"] == ("file_mtime")
+    assert first_event.metadata_json["_temporal"]["calendar_timezone_id"] == ("Asia/Shanghai")
 
     from magi.memory.l2.batch_models import L2BatchEvent, L2EventWindow
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
@@ -239,6 +267,199 @@ async def test_confirm_projects_chat_shaped_markdown_as_one_personal_document(
 
 
 @pytest.mark.asyncio
+async def test_running_progress_reads_do_not_hydrate_preview_details(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    markdown = tmp_path / "journal.md"
+    markdown.write_text("I started learning pottery this week.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+    preview = await service.preview_markdown_paths([str(markdown)])
+    assert preview.participants
+    assert preview.sources
+    await history_store.mark_running(job_id=preview.job_id)
+
+    async def fail_hydration(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("Progress reads must not hydrate preview details")
+
+    monkeypatch.setattr(history_store, "get_job", fail_hydration)
+
+    progress = await service.get_job(preview.job_id)
+    active = await service.list_jobs()
+
+    assert progress.status == "running"
+    assert progress.participants == []
+    assert progress.sources == []
+    assert progress.preview_records == []
+    assert [job.job_id for job in active] == [preview.job_id]
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_background_checkpoints_use_lightweight_progress_reads(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        history_import_service_module,
+        "local_calendar_timezone_id",
+        lambda: "Asia/Shanghai",
+    )
+    markdown = tmp_path / "journal.md"
+    markdown.write_text("I started learning pottery this week.", encoding="utf-8")
+    memory = _MemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+    preview = await service.preview_markdown_paths([str(markdown)])
+    monkeypatch.setattr(service, "_start_background", lambda _job_id: None)
+    await service.confirm(
+        job_id=preview.job_id,
+        confirm_personal_writing=True,
+        included_source_ids=preview.included_source_ids,
+    )
+
+    async def fail_hydration(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("Background work must not hydrate preview details")
+
+    monkeypatch.setattr(history_store, "get_job", fail_hydration)
+
+    await service._run_background(preview.job_id)
+
+    completed = await history_store.get_job_progress(preview.job_id)
+    assert completed is not None
+    assert completed.status == "completed"
+    assert completed.participants == []
+    assert completed.sources == []
+    assert len(memory.projected_events) == 1
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_confirmation_request_does_not_cancel_quick_import(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    markdown = tmp_path / "journal.md"
+    markdown.write_text("I started learning pottery this week.", encoding="utf-8")
+    memory = _PausedRawMemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+    confirm_task: asyncio.Task[HistoryImportJob] | None = None
+
+    try:
+        preview = await service.preview_markdown_paths([str(markdown)])
+        confirm_task = asyncio.create_task(
+            service.confirm(
+                job_id=preview.job_id,
+                confirm_personal_writing=True,
+                included_source_ids=preview.included_source_ids,
+            )
+        )
+        await asyncio.wait_for(memory.raw_write_started.wait(), timeout=1)
+
+        confirm_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await confirm_task
+
+        quick_task = service._quick_tasks.get(preview.job_id)
+        assert quick_task is not None
+        assert quick_task.cancelled() is False
+
+        memory.release_raw_write.set()
+        await _wait_for_completed_job(service, preview.job_id)
+        completed = await service.get_job(preview.job_id)
+
+        assert completed.quick_ready is True
+        assert completed.quick_imported_count == 1
+        assert len(memory.raw_events) == 1
+    finally:
+        memory.release_raw_write.set()
+        if confirm_task is not None and not confirm_task.done():
+            confirm_task.cancel()
+            await asyncio.gather(confirm_task, return_exceptions=True)
+        await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_start_recovers_partially_finished_quick_import_without_rewriting_l1(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    first = tmp_path / "first.md"
+    second = tmp_path / "second.md"
+    first.write_text("I started learning pottery.", encoding="utf-8")
+    second.write_text("I signed up for another class.", encoding="utf-8")
+    memory = _MemoryStub()
+    initial_service = HistoryImportService(store=history_store, memory=memory)
+    recovered_service: HistoryImportService | None = None
+
+    try:
+        preview = await initial_service.preview_markdown_paths([str(first), str(second)])
+        await history_store.set_scope(
+            job_id=preview.job_id,
+            self_participant_ids=["__document_author__"],
+            included_source_ids=preview.included_source_ids,
+        )
+        quick_records = await history_store.select_quick_records(job_id=preview.job_id)
+        await initial_service._store_raw_record(
+            quick_records[0],
+            quick=True,
+            expected_epoch=memory.memory_operation_epoch(),
+        )
+        await initial_service.stop()
+
+        recovered_service = HistoryImportService(store=history_store, memory=memory)
+        await recovered_service.start()
+        await _wait_for_completed_job(recovered_service, preview.job_id)
+        completed = await recovered_service.get_job(preview.job_id)
+
+        assert completed.quick_ready is True
+        assert completed.quick_imported_count == 2
+        assert len(memory.raw_events) == 2
+        assert len({event.event_id for event in memory.raw_events}) == 2
+    finally:
+        if recovered_service is not None:
+            await recovered_service.stop()
+        else:
+            await initial_service.stop()
+
+
+@pytest.mark.asyncio
+async def test_resume_restarts_failed_confirmed_quick_import(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    markdown = tmp_path / "journal.md"
+    markdown.write_text("I started learning pottery this week.", encoding="utf-8")
+    memory = _MemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+
+    try:
+        preview = await service.preview_markdown_paths([str(markdown)])
+        await history_store.set_scope(
+            job_id=preview.job_id,
+            self_participant_ids=["__document_author__"],
+            included_source_ids=preview.included_source_ids,
+        )
+        await history_store.mark_failed(
+            job_id=preview.job_id,
+            error_text="InterruptedError",
+        )
+
+        resumed = await service.resume(preview.job_id)
+        assert resumed.status == "running"
+        assert resumed.quick_ready is False
+
+        await _wait_for_completed_job(service, preview.job_id)
+        completed = await service.get_job(preview.job_id)
+        assert completed.quick_ready is True
+        assert completed.quick_imported_count == 1
+        assert len(memory.raw_events) == 1
+    finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_completed_import_retries_a_skipped_memory_handoff(
     tmp_path: Path,
     history_store: HistoryImportStore,
@@ -259,7 +480,7 @@ async def test_completed_import_retries_a_skipped_memory_handoff(
         await service.confirm(
             job_id=preview.job_id,
             confirm_personal_writing=True,
-            included_files=preview.included_files,
+            included_source_ids=preview.included_source_ids,
         )
         await _wait_for_completed_job(service, preview.job_id)
         first_pass = await service.get_job(preview.job_id)
@@ -303,7 +524,7 @@ async def test_existing_l2_job_counts_as_a_completed_memory_handoff(
         await service.confirm(
             job_id=preview.job_id,
             confirm_personal_writing=True,
-            included_files=preview.included_files,
+            included_source_ids=preview.included_source_ids,
         )
         await _wait_for_completed_job(service, preview.job_id)
         completed = await service.get_job(preview.job_id)
@@ -338,7 +559,7 @@ async def test_governed_skip_is_not_overridden_by_an_existing_l2_job(
         await service.confirm(
             job_id=preview.job_id,
             confirm_personal_writing=True,
-            included_files=preview.included_files,
+            included_source_ids=preview.included_source_ids,
         )
         await _wait_for_completed_job(service, preview.job_id)
         completed = await service.get_job(preview.job_id)
@@ -364,9 +585,9 @@ async def test_preview_disambiguates_same_named_files_without_full_paths(
 
     preview = await service.preview_markdown_paths([str(first), str(second)])
 
-    assert len(preview.source_files) == 2
-    assert len(set(preview.source_files)) == 2
-    assert all(str(tmp_path) not in source_name for source_name in preview.source_files)
+    assert len(preview.source_ids) == 2
+    assert len(set(preview.source_ids)) == 2
+    assert all(str(tmp_path) not in source_name for source_name in preview.source_ids)
 
 
 @pytest.mark.asyncio
@@ -382,7 +603,7 @@ async def test_delete_forgets_every_imported_raw_event(
     await service.confirm(
         job_id=preview.job_id,
         confirm_personal_writing=True,
-        included_files=preview.included_files,
+        included_source_ids=preview.included_source_ids,
     )
     await service.delete(preview.job_id)
 
@@ -407,14 +628,14 @@ async def test_partial_file_change_reuses_unchanged_source_record_identity(
     first_unchanged = (
         await history_store.list_source_records(
             job_id=first.job_id,
-            source_name="unchanged.md",
+            source_id="unchanged.md",
             limit=10,
         )
     )[0]
     first_changed = (
         await history_store.list_source_records(
             job_id=first.job_id,
-            source_name="changed.md",
+            source_id="changed.md",
             limit=10,
         )
     )[0]
@@ -424,14 +645,14 @@ async def test_partial_file_change_reuses_unchanged_source_record_identity(
     second_unchanged = (
         await history_store.list_source_records(
             job_id=second.job_id,
-            source_name="unchanged.md",
+            source_id="unchanged.md",
             limit=10,
         )
     )[0]
     second_changed = (
         await history_store.list_source_records(
             job_id=second.job_id,
-            source_name="changed.md",
+            source_id="changed.md",
             limit=10,
         )
     )[0]
@@ -451,25 +672,42 @@ async def test_partial_file_change_reuses_unchanged_source_record_identity(
             ).fetchone()
         )[0]
         membership_count = (
-            await (
-                await db.execute("SELECT COUNT(*) FROM history_import_job_records")
-            ).fetchone()
+            await (await db.execute("SELECT COUNT(*) FROM history_import_job_records")).fetchone()
         )[0]
     assert source_count == 3
     assert membership_count == 4
 
 
 @pytest.mark.asyncio
-async def test_identical_file_selection_reuses_existing_job(
+async def test_concurrent_identical_file_selection_reuses_existing_job(
     tmp_path: Path,
     history_store: HistoryImportStore,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     markdown = tmp_path / "notes.md"
     markdown.write_text("# Notes\n\nStable content.", encoding="utf-8")
     service = HistoryImportService(store=history_store, memory=_MemoryStub())
+    original_find = history_store.find_active_by_fingerprint
+    both_reads_completed = asyncio.Event()
+    find_lock = asyncio.Lock()
+    find_count = 0
 
-    first = await service.preview_markdown_paths([str(markdown)])
-    second = await service.preview_markdown_paths([str(markdown)])
+    async def synchronized_find(fingerprint: str) -> Any:
+        nonlocal find_count
+        existing = await original_find(fingerprint)
+        async with find_lock:
+            find_count += 1
+            if find_count == 2:
+                both_reads_completed.set()
+        await asyncio.wait_for(both_reads_completed.wait(), timeout=1)
+        return existing
+
+    monkeypatch.setattr(history_store, "find_active_by_fingerprint", synchronized_find)
+
+    first, second = await asyncio.gather(
+        service.preview_markdown_paths([str(markdown)]),
+        service.preview_markdown_paths([str(markdown)]),
+    )
 
     assert second.job_id == first.job_id
     async with aiosqlite.connect(history_store.db_path) as db:
@@ -497,14 +735,14 @@ async def test_delete_forgets_shared_event_only_after_final_active_membership(
     await service.confirm(
         job_id=first.job_id,
         confirm_personal_writing=True,
-        included_files=first.included_files,
+        included_source_ids=first.included_source_ids,
     )
     changed.write_text("# Notes\n\nSecond version.", encoding="utf-8")
     second = await service.preview_markdown_paths([str(shared), str(changed)])
     await service.confirm(
         job_id=second.job_id,
         confirm_personal_writing=True,
-        included_files=second.included_files,
+        included_source_ids=second.included_source_ids,
     )
     first_events = set(await history_store.list_imported_event_ids(job_id=first.job_id))
     second_events = set(await history_store.list_imported_event_ids(job_id=second.job_id))
@@ -524,6 +762,39 @@ async def test_delete_forgets_shared_event_only_after_final_active_membership(
         shared_event_id,
         second_only_event_id,
     }
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_delete_cleans_pending_event_identity_and_mtime_reimport_succeeds(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    markdown = tmp_path / "journal.md"
+    markdown.write_text("# Journal\n\nAn unchanged entry.", encoding="utf-8")
+    memory = _MemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+
+    first = await service.preview_markdown_paths([str(markdown)])
+    first_records = await history_store.list_source_records(
+        job_id=first.job_id,
+        source_id="journal.md",
+        limit=10,
+    )
+    await service.delete(first.job_id)
+
+    assert memory.forgotten_event_ids == [first_records[0].event_id]
+
+    markdown.touch()
+    second = await service.preview_markdown_paths([str(markdown)])
+    second_records = await history_store.list_source_records(
+        job_id=second.job_id,
+        source_id="journal.md",
+        limit=10,
+    )
+
+    assert second.job_id != first.job_id
+    assert second_records[0].event_id == first_records[0].event_id
     await service.stop()
 
 
@@ -548,7 +819,7 @@ async def test_confirm_requires_personal_writing_authorship(
         await service.confirm(
             job_id=preview.job_id,
             confirm_personal_writing=False,
-            included_files=preview.included_files,
+            included_source_ids=preview.included_source_ids,
         )
     await service.stop()
 
@@ -576,21 +847,19 @@ async def test_personal_markdown_headings_import_as_one_source_event(
     assert preview.detected_kind == "document"
     assert preview.total_records == 1
     assert preview.sources[0].record_count == 1
-    assert preview.preview_records[0].content == markdown.read_text(
-        encoding="utf-8"
-    ).strip()
+    assert preview.preview_records[0].content == markdown.read_text(encoding="utf-8").strip()
 
     ready = await service.confirm(
         job_id=preview.job_id,
         confirm_personal_writing=True,
-        included_files=preview.included_files,
+        included_source_ids=preview.included_source_ids,
     )
 
     assert ready.quick_imported_count == 1
     assert len(memory.raw_events) == 1
     event = memory.raw_events[0]
     assert event.content == preview.preview_records[0].content
-    assert event.source == "history_import_markdown"
+    assert event.source == "history_import"
     assert event.event_type == "history_import.document"
     assert event.author_type == "user"
     assert event.memory_domain.label == "user_authored"
@@ -618,7 +887,7 @@ async def test_personal_markdown_headings_import_as_one_source_event(
         extraction_instructions=profile.phase1_instructions,
     )
 
-    assert classification.reason_code == "user_authored_history_document"
+    assert classification.reason_code == "user_authored_history_archive"
     assert profile.profile_id == "history_import.document"
     assert (
         batch_event.metadata_json["history_import"]["timestamp_confidence"]
@@ -654,8 +923,8 @@ async def test_quick_context_keeps_long_chat_shaped_markdown_as_one_document(
     assert preview.total_records == 1
     await history_store.set_scope(
         job_id=preview.job_id,
-        self_participants=["__document_author__"],
-        included_files=preview.included_files,
+        self_participant_ids=["__document_author__"],
+        included_source_ids=preview.included_source_ids,
     )
     selected = await history_store.select_quick_records(job_id=preview.job_id)
 
@@ -688,7 +957,7 @@ async def test_confirm_writes_previewed_markdown_into_the_real_l1_store(
         ready = await service.confirm(
             job_id=preview.job_id,
             confirm_personal_writing=True,
-            included_files=preview.included_files,
+            included_source_ids=preview.included_source_ids,
         )
 
         assert ready.quick_ready is True
@@ -698,6 +967,55 @@ async def test_confirm_writes_previewed_markdown_into_the_real_l1_store(
             record.content for record in preview.preview_records
         ]
         assert [item["author_type"] for item in stored if item is not None] == ["user"]
+    finally:
+        await service.stop()
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_quick_retry_after_l1_write_does_not_duplicate_the_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory_db_path = tmp_path / "memory.db"
+    memory = _build_real_memory(tmp_path)
+    await memory.initialize()
+    store = HistoryImportStore(db_path=str(memory_db_path))
+    service = HistoryImportService(store=store, memory=memory)
+    markdown = tmp_path / "personal-notes.md"
+    markdown.write_text("I started learning pottery.", encoding="utf-8")
+    original_mark_raw_stored = store.mark_raw_stored
+    fail_once = True
+
+    async def interrupted_mark_raw_stored(*args: Any, **kwargs: Any) -> None:
+        nonlocal fail_once
+        if fail_once:
+            fail_once = False
+            raise InterruptedError("simulated process interruption")
+        await original_mark_raw_stored(*args, **kwargs)
+
+    monkeypatch.setattr(store, "mark_raw_stored", interrupted_mark_raw_stored)
+
+    try:
+        preview = await service.preview_markdown_paths([str(markdown)])
+        failed = await service.confirm(
+            job_id=preview.job_id,
+            confirm_personal_writing=True,
+            included_source_ids=preview.included_source_ids,
+        )
+
+        assert failed.status == "failed"
+        assert failed.quick_ready is False
+        assert await memory.l1.count_events(source_filters=["history_import"]) == 1
+
+        resumed = await service.resume(preview.job_id)
+        assert resumed.status == "running"
+        await _wait_for_completed_job(service, preview.job_id)
+
+        assert await memory.l1.count_events(source_filters=["history_import"]) == 1
+        stored = await memory.l1.get_event(preview.preview_records[0].event_id)
+        assert stored is not None
+        assert stored["content"] == "I started learning pottery."
     finally:
         await service.stop()
         await memory.shutdown()
@@ -726,7 +1044,7 @@ async def test_diagnostics_trace_import_and_detect_a_missing_l1_projection(
         await service.confirm(
             job_id=preview.job_id,
             confirm_personal_writing=True,
-            included_files=preview.included_files,
+            included_source_ids=preview.included_source_ids,
         )
         await _wait_for_completed_job(service, preview.job_id)
 
@@ -793,16 +1111,12 @@ async def test_full_clear_waits_for_inflight_preview_and_removes_its_rows(
     preview_task: asyncio.Task[Any] | None = None
     clear_task: asyncio.Task[Any] | None = None
     try:
-        preview_task = asyncio.create_task(
-            service.preview_markdown_paths([str(markdown)])
-        )
+        preview_task = asyncio.create_task(service.preview_markdown_paths([str(markdown)]))
         await asyncio.wait_for(preview_reached_store.wait(), timeout=1)
 
         clear_task = asyncio.create_task(
             memory.clear_all_memory(
-                user_content_clear_boundaries=(
-                    service.user_content_clear_boundary,
-                ),
+                user_content_clear_boundaries=(service.user_content_clear_boundary,),
             )
         )
 
@@ -819,14 +1133,13 @@ async def test_full_clear_waits_for_inflight_preview_and_removes_its_rows(
 
         assert await store.get_job(preview.job_id) is None
         assert await store.list_active_jobs() == []
+        assert service._quick_tasks == {}
         assert service._tasks == {}
         assert service._locks == {}
     finally:
         release_preview.set()
         pending = [
-            task
-            for task in (preview_task, clear_task)
-            if task is not None and not task.done()
+            task for task in (preview_task, clear_task) if task is not None and not task.done()
         ]
         for task in pending:
             task.cancel()
@@ -878,14 +1191,13 @@ async def test_full_clear_cancels_import_workers_before_shared_table_deletion(
     try:
         await asyncio.wait_for(
             memory.clear_all_memory(
-                user_content_clear_boundaries=(
-                    service.user_content_clear_boundary,
-                ),
+                user_content_clear_boundaries=(service.user_content_clear_boundary,),
             ),
             timeout=5,
         )
 
         assert worker_finished.is_set()
+        assert service._quick_tasks == {}
         assert service._tasks == {}
         assert service._locks == {}
     finally:
@@ -932,7 +1244,7 @@ async def test_clear_does_not_deadlock_between_worker_and_selection_lock_order(
     selection_task = asyncio.create_task(
         service.update_selection(
             job_id=preview.job_id,
-            included_files=preview.included_files,
+            included_source_ids=preview.included_source_ids,
         )
     )
     await asyncio.wait_for(second_waiter_ready.wait(), timeout=1)
@@ -955,15 +1267,12 @@ async def test_clear_does_not_deadlock_between_worker_and_selection_lock_order(
         await asyncio.wait_for(selection_task, timeout=2)
         await asyncio.wait_for(clear_task, timeout=2)
 
+        assert service._quick_tasks == {}
         assert service._tasks == {}
         assert service._locks == {}
     finally:
         release_first_holder.set()
-        pending = [
-            task
-            for task in (selection_task, clear_task)
-            if not task.done()
-        ]
+        pending = [task for task in (selection_task, clear_task) if not task.done()]
         for task in pending:
             task.cancel()
         if pending:
@@ -986,10 +1295,10 @@ async def test_selection_excludes_unwanted_files_before_any_memory_write(
     preview = await service.preview_markdown_paths([str(journal), str(clipping)])
     selected = await service.update_selection(
         job_id=preview.job_id,
-        included_files=["journal.md"],
+        included_source_ids=["journal.md"],
     )
 
-    assert selected.included_files == ["journal.md"]
+    assert selected.included_source_ids == ["journal.md"]
     assert {source.source_name: source.included for source in selected.sources} == {
         "clipping.md": False,
         "journal.md": True,
@@ -998,7 +1307,7 @@ async def test_selection_excludes_unwanted_files_before_any_memory_write(
     ready = await service.confirm(
         job_id=preview.job_id,
         confirm_personal_writing=True,
-        included_files=["journal.md"],
+        included_source_ids=["journal.md"],
     )
     assert ready.total_records == 1
     assert [event.content for event in memory.raw_events] == [
@@ -1019,10 +1328,10 @@ async def test_preview_selection_can_be_empty_but_confirmation_cannot(
     preview = await service.preview_markdown_paths([str(markdown)])
     empty = await service.update_selection(
         job_id=preview.job_id,
-        included_files=[],
+        included_source_ids=[],
     )
 
-    assert empty.included_files == []
+    assert empty.included_source_ids == []
     assert empty.sources[0].included is False
     with pytest.raises(
         HistoryImportValidationError,
@@ -1031,7 +1340,7 @@ async def test_preview_selection_can_be_empty_but_confirmation_cannot(
         await service.confirm(
             job_id=preview.job_id,
             confirm_personal_writing=True,
-            included_files=[],
+            included_source_ids=[],
         )
 
 
@@ -1047,7 +1356,7 @@ async def test_source_preview_returns_bounded_content_for_one_file(
     job = await service.preview_markdown_paths([str(markdown)])
     preview = await service.get_source_preview(
         job_id=job.job_id,
-        source_name="long-journal.md",
+        source_id="long-journal.md",
     )
 
     assert preview.source_name == "long-journal.md"
@@ -1075,7 +1384,7 @@ async def test_first_contact_snippet_uses_only_confirmed_user_writing(
     await service.confirm(
         job_id=preview.job_id,
         confirm_personal_writing=True,
-        included_files=preview.included_files,
+        included_source_ids=preview.included_source_ids,
     )
 
     snippet = await service.get_first_contact_snippet()

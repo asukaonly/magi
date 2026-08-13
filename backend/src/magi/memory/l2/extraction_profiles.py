@@ -119,14 +119,14 @@ DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
     ),
     "history_import.document": ExtractionProfile(
         profile_id="history_import.document",
-        source_types=frozenset({"history_import_markdown"}),
+        source_types=frozenset({"history_import"}),
         event_types=frozenset({"history_import.document"}),
         extraction_instructions=_HISTORY_DOCUMENT_INSTRUCTIONS,
         phase1_instructions=_HISTORY_DOCUMENT_INSTRUCTIONS,
     ),
     "history_import.chat": ExtractionProfile(
         profile_id="history_import.chat",
-        source_types=frozenset({"history_import_markdown"}),
+        source_types=frozenset({"history_import"}),
         event_types=frozenset({"history_import.chat"}),
         extraction_instructions=_HISTORY_CHAT_INSTRUCTIONS,
         phase1_instructions=_HISTORY_CHAT_INSTRUCTIONS,

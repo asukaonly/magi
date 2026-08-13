@@ -13,7 +13,11 @@ from .models import (
     HistoryImportParticipant,
     HistoryImportRecord,
     HistoryImportSourceSummary,
+    ParsedHistorySource,
 )
+
+_SOURCE_IDENTITY_READ_BATCH_SIZE = 400
+_SESSION_PREFIX_READ_BATCH_SIZE = 300
 
 _RECORD_SELECT = """
     SELECT membership.job_record_id,
@@ -21,10 +25,15 @@ _RECORD_SELECT = """
            source.source_record_key,
            source.file_fingerprint,
            source.source_name,
+           source.source_id,
+           source.source_kind,
            source.parsed_session_key,
            source.session_id,
-           source.session_seq,
+           membership.source_order AS session_seq,
+           source.speaker_id,
            source.speaker_name,
+           source.message_key,
+           source.parent_message_key,
            source.speaker_role,
            source.content,
            source.event_at,
@@ -76,25 +85,46 @@ class HistoryImportStore:
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
+                async with db.execute(
+                    """
+                    SELECT job_id
+                    FROM history_import_jobs
+                    WHERE source_fingerprint = ? AND deleted_at IS NULL
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (job.source_fingerprint,),
+                ) as cursor:
+                    existing_row = await cursor.fetchone()
+                if existing_row is not None:
+                    await db.rollback()
+                    existing = await self.get_job(str(existing_row["job_id"]))
+                    if existing is None:
+                        raise RuntimeError("Existing history import preview is missing")
+                    return existing
                 await db.execute(
                     """
                     INSERT INTO history_import_jobs(
                         job_id, source_type, source_fingerprint,
-                        source_files_json, included_files_json,
+                        source_ids_json, included_source_ids_json,
+                        importer_plugin_id, importer_id, importer_format_version,
                         detected_kind, status,
                         total_records, meaningful_records,
                         quick_target_records, quick_max_records,
                         quick_imported_count, imported_count, projected_count,
-                        self_participants_json, warnings_json, quick_ready,
+                        self_participant_ids_json, warnings_json, quick_ready,
                         error_text, created_at, updated_at, deleted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job.job_id,
                         job.source_type,
                         job.source_fingerprint,
-                        json.dumps(job.source_files, ensure_ascii=False),
-                        json.dumps(job.included_files, ensure_ascii=False),
+                        json.dumps(job.source_ids, ensure_ascii=False),
+                        json.dumps(job.included_source_ids, ensure_ascii=False),
+                        job.importer_plugin_id,
+                        job.importer_id,
+                        job.importer_format_version,
                         job.detected_kind,
                         job.status,
                         job.total_records,
@@ -104,7 +134,7 @@ class HistoryImportStore:
                         job.quick_imported_count,
                         job.imported_count,
                         job.projected_count,
-                        json.dumps(job.self_participants, ensure_ascii=False),
+                        json.dumps(job.self_participant_ids, ensure_ascii=False),
                         json.dumps(job.warnings, ensure_ascii=False),
                         1 if job.quick_ready else 0,
                         job.error_text,
@@ -116,23 +146,29 @@ class HistoryImportStore:
                 await db.executemany(
                     """
                     INSERT INTO history_import_source_records(
-                        source_record_key, file_fingerprint, source_name,
+                        source_record_key, file_fingerprint, source_id, source_name, source_kind,
                         parsed_session_key, session_id, session_seq,
-                        speaker_name, speaker_role, content, event_at,
+                        speaker_id, speaker_name, message_key, parent_message_key,
+                        speaker_role, content, event_at,
                         timestamp_confidence, timestamp_anchor_source,
                         calendar_timezone_id, meaningful, event_id, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(source_record_key) DO NOTHING
                     """,
                     [
                         (
                             record.source_record_key,
                             record.file_fingerprint,
+                            record.source_id,
                             record.source_name,
+                            record.source_kind,
                             record.parsed_session_key,
                             record.session_id,
                             record.session_seq,
+                            record.speaker_id,
                             record.speaker_name,
+                            record.message_key,
+                            record.parent_message_key,
                             record.speaker_role,
                             record.content,
                             record.event_at,
@@ -146,18 +182,27 @@ class HistoryImportStore:
                         for record in records
                     ],
                 )
+                stored_identities = await _load_source_identity_rows(
+                    db,
+                    [record.source_record_key for record in records],
+                )
+                for record in records:
+                    stored = stored_identities.get(record.source_record_key)
+                    if stored is None or not _same_source_identity(record, stored):
+                        raise ValueError("history_import_source_identity_conflict")
                 await db.executemany(
                     """
                     INSERT INTO history_import_job_records(
                         job_record_id, job_id, source_record_key,
-                        raw_state, projection_state, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        source_order, raw_state, projection_state, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         (
                             record.job_record_id,
                             record.job_id,
                             record.source_record_key,
+                            record.session_seq,
                             record.raw_state,
                             record.projection_state,
                             record.created_at,
@@ -175,7 +220,42 @@ class HistoryImportStore:
             raise RuntimeError("Created history import preview is missing")
         return result
 
+    async def validate_platform_session_prefixes(
+        self,
+        *,
+        importer_plugin_id: str,
+        importer_id: str,
+        importer_format_version: str,
+        sources: list[ParsedHistorySource],
+    ) -> None:
+        """Require incremental exports to preserve existing message order prefixes."""
+
+        incoming_prefixes = {
+            (source.source_id, source.session_key): [
+                str(record["message_key"])
+                for record in sorted(
+                    source.records,
+                    key=lambda record: int(record.get("source_order", 0)),
+                )
+            ]
+            for source in sources
+        }
+        async with sqlite_connection_async(self.db_path) as db:
+            reserved_prefixes = await _load_reserved_session_prefixes(
+                db,
+                importer_plugin_id=importer_plugin_id,
+                importer_id=importer_id,
+                importer_format_version=importer_format_version,
+                session_identities=list(incoming_prefixes),
+            )
+        _require_append_only_session_prefixes(
+            incoming_prefixes=incoming_prefixes,
+            reserved_prefixes=reserved_prefixes,
+        )
+
     async def get_job(self, job_id: str) -> HistoryImportJob | None:
+        """Load one job together with preview-only participant and source details."""
+
         async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(
                 "SELECT * FROM history_import_jobs WHERE job_id = ?",
@@ -184,27 +264,45 @@ class HistoryImportStore:
                 row = await cursor.fetchone()
             if row is None:
                 return None
-            included_files = list(json.loads(row["included_files_json"] or "[]"))
+            included_source_ids = list(json.loads(row["included_source_ids_json"] or "[]"))
             participants = await self._participants(
                 db,
                 job_id,
-                included_files=included_files,
+                included_source_ids=included_source_ids,
             )
             sources = await self._source_summaries(
                 db,
                 job_id,
-                included_files=included_files,
+                included_source_ids=included_source_ids,
             )
             previews = await self._preview_records(
                 db,
                 job_id,
-                included_files=included_files,
+                included_source_ids=included_source_ids,
             )
         return _job_from_row(
             row,
             participants=participants,
             sources=sources,
             preview_records=previews,
+        )
+
+    async def get_job_progress(self, job_id: str) -> HistoryImportJob | None:
+        """Load lifecycle counters without scanning imported record content."""
+
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                "SELECT * FROM history_import_jobs WHERE job_id = ?",
+                (job_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            return None
+        return _job_from_row(
+            row,
+            participants=[],
+            sources=[],
+            preview_records=[],
         )
 
     async def list_active_jobs(self, *, limit: int = 20) -> list[HistoryImportJob]:
@@ -222,7 +320,7 @@ class HistoryImportStore:
                 rows = await cursor.fetchall()
         jobs: list[HistoryImportJob] = []
         for row in rows:
-            job = await self.get_job(str(row["job_id"]))
+            job = await self.get_job_progress(str(row["job_id"]))
             if job is not None:
                 jobs.append(job)
         return jobs
@@ -242,19 +340,40 @@ class HistoryImportStore:
                 rows = await cursor.fetchall()
         return [str(row[0]) for row in rows]
 
+    async def list_quick_resumable_job_ids(self) -> list[str]:
+        """List confirmed imports interrupted before the quick-ready boundary."""
+
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT job_id
+                FROM history_import_jobs
+                WHERE deleted_at IS NULL
+                  AND quick_ready = 0
+                  AND status = 'running'
+                  AND json_array_length(included_source_ids_json) > 0
+                  AND json_array_length(self_participant_ids_json) > 0
+                ORDER BY updated_at ASC
+                """
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [str(row[0]) for row in rows]
+
     async def update_selection(
         self,
         *,
         job_id: str,
-        included_files: list[str],
+        included_source_ids: list[str],
     ) -> HistoryImportJob:
         now = time.time()
-        normalized = list(dict.fromkeys(item.strip() for item in included_files if item.strip()))
+        normalized = list(
+            dict.fromkeys(item.strip() for item in included_source_ids if item.strip())
+        )
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 UPDATE history_import_jobs
-                SET included_files_json = ?, updated_at = ?
+                SET included_source_ids_json = ?, updated_at = ?
                 WHERE job_id = ?
                   AND deleted_at IS NULL
                   AND quick_ready = 0
@@ -272,17 +391,55 @@ class HistoryImportStore:
         self,
         *,
         job_id: str,
-        self_participants: list[str],
-        included_files: list[str],
+        self_participant_ids: list[str],
+        included_source_ids: list[str],
     ) -> HistoryImportJob:
         now = time.time()
-        normalized = list(dict.fromkeys(item.strip() for item in self_participants if item.strip()))
+        normalized = list(
+            dict.fromkeys(item.strip() for item in self_participant_ids if item.strip())
+        )
         normalized_files = list(
-            dict.fromkeys(item.strip() for item in included_files if item.strip())
+            dict.fromkeys(item.strip() for item in included_source_ids if item.strip())
         )
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
+                async with db.execute(
+                    """
+                    SELECT importer_plugin_id, importer_id, importer_format_version
+                    FROM history_import_jobs
+                    WHERE job_id = ? AND deleted_at IS NULL
+                    """,
+                    (job_id,),
+                ) as cursor:
+                    importer_row = await cursor.fetchone()
+                if importer_row is None:
+                    raise KeyError(job_id)
+                importer_identity = tuple(
+                    str(importer_row[column] or "").strip()
+                    for column in (
+                        "importer_plugin_id",
+                        "importer_id",
+                        "importer_format_version",
+                    )
+                )
+                if all(importer_identity):
+                    incoming_prefixes = await _load_job_session_prefixes(
+                        db,
+                        job_id=job_id,
+                        included_source_ids=normalized_files,
+                    )
+                    reserved_prefixes = await _load_reserved_session_prefixes(
+                        db,
+                        importer_plugin_id=importer_identity[0],
+                        importer_id=importer_identity[1],
+                        importer_format_version=importer_identity[2],
+                        session_identities=list(incoming_prefixes),
+                    )
+                    _require_append_only_session_prefixes(
+                        incoming_prefixes=incoming_prefixes,
+                        reserved_prefixes=reserved_prefixes,
+                    )
                 participant_placeholders = ",".join("?" for _ in normalized)
                 file_placeholders = ",".join("?" for _ in normalized_files)
                 async with db.execute(
@@ -292,10 +449,10 @@ class HistoryImportStore:
                     JOIN history_import_job_records AS membership
                       ON membership.source_record_key = source.source_record_key
                     WHERE membership.job_id = ?
-                      AND source.source_name IN ({file_placeholders})
+                      AND source.source_id IN ({file_placeholders})
                       AND source.speaker_role != 'unknown'
                       AND source.speaker_role != CASE
-                          WHEN source.speaker_name IN ({participant_placeholders})
+                          WHEN source.speaker_id IN ({participant_placeholders})
                           THEN 'user'
                           ELSE 'other'
                       END
@@ -310,12 +467,12 @@ class HistoryImportStore:
                     f"""
                     UPDATE history_import_source_records
                     SET speaker_role = CASE
-                            WHEN speaker_name IN ({participant_placeholders})
+                            WHEN speaker_id IN ({participant_placeholders})
                             THEN 'user'
                             ELSE 'other'
                         END
                     WHERE speaker_role = 'unknown'
-                      AND source_name IN ({file_placeholders})
+                      AND source_id IN ({file_placeholders})
                       AND source_record_key IN (
                           SELECT source_record_key
                           FROM history_import_job_records
@@ -331,7 +488,7 @@ class HistoryImportStore:
                             WHEN source_record_key IN (
                                 SELECT source_record_key
                                 FROM history_import_source_records
-                                WHERE source_name IN ({file_placeholders})
+                                WHERE source_id IN ({file_placeholders})
                             )
                             THEN raw_state
                             ELSE 'skipped'
@@ -340,7 +497,7 @@ class HistoryImportStore:
                             WHEN source_record_key IN (
                                 SELECT source_record_key
                                 FROM history_import_source_records
-                                WHERE source_name IN ({file_placeholders})
+                                WHERE source_id IN ({file_placeholders})
                             )
                                  AND source_record_key IN (
                                      SELECT source_record_key
@@ -358,8 +515,8 @@ class HistoryImportStore:
                 await db.execute(
                     f"""
                     UPDATE history_import_jobs
-                    SET included_files_json = ?,
-                        self_participants_json = ?,
+                    SET included_source_ids_json = ?,
+                        self_participant_ids_json = ?,
                         status = 'running',
                         total_records = (
                             SELECT COUNT(*)
@@ -367,7 +524,7 @@ class HistoryImportStore:
                             JOIN history_import_source_records AS source
                               ON source.source_record_key = membership.source_record_key
                             WHERE membership.job_id = ?
-                              AND source.source_name IN ({file_placeholders})
+                              AND source.source_id IN ({file_placeholders})
                         ),
                         meaningful_records = (
                             SELECT COUNT(*)
@@ -375,7 +532,7 @@ class HistoryImportStore:
                             JOIN history_import_source_records AS source
                               ON source.source_record_key = membership.source_record_key
                             WHERE membership.job_id = ?
-                              AND source.source_name IN ({file_placeholders})
+                              AND source.source_id IN ({file_placeholders})
                               AND source.meaningful = 1
                         ),
                         error_text = NULL,
@@ -397,7 +554,7 @@ class HistoryImportStore:
             except BaseException:
                 await db.rollback()
                 raise
-        job = await self.get_job(job_id)
+        job = await self.get_job_progress(job_id)
         if job is None:
             raise KeyError(job_id)
         return job
@@ -408,7 +565,7 @@ class HistoryImportStore:
         job_id: str,
         meaningful_user_target: int = 30,
     ) -> list[HistoryImportRecord]:
-        job = await self.get_job(job_id)
+        job = await self.get_job_progress(job_id)
         if job is None:
             raise KeyError(job_id)
         async with sqlite_connection_async(self.db_path) as db:
@@ -417,7 +574,7 @@ class HistoryImportStore:
                 {_RECORD_SELECT}
                 WHERE membership.job_id = ? AND membership.raw_state = 'pending'
                 ORDER BY source.event_at DESC, source.session_id DESC,
-                         source.session_seq DESC
+                         membership.source_order DESC
                 LIMIT ?
                 """,
                 (job_id, job.quick_max_records),
@@ -462,7 +619,7 @@ class HistoryImportStore:
         self,
         *,
         job_id: str,
-        source_name: str,
+        source_id: str,
         limit: int,
     ) -> list[HistoryImportRecord]:
         """Return one source in its original order for reader-facing preview."""
@@ -471,11 +628,11 @@ class HistoryImportStore:
             async with db.execute(
                 f"""
                 {_RECORD_SELECT}
-                WHERE membership.job_id = ? AND source.source_name = ?
-                ORDER BY source.session_id ASC, source.session_seq ASC
+                WHERE membership.job_id = ? AND source.source_id = ?
+                ORDER BY source.session_id ASC, membership.source_order ASC
                 LIMIT ?
                 """,
-                (job_id, source_name, max(1, min(int(limit), 501))),
+                (job_id, source_id, max(1, min(int(limit), 501))),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [_record_from_row(row) for row in rows]
@@ -490,7 +647,7 @@ class HistoryImportStore:
                   ON source.source_record_key = membership.source_record_key
                 WHERE membership.job_id = ? AND membership.raw_state = 'stored'
                 ORDER BY source.event_at ASC, source.session_id ASC,
-                         source.session_seq ASC
+                         membership.source_order ASC
                 """,
                 (job_id,),
             ) as cursor:
@@ -508,12 +665,7 @@ class HistoryImportStore:
                 JOIN history_import_source_records AS source
                   ON source.source_record_key = target.source_record_key
                 WHERE target.job_id = ?
-                  AND EXISTS (
-                      SELECT 1
-                      FROM history_import_job_records AS stored
-                      WHERE stored.source_record_key = target.source_record_key
-                        AND stored.raw_state = 'stored'
-                  )
+                  AND target.raw_state != 'skipped'
                   AND NOT EXISTS (
                       SELECT 1
                       FROM history_import_job_records AS other
@@ -525,11 +677,11 @@ class HistoryImportStore:
                         AND other.raw_state != 'skipped'
                         AND EXISTS (
                             SELECT 1
-                            FROM json_each(other_job.included_files_json)
-                            WHERE CAST(value AS TEXT) = source.source_name
+                            FROM json_each(other_job.included_source_ids_json)
+                            WHERE CAST(value AS TEXT) = source.source_id
                         )
                   )
-                ORDER BY source.event_at, source.session_id, source.session_seq
+                ORDER BY source.event_at, source.session_id, target.source_order
                 """,
                 (job_id,),
             ) as cursor:
@@ -552,8 +704,8 @@ class HistoryImportStore:
                   AND active.raw_state != 'skipped'
                   AND EXISTS (
                       SELECT 1
-                      FROM json_each(active_job.included_files_json)
-                      WHERE CAST(value AS TEXT) = source.source_name
+                      FROM json_each(active_job.included_source_ids_json)
+                      WHERE CAST(value AS TEXT) = source.source_id
                   )
                   AND EXISTS (
                       SELECT 1
@@ -593,7 +745,7 @@ class HistoryImportStore:
                   AND source.meaningful = 1
                   AND membership.raw_state = 'stored'
                 ORDER BY source.event_at DESC, source.session_id DESC,
-                         source.session_seq DESC
+                         membership.source_order DESC
                 LIMIT ?
                 """,
                 (str(job_row["job_id"]), max(1, min(int(limit), 50))),
@@ -768,8 +920,8 @@ class HistoryImportStore:
                           AND membership.raw_state != 'skipped'
                           AND EXISTS (
                               SELECT 1
-                              FROM json_each(job.included_files_json)
-                              WHERE CAST(value AS TEXT) = source.source_name
+                              FROM json_each(job.included_source_ids_json)
+                              WHERE CAST(value AS TEXT) = source.source_id
                           )
                     )
                     """
@@ -810,7 +962,7 @@ class HistoryImportStore:
                 {_RECORD_SELECT}
                 WHERE membership.job_id = ? AND {where}
                 ORDER BY source.event_at ASC, source.session_id ASC,
-                         source.session_seq ASC
+                         membership.source_order ASC
                 LIMIT ?
                 """,
                 (job_id, max(1, int(limit))),
@@ -823,105 +975,107 @@ class HistoryImportStore:
         db: Any,
         job_id: str,
         *,
-        included_files: list[str],
+        included_source_ids: list[str],
     ) -> list[HistoryImportParticipant]:
-        if not included_files:
+        if not included_source_ids:
             return []
-        placeholders = ",".join("?" for _ in included_files)
+        placeholders = ",".join("?" for _ in included_source_ids)
         async with db.execute(
             f"""
-            SELECT source.speaker_name,
-                   COUNT(*) AS message_count,
-                   SUM(source.meaningful) AS meaningful_count
-            FROM history_import_job_records AS membership
-            JOIN history_import_source_records AS source
-              ON source.source_record_key = membership.source_record_key
-            WHERE membership.job_id = ?
-              AND source.source_name IN ({placeholders})
-            GROUP BY source.speaker_name
-            ORDER BY message_count DESC, source.speaker_name ASC
-            """,
-            (job_id, *included_files),
-        ) as cursor:
-            rows = await cursor.fetchall()
-        participants: list[HistoryImportParticipant] = []
-        for row in rows:
-            async with db.execute(
-                """
-                SELECT source.content
+            WITH ranked AS (
+                SELECT source.speaker_id,
+                       source.speaker_name,
+                       source.content,
+                       source.meaningful,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY source.speaker_id
+                           ORDER BY source.meaningful DESC,
+                                    LENGTH(source.content) DESC,
+                                    membership.source_order ASC
+                       ) AS sample_rank
                 FROM history_import_job_records AS membership
                 JOIN history_import_source_records AS source
                   ON source.source_record_key = membership.source_record_key
                 WHERE membership.job_id = ?
-                  AND source.speaker_name = ?
-                  AND source.source_name IN ({placeholders})
-                ORDER BY source.meaningful DESC, LENGTH(source.content) DESC
-                LIMIT 1
-                """.format(placeholders=placeholders),
-                (job_id, row["speaker_name"], *included_files),
-            ) as cursor:
-                sample_row = await cursor.fetchone()
-            participants.append(
-                HistoryImportParticipant(
-                    name=str(row["speaker_name"]),
-                    message_count=int(row["message_count"]),
-                    meaningful_count=int(row["meaningful_count"] or 0),
-                    sample=str(sample_row["content"] if sample_row else "")[:160],
-                )
+                  AND source.source_id IN ({placeholders})
             )
-        return participants
+            SELECT speaker_id,
+                   MIN(speaker_name) AS display_name,
+                   COUNT(*) AS message_count,
+                   SUM(meaningful) AS meaningful_count,
+                   MAX(CASE WHEN sample_rank = 1 THEN content END) AS sample
+            FROM ranked
+            GROUP BY speaker_id
+            ORDER BY message_count DESC, speaker_id ASC
+            """,
+            (job_id, *included_source_ids),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [
+            HistoryImportParticipant(
+                participant_id=str(row["speaker_id"]),
+                display_name=str(row["display_name"]),
+                message_count=int(row["message_count"]),
+                meaningful_count=int(row["meaningful_count"] or 0),
+                sample=str(row["sample"] or "")[:160],
+            )
+            for row in rows
+        ]
 
     @staticmethod
     async def _source_summaries(
         db: Any,
         job_id: str,
         *,
-        included_files: list[str],
+        included_source_ids: list[str],
     ) -> list[HistoryImportSourceSummary]:
         async with db.execute(
             """
-            SELECT source.source_name,
-                   COUNT(*) AS record_count,
-                   SUM(source.meaningful) AS meaningful_count,
-                   MIN(source.event_at) AS first_event_at,
-                   MAX(source.event_at) AS last_event_at,
-                   GROUP_CONCAT(DISTINCT source.timestamp_confidence) AS timestamp_confidences,
-                   SUM(CASE WHEN source.speaker_name = ? THEN 1 ELSE 0 END) AS document_records
-            FROM history_import_job_records AS membership
-            JOIN history_import_source_records AS source
-              ON source.source_record_key = membership.source_record_key
-            WHERE membership.job_id = ?
-            GROUP BY source.source_name
-            ORDER BY source.source_name COLLATE NOCASE ASC
-            """,
-            ("__document_author__", job_id),
-        ) as cursor:
-            rows = await cursor.fetchall()
-        included = set(included_files)
-        summaries: list[HistoryImportSourceSummary] = []
-        for row in rows:
-            source_name = str(row["source_name"])
-            record_count = int(row["record_count"])
-            document_records = int(row["document_records"] or 0)
-            if document_records == record_count:
-                detected_kind = "document"
-            elif document_records == 0:
-                detected_kind = "chat"
-            else:
-                detected_kind = "mixed"
-            async with db.execute(
-                """
-                SELECT source.content
+            WITH ranked AS (
+                SELECT source.source_id,
+                       source.source_name,
+                       source.source_kind,
+                       source.content,
+                       source.meaningful,
+                       source.event_at,
+                       source.timestamp_confidence,
+                       source.speaker_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY source.source_id
+                           ORDER BY source.meaningful DESC,
+                                    LENGTH(source.content) DESC,
+                                    membership.source_order ASC
+                       ) AS sample_rank
                 FROM history_import_job_records AS membership
                 JOIN history_import_source_records AS source
                   ON source.source_record_key = membership.source_record_key
-                WHERE membership.job_id = ? AND source.source_name = ?
-                ORDER BY source.meaningful DESC, LENGTH(source.content) DESC
-                LIMIT 1
-                """,
-                (job_id, source_name),
-            ) as cursor:
-                sample_row = await cursor.fetchone()
+                WHERE membership.job_id = ?
+            )
+            SELECT source_id,
+                   MIN(source_name) AS source_name,
+                   COUNT(*) AS record_count,
+                   SUM(meaningful) AS meaningful_count,
+                   MIN(event_at) AS first_event_at,
+                   MAX(event_at) AS last_event_at,
+                   GROUP_CONCAT(DISTINCT timestamp_confidence) AS timestamp_confidences,
+                   GROUP_CONCAT(DISTINCT source_kind) AS source_kinds,
+                   MAX(CASE WHEN sample_rank = 1 THEN content END) AS sample
+            FROM ranked
+            GROUP BY source_id
+            ORDER BY source_name COLLATE NOCASE ASC
+            """,
+            (job_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        included = set(included_source_ids)
+        summaries: list[HistoryImportSourceSummary] = []
+        for row in rows:
+            source_id = str(row["source_id"])
+            record_count = int(row["record_count"])
+            source_kinds = {
+                item.strip() for item in str(row["source_kinds"] or "").split(",") if item.strip()
+            }
+            detected_kind = next(iter(source_kinds)) if len(source_kinds) == 1 else "mixed"
             confidence_values = {
                 item.strip()
                 for item in str(row["timestamp_confidences"] or "").split(",")
@@ -929,7 +1083,8 @@ class HistoryImportStore:
             }
             summaries.append(
                 HistoryImportSourceSummary(
-                    source_name=source_name,
+                    source_id=source_id,
+                    source_name=str(row["source_name"]),
                     detected_kind=detected_kind,
                     record_count=record_count,
                     meaningful_count=int(row["meaningful_count"] or 0),
@@ -938,8 +1093,8 @@ class HistoryImportStore:
                     timestamp_confidence=(
                         next(iter(confidence_values)) if len(confidence_values) == 1 else "mixed"
                     ),
-                    sample=str(sample_row["content"] if sample_row else "")[:240],
-                    included=source_name in included,
+                    sample=str(row["sample"] or "")[:240],
+                    included=source_id in included,
                 )
             )
         return summaries
@@ -949,21 +1104,21 @@ class HistoryImportStore:
         db: Any,
         job_id: str,
         *,
-        included_files: list[str],
+        included_source_ids: list[str],
     ) -> list[HistoryImportRecord]:
-        if not included_files:
+        if not included_source_ids:
             return []
-        placeholders = ",".join("?" for _ in included_files)
+        placeholders = ",".join("?" for _ in included_source_ids)
         async with db.execute(
             f"""
             {_RECORD_SELECT}
             WHERE membership.job_id = ?
-              AND source.source_name IN ({placeholders})
+              AND source.source_id IN ({placeholders})
             ORDER BY source.event_at DESC, source.session_id DESC,
-                     source.session_seq DESC
+                     membership.source_order DESC
             LIMIT 6
             """,
-            (job_id, *included_files),
+            (job_id, *included_source_ids),
         ) as cursor:
             rows = await cursor.fetchall()
         return sorted(
@@ -972,9 +1127,184 @@ class HistoryImportStore:
         )
 
 
+async def _load_source_identity_rows(
+    db: Any,
+    source_record_keys: list[str],
+) -> dict[str, Any]:
+    """Load persisted source identities using bounded SQLite parameter batches."""
+
+    unique_keys = list(dict.fromkeys(source_record_keys))
+    rows_by_key: dict[str, Any] = {}
+    for offset in range(0, len(unique_keys), _SOURCE_IDENTITY_READ_BATCH_SIZE):
+        batch = unique_keys[offset : offset + _SOURCE_IDENTITY_READ_BATCH_SIZE]
+        placeholders = ",".join("?" for _ in batch)
+        async with db.execute(
+            f"""
+            SELECT source_record_key, source_id, source_name, source_kind, parsed_session_key,
+                   session_id, session_seq, speaker_id, speaker_name,
+                   message_key, parent_message_key, content, event_at,
+                   timestamp_confidence, timestamp_anchor_source,
+                   calendar_timezone_id, meaningful, event_id
+            FROM history_import_source_records
+            WHERE source_record_key IN ({placeholders})
+            """,
+            tuple(batch),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        rows_by_key.update({str(row["source_record_key"]): row for row in rows})
+    return rows_by_key
+
+
+async def _load_reserved_session_prefixes(
+    db: Any,
+    *,
+    importer_plugin_id: str,
+    importer_id: str,
+    importer_format_version: str,
+    session_identities: list[tuple[str, str]],
+) -> dict[tuple[str, str], list[str]]:
+    """Load confirmed session prefixes in bounded batches, never per source."""
+
+    unique_identities = list(dict.fromkeys(session_identities))
+    prefixes: dict[tuple[str, str], list[str]] = {}
+    for offset in range(0, len(unique_identities), _SESSION_PREFIX_READ_BATCH_SIZE):
+        batch = unique_identities[offset : offset + _SESSION_PREFIX_READ_BATCH_SIZE]
+        requested_values = ", ".join("(?, ?)" for _ in batch)
+        parameters = tuple(
+            value for source_id, session_key in batch for value in (source_id, session_key)
+        )
+        async with db.execute(
+            f"""
+            WITH requested(source_id, parsed_session_key) AS (
+                VALUES {requested_values}
+            )
+            SELECT source.source_id,
+                   source.parsed_session_key,
+                   source.message_key,
+                   MIN(membership.source_order) AS reserved_order
+            FROM requested
+            JOIN history_import_source_records AS source
+              ON source.source_id = requested.source_id
+             AND source.parsed_session_key = requested.parsed_session_key
+            JOIN history_import_job_records AS membership
+              ON membership.source_record_key = source.source_record_key
+            JOIN history_import_jobs AS job
+              ON job.job_id = membership.job_id
+            WHERE job.deleted_at IS NULL
+              AND job.status != 'preview_ready'
+              AND job.importer_plugin_id = ?
+              AND job.importer_id = ?
+              AND job.importer_format_version = ?
+              AND membership.raw_state != 'skipped'
+            GROUP BY source.source_id,
+                     source.parsed_session_key,
+                     source.message_key
+            ORDER BY source.source_id,
+                     source.parsed_session_key,
+                     reserved_order
+            """,
+            (
+                *parameters,
+                importer_plugin_id,
+                importer_id,
+                importer_format_version,
+            ),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        for row in rows:
+            identity = (str(row["source_id"]), str(row["parsed_session_key"]))
+            prefixes.setdefault(identity, []).append(str(row["message_key"]))
+    return prefixes
+
+
+async def _load_job_session_prefixes(
+    db: Any,
+    *,
+    job_id: str,
+    included_source_ids: list[str],
+) -> dict[tuple[str, str], list[str]]:
+    """Load selected source sequences for one preview in a single query."""
+
+    if not included_source_ids:
+        return {}
+    placeholders = ",".join("?" for _ in included_source_ids)
+    async with db.execute(
+        f"""
+        SELECT source.source_id,
+               source.parsed_session_key,
+               source.message_key,
+               membership.source_order
+        FROM history_import_job_records AS membership
+        JOIN history_import_source_records AS source
+          ON source.source_record_key = membership.source_record_key
+        WHERE membership.job_id = ?
+          AND source.source_id IN ({placeholders})
+        ORDER BY source.source_id,
+                 source.parsed_session_key,
+                 membership.source_order
+        """,
+        (job_id, *included_source_ids),
+    ) as cursor:
+        rows = await cursor.fetchall()
+    prefixes: dict[tuple[str, str], list[str]] = {}
+    for row in rows:
+        identity = (str(row["source_id"]), str(row["parsed_session_key"]))
+        prefixes.setdefault(identity, []).append(str(row["message_key"]))
+    return prefixes
+
+
+def _require_append_only_session_prefixes(
+    *,
+    incoming_prefixes: dict[tuple[str, str], list[str]],
+    reserved_prefixes: dict[tuple[str, str], list[str]],
+) -> None:
+    """Reject truncation, reordering, or divergent branches of a session."""
+
+    for identity, incoming_keys in incoming_prefixes.items():
+        reserved_keys = reserved_prefixes.get(identity, [])
+        if reserved_keys and incoming_keys[: len(reserved_keys)] != reserved_keys:
+            raise ValueError("history_import_non_append_update")
+
+
 def _meaningful_user_count(rows: list[Any]) -> int:
     return sum(
         1 for row in rows if str(row["speaker_role"] or "") == "user" and bool(row["meaningful"])
+    )
+
+
+def _same_source_identity(record: HistoryImportRecord, row: Any) -> bool:
+    """Reject stable identity reuse when source-declared message data changed.
+
+    Display labels and host-derived projection metadata are intentionally not
+    part of this comparison. A later export may rename a conversation or
+    participant, and the host timezone or meaningfulness heuristic may change,
+    without changing the platform message itself.
+    """
+
+    stored_confidence = str(row["timestamp_confidence"])
+    confidence_matches = stored_confidence == record.timestamp_confidence
+    declared_time_matches = record.timestamp_confidence not in {
+        "exact",
+        "inferred",
+    } or (
+        float(row["event_at"]) == record.event_at
+        and str(row["timestamp_anchor_source"])
+        == record.timestamp_anchor_source
+        == "source_timestamp"
+    )
+    return (
+        str(row["source_id"]) == record.source_id
+        and str(row["source_kind"]) == record.source_kind
+        and str(row["parsed_session_key"]) == record.parsed_session_key
+        and str(row["session_id"]) == record.session_id
+        and str(row["speaker_id"]) == record.speaker_id
+        and str(row["message_key"]) == record.message_key
+        and (str(row["parent_message_key"]) if row["parent_message_key"] is not None else None)
+        == record.parent_message_key
+        and str(row["content"]) == record.content
+        and confidence_matches
+        and declared_time_matches
+        and str(row["event_id"]) == record.event_id
     )
 
 
@@ -984,11 +1314,18 @@ def _record_from_row(row: Any) -> HistoryImportRecord:
         job_id=str(row["job_id"]),
         source_record_key=str(row["source_record_key"]),
         file_fingerprint=str(row["file_fingerprint"]),
+        source_id=str(row["source_id"]),
         source_name=str(row["source_name"]),
+        source_kind=str(row["source_kind"]),
         parsed_session_key=str(row["parsed_session_key"]),
         session_id=str(row["session_id"]),
         session_seq=int(row["session_seq"]),
+        speaker_id=str(row["speaker_id"]),
         speaker_name=str(row["speaker_name"]),
+        message_key=str(row["message_key"]),
+        parent_message_key=(
+            str(row["parent_message_key"]) if row["parent_message_key"] is not None else None
+        ),
         speaker_role=str(row["speaker_role"]),
         content=str(row["content"]),
         event_at=float(row["event_at"]),
@@ -1015,8 +1352,8 @@ def _job_from_row(
         job_id=str(row["job_id"]),
         source_type=str(row["source_type"]),
         source_fingerprint=str(row["source_fingerprint"]),
-        source_files=list(json.loads(row["source_files_json"] or "[]")),
-        included_files=list(json.loads(row["included_files_json"] or "[]")),
+        source_ids=list(json.loads(row["source_ids_json"] or "[]")),
+        included_source_ids=list(json.loads(row["included_source_ids_json"] or "[]")),
         detected_kind=str(row["detected_kind"]),
         status=str(row["status"]),
         total_records=int(row["total_records"]),
@@ -1026,13 +1363,22 @@ def _job_from_row(
         quick_imported_count=int(row["quick_imported_count"]),
         imported_count=int(row["imported_count"]),
         projected_count=int(row["projected_count"]),
-        self_participants=list(json.loads(row["self_participants_json"] or "[]")),
+        self_participant_ids=list(json.loads(row["self_participant_ids_json"] or "[]")),
         warnings=list(json.loads(row["warnings_json"] or "[]")),
         quick_ready=bool(row["quick_ready"]),
         error_text=str(row["error_text"]) if row["error_text"] is not None else None,
         created_at=float(row["created_at"]),
         updated_at=float(row["updated_at"]),
         deleted_at=float(row["deleted_at"]) if row["deleted_at"] is not None else None,
+        importer_plugin_id=(
+            str(row["importer_plugin_id"]) if row["importer_plugin_id"] is not None else None
+        ),
+        importer_id=str(row["importer_id"]) if row["importer_id"] is not None else None,
+        importer_format_version=(
+            str(row["importer_format_version"])
+            if row["importer_format_version"] is not None
+            else None
+        ),
         participants=participants,
         sources=sources,
         preview_records=preview_records,

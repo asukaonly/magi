@@ -163,7 +163,8 @@ _FIRST_CONTEXT_LOW_SIGNAL_VALUES = {
 }
 _CLAUSE_SPLIT_RE = re.compile(r"[，,。；;！？!?]+")
 _HISTORY_IMPORT_DOCUMENT_EVENT_TYPE = "history_import.document"
-_HISTORY_IMPORT_MARKDOWN_SOURCE = "history_import_markdown"
+_HISTORY_IMPORT_CHAT_EVENT_TYPE = "history_import.chat"
+_HISTORY_IMPORT_SOURCE = "history_import"
 
 
 @dataclass(frozen=True)
@@ -182,7 +183,7 @@ class _ClassificationContext:
     memory_domain: MemoryDomain
     interaction_kind: str | None
     user_intent: str | None  # "question" | "request" | None, only computed for user
-    user_authored_history_document: bool
+    user_authored_history: bool
     first_context_low_signal: bool
     first_context_has_self_report: bool
 
@@ -234,9 +235,9 @@ EVIDENCE_RULES: tuple[_EvidenceRule, ...] = (
         matches=lambda ctx: ctx.author_role in {"external", "sensor"},
     ),
     _EvidenceRule(
-        name="user_authored_history_document",
+        name="user_authored_history_archive",
         evidence_class=EvidenceClass.USER_SELF_REPORT,
-        matches=lambda ctx: ctx.user_authored_history_document,
+        matches=lambda ctx: ctx.user_authored_history,
     ),
     _EvidenceRule(
         name="user_recall_feedback_interaction",
@@ -322,7 +323,7 @@ def _build_context(event: MemoryEvent) -> _ClassificationContext:
         memory_domain=event.memory_domain,
         interaction_kind=interaction_kind,
         user_intent=user_intent,
-        user_authored_history_document=_is_user_authored_history_document(
+        user_authored_history=_is_user_authored_history(
             event,
             metadata=metadata,
             author_role=author_role,
@@ -336,7 +337,7 @@ def _build_context(event: MemoryEvent) -> _ClassificationContext:
     )
 
 
-def _is_user_authored_history_document(
+def _is_user_authored_history(
     event: MemoryEvent,
     *,
     metadata: dict[str, object],
@@ -347,8 +348,9 @@ def _is_user_authored_history_document(
     return bool(
         author_role == "user"
         and event.memory_domain == MemoryDomain.USER_AUTHORED
-        and _normalized(event.source) == _HISTORY_IMPORT_MARKDOWN_SOURCE
-        and _normalized(event.event_type) == _HISTORY_IMPORT_DOCUMENT_EVENT_TYPE
+        and _normalized(event.source) == _HISTORY_IMPORT_SOURCE
+        and _normalized(event.event_type)
+        in {_HISTORY_IMPORT_DOCUMENT_EVENT_TYPE, _HISTORY_IMPORT_CHAT_EVENT_TYPE}
         and history_metadata.get("historical") is True
     )
 

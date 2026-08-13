@@ -14,11 +14,16 @@ class HistoryImportRecord:
     job_id: str
     source_record_key: str
     file_fingerprint: str
+    source_id: str
     source_name: str
+    source_kind: str
     parsed_session_key: str
     session_id: str
     session_seq: int
+    speaker_id: str
     speaker_name: str
+    message_key: str
+    parent_message_key: str | None
     content: str
     event_at: float
     timestamp_confidence: str
@@ -40,7 +45,8 @@ class HistoryImportRecord:
 class HistoryImportParticipant:
     """Participant summary shown before the user confirms their identity."""
 
-    name: str
+    participant_id: str
+    display_name: str
     message_count: int
     meaningful_count: int
     sample: str
@@ -53,6 +59,7 @@ class HistoryImportParticipant:
 class HistoryImportSourceSummary:
     """One selected Markdown file and its reader-facing preview metadata."""
 
+    source_id: str
     source_name: str
     detected_kind: str
     record_count: int
@@ -71,6 +78,7 @@ class HistoryImportSourceSummary:
 class HistoryImportSourcePreview:
     """Bounded content preview for one selected source file."""
 
+    source_id: str
     source_name: str
     detected_kind: str
     records: list[HistoryImportRecord]
@@ -89,8 +97,8 @@ class HistoryImportJob:
     job_id: str
     source_type: str
     source_fingerprint: str
-    source_files: list[str]
-    included_files: list[str]
+    source_ids: list[str]
+    included_source_ids: list[str]
     detected_kind: str
     status: str
     total_records: int
@@ -100,11 +108,14 @@ class HistoryImportJob:
     quick_imported_count: int
     imported_count: int
     projected_count: int
-    self_participants: list[str]
+    self_participant_ids: list[str]
     warnings: list[str]
     quick_ready: bool
     created_at: float
     updated_at: float
+    importer_plugin_id: str | None = None
+    importer_id: str | None = None
+    importer_format_version: str | None = None
     error_text: str | None = None
     deleted_at: float | None = None
     participants: list[HistoryImportParticipant] = field(default_factory=list)
@@ -120,9 +131,10 @@ class HistoryImportJob:
 
 
 @dataclass(slots=True)
-class ParsedHistoryFile:
+class ParsedHistorySource:
     """Parser output before a preview job receives durable identities."""
 
+    source_id: str
     source_name: str
     session_key: str
     detected_kind: str
@@ -136,5 +148,5 @@ __all__ = [
     "HistoryImportRecord",
     "HistoryImportSourcePreview",
     "HistoryImportSourceSummary",
-    "ParsedHistoryFile",
+    "ParsedHistorySource",
 ]

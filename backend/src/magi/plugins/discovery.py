@@ -257,6 +257,7 @@ def placeholder_contributions(manifest: PluginManifest) -> list[PluginContributi
         ContributionType.TOOL: "tools",
         ContributionType.SENSOR: "timeline",
         ContributionType.CHANNEL: "extensions",
+        ContributionType.HISTORY_IMPORTER: "extensions",
     }
     return [
         PluginContribution(

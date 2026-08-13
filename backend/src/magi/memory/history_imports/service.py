@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from functools import partial
 import hashlib
+import inspect
 import os
 import re
 import time
@@ -16,6 +17,9 @@ import unicodedata
 import uuid
 from pathlib import Path
 from typing import Any
+
+from magi_plugin_sdk import HistoryImportParseResult
+from pydantic import BaseModel, ValidationError
 
 from ...core.logger import get_logger
 from ...core.operation_barrier import AsyncOperationBarrier
@@ -35,8 +39,9 @@ from .models import (
     HistoryImportJob,
     HistoryImportRecord,
     HistoryImportSourcePreview,
-    ParsedHistoryFile,
+    ParsedHistorySource,
 )
+from ...plugins.history_importers import HistoryImporterRegistry, RegisteredHistoryImporter
 from .store import HistoryImportStore
 
 logger = get_logger(__name__)
@@ -50,7 +55,12 @@ RAW_BATCH_SIZE = 100
 PROJECTION_BATCH_SIZE = 40
 SOURCE_PREVIEW_MAX_RECORDS = 200
 SOURCE_PREVIEW_MAX_CHARS = 48_000
-HISTORY_IMPORT_SOURCE = "history_import_markdown"
+MAX_IMPORTER_TOTAL_RECORDS = 100_000
+MAX_IMPORTER_TOTAL_CONTENT_CHARS = 50_000_000
+MAX_STORED_IMPORT_WARNINGS = 200
+IMPORTER_PARSE_TIMEOUT_SECONDS = 60.0
+MAX_CONCURRENT_IMPORTER_PARSERS = 2
+HISTORY_IMPORT_SOURCE = "history_import"
 MARKDOWN_IMPORT_POLICY_VERSION = b"personal-writing-v1"
 
 
@@ -75,28 +85,83 @@ class _HistoryImportEpochChanged(RuntimeError):
     pass
 
 
+class _HistoryImporterOutputInvalid(RuntimeError):
+    pass
+
+
 class HistoryImportService:
     """Create previews and advance imports without letting adapters write memory."""
 
-    def __init__(self, *, store: HistoryImportStore, memory: Any) -> None:
+    def __init__(
+        self,
+        *,
+        store: HistoryImportStore,
+        memory: Any,
+        importer_registry: HistoryImporterRegistry | None = None,
+    ) -> None:
         self._store = store
         self._memory = memory
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._quick_tasks: dict[str, asyncio.Task[None]] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._deletion_lock = asyncio.Lock()
         self._operation_barrier = AsyncOperationBarrier()
+        self._importer_registry = importer_registry or HistoryImporterRegistry()
+        self._importer_parse_slots = asyncio.BoundedSemaphore(MAX_CONCURRENT_IMPORTER_PARSERS)
+        self._importer_parse_tasks: set[asyncio.Task[Any]] = set()
+
+    def list_importers(self) -> list[RegisteredHistoryImporter]:
+        """Return enabled importer contributions available to the host UI."""
+
+        return self._importer_registry.list()
+
+    async def _invoke_history_importer(
+        self,
+        registered: RegisteredHistoryImporter,
+        resolved_paths: list[Path],
+    ) -> Any:
+        """Run one parser off-loop while retaining its slot until worker exit."""
+
+        await self._importer_parse_slots.acquire()
+        try:
+            task = asyncio.create_task(
+                asyncio.to_thread(
+                    _run_history_importer_in_worker,
+                    registered,
+                    resolved_paths,
+                ),
+                name=f"history-import-parser:{registered.plugin_id}:{registered.importer_id}",
+            )
+        except BaseException:
+            self._importer_parse_slots.release()
+            raise
+        self._importer_parse_tasks.add(task)
+        task.add_done_callback(self._finish_importer_parse_task)
+        return await asyncio.shield(task)
+
+    def _finish_importer_parse_task(self, task: asyncio.Task[Any]) -> None:
+        """Release capacity only after the underlying thread has returned."""
+
+        self._importer_parse_tasks.discard(task)
+        self._importer_parse_slots.release()
+        if not task.cancelled():
+            task.exception()
 
     async def start(self) -> None:
-        """Resume imports that had already reached the quick-ready boundary."""
+        """Resume confirmed imports from their last durable boundary."""
 
         async with self._operation():
             await self._log_integrity_audit(checkpoint="startup")
+            quick_resumable_job_ids = await self._store.list_quick_resumable_job_ids()
             resumable_job_ids = await self._store.list_resumable_job_ids()
             logger.info(
                 "History import service started",
                 process_id=os.getpid(),
+                quick_resumable_job_count=len(quick_resumable_job_ids),
                 resumable_job_count=len(resumable_job_ids),
             )
+            for job_id in quick_resumable_job_ids:
+                self._start_quick(job_id)
             for job_id in resumable_job_ids:
                 self._start_background(job_id)
 
@@ -124,7 +189,7 @@ class HistoryImportService:
         """Persist one preview while the service operation boundary is held."""
 
         files = _expand_markdown_paths(paths)
-        parsed_files: list[ParsedHistoryFile] = []
+        parsed_files: list[ParsedHistorySource] = []
         file_fingerprints: dict[str, str] = {}
         fingerprint_parts: list[bytes] = []
         total_bytes = 0
@@ -182,8 +247,8 @@ class HistoryImportService:
             job_id=job_id,
             source_type="markdown",
             source_fingerprint=fingerprint,
-            source_files=[source_name for _, source_name in files],
-            included_files=[source_name for _, source_name in files],
+            source_ids=[item.source_id for item in parsed_files],
+            included_source_ids=[item.source_id for item in parsed_files],
             detected_kind=detected_kind,
             status="preview_ready",
             total_records=len(records),
@@ -193,7 +258,7 @@ class HistoryImportService:
             quick_imported_count=0,
             imported_count=0,
             projected_count=0,
-            self_participants=[],
+            self_participant_ids=[],
             warnings=warnings,
             quick_ready=False,
             created_at=now,
@@ -201,12 +266,225 @@ class HistoryImportService:
         )
         return await self._store.create_preview(job=job, records=records)
 
-    async def get_job(self, job_id: str) -> HistoryImportJob:
+    async def preview_importer_paths(
+        self,
+        *,
+        plugin_id: str,
+        importer_id: str,
+        paths: list[str],
+    ) -> HistoryImportJob:
+        """Parse a declared platform export and persist a host-owned preview."""
+
+        registered = self._importer_registry.get(plugin_id, importer_id)
+        if registered is None:
+            raise HistoryImportValidationError("history_importer_not_available")
+        resolved_paths = _validate_importer_paths(paths, registered)
+        expected_epoch = int(self._memory.memory_operation_epoch())
+        try:
+            initial_fingerprint = await asyncio.to_thread(
+                _platform_import_fingerprint,
+                registered,
+                resolved_paths,
+            )
+            parsed = await asyncio.wait_for(
+                self._invoke_history_importer(registered, resolved_paths),
+                timeout=IMPORTER_PARSE_TIMEOUT_SECONDS,
+            )
+            parsed = _revalidate_importer_output(parsed)
+            final_fingerprint = await asyncio.to_thread(
+                _platform_import_fingerprint,
+                registered,
+                resolved_paths,
+            )
+        except TimeoutError as exc:
+            logger.warning(
+                "History importer parse timed out",
+                plugin_id=plugin_id,
+                importer_id=importer_id,
+            )
+            raise HistoryImportValidationError("history_importer_timeout") from exc
+        except (ValidationError, _HistoryImporterOutputInvalid) as exc:
+            logger.warning(
+                "History importer returned invalid output",
+                plugin_id=plugin_id,
+                importer_id=importer_id,
+                error_type=type(exc).__name__,
+            )
+            reason = "history_importer_invalid_output"
+            if isinstance(exc, ValidationError) and _validation_error_is_size_limit(exc):
+                reason = "history_importer_output_too_large"
+            raise HistoryImportValidationError(reason) from exc
+        except OSError as exc:
+            logger.warning(
+                "History importer selection changed during preview",
+                plugin_id=plugin_id,
+                importer_id=importer_id,
+                error_type=type(exc).__name__,
+            )
+            raise HistoryImportValidationError("history_import_selection_changed") from exc
+        except Exception as exc:
+            logger.warning(
+                "History importer parse failed",
+                plugin_id=plugin_id,
+                importer_id=importer_id,
+                error_type=type(exc).__name__,
+            )
+            raise HistoryImportValidationError("history_importer_parse_failed") from exc
+        if final_fingerprint != initial_fingerprint:
+            raise HistoryImportValidationError("history_import_selection_changed")
+
         async with self._operation():
-            return await self._get_job(job_id)
+            current = self._importer_registry.get(plugin_id, importer_id)
+            if current is not registered:
+                raise HistoryImportValidationError("history_importer_not_available")
+            if int(self._memory.memory_operation_epoch()) != expected_epoch:
+                raise HistoryImportValidationError("memory_cleared_during_import")
+            _validate_importer_output_size(parsed)
+            timezone_id = local_calendar_timezone_id()
+            if timezone_id is None:
+                raise HistoryImportValidationError("history_import_timezone_unavailable")
+            parsed_sources = [
+                ParsedHistorySource(
+                    source_id=source.source_id,
+                    source_name=source.source_name,
+                    session_key=source.session_key,
+                    detected_kind=source.detected_kind,
+                    records=[
+                        {
+                            "message_key": record.message_key,
+                            "parent_message_key": record.parent_message_key,
+                            "speaker_id": _platform_participant_id(
+                                registered=registered,
+                                source_id=source.source_id,
+                                raw_speaker_id=record.speaker_id,
+                            ),
+                            "speaker_name": record.speaker_name,
+                            "content": record.content,
+                            "event_at": record.occurred_at,
+                            "timestamp_confidence": record.timestamp_confidence,
+                            "timestamp_anchor_source": (
+                                "source_timestamp"
+                                if record.occurred_at is not None
+                                else "source_order"
+                            ),
+                            "calendar_timezone_id": timezone_id,
+                            "meaningful": _is_meaningful_imported_message(record.content),
+                            "source_order": record.source_order,
+                        }
+                        for record in source.records
+                    ],
+                    warnings=list(source.warnings),
+                )
+                for source in parsed.sources
+            ]
+            try:
+                await self._store.validate_platform_session_prefixes(
+                    importer_plugin_id=plugin_id,
+                    importer_id=importer_id,
+                    importer_format_version=registered.spec.format_version,
+                    sources=parsed_sources,
+                )
+            except ValueError as exc:
+                if str(exc) != "history_import_non_append_update":
+                    raise
+                raise HistoryImportValidationError("history_importer_non_append_update") from exc
+            return await self._create_importer_preview(
+                registered=registered,
+                fingerprint=initial_fingerprint,
+                parsed_sources=parsed_sources,
+                warnings=list(parsed.warnings),
+            )
+
+    async def _create_importer_preview(
+        self,
+        *,
+        registered: RegisteredHistoryImporter,
+        fingerprint: str,
+        parsed_sources: list[ParsedHistorySource],
+        warnings: list[str],
+    ) -> HistoryImportJob:
+        if not parsed_sources:
+            raise HistoryImportValidationError("history_importer_no_sources")
+        source_ids = [source.source_id for source in parsed_sources]
+        if len(source_ids) != len(set(source_ids)):
+            raise HistoryImportValidationError("history_importer_duplicate_source_id")
+        existing = await self._store.find_active_by_fingerprint(fingerprint)
+        if existing is not None:
+            return existing
+        now = time.time()
+        job_id = f"him_{uuid.uuid4().hex}"
+        records = _build_records(
+            job_id=job_id,
+            file_fingerprints={},
+            parsed_files=parsed_sources,
+            now=now,
+            importer_identity=(
+                registered.plugin_id,
+                registered.importer_id,
+                registered.spec.format_version,
+            ),
+            missing_timestamp_anchor=0.0,
+        )
+        job = HistoryImportJob(
+            job_id=job_id,
+            source_type="platform_chat",
+            source_fingerprint=fingerprint,
+            source_ids=source_ids,
+            included_source_ids=source_ids,
+            detected_kind="chat",
+            status="preview_ready",
+            total_records=len(records),
+            meaningful_records=sum(record.meaningful for record in records),
+            quick_target_records=QUICK_TARGET_RECORDS,
+            quick_max_records=QUICK_MAX_RECORDS,
+            quick_imported_count=0,
+            imported_count=0,
+            projected_count=0,
+            self_participant_ids=[],
+            warnings=_bounded_import_warnings(
+                [*warnings, *(warning for source in parsed_sources for warning in source.warnings)]
+            ),
+            quick_ready=False,
+            created_at=now,
+            updated_at=now,
+            importer_plugin_id=registered.plugin_id,
+            importer_id=registered.importer_id,
+            importer_format_version=registered.spec.format_version,
+        )
+        try:
+            return await self._store.create_preview(job=job, records=records)
+        except ValueError as exc:
+            if str(exc) != "history_import_source_identity_conflict":
+                raise
+            logger.warning(
+                "History importer reused an identity with different content",
+                plugin_id=registered.plugin_id,
+                importer_id=registered.importer_id,
+                error_type=type(exc).__name__,
+            )
+            raise HistoryImportValidationError("history_importer_invalid_output") from exc
+
+    async def get_job(self, job_id: str) -> HistoryImportJob:
+        """Return preview details only while the job still needs confirmation."""
+
+        async with self._operation():
+            job = await self._get_job_progress(job_id)
+            if job.status == "preview_ready":
+                return await self._get_job(job_id)
+            return job
 
     async def _get_job(self, job_id: str) -> HistoryImportJob:
+        """Load one job with participant, source, and content preview details."""
+
         job = await self._store.get_job(job_id)
+        if job is None:
+            raise HistoryImportNotFoundError()
+        return job
+
+    async def _get_job_progress(self, job_id: str) -> HistoryImportJob:
+        """Load lifecycle state without hydrating record-derived preview details."""
+
+        job = await self._store.get_job_progress(job_id)
         if job is None:
             raise HistoryImportNotFoundError()
         return job
@@ -221,33 +499,31 @@ class HistoryImportService:
         self,
         *,
         job_id: str,
-        source_name: str,
+        source_id: str,
     ) -> HistoryImportSourcePreview:
         """Return a bounded preview for one file without changing its selection."""
 
         async with self._operation():
             return await self._get_source_preview(
                 job_id=job_id,
-                source_name=source_name,
+                source_id=source_id,
             )
 
     async def _get_source_preview(
         self,
         *,
         job_id: str,
-        source_name: str,
+        source_id: str,
     ) -> HistoryImportSourcePreview:
         """Load one source preview while the service operation boundary is held."""
 
         job = await self._get_job(job_id)
-        if source_name not in job.source_files:
+        if source_id not in job.source_ids:
             raise HistoryImportValidationError("history_import_source_not_found")
-        source = next(
-            item for item in job.sources if item.source_name == source_name
-        )
+        source = next(item for item in job.sources if item.source_id == source_id)
         loaded = await self._store.list_source_records(
             job_id=job_id,
-            source_name=source_name,
+            source_id=source_id,
             limit=SOURCE_PREVIEW_MAX_RECORDS + 1,
         )
         truncated = len(loaded) > SOURCE_PREVIEW_MAX_RECORDS
@@ -264,7 +540,8 @@ class HistoryImportService:
             records.append(replace(record, content=content))
             remaining_chars -= len(content)
         return HistoryImportSourcePreview(
-            source_name=source_name,
+            source_id=source_id,
+            source_name=source.source_name,
             detected_kind=source.detected_kind,
             records=records,
             truncated=truncated,
@@ -274,21 +551,21 @@ class HistoryImportService:
         self,
         *,
         job_id: str,
-        included_files: list[str],
+        included_source_ids: list[str],
     ) -> HistoryImportJob:
         """Persist the file subset selected in the preview."""
 
         async with self._operation():
             return await self._update_selection(
                 job_id=job_id,
-                included_files=included_files,
+                included_source_ids=included_source_ids,
             )
 
     async def _update_selection(
         self,
         *,
         job_id: str,
-        included_files: list[str],
+        included_source_ids: list[str],
     ) -> HistoryImportJob:
         """Update selection while the service operation boundary is held."""
 
@@ -297,14 +574,14 @@ class HistoryImportService:
             job = await self._get_job(job_id)
             if job.quick_ready or job.imported_count > 0:
                 raise HistoryImportValidationError("history_import_selection_locked")
-            normalized = _validate_included_files(
+            normalized = _validate_included_sources(
                 job,
-                included_files,
+                included_source_ids,
                 allow_empty=True,
             )
             return await self._store.update_selection(
                 job_id=job_id,
-                included_files=normalized,
+                included_source_ids=normalized,
             )
 
     async def confirm(
@@ -312,53 +589,64 @@ class HistoryImportService:
         *,
         job_id: str,
         confirm_personal_writing: bool,
-        included_files: list[str] | None = None,
+        included_source_ids: list[str] | None = None,
+        self_participant_ids: list[str] | None = None,
     ) -> HistoryImportJob:
         """Confirm authorship, prepare recent raw context, and continue in order."""
 
-        async with self._operation():
-            return await self._confirm(
-                job_id=job_id,
-                confirm_personal_writing=confirm_personal_writing,
-                included_files=included_files,
-            )
+        task = self._start_confirmation(
+            job_id=job_id,
+            confirm_personal_writing=confirm_personal_writing,
+            included_source_ids=included_source_ids,
+            self_participant_ids=self_participant_ids,
+        )
+        await asyncio.shield(task)
+        return await self.get_job(job_id)
 
     async def _confirm(
         self,
         *,
         job_id: str,
         confirm_personal_writing: bool,
-        included_files: list[str] | None = None,
+        included_source_ids: list[str] | None = None,
+        self_participant_ids: list[str] | None = None,
     ) -> HistoryImportJob:
-        """Confirm one import while the service operation boundary is held."""
+        """Persist one confirmed scope while the operation boundary is held."""
 
         lock = self._lock_for(job_id)
         async with lock:
             job = await self._get_job(job_id)
             if job.deleted_at is not None or job.status == "deleted":
                 raise HistoryImportNotFoundError()
-            selected_files = _validate_included_files(
+            selected_files = _validate_included_sources(
                 job,
-                included_files if included_files is not None else job.included_files,
+                included_source_ids if included_source_ids is not None else job.included_source_ids,
             )
-            if job.quick_ready and set(job.included_files) != set(selected_files):
+            if job.quick_ready and set(job.included_source_ids) != set(selected_files):
                 raise HistoryImportValidationError("history_import_selection_locked")
             if not job.quick_ready:
                 job = await self._store.update_selection(
                     job_id=job_id,
-                    included_files=selected_files,
+                    included_source_ids=selected_files,
                 )
-            participant_names = {item.name for item in job.participants}
+            participant_ids = {item.participant_id for item in job.participants}
             selected_kinds = {source.detected_kind for source in job.sources if source.included}
-            if selected_kinds != {"document"} or DOCUMENT_AUTHOR not in participant_names:
+            if selected_kinds == {"document"}:
+                if DOCUMENT_AUTHOR not in participant_ids:
+                    raise HistoryImportValidationError("history_import_unsupported_source_kind")
+                if not confirm_personal_writing:
+                    raise HistoryImportValidationError("personal_writing_confirmation_required")
+                selected = [DOCUMENT_AUTHOR]
+            elif selected_kinds == {"chat"}:
+                selected = list(dict.fromkeys(self_participant_ids or []))
+                if not selected or any(item not in participant_ids for item in selected):
+                    raise HistoryImportValidationError("history_import_self_participant_required")
+            else:
                 raise HistoryImportValidationError("history_import_unsupported_source_kind")
-            if not confirm_personal_writing:
-                raise HistoryImportValidationError("personal_writing_confirmation_required")
-            selected = [DOCUMENT_AUTHOR]
             if (
                 job.imported_count > 0
-                and job.self_participants
-                and set(job.self_participants) != set(selected)
+                and job.self_participant_ids
+                and set(job.self_participant_ids) != set(selected)
             ):
                 raise HistoryImportValidationError("self_participant_locked_after_import")
             logger.info(
@@ -374,34 +662,19 @@ class HistoryImportService:
                 try:
                     await self._store.set_scope(
                         job_id=job_id,
-                        self_participants=selected,
-                        included_files=selected_files,
+                        self_participant_ids=selected,
+                        included_source_ids=selected_files,
                     )
                 except ValueError as exc:
-                    if str(exc) != "history_import_speaker_role_conflict":
-                        raise
-                    raise HistoryImportValidationError(str(exc)) from exc
-                quick_records = await self._store.select_quick_records(job_id=job_id)
-                expected_epoch = self._memory.memory_operation_epoch()
-                try:
-                    for record in quick_records:
-                        await self._store_raw_record(
-                            record,
-                            quick=True,
-                            expected_epoch=expected_epoch,
-                        )
-                except _HistoryImportEpochChanged as exc:
-                    await self._store.mark_deleted(job_id=job_id)
-                    raise HistoryImportValidationError("memory_cleared_during_import") from exc
-                await self._store.mark_quick_ready(job_id=job_id)
-                quick_ready_job = await self._get_job(job_id)
-                await self._log_job_checkpoint(
-                    checkpoint="quick_ready",
-                    job=quick_ready_job,
-                )
-                await self._log_integrity_audit(checkpoint="quick_ready")
-            self._start_background(job_id)
-        return await self._get_job(job_id)
+                    reason = str(exc)
+                    if reason == "history_import_non_append_update":
+                        raise HistoryImportValidationError(
+                            "history_importer_non_append_update"
+                        ) from exc
+                    if reason == "history_import_speaker_role_conflict":
+                        raise HistoryImportValidationError(reason) from exc
+                    raise
+            return await self._get_job_progress(job_id)
 
     async def get_first_contact_snippet(self) -> str | None:
         """Return bounded user-authored excerpts from the latest confirmed import."""
@@ -418,10 +691,10 @@ class HistoryImportService:
         selected: list[HistoryImportRecord] = []
         seen_sources: set[str] = set()
         for record in records:
-            if record.source_name in seen_sources:
+            if record.source_id in seen_sources:
                 continue
             selected.append(record)
-            seen_sources.add(record.source_name)
+            seen_sources.add(record.source_id)
             if len(selected) >= 4:
                 break
         if len(selected) < 4:
@@ -446,35 +719,45 @@ class HistoryImportService:
 
     async def _resume(self, job_id: str) -> HistoryImportJob:
         async with self._lock_for(job_id):
-            job = await self._get_job(job_id)
-            if not job.quick_ready:
-                raise HistoryImportValidationError("history_import_not_confirmed")
+            job = await self._get_job_progress(job_id)
             if job.status == "deleted":
                 return job
+            if not job.quick_ready:
+                if not self._scope_confirmed(job):
+                    raise HistoryImportValidationError("history_import_not_confirmed")
+                await self._store.mark_running(job_id=job_id)
+                self._start_quick(job_id)
+                return await self._get_job_progress(job_id)
             reset_count = await self._store.reset_skipped_projections(job_id=job_id)
             if job.status == "completed" and reset_count == 0:
                 return job
             await self._store.mark_running(job_id=job_id)
             self._start_background(job_id)
-            return await self._get_job(job_id)
+            return await self._get_job_progress(job_id)
 
     async def delete(self, job_id: str) -> None:
         async with self._operation():
             await self._delete(job_id)
 
     async def _delete(self, job_id: str) -> None:
-        task = self._tasks.pop(job_id, None)
-        if task is not None:
+        tasks = [
+            task
+            for task in (
+                self._quick_tasks.pop(job_id, None),
+                self._tasks.pop(job_id, None),
+            )
+            if task is not None
+        ]
+        for task in tasks:
             task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         async with self._deletion_lock:
             async with self._lock_for(job_id):
-                job = await self._get_job(job_id)
+                job = await self._get_job_progress(job_id)
                 if job.status == "deleted":
                     return
-                event_ids = await self._store.list_unreferenced_event_ids_for_delete(
-                    job_id=job_id
-                )
+                event_ids = await self._store.list_unreferenced_event_ids_for_delete(job_id=job_id)
                 logger.info(
                     "History import deletion started",
                     process_id=os.getpid(),
@@ -489,6 +772,138 @@ class HistoryImportService:
                     )
                 await self._store.mark_deleted(job_id=job_id)
                 await self._log_integrity_audit(checkpoint="deleted")
+
+    def _start_confirmation(
+        self,
+        *,
+        job_id: str,
+        confirm_personal_writing: bool,
+        included_source_ids: list[str] | None,
+        self_participant_ids: list[str] | None,
+    ) -> asyncio.Task[None]:
+        existing = self._quick_tasks.get(job_id)
+        if existing is not None and not existing.done():
+            return existing
+        task = asyncio.create_task(
+            self._confirm_and_run_quick(
+                job_id=job_id,
+                confirm_personal_writing=confirm_personal_writing,
+                included_source_ids=included_source_ids,
+                self_participant_ids=self_participant_ids,
+            ),
+            name=f"history-import-confirm:{job_id}",
+        )
+        self._quick_tasks[job_id] = task
+        task.add_done_callback(partial(self._quick_task_finished, job_id))
+        return task
+
+    async def _confirm_and_run_quick(
+        self,
+        *,
+        job_id: str,
+        confirm_personal_writing: bool,
+        included_source_ids: list[str] | None,
+        self_participant_ids: list[str] | None,
+    ) -> None:
+        async with self._operation():
+            await self._confirm(
+                job_id=job_id,
+                confirm_personal_writing=confirm_personal_writing,
+                included_source_ids=included_source_ids,
+                self_participant_ids=self_participant_ids,
+            )
+        await self._run_quick(job_id)
+
+    def _start_quick(self, job_id: str) -> asyncio.Task[None]:
+        existing = self._quick_tasks.get(job_id)
+        if existing is not None and not existing.done():
+            return existing
+        task = asyncio.create_task(
+            self._run_quick(job_id),
+            name=f"history-import-quick:{job_id}",
+        )
+        self._quick_tasks[job_id] = task
+        task.add_done_callback(partial(self._quick_task_finished, job_id))
+        return task
+
+    def _quick_task_finished(
+        self,
+        job_id: str,
+        task: asyncio.Task[None],
+    ) -> None:
+        if self._quick_tasks.get(job_id) is task:
+            self._quick_tasks.pop(job_id, None)
+        if task.cancelled():
+            return
+        task.exception()
+
+    async def _run_quick(self, job_id: str) -> None:
+        """Idempotently finish the quick L1 boundary for one confirmed scope."""
+
+        try:
+            async with self._operation():
+                async with self._lock_for(job_id):
+                    job = await self._get_job_progress(job_id)
+                    if job.status == "deleted":
+                        return
+                    if job.quick_ready:
+                        self._start_background(job_id)
+                        return
+                    if not self._scope_confirmed(job):
+                        raise HistoryImportValidationError("history_import_not_confirmed")
+                    await self._store.mark_running(job_id=job_id)
+                    expected_epoch = self._memory.memory_operation_epoch()
+                    quick_records = await self._store.select_quick_records(job_id=job_id)
+            for record in quick_records:
+                async with self._operation():
+                    async with self._lock_for(job_id):
+                        await self._store_raw_record(
+                            record,
+                            quick=True,
+                            expected_epoch=expected_epoch,
+                        )
+                await asyncio.sleep(0)
+            async with self._operation():
+                async with self._lock_for(job_id):
+                    await self._store.mark_quick_ready(job_id=job_id)
+                    quick_ready_job = await self._get_job_progress(job_id)
+                    await self._log_job_checkpoint(
+                        checkpoint="quick_ready",
+                        job=quick_ready_job,
+                    )
+                    await self._log_integrity_audit(checkpoint="quick_ready")
+            self._start_background(job_id)
+        except asyncio.CancelledError:
+            logger.info(
+                "History import quick task cancelled",
+                process_id=os.getpid(),
+                job_id=job_id,
+            )
+            raise
+        except _HistoryImportEpochChanged as exc:
+            logger.warning(
+                "History import quick task stopped because the memory clear epoch changed",
+                process_id=os.getpid(),
+                job_id=job_id,
+            )
+            async with self._operation():
+                async with self._lock_for(job_id):
+                    await self._store.mark_deleted(job_id=job_id)
+            raise HistoryImportValidationError("memory_cleared_during_import") from exc
+        except HistoryImportValidationError:
+            raise
+        except Exception as exc:
+            logger.exception(
+                "History import quick task failed",
+                job_id=job_id,
+                error_type=type(exc).__name__,
+            )
+            async with self._operation():
+                async with self._lock_for(job_id):
+                    await self._store.mark_failed(
+                        job_id=job_id,
+                        error_text=type(exc).__name__,
+                    )
 
     def _start_background(self, job_id: str) -> None:
         existing = self._tasks.get(job_id)
@@ -511,7 +926,7 @@ class HistoryImportService:
                 async with self._lock_for(job_id):
                     expected_epoch = self._memory.memory_operation_epoch()
                     await self._store.mark_running(job_id=job_id)
-                    running_job = await self._get_job(job_id)
+                    running_job = await self._get_job_progress(job_id)
                     await self._log_job_checkpoint(
                         checkpoint="background_started",
                         job=running_job,
@@ -535,7 +950,7 @@ class HistoryImportService:
                             )
                 async with self._operation():
                     async with self._lock_for(job_id):
-                        raw_job = await self._get_job(job_id)
+                        raw_job = await self._get_job_progress(job_id)
                         await self._log_job_checkpoint(
                             checkpoint="raw_batch_completed",
                             job=raw_job,
@@ -561,7 +976,7 @@ class HistoryImportService:
                             )
                 async with self._operation():
                     async with self._lock_for(job_id):
-                        projection_job = await self._get_job(job_id)
+                        projection_job = await self._get_job_progress(job_id)
                         await self._log_job_checkpoint(
                             checkpoint="projection_batch_completed",
                             job=projection_job,
@@ -571,7 +986,7 @@ class HistoryImportService:
             async with self._operation():
                 async with self._lock_for(job_id):
                     await self._store.mark_completed(job_id=job_id)
-                    completed_job = await self._get_job(job_id)
+                    completed_job = await self._get_job_progress(job_id)
                     await self._log_job_checkpoint(
                         checkpoint="completed",
                         job=completed_job,
@@ -653,9 +1068,7 @@ class HistoryImportService:
         event_id = str(result.get("event_id") or record.event_id)
         handed_off = bool(result.get("l2_job_enqueued"))
         governed_skip = bool(
-            result.get("skipped")
-            or result.get("skipped_derivations")
-            or result.get("skip_reason")
+            result.get("skipped") or result.get("skipped_derivations") or result.get("skip_reason")
         )
         if not handed_off and not governed_skip:
             l2_store = getattr(self._memory, "l2", None)
@@ -724,11 +1137,7 @@ class HistoryImportService:
             ledger_imported_count = await self._store.count_active_imported_events()
             l1_event_count = await self._l1_history_event_count()
             audit_truncated = len(jobs) == 100
-            consistent = (
-                None
-                if l1_event_count is None
-                else ledger_imported_count == l1_event_count
-            )
+            consistent = None if l1_event_count is None else ledger_imported_count == l1_event_count
             log = logger.warning if consistent is False else logger.info
             log(
                 "History import integrity audit",
@@ -767,6 +1176,10 @@ class HistoryImportService:
     def _lock_for(self, job_id: str) -> asyncio.Lock:
         return self._locks.setdefault(job_id, asyncio.Lock())
 
+    @staticmethod
+    def _scope_confirmed(job: HistoryImportJob) -> bool:
+        return bool(job.included_source_ids and job.self_participant_ids)
+
     @asynccontextmanager
     async def _operation(self) -> AsyncIterator[None]:
         """Keep clear-lock ordering stable across API and background entry points."""
@@ -776,12 +1189,58 @@ class HistoryImportService:
                 yield
 
     async def _cancel_background_tasks(self) -> None:
-        tasks = list(self._tasks.values())
+        tasks = [*self._quick_tasks.values(), *self._tasks.values()]
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        self._quick_tasks.clear()
         self._tasks.clear()
+
+
+def _platform_import_fingerprint(
+    registered: RegisteredHistoryImporter,
+    resolved_paths: list[Path],
+) -> str:
+    """Hash selected archives outside the async service loop."""
+
+    fingerprint_hash = hashlib.sha256()
+    for part in (
+        registered.plugin_id,
+        registered.importer_id,
+        registered.spec.format_version,
+    ):
+        fingerprint_hash.update(part.encode("utf-8"))
+        fingerprint_hash.update(b"\x00")
+    file_digests: list[bytes] = []
+    for path in resolved_paths:
+        file_hash = hashlib.sha256()
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                file_hash.update(chunk)
+        file_digests.append(file_hash.digest())
+    for file_digest in sorted(file_digests):
+        fingerprint_hash.update(file_digest)
+        fingerprint_hash.update(b"\x00")
+    return fingerprint_hash.hexdigest()
+
+
+def _run_history_importer_in_worker(
+    registered: RegisteredHistoryImporter,
+    resolved_paths: list[Path],
+) -> Any:
+    """Run synchronous or asynchronous parser code inside one worker thread."""
+
+    result = registered.importer.parse(resolved_paths)
+    if inspect.isawaitable(result):
+        return asyncio.run(_await_history_importer_result(result))
+    return result
+
+
+async def _await_history_importer_result(result: Any) -> Any:
+    """Await a parser result inside the worker thread's private event loop."""
+
+    return await result
 
 
 def _expand_markdown_paths(paths: list[str]) -> list[tuple[Path, str]]:
@@ -820,6 +1279,113 @@ def _expand_markdown_paths(paths: list[str]) -> list[tuple[Path, str]]:
     return files
 
 
+def _validate_importer_paths(
+    paths: list[str],
+    registered: RegisteredHistoryImporter,
+) -> list[Path]:
+    normalized = list(
+        dict.fromkeys(str(value or "").strip() for value in paths if str(value or "").strip())
+    )
+    if not normalized:
+        raise HistoryImportValidationError("history_import_selection_empty")
+    if len(normalized) > 10:
+        raise HistoryImportValidationError("history_importer_too_many_files")
+    accepted = {f".{value}" for value in registered.spec.accepted_extensions}
+    resolved: list[Path] = []
+    total_bytes = 0
+    for raw_path in normalized:
+        path = Path(raw_path).expanduser()
+        if not path.is_file():
+            raise HistoryImportValidationError("history_importer_file_required")
+        if path.suffix.casefold() not in accepted:
+            raise HistoryImportValidationError("history_importer_extension_not_supported")
+        total_bytes += int(path.stat().st_size)
+        if total_bytes > 250 * 1024 * 1024:
+            raise HistoryImportValidationError("history_importer_selection_too_large")
+        resolved.append(path.resolve())
+    return resolved
+
+
+def _validate_importer_output_size(parsed: HistoryImportParseResult) -> None:
+    total_records = sum(len(source.records) for source in parsed.sources)
+    total_content_chars = sum(
+        len(record.content) for source in parsed.sources for record in source.records
+    )
+    if (
+        total_records > MAX_IMPORTER_TOTAL_RECORDS
+        or total_content_chars > MAX_IMPORTER_TOTAL_CONTENT_CHARS
+    ):
+        raise HistoryImportValidationError("history_importer_output_too_large")
+
+
+def _platform_participant_id(
+    *,
+    registered: RegisteredHistoryImporter,
+    source_id: str,
+    raw_speaker_id: str,
+) -> str:
+    """Return an opaque host identity with the importer's declared scope."""
+
+    if raw_speaker_id == DOCUMENT_AUTHOR:
+        raise HistoryImportValidationError("history_importer_reserved_participant_id")
+    identity_parts = [
+        registered.plugin_id,
+        registered.importer_id,
+        registered.spec.format_version,
+    ]
+    if registered.spec.participant_identity_scope == "source":
+        identity_parts.append(source_id)
+    identity_parts.append(raw_speaker_id)
+    digest = hashlib.sha256("\x00".join(identity_parts).encode("utf-8")).hexdigest()
+    return f"hip_{digest[:32]}"
+
+
+def _revalidate_importer_output(value: Any) -> HistoryImportParseResult:
+    """Rebuild plugin output from plain data before trusting SDK invariants."""
+
+    try:
+        plain_value = _materialize_pydantic_output(value)
+    except Exception as exc:
+        raise _HistoryImporterOutputInvalid from exc
+    return HistoryImportParseResult.model_validate(plain_value)
+
+
+def _materialize_pydantic_output(value: Any) -> Any:
+    """Recursively replace Pydantic instances so nested validation cannot be skipped."""
+
+    if isinstance(value, BaseModel):
+        return _materialize_pydantic_output(
+            value.model_dump(mode="python", round_trip=True, warnings="error")
+        )
+    if isinstance(value, dict):
+        return {key: _materialize_pydantic_output(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_materialize_pydantic_output(item) for item in value]
+    return value
+
+
+def _validation_error_is_size_limit(exc: ValidationError) -> bool:
+    return any(
+        str(error.get("type") or "") in {"too_long", "string_too_long"}
+        for error in exc.errors(include_url=False)
+    )
+
+
+def _bounded_import_warnings(warnings: list[str]) -> list[str]:
+    unique = list(dict.fromkeys(warnings))
+    if len(unique) <= MAX_STORED_IMPORT_WARNINGS:
+        return unique
+    return [
+        *unique[: MAX_STORED_IMPORT_WARNINGS - 1],
+        f"history_import_warnings_truncated:{len(unique)}",
+    ]
+
+
+def _is_meaningful_imported_message(content: str) -> bool:
+    normalized = re.sub(r"\s+", " ", content).strip()
+    return len(normalized) >= 2 and bool(re.search(r"[A-Za-z0-9\u4e00-\u9fff]{2,}", normalized))
+
+
 def _unique_source_names(
     files: list[tuple[Path, str]],
 ) -> list[tuple[Path, str]]:
@@ -848,47 +1414,79 @@ def _unique_source_names(
     return resolved
 
 
-def _validate_included_files(
+def _validate_included_sources(
     job: HistoryImportJob,
-    included_files: list[str],
+    included_source_ids: list[str],
     *,
     allow_empty: bool = False,
 ) -> list[str]:
     normalized = list(
-        dict.fromkeys(str(item or "").strip() for item in included_files if str(item or "").strip())
+        dict.fromkeys(
+            str(item or "").strip() for item in included_source_ids if str(item or "").strip()
+        )
     )
     if not normalized and not allow_empty:
         raise HistoryImportValidationError("history_import_selection_empty")
-    known = set(job.source_files)
+    known = set(job.source_ids)
     if any(item not in known for item in normalized):
         raise HistoryImportValidationError("history_import_selection_changed")
-    return [item for item in job.source_files if item in set(normalized)]
+    return [item for item in job.source_ids if item in set(normalized)]
 
 
 def _build_records(
     *,
     job_id: str,
     file_fingerprints: dict[str, str],
-    parsed_files: list[ParsedHistoryFile],
+    parsed_files: list[ParsedHistorySource],
     now: float,
+    importer_identity: tuple[str, str, str] | None = None,
+    missing_timestamp_anchor: float | None = None,
 ) -> list[HistoryImportRecord]:
     records: list[HistoryImportRecord] = []
     for parsed in parsed_files:
-        file_fingerprint = file_fingerprints[parsed.source_name]
-        session_digest = hashlib.sha256(
-            f"{file_fingerprint}\x00{parsed.session_key}".encode("utf-8")
-        ).hexdigest()[:24]
-        session_id = f"history_{session_digest}"
-        for session_seq, item in enumerate(parsed.records):
-            identity = "\x00".join(
+        if importer_identity is None:
+            file_fingerprint = file_fingerprints[parsed.source_name]
+            session_identity = f"{file_fingerprint}\x00{parsed.session_key}"
+        else:
+            plugin_id, importer_id, format_version = importer_identity
+            session_identity = "\x00".join(
                 (
-                    file_fingerprint,
+                    plugin_id,
+                    importer_id,
+                    format_version,
+                    parsed.source_id,
                     parsed.session_key,
-                    str(session_seq),
-                    str(item["speaker_name"]),
-                    str(item["content"]),
                 )
             )
+            file_fingerprint = hashlib.sha256(session_identity.encode("utf-8")).hexdigest()
+        session_digest = hashlib.sha256(session_identity.encode("utf-8")).hexdigest()[:24]
+        session_id = f"history_{session_digest}"
+        ordered_records = sorted(parsed.records, key=lambda item: int(item.get("source_order", 0)))
+        known_times = [
+            (index, float(item["event_at"]))
+            for index, item in enumerate(ordered_records)
+            if item.get("event_at") is not None
+        ]
+        for session_seq, item in enumerate(ordered_records):
+            if importer_identity is None:
+                identity = "\x00".join(
+                    (
+                        file_fingerprint,
+                        parsed.session_key,
+                        str(session_seq),
+                        str(item["speaker_name"]),
+                        str(item["content"]),
+                    )
+                )
+            else:
+                identity = "\x00".join(
+                    (
+                        *importer_identity,
+                        parsed.source_id,
+                        parsed.session_key,
+                        str(item["message_key"]),
+                    )
+                )
             source_digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
             source_record_key = f"hisr_{source_digest[:32]}"
             event_digest = hashlib.sha256(
@@ -897,19 +1495,37 @@ def _build_records(
             job_record_digest = hashlib.sha256(
                 f"{job_id}\x00{source_record_key}".encode("utf-8")
             ).hexdigest()
+            event_at = item.get("event_at")
+            if event_at is None:
+                event_at = _ordered_timestamp_anchor(
+                    session_seq=session_seq,
+                    known_times=known_times,
+                    fallback=(
+                        missing_timestamp_anchor if missing_timestamp_anchor is not None else now
+                    ),
+                )
             records.append(
                 HistoryImportRecord(
                     job_record_id=f"hijr_{job_record_digest[:32]}",
                     job_id=job_id,
                     source_record_key=source_record_key,
                     file_fingerprint=file_fingerprint,
+                    source_id=parsed.source_id,
                     source_name=parsed.source_name,
+                    source_kind=parsed.detected_kind,
                     parsed_session_key=parsed.session_key,
                     session_id=session_id,
                     session_seq=session_seq,
+                    speaker_id=str(item.get("speaker_id") or item["speaker_name"]),
                     speaker_name=str(item["speaker_name"]),
+                    message_key=str(item.get("message_key") or session_seq),
+                    parent_message_key=(
+                        str(item["parent_message_key"])
+                        if item.get("parent_message_key") is not None
+                        else None
+                    ),
                     content=str(item["content"]),
-                    event_at=float(item["event_at"]),
+                    event_at=float(event_at),
                     timestamp_confidence=str(item["timestamp_confidence"]),
                     timestamp_anchor_source=str(item["timestamp_anchor_source"]),
                     calendar_timezone_id=str(item["calendar_timezone_id"]),
@@ -923,9 +1539,28 @@ def _build_records(
     return records
 
 
+def _ordered_timestamp_anchor(
+    *,
+    session_seq: int,
+    known_times: list[tuple[int, float]],
+    fallback: float,
+) -> float:
+    """Place an undated record near declared neighbors without claiming exact time."""
+
+    previous = [item for item in known_times if item[0] < session_seq]
+    if previous:
+        previous_seq, previous_time = previous[-1]
+        return previous_time + ((session_seq - previous_seq) / 1_000_000)
+    following = [item for item in known_times if item[0] > session_seq]
+    if following:
+        following_seq, following_time = following[0]
+        return following_time - ((following_seq - session_seq) / 1_000_000)
+    return fallback + (session_seq / 1_000_000)
+
+
 def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
     is_user = record.speaker_role == "user"
-    source_kind = "document" if record.speaker_name == DOCUMENT_AUTHOR else "chat"
+    source_kind = record.source_kind
     now = time.time()
     return MemoryEvent(
         event_id=record.event_id,
@@ -951,22 +1586,30 @@ def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
         importance_score=0.72 if is_user else 0.3,
         level=0,
         idempotency_key=f"history-import:{record.source_record_key}",
-        metadata_json=with_calendar_timezone({
-            "history_import": {
-                "source_record_key": record.source_record_key,
-                "file_fingerprint": record.file_fingerprint,
-                "source_name": record.source_name,
-                "speaker_name": record.speaker_name,
-                "speaker_role": record.speaker_role,
-                "timestamp_confidence": record.timestamp_confidence,
-                "timestamp_anchor_source": record.timestamp_anchor_source,
-                "historical": True,
+        metadata_json=with_calendar_timezone(
+            {
+                "history_import": {
+                    "source_record_key": record.source_record_key,
+                    "file_fingerprint": record.file_fingerprint,
+                    "source_id": record.source_id,
+                    "source_name": record.source_name,
+                    "source_kind": record.source_kind,
+                    "speaker_id": record.speaker_id,
+                    "speaker_name": record.speaker_name,
+                    "message_key": record.message_key,
+                    "parent_message_key": record.parent_message_key,
+                    "speaker_role": record.speaker_role,
+                    "timestamp_confidence": record.timestamp_confidence,
+                    "timestamp_anchor_source": record.timestamp_anchor_source,
+                    "historical": True,
+                },
+                "l2_batch_owner": f"history-import:{record.session_id}",
+                "l2_batch_max_events": 40,
+                "l2_batch_min_ready_events": 20,
+                "l2_batch_max_wait_seconds": 1,
             },
-            "l2_batch_owner": f"history-import:{record.session_id}",
-            "l2_batch_max_events": 40,
-            "l2_batch_min_ready_events": 20,
-            "l2_batch_max_wait_seconds": 1,
-        }, calendar_timezone_id=record.calendar_timezone_id),
+            calendar_timezone_id=record.calendar_timezone_id,
+        ),
     )
 
 

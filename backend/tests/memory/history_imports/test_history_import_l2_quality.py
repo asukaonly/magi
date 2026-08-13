@@ -219,7 +219,7 @@ async def test_personal_markdown_reaches_l1_and_governed_l2_outputs(
         confirmed = await service.confirm(
             job_id=preview.job_id,
             confirm_personal_writing=True,
-            included_files=preview.included_files,
+            included_source_ids=preview.included_source_ids,
         )
         assert confirmed.quick_ready is True
         await _wait_for_import_and_l2(service, memory, job_id=preview.job_id)

@@ -8,7 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from ...utils.calendar_timezone import canonical_timezone_id, local_calendar_timezone_id
-from .models import ParsedHistoryFile
+from .models import ParsedHistorySource
 
 DOCUMENT_AUTHOR = "__document_author__"
 
@@ -39,7 +39,7 @@ _LOW_SIGNAL_TEXT = {
 }
 
 
-def parse_markdown_path(path: Path) -> ParsedHistoryFile:
+def parse_markdown_path(path: Path) -> ParsedHistorySource:
     """Read and parse one Markdown file."""
 
     raw = path.read_bytes()
@@ -64,7 +64,7 @@ def parse_markdown(
     text: str,
     file_mtime: float,
     calendar_timezone_id: str,
-) -> ParsedHistoryFile:
+) -> ParsedHistorySource:
     """Parse one Markdown file as one authored personal document.
 
     Generic Markdown import deliberately does not infer message boundaries or
@@ -89,19 +89,21 @@ def parse_markdown(
     warnings = ["document_author_confirmation_required"]
     if document_timestamp_confidence == "file_mtime":
         warnings.append("timestamps_from_file_mtime")
-    return ParsedHistoryFile(
+    return ParsedHistorySource(
+        source_id=_session_key(source_name),
         source_name=source_name,
         session_key=_session_key(source_name),
         detected_kind="document",
         records=[
             {
+                "speaker_id": DOCUMENT_AUTHOR,
                 "speaker_name": DOCUMENT_AUTHOR,
+                "message_key": "document",
+                "parent_message_key": None,
                 "content": clean_text,
                 "event_at": document_timestamp,
                 "timestamp_confidence": document_timestamp_confidence,
-                "timestamp_anchor_source": _timestamp_anchor_source(
-                    document_timestamp_confidence
-                ),
+                "timestamp_anchor_source": _timestamp_anchor_source(document_timestamp_confidence),
                 "calendar_timezone_id": normalized_timezone_id,
                 "meaningful": is_meaningful_content(clean_text),
             }

@@ -45,7 +45,7 @@ def _history_window(
             L2BatchEvent(
                 event_id="evt-history",
                 content=content,
-                source="history_import_markdown",
+                source="history_import",
                 event_type=event_type,
                 author_type="user",
             )

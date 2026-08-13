@@ -31,7 +31,9 @@ _RESERVED_PLUGIN_IDENTIFIERS = {
 
 def _reject_reserved_plugin_identifier(value: str) -> str:
     if value in _RESERVED_PLUGIN_IDENTIFIERS:
-        raise ValueError("Plugin identifier is reserved by the host or operating system")
+        raise ValueError(
+            "Plugin identifier is reserved by the host or operating system"
+        )
     return value
 
 
@@ -55,6 +57,7 @@ class ContributionType(str, Enum):
     CHANNEL = "channel"
     SKILL = "skill"
     HOOK = "hook"
+    HISTORY_IMPORTER = "history_importer"
 
 
 class ExtensionFieldOption(BaseModel):
@@ -68,7 +71,9 @@ class ExtensionFieldSpec(BaseModel):
     """Declarative settings field exposed by a plugin contribution."""
 
     key: str
-    type: Literal["switch", "select", "input", "number", "secret", "path", "tags"] = "input"
+    type: Literal["switch", "select", "input", "number", "secret", "path", "tags"] = (
+        "input"
+    )
     path_kind: Literal["file", "directory"] | None = None
     label: str
     description: str = ""
@@ -244,7 +249,9 @@ class DerivedAssertionRuleSpec(BaseModel):
     durable_min_distinct_days: int = Field(default=3, ge=3)
     durable_min_span_days: float = Field(default=14.0, ge=14.0)
     source_domains: list[str] = Field(default_factory=lambda: ["external_activity"])
-    value_strategy: Literal["canonical_name", "object_id", "object_slug"] = "canonical_name"
+    value_strategy: Literal["canonical_name", "object_id", "object_slug"] = (
+        "canonical_name"
+    )
     object_types: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -274,7 +281,9 @@ class ExtractionProfileSpec(BaseModel):
     phase1_instructions: str | None = None
     summary_instructions: str | None = None
     allowed_assertion_traits: list[str] | Literal["all"] | None = None
-    derived_assertion_specs: list[DerivedAssertionRuleSpec] = Field(default_factory=list)
+    derived_assertion_specs: list[DerivedAssertionRuleSpec] = Field(
+        default_factory=list
+    )
 
 
 class Triggers(BaseModel):
@@ -508,7 +517,9 @@ class PluginManifest(BaseModel):
         """Reject entrypoint names that could escape the plugin module."""
 
         if not value.isidentifier() or keyword.iskeyword(value):
-            raise ValueError("Plugin entrypoint names must be single Python identifiers")
+            raise ValueError(
+                "Plugin entrypoint names must be single Python identifiers"
+            )
         return value
 
     @model_validator(mode="after")
@@ -693,7 +704,9 @@ class SummaryProfileSpec(BaseModel):
     profile_id: str
     summary_category: str
     source_types: list[str] = Field(default_factory=list)
-    windows: list[Literal["hour", "day", "week"]] = Field(default_factory=lambda: ["day"])
+    windows: list[Literal["hour", "day", "week"]] = Field(
+        default_factory=lambda: ["day"]
+    )
     settle_window_seconds: int = 300
     min_events: int = 4
     intent_verbs: list[str] = Field(default_factory=list)

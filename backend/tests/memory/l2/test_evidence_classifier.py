@@ -3,7 +3,14 @@ from __future__ import annotations
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
-from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
+from magi.memory.event_contracts import (
+    IngestTarget,
+    MemoryDomain,
+    MemoryEvent,
+    RetentionClass,
+    TomDepth,
+    normalize_runtime_event,
+)
 
 
 def _build_user_message(*, message: str = "I like sushi.", metadata: dict | None = None):
@@ -72,7 +79,7 @@ def _build_history_document(
     *,
     content: str,
     event_type: str = "history_import.document",
-    source: str = "history_import_markdown",
+    source: str = "history_import",
     historical: bool = True,
 ) -> MemoryEvent:
     return MemoryEvent(
@@ -221,16 +228,12 @@ def test_classifier_prioritizes_exact_history_document_contract(content):
     classification = classify_event_evidence(_build_history_document(content=content))
 
     assert classification.evidence_class == "user_self_report"
-    assert classification.reason_code == "user_authored_history_document"
+    assert classification.reason_code == "user_authored_history_archive"
 
 
 @pytest.mark.parametrize(
     "event",
     [
-        _build_history_document(
-            content="How did pottery change me?",
-            event_type="history_import.chat",
-        ),
         _build_history_document(
             content="How did pottery change me?",
             source="chat",
@@ -248,6 +251,20 @@ def test_classifier_does_not_apply_document_rule_to_near_misses(event):
 
     assert classification.evidence_class == "user_question"
     assert classification.reason_code == "user_question_lead_or_mark"
+
+
+def test_classifier_treats_archived_user_chat_question_as_self_report() -> None:
+    from magi.memory.evidence import classify_event_evidence
+
+    classification = classify_event_evidence(
+        _build_history_document(
+            content="How did pottery change me?",
+            event_type="history_import.chat",
+        )
+    )
+
+    assert classification.evidence_class == "user_self_report"
+    assert classification.reason_code == "user_authored_history_archive"
 
 
 def test_user_question_policy_blocks_l2_writes():
@@ -371,7 +388,9 @@ def _build_chat_response_action_event():
 def test_classifier_maps_assistant_runtime_derivation():
     from magi.memory.evidence import classify_event_evidence
 
-    classification = classify_event_evidence(normalize_runtime_event(_build_chat_response_action_event()))
+    classification = classify_event_evidence(
+        normalize_runtime_event(_build_chat_response_action_event())
+    )
 
     assert classification.evidence_class == "assistant_runtime_derivation"
     assert classification.reason_code == "runtime_chat_response_action"
@@ -431,12 +450,12 @@ def test_classifier_evidence_rule_version_is_six():
 @pytest.mark.parametrize(
     "message",
     [
-        "杭州天气怎么样",          # interrogative at clause end, no mark
-        "我要怎么配",              # "怎么" mid-sentence
+        "杭州天气怎么样",  # interrogative at clause end, no mark
+        "我要怎么配",  # "怎么" mid-sentence
         "我chrome最近在看什么呀",  # "什么" + trailing mood particle
-        "这个多少钱",              # "多少" anywhere
-        "你在哪",                  # "哪" at end
-        "为什么会这样",            # "为什么" lead (already covered, keep as guard)
+        "这个多少钱",  # "多少" anywhere
+        "你在哪",  # "哪" at end
+        "为什么会这样",  # "为什么" lead (already covered, keep as guard)
     ],
 )
 def test_classifier_maps_chinese_spoken_questions(message):
@@ -451,12 +470,12 @@ def test_classifier_maps_chinese_spoken_questions(message):
 @pytest.mark.parametrize(
     "message",
     [
-        "我有一只猫",        # plain statement, no interrogative
-        "没什么特别的",      # "什么" inside a non-question idiom
-        "我知道为什么了",    # "为什么" inside "知道为什么"
-        "什么都行",          # "什么" inside "什么都"
-        "我喜欢喝咖啡",      # plain preference statement
-        "不知道怎么办",      # "怎么" inside "不知道怎么"
+        "我有一只猫",  # plain statement, no interrogative
+        "没什么特别的",  # "什么" inside a non-question idiom
+        "我知道为什么了",  # "为什么" inside "知道为什么"
+        "什么都行",  # "什么" inside "什么都"
+        "我喜欢喝咖啡",  # plain preference statement
+        "不知道怎么办",  # "怎么" inside "不知道怎么"
         "哪里哪里，您过奖了",  # modesty reply, "哪里" inside "哪里哪里" blacklist
     ],
 )
@@ -510,7 +529,9 @@ def test_classifier_speech_act_boundaries(message, expected):
     classification = classify_event_evidence(
         normalize_runtime_event(_build_user_message(message=message))
     )
-    assert classification.evidence_class == expected, f"{message!r} -> {classification.evidence_class}"
+    assert (
+        classification.evidence_class == expected
+    ), f"{message!r} -> {classification.evidence_class}"
 
 
 def _classify_first_context(message: str):

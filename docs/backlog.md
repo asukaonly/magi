@@ -141,7 +141,7 @@ Open items:
 
 ### 8. Add platform-specific history import adapters
 
-Status: planned
+Status: active
 
 Current state:
 
@@ -151,16 +151,25 @@ Current state:
   handoff
 - generic Markdown intentionally treats one file as one document and does not
   infer chat messages, speakers, or timestamps
-- there is no plugin importer contribution type yet
+- the SDK and runtime expose a parser-only `history_importer` contribution;
+  installed adapters appear in the shared onboarding and Memory -> Sources flow
+- the first adapter supports official ChatGPT ZIP/conversation JSON exports,
+  keeps conversations independently selectable, and preserves stable message,
+  speaker, order, parent, and timestamp provenance
 
 Open items:
 
-- define a narrow importer contribution that converts one platform export into
-  normalized sessions, speakers, source order, timestamps, and content
-- keep file selection, participant identity confirmation, progress, deletion,
-  and memory writes host-owned
-- add supported export adapters only after representative samples lock their
-  parsing and privacy behavior
+- collect representative, sanitized real exports as regression fixtures whenever
+  a provider changes its undocumented field-level schema
+- replace the current fail-closed 500-conversation preview limit with a
+  host-owned paged scan and selection contract; adapters must never silently
+  choose or discard conversations on the user's behalf
+- add further adapters only for platforms with a stable/verifiable export format;
+  social-post archives should use a post/record contract rather than pretending
+  to be conversations
+- add attachment and non-text content support only after the host has an explicit
+  safe content-block contract; unsupported objects must continue to degrade with
+  visible warnings
 
 ## Maintenance Fixes
 

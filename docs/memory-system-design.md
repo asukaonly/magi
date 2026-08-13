@@ -1031,16 +1031,32 @@ the L2 derive task, and successful derived-profile writes explicitly enqueue the
 same debounced portrait refresh used by ordinary assertion changes. This keeps
 cold-start personalization timely without creating a second profile pipeline.
 
-Historical personal-writing imports use the same memory pipeline with an
-additional source boundary. After explicit authorship confirmation, a bounded
-recent slice may enter L1 immediately so onboarding can finish without claiming
-that durable understanding already exists. The full import persists normalized
-source records separately from per-job work state. A file fingerprint hashes its
-normalized relative source name and bytes. The source-record key hashes that file
-identity with parsed session key, sequence, speaker, and content; the L1 event and
-session IDs derive only from those source identities. Editing one file therefore
-changes only that file's records, while an unchanged file keeps the same source
-records and event IDs in a later import job.
+Historical imports use the same memory pipeline with an additional source
+boundary. After explicit authorship or participant confirmation, a bounded slice
+may enter L1 immediately so onboarding can finish without claiming that durable
+understanding already exists. The full import persists normalized source records
+separately from per-job work state. For host-owned Markdown, a file fingerprint
+hashes its normalized relative source name and bytes, and the source-record key
+hashes that identity with parsed session key, sequence, speaker, and content.
+For platform adapters, source-record identity instead uses the importer package,
+importer format version, stable session key, and stable message key. Re-exporting
+an expanded archive therefore reuses existing event identities and adds only new
+messages; an archive-file fingerprint may deduplicate an identical preview job but
+must never define message identity.
+
+After a platform session has been confirmed into L1, its imported stable-message
+sequence is append-only. The host rejects an incremental archive that changes the
+existing message-key prefix and requires replacement through delete plus complete
+re-import. This avoids rewriting sequence metadata on already projected evidence.
+Before a preview is persisted, the host also runs the parser outside the memory
+clear barrier and off the service event loop; asynchronous parsers receive a
+private event loop inside the worker thread. The service admits at most two
+parser workers, and the fixed preview deadline includes time spent waiting for a
+worker slot. A timed-out or cancelled request abandons its result but retains the
+slot until the underlying worker actually returns, so repeated timeouts cannot
+create an unbounded parser backlog. The host then compares full input
+fingerprints before and after parsing, validates bounded SDK output, and
+rechecks the memory-clear epoch inside the governed operation.
 
 The host Markdown importer treats each file as exactly one user-authored
 document. It does not infer chat messages, speakers, sessions, or timestamps from
@@ -1050,9 +1066,17 @@ silently reused. Chat-shaped text remains content inside the document; quoted or
 attributed spans still pass through the document authorship gate below rather
 than inheriting user authority.
 
-`history_import_source_records` owns source/session identity, speaker role,
-content, event time semantics (including the parser-declared anchor source and
+`history_import_source_records` owns stable source/session/message identity,
+explicit source kind, host-namespaced speaker identity and confirmed role,
+optional parent-message identity, content,
+event time semantics (including the parser-declared confidence/anchor and
 captured IANA timezone), and the stable event ID.
+For platform imports, `exact` and `inferred` records carry the parser's
+`occurred_at`, while `source_order` and `unknown` records carry no source time.
+The host creates an internal ordering anchor only for those untimed records and
+retains their original confidence. Reader-facing previews may label inferred
+time as approximate and untimed records as missing, but must not present either
+as an exact timestamp.
 `history_import_job_records` owns only membership and that job's raw/projection
 progress. Its key derives from the job and source-record keys, and the pair is
 unique. The versioned complete selected-file fingerprint still identifies an
@@ -1065,6 +1089,15 @@ Document extraction evaluates author-prose spans across the whole document and
 does not treat headings, dialogue-shaped text, or requests as live chat speech
 acts.
 
+Confirmation durably commits the selected sources and self-participant scope
+before the bounded quick import advances. The quick stage is service-owned work:
+the confirming API may wait for its `quick_ready` boundary, but disconnecting or
+canceling that request does not cancel the import. Startup resumes jobs whose
+scope was committed while `quick_ready` was still false, and an explicit retry
+can restart the same stage after failure. Recovery selects only ledger records
+whose raw state is still pending, so an interrupted quick pass does not rewrite
+records already acknowledged in L1.
+
 History-import completion describes the importer boundary, not completed
 cognition. Reader-facing counters distinguish source records durably stored in
 L1 from records accepted by the durable L2 projection queue. A duplicate enqueue
@@ -1073,13 +1106,20 @@ that were stored but could not be handed to that queue remain visibly retryable;
 the import does not wait for assertion, graph, or portrait derivation before the
 user can continue.
 
-A future channel-specific chat importer may reuse the normalized history store
-and memory handoff only after it supplies explicit session, message, speaker,
-source-order, and timestamp semantics. The user must then identify their own
-participant identity in the host-owned confirmation UI. Counterpart turns remain
-non-cognitive L1 context, and chat extraction must treat historical wording as
-archive evidence rather than live instructions. An LLM may analyze normalized
-messages, but it must not be used to invent those structural identities.
+Platform-specific chat importers reuse the normalized history store and memory
+handoff only after they supply explicit stable source, session, message, speaker,
+source-order, parent-message, and timestamp semantics. The user identifies their
+own participant identity in the host-owned confirmation UI; display names are not
+identity keys. Counterpart turns remain non-cognitive L1 context, while confirmed
+user turns follow the ordinary L2 assertion/graph/portrait pipeline. Historical
+questions and requests are archive evidence rather than live instructions, and
+counterpart turns may provide bounded conversation context without receiving user
+authority. An LLM may analyze normalized messages after import, but it must not
+invent structural identities or decide who the user is.
+Adapter speaker IDs are source-scoped by default before they become persisted
+host participant IDs. Export-global scope is accepted only as an explicit
+importer-format guarantee; host-reserved document identities are never accepted
+from platform adapters.
 Deleting one job forgets an event only when no other active, selected membership
 references that source record; deleting the final membership triggers governed
 source-event forgetting. A global memory clear removes source records, job

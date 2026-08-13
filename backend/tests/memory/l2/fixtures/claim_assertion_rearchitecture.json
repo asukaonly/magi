@@ -49,7 +49,7 @@
     "event": {
       "event_id": "evt-historical-goal",
       "content": "# 秋季计划\n\n我计划今年秋天去一次海边。\n",
-      "source": "history_import_markdown",
+      "source": "history_import",
       "event_type": "history_import.document",
       "author_type": "user"
     },

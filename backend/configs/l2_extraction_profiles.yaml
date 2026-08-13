@@ -81,7 +81,7 @@ profiles:
 
   history_import.document:
     source_types:
-      - history_import_markdown
+      - history_import
     event_types:
       - history_import.document
     allowed_entity_types: all
@@ -106,7 +106,7 @@ profiles:
 
   history_import.chat:
     source_types:
-      - history_import_markdown
+      - history_import
     event_types:
       - history_import.chat
     allowed_entity_types: all

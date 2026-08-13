@@ -20,8 +20,23 @@ def _plugin_profile_specs() -> list[ExtractionProfileSpec]:
         ExtractionProfileSpec(
             profile_id="source.chrome_history",
             source_types=["chrome_history"],
-            allowed_entity_types=["product", "software", "technology", "media", "person", "organization", "topic"],
-            allowed_predicates=["VISITED", "USES", "INTERESTED_IN", "FOLLOWS", "VIEWED", "WORKS_WITH"],
+            allowed_entity_types=[
+                "product",
+                "software",
+                "technology",
+                "media",
+                "person",
+                "organization",
+                "topic",
+            ],
+            allowed_predicates=[
+                "VISITED",
+                "USES",
+                "INTERESTED_IN",
+                "FOLLOWS",
+                "VIEWED",
+                "WORKS_WITH",
+            ],
             allow_graph=True,
             allow_assertion=False,
             extraction_instructions=(
@@ -43,7 +58,14 @@ def _plugin_profile_specs() -> list[ExtractionProfileSpec]:
             profile_id="source.git_activity",
             source_types=["git_activity"],
             allowed_entity_types=["software", "technology", "topic"],
-            allowed_predicates=["COMMITTED", "CHECKED_OUT", "MERGED", "REBASED", "WORKS_WITH", "USES"],
+            allowed_predicates=[
+                "COMMITTED",
+                "CHECKED_OUT",
+                "MERGED",
+                "REBASED",
+                "WORKS_WITH",
+                "USES",
+            ],
             allow_graph=True,
             allow_assertion=False,
         ),
@@ -85,7 +107,7 @@ def _make_event(*, source: str, content: str = "hello"):
 
 def _make_history_import_event(*, event_type: str = "history_import.document"):
     event = _make_event(
-        source="history_import_markdown",
+        source="history_import",
         content="# Notes\n\nI keep a weekly pottery practice.",
     )
     event.event_type = event_type
@@ -131,7 +153,9 @@ def test_first_context_story_uses_constrained_chat_profile():
 def test_timeline_source_falls_back_to_chat_profile():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
-    profile = resolve_extraction_profile(_make_event(source="timeline", content="Visited GitHub today"))
+    profile = resolve_extraction_profile(
+        _make_event(source="timeline", content="Visited GitHub today")
+    )
 
     assert profile.profile_id == "chat.user_message"
 
@@ -148,7 +172,7 @@ def test_history_import_profiles_require_matching_source_and_event_type():
     wrong_source_profile = resolve_extraction_profile(wrong_source)
 
     assert document_profile.profile_id == "history_import.document"
-    assert document_profile.source_types == frozenset({"history_import_markdown"})
+    assert document_profile.source_types == frozenset({"history_import"})
     assert document_profile.event_types == frozenset({"history_import.document"})
     assert document_profile.phase1_instructions is not None
     assert "historical documents, not live chat turns" in document_profile.phase1_instructions
@@ -169,7 +193,7 @@ def test_event_specific_profile_wins_before_source_only_profile():
     registry = {
         "source.history_import_generic": ExtractionProfile(
             profile_id="source.history_import_generic",
-            source_types=frozenset({"history_import_markdown"}),
+            source_types=frozenset({"history_import"}),
         ),
         **get_extraction_profiles(),
     }
@@ -204,14 +228,27 @@ def test_chrome_history_source_uses_chrome_history_profile_restrictions():
     )
 
     assert profile.profile_id == "source.chrome_history"
-    assert profile.allowed_entity_types == frozenset({
-        "product", "software", "technology", "media",
-        "person", "organization", "topic",
-    })
-    assert profile.allowed_predicates == frozenset({
-        "VISITED", "USES", "INTERESTED_IN", "FOLLOWS",
-        "VIEWED", "WORKS_WITH",
-    })
+    assert profile.allowed_entity_types == frozenset(
+        {
+            "product",
+            "software",
+            "technology",
+            "media",
+            "person",
+            "organization",
+            "topic",
+        }
+    )
+    assert profile.allowed_predicates == frozenset(
+        {
+            "VISITED",
+            "USES",
+            "INTERESTED_IN",
+            "FOLLOWS",
+            "VIEWED",
+            "WORKS_WITH",
+        }
+    )
     assert profile.allow_assertion is False
 
 
@@ -229,7 +266,9 @@ def test_plugin_profiles_load_chrome_history():
     assert "VISITED" in profile.allowed_predicates
     assert profile.extraction_instructions is not None
     assert "Preserve the source title language/script" in profile.extraction_instructions
-    assert "Do NOT infer the content entity name from URL domains" in profile.extraction_instructions
+    assert (
+        "Do NOT infer the content entity name from URL domains" in profile.extraction_instructions
+    )
 
 
 def test_yaml_profiles_always_include_default_chat():
@@ -347,22 +386,22 @@ def test_netease_music_profile_allows_preference_assertions():
 def test_unknown_source_still_falls_back_to_chat():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
-    profile = resolve_extraction_profile(
-        _make_event(source="some_unknown_sensor", content="data")
-    )
+    profile = resolve_extraction_profile(_make_event(source="some_unknown_sensor", content="data"))
     assert profile.profile_id == "chat.user_message"
 
 
 def test_invalid_plugin_profile_is_skipped():
     from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
-    profiles = build_extraction_profile_registry([
-        {
-            "profile_id": "source.bad_sensor",
-            "source_types": ["bad_sensor"],
-            "allowed_entity_types": ["not_a_real_entity_type"],
-        }
-    ])
+    profiles = build_extraction_profile_registry(
+        [
+            {
+                "profile_id": "source.bad_sensor",
+                "source_types": ["bad_sensor"],
+                "allowed_entity_types": ["not_a_real_entity_type"],
+            }
+        ]
+    )
 
     assert "source.bad_sensor" not in profiles
     assert "chat.user_message" in profiles
@@ -371,14 +410,16 @@ def test_invalid_plugin_profile_is_skipped():
 def test_plugin_profile_cannot_override_host_chat_profile():
     from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
-    profiles = build_extraction_profile_registry([
-        ExtractionProfileSpec(
-            profile_id="chat.user_message",
-            source_types=["chat"],
-            allowed_entity_types=["software"],
-            allowed_predicates=["USES"],
-        )
-    ])
+    profiles = build_extraction_profile_registry(
+        [
+            ExtractionProfileSpec(
+                profile_id="chat.user_message",
+                source_types=["chat"],
+                allowed_entity_types=["software"],
+                allowed_predicates=["USES"],
+            )
+        ]
+    )
 
     assert profiles["chat.user_message"].allowed_entity_types != frozenset({"software"})
 
@@ -395,18 +436,20 @@ def test_plugin_allow_assertion_is_preserved():
 def test_phase1_and_summary_instructions_are_independent():
     from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
-    profiles = build_extraction_profile_registry([
-        {
-            "profile_id": "source.custom_sensor",
-            "source_types": ["custom_sensor"],
-            "allowed_entity_types": ["topic"],
-            "allowed_predicates": ["INTERESTED_IN"],
-            "extraction_instructions": "legacy instructions",
-            "phase1_instructions": "new phase one instructions",
-            "summary_instructions": "summary wording instructions",
-            "allow_assertion": False,
-        }
-    ])
+    profiles = build_extraction_profile_registry(
+        [
+            {
+                "profile_id": "source.custom_sensor",
+                "source_types": ["custom_sensor"],
+                "allowed_entity_types": ["topic"],
+                "allowed_predicates": ["INTERESTED_IN"],
+                "extraction_instructions": "legacy instructions",
+                "phase1_instructions": "new phase one instructions",
+                "summary_instructions": "summary wording instructions",
+                "allow_assertion": False,
+            }
+        ]
+    )
 
     profile = profiles["source.custom_sensor"]
     assert profile.extraction_instructions == "new phase one instructions"
@@ -417,15 +460,17 @@ def test_phase1_and_summary_instructions_are_independent():
 def test_unknown_profile_fields_do_not_change_materialization_authority():
     from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
-    profiles = build_extraction_profile_registry([
-        {
-            "profile_id": "source.bad_mode",
-            "source_types": ["bad_mode"],
-            "allowed_entity_types": ["topic"],
-            "allowed_predicates": ["INTERESTED_IN"],
-            "unknown_materialization_mode": "direct_write",
-        }
-    ])
+    profiles = build_extraction_profile_registry(
+        [
+            {
+                "profile_id": "source.bad_mode",
+                "source_types": ["bad_mode"],
+                "allowed_entity_types": ["topic"],
+                "allowed_predicates": ["INTERESTED_IN"],
+                "unknown_materialization_mode": "direct_write",
+            }
+        ]
+    )
 
     assert profiles["source.bad_mode"].allow_assertion is True
 
@@ -433,14 +478,16 @@ def test_unknown_profile_fields_do_not_change_materialization_authority():
 def test_allowed_assertion_traits_default_to_all():
     from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
-    profiles = build_extraction_profile_registry([
-        {
-            "profile_id": "source.trait_defaults",
-            "source_types": ["trait_defaults"],
-            "allowed_entity_types": ["topic"],
-            "allowed_predicates": ["INTERESTED_IN"],
-            "allow_assertion": True,
-        }
-    ])
+    profiles = build_extraction_profile_registry(
+        [
+            {
+                "profile_id": "source.trait_defaults",
+                "source_types": ["trait_defaults"],
+                "allowed_entity_types": ["topic"],
+                "allowed_predicates": ["INTERESTED_IN"],
+                "allow_assertion": True,
+            }
+        ]
+    )
 
     assert profiles["source.trait_defaults"].allowed_assertion_traits is None

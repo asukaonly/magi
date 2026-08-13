@@ -44,6 +44,13 @@ from .ingress import (
     PluginIngressEventRecord,
     PluginIngressHandlerRegistration,
 )
+from .history_imports import (
+    HistoryImportParseResult,
+    HistoryImportRecord,
+    HistoryImportSource,
+    HistoryImporter,
+    HistoryImporterSpec,
+)
 from .user_content import UserContentClearContext, UserContentClearRequest
 from .contracts import (
     ActivationFlowSpec,
@@ -181,6 +188,12 @@ __all__ = [
     "PluginIngressEventHandler",
     "PluginIngressEventRecord",
     "PluginIngressHandlerRegistration",
+    # One-shot history import adapters
+    "HistoryImportParseResult",
+    "HistoryImportRecord",
+    "HistoryImportSource",
+    "HistoryImporter",
+    "HistoryImporterSpec",
     # User-content clear lifecycle
     "UserContentClearContext",
     "UserContentClearRequest",

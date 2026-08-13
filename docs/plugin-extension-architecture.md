@@ -459,13 +459,48 @@ the ongoing source ledger. It is not modeled as a sensor: an import has a
 bounded input, an explicit user confirmation, and a completed lifecycle rather
 than an ongoing polling schedule.
 
-Future platform-specific chat import plugins should adapt one declared export
-format into normalized sessions, messages, speakers, source order, and timestamps.
-They must not write memory directly, decide which participant is the user, or own
-the preview and deletion experience; the host asks for participant identity only
-after the adapter has provided trustworthy structure. A dedicated importer
-contribution contract is still future work; the current runtime supports only the
-host personal-writing Markdown importer.
+Platform-specific chat import plugins use the `history_importer` contribution.
+Each importer declares its accepted file extensions and export-help URL, then
+adapts one known export format into independently selectable sources containing
+stable session, message, speaker, source-order, parent-message, and timestamp
+semantics. Importers are parser-only: they must not write memory, decide which
+participant is the user, invoke an LLM to guess archive structure, or own preview,
+progress, retry, or deletion. The host validates the selected paths, renders the
+normalized preview, asks the user to identify their own participant, assigns
+memory authority, and owns durable/idempotent handoff. An importer package may be
+grouped visually with a related live sensor, but one-shot archive import and
+continuous polling remain separate contributions and lifecycles.
+
+Raw participant identifiers are not host identity keys. The default contract
+scopes them to one source, and the host persists an opaque namespaced identity.
+An importer may opt into export-global participant scope only when its official
+format guarantees that identity across all returned sources. Source kind is
+persisted explicitly, and platform adapters cannot claim host-reserved document
+author identities.
+
+Importer execution is bounded by the host rather than trusted to run inside the
+memory-clear boundary. The host fingerprints the complete selected input before
+and after parsing, rejects a selection that changed while it was being read,
+runs both synchronous and asynchronous parsers in worker threads, applies a
+deadline that also covers waiting for one of two parser slots, validates bounded
+normalized output, and only then enters the governed memory operation to persist
+the preview. Timeout or request cancellation does not stop Python thread work,
+so the host retains that slot until the real worker exits instead of admitting
+an unbounded queue of replacements. Repeated previews of the same snapshot
+resolve atomically to one active job.
+
+Stable message identity supports later exports that append messages to an
+already imported conversation. Once any message from a session has entered
+memory, its existing stable message-key sequence is an immutable prefix. An
+export that inserts, removes, or reorders earlier messages is not merged in
+place, because doing so would leave previously persisted L1 sequence metadata
+ambiguous. The product asks the user to delete the earlier import and import the
+new complete archive instead.
+
+The first supported platform adapter reads official ChatGPT data-export ZIP or
+conversation JSON files. It linearizes only the archive's declared active branch,
+keeps each conversation independently selectable, and degrades unsupported
+non-text content with warnings rather than inventing text or relationships.
 
 ### Channel Registry
 

@@ -19,7 +19,12 @@ if TYPE_CHECKING:
     from ..memory.integration import MemoryIntegrationModule
     from ..memory.hybrid_retrieval import HybridRetrievalService
     from ..media.source_registry import MediaSourceRegistry
-    from ..plugins import PluginManager, PluginProjectionService, SensorRegistry
+    from ..plugins import (
+        HistoryImporterRegistry,
+        PluginManager,
+        PluginProjectionService,
+        SensorRegistry,
+    )
     from ..plugins.user_content_clear import PluginUserContentClearCoordinator
     from ..personality.self_memory import SelfMemory
     from ..awareness.scheduler_contrib import SensorSchedulerContrib
@@ -112,6 +117,7 @@ class PluginBootstrapState:
     plugin_manager: PluginManager | None = None
     plugin_projection_service: PluginProjectionService | None = None
     sensor_registry: SensorRegistry | None = None
+    history_importer_registry: HistoryImporterRegistry | None = None
     user_content_clear_coordinator: PluginUserContentClearCoordinator | None = None
 
 

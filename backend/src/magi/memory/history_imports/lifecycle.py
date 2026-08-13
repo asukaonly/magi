@@ -17,7 +17,11 @@ class HistoryImportsModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_history_imports",
-            dependencies=("runtime_database_migrations", "runtime_memory"),
+            dependencies=(
+                "runtime_database_migrations",
+                "runtime_memory",
+                "runtime_plugin_system",
+            ),
         )
         self._context = context
 
@@ -30,8 +34,16 @@ class HistoryImportsModule(LifecycleModule):
             self._context.memory.unified_memory,
             "unified memory",
         )
+        importer_registry = require_initialized(
+            self._context.plugins.history_importer_registry,
+            "history importer registry",
+        )
         store = HistoryImportStore(db_path=str(runtime_paths.memory_db_path))
-        service = HistoryImportService(store=store, memory=memory)
+        service = HistoryImportService(
+            store=store,
+            memory=memory,
+            importer_registry=importer_registry,
+        )
         if not self._context.runtime_commands.full_clear_recovery_pending:
             await service.start()
 

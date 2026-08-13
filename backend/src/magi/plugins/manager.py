@@ -35,6 +35,7 @@ from .package_integrity import package_identity_error
 from .provisional_dependencies import ProvisionalLibraryReceipt
 from .projections import PluginProjectionService
 from .sensors import RegisteredSensorSnapshot, SensorRegistry
+from .history_importers import HistoryImporterRegistry
 from .settings_service import PluginSettingsActionRun, PluginSettingsService
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ class PluginRuntimeBindings:
     plugin_manager: "PluginManager"
     plugin_projection_service: PluginProjectionService
     sensor_registry: SensorRegistry
+    history_importer_registry: HistoryImporterRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,9 +104,11 @@ def build_plugin_runtime(
     """
 
     resolved_sensor_registry = sensor_registry or SensorRegistry()
+    history_importer_registry = HistoryImporterRegistry()
     plugin_manager = PluginManager(
         tool_registry=tool_registry,
         sensor_registry=resolved_sensor_registry,
+        history_importer_registry=history_importer_registry,
         search_paths=_resolve_search_paths(),
         request_sensor_schedule_refresh=request_sensor_schedule_refresh,
     )
@@ -118,6 +122,7 @@ def build_plugin_runtime(
         plugin_manager=plugin_manager,
         plugin_projection_service=plugin_projection_service,
         sensor_registry=resolved_sensor_registry,
+        history_importer_registry=history_importer_registry,
     )
 
 
@@ -131,6 +136,7 @@ class PluginManager(PluginInstallationMixin):
         sensor_registry: SensorRegistry,
         search_paths: list[Path],
         request_sensor_schedule_refresh: Callable[[], None],
+        history_importer_registry: HistoryImporterRegistry | None = None,
     ) -> None:
         self._search_paths = list(search_paths)
         self._sensor_registry = sensor_registry
@@ -141,6 +147,7 @@ class PluginManager(PluginInstallationMixin):
         self._contribution_registrar = PluginContributionRegistrar(
             tool_registry=tool_registry,
             sensor_registry=sensor_registry,
+            history_importer_registry=history_importer_registry,
         )
         self._settings_service = PluginSettingsService(
             get_package=self.get_package,
@@ -160,6 +167,10 @@ class PluginManager(PluginInstallationMixin):
     @property
     def settings_service(self) -> PluginSettingsService:
         return self._settings_service
+
+    @property
+    def history_importer_registry(self) -> HistoryImporterRegistry:
+        return self._contribution_registrar.history_importer_registry
 
     @staticmethod
     def _module_name_prefix(plugin_id: str) -> str:
