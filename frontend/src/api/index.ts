@@ -64,8 +64,12 @@ export type {
   HistoryImportJob,
   HistoryImportParticipant,
   HistoryImportRecordPreview,
+  HistoryImporterSpec,
+  HistoryImporterPreviewInput,
+  HistoryImportSourcePreview,
   HistoryImportSourceSummary,
   HistoryImportStatus,
+  HistoryImportWarningSummary,
 } from './modules/historyImports';
 export type {
   MemoryCorrectionCommandResponse,

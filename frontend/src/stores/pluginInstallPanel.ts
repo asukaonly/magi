@@ -4,16 +4,16 @@ import { create } from 'zustand';
  * Shared open/close state for the single mounted <PluginInstallPanel/>.
  *
  * MUST be a shared store (not per-component local state): the panel is mounted
- * ONCE in MainLayout but triggered from three independent entry points (the
- * first-run context prompt, the empty-state sensor cards, and the chat
- * side-card). A store lets every entry point open the same panel without each
+ * ONCE in MainLayout but triggered from independent entry points such as the
+ * first-run context prompt, history import, empty-state source cards, and the
+ * chat side-card. A store lets every entry point open the same panel without
  * rendering its own dialog copy.
  *
  * `installMode` records whether the plugin still needs a registry install
  * before the connect flow can run (entry points decide this from the plugin's
  * installed/available state).
  */
-export type PluginInstallPanelContext = 'default' | 'first_context';
+export type PluginInstallPanelContext = 'default' | 'first_context' | 'history_import';
 
 export interface PluginInstallDoneInfo {
   pluginId: string;

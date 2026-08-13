@@ -476,6 +476,110 @@ describe('PluginInstallPanel', () => {
     );
   });
 
+  it('installs and enables a history importer without syncing a sensor', async () => {
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      plugins: [
+        {
+          plugin_id: 'chatgpt-history',
+          name: 'ChatGPT history',
+          name_i18n: {},
+          version: '0.1.0',
+          official: true,
+          icon: 'lucide:messages-square',
+          capabilities: [],
+        },
+      ],
+      registry_version: '4',
+      install_fingerprint: 'history-import-fingerprint',
+    } as any);
+    const installSpy = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockResolvedValue({} as any);
+    const statusSpy = vi.spyOn(sensorsApi, 'getStatus');
+    const enableSpy = vi.spyOn(pluginsApi, 'enable').mockResolvedValue({} as any);
+    const updateSettingsSpy = vi.spyOn(pluginsApi, 'updateSettings');
+    const syncSpy = vi.spyOn(sensorsApi, 'requestSync');
+    const onDone = vi.fn();
+
+    render(<PluginInstallPanel />);
+    act(() => {
+      usePluginInstallPanelStore.getState().openPanel('chatgpt-history', {
+        install: true,
+        context: 'history_import',
+        onDone,
+      });
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'settings.marketplace.consent.confirm.install',
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('pluginInstallPanel.importerInstalledDescription')).toBeInTheDocument();
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+    expect(installSpy).toHaveBeenCalledWith(
+      'chatgpt-history',
+      'history-import-fingerprint',
+      expect.anything(),
+    );
+    expect(statusSpy).not.toHaveBeenCalled();
+    expect(enableSpy).toHaveBeenCalledWith('chatgpt-history');
+    expect(updateSettingsSpy).not.toHaveBeenCalled();
+    expect(syncSpy).not.toHaveBeenCalled();
+  });
+
+  it('retries only enable after a history importer was installed successfully', async () => {
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      plugins: [
+        {
+          plugin_id: 'platform-history',
+          name: 'Platform history',
+          name_i18n: {},
+          version: '0.1.0',
+          official: true,
+          icon: 'lucide:messages-square',
+          capabilities: [],
+        },
+      ],
+      registry_version: '4',
+      install_fingerprint: 'history-import-fingerprint',
+    } as any);
+    const installSpy = vi
+      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
+      .mockResolvedValue({} as any);
+    const enableSpy = vi
+      .spyOn(pluginsApi, 'enable')
+      .mockRejectedValueOnce(new Error('enable_failed'))
+      .mockResolvedValueOnce({} as any);
+    const onDone = vi.fn();
+
+    render(<PluginInstallPanel />);
+    act(() => {
+      usePluginInstallPanelStore.getState().openPanel('platform-history', {
+        install: true,
+        context: 'history_import',
+        onDone,
+      });
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'settings.marketplace.consent.confirm.install',
+      }),
+    );
+    expect(await screen.findByText('enable_failed')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'pluginInstallPanel.errorRetry' }),
+    );
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(installSpy).toHaveBeenCalledTimes(1);
+    expect(enableSpy).toHaveBeenCalledTimes(2);
+  });
+
   it('does not allow consent when the requested plugin is absent from the registry', async () => {
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       plugins: [],

@@ -43,13 +43,25 @@ interface HistoryImportsSectionProps {
 }
 
 function jobLabel(job: HistoryImportJob, fallback: string): string {
-  const first = job.included_files[0] || job.source_files[0];
+  const included = new Set(job.included_source_ids);
+  const selectedSources = job.sources.filter((source) => included.has(source.source_id));
+  const first = selectedSources[0]?.source_name ?? job.sources[0]?.source_name;
   if (!first) {
     return fallback;
   }
-  return job.included_files.length > 1
-    ? `${first} +${job.included_files.length - 1}`
+  return selectedSources.length > 1
+    ? `${first} +${selectedSources.length - 1}`
     : first;
+}
+
+function jobFallbackLabel(
+  job: HistoryImportJob,
+  platformLabel: string,
+  writingLabel: string,
+): string {
+  return job.detected_kind === "chat" || job.source_type === "platform_chat"
+    ? platformLabel
+    : writingLabel;
 }
 
 export default function HistoryImportsSection({
@@ -59,20 +71,28 @@ export default function HistoryImportsSection({
   const [jobs, setJobs] = useState<HistoryImportJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [pollingError, setPollingError] = useState(false);
   const [creating, setCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<HistoryImportJob | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
 
-  const loadJobs = useCallback(async (): Promise<void> => {
+  const loadJobs = useCallback(async (background = false): Promise<void> => {
     try {
       const nextJobs = await historyImportsApi.list();
       setJobs(nextJobs);
       setError(false);
+      setPollingError(false);
     } catch {
-      setError(true);
+      if (background) {
+        setPollingError(true);
+      } else {
+        setError(true);
+      }
     } finally {
-      setLoading(false);
+      if (!background) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -102,14 +122,25 @@ export default function HistoryImportsSection({
   );
 
   useEffect(() => {
-    if (!activeKey) {
+    if (!activeKey || pollingError) {
       return undefined;
     }
-    const timer = window.setInterval(() => {
-      void loadJobs();
-    }, 1500);
-    return () => window.clearInterval(timer);
-  }, [activeKey, loadJobs]);
+    let stopped = false;
+    let timer: number | null = null;
+    const poll = async (): Promise<void> => {
+      await loadJobs(true);
+      if (!stopped) {
+        timer = window.setTimeout(() => void poll(), 1500);
+      }
+    };
+    timer = window.setTimeout(() => void poll(), 1500);
+    return () => {
+      stopped = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [activeKey, loadJobs, pollingError]);
 
   const dateFormatter = useMemo(
     () =>
@@ -231,6 +262,11 @@ export default function HistoryImportsSection({
                   const active = ACTIVE_IMPORT_STATUSES.has(job.status);
                   const retryable = canRetryHistoryImport(job);
                   const statusKey = historyImportStatusKey(job);
+                  const fallbackLabel = jobFallbackLabel(
+                    job,
+                    t("memory.sourcesPage.historyImports.platformBatch"),
+                    t("memory.sourcesPage.historyImports.personalWritingBatch"),
+                  );
                   return (
                     <div
                       key={job.job_id}
@@ -240,11 +276,11 @@ export default function HistoryImportsSection({
                         <FileText className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-[hsl(var(--memory-title))]">
-                            {jobLabel(job, t("memory.sourcesPage.historyImports.untitled"))}
+                            {jobLabel(job, fallbackLabel)}
                           </p>
                           <p className="mt-0.5 text-xs text-[hsl(var(--memory-muted))]">
                             {t("memory.sourcesPage.historyImports.fileCount", {
-                              count: job.included_files.length,
+                              count: job.included_source_ids.length,
                             })}
                           </p>
                         </div>
@@ -297,7 +333,7 @@ export default function HistoryImportsSection({
                           size="icon"
                           className="h-9 w-9 text-[hsl(var(--memory-muted))] hover:text-destructive"
                           aria-label={t("memory.sourcesPage.historyImports.deleteAction", {
-                            name: jobLabel(job, t("memory.sourcesPage.historyImports.untitled")),
+                            name: jobLabel(job, fallbackLabel),
                           })}
                           onClick={() => setDeleteTarget(job)}
                         >
@@ -307,6 +343,22 @@ export default function HistoryImportsSection({
                     </div>
                   );
                 })}
+                {pollingError ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 py-3 text-xs text-[hsl(var(--memory-muted))]">
+                    <span role="status">
+                      {t("memory.sourcesPage.historyImports.progressRefreshFailed")}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void loadJobs()}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("memory.sourcesPage.historyImports.refreshProgress")}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -329,7 +381,11 @@ export default function HistoryImportsSection({
                 name: deleteTarget
                   ? jobLabel(
                       deleteTarget,
-                      t("memory.sourcesPage.historyImports.untitled"),
+                      jobFallbackLabel(
+                        deleteTarget,
+                        t("memory.sourcesPage.historyImports.platformBatch"),
+                        t("memory.sourcesPage.historyImports.personalWritingBatch"),
+                      ),
                     )
                   : "",
               })}

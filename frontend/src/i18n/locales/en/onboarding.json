@@ -356,8 +356,8 @@
         "meta": "About 30 seconds"
       },
       "history": {
-        "title": "Bring in things you wrote before",
-        "body": "Start with journals, notes, or personal reflections so Magi can understand something real about you.",
+        "title": "Bring in past records",
+        "body": "Import journals and notes, or bring in past conversations from a supported platform.",
         "meta": "Preview before importing"
       },
       "activity": {
@@ -418,13 +418,15 @@
     },
     "history": {
       "kicker": "Past records",
-      "title": "Bring in things you wrote before",
-      "body": "Choose journals, notes, or personal reflections written mainly by you. Magi previews them locally and imports only after you confirm.",
+      "title": "Bring in your past records",
+      "body": "Choose personal writing or import conversation history from a supported platform. Magi previews everything locally and imports only after you confirm.",
       "badge": "Local preview · Entirely optional",
       "loading": "Restoring your previous import…",
       "picker": {
         "title": "Choose past writing",
         "body": "Select one or more files, or choose the folder where you keep them.",
+        "markdownTitle": "Personal writing",
+        "markdownBody": "Import journals, notes, or personal reflections. Each Markdown file stays one complete document.",
         "files": "Choose Markdown files",
         "folder": "Choose a folder",
         "note": "Supports .md and .markdown; each file is treated as one piece of personal writing. Chat history is not supported through Markdown import.",
@@ -439,32 +441,69 @@
           }
         }
       },
+      "platform": {
+        "title": "Platform conversation history",
+        "body": "Export conversations from a supported platform, then choose the export file to bring into Magi.",
+        "oneShot": "One-time import",
+        "loading": "Checking available import plugins…",
+        "loadError": "Platform import plugins cannot be loaded right now. Personal writing import is still available.",
+        "partialLoadError": "Some platform import options are temporarily unavailable.",
+        "retry": "Try again",
+        "empty": "No platform import plugin is currently available.",
+        "formats": "Supports {{formats}}",
+        "help": "How to get the export",
+        "choose": "Choose export file",
+        "install": "Install",
+        "enable": "Enable",
+        "installHint": "Install to select a platform export file. Continuous sync will not be enabled.",
+        "enableHint": "The plugin is installed. Enable it to select a platform export file.",
+        "fileFilter": "Platform export files"
+      },
       "preview": {
         "files": "{{count}} files",
         "selectedFiles": "{{selected}} of {{total}} files selected",
         "kind": {
-          "document": "Personal writing"
+          "document": "Personal writing",
+          "chat": "Conversation history",
+          "mixed": "Mixed content"
         },
         "chooseContent": "Choose files to bring in",
         "chooseContentBody": "Keep only files written mainly by you that you want Magi to understand.",
+        "chooseConversations": "Choose conversations to bring in",
+        "chooseConversationsBody": "Keep only conversations you want Magi to understand. Other participants' messages are used only as context.",
         "includeFile": "Import file: {{file}}",
+        "includeConversation": "Import conversation: {{name}}",
+        "selectedConversations": "{{selected}} of {{total}} conversations selected",
         "selectAll": "Select all",
         "invertSelection": "Invert",
         "preview": "Preview",
         "previewFile": "Preview file: {{file}}",
         "approximateOrder": "Source order",
+        "missingTime": "Time not recorded · Source order",
+        "approximateTime": "Approximate time · Source order",
         "approximateFileTime": "File time, for ordering only",
         "dateRange": "{{first}} to {{last}}",
+        "omittedContentNotice": "Some attachments or unsupported messages in the export are not included in this import. Review the preview before continuing.",
         "chooseAgain": "Choose again",
         "confirm": "Confirm and import",
         "importing": "Preparing the first items…"
       },
+      "identity": {
+        "title": "Which names are yours in these conversations?",
+        "body": "Only your own messages help Magi understand you. Other participants' messages remain conversation context.",
+        "messageCount": "{{count}} messages",
+        "empty": "No participant could be identified in this export, so it cannot be imported yet."
+      },
       "sourcePreview": {
         "description": "For review only. The original file will not be changed.",
+        "conversationDescription": "Preview this conversation in its original order. The export file will not be changed.",
         "loading": "Loading preview…",
         "error": "This file cannot be previewed right now.",
         "retry": "Try again",
         "truncated": "This file is long, so only the beginning is shown here. The full content will still be processed during import.",
+        "conversationTruncated": "This conversation is long, so only part is shown here. The full content will still be processed during import.",
+        "timeMissing": "Time not recorded",
+        "timeApproximate": "Approximate time",
         "close": "Close preview"
       },
       "warnings": {
@@ -480,6 +519,8 @@
         "progress": "Imported {{progress}}%",
         "memoryQueued": "Sent to memory processing: {{queued}} / {{saved}}",
         "retry": "Continue import",
+        "progressUnavailable": "Progress could not be refreshed. The last confirmed result is still shown, and background import is not stopped.",
+        "refreshProgress": "Refresh progress",
         "note": "Being sent to memory processing does not mean Magi already understands everything. Long-term understanding forms gradually in the background."
       },
       "errors": {
@@ -494,15 +535,33 @@
         "markdown_not_utf8": "One file is not standard UTF-8 text. Convert its encoding and try again.",
         "markdown_empty": "The selected file contains no text to import.",
         "personal_writing_confirmation_required": "Confirm that you wrote most of the personal content.",
-        "history_import_unsupported_source_kind": "The selected content is not a supported personal-writing import. Choose the files again. Chat history is not supported through Markdown import.",
-        "history_import_selection_empty": "Keep at least one file selected for import.",
-        "history_import_selection_changed": "The file list changed. Please confirm what to import again.",
-        "history_import_selection_locked": "The file selection cannot change after import starts.",
+        "history_import_unsupported_source_kind": "This type of content is not supported for import. Choose something else.",
+        "history_import_selection_empty": "Keep at least one item selected for import.",
+        "history_import_selection_changed": "The selected content changed. Confirm the import scope again.",
+        "history_import_selection_locked": "The content scope cannot change after import starts.",
+        "history_import_source_not_found": "This item no longer exists. Choose it again.",
+        "history_import_self_participant_required": "Confirm which names are yours in the conversations.",
+        "self_participant_locked_after_import": "Your participant identity cannot change after import starts.",
+        "history_importer_not_available": "This platform importer is unavailable. Make sure the plugin is installed, then try again.",
+        "history_importer_file_required": "Choose the ZIP or JSON file exported by the platform.",
+        "history_importer_extension_not_supported": "This file format is not supported by the selected platform importer.",
+        "history_importer_too_many_files": "Too many export files were selected. Import them in smaller groups.",
+        "history_importer_selection_too_large": "The selected export is too large. Import it in smaller groups.",
+        "history_importer_output_too_large": "The export contains too many conversations or too much text to preview safely. Reduce the import scope and try again.",
+        "history_importer_no_sources": "No importable content was found in this export.",
+        "history_importer_duplicate_source_id": "The export contains duplicate content identifiers, so it cannot be imported safely.",
+        "history_importer_parse_failed": "This platform export could not be parsed. Make sure the file is complete, then try again.",
+        "history_importer_invalid_output": "The importer returned invalid content. Update the plugin and try again.",
+        "history_importer_reserved_participant_id": "The export uses a reserved participant identifier and cannot be imported safely. Update the plugin and try again.",
+        "history_importer_timeout": "Parsing the export timed out. Try a smaller export or import it in smaller batches.",
+        "history_importer_non_append_update": "This export changes the order of an already imported conversation, so it cannot be merged safely. Delete the earlier import, then import the complete new export.",
+        "history_import_timezone_unavailable": "The local timezone could not be determined. Check the system time settings and try again.",
+        "history_import_speaker_role_conflict": "Your identity selection conflicts with an earlier confirmation for this content. Review it or delete the earlier import, then try again.",
         "memory_cleared_during_import": "Memory was cleared during import, so this import was stopped as well.",
-        "history_import_not_confirmed": "Confirm the personal writing and file scope first.",
-        "history_import_not_found": "This import no longer exists. Choose the files again.",
+        "history_import_not_confirmed": "Confirm the content, scope, and your participant identity first.",
+        "history_import_not_found": "This import no longer exists. Choose the content again.",
         "history_import_unavailable": "Import is still getting ready. Please try again shortly.",
-        "unknown": "These files could not be read right now. Your originals were not changed; please try again."
+        "unknown": "This content could not be read right now. Your originals were not changed; please try again."
       }
     },
     "scopeHint": "This only prepares a small amount of context for the first chat; full history can be backfilled after setup.",
@@ -575,6 +634,8 @@
     "closeBackground": "Finish for now",
     "description": "Magi will enable the source, read recent history, then prepare context for the first conversation.",
     "firstContextDescription": "This step only prepares a small amount of context for the first conversation. It does not backfill your full history here.",
+    "importerDescription": "After installation, you can select a platform export file. This is a one-time import and does not continuously sync platform data.",
+    "importerInstalledDescription": "The importer is installed. Close this window, then select your platform export file to continue.",
     "readyTitle": "Connection complete",
     "backfillNote": "Your full history is still being organized in the background — we'll let you know when it's ready.",
     "firstContextBackfillHint": "You can backfill full history later from Settings → Plugins or Memory → Sources.",

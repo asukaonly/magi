@@ -138,6 +138,11 @@ vi.mock('@/api/modules/sensors', () => ({
 
 vi.mock('@/api/modules/plugins', () => ({
   pluginsApi: {
+    getRegistry: vi.fn().mockResolvedValue({
+      plugins: [],
+      registry_version: '4',
+      install_fingerprint: 'registry-fingerprint',
+    }),
     updateSettings: vi.fn(),
   },
 }));
@@ -145,8 +150,10 @@ vi.mock('@/api/modules/plugins', () => ({
 vi.mock('@/api/modules/historyImports', () => ({
   historyImportsApi: {
     list: vi.fn(),
+    listImporters: vi.fn(),
     get: vi.fn(),
     previewMarkdown: vi.fn(),
+    previewWithImporter: vi.fn(),
     updateSelection: vi.fn(),
     confirm: vi.fn(),
     resume: vi.fn(),
@@ -187,7 +194,7 @@ const dashboardPayload = {
       last_event_at: 1782913076,
     },
     {
-      source: 'history_import_markdown',
+      source: 'history_import',
       event_count: 5,
       avg_importance: 0.6,
       first_event_at: 1782500000,
@@ -313,8 +320,10 @@ const LocationProbe = () => {
 const completedHistoryImport = (): HistoryImportJob => ({
   job_id: 'him-1',
   source_type: 'markdown',
-  source_files: ['一次旅行后的复盘.md'],
-  included_files: ['一次旅行后的复盘.md'],
+  importer_plugin_id: null,
+  importer_id: null,
+  source_ids: ['一次旅行后的复盘.md'],
+  included_source_ids: ['一次旅行后的复盘.md'],
   detected_kind: 'document',
   status: 'completed',
   total_records: 1,
@@ -324,14 +333,29 @@ const completedHistoryImport = (): HistoryImportJob => ({
   quick_imported_count: 1,
   imported_count: 1,
   projected_count: 1,
-  self_participants: ['__document_author__'],
-  warnings: [],
+  self_participant_ids: ['__document_author__'],
+  warning_summary: {
+    total_count: 0,
+    codes: [],
+    truncated: false,
+  },
   quick_ready: true,
   error_code: null,
   created_at: 1_800_000_000,
   updated_at: 1_800_000_100,
   participants: [],
-  sources: [],
+  sources: [{
+    source_id: '一次旅行后的复盘.md',
+    source_name: '一次旅行后的复盘.md',
+    detected_kind: 'document',
+    record_count: 1,
+    meaningful_count: 1,
+    first_event_at: 1_800_000_000,
+    last_event_at: 1_800_000_000,
+    timestamp_confidence: 'file_mtime',
+    sample: '一次旅行后的复盘',
+    included: true,
+  }],
   preview_records: [],
 });
 
@@ -499,7 +523,7 @@ describe('MemorySourcesPage', () => {
     vi.mocked(memoryApi.getDashboard).mockResolvedValue({
       ...dashboardPayload,
       source_counts: [{
-        source: 'history_import_markdown',
+        source: 'history_import',
         event_count: 1,
         avg_importance: 0.6,
         first_event_at: 1_800_000_000,
@@ -606,7 +630,7 @@ describe('MemorySourcesPage', () => {
       ongoingHeading.compareDocumentPosition(historyHeading)
       & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.queryByText('history_import_markdown')).not.toBeInTheDocument();
+    expect(screen.queryByText('history_import')).not.toBeInTheDocument();
     expect(screen.getAllByText('Chrome 历史').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Claude Code').length).toBeGreaterThan(0);
     expect(screen.getAllByText('网易云音乐').length).toBeGreaterThan(0);

@@ -12,23 +12,32 @@ import remarkGfm from "remark-gfm";
 import {
   AlertCircle,
   BookOpenText,
-  CalendarDays,
   CheckCircle2,
   Eye,
+  ExternalLink,
+  FileArchive,
   FileText,
   FolderOpen,
   Loader2,
+  MessagesSquare,
   NotebookPen,
   RotateCcw,
+  UserRound,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
   historyImportsApi,
   type HistoryImportJob,
+  type HistoryImporterSpec,
   type HistoryImportSourcePreview,
   type HistoryImportSourceSummary,
 } from "@/api/modules/historyImports";
+import {
+  pluginsApi,
+  type PluginRegistryEntry,
+} from "@/api/modules/plugins";
+import { PluginIcon } from "@/components/plugins/PluginIcon";
 import { Button } from "@/components/ui/button";
 import { createMarkdownComponents } from "@/components/ui/markdown-components";
 import {
@@ -38,7 +47,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { pickDirectory, pickMarkdownFiles } from "@/runtime/desktop";
+import {
+  openExternalUrl,
+  pickDirectory,
+  pickHistoryImportFiles,
+  pickMarkdownFiles,
+} from "@/runtime/desktop";
+import { usePluginInstallPanelStore } from "@/stores/pluginInstallPanel";
+import { localizedPluginText } from "@/utils/plugin-display-groups";
 import {
   canRetryHistoryImport,
   historyImportProgress,
@@ -95,9 +111,15 @@ export const HistoryImportFlow = forwardRef<
   const { t, i18n } = useTranslation("onboarding");
   const [job, setJob] = useState<HistoryImportJob | null>(null);
   const [loading, setLoading] = useState(Boolean(initialJobId));
+  const [importers, setImporters] = useState<HistoryImporterSpec[]>([]);
+  const [installCandidates, setInstallCandidates] = useState<PluginRegistryEntry[]>([]);
+  const [importersLoading, setImportersLoading] = useState(true);
+  const [importersError, setImportersError] = useState(false);
+  const [selfParticipantIds, setSelfParticipantIds] = useState<string[]>([]);
   const [action, setAction] = useState<
     "preview" | "confirm" | "resume" | "delete" | null
   >(null);
+  const [previewTarget, setPreviewTarget] = useState<string | null>(null);
   const [selectionBusy, setSelectionBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewSource, setPreviewSource] =
@@ -106,15 +128,82 @@ export const HistoryImportFlow = forwardRef<
     useState<HistoryImportSourcePreview | null>(null);
   const [sourcePreviewLoading, setSourcePreviewLoading] = useState(false);
   const [sourcePreviewError, setSourcePreviewError] = useState<string | null>(null);
+  const [progressPollingFailed, setProgressPollingFailed] = useState(false);
+  const [progressRefreshBusy, setProgressRefreshBusy] = useState(false);
   const onJobUpdateRef = useRef(onJobUpdate);
   onJobUpdateRef.current = onJobUpdate;
+  const openPluginInstallPanel = usePluginInstallPanelStore((state) => state.openPanel);
 
   const applyJob = useCallback(
     (nextJob: HistoryImportJob): void => {
       setJob(nextJob);
+      const validParticipantIds = new Set(
+        nextJob.participants.map((participant) => participant.participant_id),
+      );
+      setSelfParticipantIds((current) => {
+        const candidate = nextJob.self_participant_ids.length > 0
+          ? nextJob.self_participant_ids
+          : current;
+        return candidate.filter((participantId) =>
+          validParticipantIds.has(participantId));
+      });
       onJobUpdateRef.current(nextJob);
     },
     [],
+  );
+
+  const loadPlatformOptions = useCallback(async (forceRegistry = false): Promise<void> => {
+    setImportersLoading(true);
+    const [availableResult, registryResult] = await Promise.allSettled([
+      historyImportsApi.listImporters(),
+      pluginsApi.getRegistry(forceRegistry ? { force: true } : undefined),
+    ]);
+    const nextImporters = availableResult.status === "fulfilled"
+      ? availableResult.value
+      : [];
+    setImporters(nextImporters);
+    if (registryResult.status === "fulfilled") {
+      const availablePluginIds = new Set(
+        nextImporters.map((importer) => importer.plugin_id),
+      );
+      setInstallCandidates(
+        registryResult.value.plugins.filter(
+          (entry) =>
+            entry.official &&
+            !availablePluginIds.has(entry.plugin_id) &&
+            entry.contribution_types.includes("history_importer"),
+        ),
+      );
+    } else {
+      setInstallCandidates([]);
+    }
+    setImportersError(
+      availableResult.status === "rejected" || registryResult.status === "rejected",
+    );
+    setImportersLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void loadPlatformOptions();
+  }, [loadPlatformOptions]);
+
+  const installPlatformImporter = useCallback(
+    (candidate: PluginRegistryEntry): void => {
+      openPluginInstallPanel(candidate.plugin_id, {
+        install: !candidate.installed,
+        pluginName: localizedPluginText(
+          candidate.name,
+          candidate.name_i18n,
+          i18n.language,
+        ),
+        pluginIcon: candidate.icon,
+        context: "history_import",
+        onDone: () => {
+          void loadPlatformOptions(true);
+        },
+      });
+    },
+    [i18n.language, loadPlatformOptions, openPluginInstallPanel],
   );
 
   useEffect(() => {
@@ -149,24 +238,57 @@ export const HistoryImportFlow = forwardRef<
 
   useEffect(() => {
     if (!job || !["ready", "running"].includes(job.status)) {
+      setProgressPollingFailed(false);
       return;
     }
-    const timer = window.setInterval(() => {
+    let stopped = false;
+    let timer: number | null = null;
+    const poll = (): void => {
       historyImportsApi
         .get(job.job_id)
-        .then(applyJob)
+        .then((nextJob) => {
+          if (stopped) {
+            return;
+          }
+          setProgressPollingFailed(false);
+          applyJob(nextJob);
+        })
         .catch(() => {
-          // Keep the last confirmed progress visible; manual retry remains available.
+          if (!stopped) {
+            setProgressPollingFailed(true);
+          }
         });
-    }, 1200);
-    return () => window.clearInterval(timer);
+    };
+    timer = window.setTimeout(poll, 1200);
+    return () => {
+      stopped = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
   }, [applyJob, job]);
+
+  const refreshProgress = async (): Promise<void> => {
+    if (!job || progressRefreshBusy) {
+      return;
+    }
+    setProgressRefreshBusy(true);
+    try {
+      applyJob(await historyImportsApi.get(job.job_id));
+      setProgressPollingFailed(false);
+    } catch {
+      setProgressPollingFailed(true);
+    } finally {
+      setProgressRefreshBusy(false);
+    }
+  };
 
   const previewPaths = async (paths: string[]): Promise<void> => {
     if (paths.length === 0) {
       return;
     }
     setAction("preview");
+    setPreviewTarget("markdown");
     setError(null);
     try {
       applyJob(await historyImportsApi.previewMarkdown(paths));
@@ -174,6 +296,7 @@ export const HistoryImportFlow = forwardRef<
       setError(errorReason(previewError));
     } finally {
       setAction(null);
+      setPreviewTarget(null);
     }
   };
 
@@ -188,6 +311,36 @@ export const HistoryImportFlow = forwardRef<
     }
   };
 
+  const choosePlatformExport = async (
+    importer: HistoryImporterSpec,
+  ): Promise<void> => {
+    const paths = await pickHistoryImportFiles(
+      importer.accepted_extensions,
+      t("firstContext.history.platform.fileFilter"),
+    );
+    if (paths.length === 0) {
+      return;
+    }
+    setAction("preview");
+    const importerKey = `${importer.plugin_id}:${importer.importer_id}`;
+    setPreviewTarget(importerKey);
+    setError(null);
+    try {
+      applyJob(
+        await historyImportsApi.previewWithImporter({
+          pluginId: importer.plugin_id,
+          importerId: importer.importer_id,
+          paths,
+        }),
+      );
+    } catch (previewError) {
+      setError(errorReason(previewError));
+    } finally {
+      setAction(null);
+      setPreviewTarget(null);
+    }
+  };
+
   const updateIncludedSources = async (
     nextIncluded: string[],
     busyKey: string,
@@ -196,8 +349,8 @@ export const HistoryImportFlow = forwardRef<
       return;
     }
     if (
-      nextIncluded.length === job.included_files.length &&
-      nextIncluded.every((name) => job.included_files.includes(name))
+      nextIncluded.length === job.included_source_ids.length &&
+      nextIncluded.every((sourceId) => job.included_source_ids.includes(sourceId))
     ) {
       return;
     }
@@ -206,9 +359,9 @@ export const HistoryImportFlow = forwardRef<
     setSelectionBusy(busyKey);
     setJob({
       ...job,
-      included_files: nextIncluded,
+      included_source_ids: nextIncluded,
       sources: job.sources.map((source) =>
-        ({ ...source, included: nextIncluded.includes(source.source_name) }),
+        ({ ...source, included: nextIncluded.includes(source.source_id) }),
       ),
     });
     try {
@@ -223,29 +376,34 @@ export const HistoryImportFlow = forwardRef<
     }
   };
 
-  const toggleSource = async (sourceName: string): Promise<void> => {
+  const toggleSource = async (sourceId: string): Promise<void> => {
     if (!job) {
       return;
     }
-    const nextIncluded = job.included_files.includes(sourceName)
-      ? job.included_files.filter((name) => name !== sourceName)
-      : job.source_files.filter(
-          (name) => name === sourceName || job.included_files.includes(name),
+    const nextIncluded = job.included_source_ids.includes(sourceId)
+      ? job.included_source_ids.filter((id) => id !== sourceId)
+      : job.sources.map((source) => source.source_id).filter(
+          (id) => id === sourceId || job.included_source_ids.includes(id),
         );
-    await updateIncludedSources(nextIncluded, sourceName);
+    await updateIncludedSources(nextIncluded, sourceId);
   };
 
   const selectAllSources = async (): Promise<void> => {
     if (job) {
-      await updateIncludedSources([...job.source_files], "__all__");
+      await updateIncludedSources(
+        job.sources.map((source) => source.source_id),
+        "__all__",
+      );
     }
   };
 
   const invertSourceSelection = async (): Promise<void> => {
     if (job) {
-      const included = new Set(job.included_files);
+      const included = new Set(job.included_source_ids);
       await updateIncludedSources(
-        job.source_files.filter((name) => !included.has(name)),
+        job.sources
+          .map((source) => source.source_id)
+          .filter((sourceId) => !included.has(sourceId)),
         "__invert__",
       );
     }
@@ -263,7 +421,7 @@ export const HistoryImportFlow = forwardRef<
     setSourcePreviewLoading(true);
     try {
       setSourcePreview(
-        await historyImportsApi.getSourcePreview(job.job_id, source.source_name),
+        await historyImportsApi.getSourcePreview(job.job_id, source.source_id),
       );
     } catch (previewError) {
       setSourcePreviewError(errorReason(previewError));
@@ -276,10 +434,18 @@ export const HistoryImportFlow = forwardRef<
     () => job?.sources.filter((source) => source.included) ?? [],
     [job],
   );
+  const isConversationImport = job?.detected_kind === "chat";
+  const validParticipantIds = useMemo(
+    () => new Set(job?.participants.map((participant) => participant.participant_id) ?? []),
+    [job?.participants],
+  );
+  const hasValidSelfIdentity = selfParticipantIds.length > 0 &&
+    selfParticipantIds.every((participantId) => validParticipantIds.has(participantId));
   const canConfirm = Boolean(
     job &&
       includedSources.length > 0 &&
-      !selectionBusy,
+      !selectionBusy &&
+      (!isConversationImport || hasValidSelfIdentity),
   );
 
   useEffect(() => {
@@ -298,8 +464,9 @@ export const HistoryImportFlow = forwardRef<
     try {
       applyJob(
         await historyImportsApi.confirm(job.job_id, {
-          confirmPersonalWriting: true,
-          includedFiles: job.included_files,
+          confirmPersonalWriting: job.detected_kind === "document",
+          includedSourceIds: job.included_source_ids,
+          selfParticipantIds,
         }),
       );
       return true;
@@ -309,7 +476,7 @@ export const HistoryImportFlow = forwardRef<
     } finally {
       setAction(null);
     }
-  }, [applyJob, canConfirm, job]);
+  }, [applyJob, canConfirm, job, selfParticipantIds]);
 
   const resumeImport = async (): Promise<void> => {
     if (!job) {
@@ -337,6 +504,7 @@ export const HistoryImportFlow = forwardRef<
       setJob(null);
       setPreviewSource(null);
       setSourcePreview(null);
+      setSelfParticipantIds([]);
       onJobUpdateRef.current(null);
       return true;
     } catch (deleteError) {
@@ -366,11 +534,27 @@ export const HistoryImportFlow = forwardRef<
       }),
     [i18n.language, i18n.resolvedLanguage],
   );
+  const messageTimeFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(i18n.resolvedLanguage ?? i18n.language, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    [i18n.language, i18n.resolvedLanguage],
+  );
   const sourceDateRange = (
     firstEventAt: number,
     lastEventAt: number,
     confidence: string,
   ): string => {
+    if (confidence === "unknown") {
+      return t("firstContext.history.preview.missingTime");
+    }
+    if (confidence === "inferred") {
+      return t("firstContext.history.preview.approximateTime");
+    }
     if (confidence === "file_mtime") {
       return t("firstContext.history.preview.approximateFileTime");
     }
@@ -402,52 +586,30 @@ export const HistoryImportFlow = forwardRef<
   }
 
   if (!job) {
-    const scenarios = [
-      {
-        key: "journal",
-        icon: <CalendarDays className="h-4 w-4" aria-hidden="true" />,
-      },
-      {
-        key: "notes",
-        icon: <NotebookPen className="h-4 w-4" aria-hidden="true" />,
-      },
-    ];
     return (
       <div className="space-y-5" data-testid="history-import-empty">
-        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
-          <div className="grid divide-y divide-border/50 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
-            {scenarios.map((scenario) => (
-              <div key={scenario.key} className="flex gap-3 px-4 py-4 sm:block sm:px-5">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/9 text-primary">
-                  {scenario.icon}
-                </span>
-                <div className="min-w-0 sm:mt-3">
-                  <p className="text-sm font-semibold text-foreground">
-                    {t(`firstContext.history.picker.scenarios.${scenario.key}.title`)}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {t(`firstContext.history.picker.scenarios.${scenario.key}.body`)}
-                  </p>
-                </div>
+        <section className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+          <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3.5">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/9 text-primary">
+                <NotebookPen className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <h4 className="text-sm font-semibold leading-6 text-foreground">
+                  {t("firstContext.history.picker.markdownTitle")}
+                </h4>
+                <p className="max-w-xl text-xs leading-5 text-muted-foreground">
+                  {t("firstContext.history.picker.markdownBody")}
+                </p>
               </div>
-            ))}
-          </div>
-          <div className="flex flex-col gap-4 border-t border-border/60 bg-muted/25 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-            <div className="min-w-0">
-              <h4 className="text-sm font-semibold leading-6 text-foreground">
-                {t("firstContext.history.picker.title")}
-              </h4>
-              <p className="text-xs leading-5 text-muted-foreground">
-                {t("firstContext.history.picker.body")}
-              </p>
             </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
+            <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
               <Button
                 type="button"
                 onClick={() => void chooseFiles()}
                 disabled={action !== null}
               >
-                {action === "preview" ? (
+                {action === "preview" && previewTarget === "markdown" ? (
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : (
                   <FileText className="h-4 w-4" aria-hidden="true" />
@@ -465,11 +627,185 @@ export const HistoryImportFlow = forwardRef<
               </Button>
             </div>
           </div>
-        </div>
-        <p className="flex items-start gap-2 text-xs leading-5 text-muted-foreground/80">
-          <BookOpenText className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          {t("firstContext.history.picker.note")}
-        </p>
+          <div className="flex items-start gap-2 border-t border-border/50 bg-muted/20 px-5 py-3 text-[11px] leading-5 text-muted-foreground">
+            <BookOpenText className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            {t("firstContext.history.picker.note")}
+          </div>
+        </section>
+
+        <section aria-labelledby="platform-importers-title" className="space-y-2.5">
+          <div className="flex items-end justify-between gap-4 px-1">
+            <div>
+              <h4
+                id="platform-importers-title"
+                className="text-sm font-semibold leading-6 text-foreground"
+              >
+                {t("firstContext.history.platform.title")}
+              </h4>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {t("firstContext.history.platform.body")}
+              </p>
+            </div>
+            <span className="shrink-0 text-[11px] text-muted-foreground/75">
+              {t("firstContext.history.platform.oneShot")}
+            </span>
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+            {importersLoading ? (
+              <div
+                role="status"
+                className="flex min-h-20 items-center justify-center gap-2 text-xs text-muted-foreground"
+              >
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                {t("firstContext.history.platform.loading")}
+              </div>
+            ) : importers.length === 0 && installCandidates.length === 0 && importersError ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                <p role="alert" className="text-xs text-muted-foreground">
+                  {t("firstContext.history.platform.loadError")}
+                </p>
+                <Button type="button" size="sm" variant="ghost" onClick={() => void loadPlatformOptions(true)}>
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t("firstContext.history.platform.retry")}
+                </Button>
+              </div>
+            ) : importers.length === 0 && installCandidates.length === 0 ? (
+              <div className="flex items-start gap-3 px-5 py-4 text-xs leading-5 text-muted-foreground">
+                <MessagesSquare className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <p>{t("firstContext.history.platform.empty")}</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border/45">
+                {importers.map((importer) => (
+                  <div
+                    key={`${importer.plugin_id}:${importer.importer_id}`}
+                    className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="flex min-w-0 items-start gap-3.5">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
+                        <MessagesSquare className="h-5 w-5" aria-hidden="true" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold leading-6 text-foreground">
+                          {localizedPluginText(
+                            importer.display_name,
+                            importer.display_name_i18n,
+                            i18n.resolvedLanguage ?? i18n.language,
+                          )}
+                        </p>
+                        <p className="max-w-xl text-xs leading-5 text-muted-foreground">
+                          {localizedPluginText(
+                            importer.description,
+                            importer.description_i18n,
+                            i18n.resolvedLanguage ?? i18n.language,
+                          )}
+                        </p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground/80">
+                          <span>
+                            {t("firstContext.history.platform.formats", {
+                              formats: importer.accepted_extensions
+                                .map((extension) => `.${extension.replace(/^\./, "")}`)
+                                .join(" / "),
+                            })}
+                          </span>
+                          {importer.export_help_url ? (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 text-primary hover:underline"
+                              onClick={() => void openExternalUrl(importer.export_help_url!)}
+                            >
+                              {t("firstContext.history.platform.help")}
+                              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => void choosePlatformExport(importer)}
+                      disabled={action !== null}
+                    >
+                      {action === "preview" &&
+                      previewTarget === `${importer.plugin_id}:${importer.importer_id}` ? (
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <FileArchive className="h-4 w-4" aria-hidden="true" />
+                      )}
+                      {t("firstContext.history.platform.choose")}
+                    </Button>
+                  </div>
+                ))}
+                {installCandidates.map((candidate) => (
+                  <div
+                    key={candidate.plugin_id}
+                    className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="flex min-w-0 items-start gap-3.5">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
+                        <PluginIcon iconId={candidate.icon} className="h-5 w-5" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold leading-6 text-foreground">
+                          {localizedPluginText(
+                            candidate.name,
+                            candidate.name_i18n,
+                            i18n.language,
+                          )}
+                        </p>
+                        <p className="max-w-xl text-xs leading-5 text-muted-foreground">
+                          {localizedPluginText(
+                            candidate.description,
+                            candidate.description_i18n,
+                            i18n.language,
+                          )}
+                        </p>
+                        <p className="mt-1.5 text-[11px] text-muted-foreground/80">
+                          {t(
+                            candidate.installed
+                              ? "firstContext.history.platform.enableHint"
+                              : "firstContext.history.platform.installHint",
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => installPlatformImporter(candidate)}
+                      disabled={action !== null}
+                    >
+                      {t(
+                        candidate.installed
+                          ? "firstContext.history.platform.enable"
+                          : "firstContext.history.platform.install",
+                      )}
+                    </Button>
+                  </div>
+                ))}
+                {importersError ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/20 px-5 py-3">
+                    <p role="alert" className="text-[11px] text-muted-foreground">
+                      {t("firstContext.history.platform.partialLoadError")}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void loadPlatformOptions(true)}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("firstContext.history.platform.retry")}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        </section>
         {translatedError ? (
           <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -538,6 +874,27 @@ export const HistoryImportFlow = forwardRef<
             {t("firstContext.history.ready.retry")}
           </Button>
         ) : null}
+        {progressPollingFailed ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+            <p role="status" className="text-xs leading-5 text-muted-foreground">
+              {t("firstContext.history.ready.progressUnavailable")}
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => void refreshProgress()}
+              disabled={progressRefreshBusy}
+            >
+              {progressRefreshBusy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {t("firstContext.history.ready.refreshProgress")}
+            </Button>
+          </div>
+        ) : null}
         {translatedError ? (
           <p role="alert" className="text-sm text-destructive">
             {translatedError}
@@ -557,18 +914,31 @@ export const HistoryImportFlow = forwardRef<
           <div className="flex flex-col gap-3 border-b border-border/55 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <h4 className="text-sm font-semibold text-foreground">
-                {t("firstContext.history.preview.chooseContent")}
+                {t(
+                  isConversationImport
+                    ? "firstContext.history.preview.chooseConversations"
+                    : "firstContext.history.preview.chooseContent",
+                )}
               </h4>
               <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
-                {t("firstContext.history.preview.chooseContentBody")}
+                {t(
+                  isConversationImport
+                    ? "firstContext.history.preview.chooseConversationsBody"
+                    : "firstContext.history.preview.chooseContentBody",
+                )}
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-1.5">
               <span className="mr-1 text-xs tabular-nums text-muted-foreground">
-                {t("firstContext.history.preview.selectedFiles", {
+                {t(
+                  isConversationImport
+                    ? "firstContext.history.preview.selectedConversations"
+                    : "firstContext.history.preview.selectedFiles",
+                  {
                   selected: includedSources.length,
-                  total: job.source_files.length,
-                })}
+                  total: job.sources.length,
+                  },
+                )}
               </span>
               <Button
                 type="button"
@@ -578,7 +948,7 @@ export const HistoryImportFlow = forwardRef<
                 disabled={
                   selectionBusy !== null ||
                   action !== null ||
-                  includedSources.length === job.source_files.length
+                  includedSources.length === job.sources.length
                 }
               >
                 {selectionBusy === "__all__" ? (
@@ -605,10 +975,10 @@ export const HistoryImportFlow = forwardRef<
             className="divide-y divide-border/45"
           >
             {job.sources.map((source) => {
-              const busy = selectionBusy === source.source_name;
+              const busy = selectionBusy === source.source_id;
               return (
                 <div
-                  key={source.source_name}
+                  key={source.source_id}
                   className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-5 py-3 transition-colors duration-150 ${
                     source.included ? "bg-card" : "bg-muted/20"
                   } hover:bg-accent/30`}
@@ -620,12 +990,15 @@ export const HistoryImportFlow = forwardRef<
                       <input
                         type="checkbox"
                         checked={source.included}
-                        onChange={() => void toggleSource(source.source_name)}
+                        onChange={() => void toggleSource(source.source_id)}
                         disabled={selectionBusy !== null || action !== null}
                         className="h-4 w-4 rounded border-border accent-primary"
-                        aria-label={t("firstContext.history.preview.includeFile", {
-                          file: source.source_name,
-                        })}
+                        aria-label={t(
+                          isConversationImport
+                            ? "firstContext.history.preview.includeConversation"
+                            : "firstContext.history.preview.includeFile",
+                          { name: source.source_name, file: source.source_name },
+                        )}
                       />
                     )}
                   </span>
@@ -634,7 +1007,9 @@ export const HistoryImportFlow = forwardRef<
                       {source.source_name}
                     </p>
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
-                      <span>{t("firstContext.history.preview.kind.document")}</span>
+                      <span>
+                        {t(`firstContext.history.preview.kind.${source.detected_kind}`)}
+                      </span>
                       <span aria-hidden="true">·</span>
                       <span>
                         {sourceDateRange(
@@ -663,6 +1038,98 @@ export const HistoryImportFlow = forwardRef<
             })}
           </div>
         </section>
+
+        {isConversationImport && job.warning_summary.total_count > 0 ? (
+          <div
+            role="status"
+            className="flex items-start gap-2 rounded-xl border border-amber-200/70 bg-amber-50/65 px-4 py-3 text-sm leading-6 text-amber-950"
+          >
+            <AlertCircle
+              className="mt-1 h-4 w-4 shrink-0 text-amber-700"
+              aria-hidden="true"
+            />
+            <p>{t("firstContext.history.preview.omittedContentNotice")}</p>
+          </div>
+        ) : null}
+
+        {isConversationImport ? (
+          <section
+            aria-labelledby="history-import-identity-title"
+            className="overflow-hidden rounded-2xl border border-border/65 bg-card"
+          >
+            <div className="flex items-start gap-3 border-b border-border/50 px-5 py-4">
+              <UserRound className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+              <div>
+                <h4
+                  id="history-import-identity-title"
+                  className="text-sm font-semibold text-foreground"
+                >
+                  {t("firstContext.history.identity.title")}
+                </h4>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {t("firstContext.history.identity.body")}
+                </p>
+              </div>
+            </div>
+            {job.participants.length > 0 ? (
+              <div
+                role="group"
+                aria-labelledby="history-import-identity-title"
+                className="grid gap-px bg-border/45 sm:grid-cols-2"
+              >
+                {job.participants.map((participant) => {
+                  const selected = selfParticipantIds.includes(participant.participant_id);
+                  return (
+                    <button
+                      key={participant.participant_id}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={selected}
+                      className={`flex min-w-0 items-start gap-3 bg-card px-5 py-4 text-left transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                        selected ? "bg-primary/[0.055]" : ""
+                      }`}
+                      onClick={() =>
+                        setSelfParticipantIds((current) =>
+                          current.includes(participant.participant_id)
+                            ? current.filter((id) => id !== participant.participant_id)
+                            : [...current, participant.participant_id],
+                        )
+                      }
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                          selected ? "border-primary" : "border-muted-foreground/45"
+                        }`}
+                      >
+                        {selected ? <span className="h-2 w-2 rounded-full bg-primary" /> : null}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-foreground">
+                          {participant.display_name}
+                        </span>
+                        <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                          {t("firstContext.history.identity.messageCount", {
+                            count: participant.message_count,
+                          })}
+                        </span>
+                        {participant.sample ? (
+                          <span className="mt-1 block line-clamp-1 text-xs text-muted-foreground/80">
+                            {participant.sample}
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="px-5 py-4 text-xs text-destructive">
+                {t("firstContext.history.identity.empty")}
+              </p>
+            )}
+          </section>
+        ) : null}
 
         {translatedError ? (
           <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
@@ -724,7 +1191,11 @@ export const HistoryImportFlow = forwardRef<
               {previewSource?.source_name ?? ""}
             </SheetTitle>
             <SheetDescription>
-              {t("firstContext.history.sourcePreview.description")}
+              {t(
+                previewSource?.detected_kind === "chat"
+                  ? "firstContext.history.sourcePreview.conversationDescription"
+                  : "firstContext.history.sourcePreview.description",
+              )}
             </SheetDescription>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto bg-muted/25 px-6 py-6 sm:px-8">
@@ -754,22 +1225,49 @@ export const HistoryImportFlow = forwardRef<
               </div>
             ) : sourcePreview ? (
               <div className="mx-auto max-w-[640px] space-y-5">
-                {sourcePreview.records.map((record) => (
-                  <article
-                    key={`${record.session_id}:${record.session_seq}`}
-                    className="break-words border-b border-border/45 pb-5 last:border-b-0 last:pb-0"
-                  >
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={documentPreviewMarkdownComponents}
+                {sourcePreview.records.map((record) =>
+                  sourcePreview.detected_kind === "document" ? (
+                    <article
+                      key={`${record.session_id}:${record.session_seq}`}
+                      className="break-words border-b border-border/45 pb-5 last:border-b-0 last:pb-0"
                     >
-                      {record.content}
-                    </ReactMarkdown>
-                  </article>
-                ))}
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={documentPreviewMarkdownComponents}
+                      >
+                        {record.content}
+                      </ReactMarkdown>
+                    </article>
+                  ) : (
+                    <article
+                      key={`${record.session_id}:${record.session_seq}`}
+                      className="break-words rounded-xl border border-border/50 bg-background px-4 py-3"
+                    >
+                      <header className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-foreground">
+                          {record.speaker_name}
+                        </span>
+                        <time className="text-[11px] text-muted-foreground">
+                          {record.timestamp_confidence === "exact"
+                            ? messageTimeFormatter.format(new Date(record.event_at * 1000))
+                            : record.timestamp_confidence === "inferred"
+                              ? t("firstContext.history.sourcePreview.timeApproximate")
+                              : t("firstContext.history.sourcePreview.timeMissing")}
+                        </time>
+                      </header>
+                      <p className="whitespace-pre-wrap text-sm leading-6 text-foreground/90">
+                        {record.content}
+                      </p>
+                    </article>
+                  ),
+                )}
                 {sourcePreview.truncated ? (
                   <p className="border-t border-border/55 pt-4 text-xs leading-5 text-muted-foreground">
-                    {t("firstContext.history.sourcePreview.truncated")}
+                    {t(
+                      sourcePreview.detected_kind === "chat"
+                        ? "firstContext.history.sourcePreview.conversationTruncated"
+                        : "firstContext.history.sourcePreview.truncated",
+                    )}
                   </p>
                 ) : null}
               </div>

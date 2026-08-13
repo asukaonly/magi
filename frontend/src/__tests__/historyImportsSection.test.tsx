@@ -28,14 +28,28 @@ vi.mock("@/api/modules/historyImports", () => ({
     delete: (...args: unknown[]) => deleteMock(...args),
     resume: (...args: unknown[]) => resumeMock(...args),
     get: vi.fn(),
+    listImporters: vi.fn().mockResolvedValue([]),
     previewMarkdown: vi.fn(),
+    previewWithImporter: vi.fn(),
     updateSelection: vi.fn(),
     confirm: vi.fn(),
   },
 }));
 
+vi.mock("@/api/modules/plugins", () => ({
+  pluginsApi: {
+    getRegistry: vi.fn().mockResolvedValue({
+      plugins: [],
+      registry_version: "4",
+      install_fingerprint: "registry-fingerprint",
+    }),
+  },
+}));
+
 vi.mock("@/runtime/desktop", () => ({
+  openExternalUrl: vi.fn(),
   pickDirectory: vi.fn(),
+  pickHistoryImportFiles: vi.fn(),
   pickMarkdownFiles: vi.fn(),
 }));
 
@@ -47,8 +61,10 @@ function completedJob(): HistoryImportJob {
   return {
     job_id: "him-1",
     source_type: "markdown",
-    source_files: ["journal/2026-07-01.md", "notes.md"],
-    included_files: ["journal/2026-07-01.md", "notes.md"],
+    importer_plugin_id: null,
+    importer_id: null,
+    source_ids: ["journal/2026-07-01.md", "notes.md"],
+    included_source_ids: ["journal/2026-07-01.md", "notes.md"],
     detected_kind: "document",
     status: "completed",
     total_records: 12,
@@ -58,8 +74,12 @@ function completedJob(): HistoryImportJob {
     quick_imported_count: 12,
     imported_count: 12,
     projected_count: 12,
-    self_participants: ["__document_author__"],
-    warnings: [],
+    self_participant_ids: ["__document_author__"],
+    warning_summary: {
+      total_count: 0,
+      codes: [],
+      truncated: false,
+    },
     quick_ready: true,
     error_code: null,
     created_at: 1_800_000_000,
@@ -86,7 +106,7 @@ describe("HistoryImportsSection", () => {
     render(<HistoryImportsSection />);
 
     expect(
-      await screen.findByText("journal/2026-07-01.md +1"),
+      await screen.findByText("memory.sourcesPage.historyImports.personalWritingBatch"),
     ).toBeInTheDocument();
     expect(
       screen.getByText("memory.sourcesPage.historyImports.fileCount"),
@@ -111,7 +131,7 @@ describe("HistoryImportsSection", () => {
 
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("him-1"));
     expect(
-      screen.queryByText("journal/2026-07-01.md +1"),
+      screen.queryByText("memory.sourcesPage.historyImports.personalWritingBatch"),
     ).not.toBeInTheDocument();
   });
 
@@ -163,9 +183,10 @@ describe("HistoryImportsSection", () => {
 
     expect(screen.getByTestId("history-import-empty")).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "firstContext.history.picker.scenarios.journal.title",
-      ),
+      screen.getByText("firstContext.history.picker.markdownTitle"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("firstContext.history.platform.empty"),
     ).toBeInTheDocument();
   });
 
@@ -175,8 +196,71 @@ describe("HistoryImportsSection", () => {
       <HistoryImportsSection onAvailabilityChange={onAvailabilityChange} />,
     );
 
-    await screen.findByText("journal/2026-07-01.md +1");
+    await screen.findByText("memory.sourcesPage.historyImports.personalWritingBatch");
     expect(onAvailabilityChange).toHaveBeenCalledWith("loading");
     expect(onAvailabilityChange).toHaveBeenCalledWith("available");
+  });
+
+  it("labels lightweight platform jobs without hydrated source summaries", async () => {
+    listMock.mockResolvedValue([
+      {
+        ...completedJob(),
+        source_type: "platform_chat",
+        detected_kind: "chat",
+        importer_plugin_id: "platform-history",
+        importer_id: "account-export",
+      },
+    ]);
+
+    render(<HistoryImportsSection />);
+
+    expect(
+      await screen.findByText("memory.sourcesPage.historyImports.platformBatch"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("memory.sourcesPage.historyImports.untitled"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the last list visible and stops polling after a refresh error", async () => {
+    const user = userEvent.setup();
+    const runningJob = { ...completedJob(), status: "running" as const };
+    listMock
+      .mockReset()
+      .mockResolvedValueOnce([runningJob])
+      .mockRejectedValueOnce(new Error("offline"));
+
+    render(<HistoryImportsSection />);
+
+    expect(
+      await screen.findByText("memory.sourcesPage.historyImports.personalWritingBatch"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "memory.sourcesPage.historyImports.progressRefreshFailed",
+        {},
+        { timeout: 3000 },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("memory.sourcesPage.historyImports.personalWritingBatch"),
+    ).toBeInTheDocument();
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1700));
+    expect(listMock).toHaveBeenCalledTimes(2);
+
+    listMock.mockResolvedValueOnce([
+      { ...runningJob, status: "completed", updated_at: runningJob.updated_at + 1 },
+    ]);
+    await user.click(
+      screen.getByRole("button", {
+        name: "memory.sourcesPage.historyImports.refreshProgress",
+      }),
+    );
+    await waitFor(() => {
+      expect(
+        screen.queryByText("memory.sourcesPage.historyImports.progressRefreshFailed"),
+      ).not.toBeInTheDocument();
+    });
   });
 });

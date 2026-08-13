@@ -122,14 +122,32 @@ describe("first-context onboarding copy", () => {
     );
   });
 
-  it("does not present generic Markdown as a chat importer", () => {
+  it("translates platform omission and importer timeout feedback", () => {
+    for (const resource of [zhCnOnboarding, enOnboarding]) {
+      expect(
+        resource.firstContext.history.preview.omittedContentNotice.trim(),
+      ).not.toBe("");
+      expect(
+        resource.firstContext.history.errors.history_importer_timeout.trim(),
+      ).not.toBe("");
+    }
+  });
+
+  it("keeps generic Markdown separate from platform conversation import", () => {
     for (const resource of [zhCnOnboarding, enOnboarding]) {
       expect(resource.firstContext.history.picker.scenarios).not.toHaveProperty(
         "conversation",
       );
-      expect(resource.firstContext.history).not.toHaveProperty("identity");
+      expect(resource.firstContext.history.identity).toEqual({
+        title: expect.any(String),
+        body: expect.any(String),
+        messageCount: expect.any(String),
+        empty: expect.any(String),
+      });
       expect(resource.firstContext.history.preview.kind).toEqual({
         document: expect.any(String),
+        chat: expect.any(String),
+        mixed: expect.any(String),
       });
     }
   });

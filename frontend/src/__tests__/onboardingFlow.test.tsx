@@ -33,6 +33,7 @@ import {
 } from "@/api/modules/historyImports";
 import { messagesApi } from "@/api/modules/messages";
 import { personasApi } from "@/api/modules/personas";
+import { pluginsApi } from "@/api/modules/plugins";
 import * as systemSuggestions from "@/api/modules/systemSuggestions";
 import OnboardingFlow from "@/components/onboarding/OnboardingFlow";
 import { FIRST_CONTEXT_QUESTION_IDS } from "@/domain/chat/first-context";
@@ -190,8 +191,10 @@ const CUSTOM_PERSONA_ID = "11111111-1111-4111-8111-111111111111";
 const stubHistoryImportJob = (quickReady = false): HistoryImportJob => ({
   job_id: "him-onboarding",
   source_type: "markdown",
-  source_files: ["journal.md"],
-  included_files: ["journal.md"],
+  importer_plugin_id: null,
+  importer_id: null,
+  source_ids: ["journal.md"],
+  included_source_ids: ["journal.md"],
   detected_kind: "document",
   status: quickReady ? "ready" : "preview_ready",
   total_records: 1,
@@ -201,15 +204,20 @@ const stubHistoryImportJob = (quickReady = false): HistoryImportJob => ({
   quick_imported_count: quickReady ? 1 : 0,
   imported_count: quickReady ? 1 : 0,
   projected_count: 0,
-  self_participants: [],
-  warnings: [],
+  self_participant_ids: [],
+  warning_summary: {
+    total_count: 0,
+    codes: [],
+    truncated: false,
+  },
   quick_ready: quickReady,
   error_code: null,
   created_at: 1_800_000_000,
   updated_at: 1_800_000_000,
   participants: [
     {
-      name: "__document_author__",
+      participant_id: "__document_author__",
+      display_name: "Document author",
       is_document_author: true,
       message_count: 1,
       meaningful_count: 1,
@@ -218,6 +226,7 @@ const stubHistoryImportJob = (quickReady = false): HistoryImportJob => ({
   ],
   sources: [
     {
+      source_id: "journal.md",
       source_name: "journal.md",
       detected_kind: "document",
       record_count: 1,
@@ -231,9 +240,11 @@ const stubHistoryImportJob = (quickReady = false): HistoryImportJob => ({
   ],
   preview_records: [
     {
+      source_id: "journal.md",
       source_name: "journal.md",
       session_id: "journal.md",
       session_seq: 0,
+      speaker_id: "__document_author__",
       speaker_name: "__document_author__",
       is_document_author: true,
       content: "# Sunday\n\nA quiet Sunday.",
@@ -349,6 +360,12 @@ describe("OnboardingFlow (linear 5-step)", () => {
       model: "gpt-4o",
       latency_ms: 42,
       preview: "hello",
+    });
+    vi.spyOn(historyImportsApi, "listImporters").mockResolvedValue([]);
+    vi.spyOn(pluginsApi, "getRegistry").mockResolvedValue({
+      plugins: [],
+      registry_version: "4",
+      install_fingerprint: "registry-fingerprint",
     });
     vi.spyOn(personasApi, "seedPreviews").mockResolvedValue({
       success: true,
@@ -844,7 +861,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await waitFor(() =>
       expect(confirmImport).toHaveBeenCalledWith("him-onboarding", {
         confirmPersonalWriting: true,
-        includedFiles: ["journal.md"],
+        includedSourceIds: ["journal.md"],
+        selfParticipantIds: [],
       }),
     );
     expect(await screen.findByTestId("history-import-ready")).toBeInTheDocument();

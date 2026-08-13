@@ -149,6 +149,39 @@ export async function pickMarkdownFiles(): Promise<string[]> {
   return Array.isArray(selection) ? selection : [selection];
 }
 
+export async function pickHistoryImportFiles(
+  extensions: string[],
+  filterName: string,
+): Promise<string[]> {
+  if (!isTauriRuntime()) {
+    return [];
+  }
+
+  const normalizedExtensions = [...new Set(
+    extensions
+      .map((extension) => String(extension || '').trim().replace(/^\./, '').toLowerCase())
+      .filter(Boolean),
+  )];
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const selection = await open({
+    directory: false,
+    multiple: true,
+    filters: normalizedExtensions.length > 0
+      ? [
+          {
+            name: filterName,
+            extensions: normalizedExtensions,
+          },
+        ]
+      : undefined,
+  });
+
+  if (!selection) {
+    return [];
+  }
+  return Array.isArray(selection) ? selection : [selection];
+}
+
 export async function openExternalUrl(url: string): Promise<void> {
   const normalizedUrl = String(url || '').trim();
   if (!normalizedUrl) {

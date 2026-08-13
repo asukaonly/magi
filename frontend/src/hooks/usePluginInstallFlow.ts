@@ -205,6 +205,7 @@ export function usePluginInstallFlow(
   const [stateKey, setStateKey] = useState<string | null>(null);
   const startedRef = useRef(false);
   const runTokenRef = useRef(0);
+  const installCompletedRef = useRef(false);
   const fieldsResolveRef = useRef<((v: Record<string, unknown>) => void) | null>(null);
 
   const resetTransientState = useCallback(() => {
@@ -259,6 +260,7 @@ export function usePluginInstallFlow(
 
   useEffect(() => {
     runTokenRef.current += 1;
+    installCompletedRef.current = false;
     fieldsResolveRef.current = null;
     startedRef.current = false;
     setStateKey(flowKey);
@@ -273,10 +275,19 @@ export function usePluginInstallFlow(
     setSourceName(null);
     setDescription(null);
     const initialSteps: InstallStep[] = [
-      ...(installMode ? [{ id: 'install' as const, status: 'pending' as const }] : []),
-      { id: 'enable', status: 'pending' },
-      { id: 'sync', status: 'pending' },
-      { id: 'memory', status: 'pending' },
+      ...(installMode
+        ? [{
+            id: 'install' as const,
+            status: installCompletedRef.current ? 'done' as const : 'pending' as const,
+          }]
+        : []),
+      ...(panelContext === 'history_import'
+        ? [{ id: 'enable' as const, status: 'pending' as const }]
+        : [
+            { id: 'enable' as const, status: 'pending' as const },
+            { id: 'sync' as const, status: 'pending' as const },
+            { id: 'memory' as const, status: 'pending' as const },
+          ]),
     ];
     setSteps(initialSteps);
     setPhase('loading');
@@ -293,7 +304,7 @@ export function usePluginInstallFlow(
 
     try {
       // ① install (registry only)
-      if (installMode) {
+      if (installMode && !installCompletedRef.current) {
         const confirmedFingerprint = expectedRegistryFingerprint;
         if (!confirmedFingerprint) return;
         setStep('install', 'running');
@@ -305,7 +316,17 @@ export function usePluginInstallFlow(
           },
         );
         if (!isActive()) return;
+        installCompletedRef.current = true;
         setStep('install', 'done');
+      }
+
+      if (panelContext === 'history_import') {
+        setStep('enable', 'running');
+        await pluginsApi.enable(pluginId);
+        if (!isActive()) return;
+        setStep('enable', 'done');
+        setPhase('done');
+        return;
       }
 
       // fetch the activation flow

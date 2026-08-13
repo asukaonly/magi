@@ -356,8 +356,8 @@
         "meta": "约 30 秒"
       },
       "history": {
-        "title": "带入过去写过的内容",
-        "body": "从日记、笔记或个人复盘里，让 Magi 先了解一些真实的你。",
+        "title": "带入过去的记录",
+        "body": "导入日记、笔记，或从支持的平台带入你过去的对话。",
         "meta": "先预览，再决定是否导入"
       },
       "activity": {
@@ -418,13 +418,15 @@
     },
     "history": {
       "kicker": "过去的记录",
-      "title": "带入你过去写过的内容",
-      "body": "选择主要由你写成的日记、笔记或个人复盘。Magi 会先在本机展示内容，只有你确认后才会导入。",
+      "title": "带入你过去的记录",
+      "body": "选择个人文字，或从支持的平台导入对话记录。Magi 会先在本机展示内容，只有你确认后才会导入。",
       "badge": "本地预览 · 完全可选",
       "loading": "正在恢复上次的导入进度…",
       "picker": {
         "title": "选择过去写过的内容",
         "body": "选择一个或多个文件，也可以直接选择保存这些内容的文件夹。",
+        "markdownTitle": "个人文字",
+        "markdownBody": "导入日记、笔记或个人复盘；每个 Markdown 文件会作为一篇完整文字。",
         "files": "选择 Markdown 文件",
         "folder": "选择文件夹",
         "note": "支持 .md 和 .markdown；一个文件作为一篇个人文字。聊天记录暂不支持通过 Markdown 导入。",
@@ -439,32 +441,69 @@
           }
         }
       },
+      "platform": {
+        "title": "平台对话记录",
+        "body": "从已支持的平台导出对话，再选择导出文件带入 Magi。",
+        "oneShot": "一次性导入",
+        "loading": "正在检查可用的导入插件…",
+        "loadError": "暂时无法读取平台导入插件，个人文字仍可正常导入。",
+        "partialLoadError": "部分平台导入选项暂时不可用。",
+        "retry": "重试",
+        "empty": "当前没有可用的平台导入插件。",
+        "formats": "支持 {{formats}}",
+        "help": "如何获取导出文件",
+        "choose": "选择导出文件",
+        "install": "安装",
+        "enable": "启用",
+        "installHint": "安装后可选择平台导出文件，不会开启持续同步。",
+        "enableHint": "插件已经安装，启用后即可选择平台导出文件。",
+        "fileFilter": "平台导出文件"
+      },
       "preview": {
         "files": "{{count}} 个文件",
         "selectedFiles": "已选择 {{selected}} / {{total}} 个文件",
         "kind": {
-          "document": "个人文字"
+          "document": "个人文字",
+          "chat": "对话记录",
+          "mixed": "混合内容"
         },
         "chooseContent": "选择要带入的文件",
         "chooseContentBody": "只保留主要由你本人写成、并希望 Magi 了解的文件。",
+        "chooseConversations": "选择要带入的对话",
+        "chooseConversationsBody": "只保留你希望 Magi 了解的对话；其他参与者的消息只用于理解上下文。",
         "includeFile": "导入文件：{{file}}",
+        "includeConversation": "导入对话：{{name}}",
+        "selectedConversations": "已选择 {{selected}} / {{total}} 个对话",
         "selectAll": "全选",
         "invertSelection": "反选",
         "preview": "预览",
         "previewFile": "预览文件：{{file}}",
         "approximateOrder": "按原文顺序",
+        "missingTime": "时间未记录 · 按原文顺序",
+        "approximateTime": "时间为推测 · 按原文顺序",
         "approximateFileTime": "文件时间，仅供排序",
         "dateRange": "{{first}} 至 {{last}}",
+        "omittedContentNotice": "导出内容中的部分附件或暂不支持的消息未包含在本次导入中，请以预览内容为准。",
         "chooseAgain": "重新选择",
         "confirm": "确认并开始导入",
         "importing": "正在准备第一批内容…"
       },
+      "identity": {
+        "title": "对话里哪些名字是你？",
+        "body": "只有你本人说过的话会用于认识你；其他参与者的内容只作为对话上下文。",
+        "messageCount": "{{count}} 条发言",
+        "empty": "导出文件里没有可确认的参与者，暂时不能导入。"
+      },
       "sourcePreview": {
         "description": "仅用于确认内容，不会修改原文件。",
+        "conversationDescription": "按原始顺序预览这段对话，不会修改导出文件。",
         "loading": "正在读取预览…",
         "error": "暂时无法预览这个文件。",
         "retry": "重试",
         "truncated": "文件较长，这里只展示前一部分。导入时仍会处理完整内容。",
+        "conversationTruncated": "这段对话较长，这里只展示一部分。导入时仍会处理完整内容。",
+        "timeMissing": "时间未记录",
+        "timeApproximate": "时间为推测",
         "close": "关闭预览"
       },
       "warnings": {
@@ -480,6 +519,8 @@
         "progress": "导入进度 {{progress}}%",
         "memoryQueued": "已交给记忆整理 {{queued}} / {{saved}} 条",
         "retry": "继续导入",
+        "progressUnavailable": "暂时无法刷新导入进度，已显示最后一次确认的结果。后台导入不会因此停止。",
+        "refreshProgress": "刷新进度",
         "note": "交给记忆整理不代表 Magi 已经理解了全部内容；长期认识会在后台逐步形成。"
       },
       "errors": {
@@ -494,15 +535,33 @@
         "markdown_not_utf8": "其中一个文件不是标准 UTF-8 文本，请转换编码后再试。",
         "markdown_empty": "所选文件没有可导入的文字。",
         "personal_writing_confirmation_required": "请先确认这些个人文字主要由你写成。",
-        "history_import_unsupported_source_kind": "所选内容不是受支持的个人文字，请重新选择文件。聊天记录暂不支持通过 Markdown 导入。",
-        "history_import_selection_empty": "至少保留一个要导入的文件。",
-        "history_import_selection_changed": "文件列表已经变化，请重新确认要导入的内容。",
-        "history_import_selection_locked": "导入开始后不能再更改文件范围。",
+        "history_import_unsupported_source_kind": "所选内容的类型暂不支持导入，请重新选择。",
+        "history_import_selection_empty": "至少保留一项要导入的内容。",
+        "history_import_selection_changed": "所选内容已经变化，请重新确认导入范围。",
+        "history_import_selection_locked": "导入开始后不能再更改内容范围。",
+        "history_import_source_not_found": "这项内容已经不存在，请重新选择。",
+        "history_import_self_participant_required": "请先确认对话里哪些名字是你。",
+        "self_participant_locked_after_import": "导入开始后不能再更改本人身份。",
+        "history_importer_not_available": "这个平台的导入插件当前不可用，请确认插件已经安装并重试。",
+        "history_importer_file_required": "请选择平台导出的 ZIP 或 JSON 文件。",
+        "history_importer_extension_not_supported": "所选文件格式不受这个平台导入插件支持。",
+        "history_importer_too_many_files": "一次选择的导出文件过多，请分批导入。",
+        "history_importer_selection_too_large": "所选导出内容过大，请分批导入。",
+        "history_importer_output_too_large": "导出文件包含的对话或文字过多，当前无法安全预览，请缩小导入范围后重试。",
+        "history_importer_no_sources": "导出文件中没有找到可导入的内容。",
+        "history_importer_duplicate_source_id": "导出文件中存在重复的内容编号，暂时无法安全导入。",
+        "history_importer_parse_failed": "无法解析这个平台导出文件，请确认文件完整后重试。",
+        "history_importer_invalid_output": "导入插件返回了无效内容，请更新插件后重试。",
+        "history_importer_reserved_participant_id": "导入文件使用了保留的参与者编号，暂时无法安全导入，请更新插件后重试。",
+        "history_importer_timeout": "解析导出文件超时，请缩小导出范围或分批导入后重试。",
+        "history_importer_non_append_update": "这份新导出改变了既有对话的消息顺序，暂时无法安全合并。请删除之前的导入后，再导入完整的新文件。",
+        "history_import_timezone_unavailable": "暂时无法确认本机时区，请检查系统时间设置后重试。",
+        "history_import_speaker_role_conflict": "这份内容中的本人身份与之前的确认不一致，请检查选择或删除旧导入后重试。",
         "memory_cleared_during_import": "导入期间记忆已被清空，这次导入也已停止。",
-        "history_import_not_confirmed": "请先确认要导入的个人文字和文件范围。",
-        "history_import_not_found": "这次导入已经不存在，请重新选择文件。",
+        "history_import_not_confirmed": "请先确认要导入的内容、范围和本人身份。",
+        "history_import_not_found": "这次导入已经不存在，请重新选择内容。",
         "history_import_unavailable": "导入功能还在准备中，请稍后重试。",
-        "unknown": "暂时无法读取这些文件。你的原文件没有被修改，请稍后重试。"
+        "unknown": "暂时无法读取这些内容。你的原文件没有被修改，请稍后重试。"
       }
     },
     "scopeHint": "这里只准备第一次聊天要用的一小部分内容；完整历史可以进入后再补。",
@@ -575,6 +634,8 @@
     "closeBackground": "先完成",
     "description": "我们会先启用来源，再读取最近历史，最后整理成第一次对话可用的上下文。",
     "firstContextDescription": "这一步只准备第一次对话需要的少量上下文，不会在这里回刷完整历史。",
+    "importerDescription": "安装后即可选择平台导出文件。这个入口只做一次性导入，不会持续同步平台数据。",
+    "importerInstalledDescription": "导入插件已安装。关闭此窗口后，选择你的平台导出文件继续。",
     "readyTitle": "已完成连接",
     "backfillNote": "完整历史正在后台整理中，完成后会通知你",
     "firstContextBackfillHint": "完整历史可以稍后在「设置 → 插件」或「记忆 → 来源」里继续回刷。",

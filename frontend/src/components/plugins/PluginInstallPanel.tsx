@@ -64,7 +64,7 @@ const seedFieldValues = (
 
 /**
  * The single, MainLayout-mounted modal that runs the honest plugin-connect flow.
- * Opened from three entry points via usePluginInstallPanelStore; drives the
+ * Opened from shared product entry points via usePluginInstallPanelStore; drives the
  * usePluginInstallFlow state machine and renders, per phase:
  *   - awaiting_fields → the field form (reused PluginSettingsFields + required gate)
  *   - loading / running / done → the InstallStepper with dynamic labels
@@ -82,6 +82,7 @@ export function PluginInstallPanel(): JSX.Element | null {
   const closePanel = usePluginInstallPanelStore((s) => s.closePanel);
   const onDone = usePluginInstallPanelStore((s) => s.onDone);
   const isFirstContext = panelContext === 'first_context';
+  const isHistoryImport = panelContext === 'history_import';
 
   const [consented, setConsented] = useState(false);
   const [registryRefreshKey, setRegistryRefreshKey] = useState(0);
@@ -436,7 +437,9 @@ export function PluginInstallPanel(): JSX.Element | null {
             <span>{name}</span>
           </DialogTitle>
           <DialogDescription>
-            {isFirstContext
+            {isHistoryImport
+              ? t('pluginInstallPanel.importerDescription')
+              : isFirstContext
               ? t('pluginInstallPanel.firstContextDescription')
               : flow.description ?? t('pluginInstallPanel.description')}
           </DialogDescription>
@@ -461,7 +464,11 @@ export function PluginInstallPanel(): JSX.Element | null {
             <InstallStepper steps={flow.steps} labels={labels} details={details} />
           )}
 
-          {flow.phase === 'done' && isFirstContext && !flow.syncDeferred ? (
+          {flow.phase === 'done' && isHistoryImport ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {t('pluginInstallPanel.importerInstalledDescription')}
+            </p>
+          ) : flow.phase === 'done' && isFirstContext && !flow.syncDeferred ? (
             <p className="mt-3 text-xs text-muted-foreground">
               {t('pluginInstallPanel.firstContextBackfillHint')}
             </p>
