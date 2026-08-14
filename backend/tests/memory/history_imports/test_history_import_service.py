@@ -29,7 +29,7 @@ from magi.memory.history_imports.service import (
     HistoryImportService,
     HistoryImportValidationError,
 )
-from magi.memory.history_imports.models import HistoryImportJob
+from magi.memory.history_imports.models import HistoryImportJob, HistoryImportRecord
 from magi.memory.history_imports.store import HistoryImportStore
 
 
@@ -1059,6 +1059,98 @@ async def test_quick_context_keeps_long_chat_shaped_markdown_as_one_document(
     assert len(selected) == 1
     assert selected[0].session_seq == 0
     assert selected[0].content == markdown.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_document_pending_work_remains_ordered_by_event_time(
+    history_store: HistoryImportStore,
+) -> None:
+    job = HistoryImportJob(
+        job_id="document-order-job",
+        source_type="markdown",
+        source_fingerprint="document-order-fingerprint",
+        source_ids=["newer-document", "older-document"],
+        included_source_ids=["newer-document", "older-document"],
+        detected_kind="document",
+        status="preview_ready",
+        total_records=2,
+        meaningful_records=2,
+        quick_target_records=200,
+        quick_max_records=500,
+        quick_imported_count=0,
+        imported_count=0,
+        projected_count=0,
+        self_participant_ids=["__document_author__"],
+        warnings=[],
+        quick_ready=False,
+        created_at=1.0,
+        updated_at=1.0,
+    )
+
+    def record(
+        *,
+        job_record_id: str,
+        source_id: str,
+        session_id: str,
+        event_at: float,
+    ) -> HistoryImportRecord:
+        return HistoryImportRecord(
+            job_record_id=job_record_id,
+            job_id=job.job_id,
+            source_record_key=f"source-{job_record_id}",
+            file_fingerprint=f"fingerprint-{job_record_id}",
+            source_id=source_id,
+            source_name=f"{source_id}.md",
+            source_kind="document",
+            parsed_session_key=source_id,
+            session_id=session_id,
+            session_seq=0,
+            speaker_id="__document_author__",
+            speaker_name="Document author",
+            speaker_role="user",
+            message_key="document",
+            parent_message_key=None,
+            content=source_id,
+            event_at=event_at,
+            timestamp_confidence="exact",
+            timestamp_anchor_source="source_timestamp",
+            calendar_timezone_id="Asia/Shanghai",
+            meaningful=True,
+            event_id=f"event-{job_record_id}",
+            created_at=1.0,
+            updated_at=1.0,
+        )
+
+    records = [
+        record(
+            job_record_id="newer",
+            source_id="newer-document",
+            session_id="history_a",
+            event_at=20.0,
+        ),
+        record(
+            job_record_id="older",
+            source_id="older-document",
+            session_id="history_z",
+            event_at=10.0,
+        ),
+    ]
+    await history_store.create_preview(job=job, records=records)
+
+    pending_raw = await history_store.list_pending_raw_records(job_id=job.job_id, limit=10)
+    for item in records:
+        await history_store.mark_raw_stored(
+            job_id=job.job_id,
+            job_record_id=item.job_record_id,
+            quick=False,
+        )
+    pending_projection = await history_store.list_pending_projection_records(
+        job_id=job.job_id,
+        limit=10,
+    )
+
+    assert [item.event_at for item in pending_raw] == [10.0, 20.0]
+    assert [item.event_at for item in pending_projection] == [10.0, 20.0]
 
 
 @pytest.mark.asyncio

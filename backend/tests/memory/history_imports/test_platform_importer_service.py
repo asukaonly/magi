@@ -18,6 +18,7 @@ from magi.db.migrations.memory_shared.versions.v46_history_import_adapters impor
     SCHEMA_SQL as IMPORTER_SCHEMA_SQL,
 )
 from magi.core.operation_barrier import AsyncOperationBarrier
+from magi.memory.history_imports import service as history_import_service_module
 from magi.memory.history_imports.service import (
     HistoryImportService,
     HistoryImportValidationError,
@@ -208,6 +209,111 @@ class _TimestampContractImporter:
                         ),
                     ],
                 )
+            ]
+        )
+
+
+class _OutOfOrderTimestampImporter:
+    async def parse(self, paths):  # type: ignore[no-untyped-def]
+        return HistoryImportParseResult(
+            sources=[
+                HistoryImportSource(
+                    source_id="out-of-order-conversation",
+                    source_name="Out-of-order conversation",
+                    session_key="out-of-order-session",
+                    records=[
+                        HistoryImportRecord(
+                            message_key="m0",
+                            source_order=0,
+                            speaker_id="human",
+                            speaker_name="You",
+                            content="First in the exported conversation.",
+                            occurred_at=1_700_000_200.0,
+                            timestamp_confidence="exact",
+                        ),
+                        HistoryImportRecord(
+                            message_key="m1",
+                            source_order=1,
+                            speaker_id="assistant",
+                            speaker_name="Assistant",
+                            content="Second despite an older provider timestamp.",
+                            occurred_at=1_700_000_050.0,
+                            timestamp_confidence="exact",
+                        ),
+                        HistoryImportRecord(
+                            message_key="m2",
+                            source_order=2,
+                            speaker_id="human",
+                            speaker_name="You",
+                            content="Third despite another timestamp regression.",
+                            occurred_at=1_700_000_100.0,
+                            timestamp_confidence="exact",
+                        ),
+                    ],
+                )
+            ]
+        )
+
+
+class _RecentSessionsImporter:
+    async def parse(self, paths):  # type: ignore[no-untyped-def]
+        def record(
+            *,
+            message_key: str,
+            source_order: int,
+            content: str,
+            occurred_at: float,
+        ) -> HistoryImportRecord:
+            return HistoryImportRecord(
+                message_key=message_key,
+                source_order=source_order,
+                speaker_id="human",
+                speaker_name="You",
+                content=content,
+                occurred_at=occurred_at,
+                timestamp_confidence="exact",
+            )
+
+        return HistoryImportParseResult(
+            sources=[
+                HistoryImportSource(
+                    source_id="older-session",
+                    source_name="Older session",
+                    session_key="older-session",
+                    records=[
+                        record(
+                            message_key="old-0",
+                            source_order=0,
+                            content="Older session first.",
+                            occurred_at=120.0,
+                        ),
+                        record(
+                            message_key="old-1",
+                            source_order=1,
+                            content="Older session second.",
+                            occurred_at=100.0,
+                        ),
+                    ],
+                ),
+                HistoryImportSource(
+                    source_id="recent-session",
+                    source_name="Recent session",
+                    session_key="recent-session",
+                    records=[
+                        record(
+                            message_key="recent-0",
+                            source_order=0,
+                            content="Recent session first.",
+                            occurred_at=300.0,
+                        ),
+                        record(
+                            message_key="recent-1",
+                            source_order=1,
+                            content="Recent session second.",
+                            occurred_at=200.0,
+                        ),
+                    ],
+                ),
             ]
         )
 
@@ -652,6 +758,91 @@ async def test_platform_timestamp_contract_anchors_only_untimed_records(
 
 
 @pytest.mark.asyncio
+async def test_platform_import_preserves_source_order_when_timestamps_regress(
+    platform_service,
+) -> None:
+    service, _importer, memory, tmp_path = platform_service
+    service._importer_registry.register(
+        plugin_id="out-of-order-archive",
+        importer_id="export",
+        importer=_OutOfOrderTimestampImporter(),
+        spec=HistoryImporterSpec(
+            importer_id="export",
+            display_name="Out-of-order archive",
+            accepted_extensions=["json"],
+            format_version="1",
+        ),
+    )
+    export = tmp_path / "out-of-order.json"
+    export.write_text("{}", encoding="utf-8")
+
+    preview = await service.preview_importer_paths(
+        plugin_id="out-of-order-archive",
+        importer_id="export",
+        paths=[str(export)],
+    )
+    pending = await service._store.list_pending_raw_records(
+        job_id=preview.job_id,
+        limit=10,
+    )
+    participant_id = next(
+        item.participant_id for item in preview.participants if item.display_name == "You"
+    )
+    await service.confirm(
+        job_id=preview.job_id,
+        confirm_personal_writing=False,
+        included_source_ids=preview.included_source_ids,
+        self_participant_ids=[participant_id],
+    )
+    await service._tasks[preview.job_id]
+
+    assert [record.session_seq for record in pending] == [0, 1, 2]
+    assert [event.session_seq for event in memory.raw_events] == [0, 1, 2]
+    assert [event.session_seq for event in memory.projected_events] == [0, 2]
+
+
+@pytest.mark.asyncio
+async def test_platform_quick_selection_prefers_recent_sessions_then_source_order(
+    platform_service,
+) -> None:
+    service, _importer, _memory, tmp_path = platform_service
+    service._importer_registry.register(
+        plugin_id="recent-sessions-archive",
+        importer_id="export",
+        importer=_RecentSessionsImporter(),
+        spec=HistoryImporterSpec(
+            importer_id="export",
+            display_name="Recent sessions archive",
+            accepted_extensions=["json"],
+            format_version="1",
+        ),
+    )
+    export = tmp_path / "recent-sessions.json"
+    export.write_text("{}", encoding="utf-8")
+
+    preview = await service.preview_importer_paths(
+        plugin_id="recent-sessions-archive",
+        importer_id="export",
+        paths=[str(export)],
+    )
+    quick = await service._store.select_quick_records(job_id=preview.job_id)
+    pending = await service._store.list_pending_raw_records(job_id=preview.job_id, limit=10)
+
+    assert [record.content for record in quick] == [
+        "Recent session first.",
+        "Recent session second.",
+        "Older session first.",
+        "Older session second.",
+    ]
+    assert [record.content for record in pending] == [
+        "Older session first.",
+        "Older session second.",
+        "Recent session first.",
+        "Recent session second.",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_changed_inferred_timestamp_for_stable_message_identity_is_rejected(
     platform_service,
 ) -> None:
@@ -990,6 +1181,82 @@ async def test_importer_preview_limits_timed_out_workers_to_two(
 
 
 @pytest.mark.asyncio
+async def test_importer_output_budget_is_checked_before_deep_revalidation(
+    platform_service,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _importer, _memory, tmp_path = platform_service
+
+    class _OverBudgetImporter:
+        def parse(self, paths):  # type: ignore[no-untyped-def]
+            source = HistoryImportSource.model_construct(
+                source_id="oversized-session",
+                source_name="Oversized session",
+                session_key="oversized-session",
+                detected_kind="chat",
+                records=[object(), object()],
+                warnings=[],
+            )
+            return HistoryImportParseResult.model_construct(sources=[source], warnings=[])
+
+    service._importer_registry.register(
+        plugin_id="oversized-archive",
+        importer_id="export",
+        importer=_OverBudgetImporter(),
+        spec=HistoryImporterSpec(
+            importer_id="export",
+            display_name="Oversized archive",
+            accepted_extensions=["json"],
+            format_version="1",
+        ),
+    )
+    monkeypatch.setattr(history_import_service_module, "MAX_IMPORTER_TOTAL_RECORDS", 1)
+    export = tmp_path / "oversized.json"
+    export.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(HistoryImportValidationError) as exc_info:
+        await service.preview_importer_paths(
+            plugin_id="oversized-archive",
+            importer_id="export",
+            paths=[str(export)],
+        )
+
+    assert exc_info.value.reason == "history_importer_output_too_large"
+
+
+@pytest.mark.asyncio
+async def test_importer_output_revalidation_runs_in_parser_worker(
+    platform_service,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _importer, _memory, tmp_path = platform_service
+    caller_thread_id = threading.get_ident()
+    validation_thread_ids: list[int] = []
+    original = history_import_service_module._revalidate_importer_output
+
+    def observed_revalidation(value):  # type: ignore[no-untyped-def]
+        validation_thread_ids.append(threading.get_ident())
+        return original(value)
+
+    monkeypatch.setattr(
+        history_import_service_module,
+        "_revalidate_importer_output",
+        observed_revalidation,
+    )
+    export = tmp_path / "worker-validation.json"
+    export.write_text("{}", encoding="utf-8")
+
+    await service.preview_importer_paths(
+        plugin_id="chat-archive",
+        importer_id="export",
+        paths=[str(export)],
+    )
+
+    assert validation_thread_ids
+    assert all(thread_id != caller_thread_id for thread_id in validation_thread_ids)
+
+
+@pytest.mark.asyncio
 async def test_importer_preview_rejects_a_file_changed_during_parse(
     platform_service,
 ) -> None:
@@ -1101,6 +1368,78 @@ async def test_importer_parse_does_not_block_clear_and_rejects_stale_result(
     with pytest.raises(HistoryImportValidationError) as exc_info:
         await asyncio.wait_for(preview_task, timeout=1)
     assert exc_info.value.reason == "memory_cleared_during_import"
+
+
+@pytest.mark.asyncio
+async def test_stop_generation_fences_an_inflight_importer_result_after_restart(
+    platform_service,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _importer, _memory, tmp_path = platform_service
+    parse_started = threading.Event()
+    release_parse = threading.Event()
+
+    class _PausedImporter:
+        def parse(self, paths):  # type: ignore[no-untyped-def]
+            parse_started.set()
+            release_parse.wait(timeout=1)
+            return HistoryImportParseResult(
+                sources=[
+                    HistoryImportSource(
+                        source_id="stopped-session",
+                        source_name="Stopped session",
+                        session_key="stopped-session",
+                        records=[
+                            HistoryImportRecord(
+                                message_key="m1",
+                                source_order=0,
+                                speaker_id="human",
+                                speaker_name="You",
+                                content="This result must not survive service shutdown.",
+                            )
+                        ],
+                    )
+                ]
+            )
+
+    service._importer_registry.register(
+        plugin_id="stopped-archive",
+        importer_id="export",
+        importer=_PausedImporter(),
+        spec=HistoryImporterSpec(
+            importer_id="export",
+            display_name="Stopped archive",
+            accepted_extensions=["json"],
+            format_version="1",
+        ),
+    )
+    monkeypatch.setattr(
+        history_import_service_module,
+        "IMPORTER_PARSE_SHUTDOWN_GRACE_SECONDS",
+        0.01,
+    )
+    export = tmp_path / "stopped.json"
+    export.write_text("{}", encoding="utf-8")
+    preview_task = asyncio.create_task(
+        service.preview_importer_paths(
+            plugin_id="stopped-archive",
+            importer_id="export",
+            paths=[str(export)],
+        )
+    )
+
+    try:
+        assert await asyncio.to_thread(parse_started.wait, 1)
+        await service.stop()
+        assert service._importer_parse_tasks
+        await service.start()
+    finally:
+        release_parse.set()
+
+    with pytest.raises(HistoryImportValidationError) as exc_info:
+        await asyncio.wait_for(preview_task, timeout=1)
+    assert exc_info.value.reason == "history_importer_not_available"
+    assert await service._store.list_active_jobs(limit=10) == []
 
 
 @pytest.mark.asyncio

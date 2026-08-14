@@ -51,6 +51,25 @@ _RECORD_SELECT = """
       ON source.source_record_key = membership.source_record_key
 """
 
+_CHAT_SESSION_ANCHOR_CTE = """
+    WITH session_anchors AS (
+        SELECT anchor_membership.job_id,
+               anchor_source.session_id,
+               MAX(anchor_source.event_at) AS latest_event_at
+        FROM history_import_job_records AS anchor_membership
+        JOIN history_import_source_records AS anchor_source
+          ON anchor_source.source_record_key = anchor_membership.source_record_key
+        WHERE anchor_membership.job_id = ?
+        GROUP BY anchor_membership.job_id, anchor_source.session_id
+    )
+"""
+
+_CHAT_SESSION_ANCHOR_JOIN = """
+    JOIN session_anchors AS session_anchor
+      ON session_anchor.job_id = membership.job_id
+     AND session_anchor.session_id = source.session_id
+"""
+
 
 class HistoryImportStore:
     """Persist normalized records before they enter memory."""
@@ -627,17 +646,28 @@ class HistoryImportStore:
         job = await self.get_job_progress(job_id)
         if job is None:
             raise KeyError(job_id)
-        async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute(
-                f"""
+        if job.source_type == "platform_chat":
+            query = f"""
+                {_CHAT_SESSION_ANCHOR_CTE}
+                {_RECORD_SELECT}
+                {_CHAT_SESSION_ANCHOR_JOIN}
+                WHERE membership.job_id = ? AND membership.raw_state = 'pending'
+                ORDER BY session_anchor.latest_event_at DESC,
+                         source.session_id ASC, membership.source_order ASC
+                LIMIT ?
+                """
+            params = (job_id, job_id, job.quick_max_records)
+        else:
+            query = f"""
                 {_RECORD_SELECT}
                 WHERE membership.job_id = ? AND membership.raw_state = 'pending'
                 ORDER BY source.event_at DESC, source.session_id DESC,
                          membership.source_order DESC
                 LIMIT ?
-                """,
-                (job_id, job.quick_max_records),
-            ) as cursor:
+                """
+            params = (job_id, job.quick_max_records)
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(query, params) as cursor:
                 rows = list(await cursor.fetchall())
         selected = rows[: job.quick_target_records]
         while (
@@ -645,10 +675,10 @@ class HistoryImportStore:
         ):
             next_size = min(len(rows), len(selected) + 100)
             selected = rows[:next_size]
-        return sorted(
-            (_record_from_row(row) for row in selected),
-            key=lambda item: (item.event_at, item.session_id, item.session_seq),
-        )
+        records = [_record_from_row(row) for row in selected]
+        if job.source_type == "platform_chat":
+            return records
+        return sorted(records, key=lambda item: (item.event_at, item.session_id, item.session_seq))
 
     async def list_pending_raw_records(
         self,
@@ -1053,17 +1083,31 @@ class HistoryImportStore:
         where: str,
         limit: int,
     ) -> list[HistoryImportRecord]:
-        async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute(
-                f"""
+        job = await self.get_job_progress(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        if job.source_type == "platform_chat":
+            query = f"""
+                {_CHAT_SESSION_ANCHOR_CTE}
+                {_RECORD_SELECT}
+                {_CHAT_SESSION_ANCHOR_JOIN}
+                WHERE membership.job_id = ? AND {where}
+                ORDER BY session_anchor.latest_event_at ASC,
+                         source.session_id ASC, membership.source_order ASC
+                LIMIT ?
+                """
+            params = (job_id, job_id, max(1, int(limit)))
+        else:
+            query = f"""
                 {_RECORD_SELECT}
                 WHERE membership.job_id = ? AND {where}
                 ORDER BY source.event_at ASC, source.session_id ASC,
                          membership.source_order ASC
                 LIMIT ?
-                """,
-                (job_id, max(1, int(limit))),
-            ) as cursor:
+                """
+            params = (job_id, max(1, int(limit)))
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
         return [_record_from_row(row) for row in rows]
 

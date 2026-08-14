@@ -1054,8 +1054,15 @@ private event loop inside the worker thread. The service admits at most two
 parser workers, and the fixed preview deadline includes time spent waiting for a
 worker slot. A timed-out or cancelled request abandons its result but retains the
 slot until the underlying worker actually returns, so repeated timeouts cannot
-create an unbounded parser backlog. The host then compares full input
-fingerprints before and after parsing, validates bounded SDK output, and
+create an unbounded parser backlog. Parser output is copied through the declared
+schema and checked against source, record, warning, and total-text budgets inside
+that same worker before deep Pydantic validation; an oversized constructed model
+therefore cannot make the service loop materialize its complete object graph
+before rejection. Runtime shutdown closes importer-preview admission and advances
+a service generation before giving active workers a bounded drain period. A late
+thread result cannot persist through that generation fence, although terminating
+an uncooperative Python thread still requires a future process-isolated importer
+host. The host then compares full input fingerprints before and after parsing and
 rechecks the memory-clear epoch inside the governed operation.
 
 The host Markdown importer treats each file as exactly one user-authored
@@ -1076,7 +1083,13 @@ For platform imports, `exact` and `inferred` records carry the parser's
 The host creates an internal ordering anchor only for those untimed records and
 retains their original confidence. Reader-facing previews may label inferred
 time as approximate and untimed records as missing, but must not present either
-as an exact timestamp.
+as an exact timestamp. For platform chat, the maximum event time in a session is
+only a session-selection anchor: quick ingestion chooses newer sessions first,
+while background handoff can progress from older sessions. Within each selected
+session, source order becomes the canonical `session_seq` and governs the quick
+prefix, remaining raw handoff, projection handoff, and L2 batch presentation
+even when provider timestamps regress. Document imports retain event-time order.
+Event timestamps never override declared order inside a chat session.
 `history_import_job_records` owns only membership and that job's raw/projection
 progress. Its key derives from the job and source-record keys, and the pair is
 unique. The versioned complete selected-file fingerprint still identifies an
@@ -1130,8 +1143,14 @@ minimal content-free deletion tombstone. A history-import deletion intentionally
 uses the reimportable source-event cleanup policy: the host has already stopped
 the only passive producer, so the completed cleanup does not retain exact-event,
 source-item, or idempotency replay barriers and a later explicit complete import
-may restore the same stable event identity. Every such deletion creates a new
-forget operation so a delete-import-delete cycle cannot reuse an earlier cleanup.
+may restore the same stable event identity. Explicit reimport cleanup also
+removes that event's completed L2 projection identity and only its event-scoped
+L2 forget evidence when no permanent replay tombstone protects the event; a
+mixed rule keeps any evidence belonging to other events.
+Upgrade repair resets an affected active import ledger to `pending`/`ready` so
+the service re-enqueues real L2 work instead of reporting a stale projection as
+complete. Every such deletion creates a new forget operation so a
+delete-import-delete cycle cannot reuse an earlier cleanup.
 Ordinary source, entity, chat, and user-requested forgetting keep their permanent
 replay barriers unchanged. A global memory clear removes source records, job
 memberships, and job state under the same import boundary.
@@ -2321,7 +2340,7 @@ Key notes:
 
 - `event_id` is the external stable reference key
 - `id` is the internal relationship key
-- `session_seq` is the stable event order within a session; local context windows and evidence bundles should use it instead of depending on `turn_id` naming conventions
+- `session_seq` is the stable event order within a session; local context windows, evidence bundles, and same-session L2 batches should use it instead of depending on `turn_id` naming conventions or assuming provider timestamps are monotonic
 - `metadata_json` carries structured event payloads
 - `author_type`, `content_type`, evidence fields, retrieval scope, and embedding status are stored as compact integer codes and decoded to labels at runtime/API boundaries
 - Canonical `l1_retrieval_scope` labels are `none`, `fact_authoritative`, `conversation_only`, `audit_only`, and `source_backlink_only`

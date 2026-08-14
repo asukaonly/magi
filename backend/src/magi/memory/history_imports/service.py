@@ -19,6 +19,14 @@ from pathlib import Path
 from typing import Any
 
 from magi_plugin_sdk import HistoryImportParseResult
+from magi_plugin_sdk.history_imports import (
+    MAX_HISTORY_IMPORT_CONTENT_LENGTH,
+    MAX_HISTORY_IMPORT_RECORDS_PER_SOURCE,
+    MAX_HISTORY_IMPORT_SOURCES,
+    MAX_HISTORY_IMPORT_SOURCE_WARNINGS,
+    MAX_HISTORY_IMPORT_WARNING_LENGTH,
+    MAX_HISTORY_IMPORT_WARNINGS,
+)
 from pydantic import BaseModel, ValidationError
 
 from ...core.logger import get_logger
@@ -59,6 +67,7 @@ MAX_IMPORTER_TOTAL_RECORDS = 100_000
 MAX_IMPORTER_TOTAL_CONTENT_CHARS = 50_000_000
 MAX_STORED_IMPORT_WARNINGS = 200
 IMPORTER_PARSE_TIMEOUT_SECONDS = 60.0
+IMPORTER_PARSE_SHUTDOWN_GRACE_SECONDS = 1.0
 MAX_CONCURRENT_IMPORTER_PARSERS = 2
 HISTORY_IMPORT_SOURCE = "history_import"
 MARKDOWN_IMPORT_POLICY_VERSION = b"personal-writing-v1"
@@ -89,6 +98,10 @@ class _HistoryImporterOutputInvalid(RuntimeError):
     pass
 
 
+class _HistoryImporterOutputTooLarge(_HistoryImporterOutputInvalid):
+    pass
+
+
 class HistoryImportService:
     """Create previews and advance imports without letting adapters write memory."""
 
@@ -113,6 +126,8 @@ class HistoryImportService:
         self._importer_registry = importer_registry or HistoryImporterRegistry()
         self._importer_parse_slots = asyncio.BoundedSemaphore(MAX_CONCURRENT_IMPORTER_PARSERS)
         self._importer_parse_tasks: set[asyncio.Task[Any]] = set()
+        self._importer_lifecycle_generation = 0
+        self._accepting_importer_previews = True
 
     def list_importers(self) -> list[RegisteredHistoryImporter]:
         """Return enabled importer contributions available to the host UI."""
@@ -123,10 +138,18 @@ class HistoryImportService:
         self,
         registered: RegisteredHistoryImporter,
         resolved_paths: list[Path],
+        *,
+        lifecycle_generation: int,
     ) -> Any:
         """Run one parser off-loop while retaining its slot until worker exit."""
 
         await self._importer_parse_slots.acquire()
+        if (
+            not self._accepting_importer_previews
+            or lifecycle_generation != self._importer_lifecycle_generation
+        ):
+            self._importer_parse_slots.release()
+            raise HistoryImportValidationError("history_importer_not_available")
         try:
             task = asyncio.create_task(
                 asyncio.to_thread(
@@ -154,6 +177,7 @@ class HistoryImportService:
     async def start(self) -> None:
         """Resume confirmed imports from their last durable boundary."""
 
+        self._accepting_importer_previews = True
         async with self._operation():
             await self._log_integrity_audit(checkpoint="startup")
             quick_resumable_job_ids = await self._store.list_quick_resumable_job_ids()
@@ -170,8 +194,11 @@ class HistoryImportService:
                 self._start_background(job_id)
 
     async def stop(self) -> None:
+        self._accepting_importer_previews = False
+        self._importer_lifecycle_generation += 1
         async with self._operation_barrier.exclusive():
             await self._cancel_background_tasks()
+            await self._drain_importer_parse_tasks()
             self._locks.clear()
 
     @asynccontextmanager
@@ -279,6 +306,9 @@ class HistoryImportService:
     ) -> HistoryImportJob:
         """Parse a declared platform export and persist a host-owned preview."""
 
+        if not self._accepting_importer_previews:
+            raise HistoryImportValidationError("history_importer_not_available")
+        lifecycle_generation = self._importer_lifecycle_generation
         registered = self._importer_registry.get(plugin_id, importer_id)
         if registered is None:
             raise HistoryImportValidationError("history_importer_not_available")
@@ -291,10 +321,13 @@ class HistoryImportService:
                 resolved_paths,
             )
             parsed = await asyncio.wait_for(
-                self._invoke_history_importer(registered, resolved_paths),
+                self._invoke_history_importer(
+                    registered,
+                    resolved_paths,
+                    lifecycle_generation=lifecycle_generation,
+                ),
                 timeout=IMPORTER_PARSE_TIMEOUT_SECONDS,
             )
-            parsed = _revalidate_importer_output(parsed)
             final_fingerprint = await asyncio.to_thread(
                 _platform_import_fingerprint,
                 registered,
@@ -315,7 +348,9 @@ class HistoryImportService:
                 error_type=type(exc).__name__,
             )
             reason = "history_importer_invalid_output"
-            if isinstance(exc, ValidationError) and _validation_error_is_size_limit(exc):
+            if isinstance(exc, _HistoryImporterOutputTooLarge) or (
+                isinstance(exc, ValidationError) and _validation_error_is_size_limit(exc)
+            ):
                 reason = "history_importer_output_too_large"
             raise HistoryImportValidationError(reason) from exc
         except OSError as exc:
@@ -326,6 +361,8 @@ class HistoryImportService:
                 error_type=type(exc).__name__,
             )
             raise HistoryImportValidationError("history_import_selection_changed") from exc
+        except HistoryImportValidationError:
+            raise
         except Exception as exc:
             logger.warning(
                 "History importer parse failed",
@@ -338,12 +375,16 @@ class HistoryImportService:
             raise HistoryImportValidationError("history_import_selection_changed")
 
         async with self._operation():
+            if (
+                not self._accepting_importer_previews
+                or lifecycle_generation != self._importer_lifecycle_generation
+            ):
+                raise HistoryImportValidationError("history_importer_not_available")
             current = self._importer_registry.get(plugin_id, importer_id)
             if current is not registered:
                 raise HistoryImportValidationError("history_importer_not_available")
             if int(self._memory.memory_operation_epoch()) != expected_epoch:
                 raise HistoryImportValidationError("memory_cleared_during_import")
-            _validate_importer_output_size(parsed)
             timezone_id = local_calendar_timezone_id()
             if timezone_id is None:
                 raise HistoryImportValidationError("history_import_timezone_unavailable")
@@ -1217,6 +1258,23 @@ class HistoryImportService:
         self._tasks.clear()
         self._confirmation_payloads.clear()
 
+    async def _drain_importer_parse_tasks(self) -> None:
+        """Give active parser workers a bounded chance to finish during shutdown."""
+
+        tasks = set(self._importer_parse_tasks)
+        if not tasks:
+            return
+        _done, pending = await asyncio.wait(
+            tasks,
+            timeout=IMPORTER_PARSE_SHUTDOWN_GRACE_SECONDS,
+        )
+        if pending:
+            logger.warning(
+                "History importer workers remain active after shutdown grace period",
+                process_id=os.getpid(),
+                pending_worker_count=len(pending),
+            )
+
 
 def _platform_import_fingerprint(
     registered: RegisteredHistoryImporter,
@@ -1253,8 +1311,8 @@ def _run_history_importer_in_worker(
 
     result = registered.importer.parse(resolved_paths)
     if inspect.isawaitable(result):
-        return asyncio.run(_await_history_importer_result(result))
-    return result
+        result = asyncio.run(_await_history_importer_result(result))
+    return _revalidate_importer_output(result)
 
 
 async def _await_history_importer_result(result: Any) -> Any:
@@ -1326,18 +1384,6 @@ def _validate_importer_paths(
     return resolved
 
 
-def _validate_importer_output_size(parsed: HistoryImportParseResult) -> None:
-    total_records = sum(len(source.records) for source in parsed.sources)
-    total_content_chars = sum(
-        len(record.content) for source in parsed.sources for record in source.records
-    )
-    if (
-        total_records > MAX_IMPORTER_TOTAL_RECORDS
-        or total_content_chars > MAX_IMPORTER_TOTAL_CONTENT_CHARS
-    ):
-        raise HistoryImportValidationError("history_importer_output_too_large")
-
-
 def _platform_participant_id(
     *,
     registered: RegisteredHistoryImporter,
@@ -1364,24 +1410,118 @@ def _revalidate_importer_output(value: Any) -> HistoryImportParseResult:
     """Rebuild plugin output from plain data before trusting SDK invariants."""
 
     try:
-        plain_value = _materialize_pydantic_output(value)
+        plain_value = _bounded_history_import_payload(value)
+    except _HistoryImporterOutputInvalid:
+        raise
     except Exception as exc:
         raise _HistoryImporterOutputInvalid from exc
     return HistoryImportParseResult.model_validate(plain_value)
 
 
-def _materialize_pydantic_output(value: Any) -> Any:
-    """Recursively replace Pydantic instances so nested validation cannot be skipped."""
+_MISSING_IMPORT_FIELD = object()
+_PARSE_RESULT_FIELDS = ("sources", "warnings")
+_SOURCE_FIELDS = (
+    "source_id",
+    "source_name",
+    "session_key",
+    "detected_kind",
+    "records",
+    "warnings",
+)
+_RECORD_FIELDS = (
+    "message_key",
+    "source_order",
+    "speaker_id",
+    "speaker_name",
+    "role_hint",
+    "content",
+    "occurred_at",
+    "timestamp_confidence",
+    "parent_message_key",
+)
 
-    if isinstance(value, BaseModel):
-        return _materialize_pydantic_output(
-            value.model_dump(mode="python", round_trip=True, warnings="error")
+
+def _bounded_history_import_payload(value: Any) -> dict[str, Any]:
+    """Copy only the declared importer schema while enforcing budgets first."""
+
+    payload = _known_import_fields(value, _PARSE_RESULT_FIELDS)
+    sources = _import_sequence(_required_import_field(payload, "sources"))
+    if len(sources) > MAX_HISTORY_IMPORT_SOURCES:
+        raise _HistoryImporterOutputTooLarge
+    payload["warnings"] = _bounded_importer_warnings(
+        payload.get("warnings", []),
+        maximum=MAX_HISTORY_IMPORT_WARNINGS,
+    )
+
+    total_records = 0
+    total_content_chars = 0
+    copied_sources: list[dict[str, Any]] = []
+    for source_value in sources:
+        source = _known_import_fields(source_value, _SOURCE_FIELDS)
+        records = _import_sequence(_required_import_field(source, "records"))
+        if len(records) > MAX_HISTORY_IMPORT_RECORDS_PER_SOURCE:
+            raise _HistoryImporterOutputTooLarge
+        total_records += len(records)
+        if total_records > MAX_IMPORTER_TOTAL_RECORDS:
+            raise _HistoryImporterOutputTooLarge
+        source["warnings"] = _bounded_importer_warnings(
+            source.get("warnings", []),
+            maximum=MAX_HISTORY_IMPORT_SOURCE_WARNINGS,
         )
-    if isinstance(value, dict):
-        return {key: _materialize_pydantic_output(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_materialize_pydantic_output(item) for item in value]
+
+        copied_records: list[dict[str, Any]] = []
+        for record_value in records:
+            record = _known_import_fields(record_value, _RECORD_FIELDS)
+            content = _required_import_field(record, "content")
+            if not isinstance(content, str):
+                raise _HistoryImporterOutputInvalid
+            content_length = len(content)
+            if content_length > MAX_HISTORY_IMPORT_CONTENT_LENGTH:
+                raise _HistoryImporterOutputTooLarge
+            total_content_chars += content_length
+            if total_content_chars > MAX_IMPORTER_TOTAL_CONTENT_CHARS:
+                raise _HistoryImporterOutputTooLarge
+            copied_records.append(record)
+        source["records"] = copied_records
+        copied_sources.append(source)
+    payload["sources"] = copied_sources
+    return payload
+
+
+def _known_import_fields(value: Any, fields: tuple[str, ...]) -> dict[str, Any]:
+    if isinstance(value, BaseModel):
+        source = value.__dict__
+    elif type(value) is dict:  # noqa: E721 - exclude plugin-defined mappings
+        source = value
+    else:
+        raise _HistoryImporterOutputInvalid
+    return {field: source[field] for field in fields if field in source}
+
+
+def _required_import_field(payload: dict[str, Any], field: str) -> Any:
+    value = payload.get(field, _MISSING_IMPORT_FIELD)
+    if value is _MISSING_IMPORT_FIELD:
+        raise _HistoryImporterOutputInvalid
     return value
+
+
+def _import_sequence(value: Any) -> list[Any] | tuple[Any, ...]:
+    # Exact built-ins exclude plugin-defined containers with untrusted length behavior.
+    if type(value) not in {list, tuple}:  # noqa: E721
+        raise _HistoryImporterOutputInvalid
+    return value
+
+
+def _bounded_importer_warnings(value: Any, *, maximum: int) -> list[Any]:
+    warnings = _import_sequence(value)
+    if len(warnings) > maximum:
+        raise _HistoryImporterOutputTooLarge
+    copied: list[Any] = []
+    for warning in warnings:
+        if isinstance(warning, str) and len(warning) > MAX_HISTORY_IMPORT_WARNING_LENGTH:
+            raise _HistoryImporterOutputTooLarge
+        copied.append(warning)
+    return copied
 
 
 def _validation_error_is_size_limit(exc: ValidationError) -> bool:
@@ -1588,7 +1728,7 @@ def _build_records(
                     updated_at=now,
                 )
             )
-    records.sort(key=lambda item: (item.event_at, item.session_id, item.session_seq))
+    records.sort(key=lambda item: (item.session_id, item.session_seq))
     return records
 
 

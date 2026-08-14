@@ -486,8 +486,14 @@ deadline that also covers waiting for one of two parser slots, validates bounded
 normalized output, and only then enters the governed memory operation to persist
 the preview. Timeout or request cancellation does not stop Python thread work,
 so the host retains that slot until the real worker exits instead of admitting
-an unbounded queue of replacements. Repeated previews of the same snapshot
-resolve atomically to one active job.
+an unbounded queue of replacements. The worker performs a known-schema budget
+walk before deep output validation, rejecting aggregate source, record, warning,
+or text limits without first expanding the complete plugin object graph on the
+service loop. Shutdown advances a host lifecycle generation before a bounded
+worker drain, so a late parser result cannot create a preview after its owning
+service has stopped. Python threads remain cooperative rather than forcibly
+terminable; hard resource isolation belongs to a future process-hosted importer.
+Repeated previews of the same snapshot resolve atomically to one active job.
 
 The bounded preview contract keeps up to 5,000 normalized sources selectable
 and renders them in UI pages; it never silently truncates or chooses a subset on
@@ -496,6 +502,14 @@ bounded, so a high source count does not expand the host's total memory budget.
 Exports beyond the bounded complete-preview contract fail explicitly. A future
 larger-scale path must be host-owned cursor or page scanning with durable
 selection, rather than adapter-owned sampling.
+
+For chat sources, `source_order` is authoritative within each returned session.
+The host uses each session's maximum event time to choose recent sessions for the
+quick stage, maps `source_order` to `session_seq`, imports a bounded forward
+prefix, and continues the remaining records in that order. L2 batches preserve
+the same sequence. Provider timestamps remain evidence and may rank separate
+sessions, but a regressing timestamp never reverses turns inside one
+conversation. Non-chat documents retain event-time ordering.
 
 Stable message identity supports later exports that append messages to an
 already imported conversation. Once any message from a session has entered

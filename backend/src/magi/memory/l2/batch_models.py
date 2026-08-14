@@ -64,6 +64,43 @@ def _current_time() -> float:
     return float(models_module.time.time())
 
 
+def _ordered_l2_batch_events(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Preserve session sequence without discarding cross-session time placement."""
+
+    events = sorted(
+        [dict(item) for item in values if isinstance(item, dict)],
+        key=lambda item: (
+            float(item.get("timestamp", 0.0) or 0.0),
+            str(item.get("event_id", "")),
+        ),
+    )
+    positions_by_session: dict[str, list[int]] = {}
+    for position, event in enumerate(events):
+        session_id = _optional_text(event.get("session_id"))
+        if session_id is None or event.get("session_seq") is None:
+            continue
+        try:
+            int(event["session_seq"])
+        except (TypeError, ValueError):
+            continue
+        positions_by_session.setdefault(session_id, []).append(position)
+
+    for positions in positions_by_session.values():
+        if len(positions) < 2:
+            continue
+        session_events = sorted(
+            (events[position] for position in positions),
+            key=lambda item: (
+                int(item["session_seq"]),
+                float(item.get("timestamp", 0.0) or 0.0),
+                str(item.get("event_id", "")),
+            ),
+        )
+        for position, event in zip(positions, session_events, strict=True):
+            events[position] = event
+    return events
+
+
 @dataclass(slots=True)
 class L2EventWindowSummary:
     """Summary metadata for one typed L2 event window."""
@@ -322,13 +359,7 @@ class L2BatchJob:
         self.session_id = _optional_text(self.session_id)
         self.user_id = _optional_text(self.user_id)
         self.estimated_tokens = max(0, int(self.estimated_tokens))
-        self.events = sorted(
-            [dict(item) for item in self.events if isinstance(item, dict)],
-            key=lambda item: (
-                float(item.get("timestamp", 0.0) or 0.0),
-                str(item.get("event_id", "")),
-            ),
-        )
+        self.events = _ordered_l2_batch_events(self.events)
         if not self.events:
             raise ValueError("events must not be empty")
         if any(not isinstance(lease, L2ProjectionLease) for lease in self.projection_leases):
