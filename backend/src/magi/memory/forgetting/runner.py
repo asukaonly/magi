@@ -405,9 +405,11 @@ class DurableForgetRunner:
 
             current = await self._required_operation(operation.operation_id)
             after_event_id = current.cursor
-            include_turn, block_source_item = self._selectors.event_reference_options(
-                current.selector
-            )
+            (
+                include_turn,
+                block_source_item,
+                persist_replay_barriers,
+            ) = self._selectors.event_reference_options(current.selector)
             while True:
                 selected_events = await self._selectors.list_event_page(
                     current.selector,
@@ -416,9 +418,7 @@ class DurableForgetRunner:
                 )
                 if not selected_events:
                     break
-                selected_event_ids = [
-                    event.event_id for event in selected_events
-                ]
+                selected_event_ids = [event.event_id for event in selected_events]
                 event_ids = list(selected_event_ids)
                 source_gate = SourceForgetGateResult()
                 if block_source_item:
@@ -439,18 +439,12 @@ class DurableForgetRunner:
                             )
                         )
                     claimed_event_ids = {
-                        event_id
-                        for claim in source_gate.claims
-                        for event_id in claim.event_ids
+                        event_id for claim in source_gate.claims for event_id in claim.event_ids
                     }
-                    extra_event_ids = sorted(
-                        claimed_event_ids - set(event_ids)
-                    )
+                    extra_event_ids = sorted(claimed_event_ids - set(event_ids))
                     if extra_event_ids:
                         active_states = (
-                            await self._host.l1.get_raw_event_active_states(
-                                extra_event_ids
-                            )
+                            await self._host.l1.get_raw_event_active_states(extra_event_ids)
                             if self._host.l1 is not None
                             else {}
                         )
@@ -462,29 +456,25 @@ class DurableForgetRunner:
                             for event_id in extra_event_ids
                         )
                         event_ids.extend(extra_event_ids)
-                exact_only_event_ids = set(
-                    source_gate.exact_only_event_ids
-                )
+                exact_only_event_ids = set(source_gate.exact_only_event_ids)
                 source_blocked_event_ids = [
-                    event_id
-                    for event_id in event_ids
-                    if event_id not in exact_only_event_ids
+                    event_id for event_id in event_ids if event_id not in exact_only_event_ids
                 ]
                 exact_only_event_ids = [
-                    event_id
-                    for event_id in event_ids
-                    if event_id in exact_only_event_ids
+                    event_id for event_id in event_ids if event_id in exact_only_event_ids
                 ]
                 references = (
                     *await self._references.event_references(
                         source_blocked_event_ids,
                         include_turn_references=include_turn,
                         block_source_item=block_source_item,
+                        persist_replay_barriers=persist_replay_barriers,
                     ),
                     *await self._references.event_references(
                         exact_only_event_ids,
                         include_turn_references=include_turn,
                         block_source_item=False,
+                        persist_replay_barriers=persist_replay_barriers,
                     ),
                 )
                 references = (
@@ -559,10 +549,10 @@ class DurableForgetRunner:
                 )
             )
             if self._host.l2_pipeline is not None:
-                result["event_entity_link_projections"] = (
-                    await self._host.l2_pipeline._drain_event_entity_link_outbox(
-                        raise_on_error=True
-                    )
+                result[
+                    "event_entity_link_projections"
+                ] = await self._host.l2_pipeline._drain_event_entity_link_outbox(
+                    raise_on_error=True
                 )
             if self._host.l2_entity_catalog is not None:
                 catalog_counts = await self._host.l2_entity_catalog.forget_entity_catalog(
@@ -639,11 +629,7 @@ class DurableForgetRunner:
         if selector.kind == "chat_message":
             l0 = getattr(self._host, "l0", None)
             turn_id = str(payload.get("turn_id") or "").strip()
-            if (
-                l0 is not None
-                and turn_id
-                and str(payload["event_type"]) == EventTypes.USER_MESSAGE
-            ):
+            if l0 is not None and turn_id and str(payload["event_type"]) == EventTypes.USER_MESSAGE:
                 await l0.forget_chat_turn(
                     session_id=str(payload["session_id"]),
                     turn_id=turn_id,
@@ -679,12 +665,10 @@ class DurableForgetRunner:
 
         after_event_id = ""
         while True:
-            projection_event_ids = (
-                await self._repository.list_projection_event_ids(
-                    operation.operation_id,
-                    after_event_id=after_event_id,
-                    limit=_SELECTION_BATCH_SIZE,
-                )
+            projection_event_ids = await self._repository.list_projection_event_ids(
+                operation.operation_id,
+                after_event_id=after_event_id,
+                limit=_SELECTION_BATCH_SIZE,
             )
             if not projection_event_ids:
                 break
@@ -816,9 +800,7 @@ class DurableForgetRunner:
         for encoded in encoded_claims:
             claim = self._decode_source_claim(encoded)
             if claim is None:
-                raise RuntimeError(
-                    "Persisted source-forget owner claim is invalid"
-                )
+                raise RuntimeError("Persisted source-forget owner claim is invalid")
             key = (claim.source, claim.source_item_id)
             previous = claims.get(key)
             claims[key] = SourceForgetClaim(
@@ -856,10 +838,7 @@ class DurableForgetRunner:
             return SourceForgetClaim(
                 source=str(payload.get("source") or ""),
                 source_item_id=str(payload.get("source_item_id") or ""),
-                event_ids=tuple(
-                    str(event_id)
-                    for event_id in payload.get("event_ids", [])
-                ),
+                event_ids=tuple(str(event_id) for event_id in payload.get("event_ids", [])),
             )
         except (TypeError, ValueError):
             return None
@@ -908,12 +887,10 @@ class DurableForgetRunner:
             ref_type="entity_refresh",
             item_event_id=item_event_id,
         )
-        temporal_turn_references = (
-            await self._repository.operation_references(
-                operation.operation_id,
-                ref_type="turn_cutoff",
-                item_event_id=item_event_id,
-            )
+        temporal_turn_references = await self._repository.operation_references(
+            operation.operation_id,
+            ref_type="turn_cutoff",
+            item_event_id=item_event_id,
         )
         await self._cleanup.cleanup_references(
             references,

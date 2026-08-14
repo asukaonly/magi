@@ -60,16 +60,20 @@ class ForgetSelector:
         *,
         block_source_item: bool,
         include_turn_references: bool = True,
+        replay_policy: Literal["permanent", "explicit_reimport"] = "permanent",
     ) -> "ForgetSelector":
         normalized = tuple(sorted(normalize_source_event_ids(event_ids)))
         if not normalized:
             raise ValueError("event_ids must not be empty")
+        if replay_policy not in {"permanent", "explicit_reimport"}:
+            raise ValueError("Unsupported source-event replay policy")
         return cls(
             kind="known_events",
             payload={
                 "event_ids": list(normalized),
                 "block_source_item": bool(block_source_item),
                 "include_turn_references": bool(include_turn_references),
+                "replay_policy": replay_policy,
             },
         )
 
@@ -160,15 +164,12 @@ class ForgetSelector:
             field="event_type",
         )
         normalized_messages: dict[tuple[str, str, str], dict[str, str]] = {}
-        for message in (
-            messages
-            or (
-                {
-                    "message_id": normalized_source_message_id,
-                    "source": normalized_source,
-                    "event_type": normalized_event_type,
-                },
-            )
+        for message in messages or (
+            {
+                "message_id": normalized_source_message_id,
+                "source": normalized_source,
+                "event_type": normalized_event_type,
+            },
         ):
             source_id = _required_text(
                 message.get("message_id"),
@@ -182,9 +183,7 @@ class ForgetSelector:
                 message.get("event_type"),
                 field="event_type",
             )
-            normalized_messages[
-                (source_id, message_source, message_event_type)
-            ] = {
+            normalized_messages[(source_id, message_source, message_event_type)] = {
                 "message_id": source_id,
                 "source": message_source,
                 "event_type": message_event_type,
@@ -206,20 +205,11 @@ class ForgetSelector:
                 "turn_id": str(turn_id or "").strip(),
                 "source": normalized_source,
                 "event_type": normalized_event_type,
-                "runtime_turn_ids": list(
-                    sorted(normalize_source_event_ids(runtime_turn_ids))
-                ),
+                "runtime_turn_ids": list(sorted(normalize_source_event_ids(runtime_turn_ids))),
                 "runtime_replay_turn_ids": list(
-                    sorted(
-                        normalize_source_event_ids(
-                            runtime_replay_turn_ids
-                        )
-                    )
+                    sorted(normalize_source_event_ids(runtime_replay_turn_ids))
                 ),
-                "messages": [
-                    normalized_messages[key]
-                    for key in sorted(normalized_messages)
-                ],
+                "messages": [normalized_messages[key] for key in sorted(normalized_messages)],
                 "surface_message_ids": normalized_surface_message_ids,
             },
         )

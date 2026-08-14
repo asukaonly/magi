@@ -1121,8 +1121,19 @@ host participant IDs. Export-global scope is accepted only as an explicit
 importer-format guarantee; host-reserved document identities are never accepted
 from platform adapters.
 Deleting one job forgets an event only when no other active, selected membership
-references that source record; deleting the final membership triggers governed
-source-event forgetting. A global memory clear removes source records, job
+with a committed authorship or participant scope references that source record;
+an unconfirmed preview may retain its own preview text but never retains L1 or
+derived memory for another job. Deleting the final confirmed membership triggers
+governed cross-layer cleanup, removes that job's membership rows, deletes source
+plaintext with no remaining preview or job membership, and redacts the job to a
+minimal content-free deletion tombstone. A history-import deletion intentionally
+uses the reimportable source-event cleanup policy: the host has already stopped
+the only passive producer, so the completed cleanup does not retain exact-event,
+source-item, or idempotency replay barriers and a later explicit complete import
+may restore the same stable event identity. Every such deletion creates a new
+forget operation so a delete-import-delete cycle cannot reuse an earlier cleanup.
+Ordinary source, entity, chat, and user-requested forgetting keep their permanent
+replay barriers unchanged. A global memory clear removes source records, job
 memberships, and job state under the same import boundary.
 
 An authorship declaration for an imported Markdown document applies to ordinary

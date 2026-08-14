@@ -358,6 +358,50 @@ class UnifiedSourceEventForgettingMixin:
         )
         return outcome.event_count
 
+    async def forget_reimportable_source_events(
+        self,
+        event_ids: Iterable[str],
+        *,
+        reason: str,
+    ) -> int:
+        """Delete owned source evidence while allowing an explicit full re-import.
+
+        This path is intentionally narrower than ordinary source forgetting. It
+        performs the same cross-layer cleanup but does not retain exact-event or
+        business-identity replay barriers. Callers must first stop every passive
+        producer for the selected events and must create a new forget operation
+        for each deletion, because the same stable identities may later return
+        through an explicit user-confirmed replacement import.
+        """
+
+        normalized = normalize_source_event_ids(event_ids)
+        if not normalized:
+            return 0
+        selector = ForgetSelector.known_events(
+            normalized,
+            block_source_item=False,
+            include_turn_references=False,
+            replay_policy="explicit_reimport",
+        )
+        async with self._clear_barrier.operation():
+            existing_event_ids = (
+                set(await self.l1.get_raw_event_active_states(list(normalized)))
+                if self.l1 is not None
+                else set()
+            )
+            outcome = await self._durable_forget_runner.execute(
+                selector,
+                reason=reason,
+                reuse_completed=False,
+            )
+            if self.l1 is not None:
+                purged_count = await self.l1.purge_deleted_events(list(normalized))
+                if purged_count != len(existing_event_ids):
+                    raise RuntimeError(
+                        "Reimportable source cleanup did not purge every selected L1 event"
+                    )
+        return outcome.event_count
+
     async def forget_entity_memory(
         self,
         *,

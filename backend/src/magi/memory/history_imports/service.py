@@ -103,6 +103,10 @@ class HistoryImportService:
         self._memory = memory
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._quick_tasks: dict[str, asyncio.Task[None]] = {}
+        self._confirmation_payloads: dict[
+            str,
+            tuple[bool, tuple[str, ...] | None, tuple[str, ...]],
+        ] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._deletion_lock = asyncio.Lock()
         self._operation_barrier = AsyncOperationBarrier()
@@ -477,7 +481,7 @@ class HistoryImportService:
         """Load one job with participant, source, and content preview details."""
 
         job = await self._store.get_job(job_id)
-        if job is None:
+        if job is None or job.deleted_at is not None or job.status == "deleted":
             raise HistoryImportNotFoundError()
         return job
 
@@ -572,17 +576,24 @@ class HistoryImportService:
         lock = self._lock_for(job_id)
         async with lock:
             job = await self._get_job(job_id)
-            if job.quick_ready or job.imported_count > 0:
+            if self._scope_confirmed(job) or job.quick_ready or job.imported_count > 0:
                 raise HistoryImportValidationError("history_import_selection_locked")
             normalized = _validate_included_sources(
                 job,
                 included_source_ids,
                 allow_empty=True,
             )
-            return await self._store.update_selection(
-                job_id=job_id,
-                included_source_ids=normalized,
-            )
+            try:
+                return await self._store.update_selection(
+                    job_id=job_id,
+                    included_source_ids=normalized,
+                )
+            except ValueError as exc:
+                if str(exc) == "history_import_selection_locked":
+                    raise HistoryImportValidationError(str(exc)) from exc
+                raise
+            except KeyError as exc:
+                raise HistoryImportNotFoundError() from exc
 
     async def confirm(
         self,
@@ -622,15 +633,17 @@ class HistoryImportService:
                 job,
                 included_source_ids if included_source_ids is not None else job.included_source_ids,
             )
-            if job.quick_ready and set(job.included_source_ids) != set(selected_files):
-                raise HistoryImportValidationError("history_import_selection_locked")
-            if not job.quick_ready:
-                job = await self._store.update_selection(
-                    job_id=job_id,
-                    included_source_ids=selected_files,
-                )
-            participant_ids = {item.participant_id for item in job.participants}
-            selected_kinds = {source.detected_kind for source in job.sources if source.included}
+            participants = await self._store.list_participants_for_sources(
+                job_id=job_id,
+                included_source_ids=selected_files,
+            )
+            participant_ids = {item.participant_id for item in participants}
+            selected_source_set = set(selected_files)
+            selected_kinds = {
+                source.detected_kind
+                for source in job.sources
+                if source.source_id in selected_source_set
+            }
             if selected_kinds == {"document"}:
                 if DOCUMENT_AUTHOR not in participant_ids:
                     raise HistoryImportValidationError("history_import_unsupported_source_kind")
@@ -643,12 +656,6 @@ class HistoryImportService:
                     raise HistoryImportValidationError("history_import_self_participant_required")
             else:
                 raise HistoryImportValidationError("history_import_unsupported_source_kind")
-            if (
-                job.imported_count > 0
-                and job.self_participant_ids
-                and set(job.self_participant_ids) != set(selected)
-            ):
-                raise HistoryImportValidationError("self_participant_locked_after_import")
             logger.info(
                 "History import confirmation started",
                 process_id=os.getpid(),
@@ -658,22 +665,26 @@ class HistoryImportService:
                 imported_count=job.imported_count,
                 quick_ready=job.quick_ready,
             )
-            if not job.quick_ready:
-                try:
-                    await self._store.set_scope(
-                        job_id=job_id,
-                        self_participant_ids=selected,
-                        included_source_ids=selected_files,
-                    )
-                except ValueError as exc:
-                    reason = str(exc)
-                    if reason == "history_import_non_append_update":
-                        raise HistoryImportValidationError(
-                            "history_importer_non_append_update"
-                        ) from exc
-                    if reason == "history_import_speaker_role_conflict":
-                        raise HistoryImportValidationError(reason) from exc
-                    raise
+            try:
+                await self._store.set_scope(
+                    job_id=job_id,
+                    self_participant_ids=selected,
+                    included_source_ids=selected_files,
+                )
+            except ValueError as exc:
+                reason = str(exc)
+                if reason == "history_import_non_append_update":
+                    raise HistoryImportValidationError(
+                        "history_importer_non_append_update"
+                    ) from exc
+                if reason in {
+                    "history_import_scope_conflict",
+                    "history_import_speaker_role_conflict",
+                }:
+                    raise HistoryImportValidationError(reason) from exc
+                raise
+            except KeyError as exc:
+                raise HistoryImportNotFoundError() from exc
             return await self._get_job_progress(job_id)
 
     async def get_first_contact_snippet(self) -> str | None:
@@ -765,10 +776,9 @@ class HistoryImportService:
                     unreferenced_event_count=len(event_ids),
                 )
                 if event_ids:
-                    await self._memory.forget_known_source_events(
+                    await self._memory.forget_reimportable_source_events(
                         event_ids,
                         reason="history_import_deleted",
-                        block_source_item=False,
                     )
                 await self._store.mark_deleted(job_id=job_id)
                 await self._log_integrity_audit(checkpoint="deleted")
@@ -781,8 +791,15 @@ class HistoryImportService:
         included_source_ids: list[str] | None,
         self_participant_ids: list[str] | None,
     ) -> asyncio.Task[None]:
+        request_payload = _confirmation_payload(
+            confirm_personal_writing=confirm_personal_writing,
+            included_source_ids=included_source_ids,
+            self_participant_ids=self_participant_ids,
+        )
         existing = self._quick_tasks.get(job_id)
         if existing is not None and not existing.done():
+            if self._confirmation_payloads.get(job_id) != request_payload:
+                raise HistoryImportValidationError("history_import_confirmation_conflict")
             return existing
         task = asyncio.create_task(
             self._confirm_and_run_quick(
@@ -794,6 +811,7 @@ class HistoryImportService:
             name=f"history-import-confirm:{job_id}",
         )
         self._quick_tasks[job_id] = task
+        self._confirmation_payloads[job_id] = request_payload
         task.add_done_callback(partial(self._quick_task_finished, job_id))
         return task
 
@@ -833,6 +851,7 @@ class HistoryImportService:
     ) -> None:
         if self._quick_tasks.get(job_id) is task:
             self._quick_tasks.pop(job_id, None)
+            self._confirmation_payloads.pop(job_id, None)
         if task.cancelled():
             return
         task.exception()
@@ -1196,6 +1215,7 @@ class HistoryImportService:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._quick_tasks.clear()
         self._tasks.clear()
+        self._confirmation_payloads.clear()
 
 
 def _platform_import_fingerprint(
@@ -1431,6 +1451,39 @@ def _validate_included_sources(
     if any(item not in known for item in normalized):
         raise HistoryImportValidationError("history_import_selection_changed")
     return [item for item in job.source_ids if item in set(normalized)]
+
+
+def _confirmation_payload(
+    *,
+    confirm_personal_writing: bool,
+    included_source_ids: list[str] | None,
+    self_participant_ids: list[str] | None,
+) -> tuple[bool, tuple[str, ...] | None, tuple[str, ...]]:
+    """Return the canonical identity of one in-flight confirmation request."""
+
+    normalized_sources = (
+        None
+        if included_source_ids is None
+        else tuple(
+            sorted(
+                {str(item or "").strip() for item in included_source_ids if str(item or "").strip()}
+            )
+        )
+    )
+    normalized_participants = tuple(
+        sorted(
+            {
+                str(item or "").strip()
+                for item in (self_participant_ids or [])
+                if str(item or "").strip()
+            }
+        )
+    )
+    return (
+        bool(confirm_personal_writing),
+        normalized_sources,
+        normalized_participants,
+    )
 
 
 def _build_records(

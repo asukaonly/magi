@@ -495,7 +495,12 @@ memory, its existing stable message-key sequence is an immutable prefix. An
 export that inserts, removes, or reorders earlier messages is not merged in
 place, because doing so would leave previously persisted L1 sequence metadata
 ambiguous. The product asks the user to delete the earlier import and import the
-new complete archive instead.
+new complete archive instead. The host makes that replacement actionable rather
+than cosmetic: deleting the final confirmed membership performs cross-layer
+cleanup and removes the import-owned replay barriers, memberships, orphaned
+source plaintext, and sensitive job payload before the next explicit import.
+This narrowly scoped replacement policy does not weaken permanent replay
+barriers used by ordinary memory forgetting.
 
 The first supported platform adapter reads official ChatGPT data-export ZIP or
 conversation JSON files. It linearizes only the archive's declared active branch,

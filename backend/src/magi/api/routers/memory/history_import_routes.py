@@ -247,6 +247,10 @@ def _raise_service_error(exc: Exception) -> None:
         ) from exc
     if isinstance(exc, HistoryImportValidationError):
         conflict_reasons = {
+            "history_import_confirmation_conflict",
+            "history_import_scope_conflict",
+            "history_import_speaker_role_conflict",
+            "history_importer_non_append_update",
             "self_participant_locked_after_import",
             "history_import_selection_locked",
             "memory_cleared_during_import",

@@ -231,19 +231,24 @@ class ForgetSelectorResolver:
         return sorted(set(l1_ids).union(durable_ids))[:page_size]
 
     @staticmethod
-    def event_reference_options(selector: ForgetSelector) -> tuple[bool, bool]:
-        """Return include-turn and source-item replay policies."""
+    def event_reference_options(selector: ForgetSelector) -> tuple[bool, bool, bool]:
+        """Return turn, source-item, and durable replay-barrier policies."""
         if selector.kind == "known_events":
+            replay_policy = str(selector.payload.get("replay_policy") or "permanent")
+            if replay_policy not in {"permanent", "explicit_reimport"}:
+                raise ValueError("Unsupported source-event replay policy")
             return (
                 bool(selector.payload.get("include_turn_references", True)),
                 bool(selector.payload.get("block_source_item", True)),
+                replay_policy == "permanent",
             )
         if selector.kind == "chat_message":
             return (
                 str(selector.payload.get("event_type") or "") == EventTypes.USER_MESSAGE,
                 True,
+                True,
             )
-        return True, True
+        return True, True, True
 
     async def episode_exists(self, episode_id: str) -> bool:
         async with sqlite_connection_async(self._memory_db_path) as db:

@@ -25,6 +25,7 @@ from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
 from magi.memory.history_imports import service as history_import_service_module
 from magi.memory.history_imports.service import (
     SOURCE_PREVIEW_MAX_CHARS,
+    HistoryImportNotFoundError,
     HistoryImportService,
     HistoryImportValidationError,
 )
@@ -64,12 +65,11 @@ class _MemoryStub:
         self.projected_events.append(event)
         return {"l2_job_enqueued": True}
 
-    async def forget_known_source_events(
+    async def forget_reimportable_source_events(
         self,
         event_ids,
         *,
         reason,
-        block_source_item,
     ):
         self.forgotten_event_ids.extend(event_ids)
 
@@ -609,7 +609,35 @@ async def test_delete_forgets_every_imported_raw_event(
 
     deleted = await service.get_job(preview.job_id)
     assert deleted.status == "deleted"
+    assert deleted.source_type == "deleted"
+    assert deleted.source_fingerprint == f"deleted:{preview.job_id}"
+    assert deleted.source_ids == []
+    assert deleted.included_source_ids == []
+    assert deleted.self_participant_ids == []
+    assert deleted.warnings == []
+    assert deleted.total_records == 0
     assert memory.forgotten_event_ids == [memory.raw_events[0].event_id]
+    with pytest.raises(HistoryImportNotFoundError):
+        await service.get_source_preview(
+            job_id=preview.job_id,
+            source_id="notes.md",
+        )
+    async with aiosqlite.connect(history_store.db_path) as db:
+        membership_count = (
+            await (
+                await db.execute(
+                    "SELECT COUNT(*) FROM history_import_job_records WHERE job_id = ?",
+                    (preview.job_id,),
+                )
+            ).fetchone()
+        )[0]
+        source_count = (
+            await (
+                await db.execute("SELECT COUNT(*) FROM history_import_source_records")
+            ).fetchone()
+        )[0]
+    assert membership_count == 0
+    assert source_count == 0
     await service.stop()
 
 
@@ -766,6 +794,55 @@ async def test_delete_forgets_shared_event_only_after_final_active_membership(
 
 
 @pytest.mark.asyncio
+async def test_unconfirmed_overlapping_preview_does_not_retain_confirmed_memory(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    shared = tmp_path / "shared.md"
+    changed = tmp_path / "changed.md"
+    shared.write_text("# Notes\n\nShared source.", encoding="utf-8")
+    changed.write_text("# Notes\n\nFirst version.", encoding="utf-8")
+    memory = _MemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+
+    first = await service.preview_markdown_paths([str(shared), str(changed)])
+    await service.confirm(
+        job_id=first.job_id,
+        confirm_personal_writing=True,
+        included_source_ids=first.included_source_ids,
+    )
+    first_event_ids = set(await history_store.list_imported_event_ids(job_id=first.job_id))
+
+    changed.write_text("# Notes\n\nSecond version.", encoding="utf-8")
+    second = await service.preview_markdown_paths([str(shared), str(changed)])
+    assert second.status == "preview_ready"
+
+    await service.delete(first.job_id)
+
+    assert set(memory.forgotten_event_ids) == first_event_ids
+    second_preview = await service.get_source_preview(
+        job_id=second.job_id,
+        source_id="shared.md",
+    )
+    assert second_preview.records[0].content == "# Notes\n\nShared source."
+    async with aiosqlite.connect(history_store.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT DISTINCT source.speaker_role
+            FROM history_import_source_records AS source
+            JOIN history_import_job_records AS membership
+              ON membership.source_record_key = source.source_record_key
+            WHERE membership.job_id = ?
+            """,
+            (second.job_id,),
+        ) as cursor:
+            roles = {str(row["speaker_role"]) for row in await cursor.fetchall()}
+    assert roles == {"unknown"}
+    await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_delete_cleans_pending_event_identity_and_mtime_reimport_succeeds(
     tmp_path: Path,
     history_store: HistoryImportStore,
@@ -796,6 +873,57 @@ async def test_delete_cleans_pending_event_identity_and_mtime_reimport_succeeds(
     assert second.job_id != first.job_id
     assert second_records[0].event_id == first_records[0].event_id
     await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_delete_then_explicit_reimport_restores_same_stable_l1_event(
+    tmp_path: Path,
+) -> None:
+    memory_db_path = tmp_path / "memory.db"
+    memory = _build_real_memory(tmp_path)
+    await memory.initialize()
+    store = HistoryImportStore(db_path=str(memory_db_path))
+    service = HistoryImportService(store=store, memory=memory)
+    markdown = tmp_path / "journal.md"
+    markdown.write_text("# Journal\n\nAn unchanged entry.", encoding="utf-8")
+
+    try:
+        first = await service.preview_markdown_paths([str(markdown)])
+        first_event_id = first.preview_records[0].event_id
+        await service.confirm(
+            job_id=first.job_id,
+            confirm_personal_writing=True,
+            included_source_ids=first.included_source_ids,
+        )
+        await service.delete(first.job_id)
+
+        assert await memory.l1.get_event(first_event_id) is None
+        async with aiosqlite.connect(memory_db_path) as db:
+            tombstone = await (
+                await db.execute(
+                    "SELECT 1 FROM memory_source_event_tombstones WHERE event_id = ?",
+                    (first_event_id,),
+                )
+            ).fetchone()
+        assert tombstone is None
+
+        second = await service.preview_markdown_paths([str(markdown)])
+        assert second.job_id != first.job_id
+        assert second.preview_records[0].event_id == first_event_id
+        ready = await service.confirm(
+            job_id=second.job_id,
+            confirm_personal_writing=True,
+            included_source_ids=second.included_source_ids,
+        )
+
+        assert ready.quick_ready is True
+        assert ready.imported_count == 1
+        restored = await memory.l1.get_event(first_event_id)
+        assert restored is not None
+        assert restored["content"] == "# Journal\n\nAn unchanged entry."
+    finally:
+        await service.stop()
+        await memory.shutdown()
 
 
 @pytest.mark.asyncio
@@ -1264,7 +1392,11 @@ async def test_clear_does_not_deadlock_between_worker_and_selection_lock_order(
 
     try:
         release_first_holder.set()
-        await asyncio.wait_for(selection_task, timeout=2)
+        with pytest.raises(
+            HistoryImportValidationError,
+            match="history_import_selection_locked",
+        ):
+            await asyncio.wait_for(selection_task, timeout=2)
         await asyncio.wait_for(clear_task, timeout=2)
 
         assert service._quick_tasks == {}
@@ -1314,6 +1446,99 @@ async def test_selection_excludes_unwanted_files_before_any_memory_write(
         "# Journal\n\nI started learning pottery."
     ]
     await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_committed_scope_freezes_selection_and_is_payload_idempotent(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    first_file = tmp_path / "first.md"
+    second_file = tmp_path / "second.md"
+    first_file.write_text("First entry.", encoding="utf-8")
+    second_file.write_text("Second entry.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+    preview = await service.preview_markdown_paths([str(first_file), str(second_file)])
+
+    committed = await history_store.set_scope(
+        job_id=preview.job_id,
+        self_participant_ids=["__document_author__"],
+        included_source_ids=["first.md"],
+    )
+    repeated = await history_store.set_scope(
+        job_id=preview.job_id,
+        self_participant_ids=["__document_author__"],
+        included_source_ids=["first.md"],
+    )
+
+    assert committed.included_source_ids == ["first.md"]
+    assert repeated.included_source_ids == ["first.md"]
+    with pytest.raises(ValueError, match="history_import_scope_conflict"):
+        await history_store.set_scope(
+            job_id=preview.job_id,
+            self_participant_ids=["__document_author__"],
+            included_source_ids=["second.md"],
+        )
+    with pytest.raises(
+        HistoryImportValidationError,
+        match="history_import_selection_locked",
+    ):
+        await service.update_selection(
+            job_id=preview.job_id,
+            included_source_ids=["second.md"],
+        )
+    current = await history_store.get_job_progress(preview.job_id)
+    assert current is not None
+    assert current.included_source_ids == ["first.md"]
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_confirmation_reuses_only_the_same_payload(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    markdown = tmp_path / "journal.md"
+    markdown.write_text("A quiet morning.", encoding="utf-8")
+    memory = _PausedRawMemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
+    preview = await service.preview_markdown_paths([str(markdown)])
+    first = asyncio.create_task(
+        service.confirm(
+            job_id=preview.job_id,
+            confirm_personal_writing=True,
+            included_source_ids=preview.included_source_ids,
+        )
+    )
+
+    try:
+        await asyncio.wait_for(memory.raw_write_started.wait(), timeout=1)
+        repeated = asyncio.create_task(
+            service.confirm(
+                job_id=preview.job_id,
+                confirm_personal_writing=True,
+                included_source_ids=list(reversed(preview.included_source_ids)),
+            )
+        )
+        await asyncio.sleep(0)
+        with pytest.raises(
+            HistoryImportValidationError,
+            match="history_import_confirmation_conflict",
+        ):
+            await service.confirm(
+                job_id=preview.job_id,
+                confirm_personal_writing=False,
+                included_source_ids=preview.included_source_ids,
+            )
+
+        memory.release_raw_write.set()
+        first_result, repeated_result = await asyncio.gather(first, repeated)
+        assert first_result.job_id == repeated_result.job_id == preview.job_id
+        assert len(memory.raw_events) == 1
+    finally:
+        memory.release_raw_write.set()
+        await asyncio.gather(first, return_exceptions=True)
+        await service.stop()
 
 
 @pytest.mark.asyncio

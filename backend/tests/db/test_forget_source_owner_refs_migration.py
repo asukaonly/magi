@@ -10,7 +10,7 @@ from magi.db.runner import MIGRATION_TARGETS, _build_config
 
 V31_REVISION = "v31_correction_replacement_slot_index"
 V32_REVISION = "v32_forget_source_owner_refs"
-MEMORY_HEAD_REVISION = "v46_history_import_adapters"
+MEMORY_HEAD_REVISION = "v47_history_import_deletion_privacy"
 
 
 def _memory_config(db_path: Path):

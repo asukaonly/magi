@@ -3,10 +3,15 @@
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from magi_plugin_sdk import HistoryImporterSpec
 
 from magi.api.routers.memory import history_import_routes
 from magi.api.routers.memory.history_import_routes import _warning_summary
+from magi.memory.history_imports.service import (
+    HistoryImportNotFoundError,
+    HistoryImportValidationError,
+)
 
 
 @pytest.mark.asyncio
@@ -64,3 +69,29 @@ def test_warning_summary_preserves_pre_truncation_count() -> None:
     assert summary.total_count == 430
     assert summary.codes == ["unsupported_content"]
     assert summary.truncated is True
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "history_import_confirmation_conflict",
+        "history_import_scope_conflict",
+        "history_import_selection_locked",
+        "history_import_speaker_role_conflict",
+        "history_importer_non_append_update",
+    ],
+)
+def test_scope_and_confirmation_conflicts_map_to_http_409(reason: str) -> None:
+    with pytest.raises(HTTPException) as raised:
+        history_import_routes._raise_service_error(HistoryImportValidationError(reason))
+
+    assert raised.value.status_code == 409
+    assert raised.value.detail == reason
+
+
+def test_deleted_history_import_preview_maps_to_http_404() -> None:
+    with pytest.raises(HTTPException) as raised:
+        history_import_routes._raise_service_error(HistoryImportNotFoundError())
+
+    assert raised.value.status_code == 404
+    assert raised.value.detail == "history_import_not_found"

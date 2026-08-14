@@ -821,6 +821,70 @@ class L1EventWriteMixin:
                 await db.commit()
             return deleted_count
 
+    async def purge_deleted_events(self, event_ids: list[str]) -> int:
+        """Physically remove a bounded set of already-forgotten L1 events.
+
+        This is a maintenance primitive for source domains that explicitly
+        support replacing the same stable event identity. Product deletion
+        flows must perform governed cross-layer forgetting before calling it.
+        """
+
+        host = cast(L1EventWriteHostProtocol, self)
+        await host.initialize()
+        normalized = list(
+            dict.fromkeys(str(event_id).strip() for event_id in event_ids if str(event_id).strip())
+        )
+        if not normalized:
+            return 0
+        event_ids_json = json.dumps(
+            normalized,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        async with host.embedding_mutation_guard():
+            async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+                chunk_ids = await _chunk_ids_for_events(db, normalized)
+                await _delete_chunk_vectors(host, chunk_ids)
+                await db.execute(
+                    """
+                    DELETE FROM l1_events_fts
+                    WHERE event_id IN (
+                        SELECT CAST(value AS TEXT) FROM json_each(?)
+                    )
+                    """,
+                    (event_ids_json,),
+                )
+                for table in (
+                    "l1_projected_event_entities",
+                    "l1_event_entity_projection_state",
+                    "l1_event_entities",
+                    "l1_source_facets",
+                    EVENT_CHUNKS_TABLE,
+                    L1_EVENT_EMBEDDING_STATE_TABLE,
+                    L1_EVENT_PAYLOAD_TABLE,
+                ):
+                    await db.execute(
+                        f"""
+                        DELETE FROM {table}
+                        WHERE event_id IN (
+                            SELECT CAST(value AS TEXT) FROM json_each(?)
+                        )
+                        """,
+                        (event_ids_json,),
+                    )
+                deleted = await db.execute(
+                    f"""
+                    DELETE FROM {FACT_EVENTS_TABLE}
+                    WHERE deleted_at IS NOT NULL
+                      AND event_id IN (
+                          SELECT CAST(value AS TEXT) FROM json_each(?)
+                      )
+                    """,
+                    (event_ids_json,),
+                )
+                await db.commit()
+        return max(int(deleted.rowcount or 0), 0)
+
     async def list_active_event_ids_by_entity(
         self,
         entity_id: str,

@@ -297,6 +297,32 @@ async def test_barrier_and_cleanup_references_are_loaded_in_one_raw_batch(
 
 
 @pytest.mark.asyncio
+async def test_explicit_reimport_cleanup_omits_replay_barriers(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "memory.db"
+    await _create_memory_schema(db_path)
+    memory = _UnifiedHarness(db_path)
+
+    references = await ForgetReferenceBuilder(
+        memory_db_path=memory.memory_db_path,
+        l1=memory.l1,
+    ).event_references(
+        ("evt-1",),
+        include_turn_references=False,
+        block_source_item=False,
+        persist_replay_barriers=False,
+    )
+
+    assert [reference for reference in references if reference.role == "barrier"] == []
+    assert [
+        (reference.ref_type, reference.value)
+        for reference in references
+        if reference.role == "cleanup"
+    ] == [("exact_event", "evt-1")]
+
+
+@pytest.mark.asyncio
 async def test_known_event_forgetting_uses_stable_sorted_batches(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -616,10 +642,7 @@ async def test_real_unified_forgetting_governs_distinct_chat_turn_identity(
 
         async def analyze(batch, **_kwargs):  # type: ignore[no-untyped-def]
             return BatchInteractionAnalysis(
-                turn_analyses={
-                    turn.turn_id: DEFAULT_ANALYSIS
-                    for turn in batch
-                },
+                turn_analyses={turn.turn_id: DEFAULT_ANALYSIS for turn in batch},
                 attention_actions=(),
             )
 

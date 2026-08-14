@@ -370,18 +370,29 @@ class HistoryImportStore:
             dict.fromkeys(item.strip() for item in included_source_ids if item.strip())
         )
         async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
+            cursor = await db.execute(
                 """
                 UPDATE history_import_jobs
                 SET included_source_ids_json = ?, updated_at = ?
                 WHERE job_id = ?
                   AND deleted_at IS NULL
+                  AND status = 'preview_ready'
                   AND quick_ready = 0
                   AND imported_count = 0
+                  AND json_array_length(self_participant_ids_json) = 0
                 """,
                 (json.dumps(normalized, ensure_ascii=False), now, job_id),
             )
             await db.commit()
+            if not cursor.rowcount:
+                async with db.execute(
+                    "SELECT deleted_at FROM history_import_jobs WHERE job_id = ?",
+                    (job_id,),
+                ) as existing_cursor:
+                    existing = await existing_cursor.fetchone()
+                if existing is None or existing["deleted_at"] is not None:
+                    raise KeyError(job_id)
+                raise ValueError("history_import_selection_locked")
         job = await self.get_job(job_id)
         if job is None:
             raise KeyError(job_id)
@@ -406,7 +417,9 @@ class HistoryImportStore:
             try:
                 async with db.execute(
                     """
-                    SELECT importer_plugin_id, importer_id, importer_format_version
+                    SELECT importer_plugin_id, importer_id, importer_format_version,
+                           included_source_ids_json, self_participant_ids_json,
+                           status, quick_ready, imported_count
                     FROM history_import_jobs
                     WHERE job_id = ? AND deleted_at IS NULL
                     """,
@@ -415,6 +428,28 @@ class HistoryImportStore:
                     importer_row = await cursor.fetchone()
                 if importer_row is None:
                     raise KeyError(job_id)
+                committed_participants = list(
+                    json.loads(importer_row["self_participant_ids_json"] or "[]")
+                )
+                committed_sources = list(
+                    json.loads(importer_row["included_source_ids_json"] or "[]")
+                )
+                if committed_participants:
+                    if set(committed_participants) == set(normalized) and set(
+                        committed_sources
+                    ) == set(normalized_files):
+                        await db.commit()
+                        job = await self.get_job_progress(job_id)
+                        if job is None:
+                            raise KeyError(job_id)
+                        return job
+                    raise ValueError("history_import_scope_conflict")
+                if (
+                    str(importer_row["status"]) != "preview_ready"
+                    or bool(importer_row["quick_ready"])
+                    or int(importer_row["imported_count"] or 0) > 0
+                ):
+                    raise ValueError("history_import_scope_conflict")
                 importer_identity = tuple(
                     str(importer_row[column] or "").strip()
                     for column in (
@@ -512,7 +547,7 @@ class HistoryImportStore:
                     """,
                     (*normalized_files, *normalized_files, now, job_id),
                 )
-                await db.execute(
+                job_cursor = await db.execute(
                     f"""
                     UPDATE history_import_jobs
                     SET included_source_ids_json = ?,
@@ -537,7 +572,12 @@ class HistoryImportStore:
                         ),
                         error_text = NULL,
                         updated_at = ?
-                    WHERE job_id = ? AND deleted_at IS NULL
+                    WHERE job_id = ?
+                      AND deleted_at IS NULL
+                      AND status = 'preview_ready'
+                      AND quick_ready = 0
+                      AND imported_count = 0
+                      AND json_array_length(self_participant_ids_json) = 0
                     """,
                     (
                         json.dumps(normalized_files, ensure_ascii=False),
@@ -550,6 +590,8 @@ class HistoryImportStore:
                         job_id,
                     ),
                 )
+                if job_cursor.rowcount != 1:
+                    raise ValueError("history_import_scope_conflict")
                 await db.commit()
             except BaseException:
                 await db.rollback()
@@ -558,6 +600,23 @@ class HistoryImportStore:
         if job is None:
             raise KeyError(job_id)
         return job
+
+    async def list_participants_for_sources(
+        self,
+        *,
+        job_id: str,
+        included_source_ids: list[str],
+    ) -> list[HistoryImportParticipant]:
+        """Return participant choices for one proposed source selection."""
+
+        if not included_source_ids:
+            return []
+        async with sqlite_connection_async(self.db_path) as db:
+            return await self._participants(
+                db,
+                job_id,
+                included_source_ids=included_source_ids,
+            )
 
     async def select_quick_records(
         self,
@@ -674,6 +733,8 @@ class HistoryImportStore:
                       WHERE other.source_record_key = target.source_record_key
                         AND other.job_id != target.job_id
                         AND other_job.deleted_at IS NULL
+                        AND other_job.status != 'preview_ready'
+                        AND json_array_length(other_job.self_participant_ids_json) > 0
                         AND other.raw_state != 'skipped'
                         AND EXISTS (
                             SELECT 1
@@ -900,11 +961,45 @@ class HistoryImportStore:
                 await db.execute(
                     """
                     UPDATE history_import_jobs
-                    SET status = 'deleted', deleted_at = ?, error_text = NULL,
+                    SET source_type = 'deleted',
+                        source_fingerprint = 'deleted:' || job_id,
+                        source_ids_json = '[]',
+                        included_source_ids_json = '[]',
+                        importer_plugin_id = NULL,
+                        importer_id = NULL,
+                        importer_format_version = NULL,
+                        detected_kind = 'deleted',
+                        status = 'deleted',
+                        total_records = 0,
+                        meaningful_records = 0,
+                        quick_target_records = 0,
+                        quick_max_records = 0,
+                        quick_imported_count = 0,
+                        imported_count = 0,
+                        projected_count = 0,
+                        self_participant_ids_json = '[]',
+                        warnings_json = '[]',
+                        quick_ready = 0,
+                        deleted_at = ?,
+                        error_text = NULL,
                         updated_at = ?
                     WHERE job_id = ? AND deleted_at IS NULL
                     """,
                     (now, now, job_id),
+                )
+                await db.execute(
+                    "DELETE FROM history_import_job_records WHERE job_id = ?",
+                    (job_id,),
+                )
+                await db.execute(
+                    """
+                    DELETE FROM history_import_source_records AS source
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM history_import_job_records AS membership
+                        WHERE membership.source_record_key = source.source_record_key
+                    )
+                    """
                 )
                 await db.execute(
                     """
@@ -917,6 +1012,8 @@ class HistoryImportStore:
                           ON job.job_id = membership.job_id
                         WHERE membership.source_record_key = source.source_record_key
                           AND job.deleted_at IS NULL
+                          AND job.status != 'preview_ready'
+                          AND json_array_length(job.self_participant_ids_json) > 0
                           AND membership.raw_state != 'skipped'
                           AND EXISTS (
                               SELECT 1

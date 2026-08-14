@@ -98,9 +98,7 @@ class ForgetReferenceBuilder:
         if selector.kind == "chat_message":
             payload = selector.payload
             references: list[ForgetReference] = []
-            for turn_id in normalize_source_event_ids(
-                payload.get("runtime_turn_ids", [])
-            ):
+            for turn_id in normalize_source_event_ids(payload.get("runtime_turn_ids", [])):
                 references.extend(
                     (
                         ForgetReference("", "barrier", "turn_cutoff", turn_id),
@@ -145,6 +143,7 @@ class ForgetReferenceBuilder:
         *,
         include_turn_references: bool,
         block_source_item: bool,
+        persist_replay_barriers: bool = True,
     ) -> tuple[ForgetReference, ...]:
         normalized = normalize_source_event_ids(event_ids)
         if not normalized:
@@ -156,12 +155,9 @@ class ForgetReferenceBuilder:
         references: list[ForgetReference] = []
         cleanup_values: list[str] = []
         for event_id in normalized:
-            references.extend(
-                (
-                    ForgetReference(event_id, "barrier", "exact_event", event_id),
-                    ForgetReference(event_id, "cleanup", "exact_event", event_id),
-                )
-            )
+            references.append(ForgetReference(event_id, "cleanup", "exact_event", event_id))
+            if persist_replay_barriers:
+                references.append(ForgetReference(event_id, "barrier", "exact_event", event_id))
             cleanup_values.append(event_id)
             identity = identities.get(event_id)
             if not identity:
@@ -180,59 +176,62 @@ class ForgetReferenceBuilder:
                         ),
                     )
                 )
-            for business_ref in business_source_references(
-                source=str(identity.get("source") or ""),
-                event_type=str(identity.get("event_type") or ""),
-                source_item_id=identity.get("source_item_id"),
-                idempotency_key=identity.get("idempotency_key"),
-                include_source_item=block_source_item,
-            ):
-                references.append(
-                    ForgetReference(
-                        event_id,
-                        "barrier",
-                        _business_reference_type(business_ref),
-                        business_ref,
+            if persist_replay_barriers:
+                for business_ref in business_source_references(
+                    source=str(identity.get("source") or ""),
+                    event_type=str(identity.get("event_type") or ""),
+                    source_item_id=identity.get("source_item_id"),
+                    idempotency_key=identity.get("idempotency_key"),
+                    include_source_item=block_source_item,
+                ):
+                    references.append(
+                        ForgetReference(
+                            event_id,
+                            "barrier",
+                            _business_reference_type(business_ref),
+                            business_ref,
+                        )
                     )
-                )
             if include_turn_references:
                 turn_id = str(identity.get("turn_id") or "").strip()
                 if turn_id:
                     cleanup_values.append(turn_id)
-                    references.extend(
-                        (
+                    if persist_replay_barriers:
+                        references.append(
                             ForgetReference(
                                 event_id,
                                 "barrier",
                                 "turn_cutoff",
                                 turn_id,
-                            ),
-                            ForgetReference(
-                                event_id,
-                                "cleanup",
-                                "turn",
-                                turn_id,
-                            ),
+                            )
+                        )
+                    references.append(
+                        ForgetReference(
+                            event_id,
+                            "cleanup",
+                            "turn",
+                            turn_id,
                         )
                     )
 
         audit_event_ids = await self._correction_audit_event_ids(cleanup_values)
         owner_event_id = normalized[0]
         for audit_event_id in audit_event_ids:
-            references.extend(
-                (
+            if persist_replay_barriers:
+                references.append(
                     ForgetReference(
                         owner_event_id,
                         "barrier",
                         "audit_event",
                         audit_event_id,
-                    ),
-                    ForgetReference(
-                        owner_event_id,
-                        "cleanup",
-                        "audit_event",
-                        audit_event_id,
-                    ),
+                    )
+                )
+            references.append(
+                ForgetReference(
+                    owner_event_id,
+                    "cleanup",
+                    "audit_event",
+                    audit_event_id,
                 )
             )
         return _dedupe_references(references)
