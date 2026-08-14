@@ -150,10 +150,11 @@ export const historyImportsApi = {
   async getSourcePreview(
     jobId: string,
     sourceId: string,
+    signal?: AbortSignal,
   ): Promise<HistoryImportSourcePreview> {
     const response = await api.get<HistoryImportSourcePreview>(
       `/memory/history-imports/${encodeURIComponent(jobId)}/source-preview`,
-      { params: { source_id: sourceId } },
+      { params: { source_id: sourceId }, signal },
     );
     return unwrapGatewayPayload(response);
   },

@@ -37,7 +37,12 @@ describe('historyImportsApi contract', () => {
     const patchSpy = vi.spyOn(api, 'patch').mockResolvedValue({} as any);
     const postSpy = vi.spyOn(api, 'post').mockResolvedValue({} as any);
 
-    await historyImportsApi.getSourcePreview('him-1', 'conversation:stable-id');
+    const controller = new AbortController();
+    await historyImportsApi.getSourcePreview(
+      'him-1',
+      'conversation:stable-id',
+      controller.signal,
+    );
     await historyImportsApi.updateSelection('him-1', ['conversation:stable-id']);
     await historyImportsApi.confirm('him-1', {
       confirmPersonalWriting: false,
@@ -47,7 +52,10 @@ describe('historyImportsApi contract', () => {
 
     expect(getSpy).toHaveBeenCalledWith(
       '/memory/history-imports/him-1/source-preview',
-      { params: { source_id: 'conversation:stable-id' } },
+      {
+        params: { source_id: 'conversation:stable-id' },
+        signal: controller.signal,
+      },
     );
     expect(patchSpy).toHaveBeenCalledWith(
       '/memory/history-imports/him-1/selection',

@@ -138,6 +138,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     useState<HistoryImportFlowActionState>({
       canConfirm: false,
       busy: false,
+      primaryAction: null,
     });
   const historyImportFlowRef = useRef<HistoryImportFlowHandle | null>(null);
   const finishInFlightRef = useRef(false);
@@ -761,12 +762,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const historyImportAwaitingConfirmation = Boolean(
     isFirstContextHistoryRoute &&
       firstContextHistoryJob &&
-      !firstContextHistoryJob.quick_ready,
+      !firstContextHistoryJob.quick_ready &&
+      ["preview_ready", "failed"].includes(firstContextHistoryJob.status),
   );
   const historyImportPreparingSelection = Boolean(
     isFirstContextHistoryRoute &&
-      !firstContextHistoryJob &&
-      historyImportActionState.busy,
+      ((!firstContextHistoryJob && historyImportActionState.busy) ||
+        (firstContextHistoryJob &&
+          !firstContextHistoryJob.quick_ready &&
+          ["ready", "running"].includes(firstContextHistoryJob.status))),
   );
   const previousLabel =
     current === FIRST_CONTEXT_STEP && firstContextProgress.route !== "choose"
@@ -785,8 +789,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         ? t("firstContext.history.loading")
         : historyImportAwaitingConfirmation
           ? historyImportActionState.busy
-            ? t("firstContext.history.preview.importing")
-            : t("firstContext.history.preview.confirm")
+            ? historyImportActionState.primaryAction === "resume"
+              ? t("firstContext.history.failed.retrying")
+              : t("firstContext.history.preview.importing")
+            : historyImportActionState.primaryAction === "resume"
+              ? t("firstContext.history.failed.retry")
+              : t("firstContext.history.preview.confirm")
           : firstContextPluginIds.length > 0 ||
               firstContextProgress.historyPreparedCount > 0
             ? t("actions.finishContext")
@@ -799,6 +807,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       (firstContextProgress.submitted ||
         firstContextProgress.sendUncertain)) ||
     llmConnectionConfigPending ||
+    (isFirstContextHistoryRoute && historyImportActionState.busy) ||
     (current === PERSONA_STEP &&
       (personaGenerating || personaConfirming));
   const nextDisabled =

@@ -422,6 +422,7 @@
       "body": "选择个人文字，或从支持的平台导入对话记录。Magi 会先在本机展示内容，只有你确认后才会导入。",
       "badge": "本地预览 · 完全可选",
       "loading": "正在恢复上次的导入进度…",
+      "restoreRetry": "重新恢复",
       "picker": {
         "title": "选择过去写过的内容",
         "body": "选择一个或多个文件，也可以直接选择保存这些内容的文件夹。",
@@ -476,6 +477,10 @@
         "selectedConversations": "已选择 {{selected}} / {{total}} 个对话",
         "selectAll": "全选",
         "invertSelection": "反选",
+        "paginationLabel": "导入内容分页",
+        "previousPage": "上一页",
+        "nextPage": "下一页",
+        "page": "第 {{current}} / {{total}} 页",
         "preview": "预览",
         "previewFile": "预览文件：{{file}}",
         "approximateOrder": "按原文顺序",
@@ -517,13 +522,27 @@
         "partial": "原文已经保留，但仍有部分内容没有完成导入或进入记忆整理。",
         "failed": "第一批内容已经保存，后续导入暂时中断，可以重新继续。",
         "progress": "导入进度 {{progress}}%",
+        "progressLabel": "历史内容保存进度",
         "memoryQueued": "已交给记忆整理 {{queued}} / {{saved}} 条",
         "retry": "继续导入",
         "progressUnavailable": "暂时无法刷新导入进度，已显示最后一次确认的结果。后台导入不会因此停止。",
         "refreshProgress": "刷新进度",
         "note": "交给记忆整理不代表 Magi 已经理解了全部内容；长期认识会在后台逐步形成。"
       },
+      "failed": {
+        "title": "这次导入暂时中断",
+        "errorCode": "错误代码：{{code}}",
+        "retry": "重新继续导入",
+        "retrying": "正在继续导入…"
+      },
+      "preparing": {
+        "title": "正在准备第一批内容",
+        "body": "请稍等，第一批原文保存完成后即可继续。"
+      },
       "errors": {
+        "history_import_file_picker_failed": "暂时无法打开文件选择器，请稍后重试。",
+        "history_import_directory_picker_failed": "暂时无法打开文件夹选择器，请稍后重试。",
+        "history_import_export_help_failed": "暂时无法打开导出帮助页面，请检查网络或稍后重试。",
         "markdown_selection_empty": "请选择至少一个 Markdown 文件或文件夹。",
         "markdown_path_missing": "所选文件已经不存在，请重新选择。",
         "markdown_path_invalid": "无法读取所选位置，请重新选择。",

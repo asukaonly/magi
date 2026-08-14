@@ -13,6 +13,8 @@ import {
   AlertCircle,
   BookOpenText,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Eye,
   ExternalLink,
   FileArchive,
@@ -75,9 +77,11 @@ export interface HistoryImportFlowHandle {
 export interface HistoryImportFlowActionState {
   canConfirm: boolean;
   busy: boolean;
+  primaryAction: "confirm" | "resume" | null;
 }
 
 const documentPreviewMarkdownComponents = createMarkdownComponents("comfortable");
+const SOURCE_PAGE_SIZE = 50;
 
 function errorReason(error: unknown): string {
   if (!error || typeof error !== "object") {
@@ -111,6 +115,7 @@ export const HistoryImportFlow = forwardRef<
   const { t, i18n } = useTranslation("onboarding");
   const [job, setJob] = useState<HistoryImportJob | null>(null);
   const [loading, setLoading] = useState(Boolean(initialJobId));
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
   const [importers, setImporters] = useState<HistoryImporterSpec[]>([]);
   const [installCandidates, setInstallCandidates] = useState<PluginRegistryEntry[]>([]);
   const [importersLoading, setImportersLoading] = useState(true);
@@ -128,14 +133,52 @@ export const HistoryImportFlow = forwardRef<
     useState<HistoryImportSourcePreview | null>(null);
   const [sourcePreviewLoading, setSourcePreviewLoading] = useState(false);
   const [sourcePreviewError, setSourcePreviewError] = useState<string | null>(null);
+  const [sourcePage, setSourcePage] = useState(0);
   const [progressPollingFailed, setProgressPollingFailed] = useState(false);
   const [progressRefreshBusy, setProgressRefreshBusy] = useState(false);
   const onJobUpdateRef = useRef(onJobUpdate);
+  const mountedRef = useRef(true);
+  const actionRef = useRef<typeof action>(null);
+  const selectionBusyRef = useRef<string | null>(null);
+  const sourcePreviewAbortRef = useRef<AbortController | null>(null);
+  const sourcePreviewRequestRef = useRef(0);
+  const platformOptionsRequestRef = useRef(0);
+  const jobMutationVersionRef = useRef(0);
+  const sourcePageJobIdRef = useRef<string | null>(null);
+  const statusHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const focusedStageRef = useRef<string | null>(null);
   onJobUpdateRef.current = onJobUpdate;
   const openPluginInstallPanel = usePluginInstallPanelStore((state) => state.openPanel);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      platformOptionsRequestRef.current += 1;
+      sourcePreviewRequestRef.current += 1;
+      sourcePreviewAbortRef.current?.abort();
+    };
+  }, []);
+
+  const setCurrentAction = useCallback((nextAction: typeof action): void => {
+    actionRef.current = nextAction;
+    if (mountedRef.current) {
+      setAction(nextAction);
+    }
+  }, []);
+
+  const setCurrentSelectionBusy = useCallback((busyKey: string | null): void => {
+    selectionBusyRef.current = busyKey;
+    if (mountedRef.current) {
+      setSelectionBusy(busyKey);
+    }
+  }, []);
+
   const applyJob = useCallback(
     (nextJob: HistoryImportJob): void => {
+      if (!mountedRef.current) {
+        return;
+      }
       setJob(nextJob);
       const validParticipantIds = new Set(
         nextJob.participants.map((participant) => participant.participant_id),
@@ -153,11 +196,19 @@ export const HistoryImportFlow = forwardRef<
   );
 
   const loadPlatformOptions = useCallback(async (forceRegistry = false): Promise<void> => {
+    if (!mountedRef.current) {
+      return;
+    }
+    const requestId = platformOptionsRequestRef.current + 1;
+    platformOptionsRequestRef.current = requestId;
     setImportersLoading(true);
     const [availableResult, registryResult] = await Promise.allSettled([
       historyImportsApi.listImporters(),
       pluginsApi.getRegistry(forceRegistry ? { force: true } : undefined),
     ]);
+    if (!mountedRef.current || platformOptionsRequestRef.current !== requestId) {
+      return;
+    }
     const nextImporters = availableResult.status === "fulfilled"
       ? availableResult.value
       : [];
@@ -223,7 +274,6 @@ export const HistoryImportFlow = forwardRef<
       .catch((loadError) => {
         if (!cancelled) {
           setError(errorReason(loadError));
-          onJobUpdateRef.current(null);
         }
       })
       .finally(() => {
@@ -234,7 +284,7 @@ export const HistoryImportFlow = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, [applyJob, initialJobId, job?.job_id]);
+  }, [applyJob, initialJobId, job?.job_id, restoreAttempt]);
 
   useEffect(() => {
     if (!job || !["ready", "running"].includes(job.status)) {
@@ -269,62 +319,145 @@ export const HistoryImportFlow = forwardRef<
   }, [applyJob, job]);
 
   const refreshProgress = async (): Promise<void> => {
-    if (!job || progressRefreshBusy) {
+    if (!job || progressRefreshBusy || actionRef.current !== null) {
       return;
     }
     setProgressRefreshBusy(true);
     try {
-      applyJob(await historyImportsApi.get(job.job_id));
-      setProgressPollingFailed(false);
+      const nextJob = await historyImportsApi.get(job.job_id);
+      if (mountedRef.current) {
+        applyJob(nextJob);
+        setProgressPollingFailed(false);
+      }
     } catch {
-      setProgressPollingFailed(true);
+      if (mountedRef.current) {
+        setProgressPollingFailed(true);
+      }
     } finally {
-      setProgressRefreshBusy(false);
+      if (mountedRef.current) {
+        setProgressRefreshBusy(false);
+      }
     }
   };
 
-  const previewPaths = async (paths: string[]): Promise<void> => {
-    if (paths.length === 0) {
+  const previewPaths = async (paths: string[], target: string): Promise<void> => {
+    if (!mountedRef.current || paths.length === 0 || actionRef.current !== null) {
       return;
     }
-    setAction("preview");
-    setPreviewTarget("markdown");
+    setCurrentAction("preview");
+    if (mountedRef.current) {
+      setPreviewTarget(target);
+    }
     setError(null);
     try {
       applyJob(await historyImportsApi.previewMarkdown(paths));
     } catch (previewError) {
-      setError(errorReason(previewError));
+      if (mountedRef.current) {
+        setError(errorReason(previewError));
+      }
     } finally {
-      setAction(null);
-      setPreviewTarget(null);
+      setCurrentAction(null);
+      if (mountedRef.current) {
+        setPreviewTarget(null);
+      }
     }
   };
 
   const chooseFiles = async (): Promise<void> => {
-    await previewPaths(await pickMarkdownFiles());
+    if (actionRef.current !== null) {
+      return;
+    }
+    setCurrentAction("preview");
+    setPreviewTarget("markdown");
+    setError(null);
+    try {
+      const paths = await pickMarkdownFiles();
+      setCurrentAction(null);
+      if (!mountedRef.current) {
+        return;
+      }
+      if (mountedRef.current) {
+        setPreviewTarget(null);
+      }
+      await previewPaths(paths, "markdown");
+    } catch {
+      if (mountedRef.current) {
+        setError("history_import_file_picker_failed");
+      }
+      setCurrentAction(null);
+      if (mountedRef.current) {
+        setPreviewTarget(null);
+      }
+    }
   };
 
   const chooseFolder = async (): Promise<void> => {
-    const folder = await pickDirectory();
-    if (folder) {
-      await previewPaths([folder]);
+    if (actionRef.current !== null) {
+      return;
+    }
+    setCurrentAction("preview");
+    setPreviewTarget("markdown");
+    setError(null);
+    try {
+      const folder = await pickDirectory();
+      setCurrentAction(null);
+      if (!mountedRef.current) {
+        return;
+      }
+      if (mountedRef.current) {
+        setPreviewTarget(null);
+      }
+      if (folder) {
+        await previewPaths([folder], "markdown");
+      }
+    } catch {
+      if (mountedRef.current) {
+        setError("history_import_directory_picker_failed");
+      }
+      setCurrentAction(null);
+      if (mountedRef.current) {
+        setPreviewTarget(null);
+      }
     }
   };
 
   const choosePlatformExport = async (
     importer: HistoryImporterSpec,
   ): Promise<void> => {
-    const paths = await pickHistoryImportFiles(
-      importer.accepted_extensions,
-      t("firstContext.history.platform.fileFilter"),
-    );
-    if (paths.length === 0) {
+    if (actionRef.current !== null) {
       return;
     }
-    setAction("preview");
     const importerKey = `${importer.plugin_id}:${importer.importer_id}`;
+    setCurrentAction("preview");
     setPreviewTarget(importerKey);
     setError(null);
+    let paths: string[];
+    try {
+      paths = await pickHistoryImportFiles(
+        importer.accepted_extensions,
+        t("firstContext.history.platform.fileFilter"),
+      );
+    } catch {
+      if (mountedRef.current) {
+        setError("history_import_file_picker_failed");
+      }
+      setCurrentAction(null);
+      if (mountedRef.current) {
+        setPreviewTarget(null);
+      }
+      return;
+    }
+    if (paths.length === 0) {
+      setCurrentAction(null);
+      if (mountedRef.current) {
+        setPreviewTarget(null);
+      }
+      return;
+    }
+    if (!mountedRef.current) {
+      setCurrentAction(null);
+      return;
+    }
     try {
       applyJob(
         await historyImportsApi.previewWithImporter({
@@ -334,10 +467,25 @@ export const HistoryImportFlow = forwardRef<
         }),
       );
     } catch (previewError) {
-      setError(errorReason(previewError));
+      if (mountedRef.current) {
+        setError(errorReason(previewError));
+      }
     } finally {
-      setAction(null);
-      setPreviewTarget(null);
+      setCurrentAction(null);
+      if (mountedRef.current) {
+        setPreviewTarget(null);
+      }
+    }
+  };
+
+  const openExportHelp = async (url: string): Promise<void> => {
+    setError(null);
+    try {
+      await openExternalUrl(url);
+    } catch {
+      if (mountedRef.current) {
+        setError("history_import_export_help_failed");
+      }
     }
   };
 
@@ -345,7 +493,7 @@ export const HistoryImportFlow = forwardRef<
     nextIncluded: string[],
     busyKey: string,
   ): Promise<void> => {
-    if (!job || selectionBusy || action !== null) {
+    if (!job || selectionBusyRef.current || actionRef.current !== null) {
       return;
     }
     if (
@@ -355,8 +503,10 @@ export const HistoryImportFlow = forwardRef<
       return;
     }
     const previous = job;
+    const mutationVersion = jobMutationVersionRef.current + 1;
+    jobMutationVersionRef.current = mutationVersion;
     setError(null);
-    setSelectionBusy(busyKey);
+    setCurrentSelectionBusy(busyKey);
     setJob({
       ...job,
       included_source_ids: nextIncluded,
@@ -365,14 +515,28 @@ export const HistoryImportFlow = forwardRef<
       ),
     });
     try {
-      applyJob(
-        await historyImportsApi.updateSelection(job.job_id, nextIncluded),
+      const nextJob = await historyImportsApi.updateSelection(
+        job.job_id,
+        nextIncluded,
       );
+      if (
+        mountedRef.current &&
+        jobMutationVersionRef.current === mutationVersion
+      ) {
+        applyJob(nextJob);
+      }
     } catch (selectionError) {
-      applyJob(previous);
-      setError(errorReason(selectionError));
+      if (
+        mountedRef.current &&
+        jobMutationVersionRef.current === mutationVersion
+      ) {
+        applyJob(previous);
+        setError(errorReason(selectionError));
+      }
     } finally {
-      setSelectionBusy(null);
+      if (jobMutationVersionRef.current === mutationVersion) {
+        setCurrentSelectionBusy(null);
+      }
     }
   };
 
@@ -415,18 +579,44 @@ export const HistoryImportFlow = forwardRef<
     if (!job) {
       return;
     }
+    sourcePreviewAbortRef.current?.abort();
+    const controller = new AbortController();
+    sourcePreviewAbortRef.current = controller;
+    const requestId = sourcePreviewRequestRef.current + 1;
+    sourcePreviewRequestRef.current = requestId;
+    const jobId = job.job_id;
     setPreviewSource(source);
     setSourcePreview(null);
     setSourcePreviewError(null);
     setSourcePreviewLoading(true);
     try {
-      setSourcePreview(
-        await historyImportsApi.getSourcePreview(job.job_id, source.source_id),
+      const preview = await historyImportsApi.getSourcePreview(
+        jobId,
+        source.source_id,
+        controller.signal,
       );
+      if (
+        mountedRef.current &&
+        sourcePreviewRequestRef.current === requestId &&
+        !controller.signal.aborted
+      ) {
+        setSourcePreview(preview);
+      }
     } catch (previewError) {
-      setSourcePreviewError(errorReason(previewError));
+      if (
+        mountedRef.current &&
+        sourcePreviewRequestRef.current === requestId &&
+        !controller.signal.aborted
+      ) {
+        setSourcePreviewError(errorReason(previewError));
+      }
     } finally {
-      setSourcePreviewLoading(false);
+      if (
+        mountedRef.current &&
+        sourcePreviewRequestRef.current === requestId
+      ) {
+        setSourcePreviewLoading(false);
+      }
     }
   };
 
@@ -441,66 +631,132 @@ export const HistoryImportFlow = forwardRef<
   );
   const hasValidSelfIdentity = selfParticipantIds.length > 0 &&
     selfParticipantIds.every((participantId) => validParticipantIds.has(participantId));
-  const canConfirm = Boolean(
+  const canConfirmSelection = Boolean(
     job &&
+      job.status === "preview_ready" &&
       includedSources.length > 0 &&
-      !selectionBusy &&
+      !selectionBusyRef.current &&
       (!isConversationImport || hasValidSelfIdentity),
   );
+  const failedBeforeQuickReady = Boolean(
+    job?.status === "failed" && !job.quick_ready,
+  );
+  const primaryAction = failedBeforeQuickReady
+    ? "resume"
+    : job?.status === "preview_ready"
+      ? "confirm"
+      : null;
+  const canConfirm = primaryAction === "resume" || canConfirmSelection;
 
   useEffect(() => {
     onActionStateChange?.({
       canConfirm,
       busy: action !== null || selectionBusy !== null,
+      primaryAction,
     });
-  }, [action, canConfirm, onActionStateChange, selectionBusy]);
+  }, [action, canConfirm, onActionStateChange, primaryAction, selectionBusy]);
 
   const confirmImport = useCallback(async (): Promise<boolean> => {
-    if (!job || !canConfirm) {
+    if (
+      !job ||
+      !canConfirmSelection ||
+      actionRef.current !== null ||
+      selectionBusyRef.current !== null
+    ) {
       return false;
     }
-    setAction("confirm");
+    const mutationVersion = jobMutationVersionRef.current + 1;
+    jobMutationVersionRef.current = mutationVersion;
+    setCurrentAction("confirm");
     setError(null);
     try {
-      applyJob(
-        await historyImportsApi.confirm(job.job_id, {
+      const nextJob = await historyImportsApi.confirm(job.job_id, {
           confirmPersonalWriting: job.detected_kind === "document",
           includedSourceIds: job.included_source_ids,
           selfParticipantIds,
-        }),
-      );
+        });
+      if (
+        !mountedRef.current ||
+        jobMutationVersionRef.current !== mutationVersion
+      ) {
+        return false;
+      }
+      applyJob(nextJob);
       return true;
     } catch (confirmError) {
-      setError(errorReason(confirmError));
+      if (
+        mountedRef.current &&
+        jobMutationVersionRef.current === mutationVersion
+      ) {
+        setError(errorReason(confirmError));
+      }
       return false;
     } finally {
-      setAction(null);
+      if (jobMutationVersionRef.current === mutationVersion) {
+        setCurrentAction(null);
+      }
     }
-  }, [applyJob, canConfirm, job, selfParticipantIds]);
+  }, [applyJob, canConfirmSelection, job, selfParticipantIds, setCurrentAction]);
 
-  const resumeImport = async (): Promise<void> => {
-    if (!job) {
-      return;
+  const resumeImport = useCallback(async (): Promise<boolean> => {
+    if (
+      !job ||
+      actionRef.current !== null ||
+      selectionBusyRef.current !== null
+    ) {
+      return false;
     }
-    setAction("resume");
+    const mutationVersion = jobMutationVersionRef.current + 1;
+    jobMutationVersionRef.current = mutationVersion;
+    setCurrentAction("resume");
     setError(null);
     try {
-      applyJob(await historyImportsApi.resume(job.job_id));
+      const nextJob = await historyImportsApi.resume(job.job_id);
+      if (
+        !mountedRef.current ||
+        jobMutationVersionRef.current !== mutationVersion
+      ) {
+        return false;
+      }
+      applyJob(nextJob);
+      return true;
     } catch (resumeError) {
-      setError(errorReason(resumeError));
+      if (
+        mountedRef.current &&
+        jobMutationVersionRef.current === mutationVersion
+      ) {
+        setError(errorReason(resumeError));
+      }
+      return false;
     } finally {
-      setAction(null);
+      if (jobMutationVersionRef.current === mutationVersion) {
+        setCurrentAction(null);
+      }
     }
-  };
+  }, [applyJob, job, setCurrentAction]);
 
   const chooseAgain = useCallback(async (): Promise<boolean> => {
-    if (!job) {
+    if (
+      !job ||
+      actionRef.current !== null ||
+      selectionBusyRef.current !== null
+    ) {
       return false;
     }
-    setAction("delete");
+    const mutationVersion = jobMutationVersionRef.current + 1;
+    jobMutationVersionRef.current = mutationVersion;
+    sourcePreviewRequestRef.current += 1;
+    sourcePreviewAbortRef.current?.abort();
+    setCurrentAction("delete");
     setError(null);
     try {
       await historyImportsApi.delete(job.job_id);
+      if (
+        !mountedRef.current ||
+        jobMutationVersionRef.current !== mutationVersion
+      ) {
+        return false;
+      }
       setJob(null);
       setPreviewSource(null);
       setSourcePreview(null);
@@ -508,20 +764,27 @@ export const HistoryImportFlow = forwardRef<
       onJobUpdateRef.current(null);
       return true;
     } catch (deleteError) {
-      setError(errorReason(deleteError));
+      if (
+        mountedRef.current &&
+        jobMutationVersionRef.current === mutationVersion
+      ) {
+        setError(errorReason(deleteError));
+      }
       return false;
     } finally {
-      setAction(null);
+      if (jobMutationVersionRef.current === mutationVersion) {
+        setCurrentAction(null);
+      }
     }
-  }, [job]);
+  }, [job, setCurrentAction]);
 
   useImperativeHandle(
     ref,
     () => ({
-      confirm: confirmImport,
+      confirm: primaryAction === "resume" ? resumeImport : confirmImport,
       discard: chooseAgain,
     }),
-    [chooseAgain, confirmImport],
+    [chooseAgain, confirmImport, primaryAction, resumeImport],
   );
 
   const progress = job ? historyImportProgress(job) : null;
@@ -572,6 +835,56 @@ export const HistoryImportFlow = forwardRef<
         defaultValue: t("firstContext.history.errors.unknown"),
       })
     : null;
+  const totalSourcePages = Math.max(
+    1,
+    Math.ceil((job?.sources.length ?? 0) / SOURCE_PAGE_SIZE),
+  );
+  const currentSourcePage = Math.min(sourcePage, totalSourcePages - 1);
+  const visibleSources = job?.sources.slice(
+    currentSourcePage * SOURCE_PAGE_SIZE,
+    (currentSourcePage + 1) * SOURCE_PAGE_SIZE,
+  ) ?? [];
+
+  useEffect(() => {
+    if (sourcePageJobIdRef.current !== (job?.job_id ?? null)) {
+      sourcePageJobIdRef.current = job?.job_id ?? null;
+      setSourcePage(0);
+      return;
+    }
+    setSourcePage((current) => Math.min(current, totalSourcePages - 1));
+  }, [job?.job_id, totalSourcePages]);
+
+  const visualStage = !job
+    ? "empty"
+    : job.status === "failed" && !job.quick_ready
+      ? "failed"
+      : ["ready", "running"].includes(job.status) && !job.quick_ready
+        ? "preparing"
+      : job.quick_ready
+        ? "ready"
+        : "preview";
+  const visualJobId = job?.job_id ?? null;
+
+  useEffect(() => {
+    if (!visualJobId || visualStage === "empty") {
+      focusedStageRef.current = null;
+      return;
+    }
+    const focusKey = `${visualJobId}:${visualStage}`;
+    if (focusedStageRef.current === focusKey) {
+      return;
+    }
+    focusedStageRef.current = focusKey;
+    const frame = window.requestAnimationFrame(() => {
+      statusHeadingRef.current?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (focusedStageRef.current === focusKey) {
+        focusedStageRef.current = null;
+      }
+    };
+  }, [visualJobId, visualStage]);
 
   if (loading) {
     return (
@@ -712,7 +1025,7 @@ export const HistoryImportFlow = forwardRef<
                             <button
                               type="button"
                               className="inline-flex items-center gap-1 text-primary hover:underline"
-                              onClick={() => void openExternalUrl(importer.export_help_url!)}
+                              onClick={() => void openExportHelp(importer.export_help_url!)}
                             >
                               {t("firstContext.history.platform.help")}
                               <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -807,11 +1120,123 @@ export const HistoryImportFlow = forwardRef<
           </div>
         </section>
         {translatedError ? (
-          <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              {translatedError}
+            </p>
+            {initialJobId ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setError(null);
+                  setRestoreAttempt((current) => current + 1);
+                }}
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                {t("firstContext.history.restoreRetry")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (["ready", "running"].includes(job.status) && !job.quick_ready) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-border/60 bg-card px-6 text-center"
+        data-testid="history-import-preparing"
+      >
+        <Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" />
+        <h4
+          ref={statusHeadingRef}
+          tabIndex={-1}
+          className="text-sm font-semibold text-foreground outline-none"
+        >
+          {t("firstContext.history.preparing.title")}
+        </h4>
+        <p className="max-w-lg text-xs leading-5 text-muted-foreground">
+          {t("firstContext.history.preparing.body")}
+        </p>
+      </div>
+    );
+  }
+
+  if (job.status === "failed" && !job.quick_ready) {
+    const jobErrorCode = job.error_code ?? "unknown";
+    const jobErrorMessage = t(`firstContext.history.errors.${jobErrorCode}`, {
+      defaultValue: t("firstContext.history.errors.unknown"),
+    });
+    return (
+      <div className="space-y-5" data-testid="history-import-failed">
+        <div
+          role="alert"
+          className="rounded-2xl border border-destructive/25 bg-destructive/[0.045] p-5 sm:p-6"
+        >
+          <div className="flex items-start gap-3">
+            <AlertCircle
+              className="mt-0.5 h-5 w-5 shrink-0 text-destructive"
+              aria-hidden="true"
+            />
+            <div className="min-w-0 flex-1">
+              <h4
+                ref={statusHeadingRef}
+                tabIndex={-1}
+                className="text-[15px] font-semibold text-foreground outline-none"
+              >
+                {t("firstContext.history.failed.title")}
+              </h4>
+              <p className="mt-1 text-sm leading-6 text-foreground/85">
+                {jobErrorMessage}
+              </p>
+              <p className="mt-3 text-xs text-muted-foreground">
+                {t("firstContext.history.failed.errorCode", {
+                  code: jobErrorCode,
+                })}
+              </p>
+            </div>
+          </div>
+        </div>
+        {translatedError ? (
+          <p role="alert" className="text-sm text-destructive">
             {translatedError}
           </p>
         ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => void chooseAgain()}
+            disabled={action !== null || selectionBusy !== null}
+          >
+            {action === "delete" ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            )}
+            {t("firstContext.history.preview.chooseAgain")}
+          </Button>
+          {confirmationPlacement === "inline" ? (
+            <Button
+              type="button"
+              onClick={() => void resumeImport()}
+              disabled={action !== null || selectionBusy !== null}
+            >
+              {action === "resume" ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              )}
+              {t("firstContext.history.failed.retry")}
+            </Button>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -827,7 +1252,11 @@ export const HistoryImportFlow = forwardRef<
           <div className="flex items-start gap-3">
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
             <div className="min-w-0 flex-1">
-              <h4 className="text-[15px] font-semibold text-foreground">
+              <h4
+                ref={statusHeadingRef}
+                tabIndex={-1}
+                className="text-[15px] font-semibold text-foreground outline-none"
+              >
                 {t("firstContext.history.ready.title")}
               </h4>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
@@ -839,13 +1268,20 @@ export const HistoryImportFlow = forwardRef<
                     ? t("firstContext.history.ready.failed")
                     : t("firstContext.history.ready.background")}
               </p>
-              <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-primary/10">
+              <div
+                role="progressbar"
+                aria-label={t("firstContext.history.ready.progressLabel")}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progress?.savedPercent ?? 0}
+                className="mt-4 h-1.5 overflow-hidden rounded-full bg-primary/10"
+              >
                 <div
                   className="h-full rounded-full bg-primary transition-[width] duration-300"
                   style={{ width: `${progress?.savedPercent ?? 0}%` }}
                 />
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">
+              <p aria-live="polite" className="mt-2 text-xs text-muted-foreground">
                 {t("firstContext.history.ready.progress", {
                   progress: progress?.savedPercent ?? 0,
                 })}
@@ -900,7 +1336,7 @@ export const HistoryImportFlow = forwardRef<
             {translatedError}
           </p>
         ) : null}
-        <p className="text-xs leading-5 text-muted-foreground/80">
+        <p className="text-xs leading-5 text-muted-foreground">
           {t("firstContext.history.ready.note")}
         </p>
       </div>
@@ -913,7 +1349,11 @@ export const HistoryImportFlow = forwardRef<
         <section className="overflow-hidden rounded-2xl border border-border/65 bg-card">
           <div className="flex flex-col gap-3 border-b border-border/55 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <h4 className="text-sm font-semibold text-foreground">
+              <h4
+                ref={statusHeadingRef}
+                tabIndex={-1}
+                className="text-sm font-semibold text-foreground outline-none"
+              >
                 {t(
                   isConversationImport
                     ? "firstContext.history.preview.chooseConversations"
@@ -972,9 +1412,10 @@ export const HistoryImportFlow = forwardRef<
           </div>
           <div
             data-testid="history-import-source-list"
+            aria-busy={selectionBusy !== null}
             className="divide-y divide-border/45"
           >
-            {job.sources.map((source) => {
+            {visibleSources.map((source) => {
               const busy = selectionBusy === source.source_id;
               return (
                 <div
@@ -983,25 +1424,35 @@ export const HistoryImportFlow = forwardRef<
                     source.included ? "bg-card" : "bg-muted/20"
                   } hover:bg-accent/30`}
                 >
-                  <span className="flex h-5 w-5 items-center justify-center">
+                  <label
+                    className={`relative flex h-10 w-10 items-center justify-center rounded-lg ${
+                      selectionBusy !== null || action !== null
+                        ? "cursor-not-allowed"
+                        : "cursor-pointer hover:bg-accent/50"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={source.included}
+                      onChange={() => void toggleSource(source.source_id)}
+                      disabled={selectionBusy !== null || action !== null}
+                      className={`h-4 w-4 rounded border-border accent-primary ${
+                        busy ? "opacity-0" : ""
+                      }`}
+                      aria-label={t(
+                        isConversationImport
+                          ? "firstContext.history.preview.includeConversation"
+                          : "firstContext.history.preview.includeFile",
+                        { name: source.source_name, file: source.source_name },
+                      )}
+                    />
                     {busy ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
-                    ) : (
-                      <input
-                        type="checkbox"
-                        checked={source.included}
-                        onChange={() => void toggleSource(source.source_id)}
-                        disabled={selectionBusy !== null || action !== null}
-                        className="h-4 w-4 rounded border-border accent-primary"
-                        aria-label={t(
-                          isConversationImport
-                            ? "firstContext.history.preview.includeConversation"
-                            : "firstContext.history.preview.includeFile",
-                          { name: source.source_name, file: source.source_name },
-                        )}
+                      <Loader2
+                        className="absolute h-4 w-4 animate-spin text-primary"
+                        aria-hidden="true"
                       />
-                    )}
-                  </span>
+                    ) : null}
+                  </label>
                   <div className={`min-w-0 ${source.included ? "" : "opacity-55"}`}>
                     <p className="truncate text-sm font-medium text-foreground">
                       {source.source_name}
@@ -1037,6 +1488,43 @@ export const HistoryImportFlow = forwardRef<
               );
             })}
           </div>
+          {totalSourcePages > 1 ? (
+            <nav
+              aria-label={t("firstContext.history.preview.paginationLabel")}
+              className="flex items-center justify-between gap-3 border-t border-border/55 px-5 py-3"
+            >
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setSourcePage((current) => Math.max(0, current - 1))}
+                disabled={currentSourcePage === 0 || action !== null || selectionBusy !== null}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                {t("firstContext.history.preview.previousPage")}
+              </Button>
+              <span aria-live="polite" className="text-xs tabular-nums text-muted-foreground">
+                {t("firstContext.history.preview.page", {
+                  current: currentSourcePage + 1,
+                  total: totalSourcePages,
+                })}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setSourcePage((current) => Math.min(totalSourcePages - 1, current + 1))}
+                disabled={
+                  currentSourcePage >= totalSourcePages - 1 ||
+                  action !== null ||
+                  selectionBusy !== null
+                }
+              >
+                {t("firstContext.history.preview.nextPage")}
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+            </nav>
+          ) : null}
         </section>
 
         {isConversationImport && job.warning_summary.total_count > 0 ? (
@@ -1088,6 +1576,7 @@ export const HistoryImportFlow = forwardRef<
                       className={`flex min-w-0 items-start gap-3 bg-card px-5 py-4 text-left transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
                         selected ? "bg-primary/[0.055]" : ""
                       }`}
+                      disabled={action !== null || selectionBusy !== null}
                       onClick={() =>
                         setSelfParticipantIds((current) =>
                           current.includes(participant.participant_id)
@@ -1143,7 +1632,7 @@ export const HistoryImportFlow = forwardRef<
             type="button"
             variant="ghost"
             onClick={() => void chooseAgain()}
-            disabled={action !== null}
+            disabled={action !== null || selectionBusy !== null}
           >
             {action === "delete" ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -1157,7 +1646,7 @@ export const HistoryImportFlow = forwardRef<
               type="button"
               size="lg"
               onClick={() => void confirmImport()}
-              disabled={!canConfirm || action !== null}
+              disabled={!canConfirmSelection || action !== null || selectionBusy !== null}
             >
               {action === "confirm" ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -1175,9 +1664,12 @@ export const HistoryImportFlow = forwardRef<
         open={previewSource !== null}
         onOpenChange={(open) => {
           if (!open) {
+            sourcePreviewRequestRef.current += 1;
+            sourcePreviewAbortRef.current?.abort();
             setPreviewSource(null);
             setSourcePreview(null);
             setSourcePreviewError(null);
+            setSourcePreviewLoading(false);
           }
         }}
       >

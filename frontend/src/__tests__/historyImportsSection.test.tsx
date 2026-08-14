@@ -4,10 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   deleteMock,
+  getMock,
   listMock,
   resumeMock,
 } = vi.hoisted(() => ({
   deleteMock: vi.fn(),
+  getMock: vi.fn(),
   listMock: vi.fn(),
   resumeMock: vi.fn(),
 }));
@@ -27,7 +29,8 @@ vi.mock("@/api/modules/historyImports", () => ({
     list: (...args: unknown[]) => listMock(...args),
     delete: (...args: unknown[]) => deleteMock(...args),
     resume: (...args: unknown[]) => resumeMock(...args),
-    get: vi.fn(),
+    get: (...args: unknown[]) => getMock(...args),
+    getSourcePreview: vi.fn(),
     listImporters: vi.fn().mockResolvedValue([]),
     previewMarkdown: vi.fn(),
     previewWithImporter: vi.fn(),
@@ -95,6 +98,7 @@ describe("HistoryImportsSection", () => {
     vi.clearAllMocks();
     listMock.mockResolvedValue([completedJob()]);
     deleteMock.mockResolvedValue(undefined);
+    getMock.mockResolvedValue(completedJob());
     resumeMock.mockResolvedValue({
       ...completedJob(),
       status: "running",
@@ -262,5 +266,56 @@ describe("HistoryImportsSection", () => {
         screen.queryByText("memory.sourcesPage.historyImports.progressRefreshFailed"),
       ).not.toBeInTheDocument();
     });
+  });
+
+  it("reopens a durable preview draft for confirmation after the flow is collapsed", async () => {
+    const user = userEvent.setup();
+    const draft = {
+      ...completedJob(),
+      status: "preview_ready" as const,
+      quick_ready: false,
+      quick_imported_count: 0,
+      imported_count: 0,
+      projected_count: 0,
+      sources: [
+        {
+          source_id: "notes.md",
+          source_name: "notes.md",
+          detected_kind: "document" as const,
+          record_count: 1,
+          meaningful_count: 1,
+          first_event_at: 1_800_000_000,
+          last_event_at: 1_800_000_000,
+          timestamp_confidence: "file_mtime",
+          sample: "A note",
+          included: true,
+        },
+      ],
+      source_ids: ["notes.md"],
+      included_source_ids: ["notes.md"],
+    };
+    listMock.mockResolvedValue([draft]);
+    getMock.mockResolvedValue(draft);
+    render(<HistoryImportsSection />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "memory.sourcesPage.historyImports.review",
+      }),
+    );
+    expect(getMock).toHaveBeenCalledWith("him-1");
+    expect(await screen.findByTestId("history-import-preview")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "memory.sourcesPage.historyImports.close",
+      }),
+    );
+    expect(screen.queryByTestId("history-import-preview")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "memory.sourcesPage.historyImports.review",
+      }),
+    ).toBeInTheDocument();
   });
 });

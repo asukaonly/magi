@@ -422,6 +422,7 @@
       "body": "Choose personal writing or import conversation history from a supported platform. Magi previews everything locally and imports only after you confirm.",
       "badge": "Local preview · Entirely optional",
       "loading": "Restoring your previous import…",
+      "restoreRetry": "Try restoring again",
       "picker": {
         "title": "Choose past writing",
         "body": "Select one or more files, or choose the folder where you keep them.",
@@ -476,6 +477,10 @@
         "selectedConversations": "{{selected}} of {{total}} conversations selected",
         "selectAll": "Select all",
         "invertSelection": "Invert",
+        "paginationLabel": "Import content pages",
+        "previousPage": "Previous",
+        "nextPage": "Next",
+        "page": "Page {{current}} of {{total}}",
         "preview": "Preview",
         "previewFile": "Preview file: {{file}}",
         "approximateOrder": "Source order",
@@ -517,13 +522,27 @@
         "partial": "Your source text is safe, but some content has not finished importing or entering memory processing.",
         "failed": "The first content is saved, but the remaining import paused. You can continue it.",
         "progress": "Imported {{progress}}%",
+        "progressLabel": "History content save progress",
         "memoryQueued": "Sent to memory processing: {{queued}} / {{saved}}",
         "retry": "Continue import",
         "progressUnavailable": "Progress could not be refreshed. The last confirmed result is still shown, and background import is not stopped.",
         "refreshProgress": "Refresh progress",
         "note": "Being sent to memory processing does not mean Magi already understands everything. Long-term understanding forms gradually in the background."
       },
+      "failed": {
+        "title": "This import was interrupted",
+        "errorCode": "Error code: {{code}}",
+        "retry": "Continue import",
+        "retrying": "Continuing import…"
+      },
+      "preparing": {
+        "title": "Preparing the first items",
+        "body": "Please wait. You can continue after the first source items are saved."
+      },
       "errors": {
+        "history_import_file_picker_failed": "The file picker could not be opened. Please try again.",
+        "history_import_directory_picker_failed": "The folder picker could not be opened. Please try again.",
+        "history_import_export_help_failed": "The export help page could not be opened. Check your connection or try again.",
         "markdown_selection_empty": "Choose at least one Markdown file or folder.",
         "markdown_path_missing": "A selected file no longer exists. Please choose it again.",
         "markdown_path_invalid": "The selected location cannot be read. Please choose another.",

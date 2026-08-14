@@ -23,7 +23,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import HistoryImportFlow from "./HistoryImportFlow";
+import HistoryImportFlow, {
+  type HistoryImportFlowActionState,
+} from "./HistoryImportFlow";
 import {
   canRetryHistoryImport,
   historyImportProgress,
@@ -73,6 +75,8 @@ export default function HistoryImportsSection({
   const [error, setError] = useState(false);
   const [pollingError, setPollingError] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [draftJobId, setDraftJobId] = useState<string | null>(null);
+  const [flowBusy, setFlowBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<HistoryImportJob | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
@@ -156,8 +160,12 @@ export default function HistoryImportsSection({
 
   const updateJob = (job: HistoryImportJob | null): void => {
     if (!job) {
+      setDraftJobId(null);
       void loadJobs();
       return;
+    }
+    if (job.status === "preview_ready" || (job.status === "failed" && !job.quick_ready)) {
+      setDraftJobId(job.job_id);
     }
     setJobs((current) => {
       const withoutJob = current.filter((item) => item.job_id !== job.job_id);
@@ -214,7 +222,15 @@ export default function HistoryImportsSection({
             variant={creating ? "ghost" : "secondary"}
             size="sm"
             className="h-8 rounded-lg px-3 text-xs"
-            onClick={() => setCreating((current) => !current)}
+            onClick={() => {
+              if (creating) {
+                setCreating(false);
+                return;
+              }
+              setDraftJobId(null);
+              setCreating(true);
+            }}
+            disabled={creating && flowBusy}
           >
             {creating ? (
               <X className="h-3.5 w-3.5" aria-hidden="true" />
@@ -229,7 +245,13 @@ export default function HistoryImportsSection({
 
         {creating ? (
           <div className="mt-4 border-t border-[hsl(var(--memory-border)/0.58)] pt-5">
-            <HistoryImportFlow onJobUpdate={updateJob} />
+            <HistoryImportFlow
+              initialJobId={draftJobId}
+              onJobUpdate={updateJob}
+              onActionStateChange={(state: HistoryImportFlowActionState) => {
+                setFlowBusy(state.busy);
+              }}
+            />
           </div>
         ) : null}
 
@@ -261,6 +283,9 @@ export default function HistoryImportsSection({
                   const progress = historyImportProgress(job);
                   const active = ACTIVE_IMPORT_STATUSES.has(job.status);
                   const retryable = canRetryHistoryImport(job);
+                  const needsReview = job.status === "preview_ready" || (
+                    job.status === "failed" && !job.quick_ready
+                  );
                   const statusKey = historyImportStatusKey(job);
                   const fallbackLabel = jobFallbackLabel(
                     job,
@@ -288,7 +313,16 @@ export default function HistoryImportsSection({
                       <div className="text-xs text-[hsl(var(--memory-body))]">
                         <p>{t(`memory.sourcesPage.historyImports.status.${statusKey}`)}</p>
                         {active ? (
-                          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[hsl(var(--memory-accent)/0.1)]">
+                          <div
+                            role="progressbar"
+                            aria-label={t("memory.sourcesPage.historyImports.progressLabel", {
+                              name: jobLabel(job, fallbackLabel),
+                            })}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={progress.savedPercent}
+                            className="mt-2 h-1.5 overflow-hidden rounded-full bg-[hsl(var(--memory-accent)/0.1)]"
+                          >
                             <div
                               className="h-full rounded-full bg-[hsl(var(--memory-accent))] transition-[width] duration-300"
                               style={{ width: `${progress.savedPercent}%` }}
@@ -311,7 +345,19 @@ export default function HistoryImportsSection({
                         </p>
                       </div>
                       <div className="flex items-center gap-1 lg:justify-end">
-                        {retryable ? (
+                        {needsReview ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setDraftJobId(job.job_id);
+                              setCreating(true);
+                            }}
+                          >
+                            {t("memory.sourcesPage.historyImports.review")}
+                          </Button>
+                        ) : retryable ? (
                           <Button
                             type="button"
                             variant="ghost"

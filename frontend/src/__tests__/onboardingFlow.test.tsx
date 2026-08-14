@@ -254,6 +254,17 @@ const stubHistoryImportJob = (quickReady = false): HistoryImportJob => ({
   ],
 });
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 const generatedPersonaConfig = () => ({
   name: "Sage",
   avatar: "",
@@ -913,6 +924,67 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(
       await screen.findByRole("button", { name: "actions.enterApp" }),
     ).toBeInTheDocument();
+  });
+
+  it("resumes a failed pre-quick import from the footer instead of confirming it", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.spyOn(desktopRuntime, "pickMarkdownFiles").mockResolvedValue([
+      "/tmp/journal.md",
+    ]);
+    const failedJob = {
+      ...stubHistoryImportJob(),
+      status: "failed" as const,
+      error_code: "history_importer_timeout",
+    };
+    vi.spyOn(historyImportsApi, "previewMarkdown").mockResolvedValue(failedJob);
+    const resumeImport = vi.spyOn(historyImportsApi, "resume").mockResolvedValue({
+      ...failedJob,
+      status: "running",
+    });
+    const confirmImport = vi.spyOn(historyImportsApi, "confirm");
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await openFirstContextHistory(user);
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.picker.files",
+      }),
+    );
+
+    expect(await screen.findByTestId("history-import-failed")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.failed.retry",
+      }),
+    );
+    expect(resumeImport).toHaveBeenCalledWith("him-onboarding");
+    expect(confirmImport).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("history-import-preparing")).toBeInTheDocument();
+  });
+
+  it("locks backward navigation while the native picker is active", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    const picker = deferred<string[]>();
+    vi.spyOn(desktopRuntime, "pickMarkdownFiles").mockReturnValue(picker.promise);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await openFirstContextHistory(user);
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.picker.files",
+      }),
+    );
+
+    const backButton = screen.getByRole("button", {
+      name: "firstContext.routes.back",
+    });
+    expect(backButton).toBeDisabled();
+    picker.resolve([]);
+    await waitFor(() => expect(backButton).toBeEnabled());
   });
 
   it("keeps the history route anchored at the top as its content grows", async () => {

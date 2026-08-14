@@ -75,6 +75,20 @@ import HistoryImportFlow from "@/components/history-imports/HistoryImportFlow";
 import type { HistoryImportJob } from "@/api/modules/historyImports";
 import { usePluginInstallPanelStore } from "@/stores/pluginInstallPanel";
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 function documentPreview(): HistoryImportJob {
   return {
     job_id: "him-1",
@@ -221,6 +235,7 @@ describe("FirstContextHistoryImport", () => {
     pickMarkdownFilesMock.mockResolvedValue(["/tmp/notes.md"]);
     pickHistoryImportFilesMock.mockResolvedValue([]);
     pickDirectoryMock.mockResolvedValue(undefined);
+    openExternalUrlMock.mockResolvedValue(undefined);
     listImportersMock.mockResolvedValue([]);
     getRegistryMock.mockResolvedValue({
       plugins: [],
@@ -765,7 +780,11 @@ describe("FirstContextHistoryImport", () => {
       }),
     );
 
-    expect(getSourcePreviewMock).toHaveBeenCalledWith("him-1", "notes.md");
+    expect(getSourcePreviewMock).toHaveBeenCalledWith(
+      "him-1",
+      "notes.md",
+      expect.any(AbortSignal),
+    );
     expect(
       await screen.findByText("Me: I started learning pottery."),
     ).toBeInTheDocument();
@@ -886,5 +905,286 @@ describe("FirstContextHistoryImport", () => {
       }),
     );
     await waitFor(() => expect(resumeMock).toHaveBeenCalledWith("him-1"));
+  });
+
+  it("ignores an older source preview after the drawer closes and another source opens", async () => {
+    const user = userEvent.setup();
+    const firstPreview = deferred<{
+      source_id: string;
+      source_name: string;
+      detected_kind: "document";
+      records: HistoryImportJob["preview_records"];
+      truncated: boolean;
+    }>();
+    const secondPreview = deferred<{
+      source_id: string;
+      source_name: string;
+      detected_kind: "document";
+      records: HistoryImportJob["preview_records"];
+      truncated: boolean;
+    }>();
+    const secondSource = {
+      ...documentPreview().sources[0],
+      source_id: "second.md",
+      source_name: "second.md",
+    };
+    previewMock.mockResolvedValue({
+      ...documentPreview(),
+      source_ids: ["notes.md", "second.md"],
+      included_source_ids: ["notes.md", "second.md"],
+      sources: [documentPreview().sources[0], secondSource],
+    });
+    getSourcePreviewMock.mockImplementation(
+      (_jobId: string, sourceId: string) =>
+        sourceId === "notes.md" ? firstPreview.promise : secondPreview.promise,
+    );
+
+    render(<HistoryImportFlow onJobUpdate={vi.fn()} />);
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.history.picker.files" }),
+    );
+    const previewButtons = await screen.findAllByRole("button", {
+      name: "firstContext.history.preview.previewFile",
+    });
+    await user.click(previewButtons[0]);
+    const firstSignal = getSourcePreviewMock.mock.calls[0]?.[2] as AbortSignal;
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.history.sourcePreview.close" }),
+    );
+    expect(firstSignal.aborted).toBe(true);
+
+    await user.click(previewButtons[1]);
+    secondPreview.resolve({
+      source_id: "second.md",
+      source_name: "second.md",
+      detected_kind: "document",
+      records: [{
+        ...documentPreview().preview_records[0],
+        source_id: "second.md",
+        source_name: "second.md",
+        content: "Second preview content",
+      }],
+      truncated: false,
+    });
+    expect(await screen.findByText("Second preview content")).toBeInTheDocument();
+
+    firstPreview.resolve({
+      source_id: "notes.md",
+      source_name: "notes.md",
+      detected_kind: "document",
+      records: [{
+        ...documentPreview().preview_records[0],
+        content: "Stale first preview content",
+      }],
+      truncated: false,
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Stale first preview content")).not.toBeInTheDocument();
+    });
+    expect(screen.getAllByText("second.md").length).toBeGreaterThan(0);
+  });
+
+  it("keeps choose-again locked until a selection update settles", async () => {
+    const user = userEvent.setup();
+    const selection = deferred<HistoryImportJob>();
+    updateSelectionMock.mockReturnValue(selection.promise);
+    render(<HistoryImportFlow onJobUpdate={vi.fn()} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.history.picker.files" }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "firstContext.history.preview.invertSelection",
+      }),
+    );
+    const chooseAgainButton = screen.getByRole("button", {
+      name: "firstContext.history.preview.chooseAgain",
+    });
+    expect(chooseAgainButton).toBeDisabled();
+    expect(deleteMock).not.toHaveBeenCalled();
+
+    selection.resolve({
+      ...documentPreview(),
+      included_source_ids: [],
+      sources: documentPreview().sources.map((source) => ({
+        ...source,
+        included: false,
+      })),
+    });
+    await waitFor(() => expect(chooseAgainButton).toBeEnabled());
+    await user.click(chooseAgainButton);
+    expect(deleteMock).toHaveBeenCalledWith("him-1");
+  });
+
+  it("does not publish a preview job after the flow unmounts", async () => {
+    const user = userEvent.setup();
+    const preview = deferred<HistoryImportJob>();
+    const onJobUpdate = vi.fn();
+    previewMock.mockReturnValue(preview.promise);
+    const { unmount } = render(
+      <HistoryImportFlow onJobUpdate={onJobUpdate} />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.history.picker.files" }),
+    );
+    await waitFor(() => expect(previewMock).toHaveBeenCalled());
+    unmount();
+    preview.resolve(documentPreview());
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onJobUpdate).not.toHaveBeenCalled();
+  });
+
+  it("shows a pre-quick failure and resumes it instead of confirming again", async () => {
+    const user = userEvent.setup();
+    const failedJob: HistoryImportJob = {
+      ...documentPreview(),
+      status: "failed",
+      quick_ready: false,
+      error_code: "history_importer_timeout",
+    };
+    getMock.mockResolvedValue(failedJob);
+    resumeMock.mockResolvedValue({
+      ...failedJob,
+      status: "running",
+    });
+
+    render(
+      <HistoryImportFlow initialJobId="him-1" onJobUpdate={vi.fn()} />,
+    );
+
+    expect(await screen.findByTestId("history-import-failed")).toBeInTheDocument();
+    expect(
+      screen.getByText("firstContext.history.errors.history_importer_timeout"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("firstContext.history.failed.errorCode"),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.history.failed.retry" }),
+    );
+    expect(resumeMock).toHaveBeenCalledWith("him-1");
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("history-import-preparing")).toBeInTheDocument();
+  });
+
+  it("keeps a durable draft id when restoration fails and retries loading it", async () => {
+    const user = userEvent.setup();
+    getMock
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(documentPreview());
+    const onJobUpdate = vi.fn();
+    render(
+      <HistoryImportFlow initialJobId="him-1" onJobUpdate={onJobUpdate} />,
+    );
+
+    expect(
+      await screen.findByRole("button", {
+        name: "firstContext.history.restoreRetry",
+      }),
+    ).toBeInTheDocument();
+    expect(onJobUpdate).not.toHaveBeenCalledWith(null);
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.restoreRetry",
+      }),
+    );
+    expect(await screen.findByTestId("history-import-preview")).toBeInTheDocument();
+    expect(getMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("localizes picker and export-help failures and leaves the actions retryable", async () => {
+    const user = userEvent.setup();
+    pickMarkdownFilesMock.mockRejectedValueOnce(new Error("dialog unavailable"));
+    pickDirectoryMock.mockRejectedValueOnce(new Error("dialog unavailable"));
+    listImportersMock.mockResolvedValue([
+      {
+        plugin_id: "platform-history",
+        importer_id: "account-export",
+        display_name: "Platform history",
+        display_name_i18n: {},
+        description: "Import an account export.",
+        description_i18n: {},
+        accepted_extensions: ["zip"],
+        participant_identity_scope: "export",
+        export_help_url: "https://example.com/export",
+      },
+    ]);
+    openExternalUrlMock.mockRejectedValueOnce(new Error("cannot open"));
+    render(<HistoryImportFlow onJobUpdate={vi.fn()} />);
+
+    const chooseFilesButton = screen.getByRole("button", {
+      name: "firstContext.history.picker.files",
+    });
+    await user.click(chooseFilesButton);
+    expect(
+      await screen.findByText(
+        "firstContext.history.errors.history_import_file_picker_failed",
+      ),
+    ).toBeInTheDocument();
+    expect(chooseFilesButton).toBeEnabled();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.picker.folder",
+      }),
+    );
+    expect(
+      await screen.findByText(
+        "firstContext.history.errors.history_import_directory_picker_failed",
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "firstContext.history.platform.help",
+      }),
+    );
+    expect(
+      await screen.findByText(
+        "firstContext.history.errors.history_import_export_help_failed",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("paginates large source selections and exposes progress semantics", async () => {
+    const user = userEvent.setup();
+    const sources = Array.from({ length: 51 }, (_, index) => ({
+      ...documentPreview().sources[0],
+      source_id: `note-${index}.md`,
+      source_name: `note-${index}.md`,
+    }));
+    previewMock.mockResolvedValue({
+      ...documentPreview(),
+      source_ids: sources.map((source) => source.source_id),
+      included_source_ids: sources.map((source) => source.source_id),
+      sources,
+    });
+    render(<HistoryImportFlow onJobUpdate={vi.fn()} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.history.picker.files" }),
+    );
+    expect(await screen.findAllByRole("checkbox")).toHaveLength(50);
+    expect(screen.getByText("note-0.md")).toBeInTheDocument();
+    expect(screen.queryByText("note-50.md")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.history.preview.nextPage" }),
+    );
+    expect(await screen.findByText("note-50.md")).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+
+    getMock.mockResolvedValue({ ...readyJob(), job_id: "him-ready" });
+    const { rerender } = render(
+      <HistoryImportFlow initialJobId="him-ready" onJobUpdate={vi.fn()} />,
+    );
+    expect(await screen.findByRole("progressbar")).toHaveAttribute(
+      "aria-valuenow",
+      "100",
+    );
+    rerender(<div />);
   });
 });
