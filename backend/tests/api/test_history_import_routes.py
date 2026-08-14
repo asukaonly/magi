@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from magi_plugin_sdk import HistoryImporterSpec
+from magi_plugin_sdk.history_imports import MAX_HISTORY_IMPORT_SOURCES
+from pydantic import ValidationError
 
 from magi.api.routers.memory import history_import_routes
 from magi.api.routers.memory.history_import_routes import _warning_summary
@@ -95,3 +97,32 @@ def test_deleted_history_import_preview_maps_to_http_404() -> None:
 
     assert raised.value.status_code == 404
     assert raised.value.detail == "history_import_not_found"
+
+
+def test_history_import_scope_accepts_large_complete_exports() -> None:
+    source_ids = [f"source-{index}" for index in range(501)]
+
+    selection = history_import_routes.HistoryImportSelectionBody(
+        included_source_ids=source_ids,
+    )
+    confirmation = history_import_routes.HistoryImportConfirmBody(
+        included_source_ids=source_ids,
+        self_participant_ids=source_ids,
+    )
+
+    assert selection.included_source_ids == source_ids
+    assert confirmation.self_participant_ids == source_ids
+
+
+def test_history_import_scope_rejects_unbounded_source_lists() -> None:
+    source_ids = ["source"] * (MAX_HISTORY_IMPORT_SOURCES + 1)
+
+    with pytest.raises(ValidationError):
+        history_import_routes.HistoryImportSelectionBody(
+            included_source_ids=source_ids,
+        )
+
+    with pytest.raises(ValidationError):
+        history_import_routes.HistoryImportConfirmBody(
+            self_participant_ids=source_ids,
+        )

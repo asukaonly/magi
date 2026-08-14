@@ -161,9 +161,9 @@ Open items:
 
 - collect representative, sanitized real exports as regression fixtures whenever
   a provider changes its undocumented field-level schema
-- replace the current fail-closed 500-conversation preview limit with a
-  host-owned paged scan and selection contract; adapters must never silently
-  choose or discard conversations on the user's behalf
+- extend the current bounded complete-preview contract with a host-owned cursor
+  or paged scan for exports beyond 5,000 conversations; adapters must never
+  silently choose or discard conversations on the user's behalf
 - add further adapters only for platforms with a stable/verifiable export format;
   social-post archives should use a post/record contract rather than pretending
   to be conversations

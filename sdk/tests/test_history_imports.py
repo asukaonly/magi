@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import inspect
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -7,6 +10,7 @@ from magi_plugin_sdk import (
     HistoryImportParseResult,
     HistoryImportRecord,
     HistoryImportSource,
+    HistoryImporter,
     HistoryImporterSpec,
 )
 from magi_plugin_sdk.history_imports import (
@@ -32,6 +36,60 @@ def test_importer_spec_normalizes_extensions() -> None:
     assert spec.display_name_i18n == {"zh-CN": "ChatGPT 历史"}
     assert spec.description_i18n == {"zh-CN": "导入官方导出文件。"}
     assert spec.participant_identity_scope == "source"
+
+
+def test_importer_protocol_accepts_synchronous_parsers() -> None:
+    class SynchronousImporter:
+        def parse(self, paths: list[Path]) -> HistoryImportParseResult:
+            del paths
+            return HistoryImportParseResult(
+                sources=[
+                    HistoryImportSource(
+                        source_id="source-1",
+                        source_name="Conversation",
+                        session_key="session-1",
+                        records=[
+                            HistoryImportRecord(
+                                message_key="message-1",
+                                source_order=0,
+                                speaker_id="user",
+                                speaker_name="You",
+                                content="Hello",
+                            )
+                        ],
+                    )
+                ]
+            )
+
+    importer = SynchronousImporter()
+
+    assert isinstance(importer, HistoryImporter)
+    assert not inspect.isawaitable(importer.parse([]))
+    assert not inspect.iscoroutinefunction(HistoryImporter.parse)
+
+
+def test_parse_result_keeps_large_exports_selectable() -> None:
+    sources = [
+        HistoryImportSource(
+            source_id=f"source-{index}",
+            source_name=f"Conversation {index}",
+            session_key=f"session-{index}",
+            records=[
+                HistoryImportRecord(
+                    message_key=f"message-{index}",
+                    source_order=0,
+                    speaker_id="user",
+                    speaker_name="You",
+                    content="Hello",
+                )
+            ],
+        )
+        for index in range(501)
+    ]
+
+    result = HistoryImportParseResult(sources=sources)
+
+    assert len(result.sources) == 501
 
 
 def test_importer_spec_can_declare_export_global_participants() -> None:

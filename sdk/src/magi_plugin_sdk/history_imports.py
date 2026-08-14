@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Awaitable
 from pathlib import Path
 from typing import Annotated, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-MAX_HISTORY_IMPORT_SOURCES = 500
+# Keep complete user choice available for large exports while the host renders
+# source summaries in pages. Total record/text budgets remain the primary memory
+# boundary, so raising the source count does not permit unbounded message data.
+MAX_HISTORY_IMPORT_SOURCES = 5_000
 MAX_HISTORY_IMPORT_RECORDS_PER_SOURCE = 20_000
 MAX_HISTORY_IMPORT_WARNINGS = 200
 MAX_HISTORY_IMPORT_SOURCE_WARNINGS = 100
@@ -278,7 +282,10 @@ class HistoryImportParseResult(BaseModel):
 class HistoryImporter(Protocol):
     """Parser-only adapter; the host owns persistence and memory governance."""
 
-    async def parse(self, paths: list[Path]) -> HistoryImportParseResult:
+    def parse(
+        self,
+        paths: list[Path],
+    ) -> HistoryImportParseResult | Awaitable[HistoryImportParseResult]:
         """Parse declared export files without writing host state."""
 
 

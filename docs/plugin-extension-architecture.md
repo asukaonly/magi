@@ -489,6 +489,14 @@ so the host retains that slot until the real worker exits instead of admitting
 an unbounded queue of replacements. Repeated previews of the same snapshot
 resolve atomically to one active job.
 
+The bounded preview contract keeps up to 5,000 normalized sources selectable
+and renders them in UI pages; it never silently truncates or chooses a subset on
+the user's behalf. Record count and normalized text size remain separately
+bounded, so a high source count does not expand the host's total memory budget.
+Exports beyond the bounded complete-preview contract fail explicitly. A future
+larger-scale path must be host-owned cursor or page scanning with durable
+selection, rather than adapter-owned sampling.
+
 Stable message identity supports later exports that append messages to an
 already imported conversation. Once any message from a session has entered
 memory, its existing stable message-key sequence is an immutable prefix. An

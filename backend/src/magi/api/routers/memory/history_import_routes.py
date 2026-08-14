@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from fastapi import HTTPException, Response, status
+from magi_plugin_sdk.history_imports import MAX_HISTORY_IMPORT_SOURCES
 from pydantic import BaseModel, Field
 
 from ....memory.history_imports.markdown_parser import DOCUMENT_AUTHOR
@@ -23,12 +24,21 @@ class MarkdownHistoryPreviewBody(BaseModel):
 
 class HistoryImportConfirmBody(BaseModel):
     confirm_personal_writing: bool = False
-    included_source_ids: list[str] = Field(default_factory=list, max_length=500)
-    self_participant_ids: list[str] = Field(default_factory=list, max_length=20)
+    included_source_ids: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_HISTORY_IMPORT_SOURCES,
+    )
+    self_participant_ids: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_HISTORY_IMPORT_SOURCES,
+    )
 
 
 class HistoryImportSelectionBody(BaseModel):
-    included_source_ids: list[str] = Field(default_factory=list, max_length=500)
+    included_source_ids: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_HISTORY_IMPORT_SOURCES,
+    )
 
 
 class HistoryImportParticipantResponse(BaseModel):
