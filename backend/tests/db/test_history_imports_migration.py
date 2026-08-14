@@ -145,7 +145,7 @@ def test_history_import_migration_creates_job_and_record_tables() -> None:
 
 
 def test_history_import_selection_precedes_the_release_head() -> None:
-    assert MEMORY_SHARED_MIGRATIONS[-1] == "v47_history_import_deletion_privacy.py"
+    assert MEMORY_SHARED_MIGRATIONS[-1] == "v48_history_import_l2_reimport.py"
     assert "v37_history_import_selection.py" in MEMORY_SHARED_MIGRATIONS
     assert revision == "v37_history_import_selection"
     assert "CREATE TABLE IF NOT EXISTS history_import_jobs" in (schema_sql_for_fresh_database())

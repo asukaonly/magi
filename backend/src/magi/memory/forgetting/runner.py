@@ -895,6 +895,11 @@ class DurableForgetRunner:
         await self._cleanup.cleanup_references(
             references,
             reason=operation.reason,
+            retain_l2_replay_barriers=(
+                operation.selector.kind != "known_events"
+                or str(operation.selector.payload.get("replay_policy") or "permanent")
+                != "explicit_reimport"
+            ),
             prepared_entity_ids=prepared_entity_ids,
             entity_refresh_started_at=time.time(),
             temporal_turn_references=temporal_turn_references,

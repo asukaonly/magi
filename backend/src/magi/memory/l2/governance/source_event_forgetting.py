@@ -173,8 +173,9 @@ class L2StoreSourceEventForgettingMixin:
         *,
         reason: str,
         persist_barrier: bool = True,
+        retain_replay_barriers: bool = True,
     ) -> dict[str, int]:
-        """Forget source events, remove their claim support, and block replay."""
+        """Forget source events and govern whether their stable IDs may replay."""
         host = cast(_SourceEventForgettingHostProtocol, self)
         await host.initialize()
         normalized = normalize_source_event_ids(event_ids)
@@ -196,11 +197,26 @@ class L2StoreSourceEventForgettingMixin:
                             reason=reason,
                             created_at=now,
                         )
-                    result["projection_jobs"] = await _complete_forgotten_projection_jobs(
-                        db,
-                        event_ids=normalized,
-                        now=now,
-                    )
+                    if retain_replay_barriers:
+                        result["projection_jobs"] = await _complete_forgotten_projection_jobs(
+                            db,
+                            event_ids=normalized,
+                            now=now,
+                        )
+                    else:
+                        reimportable_event_ids = await _reimportable_source_event_ids(
+                            db,
+                            event_ids=normalized,
+                        )
+                        result["projection_jobs"] = await _release_reimportable_projection_jobs(
+                            db,
+                            event_ids=reimportable_event_ids,
+                            now=now,
+                        )
+                        await _release_reimportable_event_forget_rules(
+                            db,
+                            event_ids=reimportable_event_ids,
+                        )
                     assertion_route_keys = await _assertion_route_keys_for_source_events(
                         db,
                         event_ids=normalized,
@@ -256,19 +272,20 @@ class L2StoreSourceEventForgettingMixin:
                         now=now,
                     )
                     result.update(derivation_counts)
-                    await apply_correction_forget_barriers(
-                        db,
-                        forgotten_assertions=assertion_claims,
-                        forgotten_edges=edge_claims,
-                        now=now,
-                        permanently_block_claims=False,
-                        cancel_reason="forget_event",
-                        forget_kind="event",
-                        effective_from=None,
-                        effective_to=None,
-                        assertion_event_ids_by_record=assertion_events,
-                        edge_event_ids_by_record=edge_events,
-                    )
+                    if retain_replay_barriers:
+                        await apply_correction_forget_barriers(
+                            db,
+                            forgotten_assertions=assertion_claims,
+                            forgotten_edges=edge_claims,
+                            now=now,
+                            permanently_block_claims=False,
+                            cancel_reason="forget_event",
+                            forget_kind="event",
+                            effective_from=None,
+                            effective_to=None,
+                            assertion_event_ids_by_record=assertion_events,
+                            edge_event_ids_by_record=edge_events,
+                        )
                     correction_subjects = await revert_corrections_for_forgotten_source_events(
                         db,
                         event_ids=normalized,
@@ -1538,6 +1555,119 @@ async def _complete_forgotten_projection_jobs(
         (now, now, event_json),
     )
     return max(int(cursor.rowcount or 0), 0)
+
+
+async def _release_reimportable_projection_jobs(
+    db: aiosqlite.Connection,
+    *,
+    event_ids: tuple[str, ...],
+    now: float,
+) -> int:
+    """Remove selected queue identities after invalidating shared active batches."""
+
+    if not event_ids:
+        return 0
+    await _complete_forgotten_projection_jobs(
+        db,
+        event_ids=event_ids,
+        now=now,
+    )
+    cursor = await db.execute(
+        """
+        DELETE FROM l2_projection_jobs
+        WHERE event_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
+        """,
+        (_event_json(event_ids),),
+    )
+    return max(int(cursor.rowcount or 0), 0)
+
+
+async def _release_reimportable_event_forget_rules(
+    db: aiosqlite.Connection,
+    *,
+    event_ids: tuple[str, ...],
+) -> None:
+    """Release only event-scoped L2 replay rules attached to selected evidence."""
+
+    if not event_ids:
+        return
+    event_json = _event_json(event_ids)
+    async with db.execute(
+        """
+        SELECT DISTINCT rules.rule_id
+        FROM memory_forget_claim_rules AS rules
+        JOIN memory_forget_evidence_events AS evidence
+          ON evidence.rule_id = rules.rule_id
+        WHERE rules.forget_kind = 'event'
+          AND evidence.event_id IN (
+              SELECT CAST(value AS TEXT) FROM json_each(?)
+          )
+        ORDER BY rules.rule_id
+        """,
+        (event_json,),
+    ) as cursor:
+        rule_ids = tuple(str(row[0]) for row in await cursor.fetchall())
+    if not rule_ids:
+        return
+    rule_json = json.dumps(rule_ids, ensure_ascii=False, separators=(",", ":"))
+    await db.execute(
+        """
+        DELETE FROM memory_forget_evidence_events
+        WHERE rule_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
+          AND event_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
+        """,
+        (rule_json, event_json),
+    )
+    await db.execute(
+        """
+        DELETE FROM memory_correction_forget_barriers
+        WHERE rule_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
+          AND NOT EXISTS (
+              SELECT 1
+              FROM memory_forget_evidence_events AS evidence
+              WHERE evidence.rule_id = memory_correction_forget_barriers.rule_id
+          )
+        """,
+        (rule_json,),
+    )
+    await db.execute(
+        """
+        DELETE FROM memory_forget_claim_rules
+        WHERE forget_kind = 'event'
+          AND rule_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
+          AND NOT EXISTS (
+              SELECT 1
+              FROM memory_forget_evidence_events AS evidence
+              WHERE evidence.rule_id = memory_forget_claim_rules.rule_id
+          )
+        """,
+        (rule_json,),
+    )
+
+
+async def _reimportable_source_event_ids(
+    db: aiosqlite.Connection,
+    *,
+    event_ids: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Exclude events already protected by any permanent replay tombstone."""
+
+    if not event_ids:
+        return ()
+    async with db.execute(
+        """
+        SELECT CAST(candidate.value AS TEXT)
+        FROM json_each(?) AS candidate
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM memory_source_event_tombstones AS tombstones
+            WHERE tombstones.event_id = CAST(candidate.value AS TEXT)
+        )
+        ORDER BY CAST(candidate.value AS TEXT)
+        """,
+        (_event_json(event_ids),),
+    ) as cursor:
+        return tuple(str(row[0]) for row in await cursor.fetchall())
 
 
 async def _invalidate_source_event_memberships(

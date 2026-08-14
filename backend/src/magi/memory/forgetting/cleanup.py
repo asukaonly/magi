@@ -28,6 +28,7 @@ class ForgetLayerCleanup:
         references: tuple[str, ...] | list[str],
         *,
         reason: str,
+        retain_l2_replay_barriers: bool = True,
         prepared_entity_ids: tuple[str, ...] = (),
         entity_refresh_started_at: float | None = None,
         temporal_turn_references: tuple[str, ...] = (),
@@ -43,6 +44,7 @@ class ForgetLayerCleanup:
                 normalized,
                 reason=reason,
                 persist_barrier=False,
+                retain_replay_barriers=retain_l2_replay_barriers,
             )
             pipeline = getattr(host, "l2_pipeline", None)
             if pipeline is not None:
@@ -56,9 +58,7 @@ class ForgetLayerCleanup:
         if host.l3 is not None:
             await host.l3.forget_source_events(list(normalized))
         if host.l0 is not None:
-            turn_cutoff_ids = set(
-                normalize_source_event_ids(temporal_turn_references)
-            )
+            turn_cutoff_ids = set(normalize_source_event_ids(temporal_turn_references))
             remove_temporal = getattr(
                 host.l0,
                 "remove_attention_for_turn_cutoffs",
@@ -67,14 +67,10 @@ class ForgetLayerCleanup:
             if turn_cutoff_ids and callable(remove_temporal):
                 await remove_temporal(turn_cutoff_ids)
             permanent_references = tuple(
-                reference
-                for reference in normalized
-                if reference not in turn_cutoff_ids
+                reference for reference in normalized if reference not in turn_cutoff_ids
             )
             if permanent_references:
-                await host.l0.forget_attention_items(
-                    permanent_references
-                )
+                await host.l0.forget_attention_items(permanent_references)
         if host.l4 is not None:
             await host.l4.forget_source_events(
                 normalized,

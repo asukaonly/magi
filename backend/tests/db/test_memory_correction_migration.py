@@ -23,7 +23,7 @@ from magi.memory.l2.corrections.relationship_conflict_effects import (
 )
 from magi.memory.l2.store import L2CognitionStore
 
-MEMORY_HEAD_REVISION = "v47_history_import_deletion_privacy"
+MEMORY_HEAD_REVISION = "v48_history_import_l2_reimport"
 
 
 def _memory_migration_config(db_path: Path):

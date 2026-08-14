@@ -365,7 +365,7 @@ Current heads that matter to the chat-clear, memory-projection, and delivery bou
 | `background_tasks` | `v2` | recoverable terminal-completion snapshots with durable delivery claims, frozen intent/body, and scoped discard during conversation deletion |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
 | `message_queue` | `v7` | pending desktop full-clear transaction adopted before command recovery; success returns to an empty idle row |
-| `memory_shared` | `v42_l2_projection_batch_descriptors` | bind every queued L2 attempt to its exact canonical lease-set descriptor and recover legacy in-flight rows to retryable pending state |
+| `memory_shared` | `v48_history_import_l2_reimport` | release stale L2 queue and event-rule identities only for durable explicit history reimports, then make any affected active import ledger resumable |
 
 The L2 Claim-ledger chain was introduced by `memory_shared` revisions `v38`
 through `v42`: grounded Claims and their evidence/projection outcomes, projection
@@ -375,6 +375,14 @@ incremental migration define the same columns and indexes. `v42` deliberately
 adds nullable descriptor fields and resets legacy `queued` / `running` rows to a
 retryable pending state rather than guessing the members of an interrupted
 attempt; the new runtime then enforces exact descriptor binding before execution.
+`v48` is a bounded repair over durable `known_events` operations whose selector
+explicitly records `replay_policy=explicit_reimport` and whose reason is
+`history_import_deleted`. It deletes only those stable event IDs from the L2
+projection queue, removes only their event-scoped forget evidence, preserves
+mixed or unrelated rules, excludes every event that still has a permanent replay
+tombstone or any non-reimportable durable forget operation, and resets affected
+active import memberships for a real retry.
+Permanent and ordinary forgetting operations are outside its scope.
 Calendar timezone and civil-range provenance live in L1 event metadata and the
 Claim temporal frame, so they require no additional shared-memory schema revision.
 
