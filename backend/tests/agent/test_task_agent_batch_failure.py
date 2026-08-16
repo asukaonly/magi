@@ -120,6 +120,18 @@ async def _wait_for_terminal(store: ChatStore, *, turn_id: str) -> None:
     raise AssertionError(f"Turn {turn_id!r} did not become terminal")
 
 
+async def _wait_for_active_run_completion(
+    agent: ChatTaskAgent,
+    *,
+    session_id: str,
+) -> None:
+    for _ in range(100):
+        if agent._session_run_coordinator.get_active_run(session_id) is None:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"Session {session_id!r} still has an active run")
+
+
 class _FailingPipelineChatAgent(ChatTaskAgent):
     def __init__(self, *, fail_stage: str, chat_store: ChatStore) -> None:
         super().__init__(
@@ -428,6 +440,10 @@ async def test_chat_pipeline_failure_writes_retryable_terminal_surface(
     try:
         assert await agent.add_fact(fact)
         await _wait_for_terminal(store, turn_id=turn_id)
+        await _wait_for_active_run_completion(
+            agent,
+            session_id="session-failure",
+        )
     finally:
         await agent.stop()
 
