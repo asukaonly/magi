@@ -309,6 +309,71 @@ async def test_persona_intent_route_returns_editable_reference_candidates(monkey
 
 
 @pytest.mark.asyncio
+async def test_persona_intent_route_restores_masked_llm_override(monkeypatch) -> None:
+    from magi.api.routers import personality_config, personality_config_routes
+
+    captured: dict[str, LLMSettings] = {}
+    masked_provider = LLMProviderSettings(
+        enabled=True,
+        provider_type="openai",
+        api_key="***",
+    )
+    masked_provider.services.chat.api_key = "***"
+    real_provider = masked_provider.model_copy(deep=True)
+    real_provider.api_key = "sk-backend-owned"
+    real_provider.services.chat.api_key = "sk-backend-owned"
+    selections = {
+        "context_decider": LLMSelectionSettings(
+            provider_id="openai",
+            model="gpt-5.6-mini",
+        ),
+        "core": LLMSelectionSettings(provider_id="openai", model="gpt-5.6"),
+    }
+    masked_override = LLMSettings(
+        providers={"openai": masked_provider},
+        selections=selections,
+    )
+
+    async def _fake_resolve(*args, **kwargs):  # type: ignore[no-untyped-def]
+        captured["llm_override"] = kwargs["llm_override"]
+        return personality_config.PersonaIntentResolutionModel(
+            status="original",
+            confidence=1.0,
+            requires_confirmation=False,
+        )
+
+    monkeypatch.setattr(
+        personality_config_routes,
+        "get_config",
+        lambda: SimpleNamespace(
+            llm=LLMSettings(
+                providers={"openai": real_provider},
+                selections=selections,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        personality_config,
+        "ai_resolve_persona_generation_intent",
+        _fake_resolve,
+    )
+
+    response = await personality_config.resolve_personality_generation_intent(
+        personality_config.PersonaIntentResolveRequest(
+            description="A calm original persona",
+            target_language="English",
+            llm_override=masked_override,
+        )
+    )
+
+    assert response.success is True
+    assert (
+        captured["llm_override"].providers["openai"].services.chat.api_key
+        == "sk-backend-owned"
+    )
+
+
+@pytest.mark.asyncio
 async def test_persona_intent_resolver_uses_one_core_json_call() -> None:
     from magi.api.services.personality_generation_intent import (
         resolve_persona_generation_intent,

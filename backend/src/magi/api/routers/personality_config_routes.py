@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 
 from ...agent.runtime import TaskAgentType
 from ... import i18n as core_i18n
+from ...config import get_config
+from ...config.models import LLMSettings
+from ..services.config_secrets import (
+    llm_settings_have_masked_secrets,
+    normalize_masked_llm_settings_secrets,
+)
 from .personality_config_common import legacy_personality_config_module
 from .personality_config_schemas import (
     AIGenerateRequest,
@@ -22,6 +28,15 @@ from .personality_config_schemas import (
 )
 
 personality_config_core_router = APIRouter()
+
+
+def _normalize_llm_override(
+    llm_override: Optional[LLMSettings],
+) -> Optional[LLMSettings]:
+    """Restore backend-owned credentials in an onboarding LLM override."""
+    if llm_override is None or not llm_settings_have_masked_secrets(llm_override):
+        return llm_override
+    return normalize_masked_llm_settings_secrets(llm_override, get_config())
 
 FIELD_LABEL_I18N_KEYS: Dict[str, str] = {
     "name": "personality.config.fields.name",
@@ -327,7 +342,7 @@ async def generate_personality(request: AIGenerateRequest):
             request.description,
             request.target_language,
             current_config=request.current_config,
-            llm_override=request.llm_override,
+            llm_override=_normalize_llm_override(request.llm_override),
             intent=request.intent,
         )
         config = result.config
@@ -366,7 +381,7 @@ async def start_personality_generation(request: AIGenerateRequest):
             request.description,
             request.target_language,
             current_config=request.current_config,
-            llm_override=request.llm_override,
+            llm_override=_normalize_llm_override(request.llm_override),
             draft_id=request.draft_id,
             request_id=request.request_id,
             intent=request.intent,
@@ -404,7 +419,7 @@ async def resolve_personality_generation_intent(
         resolution = await legacy.ai_resolve_persona_generation_intent(
             request.description,
             request.target_language,
-            llm_override=request.llm_override,
+            llm_override=_normalize_llm_override(request.llm_override),
         )
         return PersonaIntentResolutionResponse(
             success=True,
@@ -433,7 +448,7 @@ async def verify_personality_reference_identity(
             request.reference,
             target_language=request.target_language,
             reference_urls=request.reference_urls,
-            llm_override=request.llm_override,
+            llm_override=_normalize_llm_override(request.llm_override),
         )
         return PersonaIdentityVerifyResponse(
             success=True,
@@ -468,7 +483,7 @@ async def adjust_personality(request: PersonaAdjustmentRequest) -> PersonalityRe
             scope=request.scope,
             target_language=request.target_language,
             intent=request.intent,
-            llm_override=request.llm_override,
+            llm_override=_normalize_llm_override(request.llm_override),
         )
         return PersonalityResponse(
             success=True,

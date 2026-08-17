@@ -26,6 +26,7 @@ from magi.api.routers.config_response_builders import _build_memory_l0_config
 from magi.api.services.llm_testing_service import _default_llm_provider_registry
 from magi.api.services.config_secrets import (
     mask_system_config_secrets,
+    normalize_masked_llm_settings_secrets,
     normalize_masked_secrets,
 )
 from magi.api.routers.llm import llm_router
@@ -749,6 +750,35 @@ def test_system_config_secrets_are_write_only_with_keep_replace_delete_semantics
     normalized_clear = normalize_masked_secrets(cleared, runtime)
     assert normalized_clear.network.password == ""
     assert normalized_clear.tools.builtIn.weather.apiKey == ""
+
+
+def test_masked_llm_settings_override_restores_backend_owned_keys():
+    masked = LLMSettings(
+        providers={"openai": _provider_settings(api_key="***")},
+        selections={
+            "context_decider": LLMSelectionSettings(
+                provider_id="openai",
+                model="gpt-5.6-mini",
+            ),
+            "core": LLMSelectionSettings(provider_id="openai", model="gpt-5.6"),
+        },
+    )
+    runtime = SimpleNamespace(
+        llm=LLMSettings(
+            providers={"openai": _provider_settings(api_key="sk-backend-owned")},
+            selections=masked.selections,
+        )
+    )
+
+    normalized = normalize_masked_llm_settings_secrets(masked, runtime)
+
+    assert normalized.providers["openai"].api_key == "sk-backend-owned"
+    assert (
+        normalized.providers["openai"].services.chat.api_key
+        == "sk-backend-owned"
+    )
+    assert masked.providers["openai"].api_key == "***"
+    assert masked.providers["openai"].services.chat.api_key == "***"
 
 
 def test_build_update_paths_applies_builtin_provider_defaults_before_save():

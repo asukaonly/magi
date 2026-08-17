@@ -8,7 +8,14 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from magi.api.routers import chat_preview_routes
 from magi.api.routers.chat_preview_routes import build_default_chat_preview_router
+from magi.config.models import (
+    LLMProviderSettings,
+    LLMScenario,
+    LLMSelectionSettings,
+    LLMSettings,
+)
 from magi.personality.loader import PersonalityConfig
 
 
@@ -34,6 +41,28 @@ def _persona_config(name: str = "Nova") -> PersonalityConfig:
                 }
             },
         }
+    )
+
+
+def _llm_settings(api_key: str) -> LLMSettings:
+    provider = LLMProviderSettings(
+        enabled=True,
+        provider_type="openai",
+        api_key=api_key,
+    )
+    provider.services.chat.api_key = api_key
+    return LLMSettings(
+        providers={"openai": provider},
+        selections={
+            LLMScenario.CONTEXT_DECIDER.value: LLMSelectionSettings(
+                provider_id="openai",
+                model="gpt-5.6-mini",
+            ),
+            LLMScenario.CORE.value: LLMSelectionSettings(
+                provider_id="openai",
+                model="gpt-5.6",
+            ),
+        },
     )
 
 
@@ -213,6 +242,58 @@ def test_post_preview_threads_llm_override_to_deps() -> None:
     assert seen["llm_call_override"] is not None
     assert seen["core_model_override"] is not None
     assert seen["core_model_override"].selections["core"].model == "gpt-4o"
+
+
+def test_post_preview_restores_masked_llm_override_before_resolving_deps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, LLMSettings] = {}
+
+    async def fake_llm(*, system_prompt, messages, model):
+        _ = system_prompt, messages, model
+        yield "ok"
+
+    def llm_call_dep(override=None):
+        seen["llm_call_override"] = override
+        return fake_llm
+
+    def core_model_dep(override=None) -> str:
+        seen["core_model_override"] = override
+        return "gpt-5.6"
+
+    monkeypatch.setattr(
+        chat_preview_routes,
+        "get_config",
+        lambda: SimpleNamespace(llm=_llm_settings("sk-backend-owned")),
+    )
+    app = FastAPI()
+    app.include_router(
+        build_default_chat_preview_router(
+            persona_loader_dep=lambda: (lambda slug, locale: _persona_config(slug)),
+            llm_call_dep=llm_call_dep,
+            core_model_dep=core_model_dep,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/chat/preview",
+        json={
+            "seed_slug": "nova",
+            "history": [],
+            "message": {"role": "user", "content": "hi"},
+            "llm_override": _llm_settings("***").model_dump(mode="json"),
+        },
+    )
+
+    assert response.status_code == 200
+    assert (
+        seen["llm_call_override"].providers["openai"].services.chat.api_key
+        == "sk-backend-owned"
+    )
+    assert (
+        seen["core_model_override"].providers["openai"].services.chat.api_key
+        == "sk-backend-owned"
+    )
 
 
 def _capture_prompt_app(captured: dict) -> FastAPI:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from ...config.models import LLMSettings
 from ..routers.config_schemas import LLMProviderConfigModel, SystemConfigModel
 
 MASKED_SECRET = "***"
@@ -62,6 +63,42 @@ def normalize_masked_llm_provider_secrets(
     return normalized
 
 
+def llm_settings_have_masked_secrets(settings: LLMSettings) -> bool:
+    """Return whether an LLM settings payload contains write-only sentinels."""
+    for provider in settings.providers.values():
+        if is_masked_api_key(provider.api_key):
+            return True
+        for service_name in ("chat", "embedding", "image_generation", "tts"):
+            if is_masked_api_key(getattr(provider.services, service_name).api_key):
+                return True
+    return False
+
+
+def normalize_masked_llm_settings_secrets(
+    settings: LLMSettings,
+    runtime_config: Any,
+) -> LLMSettings:
+    """Restore backend-owned credentials in a temporary LLM settings payload."""
+    normalized = settings.model_copy(deep=True)
+    for provider_id, provider in normalized.providers.items():
+        runtime_provider = runtime_config.llm.providers.get(provider_id)
+        if is_masked_api_key(provider.api_key):
+            provider.api_key = (
+                runtime_provider.api_key if runtime_provider is not None else None
+            )
+
+        runtime_services = getattr(runtime_provider, "services", None)
+        for service_name in ("chat", "embedding", "image_generation", "tts"):
+            service = getattr(provider.services, service_name)
+            if not is_masked_api_key(service.api_key):
+                continue
+            runtime_service = getattr(runtime_services, service_name, None)
+            service.api_key = (
+                runtime_service.api_key if runtime_service is not None else None
+            )
+    return normalized
+
+
 def normalize_masked_secrets(config: SystemConfigModel, runtime_config: Any) -> SystemConfigModel:
     normalized = SystemConfigModel.model_validate(config.model_dump())
 
@@ -97,8 +134,10 @@ def normalize_masked_secrets(config: SystemConfigModel, runtime_config: Any) -> 
 __all__ = [
     "MASKED_SECRET",
     "is_masked_api_key",
+    "llm_settings_have_masked_secrets",
     "mask_api_key",
     "mask_system_config_secrets",
     "normalize_masked_llm_provider_secrets",
+    "normalize_masked_llm_settings_secrets",
     "normalize_masked_secrets",
 ]

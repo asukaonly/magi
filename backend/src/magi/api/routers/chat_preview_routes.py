@@ -41,8 +41,13 @@ from magi.chat_preview import (
     build_preview_prompt_package,
     run_preview,
 )
+from magi.config import get_config
 from magi.core.logger import get_logger
 from magi.personality.loader import PersonalityConfig
+from magi.api.services.config_secrets import (
+    llm_settings_have_masked_secrets,
+    normalize_masked_llm_settings_secrets,
+)
 
 if TYPE_CHECKING:
     from magi.config.models import LLMSettings
@@ -58,6 +63,15 @@ PersonaLoaderDep = Callable[[], Callable[[str, str], PersonalityConfig]]
 # not-yet-persisted config so the preview can run before the user saves).
 LLMCallDep = Callable[["Optional[LLMSettings]"], Callable[..., AsyncIterator[str]]]
 CoreModelDep = Callable[["Optional[LLMSettings]"], str]
+
+
+def _normalize_llm_override(
+    llm_override: "LLMSettings | None",
+) -> "LLMSettings | None":
+    """Restore backend-owned credentials before resolving a temporary adapter."""
+    if llm_override is None or not llm_settings_have_masked_secrets(llm_override):
+        return llm_override
+    return normalize_masked_llm_settings_secrets(llm_override, get_config())
 
 
 def build_default_chat_preview_router(
@@ -110,8 +124,9 @@ def build_default_chat_preview_router(
             system_prompt = prompt_package.system_prompt
             persona_rhythm = extract_persona_rhythm(prompt_package.prompt_context)
 
-            core_model = core_model_dep(request.llm_override)
-            llm_call = llm_call_dep(request.llm_override)
+            llm_override = _normalize_llm_override(request.llm_override)
+            core_model = core_model_dep(llm_override)
+            llm_call = llm_call_dep(llm_override)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
