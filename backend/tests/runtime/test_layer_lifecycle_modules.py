@@ -45,6 +45,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "subprocess_orphan_cleanup",
         "runtime_core_dependencies",
         "runtime_initialization_state",
+        "runtime_memory_restore_recovery",
         "runtime_database_migrations",
         "runtime_identity",
         "runtime_configuration",
@@ -157,9 +158,10 @@ def test_schema_migrations_run_before_any_db_consuming_module() -> None:
         "subprocess_orphan_cleanup",
         "runtime_core_dependencies",
         "runtime_initialization_state",
+        "runtime_memory_restore_recovery",
     ], (
         "schema migrations must run before every database consumer; only orphan "
-        "cleanup, core paths, and initialization state may precede them. "
+        "cleanup, core paths, initialization state, and memory restore recovery may precede them. "
         f"Got before-migrations: {resolved[:migrations_idx]}"
     )
 

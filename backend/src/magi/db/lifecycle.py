@@ -8,9 +8,9 @@ here so the migration concern lives with the package that owns it, and so the
 (a leaf), which keeps the unified logging pipeline while breaking the
 ``core <-> db`` package cycle.
 
-Runs immediately after ``CoreDependenciesModule`` — it needs the runtime paths
-and directories that module initializes — and before any module that opens one
-of the migrated databases.
+Runs after the memory-restore recovery boundary — both need the runtime paths
+created by ``CoreDependenciesModule``, and interrupted restore cutovers must be
+rolled back before Alembic opens either memory database.
 """
 
 from __future__ import annotations

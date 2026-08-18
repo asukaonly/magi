@@ -67,6 +67,7 @@ from ..memory.lifecycle import (
 from ..memory.clear_generation import current_memory_clear_state
 from ..memory.manual_entries.lifecycle import ManualEntriesModule
 from ..memory.history_imports.lifecycle import HistoryImportsModule
+from ..memory.portability.recovery import MemoryRestoreRecoveryModule
 from ..media.lifecycle import MediaRegistryModule
 from ..personality.lifecycle import PersonalityModule
 from ..plugins.lifecycle import PluginSystemModule
@@ -204,6 +205,9 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
         _build_subprocess_orphan_cleanup_module(context),
         CoreDependenciesModule(context),
         InitializationStateModule(context),
+        # A kill between restore file swaps and runtime validation leaves a
+        # durable journal. Resolve it before Alembic opens either memory DB.
+        MemoryRestoreRecoveryModule(context),
         # Apply Alembic schema migrations before any store opens a connection.
         # Owned by the db package (db/lifecycle.py); depends on core deps for
         # runtime paths + initialized db files. Splitting this out of

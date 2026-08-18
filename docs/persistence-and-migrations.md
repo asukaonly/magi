@@ -51,6 +51,24 @@ revision validation, then upgrade to the installed heads before cutover. An
 unknown revision is a future/incompatible backup and must be rejected rather
 than guessed through a compatibility path.
 
+A restore uses a singleton, owner-only, content-free journal at
+`runtime/memory-portability/memory-restore.pending.json`. The journal records
+only its transaction ID, process owner, phase, target identities, private
+artifact paths, and file/tree integrity digests; it never records a password,
+source package path, prompt, or memory payload. Before live mutation, the
+engine creates an unencrypted but owner-only safety `.magibackup`, complete
+logical SQLite rollback copies, and incoming sibling stages on every target
+filesystem. It synchronizes the journal before replacing L1, shared memory,
+the managed date-archive set, or the manual-entry asset directory, and removes
+SQLite sidecars at each database boundary. A normal exception rolls back
+immediately. On process startup, `runtime_memory_restore_recovery` runs before
+`runtime_database_migrations`; any uncommitted cutover is rolled back
+idempotently before Alembic opens the databases. The only skip is an explicitly
+registered same-process transaction while the caller initializes and validates
+the newly restored runtime. The caller commits only after runtime validation
+and durable index-rebuild admission succeed. A crash after that commit keeps
+the new files and finishes removing plaintext rollback artifacts.
+
 | File | Owner | Holds |
 |------|-------|-------|
 | `data/chat/chat.db` | chat | sessions, session-creation idempotency mappings, turns, messages, attachments, per-turn context-usage snapshots, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, context summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |
