@@ -1828,6 +1828,197 @@
           "cancelled": "已取消"
         }
       },
+      "dataManagement": {
+        "title": "备份、导出或恢复记忆",
+        "description": "为本地记忆保留可迁移副本、生成便于阅读的导出，或从 Magi 备份替换当前记忆。这些操作不会改动设置中的待保存配置。",
+        "common": {
+          "cancel": "取消",
+          "close": "关闭",
+          "retry": "重试",
+          "destinationDirectory": "保存目录",
+          "chooseDirectory": "选择目录",
+          "noDirectorySelected": "尚未选择目录"
+        },
+        "backup": {
+          "title": "可恢复备份",
+          "description": "创建可恢复的 .magibackup 文件，包含各层记忆、归档和受管理的记忆素材；不包含聊天记录与附件。",
+          "action": "创建备份",
+          "dialogTitle": "创建记忆备份",
+          "dialogDescription": "选择备份的保存位置和保护方式。",
+          "passwordProtection": "使用密码保护",
+          "passwordProtectionDescription": "默认开启。备份会先加密，再写入所选目录。",
+          "password": "密码",
+          "confirmPassword": "确认密码",
+          "passwordRecoveryWarning": "Magi 无法找回这个密码。移动备份前，请先把密码妥善保管。",
+          "plaintextConfirmation": "我明白此备份将不加密保存，任何能访问该文件的人都可能看到其中的个人记忆数据。",
+          "start": "开始备份",
+          "starting": "正在启动…",
+          "errors": {
+            "destinationRequired": "请选择保存目录。",
+            "passwordRequired": "请为此备份输入密码。",
+            "passwordMismatch": "两次输入的密码不一致。",
+            "plaintextConfirmationRequired": "请确认你已了解不加密备份的风险。"
+          }
+        },
+        "export": {
+          "title": "可读数据导出",
+          "description": "生成便于查阅或迁移的可读副本。导出会包含当前关注，但不能用于恢复 Magi。",
+          "action": "导出记忆",
+          "dialogTitle": "导出可读记忆数据",
+          "dialogDescription": "请选择一个私密位置，保存可在 Magi 之外阅读的副本。",
+          "contentsDescription": "导出包含当前关注状态和可迁移的记忆记录，用于阅读和数据迁移，不能用来恢复 Magi。",
+          "readabilityConfirmation": "我明白导出内容可以直接阅读，其中可能含有敏感个人信息，并会把它保存到可信位置。",
+          "start": "开始导出",
+          "starting": "正在启动…",
+          "errors": {
+            "destinationRequired": "请选择保存目录。",
+            "readabilityConfirmationRequired": "请确认你会把可读导出保存到可信位置。"
+          }
+        },
+        "restore": {
+          "title": "从备份恢复",
+          "description": "先检查 .magibackup 文件，再替换当前记忆。最终切换前，Magi 会先创建安全备份。",
+          "action": "选择备份",
+          "choosingFile": "正在选择…",
+          "fileFilter": "Magi 记忆备份",
+          "dialogTitle": "检查记忆恢复",
+          "dialogDescription": "Magi 会先验证备份。只有在你检查内容并确认后，当前记忆才会被替换。",
+          "selectedFile": "已选备份",
+          "inspecting": "正在检查并验证备份…",
+          "passwordRequiredTitle": "这个备份已加密",
+          "passwordRequiredDescription": "请输入备份密码以验证内容。密码不会被保存。",
+          "password": "备份密码",
+          "unlockAndInspect": "解锁并检查",
+          "encrypted": "已使用密码保护",
+          "unencrypted": "未加密",
+          "createdAt": "备份创建时间",
+          "expiresAt": "本次检查有效期至",
+          "magiVersion": "创建时的 Magi 版本",
+          "formatVersion": "备份格式版本",
+          "fingerprint": "文件指纹",
+          "scopeTitle": "可恢复的数据",
+          "scopeLabel": "可恢复的记忆范围",
+          "recordCountsTitle": "找到的记录",
+          "reviewWarnings": "恢复前请注意",
+          "unsupportedDescription": "此备份与当前 Magi 版本不兼容，无法恢复。",
+          "replaceConfirmation": "我明白此操作会替换当前记忆；在备份创建后删除的内容可能会重新出现。",
+          "confirmReplace": "替换当前记忆",
+          "starting": "正在准备恢复…",
+          "compatibility": {
+            "compatible": "兼容",
+            "upgrade_required": "恢复时会自动升级",
+            "unsupported": "不支持"
+          },
+          "errors": {
+            "passwordRequired": "请输入备份密码。",
+            "replaceConfirmationRequired": "请确认你已了解当前记忆将被替换。"
+          }
+        },
+        "operation": {
+          "checking": "正在检查是否有进行中的记忆数据操作…",
+          "dismiss": "收起",
+          "progressLabel": "记忆数据操作进度",
+          "reconnecting": "Magi 正在重启或暂时不可用，连接恢复后会自动继续显示进度。",
+          "outputPath": "保存位置",
+          "fileSize": "文件大小：{{size}}",
+          "safetyBackup": "安全备份",
+          "indexRebuildLabel": "记忆搜索索引：{{status}}",
+          "restoreRestartHint": "启用恢复后的记忆时，Magi 可能会短暂重启相关服务。",
+          "rollbackSucceeded": "恢复已回滚，之前的记忆仍在使用。",
+          "rollbackFailedHelp": "自动回滚未能完成。请保留安全备份，并在继续改动记忆前重启 Magi。",
+          "startedAt": "开始于 {{time}}",
+          "completedAt": "完成于 {{time}}",
+          "title": {
+            "backup": "正在创建记忆备份",
+            "export": "正在导出记忆数据",
+            "restore": "正在恢复记忆"
+          },
+          "status": {
+            "pending": "等待开始",
+            "running": "进行中",
+            "succeeded": "已完成",
+            "failed": "失败"
+          },
+          "phases": {
+            "queued": "正在等待当前记忆写入完成",
+            "preparing": "正在准备一致的记忆快照",
+            "snapshot": "正在复制一致的记忆快照",
+            "packaging": "正在打包记忆数据",
+            "encrypting": "正在加密备份",
+            "writing": "正在写入输出文件",
+            "exporting": "正在生成可读导出",
+            "safetyBackup": "正在创建安全备份",
+            "shuttingDown": "正在暂停记忆服务以安全恢复",
+            "cutover": "正在切换到恢复后的记忆",
+            "replacing": "正在启用恢复后的记忆",
+            "rebuildingIndexes": "正在重建记忆搜索索引",
+            "restarting": "正在重启记忆服务",
+            "finalizing": "正在完成并验证",
+            "complete": "已完成",
+            "working": "正在处理记忆数据"
+          },
+          "indexRebuild": {
+            "pending": "等待中",
+            "running": "正在重建",
+            "succeeded": "可用",
+            "failed": "重建失败",
+            "notRequired": "无需重建",
+            "unknown": "状态不可用"
+          }
+        },
+        "recordCounts": {
+          "l0": "当前关注",
+          "l1": "事件",
+          "l2": "知识记录",
+          "l2Entities": "实体",
+          "l2Relations": "关系",
+          "l2Assertions": "断言",
+          "l2Episodes": "情节",
+          "l2Experiences": "经验",
+          "l3": "摘要",
+          "l4": "流程经验",
+          "archives": "归档记录",
+          "manualEntries": "手动记忆",
+          "managedAssets": "受管理的记忆素材"
+        },
+        "scope": {
+          "l0": "当前关注",
+          "l1": "事件",
+          "l2": "知识",
+          "l3": "摘要",
+          "l4": "流程经验",
+          "archives": "归档",
+          "managedAssets": "受管理的记忆素材"
+        },
+        "warnings": {
+          "restore_replaces_current_memory": "恢复会替换当前记忆快照。",
+          "deleted_memories_may_return": "在此备份创建后删除的记忆可能会重新出现。",
+          "l0_runtime_attention_not_restored": "当前运行时关注不会从备份中恢复。",
+          "chat_records_and_attachments_not_included": "此备份不包含聊天记录与附件。",
+          "source_evidence_may_be_unavailable": "恢复后，部分原始依据可能已经无法访问。",
+          "raw_history_import_content_redacted": "导入历史中的原始内容仍会按要求保持脱敏。",
+          "chat_evidence_unavailable": "此备份中部分关联的聊天依据不可用。",
+          "index_rebuild_required": "恢复后会重新构建记忆搜索索引。",
+          "l0_not_restored": "当前关注不会从备份中恢复。",
+          "generic": "此备份还有一项兼容性提示。仅在你信任文件来源时继续。"
+        },
+        "errors": {
+          "busy": "已有另一个记忆数据操作正在进行。",
+          "destinationInvalid": "所选位置无法使用，请选择其他目录。",
+          "insufficientSpace": "所选位置的可用空间不足。",
+          "passwordRequired": "此备份需要密码。",
+          "wrongPassword": "密码不正确，或加密备份已经损坏。",
+          "corruptBackup": "此文件不是有效且完整的 Magi 记忆备份。",
+          "checksumMismatch": "备份内容已被改动或损坏，未能通过校验。",
+          "unsupportedFormat": "当前 Magi 版本不支持此备份格式。",
+          "unsupportedSchema": "此备份包含当前 Magi 版本无法恢复的记忆结构。",
+          "incompleteBackup": "备份不完整，无法恢复。",
+          "candidateExpired": "本次恢复检查已过期，请重新选择备份并验证。",
+          "restoreFailed": "Magi 未能启用恢复后的记忆；回滚成功时，之前的记忆仍会保留。",
+          "rollbackFailed": "恢复和自动回滚都失败了，请保留安全备份并重启 Magi。",
+          "generic": "记忆数据操作无法继续。请重试；如果问题持续，请重启 Magi。"
+        }
+      },
       "fields": {
         "db_path": {
           "label": "记忆数据存储位置",

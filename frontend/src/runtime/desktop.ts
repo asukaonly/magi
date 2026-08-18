@@ -118,6 +118,33 @@ export async function pickFile(defaultPath?: string | null): Promise<string | un
   return selection;
 }
 
+export async function pickMemoryBackupFile(
+  filterName: string,
+  defaultPath?: string | null,
+): Promise<string | undefined> {
+  if (!isTauriRuntime()) {
+    return undefined;
+  }
+
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const selection = await open({
+    directory: false,
+    multiple: false,
+    defaultPath: defaultPath || undefined,
+    filters: [
+      {
+        name: filterName,
+        extensions: ['magibackup'],
+      },
+    ],
+  });
+
+  if (Array.isArray(selection) || !selection) {
+    return undefined;
+  }
+  return selection;
+}
+
 export async function pickMarkdownFiles(): Promise<string[]> {
   if (!isTauriRuntime()) {
     return [];

@@ -4,9 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // declaration; runtime/desktop now statically imports these modules, so
 // the mock factory runs during the test file's module-evaluation and
 // would otherwise hit a TDZ on invokeMock/listenMock.
-const { invokeMock, listenMock } = vi.hoisted(() => ({
+const { invokeMock, listenMock, dialogOpenMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   listenMock: vi.fn(),
+  dialogOpenMock: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -17,6 +18,10 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: listenMock,
 }));
 
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  open: dialogOpenMock,
+}));
+
 import {
   beginFullDataClear,
   cancelExitRequest,
@@ -24,6 +29,7 @@ import {
   completeFullDataClear,
   confirmExitApp,
   openExternalUrl,
+  pickMemoryBackupFile,
   registerDesktopOpenSettingsHandler,
   registerDesktopQuitHandler,
   readPendingFullDataClear,
@@ -34,6 +40,7 @@ describe('desktop runtime bridge', () => {
   beforeEach(() => {
     invokeMock.mockReset();
     listenMock.mockReset();
+    dialogOpenMock.mockReset();
     delete (window as Window & { __TAURI__?: object }).__TAURI__;
     delete (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__;
   });
@@ -121,6 +128,27 @@ describe('desktop runtime bridge', () => {
     expect(invokeMock).toHaveBeenNthCalledWith(3, 'complete_full_data_clear', {
       transactionId: marker.transactionId,
     });
+  });
+
+  it('opens the native picker with the Magi backup extension only', async () => {
+    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+    dialogOpenMock.mockResolvedValue('/Users/example/Memory copy.magibackup');
+
+    await expect(
+      pickMemoryBackupFile('Magi memory backup', '/Users/example'),
+    ).resolves.toBe('/Users/example/Memory copy.magibackup');
+
+    expect(dialogOpenMock).toHaveBeenCalledWith({
+      directory: false,
+      multiple: false,
+      defaultPath: '/Users/example',
+      filters: [{ name: 'Magi memory backup', extensions: ['magibackup'] }],
+    });
+  });
+
+  it('does not open a backup file picker outside the desktop runtime', async () => {
+    await expect(pickMemoryBackupFile('Magi memory backup')).resolves.toBeUndefined();
+    expect(dialogOpenMock).not.toHaveBeenCalled();
   });
 
   it('refuses to acknowledge a full clear without the desktop owner', async () => {

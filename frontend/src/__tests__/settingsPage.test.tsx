@@ -8,6 +8,7 @@ import { SettingsPage } from '@/pages/Settings';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { getControlSettings, updateControlSettings } from '@/api/modules/control';
 import memoryApi from '@/api/modules/memory';
+import { memoryPortabilityApi } from '@/api/modules/memoryPortability';
 import { pluginsApi } from '@/api/modules/plugins';
 import { sensorsApi } from '@/api/modules/sensors';
 import { skillsApi } from '@/api/modules/skills';
@@ -20,6 +21,7 @@ const {
   requestDesktopNotificationPermissionMock,
   syncDesktopNotificationPreferencesMock,
   pickDirectoryMock,
+  pickMemoryBackupFileMock,
   openExternalUrlMock,
   changeLanguageMock,
   llmFormAutoChangeRef,
@@ -31,6 +33,7 @@ const {
   requestDesktopNotificationPermissionMock: vi.fn(),
   syncDesktopNotificationPreferencesMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
+  pickMemoryBackupFileMock: vi.fn(),
   openExternalUrlMock: vi.fn(),
   changeLanguageMock: vi.fn(),
   llmFormAutoChangeRef: {
@@ -170,6 +173,7 @@ vi.mock('@/runtime/desktop', () => ({
   syncStartMinimizedPreference: syncStartMinimizedPreferenceMock,
   syncSkipQuitConfirmationPreference: vi.fn(),
   pickDirectory: pickDirectoryMock,
+  pickMemoryBackupFile: pickMemoryBackupFileMock,
   openExternalUrl: openExternalUrlMock,
 }));
 
@@ -207,6 +211,24 @@ vi.mock('@/api/modules/memory', async () => {
     default: {
       ...actual.default,
       getEmbeddingVectorStatus: vi.fn(),
+    },
+  };
+});
+
+vi.mock('@/api/modules/memoryPortability', async () => {
+  const actual = await vi.importActual<typeof import('@/api/modules/memoryPortability')>(
+    '@/api/modules/memoryPortability',
+  );
+  return {
+    ...actual,
+    memoryPortabilityApi: {
+      createBackup: vi.fn(),
+      createExport: vi.fn(),
+      inspectRestore: vi.fn(),
+      confirmRestore: vi.fn(),
+      discardRestoreCandidate: vi.fn(),
+      getActiveOperation: vi.fn(),
+      getOperation: vi.fn(),
     },
   };
 });
@@ -653,6 +675,8 @@ describe('settings page draft saving', () => {
     requestDesktopNotificationPermissionMock.mockResolvedValue(true);
     pickDirectoryMock.mockReset();
     pickDirectoryMock.mockResolvedValue(undefined);
+    pickMemoryBackupFileMock.mockReset();
+    pickMemoryBackupFileMock.mockResolvedValue(undefined);
     openExternalUrlMock.mockReset();
     openExternalUrlMock.mockResolvedValue(undefined);
 
@@ -689,6 +713,8 @@ describe('settings page draft saving', () => {
       },
       latest_job: null,
     });
+    vi.mocked(memoryPortabilityApi.getActiveOperation).mockResolvedValue(null);
+    vi.mocked(memoryPortabilityApi.discardRestoreCandidate).mockResolvedValue(undefined);
     vi.mocked(configApi.embeddingPreflight).mockResolvedValue({
       severity: 'none',
       requires_rebuild: false,
@@ -1384,6 +1410,66 @@ describe('settings page draft saving', () => {
     await user.click(memoryGroupButton);
     expect(memoryGroupButton).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryGeneral' })).not.toBeInTheDocument();
+  });
+
+  it('places memory data management after vector maintenance and before danger without dirtying config', async () => {
+    const user = userEvent.setup();
+    pickDirectoryMock.mockResolvedValue('/tmp/portable memory backups');
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        preferences: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences),
+          user_mode: 'expert',
+        },
+      },
+    } as any);
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
+
+    const vectorTitle = screen.getByText('settings.memory.vector.title');
+    const dataManagement = screen.getByTestId('memory-data-management-section');
+    const dangerZone = screen.getByTestId('memory-danger-zone');
+    expect(vectorTitle.compareDocumentPosition(dataManagement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(dataManagement.compareDocumentPosition(dangerZone) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    expect(screen.getByText('settings.allChangesSaved')).toBeInTheDocument();
+    const saveButton = screen.getByRole('button', { name: 'settings.actions.save' });
+    expect(saveButton).toBeDisabled();
+
+    await user.click(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.backup.action',
+    }));
+    await user.click(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.common.chooseDirectory',
+    }));
+
+    expect(screen.getByText('/tmp/portable memory backups')).toBeInTheDocument();
+    expect(screen.getByText('settings.allChangesSaved')).toBeInTheDocument();
+    expect(saveButton).toBeDisabled();
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps memory data management visible in Quick mode', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue({
+      data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG),
+        preferences: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences),
+          user_mode: 'quick',
+        },
+      },
+    } as any);
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+
+    expect(await screen.findByTestId('memory-data-management-section')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.memoryGeneral' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryWorkbench' })).not.toBeInTheDocument();
   });
 
   it('saves the workbench attention update cadence', async () => {

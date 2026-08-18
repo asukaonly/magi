@@ -58,6 +58,21 @@ export { hooksApi } from './modules/hooks';
 export type { HookEntry, HooksListResponse } from './modules/hooks';
 
 export { memoryApi } from './modules/memory';
+export { memoryPortabilityApi } from './modules/memoryPortability';
+export type {
+  CreateMemoryBackupInput,
+  CreateMemoryExportInput,
+  InspectMemoryRestoreInput,
+  MemoryPortabilityOperation,
+  MemoryPortabilityOperationKind,
+  MemoryPortabilityOperationStatus,
+  MemoryPortabilityTimestamp,
+  MemoryRestoreCompatibility,
+  MemoryRestoreInspection,
+  MemoryRestoreInspectionState,
+  PasswordRequiredMemoryRestoreInspection,
+  ReadyMemoryRestoreInspection,
+} from './modules/memoryPortability';
 export { historyImportsApi } from './modules/historyImports';
 export type {
   HistoryImportDetectedKind,

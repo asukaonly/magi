@@ -11,6 +11,7 @@ import memoryApi from '@/api/modules/memory';
 import { clearAllMemory } from '@/hooks/clearAllMemory';
 import { summarizeMemoryClear } from '@/hooks/memoryClearFeedback';
 import { ClearMemoryDialog } from '@/components/memory/ClearMemoryDialog';
+import { MemoryDataManagementSection } from '@/components/settings/memory-data/MemoryDataManagementSection';
 import { LabeledSelectField, NumberField } from '@/components/settings/form-fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -101,7 +102,7 @@ function DependencyNotice({
   );
 }
 
-function VectorMaintenancePanel() {
+function VectorMaintenancePanel({ refreshRevision = 0 }: { refreshRevision?: number }) {
   const { t } = useTranslation('app');
   const [status, setStatus] = useState<EmbeddingVectorStatus | null>(null);
   const [loading, setLoading] = useState(false);
@@ -137,7 +138,7 @@ function VectorMaintenancePanel() {
 
   useEffect(() => {
     void refreshStatus(true);
-  }, [refreshStatus]);
+  }, [refreshRevision, refreshStatus]);
 
   useEffect(() => {
     if (!jobActive) {
@@ -255,6 +256,7 @@ export function MemoryGeneralSettingsSection({
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [pickingArchivePath, setPickingArchivePath] = useState(false);
+  const [vectorRefreshRevision, setVectorRefreshRevision] = useState(0);
   const defaultArchivePath = DEFAULT_SYSTEM_CONFIG.memory.archive_path ?? '~/.magi/data/memory/archive';
   const effectiveArchivePath = draftConfig.memory.archive_path ?? defaultArchivePath;
   const canRestoreArchivePath = effectiveArchivePath !== defaultArchivePath;
@@ -459,12 +461,18 @@ export function MemoryGeneralSettingsSection({
       </MemoryGroup>
 
       <MemoryGroup>
-        <VectorMaintenancePanel />
+        <VectorMaintenancePanel refreshRevision={vectorRefreshRevision} />
+      </MemoryGroup>
+
+      <MemoryGroup>
+        <MemoryDataManagementSection
+          onRestoreCompleted={() => setVectorRefreshRevision((revision) => revision + 1)}
+        />
       </MemoryGroup>
 
       {/* Danger zone — clear all memory */}
       <MemoryGroup>
-        <div className="py-2">
+        <div className="py-2" data-testid="memory-danger-zone">
           <div className="space-y-1">
             <div className="text-sm font-medium text-destructive">
               {t('settings.memory.dangerZone.title')}

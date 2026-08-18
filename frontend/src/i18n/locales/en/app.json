@@ -1829,6 +1829,197 @@
           "cancelled": "Cancelled"
         }
       },
+      "dataManagement": {
+        "title": "Back up, export, or restore memory",
+        "description": "Keep a portable copy of local memory data, create a readable export, or replace current memory from a Magi backup. These actions run independently from configuration changes.",
+        "common": {
+          "cancel": "Cancel",
+          "close": "Close",
+          "retry": "Try again",
+          "destinationDirectory": "Destination directory",
+          "chooseDirectory": "Choose directory",
+          "noDirectorySelected": "No directory selected"
+        },
+        "backup": {
+          "title": "Portable backup",
+          "description": "Create a restorable .magibackup file containing memory layers, archives, and managed memory assets. Chat records and attachments are not included.",
+          "action": "Create backup",
+          "dialogTitle": "Create a memory backup",
+          "dialogDescription": "Choose where to save the backup and how it should be protected.",
+          "passwordProtection": "Protect with a password",
+          "passwordProtectionDescription": "Enabled by default. The backup is encrypted before it is written to the selected directory.",
+          "password": "Password",
+          "confirmPassword": "Confirm password",
+          "passwordRecoveryWarning": "Magi cannot recover this password. Keep it somewhere safe before moving the backup.",
+          "plaintextConfirmation": "I understand this backup will be stored without encryption and may expose personal memory data to anyone who can access the file.",
+          "start": "Start backup",
+          "starting": "Starting…",
+          "errors": {
+            "destinationRequired": "Choose a destination directory.",
+            "passwordRequired": "Enter a password for this backup.",
+            "passwordMismatch": "The passwords do not match.",
+            "plaintextConfirmationRequired": "Confirm that you understand the risk of an unencrypted backup."
+          }
+        },
+        "export": {
+          "title": "Readable export",
+          "description": "Create a human-readable copy for review or migration. An export includes current attention but cannot be restored into Magi.",
+          "action": "Export memory",
+          "dialogTitle": "Export readable memory data",
+          "dialogDescription": "Choose a private destination for a copy intended to be read outside Magi.",
+          "contentsDescription": "The export includes the current attention state and portable memory records. It is intended for reading and data portability, not for restoring Magi.",
+          "readabilityConfirmation": "I understand this export is readable and may contain sensitive personal information. I will save it to a trusted location.",
+          "start": "Start export",
+          "starting": "Starting…",
+          "errors": {
+            "destinationRequired": "Choose a destination directory.",
+            "readabilityConfirmationRequired": "Confirm that you will save the readable export to a trusted location."
+          }
+        },
+        "restore": {
+          "title": "Restore from backup",
+          "description": "Inspect a .magibackup file before replacing current memory. Magi creates a safety backup before the final switch.",
+          "action": "Choose backup",
+          "choosingFile": "Choosing…",
+          "fileFilter": "Magi memory backup",
+          "dialogTitle": "Review memory restore",
+          "dialogDescription": "The backup is validated first. Nothing is replaced until you review the contents and confirm.",
+          "selectedFile": "Selected backup",
+          "inspecting": "Inspecting and validating the backup…",
+          "passwordRequiredTitle": "This backup is encrypted",
+          "passwordRequiredDescription": "Enter its password to validate the contents. The password is not saved.",
+          "password": "Backup password",
+          "unlockAndInspect": "Unlock and inspect",
+          "encrypted": "Password protected",
+          "unencrypted": "Not encrypted",
+          "createdAt": "Backup created",
+          "expiresAt": "Review expires",
+          "magiVersion": "Created by Magi",
+          "formatVersion": "Backup format",
+          "fingerprint": "File fingerprint",
+          "scopeTitle": "Restorable data",
+          "scopeLabel": "Restorable memory scope",
+          "recordCountsTitle": "Records found",
+          "reviewWarnings": "Before you restore",
+          "unsupportedDescription": "This backup is not compatible with this version of Magi and cannot be restored.",
+          "replaceConfirmation": "I understand this will replace current memory. Content deleted after this backup was created may return.",
+          "confirmReplace": "Replace current memory",
+          "starting": "Preparing restore…",
+          "compatibility": {
+            "compatible": "Compatible",
+            "upgrade_required": "Will be upgraded during restore",
+            "unsupported": "Unsupported"
+          },
+          "errors": {
+            "passwordRequired": "Enter the backup password.",
+            "replaceConfirmationRequired": "Confirm that you understand current memory will be replaced."
+          }
+        },
+        "operation": {
+          "checking": "Checking for an active memory data operation…",
+          "dismiss": "Dismiss",
+          "progressLabel": "Memory data operation progress",
+          "reconnecting": "Magi is restarting or temporarily unavailable. Progress will resume automatically.",
+          "outputPath": "Saved to",
+          "fileSize": "File size: {{size}}",
+          "safetyBackup": "Safety backup",
+          "indexRebuildLabel": "Memory search index: {{status}}",
+          "restoreRestartHint": "Magi may briefly restart services while activating restored memory.",
+          "rollbackSucceeded": "The restore was rolled back. Your previous memory remains active.",
+          "rollbackFailedHelp": "Automatic rollback could not complete. Keep the safety backup and restart Magi before making more memory changes.",
+          "startedAt": "Started {{time}}",
+          "completedAt": "Finished {{time}}",
+          "title": {
+            "backup": "Creating memory backup",
+            "export": "Exporting memory data",
+            "restore": "Restoring memory"
+          },
+          "status": {
+            "pending": "Waiting to start",
+            "running": "In progress",
+            "succeeded": "Completed",
+            "failed": "Failed"
+          },
+          "phases": {
+            "queued": "Waiting for the current memory write to finish",
+            "preparing": "Preparing a consistent memory snapshot",
+            "snapshot": "Copying a consistent memory snapshot",
+            "packaging": "Packaging memory data",
+            "encrypting": "Encrypting the backup",
+            "writing": "Writing the output file",
+            "exporting": "Building the readable export",
+            "safetyBackup": "Creating a safety backup",
+            "shuttingDown": "Pausing memory services for a safe restore",
+            "cutover": "Switching to restored memory",
+            "replacing": "Activating restored memory",
+            "rebuildingIndexes": "Rebuilding memory search indexes",
+            "restarting": "Restarting memory services",
+            "finalizing": "Finalizing and verifying",
+            "complete": "Complete",
+            "working": "Working on memory data"
+          },
+          "indexRebuild": {
+            "pending": "waiting",
+            "running": "rebuilding",
+            "succeeded": "ready",
+            "failed": "rebuild failed",
+            "notRequired": "no rebuild needed",
+            "unknown": "status unavailable"
+          }
+        },
+        "recordCounts": {
+          "l0": "Current attention",
+          "l1": "Events",
+          "l2": "Knowledge records",
+          "l2Entities": "Entities",
+          "l2Relations": "Relations",
+          "l2Assertions": "Assertions",
+          "l2Episodes": "Episodes",
+          "l2Experiences": "Experiences",
+          "l3": "Summaries",
+          "l4": "Procedures",
+          "archives": "Archive records",
+          "manualEntries": "Manual memories",
+          "managedAssets": "Managed memory assets"
+        },
+        "scope": {
+          "l0": "Current attention",
+          "l1": "Events",
+          "l2": "Knowledge",
+          "l3": "Summaries",
+          "l4": "Procedures",
+          "archives": "Archives",
+          "managedAssets": "Managed memory assets"
+        },
+        "warnings": {
+          "restore_replaces_current_memory": "Restoring replaces the current memory snapshot.",
+          "deleted_memories_may_return": "Memory deleted after this backup was created may return.",
+          "l0_runtime_attention_not_restored": "Current runtime attention is not restored from a backup.",
+          "chat_records_and_attachments_not_included": "Chat records and attachments are not included in this backup.",
+          "source_evidence_may_be_unavailable": "Some original evidence may no longer be available after restore.",
+          "raw_history_import_content_redacted": "Imported raw history content remains redacted where required.",
+          "chat_evidence_unavailable": "Some linked chat evidence is not available in this backup.",
+          "index_rebuild_required": "Memory search indexes will be rebuilt after restore.",
+          "l0_not_restored": "Current attention is not restored from a backup.",
+          "generic": "This backup has an additional compatibility notice. Continue only if you trust its source."
+        },
+        "errors": {
+          "busy": "Another memory data operation is already in progress.",
+          "destinationInvalid": "The selected destination cannot be used. Choose another directory.",
+          "insufficientSpace": "There is not enough free space in the selected destination.",
+          "passwordRequired": "This backup requires a password.",
+          "wrongPassword": "The password is incorrect or the encrypted backup is damaged.",
+          "corruptBackup": "This file is not a valid, complete Magi memory backup.",
+          "checksumMismatch": "Backup validation failed because its contents have changed or are damaged.",
+          "unsupportedFormat": "This backup format is not supported by this version of Magi.",
+          "unsupportedSchema": "This backup contains a memory schema that cannot be restored by this version of Magi.",
+          "incompleteBackup": "The backup is incomplete and cannot be restored.",
+          "candidateExpired": "This restore review expired. Choose the backup again to revalidate it.",
+          "restoreFailed": "Magi could not activate the restored memory. Your previous memory was kept when rollback succeeded.",
+          "rollbackFailed": "The restore and automatic rollback both failed. Keep the safety backup and restart Magi.",
+          "generic": "The memory data operation could not continue. Try again, or restart Magi if the problem persists."
+        }
+      },
       "fields": {
         "db_path": {
           "label": "Memory data storage location",
