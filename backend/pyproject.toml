@@ -76,6 +76,7 @@ dependencies = [
     # Authentication
     "pyjwt>=2.8.0",
     "passlib[bcrypt]>=1.7.4",
+    "cryptography>=44.0.2,<49.0.0",
 
     # Natural language date parsing
     "dateparser>=1.2.0",

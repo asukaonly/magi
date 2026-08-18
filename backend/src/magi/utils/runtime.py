@@ -38,10 +38,12 @@ class RuntimePaths:
             self.data_dir,
             self.app_data_dir,
             self.memory_dir,
+            self.memory_backups_dir,
             self.chat_dir,
             self.resources_dir,
             self.chat_resources_dir,
             self.runtime_dir,
+            self.memory_portability_dir,
             self.cache_dir,
             self.workspaces_dir,
             self.models_cache_dir,
@@ -82,6 +84,16 @@ class RuntimePaths:
         return self.data_dir / "memory"
 
     @property
+    def memory_backups_dir(self) -> Path:
+        """Private default destination for automatic memory safety backups."""
+        return self.memory_dir / "backups"
+
+    @property
+    def manual_entry_assets_dir(self) -> Path:
+        """Magi-managed assets referenced by manual memory entries."""
+        return self.data_dir / "media" / "manual_entries"
+
+    @property
     def chat_dir(self) -> Path:
         """Durable chat-domain storage directory."""
         return self.data_dir / "chat"
@@ -115,6 +127,11 @@ class RuntimePaths:
     def runtime_dir(self) -> Path:
         """Runtime coordination and observability directory."""
         return self.base_dir / "runtime"
+
+    @property
+    def memory_portability_dir(self) -> Path:
+        """Private staging and recovery state for memory portability work."""
+        return self.runtime_dir / "memory-portability"
 
     @property
     def cache_dir(self) -> Path:

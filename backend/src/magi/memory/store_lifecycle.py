@@ -9,7 +9,7 @@ import os
 import re
 import stat
 from collections.abc import Callable, Iterable
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -271,6 +271,69 @@ class UnifiedMemoryLifecycleMixin:
     def memory_operation_guard(self) -> Any:
         """Return a shared guard for scheduler and API memory operations."""
         return self._clear_barrier.operation()
+
+    @asynccontextmanager
+    async def memory_maintenance_guard(self) -> Any:
+        """Quiesce memory writers and hold exclusive access for maintenance.
+
+        Portability snapshots need one cross-database cut while L1-L4 writers
+        and embedding workers are stopped. The maintenance window does not
+        advance the destructive-clear epoch because no durable state changes.
+        """
+
+        self._clear_request_count += 1
+        try:
+            async with self._clear_barrier.exclusive():
+                async with self._write_lock:
+                    pipeline_was_running = bool(
+                        self.l2_pipeline is not None
+                        and getattr(getattr(self.l2_pipeline, "_stats", None), "is_running", False)
+                    )
+                    edge_worker_was_running = bool(
+                        self._edge_embedding_worker is not None
+                        and getattr(self._edge_embedding_worker, "_running", False)
+                    )
+                    l1_embedding_was_running = bool(
+                        self.l1 is not None and getattr(self.l1, "_embedding_workers", None)
+                    )
+                    l3_embedding_was_running = self._embedding_worker_is_running(self.l3)
+                    l4_embedding_was_running = self._embedding_worker_is_running(self.l4)
+                    operation_error: BaseException | None = None
+                    operation_traceback = None
+                    try:
+                        await self._quiesce_memory_writers()
+                        yield
+                    except BaseException as exc:
+                        operation_error = exc
+                        operation_traceback = exc.__traceback__
+                    resume_error: BaseException | None = None
+                    try:
+                        await self._resume_memory_writers(
+                            pipeline_was_running=pipeline_was_running,
+                            edge_worker_was_running=edge_worker_was_running,
+                            l1_embedding_was_running=l1_embedding_was_running,
+                            l3_embedding_was_running=l3_embedding_was_running,
+                            l4_embedding_was_running=l4_embedding_was_running,
+                        )
+                    except BaseException as exc:
+                        resume_error = exc
+                    if operation_error is not None:
+                        if resume_error is not None:
+                            logger.exception(
+                                "Failed to resume memory writers after maintenance failure",
+                                exc_info=(
+                                    type(resume_error),
+                                    resume_error,
+                                    resume_error.__traceback__,
+                                ),
+                            )
+                        raise operation_error.with_traceback(operation_traceback)
+                    if resume_error is not None:
+                        raise RuntimeError(
+                            "Memory maintenance completed but writers could not resume"
+                        ) from resume_error
+        finally:
+            self._clear_request_count -= 1
 
     def memory_operation_epoch(self) -> int:
         """Return the process-local epoch used to reject stale queued work."""

@@ -34,6 +34,23 @@ absent from this layout. They exist only in process memory, expire with the
 gateway process, and must not enter SQLite, YAML configuration, logs, backups,
 chat payloads, memory records, or plugin state.
 
+Memory portability uses `runtime/memory-portability/` only for private,
+short-lived snapshot, inspection-candidate, and crash-recovery state. Automatic
+pre-restore safety backups are durable `.magibackup` files under
+`data/memory/backups/`; they are not SQLite owners and are never opened by normal
+memory reads. User-requested backup and readable-export destinations may be
+outside the runtime root.
+
+Only `data/memory/l1_events.db`, `data/memory/memory.db`, configured date archive
+databases, and referenced files under `data/media/manual_entries/` participate
+in a memory restore. A cutover must never rename or replace the complete
+`data/memory/` directory because that directory also contains personality-owned
+databases and automatic safety backups. Staged L1 and shared-memory databases
+must pass manifest integrity, SQLite `quick_check`, and their own Alembic
+revision validation, then upgrade to the installed heads before cutover. An
+unknown revision is a future/incompatible backup and must be rejected rather
+than guessed through a compatibility path.
+
 | File | Owner | Holds |
 |------|-------|-------|
 | `data/chat/chat.db` | chat | sessions, session-creation idempotency mappings, turns, messages, attachments, per-turn context-usage snapshots, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, context summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |
