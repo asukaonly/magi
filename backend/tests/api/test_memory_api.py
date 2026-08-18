@@ -24,6 +24,7 @@ from magi.memory.event_contracts import (
 from magi.memory.evidence import L1RetrievalScope
 from magi.memory.hybrid_retrieval import RetrievalPayload
 from magi.memory.operation_barrier import AsyncOperationBarrier
+from magi.memory.portability.errors import MemoryPortabilityError
 from magi.plugins.user_content_clear import PluginUserContentClearRecoveryError
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
@@ -113,6 +114,29 @@ def _isolate_runtime_projection_clear_dependencies(monkeypatch):
         "magi.api.routers.memory.overview_routes._resolve_llm_usage_store",
         lambda: None,
     )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_memory_portability_clear(monkeypatch):
+    clear_private_data = AsyncMock(return_value={})
+
+    class _PortabilityService:
+        active = False
+
+        @asynccontextmanager
+        async def user_content_clear_boundary(self):
+            self.active = True
+            try:
+                yield clear_private_data
+            finally:
+                self.active = False
+
+    service = _PortabilityService()
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes.get_memory_portability_service",
+        lambda: service,
+    )
+    return service, clear_private_data
 
 
 @pytest.fixture(autouse=True)
@@ -2547,12 +2571,22 @@ def test_memory_clear_api_clears_all_layers(
     _isolate_orchestration_store,
     _isolate_batch_store,
     _isolate_diagnostic_log_cleanup,
+    _isolate_memory_portability_clear,
     _isolate_user_message_clear_boundary,
 ):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
     clear_order: list[str] = []
     received_history_boundaries: list = []
+    portability_service, _ = _isolate_memory_portability_clear
+    queue, _ = _isolate_user_message_clear_boundary
+    complete_full_clear = queue.complete_full_user_content_clear
+
+    async def complete_while_portability_is_blocked(*, transaction_id: str) -> None:
+        assert portability_service.active is True
+        await complete_full_clear(transaction_id=transaction_id)
+
+    queue.complete_full_user_content_clear = complete_while_portability_is_blocked
 
     @asynccontextmanager
     async def history_import_boundary():
@@ -2748,12 +2782,14 @@ def test_memory_clear_api_clears_all_layers(
     assert body["results"]["l4"]["count"] == 1
     assert body["results"]["chat_context"]["count"] == 4
     assert received_history_boundaries == [history_import_boundary]
-    queue, _ = _isolate_user_message_clear_boundary
     assert queue.full_clear_transaction_id == FULL_CLEAR_TRANSACTION_ID
     assert queue.full_clear_completed_transaction_id == FULL_CLEAR_TRANSACTION_ID
+    assert portability_service.active is False
     _isolate_orchestration_store.clear_all.assert_awaited_once()
     _isolate_batch_store.clear_all.assert_awaited_once()
     _isolate_diagnostic_log_cleanup.assert_awaited_once_with()
+    _, clear_portability_private_data = _isolate_memory_portability_clear
+    clear_portability_private_data.assert_awaited_once_with()
     assert clear_order == [
         "chat-projection-enter",
         "scheduler-enter",
@@ -2773,6 +2809,44 @@ def test_memory_clear_api_clears_all_layers(
         "scheduler-exit",
         "chat-projection-exit",
     ]
+
+
+def test_memory_clear_rejects_active_portability_operation_before_begin(
+    monkeypatch,
+    _isolate_user_message_clear_boundary,
+) -> None:
+    @asynccontextmanager
+    async def busy_boundary():
+        raise MemoryPortabilityError(
+            "operation_in_progress",
+            "Another memory data operation is still running.",
+            status_code=409,
+        )
+        yield  # pragma: no cover
+
+    unified = _FakeUnifiedMemory()
+    unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes.get_memory_portability_service",
+        lambda: SimpleNamespace(user_content_clear_boundary=busy_boundary),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: unified,
+    )
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    response = TestClient(app).delete(
+        "/api/memory/clear",
+        headers=FULL_CLEAR_HEADERS,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error_code"] == "operation_in_progress"
+    queue, _ = _isolate_user_message_clear_boundary
+    assert queue.full_clear_transaction_id is None
+    unified.clear_all_memory.assert_not_awaited()
 
 
 def test_memory_clear_requires_a_desktop_transaction_header(monkeypatch) -> None:

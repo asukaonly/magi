@@ -388,6 +388,34 @@ async def test_cutover_replaces_only_owned_sets_clears_sidecars_and_commits(
 
 
 @pytest.mark.asyncio
+async def test_commit_state_is_detectable_after_post_replace_sync_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario = _create_scenario(tmp_path)
+    transaction = await prepare_memory_restore(
+        candidate=scenario.candidate,
+        runtime_paths=scenario.runtime_paths,
+    )
+    transaction.cutover()
+    original_fsync_directory = recovery_module.fsync_directory
+
+    def fail_directory_sync(_directory: Path) -> None:
+        raise OSError("journal directory sync failed")
+
+    monkeypatch.setattr(recovery_module, "fsync_directory", fail_directory_sync)
+    with pytest.raises(OSError, match="journal directory sync failed"):
+        transaction.commit()
+    monkeypatch.setattr(
+        recovery_module,
+        "fsync_directory",
+        original_fsync_directory,
+    )
+
+    assert transaction.has_installed_commit() is True
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "target_failpoint",
     [

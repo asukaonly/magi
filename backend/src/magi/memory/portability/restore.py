@@ -241,6 +241,15 @@ class RestoreTransaction:
         with _ENGINE_LOCK:
             mark_restore_journal_committed(self._runtime_paths, self.transaction_id)
 
+    def has_installed_commit(self) -> bool:
+        """Return whether this transaction's installed journal says committed."""
+
+        with _ENGINE_LOCK:
+            current = read_restore_journal(self._runtime_paths)
+            if current is None or current.transaction_id != self.transaction_id:
+                return False
+            return current.phase == "committed"
+
     def finalize_commit(self) -> None:
         """Remove rollback state after the caller persists the successful job outcome."""
 

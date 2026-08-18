@@ -195,9 +195,11 @@ class MemoryPortabilityOperationStore:
 
         async with self._admission_lock:
             self._ensure_loaded()
-            if self._active_restore_candidate_id == str(candidate_id):
-                active = self._active_locked()
-                if active is not None:
+            with self._state_lock:
+                if (
+                    self._active_restore_candidate_id == str(candidate_id)
+                    and self._has_unfinished_task_locked()
+                ):
                     raise MemoryPortabilityError(
                         "candidate_in_use",
                         "The restore candidate is being used by an active operation.",
@@ -439,7 +441,7 @@ class MemoryPortabilityOperationStore:
 
     def _active_locked(self) -> MemoryPortabilityOperation | None:
         with self._state_lock:
-            return next(
+            active = next(
                 (
                     operation
                     for operation in self._operations.values()
@@ -447,6 +449,19 @@ class MemoryPortabilityOperationStore:
                 ),
                 None,
             )
+            if active is not None:
+                return active
+            return next(
+                (
+                    self._operations[operation_id]
+                    for operation_id, task in self._tasks.items()
+                    if not task.done() and operation_id in self._operations
+                ),
+                None,
+            )
+
+    def _has_unfinished_task_locked(self) -> bool:
+        return any(not task.done() for task in self._tasks.values())
 
     def _require_locked(self, operation_id: str) -> MemoryPortabilityOperation:
         operation = self._operations.get(str(operation_id))

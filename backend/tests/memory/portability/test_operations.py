@@ -125,6 +125,42 @@ async def test_maintenance_boundary_blocks_jobs_and_can_reset_completed_records(
     assert store.active() is None
 
 
+@pytest.mark.asyncio
+async def test_terminal_operation_blocks_new_work_until_runner_finishes(
+    tmp_path: Path,
+) -> None:
+    store = MemoryPortabilityOperationStore(runtime_paths=RuntimePaths(tmp_path / "runtime"))
+    terminal = asyncio.Event()
+    release = asyncio.Event()
+
+    async def runner(operation_id: str) -> None:
+        store.succeed(operation_id)
+        terminal.set()
+        await release.wait()
+
+    operation = await store.start(kind="backup", runner=runner)
+    await terminal.wait()
+
+    active = store.active()
+    assert active is not None
+    assert active.operation_id == operation.operation_id
+    assert active.status == "succeeded"
+    with pytest.raises(MemoryPortabilityError) as job_conflict:
+        await store.start(kind="export", runner=runner)
+    assert job_conflict.value.code == "operation_in_progress"
+    with pytest.raises(MemoryPortabilityError) as maintenance_conflict:
+        async with store.maintenance_boundary():
+            pass
+    assert maintenance_conflict.value.code == "operation_in_progress"
+
+    release.set()
+    for _ in range(20):
+        if store.active() is None:
+            break
+        await asyncio.sleep(0.01)
+    assert store.active() is None
+
+
 def test_stale_running_operation_is_failed_on_new_process_load(tmp_path: Path) -> None:
     paths = RuntimePaths(tmp_path / "runtime")
     operation_id = "1f70a520-9145-43a5-91db-bc95a210154e"
@@ -229,7 +265,11 @@ async def test_failed_progress_write_keeps_previous_state_and_releases_busy_slot
     assert failed is not None
     assert failed.status == "failed"
     assert failed.error_code == "insufficient_space"
-    assert store.active() is None
+    assert store.active() == failed
 
     release.set()
-    await asyncio.sleep(0)
+    for _ in range(20):
+        if store.active() is None:
+            break
+        await asyncio.sleep(0.01)
+    assert store.active() is None

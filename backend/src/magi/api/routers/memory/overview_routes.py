@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Header, HTTPException, status
 
 from ....core.log_history import clear_diagnostic_log_history
+from ....memory.portability.errors import MemoryPortabilityError
+from ....memory.portability.service import get_memory_portability_service
 from ....memory.store_lifecycle import MemoryClearCompletedWithRecoveryError
 from ....plugins.user_content_clear import PluginUserContentClearRecoveryError
 from magi_plugin_sdk import UserContentClearRequest
@@ -324,8 +326,28 @@ async def clear_memory_layers(
             pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]+$",
         ),
     ],
-):
+) -> dict[str, Any]:
     """Clear user data plus every queued or active command that can recreate it."""
+    try:
+        async with get_memory_portability_service().user_content_clear_boundary() as clearer:
+            return await _clear_memory_layers_with_portability_boundary(
+                full_clear_transaction_id,
+                clear_portability_private_data=clearer,
+            )
+    except MemoryPortabilityError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error_code": exc.code, "message": str(exc)},
+        ) from exc
+
+
+async def _clear_memory_layers_with_portability_boundary(
+    full_clear_transaction_id: str,
+    *,
+    clear_portability_private_data: Callable[[], Awaitable[dict[str, int]]],
+) -> dict[str, Any]:
+    """Run full clear while the caller holds the portability maintenance boundary."""
+
     logger.info("clear_memory: request received")
     unified_memory = _resolve_unified_memory()
     if not unified_memory:
@@ -420,10 +442,9 @@ async def clear_memory_layers(
             mark_chat_clear_committed=mark_chat_clear_committed,
         )
 
-    await runtime_command_queue.begin_full_user_content_clear(full_clear_transaction_id)
-
     try:
         async with AsyncExitStack() as clear_scope:
+            await runtime_command_queue.begin_full_user_content_clear(full_clear_transaction_id)
             await clear_scope.enter_async_context(
                 chat_memory_projection_clear.user_content_clear_boundary()
             )
@@ -459,9 +480,10 @@ async def clear_memory_layers(
                         _resolve_tool_registry().user_content_clear_boundary()
                     )
 
-                    generation, purged_commands = (
-                        await runtime_command_queue.advance_user_message_generation_and_purge()
-                    )
+                    (
+                        generation,
+                        purged_commands,
+                    ) = await runtime_command_queue.advance_user_message_generation_and_purge()
                     queue_purged = True
                     purged_sensor_events = 0
                     sensor_cleanup_failure: Exception | None = None
@@ -499,6 +521,7 @@ async def clear_memory_layers(
                     llm_usage_store = _resolve_llm_usage_store()
                     if llm_usage_store is not None:
                         auxiliary_clearers.append(llm_usage_store.clear_user_content)
+                    auxiliary_clearers.append(clear_portability_private_data)
                     plugin_clear_request = UserContentClearRequest(
                         clear_generation=generation,
                     )
@@ -656,6 +679,14 @@ async def clear_memory_layers(
         residual_clear_failure is not None and chat_clear_committed and counts is not None
     )
     if primary_failure is not None and not deferred_residual_failure:
+        if isinstance(primary_failure, MemoryPortabilityError):
+            raise HTTPException(
+                status_code=primary_failure.status_code,
+                detail={
+                    "error_code": primary_failure.code,
+                    "message": str(primary_failure),
+                },
+            ) from primary_failure
         raise primary_failure.with_traceback(primary_traceback)
     if recovery_failures:
         if chat_clear_committed and counts is not None:

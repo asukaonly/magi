@@ -463,6 +463,46 @@ The current settings surface should support at least:
 - configure how long L2 waits before refreshing the About You portrait after assertion changes, so repeated updates can be merged
 - enable or disable L3 LLM reflection
 
+### Memory data management
+
+Settings exposes one **Data Management** section under Memory in both Quick and
+Expert mode. Backup, readable export, and restore are deliberately separate
+actions with different guarantees:
+
+- **Create backup** writes a versioned `.magibackup` containing persisted
+  L0-L4 memory, managed memory archives, durable correction and forgetting
+  governance, and visible manual-entry assets. It excludes chat transcripts and
+  attachments, imported source text and identity fields, logs, task and worker
+  queues, regenerable indexes and caches, configuration, credentials, models,
+  plugins, and persona state. Password encryption is the default; choosing an
+  unencrypted package requires a separate plaintext-risk confirmation.
+- **Export readable data** writes a versioned, documented JSONL ZIP for people
+  and external tools. It may include persisted L0 only when explicitly selected,
+  excludes indexes and runtime jobs, and is never accepted by the restore flow.
+- **Restore backup** first inspects an existing `.magibackup` and shows its
+  creation time, Magi and format versions, encrypted state, scope, record counts,
+  compatibility, and warnings. A password is requested only for an encrypted
+  package. Confirmation performs a full replacement, never a merge, and creates
+  an automatic restorable safety backup of the current memory first.
+
+All three actions run as one mutually exclusive background operation with
+persisted progress. Leaving and returning to Settings, losing a start response,
+or restarting after an interruption must reconnect to the latest operation and
+show its real terminal outcome. Restore may temporarily restart the memory
+runtime; successful cutover queues a rebuild for every vector layer before it is
+reported complete. A crash during replacement is resolved from the durable
+restore journal on the next startup, either committing the validated replacement
+or rolling back to the safety copy. Changing the configured archive directory
+while Magi is running requires a restart before backup, export, or restore, so a
+package can never silently use a different archive location from the live memory
+store.
+
+The destructive **Clear All Memory** boundary is exclusive with these actions and
+also removes private inspection candidates, operation records, abandoned
+snapshots, restore journals, and automatically created pre-restore safety
+backups. It does not delete `.magibackup` or readable-export files that the user
+saved in an external directory.
+
 Important behavioral rules:
 
 - `L1` is the long-term foundation
