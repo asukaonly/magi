@@ -156,7 +156,7 @@ Workspace overlays may also hold project instructions, rules, skills, and gitign
 Memory backup and readable export are separate product contracts:
 
 - A version-1 `.magibackup` is restorable. It contains consistent SQLite
-  snapshots for L1 and the shared L2-L4 store, configured memory archive
+  snapshots for L1 and the shared L0-L4 store, configured memory archive
   databases, and only content-addressed manual-entry assets that still have a
   visible owner in memory. Every payload file has a size, purpose, and SHA-256
   digest in a versioned manifest. Optional password protection encrypts and
@@ -167,24 +167,51 @@ Memory backup and readable export are separate product contracts:
   omits vector indexes, full-text indexes, worker leases, and background-job
   state. L0 may be included only when the user explicitly requests it.
 
-The restorable scope is L1-L4, not every file under `~/.magi`. L0 is disposable
-chat attention and is cleared from backup snapshots; its durable forget cutoffs
-and tombstones remain governance state. Chat transcripts and attachments,
-runtime traces, product tasks, caches, local models, plugins, credentials,
-configuration, and persona state are outside the memory backup contract. The L1
-projection may retain references to chat evidence, but a restored target that
-does not contain that chat truth must present the evidence as unavailable rather
-than fabricate or silently drop the memory record. History-import source content,
-speaker and message identifiers, and source-file lists are redacted from the
-snapshot; only opaque batch-to-event lineage remains so a restored import can
-still be removed as a batch without carrying the raw imported transcript.
+Readable export version 1 is a public DTO contract, not a serialization of the
+SQLite schema. Its JSONL files are grouped by product meaning under `l0/`,
+`l1/`, `l2/`, `l3/`, `l4/`, `governance/`, and `archives/<date>/`. Every record
+has `record_type`, `schema_version`, and `layer`, followed only by the explicit
+fields listed for that file in `schema.json` and `README.txt`. Those generated
+field lists come from the same contract used to write each record. Storage
+columns, tables, or archived-payload keys added later do not enter an existing
+export version automatically; exposing new data requires a deliberate DTO and
+version decision. Each file contract also records its exact emitted record
+count in both `schema.json` and the manifest.
+
+The stable DTOs cover source/category/time/status fields for L1-L4, optional
+runtime L0 attention, source-event evidence, and durable correction and
+forgetting lineage. L2 entity aliases, mentions, claim-to-entity references,
+location samples, place labels, experience membership, seeds, seed evidence,
+and chapters remain linked by their stable public IDs. L3 exports both the
+field-sourced user profile and the evidence-backed self portrait. Structured
+product values such as scopes, selectors, and source-event ID lists are decoded
+into JSON values rather than leaking their SQLite text representation. Archived
+payload blobs are projected through fixed field allowlists as well. Projection
+highwaters, cache tables, experience drafts, indexes, leases, and jobs are not
+public memory DTOs and remain excluded. The readable export cannot be restored
+into Magi; `.magibackup` is the only restore artifact.
+
+The restorable scope is persisted L0-L4, not every file under `~/.magi`.
+Persisted L0 sessions and attention items are included in backup and restored;
+in-flight execution state is not. Durable L0 forget cutoffs and tombstones remain
+governance state. Chat transcripts and attachments, runtime traces, product
+tasks, caches, local models, plugins, credentials, configuration, and persona
+state are outside the memory backup contract. The L1 projection may retain
+references to chat evidence, but a restored target that does not contain that
+chat truth must present the evidence as unavailable rather than fabricate or
+silently drop the memory record. History-import source content, speaker and
+message identifiers, and source-file lists are redacted from the snapshot; only
+opaque batch-to-event lineage remains so a restored import can still be removed
+as a batch without carrying the raw imported transcript.
 
 Snapshot creation holds the unified memory maintenance boundary, drains memory
-writers, checkpoints L0 only for an explicitly requested readable export, and
-uses SQLite's online backup API for every database. WAL, shared-memory, and
-journal sidecars are never packaged. Excluded readable content is securely
-removed from the private snapshot before packaging. Restore is replace-only;
-merge semantics are not part of version 1.
+writers, checkpoints persisted L0 for backup and for an explicitly requested L0
+readable export, and uses SQLite's online backup API for every database. WAL,
+shared-memory, and journal sidecars are never packaged. Excluded readable
+content is securely removed from the private snapshot before packaging. The
+readable exporter reserves a conservative JSONL expansion budget before writing
+and converts a write-time out-of-space failure into `insufficient_space`.
+Restore is replace-only; merge semantics are not part of version 1.
 
 ---
 

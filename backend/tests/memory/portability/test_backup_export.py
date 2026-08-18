@@ -504,11 +504,11 @@ async def test_readable_export_uses_jsonl_and_never_exports_internal_jobs(
         assert manifest["restorable"] is False
         with zipfile.ZipFile(output_path) as archive:
             names = set(archive.namelist())
-            assert "l1/fact_events.jsonl" in names
-            assert "memory/manual_entries.jsonl" in names
-            assert "memory/l0_attention_items.jsonl" in names
+            assert "l1/events.jsonl" in names
+            assert "l2/manual_entries.jsonl" in names
+            assert "l0/attention_items.jsonl" in names
             assert not any("embedding_rebuild_jobs" in name for name in names)
-            first_event = json.loads(archive.read("l1/fact_events.jsonl").splitlines()[0])
+            first_event = json.loads(archive.read("l1/events.jsonl").splitlines()[0])
             assert first_event["content"] == "hello"
     finally:
         discard_snapshot(snapshot)
