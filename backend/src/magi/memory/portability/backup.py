@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import errno
 import importlib.metadata
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 from typing import BinaryIO, Literal
 import uuid
 import zipfile
 
+from pydantic import ValidationError
+
 from .crypto import encrypt_backup_payload
 from .errors import MemoryPortabilityError
 from .models import (
+    MAX_BACKUP_FILE_COUNT,
     BACKUP_LIMITATIONS,
     MAX_BACKUP_MANIFEST_BYTES,
     MAX_BACKUP_MEMBER_BYTES,
@@ -76,31 +81,8 @@ def build_memory_backup(
     partial_path = output_directory / f".{output_path.name}.partial"
     payload_path = Path(snapshot.root) / "backup-payload.zip"
 
-    records = [
-        BackupFileRecord(
-            path=item.archive_path,
-            purpose=item.purpose,
-            size_bytes=Path(item.source_path).stat().st_size,
-            record_count=snapshot_file_record_count(Path(item.source_path), item.purpose),
-            sha256=sha256_file(Path(item.source_path)),
-        )
-        for item in sorted(snapshot.files, key=lambda candidate: candidate.archive_path)
-    ]
-    manifest = BackupManifest(
-        backup_id=str(uuid.uuid4()),
-        created_at=utc_now_iso(),
-        magi_version=_magi_version(),
-        encrypted=encrypted,
-        scope=["l0", "l1", "l2", "l3", "l4", "archives", "manual_entry_assets"],
-        schema_revisions={
-            "l1": snapshot.schema_revisions["l1"],
-            "memory_shared": snapshot.schema_revisions["memory_shared"],
-        },
-        archive_schema_version=1,
-        limitations=list(BACKUP_LIMITATIONS),
-        files=records,
-        counts={key: int(value) for key, value in snapshot.counts.items()},
-    )
+    manifest = _build_backup_manifest(snapshot, encrypted=encrypted)
+    records = list(manifest.files)
     estimated_bytes = sum(record.size_bytes for record in records) + 1024 * 1024
     snapshot_root = Path(snapshot.root)
     if _same_filesystem(snapshot_root, output_directory):
@@ -129,11 +111,21 @@ def build_memory_backup(
         os.replace(partial_path, output_path)
         _fsync_directory(output_directory)
         return output_path, manifest
-    except MemoryPortabilityError:
+    except MemoryPortabilityError as exc:
         partial_path.unlink(missing_ok=True)
+        if _is_no_space_error(exc):
+            raise MemoryPortabilityError(
+                "insufficient_space",
+                "There is not enough free space to create the memory backup.",
+            ) from exc
         raise
     except OSError as exc:
         partial_path.unlink(missing_ok=True)
+        if _is_no_space_error(exc):
+            raise MemoryPortabilityError(
+                "insufficient_space",
+                "There is not enough free space to create the memory backup.",
+            ) from exc
         raise MemoryPortabilityError(
             "backup_write_failed",
             "The backup file could not be written to the selected directory.",
@@ -179,6 +171,11 @@ def _write_payload_zip(
     except MemoryPortabilityError:
         raise
     except (OSError, RuntimeError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+        if _is_no_space_error(exc):
+            raise MemoryPortabilityError(
+                "insufficient_space",
+                "There is not enough free space to package the memory backup.",
+            ) from exc
         raise MemoryPortabilityError(
             "backup_package_failed",
             "The memory snapshot could not be packaged.",
@@ -262,6 +259,92 @@ def _same_filesystem(first: Path, second: Path) -> bool:
             "free_space_unknown",
             "Available space could not be checked for the backup filesystems.",
         ) from exc
+
+
+def _build_backup_manifest(
+    snapshot: SnapshotBundle,
+    *,
+    encrypted: bool,
+) -> BackupManifest:
+    items = sorted(snapshot.files, key=lambda candidate: candidate.archive_path)
+    if len(items) > MAX_BACKUP_FILE_COUNT:
+        raise MemoryPortabilityError(
+            "backup_too_large",
+            "The memory backup has too many files for the version-1 format.",
+        )
+    records: list[BackupFileRecord] = []
+    total_size = 0
+    try:
+        for item in items:
+            source = Path(item.source_path)
+            size_bytes = source.stat().st_size
+            if size_bytes > MAX_BACKUP_MEMBER_BYTES:
+                raise MemoryPortabilityError(
+                    "backup_too_large",
+                    "A memory backup member exceeds the version-1 size limit.",
+                )
+            total_size += size_bytes
+            if total_size > MAX_BACKUP_UNCOMPRESSED_BYTES:
+                raise MemoryPortabilityError(
+                    "backup_too_large",
+                    "The memory backup exceeds the version-1 size limit.",
+                )
+            records.append(
+                BackupFileRecord(
+                    path=item.archive_path,
+                    purpose=item.purpose,
+                    size_bytes=size_bytes,
+                    record_count=snapshot_file_record_count(source, item.purpose),
+                    sha256=sha256_file(source),
+                )
+            )
+        return BackupManifest(
+            backup_id=str(uuid.uuid4()),
+            created_at=utc_now_iso(),
+            magi_version=_magi_version(),
+            encrypted=encrypted,
+            scope=["l0", "l1", "l2", "l3", "l4", "archives", "manual_entry_assets"],
+            schema_revisions={
+                "l1": snapshot.schema_revisions["l1"],
+                "memory_shared": snapshot.schema_revisions["memory_shared"],
+            },
+            archive_schema_version=1,
+            limitations=list(BACKUP_LIMITATIONS),
+            files=records,
+            counts={key: int(value) for key, value in snapshot.counts.items()},
+        )
+    except MemoryPortabilityError:
+        raise
+    except OSError as exc:
+        raise MemoryPortabilityError(
+            "backup_snapshot_unavailable",
+            "A memory snapshot file became unavailable before packaging.",
+            status_code=500,
+        ) from exc
+    except (KeyError, TypeError, ValueError, ValidationError) as exc:
+        raise MemoryPortabilityError(
+            "backup_manifest_invalid",
+            "The memory snapshot could not produce a valid backup manifest.",
+            status_code=500,
+        ) from exc
+
+
+def _is_no_space_error(exc: BaseException) -> bool:
+    no_space_errnos = {errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC)}
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, OSError) and current.errno in no_space_errnos:
+            return True
+        if isinstance(current, sqlite3.Error) and getattr(
+            current,
+            "sqlite_errorcode",
+            None,
+        ) == getattr(sqlite3, "SQLITE_FULL", 13):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _magi_version() -> str:

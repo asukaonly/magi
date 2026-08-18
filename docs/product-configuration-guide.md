@@ -485,6 +485,12 @@ actions with different guarantees:
   package. Confirmation performs a full replacement, never a merge, and creates
   an automatic restorable safety backup of the current memory first.
 
+Version 1 deliberately does not use ZIP64. A single member and the aggregate
+uncompressed payload each have a conservative limit just below 2 GiB; packages
+that exceed the file-count or size limits are rejected with an explicit capacity
+error instead of producing a package that this version cannot inspect safely.
+A future larger-container contract requires a new format-version decision.
+
 All three actions run as one mutually exclusive background operation with
 persisted progress. Leaving and returning to Settings, losing a start response,
 or restarting after an interruption must reconnect to the latest operation and

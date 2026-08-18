@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 from pathlib import Path
 import sqlite3
@@ -474,6 +475,92 @@ async def test_backup_aggregates_payload_and_partial_space_on_shared_filesystem(
             password=None,
         )
         assert checks == [(Path(snapshot.root), expected_payload_bytes * 2)]
+    finally:
+        discard_snapshot(snapshot)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failing_write", "error_number"),
+    [
+        ("_open_private_exclusive", errno.ENOSPC),
+        ("_copy_exclusive", getattr(errno, "EDQUOT", errno.ENOSPC)),
+    ],
+)
+async def test_backup_maps_write_time_capacity_failures_to_insufficient_space(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failing_write: str,
+    error_number: int,
+) -> None:
+    paths = RuntimePaths(tmp_path / "runtime")
+    migrate_memory_databases(paths)
+    seed_memory(paths)
+    snapshot = await create_memory_snapshot(
+        runtime_paths=paths,
+        archive_dir=paths.memory_dir / "archive",
+        unified_memory=FakeUnifiedMemory(),
+        include_l0=True,
+    )
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    def no_space(*_args: object, **_kwargs: object) -> None:
+        raise OSError(error_number, "capacity exhausted")
+
+    monkeypatch.setattr(backup_module, failing_write, no_space)
+    try:
+        with pytest.raises(MemoryPortabilityError) as failure:
+            build_memory_backup(
+                snapshot=snapshot,
+                output_directory=output_dir,
+                encryption="none",
+                password=None,
+            )
+        assert failure.value.code == "insufficient_space"
+        assert list(output_dir.iterdir()) == []
+        assert not (Path(snapshot.root) / "backup-payload.zip").exists()
+    finally:
+        discard_snapshot(snapshot)
+
+
+@pytest.mark.asyncio
+async def test_backup_rejects_oversized_member_before_manifest_validation(
+    tmp_path: Path,
+) -> None:
+    paths = RuntimePaths(tmp_path / "runtime")
+    migrate_memory_databases(paths)
+    seed_memory(paths)
+    snapshot = await create_memory_snapshot(
+        runtime_paths=paths,
+        archive_dir=paths.memory_dir / "archive",
+        unified_memory=FakeUnifiedMemory(),
+        include_l0=True,
+    )
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    oversized = Path(snapshot.root) / "oversized-asset.png"
+    with oversized.open("wb") as handle:
+        handle.truncate(backup_module.MAX_BACKUP_MEMBER_BYTES + 1)
+    snapshot.files.append(
+        snapshot.files[0].model_copy(
+            update={
+                "source_path": oversized,
+                "archive_path": f"assets/manual_entries/00/{'0' * 64}.png",
+                "purpose": "manual_entry_asset",
+            }
+        )
+    )
+    try:
+        with pytest.raises(MemoryPortabilityError) as failure:
+            build_memory_backup(
+                snapshot=snapshot,
+                output_directory=output_dir,
+                encryption="none",
+                password=None,
+            )
+        assert failure.value.code == "backup_too_large"
+        assert list(output_dir.iterdir()) == []
     finally:
         discard_snapshot(snapshot)
 
