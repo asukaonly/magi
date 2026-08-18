@@ -2035,6 +2035,7 @@
           "operationStateFailed": "Magi could not safely save operation progress. Check available space and try again.",
           "indexRebuildFailed": "The restored memory is active, but its search indexes could not be rebuilt. Restart Magi before relying on memory search.",
           "restorePending": "A previous restore still needs startup recovery. Restart Magi before starting another memory data operation.",
+          "restoreOutcomeUnknown": "Magi could not confirm whether the restored memory was activated. Restart Magi now, and do not change memory until startup recovery confirms activation or rolls back the restore.",
           "restoreFailed": "Magi could not activate the restored memory. Your previous memory was kept when rollback succeeded.",
           "rollbackFailed": "The restore and automatic rollback both failed. Keep the safety backup and restart Magi.",
           "generic": "The memory data operation could not continue. Try again, or restart Magi if the problem persists."

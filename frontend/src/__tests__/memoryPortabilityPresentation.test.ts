@@ -32,6 +32,7 @@ const STABLE_PORTABILITY_ERROR_CODES = `
   output_directory_invalid output_exists password_invalid password_not_allowed
   password_or_integrity_invalid password_required password_too_long restore_already_committed
   restore_file_changed restore_file_invalid restore_file_unavailable restore_journal_invalid
+  restore_commit_outcome_unknown
   restore_not_committed restore_not_ready_to_commit restore_rollback_failed
   restore_rollback_snapshot_failed restore_runtime_busy restore_runtime_recovery_failed
   restore_runtime_shutdown_failed restore_runtime_start_failed restore_runtime_unavailable
@@ -62,6 +63,24 @@ describe('memory portability presentation', () => {
     expect(operationErrorMessage(translate, 'future_backend_error', 'Raw backend error')).toBe(
       'settings.memory.dataManagement.errors.generic',
     );
+    for (const code of ['request_invalid', 'request_too_large']) {
+      expect(operationErrorMessage(translate, code, 'Sensitive request detail')).toBe(
+        'settings.memory.dataManagement.errors.generic',
+      );
+      expect(portabilityErrorMessage(translate, {
+        message: 'Sensitive request detail',
+        code,
+        kind: 'http',
+      })).toBe('settings.memory.dataManagement.errors.generic');
+    }
+  });
+
+  it('gives an unknown restore commit outcome an explicit restart action', () => {
+    expect(operationErrorMessage(
+      translate,
+      'restore_commit_outcome_unknown',
+      'Raw backend error',
+    )).toBe('settings.memory.dataManagement.errors.restoreOutcomeUnknown');
   });
 
   it('presents inspection validation as a localized operation phase', () => {

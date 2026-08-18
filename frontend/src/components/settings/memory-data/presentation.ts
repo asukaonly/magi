@@ -112,6 +112,7 @@ const ERROR_KEY_BY_CODE: Record<string, string> = {
   index_rebuild_failed: 'indexRebuildFailed',
   index_rebuild_queue_failed: 'indexRebuildFailed',
   restore_transaction_pending: 'restorePending',
+  restore_commit_outcome_unknown: 'restoreOutcomeUnknown',
   memory_portability_restore_failed: 'restoreFailed',
   restore_failed: 'restoreFailed',
   restore_already_committed: 'restoreFailed',

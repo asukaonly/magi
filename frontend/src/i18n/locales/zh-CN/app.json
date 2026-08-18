@@ -2034,6 +2034,7 @@
           "operationStateFailed": "Magi 无法安全保存操作进度。请检查可用空间后重试。",
           "indexRebuildFailed": "恢复后的记忆已启用，但搜索索引重建失败。依赖记忆搜索前，请先重启 Magi。",
           "restorePending": "上一次恢复仍需在启动时完成恢复处理。开始其他记忆数据操作前，请先重启 Magi。",
+          "restoreOutcomeUnknown": "Magi 无法确认恢复后的记忆是否已启用。请立即重启 Magi；在启动恢复确认启用结果或完成回滚前，不要继续修改记忆。",
           "restoreFailed": "Magi 未能启用恢复后的记忆；回滚成功时，之前的记忆仍会保留。",
           "rollbackFailed": "恢复和自动回滚都失败了，请保留安全备份并重启 Magi。",
           "generic": "记忆数据操作无法继续。请重试；如果问题持续，请重启 Magi。"
