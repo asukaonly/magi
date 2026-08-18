@@ -24,6 +24,7 @@ from magi.memory.portability.models import (
     BackupManifest,
     utc_now_iso,
 )
+from magi.memory.portability.operations import MemoryPortabilityOperationStore
 from magi.memory.portability.recovery import (
     clear_memory_portability_private_data,
     journal_path,
@@ -40,6 +41,43 @@ from magi.utils.runtime import RuntimePaths
 
 class SimulatedProcessCrash(BaseException):
     """Escape ordinary exception cleanup to model an abrupt process stop."""
+
+
+@pytest.mark.asyncio
+async def test_pre_restore_safety_backup_includes_persisted_l0(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = RuntimePaths(tmp_path / "runtime")
+    archive_target = paths.memory_dir / "archive"
+    archive_target.mkdir(parents=True, exist_ok=True)
+    captured: dict[str, object] = {}
+    snapshot = object()
+
+    async def create_snapshot(**values: object) -> object:
+        captured.update(values)
+        return snapshot
+
+    def build_backup(**values: object) -> tuple[Path, object]:
+        assert values["snapshot"] is snapshot
+        output = paths.memory_backups_dir / "pre-restore-test.magibackup"
+        output.write_bytes(b"private safety backup")
+        if os.name != "nt":
+            output.chmod(0o600)
+        return output, object()
+
+    monkeypatch.setattr(restore_module, "create_memory_snapshot", create_snapshot)
+    monkeypatch.setattr(restore_module, "build_memory_backup", build_backup)
+    monkeypatch.setattr(restore_module, "discard_snapshot", lambda _snapshot: None)
+
+    output = await restore_module._create_safety_backup(
+        runtime_paths=paths,
+        archive_target=archive_target,
+        transaction_id="0" * 32,
+    )
+
+    assert output.is_file()
+    assert captured["include_l0"] is True
 
 
 @dataclass(frozen=True)
@@ -65,6 +103,37 @@ def _write_private(path: Path, content: bytes) -> None:
     if os.name != "nt":
         path.parent.chmod(0o700)
         path.chmod(0o600)
+
+
+def _write_running_restore_operation(paths: RuntimePaths, operation_id: str) -> None:
+    operations_dir = paths.memory_portability_dir / "operations"
+    operations_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    (operations_dir / f"{operation_id}.json").write_text(
+        json.dumps(
+            {
+                "owner_pid": 999999,
+                "operation": {
+                    "operation_id": operation_id,
+                    "kind": "restore",
+                    "status": "running",
+                    "phase": "cutover",
+                    "progress_percent": 55,
+                    "record_counts": {"l1_events": 1},
+                    "output_path": None,
+                    "file_size_bytes": None,
+                    "created_at": "2026-08-18T00:00:00Z",
+                    "completed_at": None,
+                    "error_code": None,
+                    "error_message": None,
+                    "rollback_performed": False,
+                    "safety_backup_path": None,
+                    "index_rebuild_status": None,
+                    "inspection": None,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _seed_memory(paths: RuntimePaths, *, marker: str, asset_bytes: bytes) -> Path:
@@ -200,7 +269,7 @@ def _create_scenario(tmp_path: Path) -> _RestoreScenario:
         created_at=utc_now_iso(),
         magi_version="test",
         encrypted=False,
-        scope=["l1", "l2", "l3", "l4", "archives", "manual_entry_assets"],
+        scope=["l0", "l1", "l2", "l3", "l4", "archives", "manual_entry_assets"],
         schema_revisions={
             "l1": database_revision(l1_payload),
             "memory_shared": database_revision(memory_payload),
@@ -298,6 +367,10 @@ async def test_cutover_replaces_only_owned_sets_clears_sidecars_and_commits(
         assert stat.S_IMODE(scenario.runtime_paths.manual_entry_assets_dir.stat().st_mode) == 0o700
 
     transaction.commit()
+    committed = read_restore_journal(scenario.runtime_paths)
+    assert committed is not None
+    assert committed.phase == "committed"
+    transaction.finalize_commit()
     assert journal_path(scenario.runtime_paths).exists() is False
     assert transaction.safety_backup_path.is_file()
     for key in (
@@ -538,18 +611,102 @@ async def test_transaction_cleanup_can_be_retried_after_durable_outcome(
         original_cleanup(journal)
 
     monkeypatch.setattr(recovery_module, "_cleanup_transaction_artifacts", fail_once)
-    with pytest.raises(RuntimeError, match="interrupted cleanup"):
-        getattr(transaction, operation)()
+    if operation == "commit":
+        transaction.commit()
+        transaction.finalize_commit()
+    else:
+        with pytest.raises(RuntimeError, match="interrupted cleanup"):
+            getattr(transaction, operation)()
     durable = read_restore_journal(scenario.runtime_paths)
     assert durable is not None
     assert durable.phase == ("committed" if operation == "commit" else "rolled_back")
 
-    getattr(transaction, operation)()
+    if operation == "commit":
+        transaction.finalize_commit()
+    else:
+        transaction.rollback()
     assert read_restore_journal(scenario.runtime_paths) is None
     if operation == "commit":
         _assert_new_state(scenario)
     else:
         _assert_old_state(scenario)
+
+
+@pytest.mark.asyncio
+async def test_startup_allows_committed_restore_when_cleanup_is_still_blocked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario = _create_scenario(tmp_path)
+    transaction = await prepare_memory_restore(
+        candidate=scenario.candidate,
+        runtime_paths=scenario.runtime_paths,
+    )
+    transaction.cutover()
+
+    def fail_cleanup(_journal) -> None:
+        raise PermissionError("cleanup blocked")
+
+    monkeypatch.setattr(recovery_module, "_cleanup_transaction_artifacts", fail_cleanup)
+    transaction.commit()
+
+    durable = read_restore_journal(scenario.runtime_paths)
+    assert durable is not None
+    assert durable.phase == "committed"
+    assert recover_pending_memory_restore(scenario.runtime_paths) == "committed"
+    assert read_restore_journal(scenario.runtime_paths) is not None
+    _assert_new_state(scenario)
+
+
+@pytest.mark.asyncio
+async def test_startup_marks_restore_succeeded_after_crash_between_commit_and_job_write(
+    tmp_path: Path,
+) -> None:
+    scenario = _create_scenario(tmp_path)
+    operation_id = str(uuid.uuid4())
+    _write_running_restore_operation(scenario.runtime_paths, operation_id)
+    transaction = await prepare_memory_restore(
+        candidate=scenario.candidate,
+        runtime_paths=scenario.runtime_paths,
+        operation_id=operation_id,
+    )
+    transaction.cutover()
+    transaction.commit()
+
+    assert recover_pending_memory_restore(scenario.runtime_paths) == "committed"
+    recovered = MemoryPortabilityOperationStore(runtime_paths=scenario.runtime_paths).get(
+        operation_id
+    )
+    assert recovered is not None
+    assert recovered.status == "succeeded"
+    assert recovered.error_code is None
+    assert recovered.index_rebuild_status == "pending"
+    _assert_new_state(scenario)
+
+
+@pytest.mark.asyncio
+async def test_startup_marks_interrupted_restore_as_rolled_back(
+    tmp_path: Path,
+) -> None:
+    scenario = _create_scenario(tmp_path)
+    operation_id = str(uuid.uuid4())
+    _write_running_restore_operation(scenario.runtime_paths, operation_id)
+    transaction = await prepare_memory_restore(
+        candidate=scenario.candidate,
+        runtime_paths=scenario.runtime_paths,
+        operation_id=operation_id,
+    )
+    transaction.cutover()
+
+    assert recover_pending_memory_restore(scenario.runtime_paths) == "rolled_back"
+    recovered = MemoryPortabilityOperationStore(runtime_paths=scenario.runtime_paths).get(
+        operation_id
+    )
+    assert recovered is not None
+    assert recovered.status == "failed"
+    assert recovered.error_code == "operation_interrupted"
+    assert recovered.rollback_performed is True
+    _assert_old_state(scenario)
 
 
 @pytest.mark.asyncio

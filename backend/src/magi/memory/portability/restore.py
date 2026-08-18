@@ -40,8 +40,9 @@ from .recovery import (
     FileFingerprint,
     RestoreJournal,
     TreeFingerprint,
-    commit_restore_journal,
     create_restore_journal,
+    finalize_committed_restore_journal,
+    mark_restore_journal_committed,
     read_restore_journal,
     register_active_memory_restore,
     rollback_restore_journal,
@@ -235,10 +236,16 @@ class RestoreTransaction:
             rollback_restore_journal(self._runtime_paths, self.transaction_id)
 
     def commit(self) -> None:
-        """Commit after the caller validates runtime startup and persists rebuild work."""
+        """Durably commit after runtime startup and rebuild work are validated."""
 
         with _ENGINE_LOCK:
-            commit_restore_journal(self._runtime_paths, self.transaction_id)
+            mark_restore_journal_committed(self._runtime_paths, self.transaction_id)
+
+    def finalize_commit(self) -> None:
+        """Remove rollback state after the caller persists the successful job outcome."""
+
+        with _ENGINE_LOCK:
+            finalize_committed_restore_journal(self._runtime_paths, self.transaction_id)
 
     def close(self) -> None:
         """Roll back an uncommitted transaction; committed transactions are already closed."""
@@ -254,7 +261,7 @@ class RestoreTransaction:
                     status_code=409,
                 )
             if current.phase == "committed":
-                commit_restore_journal(self._runtime_paths, self.transaction_id)
+                finalize_committed_restore_journal(self._runtime_paths, self.transaction_id)
             else:
                 rollback_restore_journal(self._runtime_paths, self.transaction_id)
 
@@ -378,6 +385,7 @@ async def prepare_memory_restore(
     *,
     candidate: ValidatedRestoreCandidate,
     runtime_paths: RuntimePaths,
+    operation_id: str | None = None,
     failpoint: RestoreFailpoint | None = None,
 ) -> RestoreTransaction:
     """Prepare safety backup, exact rollback, same-filesystem staging, and journal.
@@ -413,6 +421,7 @@ async def prepare_memory_restore(
         asset_existed = _asset_directory_exists(runtime_paths.manual_entry_assets_dir)
         initial = RestoreJournal(
             transaction_id=transaction_id,
+            operation_id=operation_id,
             owner_pid=os.getpid(),
             phase="preparing",
             paths={key: str(value) for key, value in paths.items()},
@@ -513,7 +522,7 @@ async def _create_safety_backup(
         runtime_paths=runtime_paths,
         archive_dir=archive_target,
         unified_memory=None,
-        include_l0=False,
+        include_l0=True,
     )
     try:
         output_path, _manifest = await asyncio.to_thread(

@@ -55,6 +55,9 @@ _PHASES = frozenset(
 _ARCHIVE_DB_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}\.db$")
 _ARCHIVE_OWNED_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}\.db(?:-wal|-shm|-journal)?$")
 _TRANSACTION_ID = re.compile(r"^[0-9a-f]{32}$")
+_OPERATION_ID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _TEMP_JOURNAL = re.compile(
     r"^\.memory-restore-journal-(?P<transaction>[0-9a-f]{32})-" r"(?P<nonce>[0-9a-f]{32})\.tmp$"
@@ -92,6 +95,7 @@ _JOURNAL_KEYS = frozenset(
         "format",
         "version",
         "transaction_id",
+        "operation_id",
         "owner_pid",
         "phase",
         "paths",
@@ -179,6 +183,7 @@ class RestoreJournal:
     """Strict content-free state needed to finish or roll back one cutover."""
 
     transaction_id: str
+    operation_id: str | None
     owner_pid: int
     phase: str
     paths: dict[str, str]
@@ -208,6 +213,7 @@ class RestoreJournal:
         ):
             raise ValueError("unsupported restore journal")
         transaction_id = raw["transaction_id"]
+        operation_id = raw["operation_id"]
         owner_pid = raw["owner_pid"]
         phase = raw["phase"]
         paths = raw["paths"]
@@ -217,6 +223,10 @@ class RestoreJournal:
         safety_backup_path = raw["safety_backup_path"]
         if not isinstance(transaction_id, str) or _TRANSACTION_ID.fullmatch(transaction_id) is None:
             raise ValueError("invalid restore transaction identifier")
+        if operation_id is not None and (
+            not isinstance(operation_id, str) or _OPERATION_ID.fullmatch(operation_id) is None
+        ):
+            raise ValueError("invalid restore operation identifier")
         if isinstance(owner_pid, bool) or not isinstance(owner_pid, int) or owner_pid <= 0:
             raise ValueError("invalid restore owner process")
         if not isinstance(phase, str) or phase not in _PHASES:
@@ -259,6 +269,7 @@ class RestoreJournal:
 
         journal = cls(
             transaction_id=transaction_id,
+            operation_id=operation_id,
             owner_pid=owner_pid,
             phase=phase,
             paths=normalized_paths,
@@ -305,6 +316,7 @@ class RestoreJournal:
             "format": RESTORE_JOURNAL_FORMAT,
             "version": RESTORE_JOURNAL_VERSION,
             "transaction_id": self.transaction_id,
+            "operation_id": self.operation_id,
             "owner_pid": self.owner_pid,
             "phase": self.phase,
             "paths": dict(self.paths),
@@ -484,16 +496,18 @@ def recover_pending_memory_restore(runtime_paths: RuntimePaths) -> str:
         if journal.owner_pid == os.getpid() and active:
             return "active"
         if journal.phase == "committed":
-            _cleanup_transaction_artifacts(journal)
-            delete_restore_journal(runtime_paths, journal.transaction_id)
-            _cleanup_default_orphans(runtime_paths)
+            _record_restore_operation_outcome(journal, runtime_paths, outcome="committed")
+            if finalize_committed_restore_journal(runtime_paths, journal.transaction_id):
+                _cleanup_default_orphans(runtime_paths)
             return "committed"
         if journal.phase in {"preparing", "prepared"}:
+            _record_restore_operation_outcome(journal, runtime_paths, outcome="aborted")
             _cleanup_transaction_artifacts(journal)
             delete_restore_journal(runtime_paths, journal.transaction_id)
             _cleanup_default_orphans(runtime_paths)
             return "aborted"
         if journal.phase == "rolled_back":
+            _record_restore_operation_outcome(journal, runtime_paths, outcome="rolled_back")
             _cleanup_transaction_artifacts(journal)
             delete_restore_journal(runtime_paths, journal.transaction_id)
             _cleanup_default_orphans(runtime_paths)
@@ -501,6 +515,7 @@ def recover_pending_memory_restore(runtime_paths: RuntimePaths) -> str:
         _rollback_journal(journal, runtime_paths)
         completed = replace(journal, phase="rolled_back", owner_pid=os.getpid())
         write_restore_journal(runtime_paths, completed)
+        _record_restore_operation_outcome(completed, runtime_paths, outcome="rolled_back")
         _cleanup_transaction_artifacts(completed)
         delete_restore_journal(runtime_paths, completed.transaction_id)
         _cleanup_default_orphans(runtime_paths)
@@ -598,8 +613,8 @@ def rollback_restore_journal(runtime_paths: RuntimePaths, transaction_id: str) -
         delete_restore_journal(runtime_paths, transaction_id)
 
 
-def commit_restore_journal(runtime_paths: RuntimePaths, transaction_id: str) -> None:
-    """Commit only a fully cut-over transaction, then discard plaintext rollback state."""
+def mark_restore_journal_committed(runtime_paths: RuntimePaths, transaction_id: str) -> None:
+    """Durably commit a cutover while retaining recovery evidence for job reporting."""
 
     with _JOURNAL_LOCK:
         journal = read_restore_journal(runtime_paths)
@@ -611,8 +626,6 @@ def commit_restore_journal(runtime_paths: RuntimePaths, transaction_id: str) -> 
             )
         _validate_journal_paths(journal, runtime_paths)
         if journal.phase == "committed":
-            _cleanup_transaction_artifacts(journal)
-            delete_restore_journal(runtime_paths, transaction_id)
             return
         if journal.phase != "cutover_complete":
             raise MemoryPortabilityError(
@@ -622,8 +635,78 @@ def commit_restore_journal(runtime_paths: RuntimePaths, transaction_id: str) -> 
             )
         committed = replace(journal, phase="committed", owner_pid=os.getpid())
         write_restore_journal(runtime_paths, committed)
-        _cleanup_transaction_artifacts(committed)
-        delete_restore_journal(runtime_paths, transaction_id)
+
+
+def finalize_committed_restore_journal(
+    runtime_paths: RuntimePaths,
+    transaction_id: str,
+) -> bool:
+    """Best-effort cleanup after the matching operation success is durable."""
+
+    with _JOURNAL_LOCK:
+        journal = read_restore_journal(runtime_paths)
+        if journal is None:
+            return True
+        if journal.transaction_id != transaction_id:
+            raise MemoryPortabilityError(
+                "restore_transaction_changed",
+                "The durable restore transaction no longer matches this operation.",
+                status_code=409,
+            )
+        _validate_journal_paths(journal, runtime_paths)
+        if journal.phase != "committed":
+            raise MemoryPortabilityError(
+                "restore_not_committed",
+                "The memory restore outcome is not ready for final cleanup.",
+                status_code=409,
+            )
+        return _cleanup_committed_transaction_best_effort(journal, runtime_paths)
+
+
+def _cleanup_committed_transaction_best_effort(
+    journal: RestoreJournal,
+    runtime_paths: RuntimePaths,
+) -> bool:
+    """Clean committed rollback material without changing the durable outcome."""
+
+    try:
+        _cleanup_transaction_artifacts(journal)
+        delete_restore_journal(runtime_paths, journal.transaction_id)
+    except Exception:
+        logger.warning(
+            "Committed memory restore cleanup was deferred",
+            transaction_id=journal.transaction_id,
+            exc_info=True,
+        )
+        return False
+    return True
+
+
+def _record_restore_operation_outcome(
+    journal: RestoreJournal,
+    runtime_paths: RuntimePaths,
+    *,
+    outcome: str,
+) -> None:
+    """Best-effort bridge from startup recovery to its pollable operation."""
+
+    if journal.operation_id is None:
+        return
+    try:
+        from .operations import MemoryPortabilityOperationStore
+
+        MemoryPortabilityOperationStore(runtime_paths=runtime_paths).resolve_restore_after_startup(
+            journal.operation_id,
+            outcome=outcome,
+            safety_backup_path=journal.safety_backup_path,
+        )
+    except Exception:
+        logger.warning(
+            "Recovered memory restore operation status could not be persisted",
+            operation_id=journal.operation_id,
+            outcome=outcome,
+            exc_info=True,
+        )
 
 
 def update_restore_phase(
@@ -943,10 +1026,11 @@ __all__ = [
     "RestoreJournal",
     "TreeFingerprint",
     "clear_memory_portability_private_data",
-    "commit_restore_journal",
     "create_restore_journal",
     "delete_restore_journal",
+    "finalize_committed_restore_journal",
     "journal_path",
+    "mark_restore_journal_committed",
     "read_restore_journal",
     "recover_pending_memory_restore",
     "register_active_memory_restore",
