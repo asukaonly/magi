@@ -5,6 +5,7 @@ import { FolderOpen, LockKeyhole } from 'lucide-react';
 import {
   memoryPortabilityApi,
   type MemoryPortabilityOperation,
+  type MemoryPortabilityOperationKind,
 } from '@/api/modules/memoryPortability';
 import { portabilityErrorMessage } from '@/components/settings/memory-data/presentation';
 import { Button } from '@/components/ui/button';
@@ -25,12 +26,16 @@ interface MemoryBackupDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onStarted: (operation: MemoryPortabilityOperation) => void;
+  onReconcileStarted: (
+    kind: MemoryPortabilityOperationKind,
+  ) => Promise<MemoryPortabilityOperation | null>;
 }
 
 export function MemoryBackupDialog({
   open,
   onOpenChange,
   onStarted,
+  onReconcileStarted,
 }: MemoryBackupDialogProps) {
   const { t } = useTranslation('app');
   const [destinationDirectory, setDestinationDirectory] = useState('');
@@ -114,7 +119,12 @@ export function MemoryBackupDialog({
       onStarted(operation);
       onOpenChange(false);
     } catch (requestError) {
-      setError(portabilityErrorMessage(t, requestError));
+      const accepted = await onReconcileStarted('backup');
+      if (accepted) {
+        onOpenChange(false);
+      } else {
+        setError(portabilityErrorMessage(t, requestError));
+      }
     } finally {
       setSubmitting(false);
     }

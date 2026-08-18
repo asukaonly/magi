@@ -228,6 +228,7 @@ vi.mock('@/api/modules/memoryPortability', async () => {
       confirmRestore: vi.fn(),
       discardRestoreCandidate: vi.fn(),
       getActiveOperation: vi.fn(),
+      getLatestOperation: vi.fn(),
       getOperation: vi.fn(),
     },
   };
@@ -714,6 +715,7 @@ describe('settings page draft saving', () => {
       latest_job: null,
     });
     vi.mocked(memoryPortabilityApi.getActiveOperation).mockResolvedValue(null);
+    vi.mocked(memoryPortabilityApi.getLatestOperation).mockResolvedValue(null);
     vi.mocked(memoryPortabilityApi.discardRestoreCandidate).mockResolvedValue(undefined);
     vi.mocked(configApi.embeddingPreflight).mockResolvedValue({
       severity: 'none',

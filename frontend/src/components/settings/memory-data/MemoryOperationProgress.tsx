@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, LoaderCircle, RotateCcw, XCircle } from 'lucide-react';
 
@@ -5,6 +6,7 @@ import type { MemoryPortabilityOperation } from '@/api/modules/memoryPortability
 import { MemoryRecordCounts } from '@/components/settings/memory-data/MemoryPortabilityDetails';
 import {
   formatPortabilityBytes,
+  formatPortabilityElapsedTime,
   formatPortabilityTimestamp,
   indexRebuildLabel,
   operationErrorMessage,
@@ -25,11 +27,25 @@ export function MemoryOperationProgress({
 }: MemoryOperationProgressProps) {
   const { t, i18n } = useTranslation('app');
   const active = operation.status === 'pending' || operation.status === 'running';
+  const [now, setNow] = useState(Date.now);
   const succeeded = operation.status === 'succeeded';
   const progress = Math.max(0, Math.min(100, operation.progress_percent));
   const fileSize = formatPortabilityBytes(operation.file_size_bytes);
   const createdAt = formatPortabilityTimestamp(operation.created_at, i18n.language);
   const completedAt = formatPortabilityTimestamp(operation.completed_at, i18n.language);
+  const elapsedTime = formatPortabilityElapsedTime(
+    operation.created_at,
+    operation.completed_at,
+    now,
+  );
+
+  useEffect(() => {
+    if (!active) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [active, operation.operation_id]);
 
   return (
     <div
@@ -71,9 +87,14 @@ export function MemoryOperationProgress({
 
       {active ? (
         <div className="mt-4 space-y-2">
-          <div className="flex justify-between text-xs text-muted-foreground">
+          <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>{t(`settings.memory.dataManagement.operation.status.${operation.status}`)}</span>
-            <span className="tabular-nums">{Math.round(progress)}%</span>
+            <span className="tabular-nums">
+              {elapsedTime
+                ? `${t('settings.memory.dataManagement.operation.elapsedTime', { duration: elapsedTime })} · `
+                : null}
+              {Math.round(progress)}%
+            </span>
           </div>
           <div
             className="h-2 overflow-hidden rounded-full bg-muted"
@@ -93,6 +114,7 @@ export function MemoryOperationProgress({
               {t('settings.memory.dataManagement.operation.reconnecting')}
             </p>
           ) : null}
+          <MemoryRecordCounts counts={operation.record_counts} />
         </div>
       ) : null}
 
@@ -171,6 +193,7 @@ export function MemoryOperationProgress({
           {createdAt ? t('settings.memory.dataManagement.operation.startedAt', { time: createdAt }) : null}
           {createdAt && completedAt ? ' · ' : null}
           {completedAt ? t('settings.memory.dataManagement.operation.completedAt', { time: completedAt }) : null}
+          {elapsedTime ? ` · ${t('settings.memory.dataManagement.operation.elapsedTime', { duration: elapsedTime })}` : null}
         </p>
       ) : null}
     </div>

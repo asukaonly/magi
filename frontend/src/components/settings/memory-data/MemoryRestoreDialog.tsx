@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, LockKeyhole, RotateCcw } from 'lucide-react';
 
 import {
   memoryPortabilityApi,
   type MemoryPortabilityOperation,
+  type MemoryPortabilityOperationKind,
   type MemoryRestoreInspection,
   type ReadyMemoryRestoreInspection,
 } from '@/api/modules/memoryPortability';
 import {
   formatPortabilityTimestamp,
+  operationErrorMessage,
   portabilityErrorMessage,
 } from '@/components/settings/memory-data/presentation';
 import {
@@ -32,8 +34,14 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 interface MemoryRestoreDialogProps {
   open: boolean;
   sourcePath: string | null;
+  operation: MemoryPortabilityOperation | null;
+  pollingInterrupted: boolean;
   onOpenChange: (open: boolean) => void;
   onStarted: (operation: MemoryPortabilityOperation) => void;
+  onReconcileStarted: (
+    kind: MemoryPortabilityOperationKind,
+  ) => Promise<MemoryPortabilityOperation | null>;
+  onInspectionSettled: () => void;
 }
 
 function discardCandidate(candidateId: string | null): void {
@@ -48,26 +56,73 @@ function discardCandidate(candidateId: string | null): void {
 export function MemoryRestoreDialog({
   open,
   sourcePath,
+  operation,
+  pollingInterrupted,
   onOpenChange,
   onStarted,
+  onReconcileStarted,
+  onInspectionSettled,
 }: MemoryRestoreDialogProps) {
   const { t, i18n } = useTranslation('app');
   const [inspection, setInspection] = useState<MemoryRestoreInspection | null>(null);
   const [password, setPassword] = useState('');
   const [replaceConfirmed, setReplaceConfirmed] = useState(false);
-  const [inspecting, setInspecting] = useState(false);
+  const [inspectionOperationId, setInspectionOperationId] = useState<string | null>(null);
+  const [startingInspection, setStartingInspection] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
   const candidateIdRef = useRef<string | null>(null);
   const confirmedRef = useRef(false);
+  const openRef = useRef(open);
+  const sourcePathRef = useRef(sourcePath);
+  const translateRef = useRef(t);
+
+  openRef.current = open;
+  sourcePathRef.current = sourcePath;
+  translateRef.current = t;
+
+  const startInspection = useCallback(async (
+    inspectedSourcePath: string,
+    submittedPassword: string | undefined,
+    requestVersion: number,
+  ): Promise<void> => {
+    setError(null);
+    setStartingInspection(true);
+    try {
+      let nextOperation: MemoryPortabilityOperation | null;
+      try {
+        nextOperation = await memoryPortabilityApi.inspectRestore({
+          sourcePath: inspectedSourcePath,
+          ...(submittedPassword === undefined ? {} : { password: submittedPassword }),
+        });
+        onStarted(nextOperation);
+      } catch (requestError) {
+        nextOperation = await onReconcileStarted('inspect');
+        if (!nextOperation) {
+          if (
+            requestVersionRef.current === requestVersion
+            && openRef.current
+            && sourcePathRef.current === inspectedSourcePath
+          ) {
+            setError(portabilityErrorMessage(translateRef.current, requestError));
+          }
+          return;
+        }
+      }
+      setInspectionOperationId(nextOperation.operation_id);
+    } finally {
+      if (requestVersionRef.current === requestVersion) {
+        setStartingInspection(false);
+      }
+    }
+  }, [onReconcileStarted, onStarted]);
 
   useEffect(() => {
     if (!open || !sourcePath) {
       return undefined;
     }
 
-    let active = true;
     const requestVersion = requestVersionRef.current + 1;
     requestVersionRef.current = requestVersion;
     candidateIdRef.current = null;
@@ -75,39 +130,59 @@ export function MemoryRestoreDialog({
     setInspection(null);
     setPassword('');
     setReplaceConfirmed(false);
-    setInspecting(true);
+    setInspectionOperationId(null);
+    setStartingInspection(true);
     setConfirming(false);
     setError(null);
 
-    void memoryPortabilityApi.inspectRestore({ sourcePath })
-      .then((result) => {
-        if (!active || requestVersionRef.current !== requestVersion) {
-          discardCandidate(result.state === 'ready' ? result.candidate_id : null);
-          return;
-        }
-        candidateIdRef.current = result.state === 'ready' ? result.candidate_id : null;
-        setInspection(result);
-      })
-      .catch((requestError) => {
-        if (active && requestVersionRef.current === requestVersion) {
-          setError(portabilityErrorMessage(t, requestError));
-        }
-      })
-      .finally(() => {
-        if (active && requestVersionRef.current === requestVersion) {
-          setInspecting(false);
-        }
-      });
+    void startInspection(sourcePath, undefined, requestVersion);
 
     return () => {
-      active = false;
       requestVersionRef.current += 1;
       if (!confirmedRef.current) {
         discardCandidate(candidateIdRef.current);
       }
       candidateIdRef.current = null;
     };
-  }, [open, sourcePath, t]);
+  }, [open, sourcePath, startInspection]);
+
+  const matchingInspectionOperation = operation?.kind === 'inspect'
+    && operation.operation_id === inspectionOperationId
+    ? operation
+    : null;
+  const inspectionActive = matchingInspectionOperation?.status === 'pending'
+    || matchingInspectionOperation?.status === 'running';
+  const inspecting = startingInspection || inspectionActive;
+
+  useEffect(() => {
+    if (!matchingInspectionOperation || inspectionActive) {
+      return;
+    }
+
+    const result = matchingInspectionOperation.status === 'succeeded'
+      ? matchingInspectionOperation.inspection
+      : null;
+    if (result) {
+      const candidateId = result.state === 'ready' ? result.candidate_id : null;
+      candidateIdRef.current = candidateId;
+      if (openRef.current && sourcePathRef.current) {
+        setInspection(result);
+        setError(null);
+      } else {
+        discardCandidate(candidateId);
+        candidateIdRef.current = null;
+      }
+    } else if (openRef.current && sourcePathRef.current) {
+      setError(operationErrorMessage(
+        t,
+        matchingInspectionOperation.error_code,
+        matchingInspectionOperation.error_message,
+      ));
+    }
+    setStartingInspection(false);
+    setInspectionOperationId(null);
+    onInspectionSettled();
+  }, [inspectionActive, matchingInspectionOperation, onInspectionSettled, t]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && confirming) {
@@ -128,57 +203,18 @@ export function MemoryRestoreDialog({
 
     const submittedPassword = password;
     setPassword('');
-    setError(null);
-    setInspecting(true);
     const requestVersion = requestVersionRef.current + 1;
     requestVersionRef.current = requestVersion;
-    try {
-      const result = await memoryPortabilityApi.inspectRestore({
-        sourcePath,
-        password: submittedPassword,
-      });
-      if (requestVersionRef.current !== requestVersion) {
-        discardCandidate(result.state === 'ready' ? result.candidate_id : null);
-        return;
-      }
-      candidateIdRef.current = result.state === 'ready' ? result.candidate_id : null;
-      setInspection(result);
-    } catch (requestError) {
-      if (requestVersionRef.current === requestVersion) {
-        setError(portabilityErrorMessage(t, requestError));
-      }
-    } finally {
-      if (requestVersionRef.current === requestVersion) {
-        setInspecting(false);
-      }
-    }
+    await startInspection(sourcePath, submittedPassword, requestVersion);
   };
 
   const handleRetryInspection = async () => {
     if (!sourcePath) {
       return;
     }
-    setError(null);
-    setInspecting(true);
     const requestVersion = requestVersionRef.current + 1;
     requestVersionRef.current = requestVersion;
-    try {
-      const result = await memoryPortabilityApi.inspectRestore({ sourcePath });
-      if (requestVersionRef.current !== requestVersion) {
-        discardCandidate(result.state === 'ready' ? result.candidate_id : null);
-        return;
-      }
-      candidateIdRef.current = result.state === 'ready' ? result.candidate_id : null;
-      setInspection(result);
-    } catch (requestError) {
-      if (requestVersionRef.current === requestVersion) {
-        setError(portabilityErrorMessage(t, requestError));
-      }
-    } finally {
-      if (requestVersionRef.current === requestVersion) {
-        setInspecting(false);
-      }
-    }
+    await startInspection(sourcePath, undefined, requestVersion);
   };
 
   const handleConfirm = async (readyInspection: ReadyMemoryRestoreInspection) => {
@@ -196,7 +232,14 @@ export function MemoryRestoreDialog({
       onStarted(operation);
       onOpenChange(false);
     } catch (requestError) {
-      setError(portabilityErrorMessage(t, requestError));
+      const accepted = await onReconcileStarted('restore');
+      if (accepted) {
+        confirmedRef.current = true;
+        candidateIdRef.current = null;
+        onOpenChange(false);
+      } else {
+        setError(portabilityErrorMessage(t, requestError));
+      }
     } finally {
       setConfirming(false);
     }
@@ -238,6 +281,11 @@ export function MemoryRestoreDialog({
             <div className="flex min-h-32 flex-col items-center justify-center gap-3 text-sm text-muted-foreground" role="status">
               <LoadingSpinner />
               {t('settings.memory.dataManagement.restore.inspecting')}
+              {pollingInterrupted ? (
+                <span className="max-w-md text-center text-xs leading-5 text-amber-700 dark:text-amber-300">
+                  {t('settings.memory.dataManagement.operation.reconnecting')}
+                </span>
+              ) : null}
             </div>
           ) : null}
 

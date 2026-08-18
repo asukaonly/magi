@@ -65,6 +65,7 @@ export function MemoryDataManagementSection({
     loadingActiveOperation,
     pollingInterrupted,
     trackOperation,
+    reconcileStartedOperation,
     clearOperation,
   } = useMemoryPortabilityOperation({ onRestoreSucceeded: onRestoreCompleted });
   const actionsDisabled = busy || loadingActiveOperation || pickingRestoreFile;
@@ -143,7 +144,7 @@ export function MemoryDataManagementSection({
         </p>
       ) : null}
 
-      {operation ? (
+      {operation && !(operation.kind === 'inspect' && restoreSourcePath !== null) ? (
         <div className="mt-4">
           <MemoryOperationProgress
             operation={operation}
@@ -153,17 +154,31 @@ export function MemoryDataManagementSection({
         </div>
       ) : null}
 
-      <MemoryBackupDialog open={backupOpen} onOpenChange={setBackupOpen} onStarted={trackOperation} />
-      <MemoryExportDialog open={exportOpen} onOpenChange={setExportOpen} onStarted={trackOperation} />
+      <MemoryBackupDialog
+        open={backupOpen}
+        onOpenChange={setBackupOpen}
+        onStarted={trackOperation}
+        onReconcileStarted={reconcileStartedOperation}
+      />
+      <MemoryExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        onStarted={trackOperation}
+        onReconcileStarted={reconcileStartedOperation}
+      />
       <MemoryRestoreDialog
         open={restoreSourcePath !== null}
         sourcePath={restoreSourcePath}
+        operation={operation}
+        pollingInterrupted={pollingInterrupted}
         onOpenChange={(open) => {
           if (!open) {
             setRestoreSourcePath(null);
           }
         }}
         onStarted={trackOperation}
+        onReconcileStarted={reconcileStartedOperation}
+        onInspectionSettled={clearOperation}
       />
     </section>
   );

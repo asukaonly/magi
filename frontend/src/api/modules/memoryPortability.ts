@@ -1,8 +1,6 @@
 import { api, unwrapGatewayPayload } from '../client';
 
-const RESTORE_INSPECTION_TIMEOUT_MS = 120_000;
-
-export type MemoryPortabilityOperationKind = 'backup' | 'export' | 'restore';
+export type MemoryPortabilityOperationKind = 'backup' | 'export' | 'inspect' | 'restore';
 
 export type MemoryPortabilityOperationStatus =
   | 'pending'
@@ -35,6 +33,7 @@ export interface MemoryPortabilityOperation {
   rollback_performed: boolean;
   safety_backup_path: string | null;
   index_rebuild_status: string | null;
+  inspection: MemoryRestoreInspection | null;
 }
 
 export interface PasswordRequiredMemoryRestoreInspection {
@@ -100,14 +99,13 @@ export const memoryPortabilityApi = {
     return unwrapGatewayPayload(response);
   },
 
-  async inspectRestore(input: InspectMemoryRestoreInput): Promise<MemoryRestoreInspection> {
-    const response = await api.post<MemoryRestoreInspection>(
+  async inspectRestore(input: InspectMemoryRestoreInput): Promise<MemoryPortabilityOperation> {
+    const response = await api.post<MemoryPortabilityOperation>(
       '/memory/portability/restores/inspect',
       {
         source_path: input.sourcePath,
         ...(input.password === undefined ? {} : { password: input.password }),
       },
-      { timeout: RESTORE_INSPECTION_TIMEOUT_MS },
     );
     return unwrapGatewayPayload(response);
   },
@@ -129,6 +127,13 @@ export const memoryPortabilityApi = {
   async getActiveOperation(): Promise<MemoryPortabilityOperation | null> {
     const response = await api.get<MemoryPortabilityOperation | null>(
       '/memory/portability/operations/active',
+    );
+    return unwrapGatewayPayload(response);
+  },
+
+  async getLatestOperation(): Promise<MemoryPortabilityOperation | null> {
+    const response = await api.get<MemoryPortabilityOperation | null>(
+      '/memory/portability/operations/latest',
     );
     return unwrapGatewayPayload(response);
   },

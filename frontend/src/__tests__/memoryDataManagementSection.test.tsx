@@ -15,6 +15,7 @@ const {
   confirmRestoreMock,
   discardRestoreCandidateMock,
   getActiveOperationMock,
+  getLatestOperationMock,
   getOperationMock,
   pickDirectoryMock,
   pickMemoryBackupFileMock,
@@ -26,6 +27,7 @@ const {
   confirmRestoreMock: vi.fn(),
   discardRestoreCandidateMock: vi.fn(),
   getActiveOperationMock: vi.fn(),
+  getLatestOperationMock: vi.fn(),
   getOperationMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
   pickMemoryBackupFileMock: vi.fn(),
@@ -55,6 +57,7 @@ vi.mock('@/api/modules/memoryPortability', () => ({
     confirmRestore: confirmRestoreMock,
     discardRestoreCandidate: discardRestoreCandidateMock,
     getActiveOperation: getActiveOperationMock,
+    getLatestOperation: getLatestOperationMock,
     getOperation: getOperationMock,
   },
 }));
@@ -83,6 +86,7 @@ function createOperation(
     rollback_performed: false,
     safety_backup_path: null,
     index_rebuild_status: null,
+    inspection: null,
     ...overrides,
   };
 }
@@ -124,14 +128,17 @@ describe('MemoryDataManagementSection', () => {
     confirmRestoreMock.mockReset();
     discardRestoreCandidateMock.mockReset();
     getActiveOperationMock.mockReset();
+    getLatestOperationMock.mockReset();
     getOperationMock.mockReset();
     pickDirectoryMock.mockReset();
     pickMemoryBackupFileMock.mockReset();
 
     getActiveOperationMock.mockResolvedValue(null);
+    getLatestOperationMock.mockResolvedValue(null);
     discardRestoreCandidateMock.mockResolvedValue(undefined);
     pickDirectoryMock.mockResolvedValue(undefined);
     pickMemoryBackupFileMock.mockResolvedValue(undefined);
+    window.localStorage.clear();
   });
 
   afterEach(() => {
@@ -145,6 +152,9 @@ describe('MemoryDataManagementSection', () => {
     createBackupMock.mockReturnValue(request.promise);
     render(<MemoryDataManagementSection />);
 
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.backup.action',
+    })).toBeEnabled());
     await user.click(screen.getByRole('button', {
       name: 'settings.memory.dataManagement.backup.action',
     }));
@@ -184,12 +194,64 @@ describe('MemoryDataManagementSection', () => {
     })).toBeDisabled();
   });
 
+  it('reconciles an accepted backup when its 202 response is lost', async () => {
+    const user = userEvent.setup();
+    const previous = createOperation({
+      operation_id: 'previous-backup',
+      status: 'succeeded',
+      phase: 'completed',
+      progress_percent: 100,
+      completed_at: '2026-08-18T08:20:00Z',
+    });
+    const accepted = createOperation({ operation_id: 'accepted-backup' });
+    getActiveOperationMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(accepted);
+    getLatestOperationMock
+      .mockResolvedValueOnce(previous)
+      .mockResolvedValueOnce(accepted);
+    pickDirectoryMock.mockResolvedValue('/tmp/reconciled backup');
+    createBackupMock.mockRejectedValue({
+      message: 'No response from server',
+      code: 'NETWORK_ERROR',
+      kind: 'network',
+    });
+
+    render(<MemoryDataManagementSection />);
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.backup.action',
+    })).toBeEnabled());
+    await user.click(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.backup.action',
+    }));
+    await user.click(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.common.chooseDirectory',
+    }));
+    await user.type(
+      screen.getByLabelText('settings.memory.dataManagement.backup.password'),
+      'secret backup password',
+    );
+    await user.type(
+      screen.getByLabelText('settings.memory.dataManagement.backup.confirmPassword'),
+      'secret backup password',
+    );
+    await user.click(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.backup.start',
+    }));
+
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('requires a second explicit confirmation before creating an unencrypted backup', async () => {
     const user = userEvent.setup();
     pickDirectoryMock.mockResolvedValue('/tmp/plain backup');
     createBackupMock.mockResolvedValue(createOperation());
     render(<MemoryDataManagementSection />);
 
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.backup.action',
+    })).toBeEnabled());
     await user.click(screen.getByRole('button', {
       name: 'settings.memory.dataManagement.backup.action',
     }));
@@ -228,6 +290,9 @@ describe('MemoryDataManagementSection', () => {
     createExportMock.mockResolvedValue(createOperation({ kind: 'export' }));
     render(<MemoryDataManagementSection />);
 
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.export.action',
+    })).toBeEnabled());
     await user.click(screen.getByRole('button', {
       name: 'settings.memory.dataManagement.export.action',
     }));
@@ -251,27 +316,120 @@ describe('MemoryDataManagementSection', () => {
     });
   });
 
+  it('reconciles an accepted export when its 202 response is lost', async () => {
+    const user = userEvent.setup();
+    const previous = createOperation({
+      operation_id: 'previous-export',
+      kind: 'export',
+      status: 'succeeded',
+      phase: 'completed',
+      progress_percent: 100,
+      completed_at: '2026-08-18T08:30:00Z',
+    });
+    const accepted = createOperation({
+      operation_id: 'accepted-export',
+      kind: 'export',
+    });
+    getActiveOperationMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(accepted);
+    getLatestOperationMock
+      .mockResolvedValueOnce(previous)
+      .mockResolvedValueOnce(accepted);
+    pickDirectoryMock.mockResolvedValue('/tmp/reconciled export');
+    createExportMock.mockRejectedValue({
+      message: 'No response from server',
+      code: 'NETWORK_ERROR',
+      kind: 'network',
+    });
+
+    render(<MemoryDataManagementSection />);
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.export.action',
+    })).toBeEnabled());
+    await user.click(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.export.action',
+    }));
+    await user.click(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.common.chooseDirectory',
+    }));
+    await user.click(screen.getByText(
+      'settings.memory.dataManagement.export.readabilityConfirmation',
+    ));
+    await user.click(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.export.start',
+    }));
+
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(getActiveOperationMock).toHaveBeenCalledTimes(2);
+    expect(getLatestOperationMock).toHaveBeenCalledTimes(2);
+  });
+
   it('moves from password-required inspection to review and confirms only the candidate id', async () => {
     const user = userEvent.setup();
-    const unlockedInspection = deferred<ReadyMemoryRestoreInspection>();
+    const passwordRequiredOperation = createOperation({
+      operation_id: 'inspect-password',
+      kind: 'inspect',
+    });
+    const readyOperation = createOperation({
+      operation_id: 'inspect-ready',
+      kind: 'inspect',
+    });
     const restoreOperation = createOperation({ kind: 'restore', operation_id: 'restore-1' });
     pickMemoryBackupFileMock.mockResolvedValue('/tmp/a very long/private.magibackup');
+    const responseLost = {
+      message: 'No response from server',
+      code: 'NETWORK_ERROR',
+      kind: 'network',
+    };
     inspectRestoreMock
-      .mockResolvedValueOnce({ state: 'password_required', encrypted: true })
-      .mockReturnValueOnce(unlockedInspection.promise);
-    confirmRestoreMock.mockResolvedValue(restoreOperation);
+      .mockRejectedValueOnce(responseLost)
+      .mockResolvedValueOnce(readyOperation);
+    getActiveOperationMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(passwordRequiredOperation)
+      .mockResolvedValueOnce(restoreOperation);
+    getLatestOperationMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(passwordRequiredOperation)
+      .mockResolvedValueOnce(restoreOperation);
+    getOperationMock
+      .mockResolvedValueOnce(createOperation({
+        ...passwordRequiredOperation,
+        status: 'succeeded',
+        phase: 'completed',
+        progress_percent: 100,
+        completed_at: '2026-08-18T09:00:01Z',
+        inspection: { state: 'password_required', encrypted: true },
+      }))
+      .mockResolvedValueOnce(createOperation({
+        ...readyOperation,
+        status: 'succeeded',
+        phase: 'completed',
+        progress_percent: 100,
+        completed_at: '2026-08-18T09:00:02Z',
+        inspection: readyInspection,
+      }));
+    confirmRestoreMock.mockRejectedValue(responseLost);
     render(<MemoryDataManagementSection />);
 
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.restore.action',
+    })).toBeEnabled());
     await user.click(screen.getByRole('button', {
       name: 'settings.memory.dataManagement.restore.action',
     }));
     expect(pickMemoryBackupFileMock).toHaveBeenCalledWith(
       'settings.memory.dataManagement.restore.fileFilter',
     );
+    expect(screen.getByText('/tmp/a very long/private.magibackup')).toHaveClass('break-all');
+
     expect(await screen.findByText(
       'settings.memory.dataManagement.restore.passwordRequiredTitle',
+      {},
+      { timeout: 2_500 },
     )).toBeInTheDocument();
-    expect(screen.getByText('/tmp/a very long/private.magibackup')).toHaveClass('break-all');
 
     const password = screen.getByLabelText('settings.memory.dataManagement.restore.password');
     await user.type(password, 'restore secret');
@@ -284,9 +442,10 @@ describe('MemoryDataManagementSection', () => {
       password: 'restore secret',
     });
 
-    unlockedInspection.resolve(readyInspection);
     expect(await screen.findByText(
       'settings.memory.dataManagement.restore.recordCountsTitle',
+      {},
+      { timeout: 2_500 },
     )).toBeInTheDocument();
     const confirmButton = screen.getByRole('button', {
       name: 'settings.memory.dataManagement.restore.confirmReplace',
@@ -300,8 +459,40 @@ describe('MemoryDataManagementSection', () => {
     await user.click(confirmButton);
 
     expect(confirmRestoreMock).toHaveBeenCalledWith('candidate-1');
-    await waitFor(() => expect(discardRestoreCandidateMock).not.toHaveBeenCalled());
+    expect(discardRestoreCandidateMock).not.toHaveBeenCalled();
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  });
+
+  it('deletes an inspected restore candidate when review closes without confirmation', async () => {
+    const user = userEvent.setup();
+    pickMemoryBackupFileMock.mockResolvedValue('/tmp/discarded.magibackup');
+    inspectRestoreMock.mockResolvedValue(createOperation({
+      operation_id: 'inspect-discard',
+      kind: 'inspect',
+      status: 'succeeded',
+      phase: 'completed',
+      progress_percent: 100,
+      completed_at: '2026-08-18T09:00:03Z',
+      inspection: readyInspection,
+    }));
+
+    render(<MemoryDataManagementSection />);
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.restore.action',
+    })).toBeEnabled());
+    await user.click(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.restore.action',
+    }));
+    expect(await screen.findByText(
+      'settings.memory.dataManagement.restore.recordCountsTitle',
+    )).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.common.cancel',
+    }));
+    await waitFor(() => {
+      expect(discardRestoreCandidateMock).toHaveBeenCalledWith('candidate-1');
+    });
   });
 
   it('keeps polling across a transient backend restart and reports restore completion once', async () => {
@@ -352,5 +543,135 @@ describe('MemoryDataManagementSection', () => {
     )).toBeInTheDocument();
     expect(onRestoreCompleted).toHaveBeenCalledTimes(1);
     expect(getOperationMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries initial discovery after a transient backend restart', async () => {
+    vi.useFakeTimers();
+    const latest = createOperation({
+      operation_id: 'discovered-after-restart',
+      kind: 'export',
+      status: 'succeeded',
+      phase: 'completed',
+      progress_percent: 100,
+      completed_at: '2026-08-18T09:02:30Z',
+    });
+    const transientError = {
+      message: 'Backend restarting',
+      code: 'BACKEND_NOT_READY',
+      kind: 'backend-not-ready',
+    };
+    getActiveOperationMock
+      .mockRejectedValueOnce(transientError)
+      .mockResolvedValueOnce(null);
+    getLatestOperationMock
+      .mockRejectedValueOnce(transientError)
+      .mockResolvedValueOnce(latest);
+
+    render(<MemoryDataManagementSection />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText(
+      'settings.memory.dataManagement.operation.checking',
+    )).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    expect(screen.getByText(
+      'settings.memory.dataManagement.operation.status.succeeded',
+    )).toBeInTheDocument();
+  });
+
+  it('recovers an interrupted inspection from latest and keeps it dismissed across remounts', async () => {
+    const user = userEvent.setup();
+    const interrupted = createOperation({
+      operation_id: 'interrupted-inspection',
+      kind: 'inspect',
+      status: 'failed',
+      phase: 'failed',
+      error_code: 'operation_interrupted',
+      error_message: 'Raw backend text must not be shown',
+      completed_at: '2026-08-18T09:03:00Z',
+    });
+    getLatestOperationMock.mockResolvedValue(interrupted);
+
+    const first = render(<MemoryDataManagementSection />);
+    expect(await screen.findByText(
+      'settings.memory.dataManagement.operation.title.inspect',
+    )).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'settings.memory.dataManagement.errors.operationInterrupted',
+    );
+    expect(screen.queryByText('Raw backend text must not be shown')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.operation.dismiss',
+    }));
+    first.unmount();
+    render(<MemoryDataManagementSection />);
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.backup.action',
+    })).toBeEnabled());
+    expect(screen.queryByText(
+      'settings.memory.dataManagement.operation.title.inspect',
+    )).not.toBeInTheDocument();
+  });
+
+  it('uses persisted tracking when remount recovery temporarily cannot load latest', async () => {
+    const running = createOperation({
+      operation_id: 'tracked-across-restart',
+      kind: 'restore',
+      status: 'running',
+      phase: 'restarting',
+      progress_percent: 80,
+    });
+    getActiveOperationMock.mockResolvedValue(running);
+    getLatestOperationMock.mockResolvedValue(running);
+
+    const first = render(<MemoryDataManagementSection />);
+    expect(await screen.findByRole('progressbar')).toHaveAttribute('aria-valuenow', '80');
+    first.unmount();
+
+    getActiveOperationMock.mockReset().mockResolvedValue(null);
+    getLatestOperationMock.mockReset().mockRejectedValue({
+      message: 'Backend restarting',
+      code: 'BACKEND_NOT_READY',
+      kind: 'backend-not-ready',
+    });
+    getOperationMock.mockResolvedValue(createOperation({
+      ...running,
+      status: 'failed',
+      phase: 'failed',
+      completed_at: '2026-08-18T09:03:30Z',
+      error_code: 'operation_interrupted',
+      error_message: 'Raw backend text must not be shown',
+    }));
+
+    render(<MemoryDataManagementSection />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'settings.memory.dataManagement.errors.operationInterrupted',
+    );
+    expect(getOperationMock).toHaveBeenCalledWith('tracked-across-restart');
+  });
+
+  it('recovers the latest successful operation after a remount', async () => {
+    const succeeded = createOperation({
+      operation_id: 'latest-success',
+      kind: 'backup',
+      status: 'succeeded',
+      phase: 'completed',
+      progress_percent: 100,
+      output_path: '/tmp/memory.magibackup',
+      completed_at: '2026-08-18T09:04:00Z',
+    });
+    getLatestOperationMock.mockResolvedValue(succeeded);
+
+    render(<MemoryDataManagementSection />);
+    expect(await screen.findByText(
+      'settings.memory.dataManagement.operation.status.succeeded',
+    )).toBeInTheDocument();
+    expect(screen.getByText('/tmp/memory.magibackup')).toBeInTheDocument();
   });
 });

@@ -22,6 +22,7 @@ const operation: MemoryPortabilityOperation = {
   rollback_performed: false,
   safety_backup_path: null,
   index_rebuild_status: null,
+  inspection: null,
 };
 
 describe('memoryPortabilityApi contract', () => {
@@ -64,56 +65,48 @@ describe('memoryPortabilityApi contract', () => {
     });
   });
 
-  it('inspects, confirms, and discards restore candidates without sending file contents', async () => {
+  it('starts pollable inspection and restore operations without sending file contents', async () => {
+    const inspectionOperation = {
+      ...operation,
+      operation_id: 'inspection-1',
+      kind: 'inspect' as const,
+    };
     const postSpy = vi.spyOn(api, 'post')
       .mockResolvedValueOnce({
         success: true,
-        message: 'password needed',
-        data: { state: 'password_required', encrypted: true },
+        message: 'accepted',
+        data: inspectionOperation,
       } as any)
       .mockResolvedValueOnce({
         success: true,
-        message: 'ready',
-        data: {
-          state: 'ready',
-          candidate_id: 'candidate/with slash',
-          encrypted: true,
-          format_version: 1,
-          magi_version: '0.1.26',
-          created_at: '2026-08-18T09:00:00Z',
-          scope: ['l1'],
-          record_counts: { l1_events: 4 },
-          compatibility: 'compatible',
-          warnings: [],
-          expires_at: '2026-08-18T09:30:00Z',
-          source_fingerprint: 'abc',
-        },
+        message: 'accepted',
+        data: { ...inspectionOperation, operation_id: 'inspection-2' },
       } as any)
       .mockResolvedValueOnce({ success: true, message: 'ok', data: operation } as any);
     const deleteSpy = vi.spyOn(api, 'delete').mockResolvedValue({} as any);
 
-    await memoryPortabilityApi.inspectRestore({ sourcePath: '/tmp/private.magibackup' });
-    const ready = await memoryPortabilityApi.inspectRestore({
+    const lockedInspection = await memoryPortabilityApi.inspectRestore({
+      sourcePath: '/tmp/private.magibackup',
+    });
+    const unlockedInspection = await memoryPortabilityApi.inspectRestore({
       sourcePath: '/tmp/private.magibackup',
       password: 'secret',
     });
-    if (ready.state !== 'ready') {
-      throw new Error('Expected ready inspection');
-    }
-    await memoryPortabilityApi.confirmRestore(ready.candidate_id);
-    await memoryPortabilityApi.discardRestoreCandidate(ready.candidate_id);
+    await memoryPortabilityApi.confirmRestore('candidate/with slash');
+    await memoryPortabilityApi.discardRestoreCandidate('candidate/with slash');
+
+    expect(lockedInspection.kind).toBe('inspect');
+    expect(unlockedInspection.operation_id).toBe('inspection-2');
 
     expect(postSpy).toHaveBeenNthCalledWith(
       1,
       '/memory/portability/restores/inspect',
       { source_path: '/tmp/private.magibackup' },
-      { timeout: 120_000 },
     );
     expect(postSpy).toHaveBeenNthCalledWith(
       2,
       '/memory/portability/restores/inspect',
       { source_path: '/tmp/private.magibackup', password: 'secret' },
-      { timeout: 120_000 },
     );
     expect(postSpy).toHaveBeenNthCalledWith(
       3,
@@ -125,17 +118,23 @@ describe('memoryPortabilityApi contract', () => {
     );
   });
 
-  it('loads the active operation and polls a specific encoded operation id', async () => {
+  it('loads active and latest operations and polls a specific encoded operation id', async () => {
     const getSpy = vi.spyOn(api, 'get')
+      .mockResolvedValueOnce({ success: true, message: 'ok', data: operation } as any)
       .mockResolvedValueOnce({ success: true, message: 'ok', data: operation } as any)
       .mockResolvedValueOnce({ success: true, message: 'ok', data: operation } as any);
 
     await expect(memoryPortabilityApi.getActiveOperation()).resolves.toEqual(operation);
+    await expect(memoryPortabilityApi.getLatestOperation()).resolves.toEqual(operation);
     await expect(memoryPortabilityApi.getOperation('operation/1')).resolves.toEqual(operation);
 
     expect(getSpy).toHaveBeenNthCalledWith(1, '/memory/portability/operations/active');
     expect(getSpy).toHaveBeenNthCalledWith(
       2,
+      '/memory/portability/operations/latest',
+    );
+    expect(getSpy).toHaveBeenNthCalledWith(
+      3,
       '/memory/portability/operations/operation%2F1',
     );
   });
