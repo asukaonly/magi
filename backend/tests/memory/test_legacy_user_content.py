@@ -171,6 +171,7 @@ def test_clear_legacy_user_content_rejects_linked_database_parent(
     tmp_path: Path,
 ) -> None:
     runtime_paths = RuntimePaths(tmp_path / "runtime")
+    runtime_paths.memory_backups_dir.rmdir()
     runtime_paths.memory_dir.rmdir()
     outside = tmp_path / "outside-memory"
     outside.mkdir()
