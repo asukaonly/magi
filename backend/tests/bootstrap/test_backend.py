@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from dependency_injector import providers
 
 from magi.bootstrap import backend as backend_module
 from magi.core.container import get_container
@@ -132,3 +133,45 @@ async def test_initialize_agent_runtime_restarts_previously_deferred_runtime(
     await backend_module.initialize_agent_runtime()
 
     assert calls == ["shutdown", "startup"]
+
+
+@pytest.mark.asyncio
+async def test_shutdown_agent_runtime_strict_mode_propagates_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FailingOrchestrator:
+        async def shutdown(self, *, strict: bool = False) -> None:
+            assert strict is True
+            raise OSError("close failed")
+
+    container = get_container()
+    container.runtime_orchestrator.override(providers.Object(_FailingOrchestrator()))
+    container.runtime_bootstrap_context.override(providers.Object(object()))
+
+    try:
+        with pytest.raises(RuntimeError, match="could not be stopped safely"):
+            await backend_module.shutdown_agent_runtime(strict=True)
+
+        assert container.runtime_orchestrator.overridden
+        assert container.runtime_bootstrap_context.overridden
+    finally:
+        container.runtime_orchestrator.reset_override()
+        container.runtime_bootstrap_context.reset_override()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_agent_runtime_default_mode_keeps_best_effort_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FailingOrchestrator:
+        async def shutdown(self, *, strict: bool = False) -> None:
+            assert strict is False
+            raise OSError("close failed")
+
+    monkeypatch.setattr(
+        backend_module,
+        "_resolve_from_container",
+        lambda name: _FailingOrchestrator() if name == "runtime_orchestrator" else None,
+    )
+
+    await backend_module.shutdown_agent_runtime()

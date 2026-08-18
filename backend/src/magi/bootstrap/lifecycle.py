@@ -26,6 +26,15 @@ class LifecycleInitDeferred(Exception):
     """
 
 
+class LifecycleShutdownError(RuntimeError):
+    """Report modules that could not release their runtime resources."""
+
+    def __init__(self, failures: Sequence[tuple[str, Exception]]) -> None:
+        self.failures = tuple(failures)
+        names = ", ".join(name for name, _error in failures)
+        super().__init__(f"Runtime modules failed to shut down: {names}")
+
+
 class LifecycleModule:
     """Base lifecycle module with optional hook-based constructor."""
 
@@ -115,25 +124,38 @@ class ModuleLifecycleOrchestrator:
             await self._shutdown_modules(initialized)
             raise
 
-    async def shutdown(self) -> None:
-        """Shutdown initialized modules in reverse order."""
+    async def shutdown(self, *, strict: bool = False) -> None:
+        """Shutdown initialized modules in reverse order.
+
+        Strict shutdown retains lifecycle ownership when any module fails so a
+        storage-maintenance caller can retry without losing references to live
+        resources. Normal application shutdown remains best effort.
+        """
         if not self._initialized_modules:
             self._started = False
             return
 
         initialized = list(self._initialized_modules)
-        await self._shutdown_modules(initialized)
+        failures = await self._shutdown_modules(initialized)
+        if strict and failures:
+            raise LifecycleShutdownError(failures)
         self._initialized_modules = []
         self._started = False
         logger.info("Lifecycle shutdown completed", module_count=len(initialized))
 
-    async def _shutdown_modules(self, modules: list[LifecycleModule]) -> None:
+    async def _shutdown_modules(
+        self,
+        modules: list[LifecycleModule],
+    ) -> list[tuple[str, Exception]]:
+        failures: list[tuple[str, Exception]] = []
         for module in reversed(modules):
             try:
                 logger.info("Lifecycle module shutdown", module=module.name)
                 await module.shutdown()
             except Exception as exc:
+                failures.append((module.name, exc))
                 logger.warning("Lifecycle module shutdown failed", module=module.name, error=str(exc))
+        return failures
 
     def _resolve_order(self, modules: list[LifecycleModule]) -> list[LifecycleModule]:
         module_by_name: dict[str, LifecycleModule] = {}

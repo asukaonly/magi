@@ -193,19 +193,32 @@ async def initialize_agent_runtime() -> None:
     logger.info("Agent runtime initialized successfully")
 
 
-async def shutdown_agent_runtime() -> None:
-    """Shutdown agent runtime."""
+async def shutdown_agent_runtime(*, strict: bool = False) -> None:
+    """Shutdown agent runtime.
+
+    Args:
+        strict: Re-raise shutdown failures while retaining lifecycle ownership.
+            Storage maintenance uses this mode because replacing a database while
+            any runtime module may still hold an open connection is unsafe.
+    """
     orchestrator = _resolve_from_container("runtime_orchestrator")
     set_runtime_startup_state("stopping")
+    shutdown_error: Exception | None = None
     try:
         if orchestrator is not None:
-            await orchestrator.shutdown()
+            await orchestrator.shutdown(strict=strict)
     except Exception as exc:
+        shutdown_error = exc
         set_runtime_startup_state("failed", reason="runtime_shutdown_failed", detail=str(exc))
         logger.error("Failed to stop agent runtime: %s", exc, exc_info=True)
     finally:
-        container = get_container()
-        container.runtime_orchestrator.reset_override()
-        container.runtime_bootstrap_context.reset_override()
-        set_runtime_startup_state("offline")
-        logger.info("Agent runtime stopped")
+        if shutdown_error is None or not strict:
+            container = get_container()
+            container.runtime_orchestrator.reset_override()
+            container.runtime_bootstrap_context.reset_override()
+            set_runtime_startup_state("offline")
+            logger.info("Agent runtime stopped")
+        else:
+            logger.error("Agent runtime ownership retained for a strict shutdown retry")
+    if strict and shutdown_error is not None:
+        raise RuntimeError("Agent runtime could not be stopped safely") from shutdown_error

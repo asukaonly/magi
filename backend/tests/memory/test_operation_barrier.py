@@ -8,6 +8,35 @@ import pytest
 from magi.memory.operation_barrier import AsyncOperationBarrier
 from magi.memory.store_ingestion import MemoryIngestionMixin
 from magi.memory.store_l2_operations import UnifiedMemoryL2OperationsMixin
+from magi.memory.store_lifecycle import UnifiedMemoryLifecycleMixin
+
+
+class _RuntimeReplacementHost(UnifiedMemoryLifecycleMixin):
+    def __init__(self, *, quiesce_error: BaseException | None = None) -> None:
+        self._clear_barrier = AsyncOperationBarrier()
+        self._write_lock = asyncio.Lock()
+        self._clear_epoch = 0
+        self._clear_request_count = 0
+        self._quiesce_error = quiesce_error
+        self.quiesced = asyncio.Event()
+        self.resume_calls: list[dict[str, bool]] = []
+        self.l0 = None
+        self.l1 = None
+        self.l2 = None
+        self.l2_entity_catalog = None
+        self.l2_pipeline = None
+        self.l3 = None
+        self.l4 = None
+        self._edge_embedding_worker = None
+        self._portrait_projection_scheduler = None
+
+    async def _quiesce_memory_writers(self) -> None:
+        self.quiesced.set()
+        if self._quiesce_error is not None:
+            raise self._quiesce_error
+
+    async def _resume_memory_writers(self, **state: bool) -> None:
+        self.resume_calls.append(state)
 
 
 @pytest.mark.asyncio
@@ -129,6 +158,67 @@ async def test_cancelled_exclusive_waiter_releases_new_operations() -> None:
 
     release_first.set()
     await asyncio.gather(first_task, second_task)
+
+
+@pytest.mark.asyncio
+async def test_runtime_replacement_drains_operations_and_does_not_resume_old_writers() -> None:
+    host = _RuntimeReplacementHost()
+    first_entered = asyncio.Event()
+    release_first = asyncio.Event()
+    replacement_entered = asyncio.Event()
+    release_replacement = asyncio.Event()
+    second_entered = asyncio.Event()
+
+    async def first_operation() -> None:
+        async with host.memory_operation_guard():
+            first_entered.set()
+            await release_first.wait()
+
+    async def replace_runtime() -> None:
+        async with host.memory_runtime_replacement_guard():
+            replacement_entered.set()
+            await release_replacement.wait()
+
+    async def second_operation() -> None:
+        async with host.memory_operation_guard():
+            second_entered.set()
+
+    first_task = asyncio.create_task(first_operation())
+    await first_entered.wait()
+    replacement_task = asyncio.create_task(replace_runtime())
+    for _ in range(20):
+        if host._clear_barrier._exclusive_waiters:
+            break
+        await asyncio.sleep(0)
+    second_task = asyncio.create_task(second_operation())
+    await asyncio.sleep(0)
+
+    assert not replacement_entered.is_set()
+    assert not second_entered.is_set()
+    release_first.set()
+    await replacement_entered.wait()
+    assert host.quiesced.is_set()
+    assert host.memory_operation_epoch() == 1
+    assert host.memory_clear_in_progress() is True
+    assert not second_entered.is_set()
+
+    release_replacement.set()
+    await asyncio.gather(first_task, replacement_task, second_task)
+    assert host.resume_calls == []
+    assert host.memory_clear_in_progress() is False
+    assert second_entered.is_set()
+
+
+@pytest.mark.asyncio
+async def test_runtime_replacement_resumes_writers_when_quiesce_fails() -> None:
+    host = _RuntimeReplacementHost(quiesce_error=RuntimeError("stop failed"))
+
+    with pytest.raises(RuntimeError, match="stop failed"):
+        async with host.memory_runtime_replacement_guard():
+            raise AssertionError("replacement must not start")
+
+    assert len(host.resume_calls) == 1
+    assert host.memory_clear_in_progress() is False
 
 
 async def _start_clear_behind_active_operation(

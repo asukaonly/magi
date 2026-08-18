@@ -335,6 +335,63 @@ class UnifiedMemoryLifecycleMixin:
         finally:
             self._clear_request_count -= 1
 
+    @asynccontextmanager
+    async def memory_runtime_replacement_guard(self) -> Any:
+        """Drain memory work and keep the current runtime offline for replacement.
+
+        Restore callers hold this guard while they shut down the current runtime,
+        replace its owned files, and initialize the replacement runtime. Once the
+        guarded body starts, the caller owns recovery and this context manager must
+        not restart writers that may already reference closed database handles.
+        """
+
+        self._clear_request_count += 1
+        try:
+            async with self._clear_barrier.exclusive():
+                self._clear_epoch += 1
+                async with self._write_lock:
+                    pipeline_was_running = bool(
+                        self.l2_pipeline is not None
+                        and getattr(
+                            getattr(self.l2_pipeline, "_stats", None),
+                            "is_running",
+                            False,
+                        )
+                    )
+                    edge_worker_was_running = bool(
+                        self._edge_embedding_worker is not None
+                        and getattr(self._edge_embedding_worker, "_running", False)
+                    )
+                    l1_embedding_was_running = bool(
+                        self.l1 is not None and getattr(self.l1, "_embedding_workers", None)
+                    )
+                    l3_embedding_was_running = self._embedding_worker_is_running(self.l3)
+                    l4_embedding_was_running = self._embedding_worker_is_running(self.l4)
+                    try:
+                        await self._quiesce_memory_writers()
+                    except BaseException:
+                        try:
+                            await self._resume_memory_writers(
+                                pipeline_was_running=pipeline_was_running,
+                                edge_worker_was_running=edge_worker_was_running,
+                                l1_embedding_was_running=l1_embedding_was_running,
+                                l3_embedding_was_running=l3_embedding_was_running,
+                                l4_embedding_was_running=l4_embedding_was_running,
+                            )
+                        except BaseException as resume_error:
+                            logger.error(
+                                "Failed to resume memory writers after replacement admission failed",
+                                exc_info=(
+                                    type(resume_error),
+                                    resume_error,
+                                    resume_error.__traceback__,
+                                ),
+                            )
+                        raise
+                    yield
+        finally:
+            self._clear_request_count -= 1
+
     def memory_operation_epoch(self) -> int:
         """Return the process-local epoch used to reject stale queued work."""
         return int(self._clear_epoch)

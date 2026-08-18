@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from magi.bootstrap.lifecycle import LifecycleModule, ModuleLifecycleOrchestrator
+from magi.bootstrap.lifecycle import (
+    LifecycleModule,
+    LifecycleShutdownError,
+    ModuleLifecycleOrchestrator,
+)
 
 
 @pytest.mark.asyncio
@@ -111,6 +115,31 @@ async def test_post_init_failure_triggers_reverse_shutdown_for_all_initialized_m
         await orchestrator.startup()
 
     assert events == ["a.init", "b.init", "a.post", "b.post", "b.stop", "a.stop"]
+
+
+@pytest.mark.asyncio
+async def test_strict_shutdown_reports_failures_and_can_be_retried() -> None:
+    events: list[str] = []
+    attempts = 0
+
+    async def _shutdown() -> None:
+        nonlocal attempts
+        attempts += 1
+        events.append(f"stop.{attempts}")
+        if attempts == 1:
+            raise OSError("database still busy")
+
+    orchestrator = ModuleLifecycleOrchestrator(
+        modules=[LifecycleModule(name="memory", shutdown=_shutdown)]
+    )
+    await orchestrator.startup()
+
+    with pytest.raises(LifecycleShutdownError) as failure:
+        await orchestrator.shutdown(strict=True)
+    assert failure.value.failures[0][0] == "memory"
+
+    await orchestrator.shutdown(strict=True)
+    assert events == ["stop.1", "stop.2"]
 
 
 @pytest.mark.asyncio
