@@ -13,13 +13,32 @@ BACKUP_FORMAT = "magi-memory-backup"
 BACKUP_FORMAT_VERSION = 1
 EXPORT_FORMAT = "magi-memory-export"
 EXPORT_FORMAT_VERSION = 1
-MAX_BACKUP_FILE_COUNT = 100_000
-MAX_BACKUP_UNCOMPRESSED_BYTES = 64 * 1024 * 1024 * 1024
+MAX_BACKUP_FILE_COUNT = (1 << 16) - 2
+MAX_BACKUP_MANIFEST_BYTES = 1024 * 1024
+# Python's non-ZIP64 writer uses a conservative 2 GiB safety boundary.
+MAX_BACKUP_MEMBER_BYTES = (1 << 31) - 2
+MAX_BACKUP_UNCOMPRESSED_BYTES = (1 << 31) - 2
 BACKUP_LIMITATIONS = (
-    "l0_runtime_attention_not_restored",
     "chat_records_and_attachments_not_included",
     "source_evidence_may_be_unavailable",
     "raw_history_import_content_redacted",
+)
+BACKUP_COUNT_KEYS = frozenset(
+    {
+        "l0_sessions",
+        "l0_attention_items",
+        "l1_events",
+        "l2_entities",
+        "l2_relationships",
+        "l2_assertions",
+        "l2_episodes",
+        "l2_experiences",
+        "manual_entries",
+        "l3_summaries",
+        "l4_procedures",
+        "archives",
+        "manual_entry_assets",
+    }
 )
 
 
@@ -36,7 +55,8 @@ class BackupFileRecord(BaseModel):
 
     path: str = Field(min_length=1, max_length=1024)
     purpose: Literal["l1", "memory", "archive", "manual_entry_asset"]
-    size_bytes: int = Field(ge=0)
+    size_bytes: int = Field(ge=0, le=MAX_BACKUP_MEMBER_BYTES)
+    record_count: int = Field(ge=0)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
@@ -51,12 +71,11 @@ class BackupManifest(BaseModel):
     created_at: str
     magi_version: str = Field(min_length=1, max_length=100)
     encrypted: bool
-    scope: list[Literal["l1", "l2", "l3", "l4", "archives", "manual_entry_assets"]]
+    scope: list[Literal["l0", "l1", "l2", "l3", "l4", "archives", "manual_entry_assets"]]
     schema_revisions: dict[Literal["l1", "memory_shared"], str]
     archive_schema_version: int = 1
     limitations: list[
         Literal[
-            "l0_runtime_attention_not_restored",
             "chat_records_and_attachments_not_included",
             "source_evidence_may_be_unavailable",
             "raw_history_import_content_redacted",
@@ -105,6 +124,7 @@ class BackupManifest(BaseModel):
         if not required.issubset(paths):
             raise ValueError("Backup manifest is missing a required memory database")
         expected_scope = {
+            "l0",
             "l1",
             "l2",
             "l3",
@@ -118,6 +138,8 @@ class BackupManifest(BaseModel):
             raise ValueError("Backup manifest has an invalid schema revision set")
         if any(not value or len(value) > 200 for value in self.schema_revisions.values()):
             raise ValueError("Backup manifest has an invalid schema revision")
+        if set(self.counts) != BACKUP_COUNT_KEYS:
+            raise ValueError("Backup manifest has an invalid record count set")
         if any(value < 0 for value in self.counts.values()):
             raise ValueError("Backup manifest contains a negative record count")
         if any(not re.fullmatch(r"[a-z0-9_]{1,100}", key) for key in self.counts):
@@ -194,41 +216,83 @@ class BackupInspection(BaseModel):
     created_at: str | None = None
     magi_version: str | None = None
     encrypted: bool = False
+    compatibility: Literal["compatible", "upgrade_required", "unsupported"] | None = None
     scope: list[str] = Field(default_factory=list)
     counts: dict[str, int] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     expires_at: str | None = None
 
 
-class PortabilityJob(BaseModel):
-    """Process-local progress record for backup, export, or restore work."""
+class RestoreCandidateMetadata(BaseModel):
+    """Private immutable metadata for one inspected restore candidate."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
-    job_id: str
-    kind: Literal["backup", "export", "restore"]
-    status: Literal["pending", "running", "succeeded", "failed"]
-    stage: str
-    created_at: str
-    updated_at: str
-    output_path: str | None = None
-    safety_backup_path: str | None = None
-    error_code: str | None = None
-    error_message: str | None = None
+    format: Literal["magi-memory-restore-candidate"] = "magi-memory-restore-candidate"
+    format_version: Literal[1] = 1
+    candidate_id: str
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    inspected_at: str
+    expires_at: str
+    archive_target: str = Field(min_length=1, max_length=4096)
+    compatibility: Literal["compatible", "upgrade_required"]
+    manifest: BackupManifest
+    staged_files: list[BackupFileRecord] = Field(
+        min_length=2,
+        max_length=MAX_BACKUP_FILE_COUNT,
+    )
+
+    @field_validator("candidate_id")
+    @classmethod
+    def _valid_candidate_id(cls, value: str) -> str:
+        try:
+            parsed = uuid.UUID(value)
+        except ValueError as exc:
+            raise ValueError("Candidate ID must be a UUID") from exc
+        if parsed.version != 4 or str(parsed) != value:
+            raise ValueError("Candidate ID must be a canonical UUIDv4")
+        return value
+
+    @field_validator("inspected_at", "expires_at")
+    @classmethod
+    def _valid_candidate_timestamp(cls, value: str) -> str:
+        if not value.endswith("Z"):
+            raise ValueError("Candidate timestamp must be UTC")
+        try:
+            parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+        except ValueError as exc:
+            raise ValueError("Candidate timestamp is invalid") from exc
+        if parsed.tzinfo != timezone.utc:
+            raise ValueError("Candidate timestamp must be UTC")
+        return value
+
+    @model_validator(mode="after")
+    def _valid_staged_inventory(self) -> "RestoreCandidateMetadata":
+        expected_paths = {record.path for record in self.manifest.files}
+        staged_paths = [record.path for record in self.staged_files]
+        if len(staged_paths) != len(set(staged_paths)) or set(staged_paths) != expected_paths:
+            raise ValueError("Candidate staged files do not match the backup manifest")
+        purposes = {record.path: record.purpose for record in self.manifest.files}
+        if any(purposes[record.path] != record.purpose for record in self.staged_files):
+            raise ValueError("Candidate staged file purposes are invalid")
+        return self
 
 
 __all__ = [
     "BACKUP_FORMAT",
     "BACKUP_FORMAT_VERSION",
+    "BACKUP_COUNT_KEYS",
     "BACKUP_LIMITATIONS",
     "EXPORT_FORMAT",
     "EXPORT_FORMAT_VERSION",
     "MAX_BACKUP_FILE_COUNT",
+    "MAX_BACKUP_MANIFEST_BYTES",
+    "MAX_BACKUP_MEMBER_BYTES",
     "MAX_BACKUP_UNCOMPRESSED_BYTES",
     "BackupFileRecord",
     "BackupInspection",
     "BackupManifest",
-    "PortabilityJob",
+    "RestoreCandidateMetadata",
     "SnapshotBundle",
     "SnapshotFile",
     "utc_now_iso",

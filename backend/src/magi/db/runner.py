@@ -22,11 +22,23 @@ from typing import Any, Callable, Iterable
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
+from alembic.script.revision import ResolutionError
+from alembic.util import CommandError
 
 from ..core.logger import get_logger
 from ..utils.runtime import RuntimePaths
 
 logger = get_logger(__name__)
+
+
+class MigrationRevisionError(ValueError):
+    """Raised when an explicit database revision is not installed or reachable."""
+
+
+class MigrationExecutionError(RuntimeError):
+    """Raised when an explicit staged-database migration cannot be completed."""
+
 
 _MIGRATIONS_ROOT = Path(__file__).resolve().parent / "migrations"
 
@@ -120,6 +132,65 @@ def run_upgrade_head(
             identity_after=after["identity"],
             size_bytes=after["size_bytes"],
         )
+
+
+def get_migration_target(name: str) -> MigrationTarget:
+    """Resolve one registered migration target by its stable environment name."""
+
+    normalized = str(name or "").strip()
+    for target in MIGRATION_TARGETS:
+        if target.name == normalized:
+            return target
+    raise ValueError(f"Unknown migration target: {normalized}")
+
+
+def migration_head(name: str) -> str:
+    """Return the single installed Alembic head for one migration target."""
+
+    try:
+        target = get_migration_target(name)
+        head = ScriptDirectory.from_config(
+            _build_config(target, Path("unused.db"))
+        ).get_current_head()
+    except (AssertionError, CommandError, ResolutionError, ValueError) as exc:
+        raise MigrationExecutionError("Migration metadata could not be loaded") from exc
+    if not head:
+        raise MigrationExecutionError("Migration metadata does not have one installed head")
+    return str(head)
+
+
+def validate_migration_revision(name: str, revision: str) -> None:
+    """Reject unknown or non-ancestor revisions before candidate migration."""
+
+    normalized = str(revision or "").strip()
+    if not normalized:
+        raise MigrationRevisionError("Database schema revision is empty")
+    try:
+        target = get_migration_target(name)
+        scripts = ScriptDirectory.from_config(_build_config(target, Path("unused.db")))
+        installed = scripts.get_revision(normalized)
+        reachable = {
+            str(candidate.revision)
+            for candidate in scripts.iterate_revisions(scripts.get_heads(), "base")
+        }
+    except (AssertionError, CommandError, ResolutionError, ValueError) as exc:
+        raise MigrationRevisionError("Database schema revision is not installed") from exc
+    if installed is None:
+        raise MigrationRevisionError("Database schema revision is not installed")
+    if normalized not in reachable:
+        raise MigrationRevisionError("Database schema revision is not an installed ancestor")
+
+
+def run_upgrade_database(name: str, db_path: Path, *, revision: str = "head") -> None:
+    """Upgrade one staged database at an explicit private path and revision."""
+
+    try:
+        target = get_migration_target(name)
+        explicit_path = Path(db_path)
+        explicit_path.parent.mkdir(parents=True, exist_ok=True)
+        command.upgrade(_build_config(target, explicit_path), str(revision))
+    except Exception as exc:
+        raise MigrationExecutionError("Staged database migration failed") from exc
 
 
 def _database_file_snapshot(db_path: Path) -> dict[str, Any]:

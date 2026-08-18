@@ -17,12 +17,15 @@ from .crypto import encrypt_backup_payload
 from .errors import MemoryPortabilityError
 from .models import (
     BACKUP_LIMITATIONS,
+    MAX_BACKUP_MANIFEST_BYTES,
+    MAX_BACKUP_MEMBER_BYTES,
+    MAX_BACKUP_UNCOMPRESSED_BYTES,
     BackupFileRecord,
     BackupManifest,
     SnapshotBundle,
     utc_now_iso,
 )
-from .storage import sha256_file
+from .storage import sha256_file, snapshot_file_record_count
 
 
 def build_memory_backup(
@@ -78,6 +81,7 @@ def build_memory_backup(
             path=item.archive_path,
             purpose=item.purpose,
             size_bytes=Path(item.source_path).stat().st_size,
+            record_count=snapshot_file_record_count(Path(item.source_path), item.purpose),
             sha256=sha256_file(Path(item.source_path)),
         )
         for item in sorted(snapshot.files, key=lambda candidate: candidate.archive_path)
@@ -87,7 +91,7 @@ def build_memory_backup(
         created_at=utc_now_iso(),
         magi_version=_magi_version(),
         encrypted=encrypted,
-        scope=["l1", "l2", "l3", "l4", "archives", "manual_entry_assets"],
+        scope=["l0", "l1", "l2", "l3", "l4", "archives", "manual_entry_assets"],
         schema_revisions={
             "l1": snapshot.schema_revisions["l1"],
             "memory_shared": snapshot.schema_revisions["memory_shared"],
@@ -98,14 +102,29 @@ def build_memory_backup(
         counts={key: int(value) for key, value in snapshot.counts.items()},
     )
     estimated_bytes = sum(record.size_bytes for record in records) + 1024 * 1024
-    _require_free_space(output_directory, estimated_bytes)
+    snapshot_root = Path(snapshot.root)
+    if _same_filesystem(snapshot_root, output_directory):
+        _require_free_space(snapshot_root, estimated_bytes * 2)
+    else:
+        _require_free_space(snapshot_root, estimated_bytes)
+        _require_free_space(output_directory, estimated_bytes)
 
     try:
         _write_payload_zip(snapshot, manifest, payload_path)
+        if payload_path.stat().st_size > MAX_BACKUP_UNCOMPRESSED_BYTES:
+            raise MemoryPortabilityError(
+                "backup_too_large",
+                "The memory backup exceeds the version-1 container limit.",
+            )
         if encrypted:
             encrypt_backup_payload(payload_path, partial_path, str(password))
         else:
             _copy_exclusive(payload_path, partial_path)
+        if partial_path.stat().st_size > MAX_BACKUP_UNCOMPRESSED_BYTES:
+            raise MemoryPortabilityError(
+                "backup_too_large",
+                "The memory backup exceeds the version-1 container limit.",
+            )
         partial_path.chmod(0o600)
         os.replace(partial_path, output_path)
         _fsync_directory(output_directory)
@@ -137,7 +156,7 @@ def _write_payload_zip(
                 mode="w",
                 compression=zipfile.ZIP_DEFLATED,
                 compresslevel=6,
-                allowZip64=True,
+                allowZip64=False,
             ) as archive,
         ):
             manifest_bytes = json.dumps(
@@ -146,13 +165,20 @@ def _write_payload_zip(
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8")
+            if len(manifest_bytes) > MAX_BACKUP_MANIFEST_BYTES:
+                raise MemoryPortabilityError(
+                    "backup_too_large",
+                    "The memory backup manifest exceeds the version-1 size limit.",
+                )
             _write_bytes(archive, "manifest.json", manifest_bytes)
             source_by_archive_path = {
                 item.archive_path: Path(item.source_path) for item in snapshot.files
             }
             for record in manifest.files:
                 _write_file(archive, record.path, source_by_archive_path[record.path])
-    except (OSError, zipfile.BadZipFile) as exc:
+    except MemoryPortabilityError:
+        raise
+    except (OSError, RuntimeError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         raise MemoryPortabilityError(
             "backup_package_failed",
             "The memory snapshot could not be packaged.",
@@ -168,12 +194,19 @@ def _write_bytes(archive: zipfile.ZipFile, archive_path: str, content: bytes) ->
 
 
 def _write_file(archive: zipfile.ZipFile, archive_path: str, source: Path) -> None:
+    source_size = source.stat().st_size
+    if source_size > MAX_BACKUP_MEMBER_BYTES:
+        raise MemoryPortabilityError(
+            "backup_too_large",
+            "A memory backup member exceeds the version-1 size limit.",
+        )
     info = zipfile.ZipInfo(archive_path)
     info.compress_type = zipfile.ZIP_DEFLATED
     info.external_attr = 0o100600 << 16
+    info.file_size = source_size
     with (
         source.open("rb") as input_handle,
-        archive.open(info, "w", force_zip64=True) as output_handle,
+        archive.open(info, "w", force_zip64=False) as output_handle,
     ):
         shutil.copyfileobj(input_handle, output_handle, length=1024 * 1024)
 
@@ -219,6 +252,16 @@ def _require_free_space(directory: Path, required_bytes: int) -> None:
             "insufficient_space",
             "The selected directory does not have enough free space.",
         )
+
+
+def _same_filesystem(first: Path, second: Path) -> bool:
+    try:
+        return first.stat().st_dev == second.stat().st_dev
+    except OSError as exc:
+        raise MemoryPortabilityError(
+            "free_space_unknown",
+            "Available space could not be checked for the backup filesystems.",
+        ) from exc
 
 
 def _magi_version() -> str:

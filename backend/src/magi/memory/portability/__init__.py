@@ -5,7 +5,6 @@ from .models import (
     BACKUP_FORMAT_VERSION,
     BackupInspection,
     BackupManifest,
-    PortabilityJob,
 )
 
 __all__ = [
@@ -13,5 +12,4 @@ __all__ = [
     "BackupInspection",
     "BackupManifest",
     "MemoryPortabilityError",
-    "PortabilityJob",
 ]
