@@ -80,7 +80,7 @@ class _RebuildManager:
     async def resume_starts(self) -> None:
         self.events.append("rebuild.resume")
 
-    async def start_rebuild(self, **_values: object) -> dict[str, object]:
+    async def resume_and_start_rebuild(self, **_values: object) -> dict[str, object]:
         self.events.append("rebuild.start")
         if self.fail_start:
             raise RuntimeError("rebuild queue unavailable")
@@ -430,7 +430,7 @@ async def test_restore_rolls_back_when_replacement_runtime_fails_to_start(
 
 
 @pytest.mark.asyncio
-async def test_restore_cancels_rebuild_before_rolling_back_queue_failure(
+async def test_restore_keeps_rebuilds_paused_while_rolling_back_queue_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -446,10 +446,10 @@ async def test_restore_cancels_rebuild_before_rolling_back_queue_failure(
     assert operations.failed is not None
     assert operations.failed["rollback_performed"] is True
     assert operations.failed["code"] == "index_rebuild_queue_failed"
-    assert events.count("rebuild.pause") == 2
-    second_pause = [index for index, item in enumerate(events) if item == "rebuild.pause"][1]
-    assert second_pause < events.index("runtime.shutdown", events.index("runtime.shutdown") + 1)
+    assert events.count("rebuild.pause") == 1
     assert events.index("rollback") < events.index("fail")
+    assert events.index("rollback") < events.index("rebuild.resume")
+    assert events[-1] == "rebuild.resume"
 
 
 @pytest.mark.asyncio

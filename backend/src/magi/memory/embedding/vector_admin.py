@@ -41,6 +41,10 @@ class EmbeddingRebuildPausedError(RuntimeError):
     """Raised when a destructive clear has paused new rebuild jobs."""
 
 
+class EmbeddingRebuildCoverageError(RuntimeError):
+    """Raised when an active rebuild does not cover every requested layer."""
+
+
 class EmbeddingRebuildCancelledError(RuntimeError):
     """Raised at a batch boundary after a persisted cancellation request."""
 
@@ -232,43 +236,34 @@ class EmbeddingRebuildManager:
                 raise EmbeddingRebuildPausedError(
                     "Embedding rebuild is paused while memory is being cleared"
                 )
-            active_job = await self._get_active_job()
-            if active_job is not None:
-                return active_job
-            source_counts = await collect_vector_rebuild_source_counts()
-            now = time.time()
-            job_id = f"embedding-rebuild-{uuid.uuid4().hex}"
-            total_items = sum(int(source_counts.get(layer, 0)) for layer in requested_layers)
-            db_path = str(get_runtime_paths().memory_db_path)
-            async with sqlite_connection_async(db_path) as db:
-                db.row_factory = aiosqlite.Row
-                await db.execute(
-                    """
-                    INSERT INTO embedding_rebuild_jobs(
-                        job_id, status, requested_layers_json, active_layer,
-                        total_items, processed_items, succeeded_items, failed_items,
-                        cancel_requested, error, created_at, started_at, finished_at, updated_at
-                    ) VALUES (?, 'pending', ?, NULL, ?, 0, 0, 0, 0, NULL, ?, NULL, NULL, ?)
-                    """,
-                    (job_id, json.dumps(requested_layers), total_items, now, now),
+            return await self._start_rebuild_locked(
+                unified_memory=unified_memory,
+                requested_layers=requested_layers,
+                require_active_coverage=False,
+            )
+
+    async def resume_and_start_rebuild(
+        self, *, unified_memory: Any, layers: Iterable[str] | None = None
+    ) -> dict[str, Any]:
+        """Release the final pause only after atomically admitting a covered rebuild."""
+
+        requested_layers = _normalize_layers(layers)
+        await self._ensure_schema()
+        async with self._lock:
+            await self._mark_abandoned_jobs()
+            if self._pause_depth != 1:
+                raise EmbeddingRebuildPausedError(
+                    "Embedding rebuild cannot resume while another pause is active"
+                    if self._pause_depth > 1
+                    else "Embedding rebuild is not paused"
                 )
-                await db.executemany(
-                    """
-                    INSERT INTO embedding_rebuild_job_layers(
-                        job_id, layer, status, total_items, processed_items,
-                        succeeded_items, failed_items, error, started_at, finished_at, updated_at
-                    ) VALUES (?, ?, 'pending', ?, 0, 0, 0, NULL, NULL, NULL, ?)
-                    """,
-                    [
-                        (job_id, layer, int(source_counts.get(layer, 0)), now)
-                        for layer in requested_layers
-                    ],
-                )
-                await db.commit()
-            task = asyncio.create_task(self._run_job(job_id, unified_memory, requested_layers))
-            self._tasks[job_id] = task
-            task.add_done_callback(lambda _finished: self._tasks.pop(job_id, None))
-            return await self.get_job(job_id) or {}
+            job = await self._start_rebuild_locked(
+                unified_memory=unified_memory,
+                requested_layers=requested_layers,
+                require_active_coverage=True,
+            )
+            self._pause_depth -= 1
+            return job
 
     async def get_latest_job(self) -> dict[str, Any] | None:
         await self._ensure_schema()
@@ -347,6 +342,67 @@ class EmbeddingRebuildManager:
         """Allow rebuild requests after destructive clear finishes."""
         async with self._lock:
             self._pause_depth = max(0, self._pause_depth - 1)
+
+    async def _start_rebuild_locked(
+        self,
+        *,
+        unified_memory: Any,
+        requested_layers: list[str],
+        require_active_coverage: bool,
+    ) -> dict[str, Any]:
+        active_job = await self._get_active_job()
+        if active_job is not None:
+            if require_active_coverage:
+                active_layers = {
+                    str(layer)
+                    for layer in active_job.get("requested_layers", [])
+                    if str(layer) in VECTOR_LAYERS
+                }
+                missing_layers = set(requested_layers) - active_layers
+                if missing_layers:
+                    raise EmbeddingRebuildCoverageError(
+                        "Active embedding rebuild does not cover every requested layer"
+                    )
+            return active_job
+
+        source_counts = await collect_vector_rebuild_source_counts()
+        now = time.time()
+        job_id = f"embedding-rebuild-{uuid.uuid4().hex}"
+        total_items = sum(int(source_counts.get(layer, 0)) for layer in requested_layers)
+        db_path = str(get_runtime_paths().memory_db_path)
+        async with sqlite_connection_async(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute(
+                """
+                INSERT INTO embedding_rebuild_jobs(
+                    job_id, status, requested_layers_json, active_layer,
+                    total_items, processed_items, succeeded_items, failed_items,
+                    cancel_requested, error, created_at, started_at, finished_at, updated_at
+                ) VALUES (?, 'pending', ?, NULL, ?, 0, 0, 0, 0, NULL, ?, NULL, NULL, ?)
+                """,
+                (job_id, json.dumps(requested_layers), total_items, now, now),
+            )
+            await db.executemany(
+                """
+                INSERT INTO embedding_rebuild_job_layers(
+                    job_id, layer, status, total_items, processed_items,
+                    succeeded_items, failed_items, error, started_at, finished_at, updated_at
+                ) VALUES (?, ?, 'pending', ?, 0, 0, 0, NULL, NULL, NULL, ?)
+                """,
+                [
+                    (job_id, layer, int(source_counts.get(layer, 0)), now)
+                    for layer in requested_layers
+                ],
+            )
+            await db.commit()
+
+        job = await self.get_job(job_id)
+        if job is None:
+            raise RuntimeError("Embedding rebuild job could not be loaded after admission")
+        task = asyncio.create_task(self._run_job(job_id, unified_memory, requested_layers))
+        self._tasks[job_id] = task
+        task.add_done_callback(lambda _finished: self._tasks.pop(job_id, None))
+        return job
 
     def _cancel_active_tasks_locked(self) -> dict[str, asyncio.Task[None]]:
         active = {job_id: task for job_id, task in self._tasks.items() if not task.done()}
@@ -1227,6 +1283,7 @@ def get_embedding_rebuild_manager() -> EmbeddingRebuildManager:
 
 
 __all__ = [
+    "EmbeddingRebuildCoverageError",
     "EmbeddingRebuildPausedError",
     "EmbeddingRebuildManager",
     "VECTOR_LAYERS",

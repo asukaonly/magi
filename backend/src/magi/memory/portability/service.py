@@ -431,22 +431,7 @@ class MemoryPortabilityService:
         state.runtime_offline = False
 
         try:
-            await rebuild_manager.resume_starts()
-        except Exception as exc:
-            raise MemoryPortabilityError(
-                "index_rebuild_queue_failed",
-                "Memory index rebuilding could not be resumed after restore.",
-                status_code=500,
-            ) from exc
-        state.manager_paused = False
-        self.operations.update(
-            operation_id,
-            phase="rebuilding_indexes",
-            progress_percent=90,
-            index_rebuild_status="pending",
-        )
-        try:
-            rebuild_job = await rebuild_manager.start_rebuild(
+            rebuild_job = await rebuild_manager.resume_and_start_rebuild(
                 unified_memory=replacement_memory,
                 layers=vector_layers,
             )
@@ -456,6 +441,13 @@ class MemoryPortabilityService:
                 "Memory index rebuilding could not be queued after restore.",
                 status_code=500,
             ) from exc
+        state.manager_paused = False
+        self.operations.update(
+            operation_id,
+            phase="rebuilding_indexes",
+            progress_percent=90,
+            index_rebuild_status="pending",
+        )
         index_rebuild_status = str(rebuild_job.get("status") or "pending")
         try:
             await _complete_restore_commit(state.transaction)

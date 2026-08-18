@@ -9,8 +9,10 @@ import pytest
 
 from magi.memory.embedding import vector_admin
 from magi.memory.embedding.vector_admin import (
+    EmbeddingRebuildCoverageError,
     EmbeddingRebuildPausedError,
     EmbeddingRebuildManager,
+    VECTOR_LAYERS,
     build_embedding_config_preflight,
 )
 from magi.memory.embedding.embedding_service import EmbeddingResult
@@ -809,6 +811,137 @@ async def test_pause_wins_against_start_waiting_for_manager_lock(
     with pytest.raises(EmbeddingRebuildPausedError):
         await asyncio.wait_for(start_task, timeout=1)
     assert manager._tasks == {}
+
+
+@pytest.mark.asyncio
+async def test_atomic_resume_admits_full_rebuild_before_concurrent_partial_start(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    source_counts_entered = asyncio.Event()
+    release_source_counts = asyncio.Event()
+
+    async def controlled_source_counts() -> dict[str, int]:
+        source_counts_entered.set()
+        await release_source_counts.wait()
+        return {layer: 0 for layer in VECTOR_LAYERS}
+
+    async def blocked_run(_job_id, _memory, _layers) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(vector_admin, "get_runtime_paths", lambda: runtime_paths)
+    monkeypatch.setattr(
+        vector_admin,
+        "collect_vector_rebuild_source_counts",
+        controlled_source_counts,
+    )
+    manager = EmbeddingRebuildManager()
+    monkeypatch.setattr(manager, "_run_job", blocked_run)
+    memory = SimpleNamespace(memory_operation_guard=AsyncOperationBarrier().operation)
+
+    assert await manager.pause_starts_and_cancel_all() == 0
+    resume_task = asyncio.create_task(
+        manager.resume_and_start_rebuild(
+            unified_memory=memory,
+            layers=VECTOR_LAYERS,
+        )
+    )
+    await asyncio.wait_for(source_counts_entered.wait(), timeout=1)
+    partial_start = asyncio.create_task(
+        manager.start_rebuild(unified_memory=memory, layers=["l1"])
+    )
+    await asyncio.sleep(0)
+    release_source_counts.set()
+
+    full_job, concurrent_job = await asyncio.gather(resume_task, partial_start)
+
+    assert full_job["job_id"] == concurrent_job["job_id"]
+    assert set(full_job["requested_layers"]) == set(VECTOR_LAYERS)
+    assert manager._pause_depth == 0
+
+    cancelled = await manager.cancel_job(full_job["job_id"])
+    assert cancelled is not None
+    assert cancelled["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_atomic_resume_rejects_partial_active_job_without_releasing_pause(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    run_started = asyncio.Event()
+
+    async def fake_source_counts() -> dict[str, int]:
+        return {layer: 0 for layer in VECTOR_LAYERS}
+
+    async def blocked_run(_job_id, _memory, _layers) -> None:
+        run_started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(vector_admin, "get_runtime_paths", lambda: runtime_paths)
+    monkeypatch.setattr(
+        vector_admin,
+        "collect_vector_rebuild_source_counts",
+        fake_source_counts,
+    )
+    manager = EmbeddingRebuildManager()
+    monkeypatch.setattr(manager, "_run_job", blocked_run)
+    memory = SimpleNamespace(memory_operation_guard=AsyncOperationBarrier().operation)
+    partial_job = await manager.start_rebuild(unified_memory=memory, layers=["l1"])
+    await asyncio.wait_for(run_started.wait(), timeout=1)
+    async with manager._lock:
+        manager._pause_depth += 1
+
+    with pytest.raises(EmbeddingRebuildCoverageError):
+        await manager.resume_and_start_rebuild(
+            unified_memory=memory,
+            layers=VECTOR_LAYERS,
+        )
+
+    assert manager._pause_depth == 1
+    active_job = await manager.get_job(partial_job["job_id"])
+    assert active_job is not None
+    assert active_job["status"] in {"pending", "running"}
+    assert active_job["requested_layers"] == ["l1"]
+
+    covered_job = await manager.resume_and_start_rebuild(
+        unified_memory=memory,
+        layers=["l1"],
+    )
+    assert covered_job["job_id"] == partial_job["job_id"]
+    assert manager._pause_depth == 0
+
+    cancelled = await manager.cancel_job(partial_job["job_id"])
+    assert cancelled is not None
+    assert cancelled["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_atomic_resume_preserves_nested_pause_depth(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    monkeypatch.setattr(vector_admin, "get_runtime_paths", lambda: runtime_paths)
+    manager = EmbeddingRebuildManager()
+    memory = SimpleNamespace(memory_operation_guard=AsyncOperationBarrier().operation)
+
+    assert await manager.pause_starts_and_cancel_all() == 0
+    assert await manager.pause_starts_and_cancel_all() == 0
+
+    with pytest.raises(EmbeddingRebuildPausedError, match="another pause"):
+        await manager.resume_and_start_rebuild(
+            unified_memory=memory,
+            layers=VECTOR_LAYERS,
+        )
+
+    assert manager._pause_depth == 2
+    await manager.resume_starts()
+    assert manager._pause_depth == 1
+    await manager.resume_starts()
+    assert manager._pause_depth == 0
 
 
 @pytest.mark.asyncio
