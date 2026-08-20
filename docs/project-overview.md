@@ -20,9 +20,11 @@ Desktop artifacts are distributed through GitHub Releases.
 The repository automation source of truth is `.github/workflows/release.yml`.
 Current release expectations are:
 
-- maintainers publish desktop builds by pushing a version tag in the form `vX.Y.Z`
+- maintainers use `scripts/bump-release.sh` to synchronize version metadata, push the release branch, and gate tag creation on a successful `ci.yml` run for the exact release commit
+- `release.yml` independently verifies that exact-commit CI result before any platform build, so a manually pushed tag cannot bypass the validation gate
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
-- release automation builds the Python sidecar first, then validates the frontend, backend smoke path, authenticated Rust gateway, headless gateway client, benchmark HTTP client, API contracts, and finally the Tauri bundle
+- the full frontend, backend, API-contract, Rust gateway, and desktop-shell validation suite belongs to `ci.yml`; release jobs consume that result instead of repeating the same checks on every platform
+- each platform release job prepares its native dependencies and plugin runtime, then the Tauri build hook builds the frontend and Python sidecar exactly once before producing the desktop bundle
 - release jobs publish a GitHub Release and attach the generated desktop installers (`releaseDraft: false` in the workflow)
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
 - the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration, startup runs a delayed background check, and packaged builds reuse the app-level network proxy for updater requests when configured
