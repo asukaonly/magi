@@ -252,6 +252,10 @@ Current log sources:
 
 The log excerpt is for local troubleshooting only. It should stay bounded and should not replace the retry action.
 
+### Windows Uninstall Data Removal
+
+The Windows uninstaller's **Delete application data** choice owns the complete Magi desktop runtime root. When the user selects it during a normal uninstall, the uninstaller should remove both Tauri's identifier-scoped application directories and `%USERPROFILE%\.magi`. Update-mode uninstall must preserve all application data. This cleanup does not include user-selected workspaces, source libraries, or project-local `.magi` overlays outside the desktop runtime root.
+
 ## Conversation Settings
 
 The conversation settings area owns conversation-scoped defaults that are not model-specific.

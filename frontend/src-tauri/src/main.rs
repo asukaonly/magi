@@ -2094,6 +2094,35 @@ mod tests {
         }
     }
 
+    #[test]
+    fn nsis_uninstall_hook_removes_runtime_data_only_when_requested() {
+        let hooks = include_str!("../installer-hooks.nsh");
+        let pre_uninstall = hooks
+            .split("!macro NSIS_HOOK_PREUNINSTALL")
+            .nth(1)
+            .and_then(|text| text.split("!macroend").next())
+            .expect("pre-uninstall hook must be defined");
+        assert!(pre_uninstall.contains("!insertmacro MAGI_STOP_BACKGROUND_SERVICES"));
+
+        let post_uninstall = hooks
+            .split("!macro NSIS_HOOK_POSTUNINSTALL")
+            .nth(1)
+            .and_then(|text| text.split("!macroend").next())
+            .expect("post-uninstall hook must be defined");
+        let delete_choice_guard = post_uninstall
+            .find("${If} $DeleteAppDataCheckboxState = 1")
+            .expect("data deletion must require the uninstall checkbox");
+        let update_guard = post_uninstall
+            .find("${AndIf} $UpdateMode <> 1")
+            .expect("data deletion must be disabled during updates");
+        let runtime_delete = post_uninstall
+            .find(r#"RMDir /r "$PROFILE\.magi""#)
+            .expect("the desktop runtime root must be removed");
+
+        assert!(delete_choice_guard < runtime_delete);
+        assert!(update_guard < runtime_delete);
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn parse_sidecar_pids_from_ps_matches_exact_executable_path() {
