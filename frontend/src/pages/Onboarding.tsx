@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import OnboardingLoadError from '@/components/onboarding/OnboardingLoadError';
 import { PluginInstallPanel } from '@/components/plugins/PluginInstallPanel';
+import { DesktopTitleBar } from '@/components/layout/DesktopTitleBar';
 import { STORAGE_KEYS } from '@/constants/app';
 import { resolveInitialLanguage } from '@/utils/language';
 import { configApi, SystemConfig } from '../api/modules/config';
@@ -77,8 +78,10 @@ const OnboardingPage: React.FC = () => {
     };
   }, [load]);
 
+  let content: React.ReactNode;
+
   if (loadFailed) {
-    return (
+    content = (
       <OnboardingLoadError
         title={t('page.loadConfigFailed')}
         description={t('page.loadConfigFailedDescription')}
@@ -86,20 +89,25 @@ const OnboardingPage: React.FC = () => {
         onRetry={() => void load()}
       />
     );
-  }
-
-  if (!config) {
-    return (
+  } else if (!config) {
+    content = (
       <div className="flex min-h-screen items-center justify-center">
         <LoadingSpinner className="h-8 w-8" />
       </div>
+    );
+  } else {
+    content = (
+      <>
+        <OnboardingFlow initialConfig={config} />
+        <PluginInstallPanel />
+      </>
     );
   }
 
   return (
     <>
-      <OnboardingFlow initialConfig={config} />
-      <PluginInstallPanel />
+      <DesktopTitleBar fixed />
+      {content}
     </>
   );
 };

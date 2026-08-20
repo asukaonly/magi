@@ -41,6 +41,12 @@ vi.mock('@/components/plugins/PluginInstallPanel', () => ({
   PluginInstallPanel: () => <div data-testid="plugin-install-panel" />,
 }));
 
+vi.mock('@/components/layout/DesktopTitleBar', () => ({
+  DesktopTitleBar: ({ fixed }: { fixed?: boolean }) => (
+    <div data-fixed={String(Boolean(fixed))} data-testid="desktop-title-bar" />
+  ),
+}));
+
 describe('OnboardingPage', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -56,6 +62,7 @@ describe('OnboardingPage', () => {
 
     render(<OnboardingPage />);
 
+    expect(screen.getByTestId('desktop-title-bar')).toHaveAttribute('data-fixed', 'true');
     expect(await screen.findByText('page.loadConfigFailed')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-flow')).not.toBeInTheDocument();
 
@@ -65,6 +72,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'page.retryLoadConfig' }));
 
     expect(await screen.findByTestId('onboarding-flow')).toBeInTheDocument();
+    expect(screen.getByTestId('desktop-title-bar')).toHaveAttribute('data-fixed', 'true');
   });
 
   it('removes credentials from an older browser snapshot before loading the backend draft', async () => {
