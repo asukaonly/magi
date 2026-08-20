@@ -5,28 +5,29 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ShellOverlays from '@/components/layout/ShellOverlays';
+import DesktopQuitPrompt from '@/components/layout/DesktopQuitPrompt';
 import { useChatShellStore } from '@/stores';
 
 const {
   confirmExitAppMock,
   cancelExitRequestMock,
-  registerDesktopShellHandlersMock,
+  registerDesktopOpenSettingsHandlerMock,
+  registerDesktopQuitHandlerMock,
   syncSkipQuitConfirmationPreferenceMock,
   configApiGetMock,
   configApiUpdateMock,
 } = vi.hoisted(() => ({
   confirmExitAppMock: vi.fn(),
   cancelExitRequestMock: vi.fn(),
-  registerDesktopShellHandlersMock: vi.fn(),
+  registerDesktopOpenSettingsHandlerMock: vi.fn(),
+  registerDesktopQuitHandlerMock: vi.fn(),
   syncSkipQuitConfirmationPreferenceMock: vi.fn(),
   configApiGetMock: vi.fn(),
   configApiUpdateMock: vi.fn(),
 }));
 
-let desktopHandlers: {
-  onOpenSettings: () => void;
-  onRequestQuit: () => void;
-} | null = null;
+let openSettingsHandler: (() => void) | null = null;
+let requestQuitHandler: (() => void) | null = null;
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -49,7 +50,8 @@ const LocationProbe = () => {
 };
 
 vi.mock('@/runtime/desktop', () => ({
-  registerDesktopShellHandlers: registerDesktopShellHandlersMock,
+  registerDesktopOpenSettingsHandler: registerDesktopOpenSettingsHandlerMock,
+  registerDesktopQuitHandler: registerDesktopQuitHandlerMock,
   confirmExitApp: confirmExitAppMock,
   cancelExitRequest: cancelExitRequestMock,
   syncSkipQuitConfirmationPreference: syncSkipQuitConfirmationPreferenceMock,
@@ -69,15 +71,21 @@ vi.mock('@/api/modules/config', async () => {
 
 describe('shell overlays', () => {
   beforeEach(() => {
-    desktopHandlers = null;
+    openSettingsHandler = null;
+    requestQuitHandler = null;
     confirmExitAppMock.mockReset();
     cancelExitRequestMock.mockReset();
-    registerDesktopShellHandlersMock.mockReset();
+    registerDesktopOpenSettingsHandlerMock.mockReset();
+    registerDesktopQuitHandlerMock.mockReset();
     syncSkipQuitConfirmationPreferenceMock.mockReset();
     configApiGetMock.mockReset();
     configApiUpdateMock.mockReset();
-    registerDesktopShellHandlersMock.mockImplementation(async (handlers: typeof desktopHandlers) => {
-      desktopHandlers = handlers;
+    registerDesktopOpenSettingsHandlerMock.mockImplementation(async (handler: () => void) => {
+      openSettingsHandler = handler;
+      return vi.fn();
+    });
+    registerDesktopQuitHandlerMock.mockImplementation(async (handler: () => void) => {
+      requestQuitHandler = handler;
       return vi.fn();
     });
     useChatShellStore.setState({
@@ -97,7 +105,7 @@ describe('shell overlays', () => {
     expect(await screen.findByTestId('settings-center-dialog')).toHaveTextContent('closed');
 
     await act(async () => {
-      desktopHandlers?.onOpenSettings();
+      openSettingsHandler?.();
     });
 
     expect(screen.getByTestId('settings-center-dialog')).toHaveTextContent('open');
@@ -133,13 +141,11 @@ describe('shell overlays', () => {
     const user = userEvent.setup();
 
     render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShellOverlays />
-      </MemoryRouter>
+      <DesktopQuitPrompt />
     );
 
     await act(async () => {
-      desktopHandlers?.onRequestQuit();
+      requestQuitHandler?.();
     });
 
     expect(await screen.findByText('desktop.quitConfirm.title')).toBeInTheDocument();
@@ -148,7 +154,7 @@ describe('shell overlays', () => {
     expect(cancelExitRequestMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      desktopHandlers?.onRequestQuit();
+      requestQuitHandler?.();
     });
 
     await user.click(screen.getByRole('button', { name: 'desktop.quitConfirm.confirm' }));
@@ -164,13 +170,11 @@ describe('shell overlays', () => {
     configApiUpdateMock.mockResolvedValue({ data: { preferences: { skip_quit_confirmation: true } } });
 
     render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShellOverlays />
-      </MemoryRouter>
+      <DesktopQuitPrompt />
     );
 
     await act(async () => {
-      desktopHandlers?.onRequestQuit();
+      requestQuitHandler?.();
     });
 
     const checkbox = await screen.findByRole('checkbox', { name: 'desktop.quitConfirm.dontAskAgain' });
@@ -188,13 +192,11 @@ describe('shell overlays', () => {
     const user = userEvent.setup();
 
     render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShellOverlays />
-      </MemoryRouter>
+      <DesktopQuitPrompt />
     );
 
     await act(async () => {
-      desktopHandlers?.onRequestQuit();
+      requestQuitHandler?.();
     });
 
     await user.click(await screen.findByRole('button', { name: 'desktop.quitConfirm.closeLabel' }));

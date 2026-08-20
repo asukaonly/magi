@@ -25,6 +25,7 @@ import { persistLanguageSelection, previewLanguageSelection } from './utils/sett
 import { shouldApplyConfigLanguagePreference } from './utils/language';
 import { finishPendingFullDataClearBeforeAppReady } from './runtime/fullDataClearBootstrap';
 import { useFullDataClearInteractionGate } from './hooks/useFullDataClearInteractionGate';
+import DesktopQuitPrompt from './components/layout/DesktopQuitPrompt';
 
 initializeDesktopLogging();
 initializeTheme();
@@ -292,6 +293,7 @@ const RuntimeBootstrap: React.FC = () => {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
+    <DesktopQuitPrompt />
     <RuntimeBootstrap />
   </React.StrictMode>
 );

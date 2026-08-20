@@ -738,6 +738,7 @@ Expected behavior:
 - the confirmation should explain that backend tasks and the local runtime will be terminated
 - canceling the confirmation should keep the app resident
 - hiding the window through the native close control should not trigger the quit confirmation when the close-to-tray setting is enabled
+- the confirmation host must be mounted at the application root so tray/menu-bar Quit still works during startup, startup diagnostics, onboarding, and the normal application shell
 
 ### Runtime Ownership Rule
 
