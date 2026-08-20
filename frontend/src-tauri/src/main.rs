@@ -19,7 +19,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -74,6 +74,22 @@ enum BackendProcess {
 }
 
 impl BackendProcess {
+    fn try_exit_status(&mut self) -> Result<Option<ExitStatus>, String> {
+        let Self::Dev(child) = self;
+        let Some(process) = child.as_mut() else {
+            return Ok(None);
+        };
+
+        match process.try_wait() {
+            Ok(Some(status)) => {
+                child.take();
+                Ok(Some(status))
+            }
+            Ok(None) => Ok(None),
+            Err(err) => Err(format!("Failed to inspect backend process status: {err}")),
+        }
+    }
+
     fn kill(&mut self) {
         let Self::Dev(child) = self;
         if let Some(process) = child.as_mut() {
@@ -1206,9 +1222,10 @@ fn poll_backend_startup(
     app: AppHandle,
     state: State<'_, BackendState>,
 ) -> Result<PollStartupResponse, String> {
-    // Fast path: already fully started.
+    // Fast path: already fully started, or fail immediately if the worker
+    // exited before publishing its ready file.
     {
-        let runtime = state
+        let mut runtime = state
             .runtime
             .lock()
             .map_err(|_| "Failed to acquire backend runtime lock".to_string())?;
@@ -1221,6 +1238,28 @@ fn poll_backend_startup(
         }
         if runtime.base_url.is_none() {
             return Err("start_backend has not been called yet".to_string());
+        }
+        let exit_status = match runtime.python_process.as_mut() {
+            Some(process) => process.try_exit_status()?,
+            None => None,
+        };
+        if let Some(status) = exit_status {
+            runtime.python_process = None;
+            runtime.base_url = None;
+            runtime.session_token = None;
+            runtime.ipc_auth_token = None;
+            runtime.python_pid = None;
+            runtime.ipc_socket_path = None;
+            runtime.main_port = None;
+            runtime.gateway_ready = false;
+            remove_ready_file();
+            return Ok(PollStartupResponse {
+                ready: false,
+                phase: "error".to_string(),
+                error: Some(format!(
+                    "Backend process exited before startup completed ({status})"
+                )),
+            });
         }
     }
 
@@ -2019,6 +2058,40 @@ mod tests {
             pid,
             Duration::from_secs(2)
         ));
+    }
+
+    #[test]
+    fn backend_process_reports_early_exit_status() {
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "exit", "23"]);
+            command
+        };
+        #[cfg(not(windows))]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command.args(["-c", "exit 23"]);
+            command
+        };
+
+        suppress_child_console_window(&mut command);
+        let child = command
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut process = BackendProcess::Dev(Some(child));
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+
+        loop {
+            if let Some(status) = process.try_exit_status().unwrap() {
+                assert_eq!(status.code(), Some(23));
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[cfg(target_os = "macos")]

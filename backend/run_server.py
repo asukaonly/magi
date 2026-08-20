@@ -7,6 +7,7 @@ The only supported role is ipc_worker (agent runtime + IPC server, no HTTP).
 """
 import sys
 import os
+import traceback
 
 # Suppress leaked-semaphore warning from HuggingFace tokenizers in forked processes
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -26,5 +27,15 @@ def main() -> None:
     run_ipc_worker()
 
 
+def run() -> int:
+    """Run the desktop worker and convert startup failures into an exit code."""
+    try:
+        main()
+    except Exception:
+        traceback.print_exc()
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(run())

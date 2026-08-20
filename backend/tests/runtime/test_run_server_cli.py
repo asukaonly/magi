@@ -22,3 +22,21 @@ def test_run_server_rejects_unsupported_standalone_http_roles() -> None:
     assert "uvicorn" not in source
     assert "backend_app" not in source
     assert "ipc_worker" in source
+
+
+def test_run_server_converts_startup_exception_to_nonzero_exit(
+    monkeypatch,
+    capsys,
+) -> None:
+    """Verify packaged startup failures are logged instead of escaping."""
+    run_server = _load_run_server_module()
+
+    def fail_startup() -> None:
+        raise RuntimeError("migration startup failed")
+
+    monkeypatch.setattr(run_server, "main", fail_startup)
+
+    assert run_server.run() == 1
+    captured = capsys.readouterr()
+    assert "Traceback (most recent call last)" in captured.err
+    assert "RuntimeError: migration startup failed" in captured.err

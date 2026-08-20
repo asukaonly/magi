@@ -237,6 +237,8 @@ Current product expectations:
 
 When the desktop backend cannot finish startup, the frontend should show a diagnosis-oriented failure screen instead of only a generic retry prompt. The screen should include the concrete startup error, the backend log path, and a bounded tail of the latest backend log output.
 
+The desktop host must monitor the spawned Python worker while waiting for its ready signal. If the worker exits first, the host should stop waiting and hand the non-zero exit status to the diagnostic screen on the next startup poll. Packaged workers should write uncaught startup tracebacks to the redirected backend log and exit cleanly with a failure code so PyInstaller does not display a separate native unhandled-exception dialog. The bounded log viewer should open at its newest output so the failure that ended startup is visible immediately.
+
 Current log sources:
 
 - packaged desktop builds: `~/.magi/logs/backend.log`

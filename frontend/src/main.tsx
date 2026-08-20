@@ -1,7 +1,7 @@
 /**
  * Application entry point.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { useTranslation } from 'react-i18next';
 import { Copy, RotateCw } from 'lucide-react';
@@ -36,6 +36,7 @@ const RuntimeBootstrap: React.FC = () => {
   const [diagnostics, setDiagnostics] = useState<BackendStartupDiagnostics | null>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
   const [phase, setPhase] = useState<StartupPhase>('spawning');
+  const logExcerptRef = useRef<HTMLPreElement>(null);
   const { gate: fullDataClearGate, markRetrying: markFullDataClearRetrying } = (
     useFullDataClearInteractionGate()
   );
@@ -147,6 +148,12 @@ const RuntimeBootstrap: React.FC = () => {
     void bootstrap();
   }, [bootstrap]);
 
+  useEffect(() => {
+    if (error && diagnostics?.logExcerpt && logExcerptRef.current) {
+      logExcerptRef.current.scrollTop = logExcerptRef.current.scrollHeight;
+    }
+  }, [diagnostics?.logExcerpt, error]);
+
   if (ready && fullDataClearGate.status !== 'idle') {
     const failed = fullDataClearGate.status === 'failed';
     return (
@@ -255,7 +262,10 @@ const RuntimeBootstrap: React.FC = () => {
                 {t('bootstrap.recentLogLabel')}
               </p>
               {hasLogExcerpt ? (
-                <pre className="m-0 max-h-[48vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-5 text-muted-foreground">
+                <pre
+                  ref={logExcerptRef}
+                  className="m-0 max-h-[48vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-5 text-muted-foreground"
+                >
                   {diagnostics?.logExcerpt}
                 </pre>
               ) : (
