@@ -28,7 +28,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const shouldReduceMotion = useReducedMotion();
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden bg-background">
+    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center overflow-hidden bg-background">
       {/* Decorative background — 全部走主题 token,随主题切换变色 */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--background))_0%,hsl(var(--card))_48%,hsl(var(--muted))_100%)]" />

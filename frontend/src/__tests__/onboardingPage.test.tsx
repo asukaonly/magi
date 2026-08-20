@@ -62,8 +62,10 @@ describe('OnboardingPage', () => {
 
     render(<OnboardingPage />);
 
-    expect(screen.getByTestId('desktop-title-bar')).toHaveAttribute('data-fixed', 'true');
-    expect(await screen.findByText('page.loadConfigFailed')).toBeInTheDocument();
+    expect(screen.getByTestId('desktop-title-bar')).toHaveAttribute('data-fixed', 'false');
+    expect(screen.getByTestId('onboarding-window-content')).toContainElement(
+      await screen.findByText('page.loadConfigFailed'),
+    );
     expect(screen.queryByTestId('onboarding-flow')).not.toBeInTheDocument();
 
     getOnboardingTemplateMock.mockResolvedValueOnce({
@@ -72,7 +74,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'page.retryLoadConfig' }));
 
     expect(await screen.findByTestId('onboarding-flow')).toBeInTheDocument();
-    expect(screen.getByTestId('desktop-title-bar')).toHaveAttribute('data-fixed', 'true');
+    expect(screen.getByTestId('desktop-title-bar')).toHaveAttribute('data-fixed', 'false');
   });
 
   it('removes credentials from an older browser snapshot before loading the backend draft', async () => {

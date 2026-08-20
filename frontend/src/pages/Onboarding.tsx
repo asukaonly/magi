@@ -91,7 +91,7 @@ const OnboardingPage: React.FC = () => {
     );
   } else if (!config) {
     content = (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <LoadingSpinner className="h-8 w-8" />
       </div>
     );
@@ -105,10 +105,15 @@ const OnboardingPage: React.FC = () => {
   }
 
   return (
-    <>
-      <DesktopTitleBar fixed />
-      {content}
-    </>
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background">
+      <DesktopTitleBar />
+      <div
+        className="relative min-h-0 flex-1 overflow-hidden"
+        data-testid="onboarding-window-content"
+      >
+        {content}
+      </div>
+    </div>
   );
 };
 

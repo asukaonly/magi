@@ -986,7 +986,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   // Guided phase: step-by-step config
   return (
-    <div className="fixed inset-0 overflow-hidden bg-muted/25">
+    <div className="absolute inset-0 overflow-hidden bg-muted/25">
       <div className="h-full w-full">
         <GuidedConfigFrame
           className="h-full"

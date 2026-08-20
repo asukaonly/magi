@@ -78,4 +78,12 @@ describe('DesktopTitleBar', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
     await waitFor(() => expect(closeMock).toHaveBeenCalledTimes(1));
   });
+
+  it('keeps the drag surface visually integrated without a divider shadow', () => {
+    render(<DesktopTitleBar />);
+
+    expect(screen.getByTestId('desktop-title-bar').className).not.toContain(
+      'shadow-[inset_0_-1px_0',
+    );
+  });
 });
