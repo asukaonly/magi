@@ -204,7 +204,13 @@ export const projectExecutionProgressPresentation = (
   const runningStepIndex = normalizedPlanSummary?.steps.findIndex((step) => step.status === 'running') ?? -1;
   const resolvedRunningStep = runningStepIndex >= 0 ? runningStepIndex + 1 : 0;
   const totalStepsForStage = normalizedPlanSummary
-    ? Math.max(normalizedPlanSummary.totalSteps, normalizedPlanSummary.steps.length, completedSteps)
+    ? Math.max(normalizedPlanSummary.totalSteps, normalizedPlanSummary.steps.length)
+    : 0;
+  const completedPlanSteps = normalizedPlanSummary
+    ? Math.min(
+      totalStepsForStage,
+      Math.max(0, totalStepsForStage - normalizedPlanSummary.remainingSteps),
+    )
     : 0;
   const planStage: ProjectedExecutionProgressPresentation['planStage'] = normalizedPlanSummary
     ? (() => {
@@ -214,17 +220,17 @@ export const projectExecutionProgressPresentation = (
       switch (executionState) {
         case 'cancelling':
           return createExecutionTranslationDescriptor('chat.trace.plan.stage.cancelling', {
-            completed: completedSteps,
+            completed: completedPlanSteps,
             total: totalStepsForStage,
           });
         case 'cancelled':
           return createExecutionTranslationDescriptor('chat.trace.plan.stage.cancelled', {
-            completed: completedSteps,
+            completed: completedPlanSteps,
             total: totalStepsForStage,
           });
         case 'completed':
           return createExecutionTranslationDescriptor('chat.trace.plan.stage.completed', {
-            completed: Math.max(completedSteps, totalStepsForStage),
+            completed: totalStepsForStage,
             total: totalStepsForStage,
           });
         case 'failed':
@@ -241,7 +247,7 @@ export const projectExecutionProgressPresentation = (
           if (normalizedPlanSummary.parallelMode === 'parallel' && activeSteps > 1) {
             return createExecutionTranslationDescriptor('chat.trace.plan.stage.runningParallel', {
               active: activeSteps,
-              completed: completedSteps,
+              completed: completedPlanSteps,
               total: totalStepsForStage,
             });
           }
@@ -252,7 +258,7 @@ export const projectExecutionProgressPresentation = (
             });
           }
           return createExecutionTranslationDescriptor('chat.trace.plan.stage.runningFallback', {
-            completed: completedSteps,
+            completed: completedPlanSteps,
             total: totalStepsForStage,
           });
       }

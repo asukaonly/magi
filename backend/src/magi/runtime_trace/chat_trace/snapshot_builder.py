@@ -18,6 +18,14 @@ from .models import (
 
 logger = get_logger(__name__)
 
+_SEMANTIC_STEP_KINDS = frozenset({"attempt", "skill", "tool", "worker"})
+_STEP_STATUS_PRIORITY = {
+    "completed": 0,
+    "pending": 1,
+    "running": 1,
+    "failed": 2,
+}
+
 
 class TraceSnapshotBuilderMixin:
     """Builds trace snapshots from normalized runtime trace rows."""
@@ -225,23 +233,30 @@ class TraceSnapshotBuilderMixin:
         return "function_calling"
 
     def _count_steps(self, root: ExecutionTraceNode) -> tuple[int, int, int]:
-        active = 0
-        completed = 0
-        failed = 0
+        semantic_steps: dict[str, str] = {}
         for node in self._walk_nodes(root):
-            if node.kind == "planning":
-                if node.status in {"running", "pending"}:
-                    active += 1
+            if node.kind not in _SEMANTIC_STEP_KINDS:
                 continue
-            if node.kind in {"root", "parallel_group", "iteration"}:
-                continue
-            if node.status in {"running", "pending"}:
-                active += 1
-            elif node.status == "failed":
-                failed += 1
-            else:
-                completed += 1
-        return active, completed, failed
+            identity = self._semantic_step_identity(node)
+            status = self._normalize_status(node.status)
+            previous = semantic_steps.get(identity)
+            if previous is None or _STEP_STATUS_PRIORITY.get(
+                status, 0
+            ) > _STEP_STATUS_PRIORITY.get(previous, 0):
+                semantic_steps[identity] = status
+
+        active = sum(status in {"running", "pending"} for status in semantic_steps.values())
+        failed = sum(status == "failed" for status in semantic_steps.values())
+        completed = len(semantic_steps) - active - failed
+        return int(active), int(completed), int(failed)
+
+    @staticmethod
+    def _semantic_step_identity(node: ExecutionTraceNode) -> str:
+        if node.kind == "tool":
+            tool_call_id = str(node.metadata.get("tool_call_id") or "").strip()
+            if tool_call_id:
+                return f"tool:{tool_call_id}"
+        return f"{node.kind}:{node.id}"
 
     def _build_plan_summary(
         self, orchestration_state: Optional[dict[str, Any]]

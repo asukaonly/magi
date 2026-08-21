@@ -622,7 +622,7 @@ describe('chat trace state helpers', () => {
       },
       planStage: {
         key: 'chat.trace.plan.stage.cancelling',
-        values: { completed: 1, total: 4 },
+        values: { completed: 3, total: 4 },
       },
       footer: null,
       showBubbleTitle: true,
@@ -647,6 +647,46 @@ describe('chat trace state helpers', () => {
         canOpen: true,
         variant: 'default',
       },
+    });
+  });
+
+  it('keeps plan progress independent from trace activity counts', () => {
+    const message: ChatTimelineMessage = {
+      id: 'msg-semantic-plan-progress',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Organizing files',
+      timestamp: 1000,
+      turnId: 'turn-semantic-plan-progress',
+      traceSummary: normalizeTraceSummary({
+        turn_id: 'turn-semantic-plan-progress',
+        mode: 'orchestration',
+        status: 'running',
+        headline: 'Organizing files',
+        active_steps: 0,
+        completed_steps: 900,
+        failed_steps: 77,
+        duration_seconds: 10,
+        trace_available: true,
+        plan_summary: {
+          planner: 'task_agent',
+          parallel_mode: 'sequential',
+          total_steps: 30,
+          remaining_steps: 5,
+          steps: [],
+        },
+      }),
+    };
+
+    const presentation = projectExecutionProgressPresentation(message, {
+      executionControlByTurnId: {},
+      cancellingTurnIds: [],
+      detachingTurnIds: [],
+    });
+
+    expect(presentation.planStage).toEqual({
+      key: 'chat.trace.plan.stage.runningFallback',
+      values: { completed: 25, total: 30 },
     });
   });
 

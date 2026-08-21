@@ -1762,6 +1762,7 @@ Two rules matter here:
 - `DIRECT_LLM` turns carry explicit trace context into provider calls so the main model call is attached under the turn root and contributes token metrics
 - function-calling LLM usage labels distinguish chat-level tool decisions from worker tool decisions with separate request kinds, so usage dashboards can explain which loop consumed tokens
 - function-calling turns group each bounded loop as an `iteration` span; LLM decisions and semantic tool calls inside that loop must be children of the iteration, and low-level `tool_invocation` spans should sit under their semantic `tool_call`
+- chat execution summary step counts include semantic actions only (`tool_call`, `worker_attempt`, `skill_call`, plus legacy worker rows); transport, LLM, iteration, dispatch, response, and low-level `tool_invocation` spans remain visible in the trace tree but must not inflate the user-facing step totals
 - response rhythm segmentation emits a `rhythm_processing` span when the final answer is split into multiple natural-language segments
 - prompt-cache diagnostics flow with LLM usage events into `llm_usage.db`; they keep only provider cache counters, stable hashes, sizes, strategy labels, and bounded tool-name metadata so operators can compare cache stability without storing raw prompts or tool payloads
 - user-facing input/output details in trace UI must remain bounded previews, not raw full prompts, transcripts, or tool payloads
