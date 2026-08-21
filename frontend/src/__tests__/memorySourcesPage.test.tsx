@@ -102,6 +102,7 @@ vi.mock('react-i18next', () => ({
         'memory.overview.sourceStatus.setup_required': '待配置',
         'memory.sources.chrome_history': 'Chrome 历史',
         'memory.sources.claude_code_agent_history': 'Claude Code',
+        'memory.sources.chat_projector': '对话',
         'memory.sources.netease_music': '网易云音乐',
       };
       let result = translations[key] ?? options?.defaultValue ?? key;
@@ -645,6 +646,54 @@ describe('MemorySourcesPage', () => {
     expect(await screen.findByTestId('location')).toHaveTextContent('/memory/sources/chrome_history');
     expect(await screen.findByText('最近进入记忆的内容')).toBeInTheDocument();
     expect(screen.getByText('Opened docs about Magi memory sources')).toBeInTheDocument();
+  });
+
+  it('uses the conversation glyph for the built-in chat source', async () => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({
+      ...dashboardPayload,
+      source_counts: [{
+        source: 'chat_projector',
+        event_count: 1,
+        avg_importance: 0.8,
+        first_event_at: 1783049000,
+        last_event_at: 1783049000,
+      }],
+      processing_backlog: { total_pending: 0, all_idle: true },
+      deltas: {
+        ...dashboardPayload.deltas,
+        today: { ...dashboardPayload.deltas.today, l1_events: 1 },
+      },
+    } as never);
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as never);
+    vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue({
+      ...todayPayload,
+      sources: [{
+        source_name: 'chat_projector',
+        plugin_id: null,
+        display_name: '对话',
+        enabled: true,
+        count: 1,
+        last_event_at: 1783049000,
+      }],
+    } as never);
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue({
+      items: [buildEvent(1, { source: 'chat_projector' })],
+      total: 1,
+      limit: 500,
+      offset: 0,
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={['/memory/sources']}>
+        <Routes>
+          <Route path="/memory/sources" element={<MemorySourcesPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByTestId('memory-source-conversation-icon')).toHaveClass(
+      'lucide-message-circle',
+    );
   });
 
   it('loads one source as a full detail page and queues a manual sync', async () => {

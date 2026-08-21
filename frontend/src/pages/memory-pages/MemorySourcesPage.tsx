@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ChevronDown,
   ChevronRight,
+  MessageCircle,
   MoreHorizontal,
   Pause,
   Play,
@@ -79,6 +80,12 @@ interface SourceLedgerRow extends SourceCoverageRow {
   nextRunAt: number | string | null;
   syncActivity: SensorSyncActivity | null;
 }
+
+const CONVERSATION_SOURCE_KEYS = new Set([
+  'chat',
+  'chat_projector',
+  'conversation',
+]);
 
 const normalizeSourceKey = (value: string | null | undefined): string => (
   String(value || '').trim().toLowerCase()
@@ -470,15 +477,26 @@ function SourceIcon({
   className?: string;
   iconClassName?: string;
 }) {
+  const iconClasses = cn('h-6 w-6 text-[hsl(var(--memory-body))]', iconClassName);
+  const isConversationSource = CONVERSATION_SOURCE_KEYS.has(normalizeSourceKey(row.key));
+
   return (
     <span className={cn(
       'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.72)]',
       className
     )}>
-      <PluginIcon
-        iconId={row.icon}
-        className={cn('h-6 w-6 text-[hsl(var(--memory-body))]', iconClassName)}
-      />
+      {isConversationSource ? (
+        <MessageCircle
+          data-testid="memory-source-conversation-icon"
+          className={iconClasses}
+          aria-hidden="true"
+        />
+      ) : (
+        <PluginIcon
+          iconId={row.icon}
+          className={iconClasses}
+        />
+      )}
     </span>
   );
 }
