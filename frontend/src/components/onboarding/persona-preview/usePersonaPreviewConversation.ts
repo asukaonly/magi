@@ -6,8 +6,8 @@ import {
 } from "../../../api/modules/chatPreview";
 import type { LLMConfig } from "../../../api/modules/config";
 import {
-  collapsePreviewHistory,
-  MAX_USER_TURNS_PER_PERSONA,
+  buildPreviewHistory,
+  PREVIEW_GUIDANCE_USER_TURN_COUNT,
   splitPreviewReply,
   type PreviewDisplayTurn,
   type RailItem,
@@ -193,7 +193,8 @@ export function usePersonaPreviewConversation({
   const userTurnCount = activeTranscript.filter(
     (turn) => turn.role === "user",
   ).length;
-  const capReached = userTurnCount >= MAX_USER_TURNS_PER_PERSONA;
+  const showContinuationHint =
+    userTurnCount >= PREVIEW_GUIDANCE_USER_TURN_COUNT;
 
   const send = useCallback(async () => {
     const currentState = stateRef.current;
@@ -203,8 +204,7 @@ export function usePersonaPreviewConversation({
       !activeSeed ||
       !message ||
       sendInFlightRef.current ||
-      adjustmentInFlightRef.current ||
-      capReached
+      adjustmentInFlightRef.current
     ) {
       return;
     }
@@ -212,7 +212,7 @@ export function usePersonaPreviewConversation({
     sendInFlightRef.current = true;
     const userTurn: PreviewTurn = { role: "user", content: message };
     const seed = activeSeed;
-    const snapshotHistory = collapsePreviewHistory(
+    const snapshotHistory = buildPreviewHistory(
       currentState.transcripts[seed] ?? [],
     );
     const personaOverride =
@@ -256,7 +256,6 @@ export function usePersonaPreviewConversation({
     activeItem,
     activeSeed,
     appendTurn,
-    capReached,
     disabled,
     llmConfig,
     locale,
@@ -347,7 +346,7 @@ export function usePersonaPreviewConversation({
     adjustmentDraft: state.adjustmentDraft,
     adjusting: state.adjusting,
     adjustmentError: state.adjustmentError,
-    capReached,
+    showContinuationHint,
     setDraft: (value: string) => dispatch({ type: "setDraft", value }),
     setAdjustmentDraft: (value: string) =>
       dispatch({ type: "setAdjustmentDraft", value }),

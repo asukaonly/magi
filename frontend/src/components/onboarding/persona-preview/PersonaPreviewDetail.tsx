@@ -48,7 +48,7 @@ export function PersonaPreviewDetail({
     adjustmentDraft,
     adjusting,
     adjustmentError,
-    capReached,
+    showContinuationHint,
     setDraft,
     setAdjustmentDraft,
     send,
@@ -354,7 +354,7 @@ export function PersonaPreviewDetail({
               placeholder={t(
                 "personaPreview.composerPlaceholder",
               )}
-              disabled={adjusting || capReached}
+              disabled={adjusting}
               className="flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-200 focus-visible:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/15"
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -367,7 +367,7 @@ export function PersonaPreviewDetail({
               type="button"
               onClick={() => void send()}
               disabled={
-                !draft.trim() || busy || adjusting || capReached
+                !draft.trim() || busy || adjusting
               }
               className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
             >
@@ -375,9 +375,14 @@ export function PersonaPreviewDetail({
             </button>
           </div>
 
-          {capReached ? (
-            <p className="text-xs text-muted-foreground">
-              {t("personaPreview.capReached")}
+          {showContinuationHint ? (
+            <p
+              data-testid="persona-preview-continuation-hint"
+              className="text-xs text-muted-foreground"
+            >
+              {t("personaPreview.continuationHint", {
+                name: item?.name || "",
+              })}
             </p>
           ) : null}
         </>

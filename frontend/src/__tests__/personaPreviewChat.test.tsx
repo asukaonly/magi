@@ -6,6 +6,10 @@ import {
   PersonaPreviewChat,
   type CustomPersonaDraft,
 } from '../components/onboarding/PersonaPreviewChat';
+import {
+  buildPreviewHistory,
+  PREVIEW_HISTORY_TURN_LIMIT,
+} from '../components/onboarding/persona-preview/personaPreviewModel';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '../api/modules/config';
 import { personasApi, type SeedPreview, type PersonalityConfig } from '../api/modules/personas';
 
@@ -1565,7 +1569,7 @@ describe('PersonaPreviewChat', () => {
     await waitFor(() => expect(onGeneratingChange).toHaveBeenLastCalledWith(false));
   });
 
-  it('disables input once the 5-turn cap is hit for the active persona', async () => {
+  it('keeps chat available after the five-turn guidance appears', async () => {
     renderPersonaPreview({ previews });
     for (let i = 0; i < 5; i++) {
       await userEvent.type(
@@ -1581,6 +1585,34 @@ describe('PersonaPreviewChat', () => {
     }
     expect(
       screen.getByPlaceholderText(/composerPlaceholder/i),
-    ).toBeDisabled();
+    ).toBeEnabled();
+    expect(
+      screen.getByTestId('persona-preview-continuation-hint'),
+    ).toHaveTextContent('personaPreview.continuationHint');
+
+    await userEvent.type(
+      screen.getByPlaceholderText(/composerPlaceholder/i),
+      'one more question',
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: /^(personaPreview\.)?send$/i }),
+    );
+    await waitFor(() => expect(mockStream).toHaveBeenCalledTimes(6));
+  });
+
+  it('keeps only the recent history accepted by the preview API', () => {
+    const turns = Array.from({ length: 12 }, (_, index) => [
+      { role: 'user' as const, content: `question ${index}` },
+      { role: 'assistant' as const, content: `answer ${index}` },
+    ]).flat();
+
+    const history = buildPreviewHistory(turns);
+
+    expect(history).toHaveLength(PREVIEW_HISTORY_TURN_LIMIT);
+    expect(history[0]).toEqual({ role: 'user', content: 'question 2' });
+    expect(history[history.length - 1]).toEqual({
+      role: 'assistant',
+      content: 'answer 11',
+    });
   });
 });

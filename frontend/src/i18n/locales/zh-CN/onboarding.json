@@ -224,7 +224,7 @@
     "composerPlaceholder": "问一个开场问题，试试这个人格…",
     "send": "发送",
     "confirm": "选这个",
-    "capReached": "这个人格试得差不多了 — 选它或换一个。",
+    "continuationHint": "已经聊了几轮。喜欢{{name}}的话，可以进入下一步；也可以继续问。",
     "starterPromptsLabel": "试试开场问题",
     "createCustom": "自定义人格",
     "backToPicker": "返回人格列表",

@@ -2,7 +2,7 @@ import { streamChatPreview } from "../../../api/modules/chatPreview";
 import type { LLMConfig } from "../../../api/modules/config";
 import { personasApi } from "../../../api/modules/personas";
 import {
-  collapsePreviewHistory,
+  buildPreviewHistory,
   createStableId,
   type CustomPersonaDraft,
   type TranscriptMap,
@@ -76,7 +76,7 @@ export async function runPersonaAdjustment({
   if (lastUserIndex < 0) return;
 
   const lastUser = currentTurns[lastUserIndex];
-  const history = collapsePreviewHistory(
+  const history = buildPreviewHistory(
     currentTurns.slice(0, lastUserIndex),
   );
   const streamGroupId = createStableId();

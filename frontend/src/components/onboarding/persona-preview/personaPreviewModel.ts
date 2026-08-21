@@ -16,7 +16,8 @@ import {
   type EditablePersonaReference,
 } from "../PersonaReferenceEditor";
 
-export const MAX_USER_TURNS_PER_PERSONA = 5;
+export const PREVIEW_GUIDANCE_USER_TURN_COUNT = 5;
+export const PREVIEW_HISTORY_TURN_LIMIT = 20;
 export const PREVIEW_SEGMENT_SENTINEL = "‖";
 export const FAKE_IP_COMPATIBILITY_REQUIRED = "FAKE_IP_COMPATIBILITY_REQUIRED";
 
@@ -102,24 +103,25 @@ export function errorCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
-export function collapsePreviewHistory(
+export function buildPreviewHistory(
   turns: PreviewDisplayTurn[],
 ): PreviewTurn[] {
-  return turns.reduce<PreviewTurn[]>((history, turn) => {
+  const history = turns.reduce<PreviewTurn[]>((collapsed, turn) => {
     if (turn.kind === "revision-divider" || turn.superseded) {
-      return history;
+      return collapsed;
     }
-    const previous = history[history.length - 1];
+    const previous = collapsed[collapsed.length - 1];
     if (turn.role === "assistant" && previous?.role === "assistant") {
-      history[history.length - 1] = {
+      collapsed[collapsed.length - 1] = {
         role: "assistant",
         content: `${previous.content}\n${turn.content}`,
       };
-      return history;
+      return collapsed;
     }
-    history.push({ role: turn.role, content: turn.content });
-    return history;
+    collapsed.push({ role: turn.role, content: turn.content });
+    return collapsed;
   }, []);
+  return history.slice(-PREVIEW_HISTORY_TURN_LIMIT);
 }
 
 export function splitPreviewReply(content: string): string[] {

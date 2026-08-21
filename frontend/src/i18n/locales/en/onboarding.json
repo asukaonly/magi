@@ -224,7 +224,7 @@
     "composerPlaceholder": "Ask an opening question to try this persona...",
     "send": "Send",
     "confirm": "Choose",
-    "capReached": "You've tried this persona enough — choose it or try another.",
+    "continuationHint": "You've chatted for a few rounds. If {{name}} feels right, continue to the next step — or keep asking questions.",
     "starterPromptsLabel": "Opening questions",
     "createCustom": "Custom persona",
     "backToPicker": "Back to personas",
