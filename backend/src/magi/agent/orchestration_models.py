@@ -75,6 +75,7 @@ class WorkerResult:
     result_status: str = "success"
     findings: List[WorkerFinding] = field(default_factory=list)
     evidence: List[WorkerEvidence] = field(default_factory=list)
+    records: List[Dict[str, Any]] = field(default_factory=list)
     gaps: List[str] = field(default_factory=list)
     next_steps: List[str] = field(default_factory=list)
     subtasks: List["PlannedSubtask"] = field(default_factory=list)
@@ -86,6 +87,7 @@ class WorkerResult:
             "result_status": self.result_status,
             "findings": [item.to_dict() for item in self.findings],
             "evidence": [item.to_dict() for item in self.evidence],
+            "records": [dict(item) for item in self.records],
             "gaps": list(self.gaps),
             "next_steps": list(self.next_steps),
             "subtasks": [item.to_dict() for item in self.subtasks],
@@ -99,6 +101,7 @@ class WorkerResult:
             summary=str(payload.get("summary", "")).strip(),
             findings=_as_findings(payload.get("findings")),
             evidence=_as_evidence(payload.get("evidence")),
+            records=_as_dict_list(payload.get("records")),
             gaps=_as_string_list(payload.get("gaps")),
             next_steps=_as_string_list(payload.get("next_steps")),
             subtasks=_as_planned_subtasks(payload.get("subtasks")),

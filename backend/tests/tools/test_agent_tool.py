@@ -626,6 +626,8 @@ def test_agent_tool_general_prompt_matches_validator_schema():
 
     assert '"findings":[{"title":"string","detail":"string"}]' in prompt
     assert '"evidence":[{"path":"string","detail":"string"}]' in prompt
+    assert '"records":[{"field":"value"}]' in prompt
+    assert "Never return a top-level JSON array." in prompt
 
 
 def test_agent_tool_explore_prompt_requires_anchor_and_claim_validation():

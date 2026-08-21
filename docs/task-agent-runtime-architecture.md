@@ -1066,6 +1066,10 @@ Worker outputs must still satisfy the typed worker-result contract, but the
 validator accepts a JSON object embedded in surrounding prose or a fenced code
 block before checking required fields. This keeps minor formatting drift from
 turning an otherwise valid worker result into an orchestration failure.
+The envelope also provides a bounded `records` list for homogeneous structured
+rows such as file inventories or candidate tables. Workers must put such rows
+inside the envelope rather than returning a top-level JSON array; every record
+must be a JSON object, and malformed or oversized record lists fail validation.
 
 ## Background Tasks
 

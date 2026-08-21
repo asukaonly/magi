@@ -183,6 +183,46 @@ def test_general_purpose_validator_accepts_external_findings_without_path() -> N
     assert result.findings[0].path is None
 
 
+def test_general_purpose_validator_preserves_structured_records() -> None:
+    mgr = WorkerAgentManager()
+    result = mgr._validate_worker_result(
+        subagent_type=WorkerAgentManager.TYPE_GENERAL,
+        content=(
+            '{"result_status":"success","summary":"inventory ready",'
+            '"findings":[],"evidence":[],'
+            '"records":[{"path":"C:/Inbox/a.pdf","category":"documents"}],'
+            '"gaps":[],"next_steps":[],"failure_reason":null}'
+        ),
+    )
+
+    assert result.records == [{"path": "C:/Inbox/a.pdf", "category": "documents"}]
+    assert result.to_dict()["records"] == result.records
+
+
+def test_general_purpose_validator_rejects_top_level_array() -> None:
+    mgr = WorkerAgentManager()
+
+    with pytest.raises(ValueError, match="JSON object"):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_GENERAL,
+            content='[{"path":"C:/Inbox/a.pdf","category":"documents"}]',
+        )
+
+
+def test_general_purpose_validator_rejects_non_object_record() -> None:
+    mgr = WorkerAgentManager()
+
+    with pytest.raises(ValueError, match=r"records\[0\].*JSON object"):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_GENERAL,
+            content=(
+                '{"result_status":"success","summary":"inventory ready",'
+                '"findings":[],"evidence":[],"records":["a.pdf"],'
+                '"gaps":[],"next_steps":[],"failure_reason":null}'
+            ),
+        )
+
+
 def test_code_explore_validator_still_requires_path_and_reason() -> None:
     mgr = WorkerAgentManager()
     with pytest.raises(ValueError, match="CodeExplore worker finding"):

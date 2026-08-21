@@ -7,6 +7,8 @@ from typing import Any
 
 from ...agent.orchestration import WorkerEvidence, WorkerFinding, WorkerResult
 
+_MAX_WORKER_RECORDS = 500
+
 
 class WorkerResultValidationMixin:
     """Validate structured JSON emitted by worker agents."""
@@ -35,6 +37,7 @@ class WorkerResultValidationMixin:
         for field_name in ("findings", "evidence", "gaps", "next_steps"):
             if not isinstance(parsed.get(field_name), list):
                 raise ValueError(f"Worker result field '{field_name}' must be a list")
+        self._validate_records(parsed.get("records", []))
 
         worker_result = WorkerResult.from_dict(parsed)
         if not worker_result.summary:
@@ -102,6 +105,20 @@ class WorkerResultValidationMixin:
         for item in values:
             if not str(item).strip():
                 raise ValueError(f"Worker result field '{field_name}' cannot contain empty items")
+
+    @staticmethod
+    def _validate_records(records: Any) -> None:
+        if not isinstance(records, list):
+            raise ValueError("Worker result field 'records' must be a list")
+        if len(records) > _MAX_WORKER_RECORDS:
+            raise ValueError(
+                f"Worker result field 'records' cannot exceed {_MAX_WORKER_RECORDS} items"
+            )
+        for index, record in enumerate(records):
+            if not isinstance(record, dict):
+                raise ValueError(
+                    f"Worker result field 'records[{index}]' must be a JSON object"
+                )
 
     @staticmethod
     def _preview_worker_result(worker_result: WorkerResult, limit: int = 400) -> str:
