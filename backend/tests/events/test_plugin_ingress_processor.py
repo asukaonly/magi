@@ -180,6 +180,7 @@ async def test_plugin_ingress_clear_waits_for_claimed_handler_and_deletes_result
         global_clear_pending=AsyncMock(return_value=False),
     )
     await processor.init()
+    processor_stopped = False
 
     try:
         event_id = await store.append_plugin_ingress_event(
@@ -208,9 +209,12 @@ async def test_plugin_ingress_clear_waits_for_claimed_handler_and_deletes_result
         await clear_task
 
         assert await store.get_plugin_ingress_event(event_id) is None
+        await processor.shutdown()
+        processor_stopped = True
         assert_sqlite_fragment_absent(store.db_path, private_marker)
     finally:
-        await processor.shutdown()
+        if not processor_stopped:
+            await processor.shutdown()
         await store.shutdown()
 
 
