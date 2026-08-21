@@ -659,7 +659,7 @@
 /*
  * Shared rich-text styles for manual memory entries (Phase B-2).
  * Applied to both the Tiptap editor surface (via .rich-text-content
- * on the ProseMirror DOM) and the read-only renderer in DayBuckets
+ * on the ProseMirror DOM) and the read-only renderer in DaySceneReader
  * (same class) so editor + display can't drift typographically.
  * Hand-rolled here instead of pulling in @tailwindcss/typography for
  * one component.

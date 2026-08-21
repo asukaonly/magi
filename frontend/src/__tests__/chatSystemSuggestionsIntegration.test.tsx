@@ -18,11 +18,6 @@ vi.mock('../api/modules/systemSuggestions', () => ({
   dismissSystemSuggestion: (args: any) => mockDismiss(args),
 }));
 
-const mockUseAvailability = vi.fn();
-vi.mock('../hooks/useAvailability', () => ({
-  useAvailability: (...args: any[]) => mockUseAvailability(...args),
-}));
-
 // Shim host that mirrors Chat.tsx's composition (top bar + side card)
 function ChatSuggestionsHost({ triggerText }: { triggerText: string }) {
   const { proposals, dismiss } = useSystemSuggestions({ triggerText, locale: 'zh' });
@@ -51,7 +46,6 @@ describe('Chat suggestions integration', () => {
   beforeEach(() => {
     mockCheck.mockReset();
     mockDismiss.mockReset();
-    mockUseAvailability.mockReset();
   });
 
   it('renders top bar; click opens side card', async () => {
@@ -64,11 +58,6 @@ describe('Chat suggestions integration', () => {
         rationale: { zh: '想看你的浏览', en: 'see your browsing' },
       },
     ]);
-    mockUseAvailability.mockReturnValue({
-      entries: [{ plugin_id: 'chrome-history', available: true, reason: 'available', detail: null, checked_at: 'now' }],
-      byId: {}, loading: false, error: null, refresh: vi.fn(),
-    });
-
     render(<ChatSuggestionsHost triggerText="我看了什么浏览" />);
     await waitFor(() => expect(screen.getByText(/想看你的浏览/)).toBeInTheDocument());
     await userEvent.click(screen.getByRole('button', { name: /想看你的浏览/ }));
@@ -86,10 +75,6 @@ describe('Chat suggestions integration', () => {
       },
     ]);
     mockDismiss.mockResolvedValue({ dedupe_key: 'browser_history', dismissed: true });
-    mockUseAvailability.mockReturnValue({
-      entries: [], byId: {}, loading: false, error: null, refresh: vi.fn(),
-    });
-
     render(<ChatSuggestionsHost triggerText="我看了什么浏览" />);
     await waitFor(() => expect(screen.getByText(/想看你的浏览/)).toBeInTheDocument());
     await userEvent.click(screen.getAllByRole('button', { name: /systemSuggestion.dismiss|关闭|×/i })[0]);

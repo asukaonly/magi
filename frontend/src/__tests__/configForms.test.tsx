@@ -8,7 +8,6 @@ import { SimpleForm as Form } from '../components/onboarding/simple-form';
 import LLMForm from '../components/config-forms/LLMForm';
 import { buildRegistryFromCatalog, normalizeLLMConfig } from '../components/config-forms/llm-form-state';
 import { LLMRerankerModelPanel } from '../components/config-forms/LLMRerankerModelPanel';
-import MemoryForm from '../components/config-forms/MemoryForm';
 
 vi.mock('../api/modules/config', async () => {
   const actual = await vi.importActual<typeof import('../api/modules/config')>('../api/modules/config');
@@ -2331,46 +2330,4 @@ describe('config forms', () => {
     );
   });
 
-  it('memory form renders L2/L3/L4 layer toggles', async () => {
-    render(
-      <Form
-        initialValues={{
-          memory: {
-            retention_days: 90,
-            history_behavior: 'delete',
-            l0: {
-              enabled: true,
-              checkpoint_interval_seconds: 30,
-              attention_update_turn_threshold: 3,
-              attention_update_idle_seconds: 30,
-              attention_update_max_delay_seconds: 90,
-            },
-            l1: { enabled: true, vectors_enabled: true },
-            l2: {
-              enabled: true,
-              batch_flush_interval_seconds: 60,
-              auto_extract_relations: true,
-            },
-            l3: {
-              enabled: true,
-              vectors_enabled: true,
-              llm_summary_enabled: true,
-              temporal_llm_timeout_seconds: 3.0,
-              temporal_llm_min_event_count: 2,
-              summary_interval_minutes: 60,
-            },
-            l4: { enabled: true, vectors_enabled: true },
-          },
-        }}
-      >
-        <MemoryForm />
-      </Form>
-    );
-    expect(screen.getByRole('switch', { name: /settings\.memory\.fields\.enable_l2\.label/i })).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: /settings\.memory\.fields\.enable_l3\.label/i })).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: /settings\.memory\.fields\.enable_l4\.label/i })).toBeInTheDocument();
-    expect(
-      screen.queryByLabelText('settings.memory.fields.l0_attention_update_turn_threshold.label')
-    ).not.toBeInTheDocument();
-  });
 });

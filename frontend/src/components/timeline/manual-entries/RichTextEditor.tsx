@@ -192,7 +192,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       <Toolbar editor={editor} onApplyLink={applyLink} />
       <EditorContent editor={editor} />
       {/* Block typography for .rich-text-content lives in index.css —
-          shared with the read-only renderer in DayBuckets. */}
+          shared with the read-only renderer in DaySceneReader. */}
     </div>
   );
 };
