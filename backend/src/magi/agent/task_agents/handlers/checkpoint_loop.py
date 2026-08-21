@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from ....agent.cancel import CancelToken
+from ....agent.execution.task_budget import TaskBudgetExceeded, prepay_task_llm_calls
 from ....agent.turn_input import UserTurnInput
 from magi.control.run_control import (
     DetachSignal,
@@ -34,6 +35,7 @@ class _LoopIterationResult:
     terminal_result: FunctionCallingExecutionResult | None = None
     continue_loop: bool = False
     stop_for_fallback: bool = False
+    final_response_reason: str = "max_iterations_reached"
 
 
 class FunctionCallingCheckpointLoop:
@@ -66,6 +68,7 @@ class FunctionCallingCheckpointLoop:
         cursor = self._initial_cursor(request)
         cancel_token = self._cancel_token_factory(request)
         max_iterations = int(getattr(orchestrator, "MAX_ITERATIONS", 10) or 10)
+        final_response_reason = "max_iterations_reached"
 
         with bind_detach_signal(detach_signal):
             while cursor.step_state.iteration < max_iterations:
@@ -80,6 +83,7 @@ class FunctionCallingCheckpointLoop:
                 if iteration_result.terminal_result is not None:
                     return iteration_result.terminal_result
                 if iteration_result.stop_for_fallback:
+                    final_response_reason = iteration_result.final_response_reason
                     break
                 if iteration_result.continue_loop:
                     continue
@@ -89,6 +93,7 @@ class FunctionCallingCheckpointLoop:
                 cursor=cursor,
                 execution_workspace=execution_workspace,
                 cancel_token=cancel_token,
+                final_response_reason=final_response_reason,
             )
 
     async def _run_iteration(
@@ -129,6 +134,13 @@ class FunctionCallingCheckpointLoop:
                     cursor=cursor,
                     execution_outcome=context_failure,
                 )
+            )
+        try:
+            await prepay_task_llm_calls(2)
+        except TaskBudgetExceeded:
+            return _LoopIterationResult(
+                stop_for_fallback=True,
+                final_response_reason="task_budget_finalization",
             )
         step_outcome = await self._execute_step(
             request=request,
@@ -433,6 +445,7 @@ class FunctionCallingCheckpointLoop:
         cursor: _LoopCursor,
         execution_workspace: str | None,
         cancel_token: CancelToken,
+        final_response_reason: str,
     ) -> FunctionCallingExecutionResult:
         context_failure = await self._deps.function_calling_orchestrator._prepare_context_for_model(
             cursor.step_state,
@@ -464,6 +477,7 @@ class FunctionCallingCheckpointLoop:
                 execution_workspace=execution_workspace,
                 llm_timeout_seconds=None,
                 final_response_json_mode=False,
+                final_response_reason=final_response_reason,
                 cancel_token=cancel_token,
                 control=fallback_control,
                 route_decision=request.intent.route_decision,

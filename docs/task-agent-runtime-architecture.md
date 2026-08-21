@@ -1090,6 +1090,73 @@ rows such as file inventories or candidate tables. Workers must put such rows
 inside the envelope rather than returning a top-level JSON array; every record
 must be a JSON object, and malformed or oversized record lists fail validation.
 
+`Coding` workers use the same JSON envelope and must additionally report typed
+`artifacts` (`path` plus `created|modified|deleted`) and `verification`
+(`command`, `passed|failed`, and detail). A `success` or `partial` result needs
+at least one artifact and one verification record, and every reported check
+must pass. A `partial` result also identifies at least one gap and one next
+step. Plain-text completion is invalid; a blocked worker reports `failed` with
+a string `failure_reason`. Persisted Coding results are checked against the same
+completion evidence before orchestration marks their subtask completed. A
+missing common envelope field, wrong list shape, malformed record, artifact, or
+verification item remains fail-closed across serialization and rehydration.
+This is structured, model-reported completion evidence, not independent
+attestation of filesystem state.
+
+The worker loop default is one shared constant (20 iterations) across runtime
+and both published schemas. Await actions are capped at 300 seconds, below the
+310-second outer agent-tool timeout, so every advertised await value can return
+a structured result instead of being preempted by the generic tool wrapper.
+
+One in-process `TaskExecutionBudget` is bound at each admitted task-agent
+execution boundary (`TaskAgentExecutionEngine` for the standard path and the
+Explore planning boundary for `ExploreTaskAgent`) and reused by nested
+function-calling runs and every worker task created from them.
+The default budget permits 30 logical LLM calls and eight worker launches across
+the parent plus all workers; those are task totals, not per-agent allowances.
+The task-agent direct/planning service, tool-enabled loop, and tool-free fallback
+all consume the same counter. Each LLM-backed context-compaction chunk also
+consumes one, but compaction preserves capacity for the main model call that
+must follow it. Local loop iteration limits remain independent bounds and cannot
+raise or lower the shared task total. Batch worker starts reserve their entire
+count atomically, so an over-budget batch launches none of its workers.
+Every batch definition is also validated before the first worker starts, so a
+malformed later item cannot leave an earlier worker running. Provider-internal
+rate-limit retries remain one logical call. Before a tool-enabled model turn,
+each loop reserves the current call and one final-response call, so worker fan-out
+cannot consume the continuation needed to interpret tool results and produce the
+parent response. Worker launch itself charges only the shared launch counter;
+orchestration-internal launches outside such a loop do not create an unrelated
+LLM-call reservation. If only one call remains, the loop skips further tool
+selection and uses the established tool-free final-response path, including its
+JSON-mode and no-more-tools contract. Unused branch-owned reservations are
+released when that loop completes, fails, or is cancelled; copied parent
+reservations cannot be released by child tasks. Same-task nested loops receive
+separate reservation frames, so an inline fork skill cannot release the outer
+loop's final-response capacity. A fork skill that calls a provider directly is
+charged independently and does not consume that outer continuation reservation.
+
+Worker startup is transactional with respect to registration, start traces, and
+batch visibility. Worker bodies wait behind start gates until the complete batch
+is prepared. Prepared runs live in a private pending registry so status queries
+cannot observe a partial batch, while run cancellation can still find and stop
+them. A run-cancellation tombstone rejects a worker that arrives after the
+cancellation sweep. A staging failure cancels and unregisters every prepared run
+and closes any running trace spans without publishing worker lifecycle facts for
+workers that never committed. Cancellation after commit follows the normal
+cancelled worker lifecycle, including terminal state, traces, and publication.
+
+The shared object follows normal async context propagation, including workers
+that continue in the background after their launching call returns. A later
+orchestration update re-admitted from the persistent task-agent queue begins a
+new execution scope. Persistent task-agent actor tasks are created with request
+budget ContextVars cleared so later queue admissions cannot inherit an exhausted
+worker budget. Carrying the original counter across process restarts or
+separately admitted retries would require a persisted run-budget projection.
+Pre-routing classification and post-turn scenario-model work also sit outside
+this execution-loop budget. Those boundaries are intentional in this minimal
+change and must not be described as globally persisted token accounting.
+
 ## Background Tasks
 
 Long-running goals that the user doesn't want to watch live run in a

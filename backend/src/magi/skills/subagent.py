@@ -16,7 +16,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
 from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from .schema import SkillContent, SkillResult
@@ -77,6 +77,7 @@ class SkillSubagent:
         engine_run_input_factory: Callable[..., Any] | None = None,
         active_model_provider: Callable[..., Any] | None = None,
         scenario_llm_pool: Any | None = None,
+        llm_call_reserver: Callable[[], Awaitable[None]] | None = None,
     ):
         """
         Initialize the skill subagent.
@@ -104,6 +105,7 @@ class SkillSubagent:
         self._engine_run_input_factory = engine_run_input_factory
         self._active_model_provider = active_model_provider
         self._scenario_llm_pool = scenario_llm_pool
+        self._llm_call_reserver = llm_call_reserver
         self.subagent_id = f"skill-{skill.name}-{uuid.uuid4().hex[:8]}"
 
         # Create restricted tool registry view
@@ -376,6 +378,10 @@ class SkillSubagent:
         provider_bridge = LLMProviderBridge(self.llm)
         messages = [{"role": "user", "content": user_message}]
 
+        if self._llm_call_reserver is not None:
+            # A fork is an additional branch call, not the parent's prepaid
+            # continuation, so it must reserve fresh task-wide capacity.
+            await self._llm_call_reserver()
         return await provider_bridge.chat(
             system_prompt=system_prompt,
             messages=messages,
@@ -442,6 +448,7 @@ def create_skill_subagent(
     engine_run_input_factory: Callable[..., Any] | None = None,
     active_model_provider: Callable[..., Any] | None = None,
     scenario_llm_pool: Any | None = None,
+    llm_call_reserver: Callable[[], Awaitable[None]] | None = None,
 ) -> SkillSubagent:
     """
     Factory function to create a SkillSubagent.
@@ -469,6 +476,7 @@ def create_skill_subagent(
         engine_run_input_factory=engine_run_input_factory,
         active_model_provider=active_model_provider,
         scenario_llm_pool=scenario_llm_pool,
+        llm_call_reserver=llm_call_reserver,
     )
 
 

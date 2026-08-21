@@ -122,6 +122,7 @@ class FallbackExecutionContext:
     execution_workspace: str | None
     llm_timeout_seconds: float | None
     final_response_json_mode: bool
+    final_response_reason: str
     thinking_depth: ThinkingDepth
     control: RunControl | None
     route_decision: "RouteDecision | None"
@@ -309,8 +310,7 @@ async def _force_plain_text_retry_if_needed(
     final_response: dict[str, Any],
 ) -> dict[str, Any]:
     if not (
-        final_response.get("tool_calls")
-        and not str(final_response.get("content", "")).strip()
+        final_response.get("tool_calls") and not str(final_response.get("content", "")).strip()
     ):
         return final_response
 
@@ -341,9 +341,7 @@ async def _request_initial_fallback_response(
     state: FunctionCallingStepState,
     context: FallbackExecutionContext,
 ) -> tuple[str, dict[str, Any]]:
-    final_system_prompt = host._build_final_response_system_prompt(
-        state.effective_system_prompt
-    )
+    final_system_prompt = host._build_final_response_system_prompt(state.effective_system_prompt)
     final_response = await _call_fallback_llm(
         host,
         state,
@@ -541,7 +539,10 @@ async def execute_fallback_response_flow(
     *,
     cancel_token: CancelToken | None,
 ) -> ExecutionOutcome:
-    logger.info("[FunctionCalling] Reached max iterations, getting final response")
+    logger.info(
+        "[FunctionCalling] Final response required | reason=%s",
+        context.final_response_reason,
+    )
     token = cancel_token if cancel_token is not None else null_cancel_token()
     if await token.is_cancelled():
         return ExecutionOutcome(
@@ -553,7 +554,7 @@ async def execute_fallback_response_flow(
     await host._emit_loop_event(
         _fallback_event_payload(
             context,
-            stage="max_iterations_reached",
+            stage=context.final_response_reason,
             iteration=state.iteration,
         )
     )

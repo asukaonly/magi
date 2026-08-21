@@ -11,7 +11,11 @@ from ..cancel import EventCancelToken
 WORKER_AGENT_PROGRESS = "WORKER_AGENT_PROGRESS"
 WORKER_AGENT_COMPLETED = "WORKER_AGENT_COMPLETED"
 WORKER_AGENT_FAILED = "WORKER_AGENT_FAILED"
-DEFAULT_WORKER_MAX_ITERATIONS = 30
+DEFAULT_WORKER_MAX_ITERATIONS = 20
+MAX_WORKER_MAX_ITERATIONS = 50
+DEFAULT_WORKER_AWAIT_TIMEOUT_SECONDS = 300
+MAX_WORKER_AWAIT_TIMEOUT_SECONDS = 300
+WORKER_TOOL_TIMEOUT_SECONDS = 310
 
 
 @dataclass
@@ -49,6 +53,7 @@ class WorkerRunState:
     parent_context_summary: str = ""
     started_at_ms: int = 0
     started_monotonic: float = 0.0
+    startup_committed: bool = False
 
 
 def optional_string(value: Any) -> str | None:

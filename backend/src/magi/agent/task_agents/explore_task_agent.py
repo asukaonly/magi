@@ -1,8 +1,10 @@
 """Task agent dedicated to large Explore-style decompositions."""
+
 from __future__ import annotations
 
 from typing import Any, Callable
 
+from ...agent.execution.task_budget import task_execution_budget_scope
 from ...agent.orchestration import get_orchestration_store
 from ...agent.task_orchestrator import TaskOrchestrator
 from ...agent.runtime.contracts import FactRecord
@@ -36,7 +38,15 @@ from .explore.coordinator import ExploreIntentDecision
 from .explore.prompt_service import ExplorePromptService
 
 
-class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, ToolSelection, ExecutionRequest, ExecutionResult]):
+class ExploreTaskAgent(
+    TaskAgent[
+        ExploreRuntimeContext,
+        ExploreIntentDecision,
+        ToolSelection,
+        ExecutionRequest,
+        ExecutionResult,
+    ]
+):
     """Parent task agent for large Explore tasks composed of leaf Explore workers."""
 
     def __init__(
@@ -88,7 +98,9 @@ class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, T
     async def build_context(self, merged_facts: list[FactRecord]) -> ExploreRuntimeContext:
         base_context = await super().build_context(merged_facts)
         batch_facts = list(self._last_batch_facts)
-        latest_fact = base_context.latest_fact if isinstance(base_context, TaskAgentRuntimeContext) else None
+        latest_fact = (
+            base_context.latest_fact if isinstance(base_context, TaskAgentRuntimeContext) else None
+        )
         classified = self._fact_classifier.classify(
             agent_id=self.agent_id,
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
@@ -104,11 +116,23 @@ class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, T
         history = self._session_service.get_history(history_key)
         return ExploreRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
-            recent_facts=list(base_context.recent_facts if isinstance(base_context, TaskAgentRuntimeContext) else []),
+            recent_facts=list(
+                base_context.recent_facts
+                if isinstance(base_context, TaskAgentRuntimeContext)
+                else []
+            ),
             batch_facts=batch_facts,
             agent_id=self.agent_id,
-            agent_type=str(base_context.agent_type if isinstance(base_context, TaskAgentRuntimeContext) else TaskAgentType.EXPLORE.value),
-            runtime_key=str(base_context.runtime_key if isinstance(base_context, TaskAgentRuntimeContext) else self.runtime_key),
+            agent_type=str(
+                base_context.agent_type
+                if isinstance(base_context, TaskAgentRuntimeContext)
+                else TaskAgentType.EXPLORE.value
+            ),
+            runtime_key=str(
+                base_context.runtime_key
+                if isinstance(base_context, TaskAgentRuntimeContext)
+                else self.runtime_key
+            ),
             user_id=classified.user_id,
             session_id=classified.session_id,
             history_key=history_key,
@@ -137,17 +161,24 @@ class ExploreTaskAgent(TaskAgent[ExploreRuntimeContext, ExploreIntentDecision, T
     async def match_intent(self, context: ExploreRuntimeContext) -> ExploreIntentDecision:
         return await self._coordinator.match_intent(context)
 
-    async def match_tools(self, context: ExploreRuntimeContext, intent_result: ExploreIntentDecision):
+    async def match_tools(
+        self, context: ExploreRuntimeContext, intent_result: ExploreIntentDecision
+    ):
         return await self._coordinator.match_tools(context, intent_result)
 
-    async def assemble_llm_params(self, context: ExploreRuntimeContext, intent_result: ExploreIntentDecision, tool_result):
+    async def assemble_llm_params(
+        self, context: ExploreRuntimeContext, intent_result: ExploreIntentDecision, tool_result
+    ):
         return await self._coordinator.assemble_request(context, intent_result, tool_result)
 
     async def call_llm(self, context: ExploreRuntimeContext, llm_params):
         _ = context
-        handler = self._handler_registry.get(llm_params.mode)
-        prepared = await handler.build_request(llm_params)
-        return await handler.execute(prepared)
+        async with task_execution_budget_scope():
+            handler = self._handler_registry.get(llm_params.mode)
+            prepared = await handler.build_request(llm_params)
+            return await handler.execute(prepared)
 
-    async def parse_result(self, context: ExploreRuntimeContext, raw_result: ExecutionResult) -> None:
+    async def parse_result(
+        self, context: ExploreRuntimeContext, raw_result: ExecutionResult
+    ) -> None:
         await self._postprocess_service.handle(context, raw_result)

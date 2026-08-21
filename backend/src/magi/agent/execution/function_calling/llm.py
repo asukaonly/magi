@@ -16,6 +16,7 @@ from ....llm.cancellable_client import (
 )
 from ....llm.provider_bridge import LLMProviderBridge
 from ..context_compactor import ContextCompactor
+from ..task_budget import consume_task_llm_calls
 from magi.control.run_control import RunControl
 from .llm_invocation import (
     FinalProviderCallResult,
@@ -185,11 +186,13 @@ async def _prepare_llm_call(
 ) -> _PreparedLlmCall:
     await pre_poll_run_control(control)
     host = cast(_LlmHostProtocol, owner)
+    llm = host._resolve_llm()
+    await consume_task_llm_calls()
     return _PreparedLlmCall(
         host=host,
         request_id=str(uuid.uuid4())[:8],
         start_time=time.time(),
-        llm=host._resolve_llm(),
+        llm=llm,
     )
 
 

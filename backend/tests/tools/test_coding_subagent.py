@@ -8,6 +8,7 @@ import pytest
 # AgentTool first lets the workers module finish initializing.
 from magi.agent.runtime_tools import AgentTool
 from magi.agent.workers import WorkerAgentManager
+from magi.tools.platform_tools import native_shell_tool_name
 
 
 class _FakeRegistry:
@@ -31,7 +32,7 @@ _CODING_REGISTRY_TOOLS = [
     "grep",
     "file_list",
     "file_info",
-    "bash",
+    native_shell_tool_name(),
     "find-relevant-tools",
     "todo_write",
     "agent",
@@ -83,16 +84,16 @@ def test_coding_tool_whitelist_filters_against_registry() -> None:
         "verify",
         "glob",
         "grep",
-        "bash",
+        native_shell_tool_name(),
         "find-relevant-tools",
     }
-    assert expected_present.issubset(
-        set(tools)
-    ), f"Coding whitelist missing: {expected_present - set(tools)}"
+    assert expected_present.issubset(set(tools)), (
+        f"Coding whitelist missing: {expected_present - set(tools)}"
+    )
     excluded = {"agent", "memory_query", "web_search", "web_fetch"}
-    assert excluded.isdisjoint(
-        set(tools)
-    ), f"Coding whitelist must not include {excluded & set(tools)}"
+    assert excluded.isdisjoint(set(tools)), (
+        f"Coding whitelist must not include {excluded & set(tools)}"
+    )
 
 
 def test_coding_system_prompt_mentions_role_and_workspace(tmp_path) -> None:
@@ -111,8 +112,10 @@ def test_coding_system_prompt_mentions_role_and_workspace(tmp_path) -> None:
     assert "verify" in prompt
     assert str(tmp_path) in prompt
     assert "confirm_destructive" in prompt
-    assert "ONLY valid JSON" not in prompt
-    assert '"result_status"' not in prompt
+    assert "ONLY valid JSON" in prompt
+    assert '"result_status"' in prompt
+    assert '"artifacts"' in prompt
+    assert '"verification"' in prompt
 
 
 def test_coding_system_prompt_lists_only_whitelisted_tools() -> None:
@@ -133,21 +136,18 @@ def test_coding_system_prompt_lists_only_whitelisted_tools() -> None:
         assert t in rules_line
 
 
-def test_coding_validator_accepts_plaintext() -> None:
-    """The result validator must NOT reject a plaintext final reply for Coding."""
+def test_coding_validator_rejects_plaintext() -> None:
     mgr = WorkerAgentManager()
     plaintext = (
         "Changed: src/config.py - added max_retries argument to connect().\n"
         "verify: pass.\n"
         "Did not touch tests."
     )
-    result = mgr._validate_worker_result(
-        subagent_type=WorkerAgentManager.TYPE_CODING,
-        content=plaintext,
-    )
-    assert result.summary
-    assert plaintext.strip() in result.summary or result.summary.startswith("Changed:")
-    assert result.result_status in {"success", "partial", "failed"}
+    with pytest.raises(ValueError, match="valid JSON"):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_CODING,
+            content=plaintext,
+        )
 
 
 def test_coding_validator_rejects_empty() -> None:

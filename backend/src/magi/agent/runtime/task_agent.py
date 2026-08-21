@@ -1,4 +1,5 @@
 """TaskAgent base abstraction for multi-instance runtime."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Generic, Optional, TypeVar, cast
 
 from ...core.logger import get_logger
+from ..execution.task_budget import fresh_task_execution_budget_context
 from .contracts import FactRecord
 from .types import TaskAgentType, build_task_agent_key, get_task_agent_type_value
 
@@ -179,7 +181,8 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
         self._running = True
         if not self._fact_queue.empty():
             self._facts_available.set()
-        self._task = asyncio.create_task(self._run_loop())
+        with fresh_task_execution_budget_context():
+            self._task = asyncio.create_task(self._run_loop())
         logger.info(f"TaskAgent started | key={self.runtime_key}")
 
     async def stop(self) -> None:

@@ -8,6 +8,7 @@ from ....config.models import ThinkingDepth
 from ....llm.provider_bridge import _coerce_thinking_depth
 from ....llm.streaming_events import LLMStreamEvent, emit_stream_event, get_stream_sink
 from magi.control.run_control import RunControl
+from ..task_budget import TaskBudgetExceeded, prepay_task_llm_calls
 from .run_input import EngineRunInput
 from .step_models import FunctionCallingStepOutcome, FunctionCallingStepState
 from .types import ExecutionOutcome
@@ -37,6 +38,16 @@ class FunctionCallingLoopRunner:
             context_failure = await self._host._prepare_context_for_model(state)
             if context_failure is not None:
                 return cast(ExecutionOutcome, context_failure)
+            try:
+                await prepay_task_llm_calls(2)
+            except TaskBudgetExceeded:
+                return await self._run_fallback_final_response(
+                    state=state,
+                    run_input=run_input,
+                    thinking_depth=depth,
+                    control=control,
+                    final_response_reason="task_budget_finalization",
+                )
             step_outcome = await self._execute_step(
                 state=state,
                 run_input=run_input,
@@ -158,6 +169,7 @@ class FunctionCallingLoopRunner:
         run_input: EngineRunInput,
         thinking_depth: ThinkingDepth,
         control: RunControl,
+        final_response_reason: str = "max_iterations_reached",
     ) -> ExecutionOutcome:
         context_failure = await self._host._prepare_context_for_model(
             state,
@@ -180,6 +192,7 @@ class FunctionCallingLoopRunner:
                 execution_workspace=run_input.execution_workspace,
                 llm_timeout_seconds=run_input.llm_timeout_seconds,
                 final_response_json_mode=run_input.final_response_json_mode,
+                final_response_reason=final_response_reason,
                 cancel_token=control.cancel_token,
                 control=control,
                 route_decision=run_input.route_decision,

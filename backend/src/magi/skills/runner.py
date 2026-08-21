@@ -8,10 +8,11 @@ Implements the "Execute" phase of the skill system:
 - Script execution support
 - Returns formatted SkillResult
 """
+
 import logging
 import os
 import time
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
 from ..utils.diagnostic_logging import full_content_logging_enabled
 from ..utils.runtime import get_default_chat_workspace_path
@@ -45,6 +46,7 @@ class SkillRunner:
         engine_run_input_factory: Callable[..., Any] | None = None,
         active_model_provider: Callable[..., Any] | None = None,
         scenario_llm_pool: Any | None = None,
+        llm_call_reserver: Callable[[], Awaitable[None]] | None = None,
     ):
         """
         Initialize the skill runner.
@@ -69,6 +71,7 @@ class SkillRunner:
         self._engine_run_input_factory = engine_run_input_factory
         self._active_model_provider = active_model_provider
         self._scenario_llm_pool = scenario_llm_pool
+        self._llm_call_reserver = llm_call_reserver
 
     async def execute(
         self,
@@ -293,6 +296,7 @@ class SkillRunner:
             engine_run_input_factory=self._engine_run_input_factory,
             active_model_provider=self._active_model_provider,
             scenario_llm_pool=self._scenario_llm_pool,
+            llm_call_reserver=self._llm_call_reserver,
         )
         user_message = context.get("user_message", "")
 

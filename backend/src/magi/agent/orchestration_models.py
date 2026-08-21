@@ -12,6 +12,7 @@ RETRIABLE_WORKER_FAILURES = {
     "LLM_RATE_LIMIT",
     "WORKER_TIMEOUT",
 }
+MAX_WORKER_RESULT_RECORDS = 500
 
 
 @dataclass
@@ -68,6 +69,59 @@ class WorkerEvidence:
 
 
 @dataclass
+class WorkerArtifact:
+    """One filesystem artifact created, modified, or deleted by a worker."""
+
+    path: str
+    operation: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"path": self.path, "operation": self.operation}
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> Optional["WorkerArtifact"]:
+        raw_path = payload.get("path")
+        raw_operation = payload.get("operation")
+        if not isinstance(raw_path, str) or not isinstance(raw_operation, str):
+            return None
+        path = raw_path.strip()
+        operation = raw_operation.strip()
+        if not path or operation not in {"created", "modified", "deleted"}:
+            return None
+        return cls(path=path, operation=operation)
+
+
+@dataclass
+class WorkerVerification:
+    """One verification command and its reported outcome."""
+
+    command: str
+    status: str
+    detail: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "command": self.command,
+            "status": self.status,
+            "detail": self.detail,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> Optional["WorkerVerification"]:
+        raw_command = payload.get("command")
+        raw_status = payload.get("status")
+        raw_detail = payload.get("detail")
+        if not all(isinstance(value, str) for value in (raw_command, raw_status, raw_detail)):
+            return None
+        command = raw_command.strip()
+        status = raw_status.strip()
+        detail = raw_detail.strip()
+        if not command or status not in {"passed", "failed"} or not detail:
+            return None
+        return cls(command=command, status=status, detail=detail)
+
+
+@dataclass
 class WorkerResult:
     """Structured worker result consumed by parent task agents."""
 
@@ -75,37 +129,78 @@ class WorkerResult:
     result_status: str = "success"
     findings: List[WorkerFinding] = field(default_factory=list)
     evidence: List[WorkerEvidence] = field(default_factory=list)
+    artifacts: List[WorkerArtifact] = field(default_factory=list)
+    verification: List[WorkerVerification] = field(default_factory=list)
     records: List[Dict[str, Any]] = field(default_factory=list)
     gaps: List[str] = field(default_factory=list)
     next_steps: List[str] = field(default_factory=list)
     subtasks: List["PlannedSubtask"] = field(default_factory=list)
     failure_reason: Optional[str] = None
+    envelope_contract_valid: bool = field(default=True, repr=False, compare=False)
+    coding_contract_valid: bool = field(default=True, repr=False, compare=False)
+    string_lists_valid: bool = field(default=True, repr=False, compare=False)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        payload: Dict[str, Any] = {
             "summary": self.summary,
             "result_status": self.result_status,
             "findings": [item.to_dict() for item in self.findings],
             "evidence": [item.to_dict() for item in self.evidence],
+            "artifacts": [item.to_dict() for item in self.artifacts],
+            "verification": [item.to_dict() for item in self.verification],
             "records": [dict(item) for item in self.records],
             "gaps": list(self.gaps),
             "next_steps": list(self.next_steps),
             "subtasks": [item.to_dict() for item in self.subtasks],
             "failure_reason": self.failure_reason,
         }
+        if not self.coding_contract_valid:
+            payload["_coding_contract_valid"] = False
+        if not self.string_lists_valid:
+            payload["_string_lists_valid"] = False
+        if not self.envelope_contract_valid:
+            payload["_envelope_contract_valid"] = False
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "WorkerResult":
+        raw_result_status = payload.get("result_status", "")
+        raw_summary = payload.get("summary", "")
+        raw_failure_reason = payload.get("failure_reason")
+        raw_artifacts = payload.get("artifacts")
+        raw_verification = payload.get("verification")
+        raw_gaps = payload.get("gaps")
+        raw_next_steps = payload.get("next_steps")
         return cls(
-            result_status=str(payload.get("result_status", "success")).strip() or "success",
-            summary=str(payload.get("summary", "")).strip(),
+            result_status=(raw_result_status.strip() if isinstance(raw_result_status, str) else ""),
+            summary=raw_summary.strip() if isinstance(raw_summary, str) else "",
             findings=_as_findings(payload.get("findings")),
             evidence=_as_evidence(payload.get("evidence")),
+            artifacts=_as_artifacts(raw_artifacts),
+            verification=_as_verification(raw_verification),
             records=_as_dict_list(payload.get("records")),
-            gaps=_as_string_list(payload.get("gaps")),
-            next_steps=_as_string_list(payload.get("next_steps")),
+            gaps=_as_string_list(raw_gaps),
+            next_steps=_as_string_list(raw_next_steps),
             subtasks=_as_planned_subtasks(payload.get("subtasks")),
-            failure_reason=_optional_string(payload.get("failure_reason")),
+            failure_reason=(
+                raw_failure_reason.strip()
+                if isinstance(raw_failure_reason, str) and raw_failure_reason.strip()
+                else None
+            ),
+            envelope_contract_valid=(
+                payload.get("_envelope_contract_valid") is not False
+                and _is_valid_worker_envelope_payload(payload)
+            ),
+            coding_contract_valid=(
+                payload.get("_coding_contract_valid") is not False
+                and _is_valid_artifact_payload(raw_artifacts)
+                and _is_valid_verification_payload(raw_verification)
+            ),
+            string_lists_valid=(
+                payload.get("_string_lists_valid") is not False
+                and _is_valid_string_list_payload(raw_gaps)
+                and _is_valid_string_list_payload(raw_next_steps)
+            ),
         )
 
 
@@ -185,7 +280,9 @@ class SubtaskDefinition:
 
     def to_dict(self) -> Dict[str, Any]:
         payload = asdict(self)
-        payload["worker_result"] = self.worker_result.to_dict() if self.worker_result is not None else None
+        payload["worker_result"] = (
+            self.worker_result.to_dict() if self.worker_result is not None else None
+        )
         return payload
 
     @classmethod
@@ -270,7 +367,9 @@ class TaskOrchestrationState:
             created_at=_safe_float(payload.get("created_at"), default=time.time()),
             updated_at=_safe_float(payload.get("updated_at"), default=time.time()),
             correlation_id=_optional_string(payload.get("correlation_id")),
-            metadata=dict(payload.get("metadata")) if isinstance(payload.get("metadata"), dict) else {},
+            metadata=dict(payload.get("metadata"))
+            if isinstance(payload.get("metadata"), dict)
+            else {},
             subtasks=subtasks,
             final_response=_optional_string(payload.get("final_response")),
             aggregated_markdown=_optional_string(payload.get("aggregated_markdown")),
@@ -278,15 +377,23 @@ class TaskOrchestrationState:
 
     @property
     def pending_worker_ids(self) -> List[str]:
-        return [item.worker_id for item in self.subtasks if item.status == "running" and item.worker_id]
+        return [
+            item.worker_id for item in self.subtasks if item.status == "running" and item.worker_id
+        ]
 
     @property
     def completed_worker_ids(self) -> List[str]:
-        return [item.worker_id for item in self.subtasks if item.status == "completed" and item.worker_id]
+        return [
+            item.worker_id
+            for item in self.subtasks
+            if item.status == "completed" and item.worker_id
+        ]
 
     @property
     def failed_worker_ids(self) -> List[str]:
-        return [item.worker_id for item in self.subtasks if item.status == "failed" and item.worker_id]
+        return [
+            item.worker_id for item in self.subtasks if item.status == "failed" and item.worker_id
+        ]
 
     def get_subtask(self, subtask_id: str) -> Optional[SubtaskDefinition]:
         for item in self.subtasks:
@@ -342,6 +449,74 @@ def _as_evidence(value: Any) -> List[WorkerEvidence]:
     return evidence
 
 
+def _as_artifacts(value: Any) -> List[WorkerArtifact]:
+    if not isinstance(value, list):
+        return []
+    artifacts: List[WorkerArtifact] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        artifact = WorkerArtifact.from_dict(item)
+        if artifact is not None:
+            artifacts.append(artifact)
+    return artifacts
+
+
+def _as_verification(value: Any) -> List[WorkerVerification]:
+    if not isinstance(value, list):
+        return []
+    verification: List[WorkerVerification] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        record = WorkerVerification.from_dict(item)
+        if record is not None:
+            verification.append(record)
+    return verification
+
+
+def _is_valid_artifact_payload(value: Any) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, dict) and WorkerArtifact.from_dict(item) is not None for item in value
+    )
+
+
+def _is_valid_verification_payload(value: Any) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, dict) and WorkerVerification.from_dict(item) is not None for item in value
+    )
+
+
+def _is_valid_string_list_payload(value: Any) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, str) and bool(item.strip()) for item in value
+    )
+
+
+def _is_valid_worker_envelope_payload(payload: Dict[str, Any]) -> bool:
+    required_fields = {
+        "result_status",
+        "summary",
+        "findings",
+        "evidence",
+        "gaps",
+        "next_steps",
+    }
+    if not required_fields.issubset(payload):
+        return False
+    if any(
+        not isinstance(payload.get(field_name), list)
+        for field_name in ("findings", "evidence", "gaps", "next_steps")
+    ):
+        return False
+    records = payload.get("records", [])
+    return (
+        isinstance(records, list)
+        and len(records) <= MAX_WORKER_RESULT_RECORDS
+        and all(isinstance(item, dict) for item in records)
+    )
+
+
 def _as_planned_subtasks(value: Any) -> List[PlannedSubtask]:
     if not isinstance(value, list):
         return []
@@ -360,7 +535,9 @@ def _as_string_list(value: Any) -> List[str]:
         return []
     result: List[str] = []
     for item in value:
-        text = str(item).strip()
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
         if text:
             result.append(text)
     return result
@@ -404,7 +581,9 @@ __all__ = [
     "SubtaskDefinition",
     "SubtaskPlan",
     "TaskOrchestrationState",
+    "WorkerArtifact",
     "WorkerEvidence",
     "WorkerFinding",
     "WorkerResult",
+    "WorkerVerification",
 ]

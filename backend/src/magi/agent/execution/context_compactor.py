@@ -35,6 +35,11 @@ from ...llm.model_context import (
     unknown_model_context,
 )
 from ...llm.provider_bridge import LLMProviderBridge
+from .task_budget import (
+    TaskBudgetExceeded,
+    prepay_task_llm_calls,
+    reserve_task_llm_calls,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -387,6 +392,14 @@ class ContextCompactor:
                 system_prompt,
                 preserve_user_turns=preserve_user_turns,
             )
+        except TaskBudgetExceeded:
+            logger.warning(
+                "[ContextCompactor] Task budget exhausted during summarization; using rule fallback"
+            )
+            return self._rule_based_compact(
+                messages,
+                preserve_user_turns=preserve_user_turns,
+            )
         except Exception:
             self._consecutive_failures += 1
             if self._consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
@@ -471,6 +484,7 @@ class ContextCompactor:
         )
 
         start = time.monotonic()
+        await prepay_task_llm_calls()
         summary_text = await self._call_summariser(user_prompt)
         elapsed_ms = int((time.monotonic() - start) * 1000)
 
@@ -530,6 +544,7 @@ class ContextCompactor:
         )
 
         async def _call_chunk(request: SummaryChunkRequest) -> str:
+            await reserve_task_llm_calls()
             response = await bridge.chat(
                 system_prompt=system_prompt,
                 messages=[{"role": "user", "content": request.prompt}],
@@ -693,9 +708,7 @@ class ContextCompactor:
 
             if role == "tool":
                 tool_id = msg.get("tool_call_id", "?")
-                parts.append(
-                    f"[tool result {tool_id}]: {_render_content_for_summary(content)}"
-                )
+                parts.append(f"[tool result {tool_id}]: {_render_content_for_summary(content)}")
             elif role == "assistant":
                 text = _render_content_for_summary(content)
                 tool_calls = msg.get("tool_calls")

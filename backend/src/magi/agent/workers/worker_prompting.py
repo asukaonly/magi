@@ -119,8 +119,19 @@ class WorkerPromptMixin:
             "on your own initiative; that decision is the user's.\n"
             "5. If two consecutive verify cycles still fail, stop and report what "
             "blocked you instead of looping.\n"
-            "Final reply: plain text. List (a) files changed, (b) intent of the "
-            "change, (c) verify summary, (d) anything you noticed but did not do."
+            "Final reply: return ONLY valid JSON with this schema: "
+            '{"result_status":"success|partial|failed","summary":"string",'
+            '"findings":[{"title":"string","detail":"string"}],'
+            '"evidence":[{"path":"string","detail":"string"}],'
+            '"artifacts":[{"path":"string","operation":"created|modified|deleted"}],'
+            '"verification":[{"command":"string","status":"passed|failed",'
+            '"detail":"string"}],"records":[{"field":"value"}],"gaps":["string"],'
+            '"next_steps":["string"],"failure_reason":"string|null"}. '
+            "Success or partial requires at least one artifact, at least one verification "
+            "entry, and every verification status must be passed. Failed results may use "
+            "empty artifact and verification lists but must include failure_reason. Partial "
+            "results must include at least one gap and one next step. "
+            "Do not emit Markdown, code fences, or prose outside the JSON object."
         )
 
     def _build_worker_environment_rules(self, execution_workspace: Optional[str]) -> str:
