@@ -16,7 +16,7 @@ const OnboardingLoadError: React.FC<OnboardingLoadErrorProps> = ({
   retryLabel,
   onRetry,
 }) => (
-  <div className="flex min-h-screen items-center justify-center bg-background px-6 py-12">
+  <div className="flex h-full items-center justify-center bg-background px-6 py-12">
     <div
       role="alert"
       className="flex w-full max-w-md flex-col items-center rounded-3xl border border-border/60 bg-card px-8 py-10 text-center shadow-sm"

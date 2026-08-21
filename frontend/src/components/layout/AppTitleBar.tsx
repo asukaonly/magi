@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React from 'react';
 import { useLocation } from 'react-router';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { isMacPlatform } from '@/lib/platform';
@@ -7,7 +7,7 @@ import { Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { shouldRenderChatWorkspace } from '@/domain/chat/shell-routing';
 import { ChatWorkspacePicker } from './ChatWorkspacePicker';
-import { AppWindowControls } from './AppWindowControls';
+import { DesktopTitleBar } from './DesktopTitleBar';
 import { NotificationBell } from './NotificationBell';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -177,15 +177,6 @@ const TimelineTitleBarSlot: React.FC = () => {
 };
 
 /**
- * Selector for elements that should NOT trigger window-drag when clicked.
- * Buttons, links, inputs, dropdown menus, and anything explicitly opted out
- * via `data-no-drag`. `closest()` against this list makes background-vs-
- * interactive detection robust regardless of where the click lands within
- * the title bar.
- */
-const NO_DRAG_SELECTOR = 'button, a, input, select, textarea, [data-no-drag], [role="menu"], [role="combobox"]';
-
-/**
  * App-wide title bar. Sits as the first row of MainLayout and spans the
  * full window width so OS chrome (macOS traffic lights, Windows min/max/
  * close) has its own dedicated stripe instead of overlapping content.
@@ -198,8 +189,6 @@ const NO_DRAG_SELECTOR = 'button, a, input, select, textarea, [data-no-drag], [r
  *   - everything else → empty (just acts as the drag/resize handle)
  */
 
-const TITLE_BAR_HEIGHT_CLASS = 'h-9'; // 36px
-
 export const AppTitleBar = () => {
   const { t } = useTranslation('app');
   const location = useLocation();
@@ -211,46 +200,8 @@ export const AppTitleBar = () => {
   const chatChromeVisible = shouldRenderChatWorkspace(location.pathname) && Boolean(currentSessionId);
   const isTimelineRoute = location.pathname === '/timeline';
 
-  // Drag + double-click maximize are both handled in mousedown.
-  //
-  // We cannot use a separate onDoubleClick handler here: as soon as the
-  // first mousedown calls `startDragging()` the OS captures the mouse
-  // and React never sees a paired click — so dblclick is never emitted
-  // for the kind of slow native gesture we'd want it for.
-  //
-  // Instead we look at `MouseEvent.detail` on the mousedown itself.
-  // The browser increments it for every press within the platform's
-  // double-click time window, so detail === 2 means the user pressed
-  // twice in rapid succession on the same spot. That maps to
-  // toggleMaximize; anything else starts a normal window drag.
-  const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement | null;
-    if (target?.closest?.(NO_DRAG_SELECTOR)) return;
-    try {
-      const mod = await import('@tauri-apps/api/window');
-      const win = mod.getCurrentWindow();
-      if (e.detail >= 2) {
-        await win.toggleMaximize();
-      } else {
-        await win.startDragging();
-      }
-    } catch {
-      /* not in Tauri (e.g. pure browser dev preview) */
-    }
-  }, []);
-
   return (
-    <div
-      className={cn(
-        'relative z-30 flex shrink-0 items-center bg-[hsl(var(--app-chrome-surface))] shadow-[inset_0_-1px_0_hsl(var(--app-chrome-divider)/0.42)] select-none',
-        TITLE_BAR_HEIGHT_CLASS,
-      )}
-      onMouseDown={handleMouseDown}
-    >
-      {/* macOS traffic-light reserve (left). Windows/Linux: small left padding. */}
-      <div className={cn('shrink-0', isMac ? 'w-[72px]' : 'w-3')} />
-
+    <DesktopTitleBar>
       {/* Center / left content: route-specific chrome. */}
       {isTimelineRoute ? (
         <TimelineTitleBarSlot />
@@ -258,8 +209,7 @@ export const AppTitleBar = () => {
         <>
           <div className="min-w-0 flex-1" />
 
-          {/* Right content: route-specific actions. handleMouseDown bails when
-              the click lands on a button so these still work normally. */}
+          {/* Interactive actions are excluded from dragging by DesktopTitleBar. */}
           <div className="flex shrink-0 items-center gap-2 pr-2">
             {chatChromeVisible ? (
               <>
@@ -291,9 +241,6 @@ export const AppTitleBar = () => {
       <div data-testid="tour-target-bell" className={cn('flex shrink-0 items-center', isMac ? 'pr-3' : 'pr-1')}>
         <NotificationBell />
       </div>
-
-      {/* Windows / Linux: hand-drawn window controls in the right slot. */}
-      {!isMac ? <AppWindowControls className="ml-1" /> : null}
-    </div>
+    </DesktopTitleBar>
   );
 };

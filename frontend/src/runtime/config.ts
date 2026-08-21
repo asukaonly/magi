@@ -169,6 +169,7 @@ export async function initializeRuntime(
     const pollStart = performance.now();
     const deadline = Date.now() + STARTUP_POLL_TIMEOUT_MS;
     let pollCount = 0;
+    let gatewayReady = false;
     while (Date.now() <= deadline) {
       const poll = await invoke<PollStartupResult>("poll_backend_startup");
       pollCount++;
@@ -180,6 +181,7 @@ export async function initializeRuntime(
       if (poll.ready) {
         console.log(`[startup] poll_backend_startup ready after ${pollCount} polls, ${(performance.now() - pollStart).toFixed(0)}ms`);
         onProgress?.("connecting");
+        gatewayReady = true;
         break;
       }
 
@@ -189,6 +191,9 @@ export async function initializeRuntime(
       }
 
       await sleep(STARTUP_POLL_INTERVAL_MS);
+    }
+    if (!gatewayReady) {
+      throw new Error("Backend startup timed out while waiting for the worker");
     }
 
     // Final readiness check: ensure /api/ready responds.

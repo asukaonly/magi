@@ -10,9 +10,9 @@ def sqlite_fragment_present(db_path: str | Path, fragment: str | bytes) -> bool:
 
     encoded = fragment.encode() if isinstance(fragment, str) else fragment
     return any(
-        encoded in candidate.read_bytes()
+        content is not None and encoded in content
         for candidate in _sqlite_files(db_path)
-        if candidate.exists()
+        if (content := _read_existing_file(candidate)) is not None
     )
 
 
@@ -24,8 +24,18 @@ def assert_sqlite_fragment_absent(
 
     encoded = fragment.encode() if isinstance(fragment, str) else fragment
     for candidate in _sqlite_files(db_path):
-        if candidate.exists():
-            assert encoded not in candidate.read_bytes(), candidate
+        content = _read_existing_file(candidate)
+        if content is not None:
+            assert encoded not in content, candidate
+
+
+def _read_existing_file(path: Path) -> bytes | None:
+    """Read one SQLite file unless SQLite removed the sidecar concurrently."""
+
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
 
 
 def _sqlite_files(db_path: str | Path) -> tuple[Path, ...]:

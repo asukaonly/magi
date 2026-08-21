@@ -10,8 +10,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-ci:
+    name: Verify release commit CI
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Require successful CI for release commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id="$(
+            gh run list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --workflow ci.yml \
+              --commit "${GITHUB_SHA}" \
+              --status success \
+              --limit 20 \
+              --json databaseId,headSha \
+              --jq '[.[] | select(.headSha == env.GITHUB_SHA)][0].databaseId'
+          )"
+          if [ -z "${run_id}" ]; then
+            echo "No successful ci.yml run found for release commit ${GITHUB_SHA}." >&2
+            exit 1
+          fi
+          echo "Release commit ${GITHUB_SHA} passed CI in run ${run_id}."
+
   publish-tauri:
     name: Publish desktop bundle (${{ matrix.label }})
+    needs: verify-ci
     runs-on: ${{ matrix.runner }}
     environment: release
     permissions:
@@ -59,6 +89,10 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13.5"
+          cache: pip
+          cache-dependency-path: |
+            backend/pyproject.toml
+            sdk/pyproject.toml
 
       - name: Use Homebrew Python venv on macOS
         if: matrix.os_family == 'macos'
@@ -111,7 +145,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip "setuptools>=83.0.0"
           pip install -e ../sdk
-          pip install -e ".[dev]" pyinstaller
+          pip install -e . pyinstaller
 
       - name: Install ripgrep (macOS)
         if: matrix.os_family == 'macos'
@@ -147,58 +181,10 @@ jobs:
             --output "$env:RUNNER_TEMP/magi-plugin-python" `
             --github-env "$env:GITHUB_ENV"
 
-      - name: Build Python sidecar (Unix)
-        if: matrix.os_family != 'windows'
-        shell: bash
-        run: ./scripts/build-sidecar.sh
-
-      - name: Build Python sidecar (Windows)
-        if: matrix.os_family == 'windows'
-        shell: pwsh
-        run: ./scripts/build-sidecar.ps1
-
       - name: Install frontend dependencies
         working-directory: frontend
         shell: bash
         run: npm ci
-
-      - name: Run frontend validation
-        working-directory: frontend
-        shell: bash
-        run: |
-          npm run type-check
-          npm run test:ci
-          npm run lint
-
-      - name: Run backend smoke validation
-        shell: bash
-        run: ./scripts/run-backend-smoke.sh
-
-      - name: Run backend type gate
-        shell: bash
-        run: ./scripts/run-backend-type-gate.sh
-
-      - name: Check gateway API contract
-        shell: bash
-        run: python scripts/check-api-contract.py
-
-      - name: Check SQLite ownership contract
-        shell: bash
-        run: python scripts/check-sqlite-ownership.py
-
-      - name: Export Python OpenAPI contract
-        shell: bash
-        run: python scripts/export-python-openapi.py --output /tmp/magi-python-openapi.json
-
-      - name: Run gateway validation
-        shell: bash
-        run: |
-          cargo test -p magi-gateway
-          cargo check -p magi-gateway-cli
-
-      - name: Run headless evaluation client tests
-        shell: bash
-        run: python -m pytest -q benchmark/tests
 
       - name: Export optional macOS signing secrets
         if: matrix.os_family == 'macos'

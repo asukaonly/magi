@@ -82,6 +82,7 @@ The onboarding flow is the first-run configuration experience.
 
 Current design expectations:
 
+- the dedicated onboarding surface must retain draggable desktop window chrome and platform-appropriate window controls across loading, error, and active setup states
 - if onboarding is incomplete, the application routes the user into onboarding
 - if onboarding is already complete, the user enters the main application
 - onboarding uses a dedicated layout rather than the main application shell
@@ -237,6 +238,10 @@ Current product expectations:
 
 When the desktop backend cannot finish startup, the frontend should show a diagnosis-oriented failure screen instead of only a generic retry prompt. The screen should include the concrete startup error, the backend log path, and a bounded tail of the latest backend log output.
 
+Startup loading, data-clear recovery, and diagnostic failure surfaces must keep the standard desktop title bar available so the frameless window remains draggable and exposes platform-appropriate window controls before the routed application shell mounts.
+
+The desktop host must monitor the spawned Python worker while waiting for its ready signal. If the worker exits first, the host should stop waiting and hand the non-zero exit status to the diagnostic screen on the next startup poll. Packaged workers should write uncaught startup tracebacks to the redirected backend log and exit cleanly with a failure code so PyInstaller does not display a separate native unhandled-exception dialog. The bounded log viewer should open at its newest output so the failure that ended startup is visible immediately.
+
 Current log sources:
 
 - packaged desktop builds: `~/.magi/logs/backend.log`
@@ -249,6 +254,10 @@ Current log sources:
   make the clear operation target a different file
 
 The log excerpt is for local troubleshooting only. It should stay bounded and should not replace the retry action.
+
+### Windows Uninstall Data Removal
+
+The Windows uninstaller's **Delete application data** choice owns the complete Magi desktop runtime root. When the user selects it during a normal uninstall, the uninstaller should remove both Tauri's identifier-scoped application directories and `%USERPROFILE%\.magi`. Update-mode uninstall must preserve all application data. This cleanup does not include user-selected workspaces, source libraries, or project-local `.magi` overlays outside the desktop runtime root.
 
 ## Conversation Settings
 
@@ -732,6 +741,7 @@ Expected behavior:
 - the confirmation should explain that backend tasks and the local runtime will be terminated
 - canceling the confirmation should keep the app resident
 - hiding the window through the native close control should not trigger the quit confirmation when the close-to-tray setting is enabled
+- the confirmation host must be mounted at the application root so tray/menu-bar Quit still works during startup, startup diagnostics, onboarding, and the normal application shell
 
 ### Runtime Ownership Rule
 

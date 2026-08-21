@@ -4,11 +4,6 @@ import { listen } from '@tauri-apps/api/event';
 export const DESKTOP_OPEN_SETTINGS_EVENT = 'desktop-presence://open-settings';
 export const DESKTOP_QUIT_REQUESTED_EVENT = 'desktop-presence://quit-requested';
 
-export interface DesktopShellHandlers {
-  onOpenSettings: () => void;
-  onRequestQuit: () => void;
-}
-
 export interface DesktopLogClearResult {
   clearedEntries: number;
   failedEntries: number;
@@ -39,23 +34,20 @@ async function invokeDesktopCommand<T = void>(command: string, payload?: Record<
   return invoke<T>(command);
 }
 
-export async function registerDesktopShellHandlers(handlers: DesktopShellHandlers): Promise<Unlisten> {
+async function registerDesktopEventHandler(eventName: string, handler: () => void): Promise<Unlisten> {
   if (!isTauriRuntime()) {
     return async () => {};
   }
 
-  const unlistenCallbacks = await Promise.all([
-    listen(DESKTOP_OPEN_SETTINGS_EVENT, () => {
-      handlers.onOpenSettings();
-    }),
-    listen(DESKTOP_QUIT_REQUESTED_EVENT, () => {
-      handlers.onRequestQuit();
-    }),
-  ]);
+  return listen(eventName, handler);
+}
 
-  return async () => {
-    await Promise.all(unlistenCallbacks.map((unlisten) => unlisten()));
-  };
+export async function registerDesktopOpenSettingsHandler(handler: () => void): Promise<Unlisten> {
+  return registerDesktopEventHandler(DESKTOP_OPEN_SETTINGS_EVENT, handler);
+}
+
+export async function registerDesktopQuitHandler(handler: () => void): Promise<Unlisten> {
+  return registerDesktopEventHandler(DESKTOP_QUIT_REQUESTED_EVENT, handler);
 }
 
 export async function syncCloseToTrayPreference(enabled: boolean): Promise<void> {

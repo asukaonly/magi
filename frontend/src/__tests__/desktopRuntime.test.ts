@@ -24,7 +24,8 @@ import {
   completeFullDataClear,
   confirmExitApp,
   openExternalUrl,
-  registerDesktopShellHandlers,
+  registerDesktopOpenSettingsHandler,
+  registerDesktopQuitHandler,
   readPendingFullDataClear,
   syncCloseToTrayPreference,
 } from '@/runtime/desktop';
@@ -41,7 +42,7 @@ describe('desktop runtime bridge', () => {
     vi.unstubAllGlobals();
   });
 
-  it('registers shell event listeners and forwards open-settings and quit requests', async () => {
+  it('registers independent open-settings and quit listeners', async () => {
     (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
 
     const unlisten = vi.fn();
@@ -54,10 +55,8 @@ describe('desktop runtime bridge', () => {
     const onOpenSettings = vi.fn();
     const onRequestQuit = vi.fn();
 
-    const dispose = await registerDesktopShellHandlers({
-      onOpenSettings,
-      onRequestQuit,
-    });
+    const disposeOpenSettings = await registerDesktopOpenSettingsHandler(onOpenSettings);
+    const disposeQuit = await registerDesktopQuitHandler(onRequestQuit);
 
     expect(listenMock).toHaveBeenCalledTimes(2);
     listeners.get('desktop-presence://open-settings')?.({});
@@ -66,7 +65,8 @@ describe('desktop runtime bridge', () => {
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(onRequestQuit).toHaveBeenCalledTimes(1);
 
-    await dispose();
+    await disposeOpenSettings();
+    await disposeQuit();
     expect(unlisten).toHaveBeenCalledTimes(2);
   });
 

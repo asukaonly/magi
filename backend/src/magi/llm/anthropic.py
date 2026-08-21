@@ -3,8 +3,7 @@ LLM Adapter - Anthropic implementation
 """
 
 from typing import Optional, Dict, Any, AsyncIterator
-import httpx
-from anthropic import AsyncAnthropic
+from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 from .base import LLMAdapter
 from ..config.constants import DEFAULT_MAX_TOKENS
 
@@ -48,7 +47,7 @@ class AnthropicAdapter(LLMAdapter):
         self._base_url = api_endpoint
 
         # Always ignore system proxy; use explicit proxy_url when configured.
-        http_client = httpx.AsyncClient(
+        http_client = DefaultAsyncHttpxClient(
             proxy=proxy_url,
             trust_env=False,
         )

@@ -117,6 +117,62 @@ describe('runtime config URL normalization', () => {
     expect('__MAGI_RUNTIME__' in window).toBe(false);
   });
 
+  it('surfaces an exited backend before probing gateway health', async () => {
+    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'start_backend') {
+        return {
+          ok: true,
+          baseUrl: 'http://127.0.0.1:8000/api',
+          sessionToken: 'token-1',
+        };
+      }
+      if (command === 'poll_backend_startup') {
+        return {
+          ready: false,
+          phase: 'error',
+          error: 'Backend process exited before startup completed (exit code: 1)',
+        };
+      }
+      throw new Error(`Unexpected invoke command: ${command}`);
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(initializeRuntime()).rejects.toThrow(
+      'Backend process exited before startup completed (exit code: 1)',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not add a second readiness wait after the startup poll times out', async () => {
+    vi.useFakeTimers();
+    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'start_backend') {
+        return {
+          ok: true,
+          baseUrl: 'http://127.0.0.1:8000/api',
+          sessionToken: 'token-1',
+        };
+      }
+      if (command === 'poll_backend_startup') {
+        return { ready: false, phase: 'waiting_for_worker' };
+      }
+      throw new Error(`Unexpected invoke command: ${command}`);
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const runtimePromise = initializeRuntime();
+    const rejection = expect(runtimePromise).rejects.toThrow(
+      'Backend startup timed out while waiting for the worker',
+    );
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('stops and starts the backend exactly once after a recovered clear', async () => {
     vi.useFakeTimers();
     (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};

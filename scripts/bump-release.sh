@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Bump the repo version, commit, run a fast local sanity check, push the branch,
+# Bump the repo version on main, commit, run a fast local sanity check, push main,
 # then GATE ON THE REMOTE CI RUN: only after ci.yml goes green do we create and
 # push the release tag (v*), which triggers release.yml's desktop builds.
 #
@@ -26,6 +26,7 @@ esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+RELEASE_BRANCH="main"
 
 # --- preflight ------------------------------------------------------------
 command -v gh >/dev/null || { echo "ERROR: gh CLI required for the remote-CI gate." >&2; exit 1; }
@@ -35,6 +36,26 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 BRANCH="$(git branch --show-current)"
 [[ -n "$BRANCH" ]] || { echo "ERROR: detached HEAD — checkout a branch first." >&2; exit 1; }
+if [[ "$BRANCH" != "$RELEASE_BRANCH" ]]; then
+  echo "ERROR: releases must run from ${RELEASE_BRANCH}; current branch is ${BRANCH}." >&2
+  exit 1
+fi
+
+echo ">>> Verifying local ${RELEASE_BRANCH} against origin/${RELEASE_BRANCH} ..."
+git fetch origin "$RELEASE_BRANCH"
+HEAD_SHA="$(git rev-parse HEAD)"
+REMOTE_MAIN_SHA="$(git rev-parse "refs/remotes/origin/${RELEASE_BRANCH}")"
+if [[ "$PART" == "resume" ]]; then
+  if ! git merge-base --is-ancestor "$REMOTE_MAIN_SHA" "$HEAD_SHA"; then
+    echo "ERROR: local ${RELEASE_BRANCH} is behind or diverged from origin/${RELEASE_BRANCH}." >&2
+    echo "       Update ${RELEASE_BRANCH} before resuming the release." >&2
+    exit 1
+  fi
+elif [[ "$HEAD_SHA" != "$REMOTE_MAIN_SHA" ]]; then
+  echo "ERROR: local ${RELEASE_BRANCH} must exactly match origin/${RELEASE_BRANCH} before a version bump." >&2
+  echo "       Push, merge, or update ${RELEASE_BRANCH}, then retry." >&2
+  exit 1
+fi
 
 # --- compute next version (current + 1 on the requested part) -------------
 CURRENT="$(tr -d '[:space:]' < VERSION)"
