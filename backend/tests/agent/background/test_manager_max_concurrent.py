@@ -1,5 +1,5 @@
 from magi.agent.background.manager import BackgroundTaskManager
-from magi.config.agent_models import BackgroundTasksSettings
+from magi.config.models import BackgroundTasksSettings
 
 
 def test_manager_exposes_max_concurrent():
@@ -8,5 +8,5 @@ def test_manager_exposes_max_concurrent():
     assert mgr.max_concurrent == 5
 
 
-def test_background_tasks_default_concurrency_is_4():
-    assert BackgroundTasksSettings().max_concurrent == 4
+def test_background_tasks_default_concurrency_is_2():
+    assert BackgroundTasksSettings().max_concurrent == 2

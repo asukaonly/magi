@@ -43,7 +43,6 @@ from magi.config.models import (
     ModelVendor,
 )
 from magi.config.memory_models import GraphSpreadingSettings, MemoryL1Settings
-from magi.config.agent_models import BackgroundTasksSettings as AgentBackgroundTasksSettings
 from magi.config.llm_registry import (
     build_provider_catalog,
     build_runtime_llm_defaults,
@@ -304,7 +303,6 @@ def test_background_auto_dispatch_defaults_off():
 
     assert config.agent.background_tasks.auto_detect_long_task is False
     assert BackgroundTasksSettings().auto_detect_long_task is False
-    assert AgentBackgroundTasksSettings().auto_detect_long_task is False
 
 
 def test_build_update_paths_includes_background_auto_dispatch_setting(
