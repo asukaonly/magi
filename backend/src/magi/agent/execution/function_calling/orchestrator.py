@@ -79,6 +79,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     # How many failed iterations we tolerate before forcing a re-plan. Two
     # gives the LLM one opportunity to self-correct without loop-thrashing.
     _FAILED_ITERATION_REPLAN_LIMIT = 2
+    _REPEATED_BLOCKER_LIMIT = 2
     _RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
     _MAX_TOOL_EXPANSIONS_PER_TURN = 1
     _MAX_TOOLS_PER_EXPANSION = 2
@@ -94,12 +95,21 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         "PROVIDER_NOT_CONFIGURED",
         "READ_ONLY",
         "REPEATED_FAILED_TOOL_CALL",
+        "REPEATED_TOOL_BLOCKER",
         "ROLE_NOT_ALLOWED",
     }
     _TERMINAL_TOOL_ERROR_CODES = {
         "NO_PROVIDERS_CONFIGURED",
         "PROVIDER_CHALLENGE",
         "PROVIDER_NOT_CONFIGURED",
+        "REPEATED_TOOL_BLOCKER",
+    }
+    _TRANSIENT_BLOCKER_ERROR_CODES = {
+        "CANCELLED",
+        "LLM_RATE_LIMIT",
+        "RATE_LIMITED",
+        "TIMEOUT",
+        "WORKER_TIMEOUT",
     }
     _SUPPRESS_TOOL_AFTER_ERROR_CODES = {
         "NO_PROVIDERS_CONFIGURED",

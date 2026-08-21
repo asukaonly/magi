@@ -26,6 +26,8 @@ class FunctionCallingStepState:
     consecutive_failed_tool_iterations: int = 0
     all_tools_failed: bool = False
     failed_tool_call_fingerprints: set[str] = field(default_factory=set)
+    failure_signature_counts: dict[str, int] = field(default_factory=dict)
+    repeated_blocker_tool_names: set[str] = field(default_factory=set)
     suppressed_tool_names: set[str] = field(default_factory=set)
     ephemeral_context_message_index: int | None = None
     ephemeral_context_original_content: Any | None = None

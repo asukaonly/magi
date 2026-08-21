@@ -923,6 +923,11 @@ change the outcome:
 - an unchanged tool call that already failed in the same loop is blocked with
   `REPEATED_FAILED_TOOL_CALL`; the model must change parameters or choose a
   different path before another attempt is allowed
+- non-transient failures also carry a semantic signature across the whole run,
+  including successful iterations between them; after the same blocker occurs
+  twice with changed arguments, the runtime suppresses that tool and emits
+  `tools_suppressed_after_repeated_blocker`, or terminates with
+  `REPEATED_TOOL_BLOCKER` when no alternative tool remains
 - final response synthesis should prefer the latest successful verification or
   listing evidence over older failed attempts, and a dry-run reporting zero
   planned operations is treated as current-state evidence rather than an

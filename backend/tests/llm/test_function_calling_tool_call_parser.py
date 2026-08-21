@@ -1170,6 +1170,81 @@ async def test_execute_with_tools_blocks_unchanged_failed_tool_retry() -> None:
 
 
 @pytest.mark.asyncio
+async def test_execute_with_tools_stops_repeated_blocker_across_success() -> None:
+    invalid_worker_result = ToolResult(
+        success=False,
+        data={"status": "failed", "failure_reason": "INVALID_WORKER_RESULT"},
+        error="Worker result must be a JSON object",
+        error_code="EXECUTION_ERROR",
+    )
+    registry = _SequencedToolRegistry(
+        results={
+            "agent": [
+                invalid_worker_result,
+                ToolResult(success=True, data={"status": "completed"}),
+                invalid_worker_result,
+            ],
+        }
+    )
+    loop_events: list[dict[str, Any]] = []
+
+    async def capture_loop_event(payload: dict[str, Any]) -> None:
+        loop_events.append(payload)
+
+    executor = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=registry,  # type: ignore[arg-type]
+        loop_event_callback=capture_loop_event,
+    )
+    llm_call_count = 0
+
+    async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
+        nonlocal llm_call_count
+        _ = kwargs
+        llm_call_count += 1
+        call_id = f"call_agent_{llm_call_count}"
+        arguments = {"description": f"worker attempt {llm_call_count}"}
+        return {
+            "content": "",
+            "assistant_message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": "agent", "arguments": "{}"},
+                    }
+                ],
+            },
+            "tool_calls": [ToolCall(id=call_id, name="agent", arguments=arguments)],
+        }
+
+    executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
+
+    result = await executor.execute_with_tools(
+        turn=UserTurnInput(
+            text="organize files",
+            attachments=[],
+            user_id=None,
+            session_id=None,
+        ),
+        system_prompt="sys",
+        selected_tools=["agent"],
+        user_id="u1",
+        max_iterations=5,
+    )
+
+    assert result.status == "failed"
+    assert result.failure_reason == "REPEATED_TOOL_BLOCKER"
+    assert len(registry.calls) == 3
+    assert any(
+        event["stage"] == "tools_suppressed_after_repeated_blocker"
+        for event in loop_events
+    )
+
+
+@pytest.mark.asyncio
 async def test_worker_origin_cannot_execute_todo_write() -> None:
     registry = _RecordingToolRegistry()
     executor = FunctionCallingOrchestrator(
