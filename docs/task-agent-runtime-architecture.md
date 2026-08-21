@@ -286,6 +286,17 @@ register and expose `powershell`; POSIX runtime workers register and expose
 leaf-worker profiles all consume that same live registry, so a model never sees
 both shell dialects or receives a shell schema that the host does not support.
 
+One-shot Bash and PowerShell execution share the SDK bounded-subprocess runner.
+It drains stdout and stderr concurrently, retains at most a 64 KiB tail for
+each stream, and can retain a complete stream only in a size-capped private
+spill directory. The product shell tools disable spill retention and return
+the bounded tails plus byte-count and truncation metadata. A timeout returns
+the partial capture after terminating the whole process tree; caller
+cancellation performs the same cleanup before it is re-raised. POSIX commands
+run in a new process group. Windows commands remain console-hidden, start
+suspended, and enter a kill-on-close Job Object before execution resumes, so
+descendants remain controllable even when the original child exits first.
+
   During function-calling turns, the execution LLM may also use a bounded
   tool-discovery helper to recover from missing-capability situations.
   This helper is not a general capability browser. It is an execution-time

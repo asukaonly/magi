@@ -2,13 +2,16 @@
 Bash command execution tool
 """
 
-import asyncio
 import ctypes
 import locale
 import os
 from dataclasses import dataclass
 from typing import Dict, Any
-from magi_plugin_sdk.subprocess import hidden_process_kwargs
+from magi_plugin_sdk.subprocess import (
+    BoundedStreamOutput,
+    BoundedSubprocessResult,
+    run_bounded_subprocess,
+)
 from ..schema import (
     Tool,
     ToolSchema,
@@ -138,8 +141,8 @@ class _BashRequest:
 
 
 @dataclass(frozen=True)
-class _BashOutput:
-    return_code: int | None
+class _ShellOutput:
+    process: BoundedSubprocessResult
     stdout: str
     stderr: str
     stdout_encoding: str
@@ -176,29 +179,46 @@ def _destructive_block_result(risk_data: dict[str, str]) -> ToolResult:
     )
 
 
-def _timeout_result(timeout: int, risk_data: dict[str, str]) -> ToolResult:
-    return ToolResult(
-        success=False,
-        error=f"Command execution timeout after {timeout}s",
-        error_code=ToolErrorCode.TIMEOUT.value,
-        data=risk_data,
-    )
+def _decode_bounded_stream(stream: BoundedStreamOutput) -> tuple[str, str]:
+    if not stream.tail:
+        return "", "utf-8"
+    if stream.truncated:
+        return stream.tail.decode("utf-8", errors="replace"), "utf-8/replace"
+    return _decode_process_output_with_encoding(stream.tail)
 
 
-def _decode_bash_output(stdout: bytes, stderr: bytes, return_code: int | None) -> _BashOutput:
-    stdout_text, stdout_encoding = (
-        _decode_process_output_with_encoding(stdout) if stdout else ("", "utf-8")
-    )
-    stderr_text, stderr_encoding = (
-        _decode_process_output_with_encoding(stderr) if stderr else ("", "utf-8")
-    )
-    return _BashOutput(
-        return_code=return_code,
+def _decode_bounded_process_output(result: BoundedSubprocessResult) -> _ShellOutput:
+    stdout_text, stdout_encoding = _decode_bounded_stream(result.stdout)
+    stderr_text, stderr_encoding = _decode_bounded_stream(result.stderr)
+    return _ShellOutput(
+        process=result,
         stdout=stdout_text,
         stderr=stderr_text,
         stdout_encoding=stdout_encoding,
         stderr_encoding=stderr_encoding,
     )
+
+
+def _bounded_output_data(output: _ShellOutput) -> dict[str, Any]:
+    process = output.process
+    return {
+        "return_code": process.returncode,
+        "stdout": output.stdout,
+        "stderr": output.stderr,
+        "stdout_encoding": output.stdout_encoding,
+        "stderr_encoding": output.stderr_encoding,
+        "stdout_total_bytes": process.stdout.total_bytes,
+        "stderr_total_bytes": process.stderr.total_bytes,
+        "stdout_truncated": process.stdout.truncated,
+        "stderr_truncated": process.stderr.truncated,
+        "stdout_spill_path": (
+            str(process.stdout.spill_path) if process.stdout.spill_path is not None else None
+        ),
+        "stderr_spill_path": (
+            str(process.stderr.spill_path) if process.stderr.spill_path is not None else None
+        ),
+        "timed_out": process.timed_out,
+    }
 
 
 def _bash_description() -> str:
@@ -319,9 +339,7 @@ class BashTool(Tool):
             return _destructive_block_result(risk_data)
 
         try:
-            output = await self._run_bash(request, risk_data)
-            if isinstance(output, ToolResult):
-                return output
+            output = await self._run_bash(request)
             return self._result_from_output(request, output, risk_data)
 
         except FileNotFoundError:
@@ -342,47 +360,40 @@ class BashTool(Tool):
     async def _run_bash(
         self,
         request: _BashRequest,
-        risk_data: dict[str, str],
-    ) -> _BashOutput | ToolResult:
-        process = await asyncio.create_subprocess_shell(
+    ) -> _ShellOutput:
+        result = await run_bounded_subprocess(
             request.command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            shell=True,
+            timeout=request.timeout,
             cwd=request.cwd,
             env=_build_subprocess_env(),
-            **hidden_process_kwargs(),
+            max_spill_bytes=0,
         )
-
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=request.timeout,
-            )
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            return _timeout_result(request.timeout, risk_data)
-
-        return _decode_bash_output(stdout, stderr, process.returncode)
+        return _decode_bounded_process_output(result)
 
     def _result_from_output(
         self,
         request: _BashRequest,
-        output: _BashOutput,
+        output: _ShellOutput,
         risk_data: dict[str, str],
     ) -> ToolResult:
         result_data = {
             "command": request.command,
-            "return_code": output.return_code,
-            "stdout": output.stdout,
-            "stderr": output.stderr,
-            "stdout_encoding": output.stdout_encoding,
-            "stderr_encoding": output.stderr_encoding,
+            **_bounded_output_data(output),
             **risk_data,
         }
+        if output.process.timed_out:
+            return ToolResult(
+                success=False,
+                error=f"Command execution timeout after {request.timeout}s",
+                error_code=ToolErrorCode.TIMEOUT.value,
+                data=result_data,
+            )
         return ToolResult(
-            success=output.return_code == 0,
+            success=output.process.returncode == 0,
             data=result_data,
-            error=output.stderr if output.return_code != 0 else None,
-            error_code=(ToolErrorCode.COMMAND_FAILED.value if output.return_code != 0 else None),
+            error=output.stderr if output.process.returncode != 0 else None,
+            error_code=(
+                ToolErrorCode.COMMAND_FAILED.value if output.process.returncode != 0 else None
+            ),
         )

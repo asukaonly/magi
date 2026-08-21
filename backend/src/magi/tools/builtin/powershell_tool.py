@@ -10,13 +10,12 @@ code page. For generic file system enumeration prefer the structured
 
 from __future__ import annotations
 
-import asyncio
 import os
 import shutil
 from dataclasses import dataclass
 from typing import Any, Dict
 
-from magi_plugin_sdk.subprocess import hidden_process_kwargs
+from magi_plugin_sdk.subprocess import run_bounded_subprocess
 from ..schema import (
     ParameterType,
     Tool,
@@ -26,7 +25,12 @@ from ..schema import (
     ToolResult,
     ToolSchema,
 )
-from .bash_tool import _build_subprocess_env, _decode_process_output_with_encoding
+from .bash_tool import (
+    _ShellOutput,
+    _bounded_output_data,
+    _build_subprocess_env,
+    _decode_bounded_process_output,
+)
 from ._bash_grading import classify_command
 
 _UTF8_PRELUDE = (
@@ -45,15 +49,6 @@ class _PowerShellRequest:
     timeout: int
     prefer_pwsh: bool
     confirm_destructive: bool
-
-
-@dataclass(frozen=True)
-class _PowerShellOutput:
-    return_code: int | None
-    stdout: str
-    stderr: str
-    stdout_encoding: str
-    stderr_encoding: str
 
 
 def _resolve_powershell_executable() -> str | None:
@@ -115,7 +110,7 @@ def _powershell_examples() -> list[dict[str, Any]]:
         {
             "input": {
                 "command": (
-                    "Get-Process | Select-Object -First 3 Name,Id | " "ConvertTo-Json -Compress"
+                    "Get-Process | Select-Object -First 3 Name,Id | ConvertTo-Json -Compress"
                 )
             },
             "output": "Returns the first three processes as JSON.",
@@ -223,9 +218,7 @@ class PowerShellTool(Tool):
             return _unsupported_result(risk_data)
 
         try:
-            output = await self._run_powershell(executable, request, risk_data)
-            if isinstance(output, ToolResult):
-                return output
+            output = await self._run_powershell(executable, request)
             return self._result_from_output(
                 executable=executable,
                 request=request,
@@ -251,69 +244,45 @@ class PowerShellTool(Tool):
         self,
         executable: str,
         request: _PowerShellRequest,
-        risk_data: dict[str, str],
-    ) -> _PowerShellOutput | ToolResult:
-        process = await asyncio.create_subprocess_exec(
-            *_argv(executable, request.command),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+    ) -> _ShellOutput:
+        result = await run_bounded_subprocess(
+            _argv(executable, request.command),
+            shell=False,
+            timeout=request.timeout,
             cwd=request.cwd,
             env=_build_subprocess_env(),
-            **hidden_process_kwargs(),
+            max_spill_bytes=0,
         )
-
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=request.timeout,
-            )
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            return ToolResult(
-                success=False,
-                error=f"PowerShell command timed out after {request.timeout}s",
-                error_code=ToolErrorCode.TIMEOUT.value,
-                data=risk_data,
-            )
-
-        stdout_text, stdout_encoding = (
-            _decode_process_output_with_encoding(stdout) if stdout else ("", "utf-8")
-        )
-        stderr_text, stderr_encoding = (
-            _decode_process_output_with_encoding(stderr) if stderr else ("", "utf-8")
-        )
-        return _PowerShellOutput(
-            return_code=process.returncode,
-            stdout=stdout_text,
-            stderr=stderr_text,
-            stdout_encoding=stdout_encoding,
-            stderr_encoding=stderr_encoding,
-        )
+        return _decode_bounded_process_output(result)
 
     def _result_from_output(
         self,
         *,
         executable: str,
         request: _PowerShellRequest,
-        output: _PowerShellOutput,
+        output: _ShellOutput,
         risk_data: dict[str, str],
     ) -> ToolResult:
         result_data = {
             "executable": executable,
             "command": request.command,
-            "return_code": output.return_code,
-            "stdout": output.stdout,
-            "stderr": output.stderr,
-            "stdout_encoding": output.stdout_encoding,
-            "stderr_encoding": output.stderr_encoding,
+            **_bounded_output_data(output),
             **risk_data,
         }
+        if output.process.timed_out:
+            return ToolResult(
+                success=False,
+                error=f"PowerShell command timed out after {request.timeout}s",
+                error_code=ToolErrorCode.TIMEOUT.value,
+                data=result_data,
+            )
         return ToolResult(
-            success=output.return_code == 0,
+            success=output.process.returncode == 0,
             data=result_data,
-            error=output.stderr if output.return_code != 0 else None,
-            error_code=(ToolErrorCode.COMMAND_FAILED.value if output.return_code != 0 else None),
+            error=output.stderr if output.process.returncode != 0 else None,
+            error_code=(
+                ToolErrorCode.COMMAND_FAILED.value if output.process.returncode != 0 else None
+            ),
         )
 
     @staticmethod

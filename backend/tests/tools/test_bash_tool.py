@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+from magi_plugin_sdk.subprocess import BoundedStreamOutput, BoundedSubprocessResult
 from magi.tools.builtin.bash_tool import (
+    BashTool,
     _build_subprocess_env,
+    _decode_bounded_stream,
     _decode_process_output_with_encoding,
 )
+from magi.tools.schema import ToolExecutionContext
 
 
 def test_decode_process_output_prefers_utf8(monkeypatch):
@@ -104,12 +111,75 @@ def test_build_subprocess_env_removes_proxy_when_disabled(monkeypatch):
 def test_build_subprocess_env_uses_configured_proxy(monkeypatch):
     monkeypatch.setattr(
         "magi.config.get_config",
-        lambda: SimpleNamespace(
-            network=SimpleNamespace(proxy_url=lambda: "http://127.0.0.1:7890")
-        ),
+        lambda: SimpleNamespace(network=SimpleNamespace(proxy_url=lambda: "http://127.0.0.1:7890")),
     )
 
     env = _build_subprocess_env()
 
     assert env["HTTP_PROXY"] == "http://127.0.0.1:7890"
     assert env["HTTPS_PROXY"] == "http://127.0.0.1:7890"
+
+
+def test_decode_truncated_utf8_tail_uses_replacement() -> None:
+    encoded = "前后".encode("utf-8")
+    stream = BoundedStreamOutput(
+        tail=encoded[1:],
+        total_bytes=len(encoded) + 10,
+        truncated=True,
+        spill_path=None,
+    )
+
+    decoded, encoding = _decode_bounded_stream(stream)
+
+    assert decoded.endswith("后")
+    assert "\ufffd" in decoded
+    assert encoding == "utf-8/replace"
+
+
+@pytest.mark.asyncio
+async def test_bash_timeout_keeps_partial_output_and_bounded_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[object, dict[str, object]]] = []
+    spill_path = Path("C:/temp/full-stdout.bin")
+
+    async def fake_run(command: object, **kwargs: object) -> BoundedSubprocessResult:
+        calls.append((command, kwargs))
+        return BoundedSubprocessResult(
+            returncode=1,
+            stdout=BoundedStreamOutput(
+                tail="部分输出".encode("utf-8"),
+                total_bytes=100_000,
+                truncated=True,
+                spill_path=spill_path,
+            ),
+            stderr=BoundedStreamOutput(
+                tail=b"",
+                total_bytes=0,
+                truncated=False,
+                spill_path=None,
+            ),
+            timed_out=True,
+        )
+
+    monkeypatch.setattr("magi.tools.builtin.bash_tool.run_bounded_subprocess", fake_run)
+    tool = BashTool()
+    result = await tool.execute(
+        {"command": "echo hi", "cwd": ".", "timeout": 7},
+        ToolExecutionContext(agent_id="test-agent", workspace="."),
+    )
+
+    assert result.success is False
+    assert result.error_code == "TIMEOUT"
+    assert result.data["command"] == "echo hi"
+    assert result.data["stdout"] == "部分输出"
+    assert result.data["return_code"] == 1
+    assert result.data["stdout_total_bytes"] == 100_000
+    assert result.data["stdout_truncated"] is True
+    assert result.data["stdout_spill_path"] == str(spill_path)
+    assert result.data["timed_out"] is True
+    command, kwargs = calls[0]
+    assert command == "echo hi"
+    assert kwargs["shell"] is True
+    assert kwargs["timeout"] == 7
+    assert kwargs["max_spill_bytes"] == 0
