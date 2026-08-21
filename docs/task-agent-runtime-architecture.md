@@ -323,10 +323,18 @@ both shell dialects or receives a shell schema that the host does not support.
   `TurnRouteResolver` then owns final per-turn route resolution. It derives the
   dispatch shape from the coarse route, attachments, orchestration signal, and
   final selected tools; it also builds the provider-facing tool surface by
-  appending resident runtime-control tools, conditionally exposing `agent`, and
+  appending resident runtime-control tools, preserving explicit capability
+  selections, and
   applying same-session tool-superset reuse when it is safe for the turn's write
   policy. `FunctionCallingHandler` consumes that resolved tool surface; it does
   not reimplement those routing rules.
+
+  `needs_orchestration=maybe` is advisory only. It neither exposes `agent` nor
+  forces a tool loop: explicit selected tools determine whether the turn enters
+  function calling. Required orchestration still selects planned fan-out, and
+  an explicitly selected `agent` tool remains available for bounded delegation.
+  Tool-superset caching never restores `agent` when it is absent from the current
+  route.
 
   For session-bound function-calling turns, `FunctionCallingHandler` remains the
   chat-mode entry point, while `FunctionCallingCheckpointLoop` owns the

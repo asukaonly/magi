@@ -2538,10 +2538,8 @@ async def test_execute_context_user_prefs_wins_over_provider():
 
 
 @pytest.mark.asyncio
-async def test_coordinator_maybe_orchestration_yields_tool_loop() -> None:
-    """P3 (ADR-0005): needs_orchestration='maybe' derives to tool_loop /
-    FUNCTION_CALLING — a loop the `agent` tool gets injected into for in-loop
-    self-escalation — NOT a pre-planned plan_fanout."""
+async def test_coordinator_maybe_without_tools_yields_direct_reply() -> None:
+    """Advisory maybe-orchestration does not force tools or delegation."""
     coordinator = ChatExecutionCoordinator(
         context_decider=_FakeContextDecider(
             RouteDecision(
@@ -2581,9 +2579,9 @@ async def test_coordinator_maybe_orchestration_yields_tool_loop() -> None:
 
     decision = await coordinator.match_intent(context)
 
-    assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
+    assert decision.execution_mode == ExecutionMode.DIRECT_LLM
     assert decision.route_decision is not None
-    assert decision.route_decision.graph_shape == "tool_loop"
+    assert decision.route_decision.graph_shape == "reply"
     assert decision.route_decision.needs_orchestration == "maybe"
 
 

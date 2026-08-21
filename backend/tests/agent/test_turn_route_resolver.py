@@ -78,7 +78,30 @@ def test_turn_route_resolver_builds_execution_tool_surface() -> None:
         session_key="chat:session-1",
     )
 
-    assert selected_tools == ["weather", "todo_write", "find-relevant-tools", "agent"]
+    assert selected_tools == ["weather", "todo_write", "find-relevant-tools"]
+
+
+def test_turn_route_resolver_preserves_explicit_agent_selection() -> None:
+    module = _resolver_module()
+    resolver = module.TurnRouteResolver(tool_exposure_policy=ToolExposurePolicy())
+    route = RouteDecision(
+        profile="research",
+        graph_shape="tool_loop",
+        complexity="medium",
+        tool_need="direct",
+        tools=["agent"],
+        needs_orchestration="maybe",
+    )
+    registry = _FakeToolRegistry(["agent", "find-relevant-tools"])
+
+    selected_tools = resolver.resolve_execution_tools(
+        requested_tools=["agent"],
+        route_decision=route,
+        tool_registry=registry,
+        session_key="chat:session-explicit-agent",
+    )
+
+    assert selected_tools == ["agent", "find-relevant-tools"]
 
 
 def test_function_calling_handler_delegates_execution_tool_routing() -> None:

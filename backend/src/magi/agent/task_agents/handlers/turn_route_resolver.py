@@ -45,8 +45,6 @@ def derive_execution_shape(
         return SHAPE_REPLY
     if orchestration == ORCH_REQUIRED:
         return SHAPE_PLAN_FANOUT
-    if orchestration == ORCH_MAYBE:
-        return SHAPE_TOOL_LOOP
     if has_tools:
         return SHAPE_TOOL_LOOP
     return SHAPE_REPLY
@@ -178,15 +176,6 @@ class TurnRouteResolver:
             for resident_tool in resolve_resident_system_tools(tool_registry):
                 if resident_tool not in selected_tools:
                     selected_tools.append(resident_tool)
-
-        if (
-            tool_registry is not None
-            and getattr(route_decision, "needs_orchestration", ORCH_NONE) == ORCH_MAYBE
-            and "agent" not in selected_tools
-            and registered_tools is not None
-            and "agent" in registered_tools
-        ):
-            selected_tools.append("agent")
 
         if tool_registry is None or not hasattr(self._tool_exposure_policy, "resolve"):
             return selected_tools
