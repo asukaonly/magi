@@ -611,6 +611,40 @@ def test_real_adapters_expose_base_url_for_host_aware_keying() -> None:
     assert anthropic_adapter.base_url == "https://proxy.example.com/v1"
 
 
+def test_anthropic_adapter_uses_sdk_owned_http_client(monkeypatch) -> None:
+    from magi.llm import anthropic as anthropic_module
+
+    sdk_http_client = object()
+    captured: dict[str, Any] = {}
+
+    def build_http_client(**kwargs):
+        captured["http_client_options"] = kwargs
+        return sdk_http_client
+
+    def build_anthropic_client(**kwargs):
+        captured["client_options"] = kwargs
+        return SimpleNamespace(messages=SimpleNamespace())
+
+    monkeypatch.setattr(
+        anthropic_module,
+        "DefaultAsyncHttpxClient",
+        build_http_client,
+    )
+    monkeypatch.setattr(anthropic_module, "AsyncAnthropic", build_anthropic_client)
+
+    AnthropicAdapter(
+        api_key="sk-test",
+        model="claude-sonnet-4-6",
+        proxy_url="http://127.0.0.1:8080",
+    )
+
+    assert captured["http_client_options"] == {
+        "proxy": "http://127.0.0.1:8080",
+        "trust_env": False,
+    }
+    assert captured["client_options"]["http_client"] is sdk_http_client
+
+
 @pytest.mark.asyncio
 async def test_chat_response_exposes_openai_metadata_for_empty_content():
     message = SimpleNamespace(content="", tool_calls=[], role="assistant")
