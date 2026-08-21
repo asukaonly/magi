@@ -19,6 +19,7 @@ describe("onboarding progress restoration", () => {
       seedSlug: "ember",
       customPersonas: [{ slug: "private-persona", description: "private" }],
       personaCreationDraft: { description: "unfinished private draft" },
+      personaPreviewRoute: "create",
       firstContextPluginIds: ["chrome-history"],
       firstContextCountsByPluginId: { "chrome-history": 42 },
       firstContextProgress: {
@@ -51,6 +52,7 @@ describe("onboarding progress restoration", () => {
       firstContextCountsByPluginId: {},
       customPersonas: [],
       personaCreationDraft: null,
+      personaPreviewRoute: "picker",
       firstContextProgress: {
         route: "story",
         questionId: "easy_topic",
@@ -83,6 +85,7 @@ describe("onboarding progress restoration", () => {
         current: 0,
         seedSlug: null,
         customPersonas: [],
+        personaPreviewRoute: "picker",
         firstContextProgress: DEFAULT_FIRST_CONTEXT_PROGRESS,
       }),
     );
@@ -182,6 +185,7 @@ describe("onboarding progress restoration", () => {
         seedSlug: "custom-1",
         customPersonas: [customPersona],
         personaCreationDraft: creationDraft,
+        personaPreviewRoute: "chat",
         firstContextPluginIds: ["chrome-history"],
         firstContextCountsByPluginId: { "chrome-history": 42 },
         firstContextProgress,
@@ -194,11 +198,36 @@ describe("onboarding progress restoration", () => {
     expect(restored.seedSlug).toBe("custom-1");
     expect(restored.customPersonas).toEqual([customPersona]);
     expect(restored.personaCreationDraft).toEqual(creationDraft);
+    expect(restored.personaPreviewRoute).toBe("chat");
     expect(restored.firstContextPluginIds).toEqual(["chrome-history"]);
     expect(restored.firstContextCountsByPluginId).toEqual({
       "chrome-history": 42,
     });
     expect(restored.firstContextProgress).toEqual(firstContextProgress);
+  });
+
+  it("keeps a retained draft inactive when no persona subview was saved", () => {
+    const creationDraft = {
+      draftId: "draft-1",
+      personaId: "persona-1",
+      phase: "editing",
+      description: "unfinished",
+    };
+
+    const restored = restoreOnboardingProgress(
+      JSON.stringify({
+        version: 1,
+        current: 2,
+        values: DEFAULT_SYSTEM_CONFIG,
+        seedSlug: "ember",
+        personaCreationDraft: creationDraft,
+      }),
+      DEFAULT_SYSTEM_CONFIG,
+      null,
+    );
+
+    expect(restored.personaCreationDraft).toEqual(creationDraft);
+    expect(restored.personaPreviewRoute).toBe("picker");
   });
 
   it("keeps credentials server-owned and removes legacy secrets from the browser snapshot", () => {
@@ -279,6 +308,7 @@ describe("onboarding progress restoration", () => {
         llm: { providers: { openai: { api_key: "sk-values-secret" } } },
       },
       seedSlug: "ember",
+      personaPreviewRoute: "chat",
       api_key: "sk-root-secret",
       unknownConfig: { token: "nested-secret" },
       customPersonas: [{
@@ -300,6 +330,7 @@ describe("onboarding progress restoration", () => {
       current: 1,
       values: { preferences: { language: "en" } },
       seedSlug: "ember",
+      personaPreviewRoute: "chat",
       customPersonas: [{
         slug: "ember",
         name: "Ember",

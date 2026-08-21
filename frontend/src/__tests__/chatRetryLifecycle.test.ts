@@ -244,6 +244,7 @@ describe('chat retry lifecycle', () => {
       values: { preferences: { language: 'zh' } },
       customPersonas: [{ description: 'private persona draft' }],
       personaCreationDraft: { description: 'private draft' },
+      personaPreviewRoute: 'create',
       firstContextProgress: {
         draft: 'private answer',
         sessionId: 'session-a',
@@ -352,6 +353,7 @@ describe('chat retry lifecycle', () => {
     expect(onboarding.current).toBe(2);
     expect(onboarding.customPersonas).toEqual([]);
     expect(onboarding.personaCreationDraft).toBeNull();
+    expect(onboarding.personaPreviewRoute).toBe('picker');
     expect(onboarding.firstContextProgress).toMatchObject({
       draft: '',
       sessionId: null,

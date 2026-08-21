@@ -1,4 +1,5 @@
 import { STORAGE_KEYS } from "../../constants/app";
+import { isPersonaPreviewRoute } from "./persona-preview/personaPreviewRoute";
 
 export const ONBOARDING_PROGRESS_VERSION = 1;
 
@@ -74,6 +75,9 @@ export function sanitizeStoredOnboardingProgress(
       personaCreationDraft: stripOnboardingCredentialFields(
         parsed.personaCreationDraft,
       ),
+      personaPreviewRoute: isPersonaPreviewRoute(parsed.personaPreviewRoute)
+        ? parsed.personaPreviewRoute
+        : "picker",
       firstContextPluginIds: stripOnboardingCredentialFields(
         parsed.firstContextPluginIds,
       ),
@@ -128,6 +132,7 @@ export function clearOnboardingContentState(
       : {};
     snapshot.customPersonas = [];
     snapshot.personaCreationDraft = null;
+    snapshot.personaPreviewRoute = "picker";
     snapshot.firstContextCountsByPluginId = {};
     snapshot.firstContextProgress = {
       ...firstContext,
@@ -152,6 +157,7 @@ export function clearOnboardingContentState(
       || !Array.isArray(persisted.customPersonas)
       || persisted.customPersonas.length !== 0
       || persisted.personaCreationDraft !== null
+      || persisted.personaPreviewRoute !== "picker"
       || !persisted.firstContextCountsByPluginId
       || typeof persisted.firstContextCountsByPluginId !== "object"
       || Array.isArray(persisted.firstContextCountsByPluginId)

@@ -12,6 +12,10 @@ import type {
   PersonaCreationDraft,
 } from "./persona-preview/personaPreviewModel";
 import {
+  isPersonaPreviewRoute,
+  type PersonaPreviewRoute,
+} from "./persona-preview/personaPreviewRoute";
+import {
   ONBOARDING_PROGRESS_VERSION,
   sanitizeOnboardingProgressStorage,
   stripOnboardingCredentialFields,
@@ -58,6 +62,7 @@ export interface OnboardingProgressState {
   seedSlug: string | null;
   customPersonas: CustomPersonaDraft[];
   personaCreationDraft: PersonaCreationDraft | null;
+  personaPreviewRoute: PersonaPreviewRoute;
   firstContextPluginIds: string[];
   firstContextCountsByPluginId: Record<string, number | null>;
   firstContextProgress: FirstContextProgress;
@@ -69,6 +74,7 @@ export interface SaveOnboardingProgress {
   seedSlug?: string | null;
   customPersonas?: CustomPersonaDraft[];
   personaCreationDraft?: PersonaCreationDraft | null;
+  personaPreviewRoute?: PersonaPreviewRoute;
   firstContextPluginIds?: string[];
   firstContextCountsByPluginId?: Record<string, number | null>;
   firstContextProgress?: FirstContextProgress;
@@ -112,6 +118,7 @@ export function serializeOnboardingProgress(
     personaCreationDraft: stripOnboardingCredentialFields(
       state.personaCreationDraft,
     ) as PersonaCreationDraft | null,
+    personaPreviewRoute: state.personaPreviewRoute,
     firstContextPluginIds: state.firstContextPluginIds,
     firstContextCountsByPluginId: stripOnboardingCredentialFields(
       state.firstContextCountsByPluginId,
@@ -214,6 +221,7 @@ function createInitialProgress(
     seedSlug: null,
     customPersonas: [],
     personaCreationDraft: null,
+    personaPreviewRoute: "picker",
     firstContextPluginIds: [],
     firstContextCountsByPluginId: {},
     firstContextProgress: DEFAULT_FIRST_CONTEXT_PROGRESS,
@@ -271,6 +279,9 @@ export function restoreOnboardingProgress(
         typeof parsed.personaCreationDraft === "object"
           ? parsed.personaCreationDraft
           : null,
+      personaPreviewRoute: isPersonaPreviewRoute(parsed.personaPreviewRoute)
+        ? parsed.personaPreviewRoute
+        : "picker",
       firstContextPluginIds: Array.isArray(parsed.firstContextPluginIds)
         ? parsed.firstContextPluginIds.filter(
             (pluginId): pluginId is string =>

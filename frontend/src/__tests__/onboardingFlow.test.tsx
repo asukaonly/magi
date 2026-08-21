@@ -2567,6 +2567,42 @@ describe("OnboardingFlow (linear 5-step)", () => {
     ).toBeEnabled();
   });
 
+  it("restores the selected persona after visiting model setup with a retained draft", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterPersonaStep(user);
+    await user.click(screen.getByTestId("persona-create-custom"));
+    await user.type(
+      screen.getByTestId("persona-custom-description"),
+      "a draft worth keeping",
+    );
+    await user.click(screen.getByTestId("persona-back-to-picker"));
+    await user.click(screen.getByTestId("persona-chat-ember"));
+
+    expect(screen.getByTestId("persona-mode-chat")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "actions.previous" }),
+    );
+    await screen.findByTestId("llm-setup-simple");
+    await waitFor(() =>
+      expect(screen.queryByTestId("persona-mode-chat")).not.toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    expect(await screen.findByTestId("persona-mode-chat")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.queryByTestId("persona-custom-description"),
+    ).not.toBeInTheDocument();
+  });
+
   it("reuses one custom persona id when activation fails and the user retries", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);

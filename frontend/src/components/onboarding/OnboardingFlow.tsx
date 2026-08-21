@@ -60,6 +60,7 @@ import { useOnboardingLlmSetup } from "./useOnboardingLlmSetup";
 import { usePersonaConfirmation } from "./usePersonaConfirmation";
 import { useFirstContextSubmission } from "./useFirstContextSubmission";
 import { waitForRuntimeReadyAfterOnboarding } from "./firstContextSubmissionFlow";
+import type { PersonaPreviewRoute } from "./persona-preview/personaPreviewRoute";
 
 const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
 const ONBOARDING_SAVE_TIMEOUT_MS = 20_000;
@@ -126,6 +127,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     seedSlug,
     customPersonas,
     personaCreationDraft,
+    personaPreviewRoute,
     firstContextPluginIds,
     firstContextCountsByPluginId,
     firstContextProgress,
@@ -340,6 +342,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     nextFirstContextCountsByPluginId?: Record<string, number | null>,
     nextFirstContextProgress?: FirstContextProgress,
     nextPersonaCreationDraft?: PersonaCreationDraft | null,
+    nextPersonaPreviewRoute?: PersonaPreviewRoute,
   ) => {
     const saved = onboardingProgressRef.current;
     saveOnboardingProgress({
@@ -352,6 +355,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         nextPersonaCreationDraft === undefined
           ? saved.personaCreationDraft
           : nextPersonaCreationDraft,
+      personaPreviewRoute:
+        nextPersonaPreviewRoute ?? saved.personaPreviewRoute,
       firstContextPluginIds:
         nextFirstContextPluginIds ?? saved.firstContextPluginIds,
       firstContextCountsByPluginId:
@@ -851,6 +856,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           llmConfig={llmValue}
           initialCustomPersonas={customPersonas}
           initialCreationDraft={personaCreationDraft}
+          initialRoute={personaPreviewRoute}
           onActiveSeedChange={(slug) => {
             const saved = onboardingProgressRef.current;
             if (slug === saved.seedSlug) {
@@ -883,6 +889,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               saved.firstContextCountsByPluginId,
               saved.firstContextProgress,
               draft,
+            );
+          }}
+          onRouteChange={(route) => {
+            const saved = onboardingProgressRef.current;
+            saveProgress(
+              form.getFieldsValue(true),
+              saved.seedSlug,
+              saved.customPersonas,
+              saved.current,
+              saved.firstContextPluginIds,
+              saved.firstContextCountsByPluginId,
+              saved.firstContextProgress,
+              saved.personaCreationDraft,
+              route,
             );
           }}
           onGeneratingChange={setPersonaGenerating}

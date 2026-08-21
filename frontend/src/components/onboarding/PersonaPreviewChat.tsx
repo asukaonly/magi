@@ -19,6 +19,7 @@ import { PreviewAvatar } from "./persona-preview/PersonaPreviewPrimitives";
 import { PersonaPicker } from "./persona-preview/PersonaPicker";
 import { PersonaCreationPanel } from "./persona-preview/PersonaCreationPanel";
 import { PersonaPreviewDetail } from "./persona-preview/PersonaPreviewDetail";
+import type { PersonaPreviewRoute } from "./persona-preview/personaPreviewRoute";
 
 export type {
   CustomPersonaDraft,
@@ -56,6 +57,10 @@ export interface PersonaPreviewChatProps {
   initialCreationDraft?: PersonaCreationDraft | null;
   /** Persists the unfinished custom-persona creation state through onboarding reloads. */
   onCreationDraftChange?: (draft: PersonaCreationDraft | null) => void;
+  /** Restores the last visible persona picker, preview, profile, or creation view. */
+  initialRoute?: PersonaPreviewRoute;
+  /** Persists the visible persona subview independently from any retained draft. */
+  onRouteChange?: (route: PersonaPreviewRoute) => void;
   /**
    * Fires when persona generation starts (true) / finishes (false), so the
    * parent can disable step navigation while a generation is in flight.
@@ -76,6 +81,8 @@ export function PersonaPreviewChat({
   onCustomPersonasChange,
   initialCreationDraft,
   onCreationDraftChange,
+  initialRoute,
+  onRouteChange,
   onGeneratingChange,
 }: PersonaPreviewChatProps): JSX.Element {
   const { t } = useTranslation("onboarding");
@@ -87,11 +94,18 @@ export function PersonaPreviewChat({
   const customDrafts = registry.drafts;
   const railItems = buildRailItems(previews, customDrafts);
 
-  const [mode, setMode] = useState<"chat" | "profile" | "create">(
-    () => (initialCreationDraft ? "create" : "chat"),
+  const [route, setRoute] = useState<PersonaPreviewRoute>(
+    () => initialRoute ?? (initialCreationDraft ? "create" : "picker"),
   );
-  const [stage, setStage] = useState<"picker" | "detail">(
-    () => (initialCreationDraft ? "detail" : "picker"),
+  const stage = route === "picker" ? "picker" : "detail";
+  const mode =
+    route === "profile" ? "profile" : route === "create" ? "create" : "chat";
+  const changeRoute = useCallback(
+    (nextRoute: PersonaPreviewRoute) => {
+      setRoute(nextRoute);
+      onRouteChange?.(nextRoute);
+    },
+    [onRouteChange],
   );
   const [presetProfiles, setPresetProfiles] = useState<
     Record<string, PresetProfileState>
@@ -107,13 +121,11 @@ export function PersonaPreviewChat({
     registry,
   });
   const handleGenerated = useCallback(() => {
-    setMode("chat");
-    setStage("detail");
-  }, []);
+    changeRoute("chat");
+  }, [changeRoute]);
   const handleEditRequested = useCallback(() => {
-    setMode("create");
-    setStage("detail");
-  }, []);
+    changeRoute("create");
+  }, [changeRoute]);
   const generation = usePersonaGenerationController({
     disabled,
     llmConfig,
@@ -177,10 +189,7 @@ export function PersonaPreviewChat({
       if (item.isCustom || item.config) return;
       const key = `${profileLocale}:${item.slug}`;
       const cached = presetProfiles[key];
-      if (
-        !force &&
-        (cached?.status === "loading" || cached?.status === "success")
-      ) {
+      if (!force && cached) {
         return;
       }
 
@@ -210,24 +219,27 @@ export function PersonaPreviewChat({
     [presetProfiles, profileLocale],
   );
 
+  useEffect(() => {
+    if (route === "profile" && activeItem) {
+      void loadPresetProfile(activeItem);
+    }
+  }, [activeItem, loadPresetProfile, route]);
+
   const showActiveProfile = useCallback(() => {
     if (!activeItem) return;
-    setMode("profile");
-    void loadPresetProfile(activeItem);
-  }, [activeItem, loadPresetProfile]);
+    changeRoute("profile");
+  }, [activeItem, changeRoute]);
 
   const enterPersona = useCallback(
     (item: RailItem, nextMode: "chat" | "profile") => {
       onActiveSeedChange(item.slug);
       if (nextMode === "profile") {
-        setMode("profile");
-        void loadPresetProfile(item);
+        changeRoute("profile");
       } else {
-        setMode("chat");
+        changeRoute("chat");
       }
-      setStage("detail");
     },
-    [loadPresetProfile, onActiveSeedChange],
+    [changeRoute, onActiveSeedChange],
   );
 
   return (
@@ -247,7 +259,7 @@ export function PersonaPreviewChat({
             <button
               type="button"
               data-testid="persona-back-to-picker"
-              onClick={() => setStage('picker')}
+              onClick={() => changeRoute("picker")}
               disabled={disabled}
               aria-label={t('personaPreview.backToPicker')}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-40 motion-reduce:transition-none"
@@ -280,7 +292,7 @@ export function PersonaPreviewChat({
               type="button"
               data-testid="persona-mode-chat"
               aria-pressed={mode === 'chat'}
-              onClick={() => setMode('chat')}
+              onClick={() => changeRoute("chat")}
               className={cn(
                 'rounded-md px-3 py-1.5 text-sm transition-colors',
                 mode === 'chat'
@@ -339,8 +351,7 @@ export function PersonaPreviewChat({
           controller={generation}
           shouldReduceMotion={shouldReduceMotion}
           onCancel={() => {
-            setMode("chat");
-            setStage("picker");
+            changeRoute("picker");
             cancelCreation();
           }}
         />
