@@ -4927,11 +4927,10 @@
   "desktop": {
     "quitConfirm": {
       "title": "退出 Magi？",
-      "description": "退出后会终止后台任务并关闭本地运行时。",
+      "description": "退出后会终止正在运行的后台任务，并关闭本地运行时。",
       "cancel": "继续驻留",
       "confirm": "退出",
       "dontAskAgain": "不再询问",
-      "warning": "正在运行的后台任务会被停止，本地运行时也会一起关闭。",
       "closeLabel": "关闭退出提示"
     },
     "health": {

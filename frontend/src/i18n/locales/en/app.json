@@ -4929,11 +4929,10 @@
   "desktop": {
     "quitConfirm": {
       "title": "Quit Magi?",
-      "description": "Quitting will stop backend tasks and shut down the local runtime.",
+      "description": "Quitting will stop running background tasks and shut down the local runtime.",
       "cancel": "Keep Running",
       "confirm": "Quit",
       "dontAskAgain": "Don't ask again",
-      "warning": "Running background tasks will be stopped, and the local runtime will shut down.",
       "closeLabel": "Close quit prompt"
     },
     "health": {
