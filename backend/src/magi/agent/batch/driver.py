@@ -14,6 +14,7 @@ from typing import Any
 
 from magi_plugin_sdk.run_trigger import RunTrigger
 
+from ...tools.platform_tools import native_shell_tool_name
 from ..background import BackgroundTaskSpec, BackgroundTaskTriggerSource
 from .contracts import BatchJobStatus
 from .runner import (
@@ -25,7 +26,14 @@ from .runner import (
 )
 from .store import default_batch_store
 
-_DEFAULT_TOOLS = ["web-search", "web-fetch", "bash", "file_list", "file_info", "batch_item_update"]
+_DEFAULT_TOOLS = [
+    "web-search",
+    "web-fetch",
+    native_shell_tool_name(),
+    "file_list",
+    "file_info",
+    "batch_item_update",
+]
 
 
 class BatchDriver:

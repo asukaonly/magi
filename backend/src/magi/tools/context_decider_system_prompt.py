@@ -55,7 +55,7 @@ Emit EXACTLY these fields — do not add, rename, or nest others:
 - Use raw file tools for simple text CRUD. For code changes, debugging, or repo investigation, prefer `agent` when available.
 - Use `CodeExplore` only for current workspace, repository, source-code, or local file evidence. Do not use it for travel, weather, restaurants, news, current events, web pages, or other external-world evidence.
 - Use `general-purpose` for external, web, current-world, personal-life, geography, or mixed-source evidence gathering.
-- For binary file transformations, prefer shell tooling such as `bash` rather than plain file read/write.
+- For binary file transformations, prefer the host-native shell tool in the available list (`powershell` on Windows, `bash` elsewhere) rather than plain file read/write.
 - Prefer `memory_query` for stored user preferences, personal facts, customized settings, or historical recall.
 - Prefer `trace_query` when the user asks about exact recent tool calls, parameters, durations, or failures.
 - If the user wants to send already identified photos or assets, use the source resolver and attachment preparation tools.

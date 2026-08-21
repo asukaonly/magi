@@ -1,4 +1,4 @@
-"""Lexical bash/shell command risk classifier.
+"""Lexical Bash/PowerShell command risk classifier.
 
 Three tiers:
 
@@ -256,9 +256,9 @@ def _classify_token_for_high_bump(tokens: list[str]) -> bool:
         # ``pip list``, ``npm ls`` etc. are read-only and never reach this
         # point (handled earlier as read_only). Any *other* subcommand of an
         # installer head is treated as side-effect-publishing.
-        if rest and rest[0] in {"--version", "-V", "--help", "-h", "version"}:
-            return False
-        return True
+        return not (
+            rest and rest[0] in {"--version", "-V", "--help", "-h", "version"}
+        )
     if head == "git":
         if not rest:
             return False
@@ -270,7 +270,7 @@ def _classify_token_for_high_bump(tokens: list[str]) -> bool:
     return False
 
 
-def classify_for_permission(arguments: dict[str, Any]) -> "ClassificationResult":
+def classify_for_permission(arguments: dict[str, Any]) -> ClassificationResult:
     """Bridge ``classify_command`` into the permission classifier's contract.
 
     Mapping:

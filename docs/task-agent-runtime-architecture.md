@@ -280,6 +280,12 @@ orchestration while preserving decomposition for source-heavy news
 research, repository-wide analysis, migration plans, and other broad
 verification work.
 
+Shell capability is host-native at registration time. Windows runtime workers
+register and expose `powershell`; POSIX runtime workers register and expose
+`bash`. Context routing, discovery, recommendation, capability listing, and
+leaf-worker profiles all consume that same live registry, so a model never sees
+both shell dialects or receives a shell schema that the host does not support.
+
   During function-calling turns, the execution LLM may also use a bounded
   tool-discovery helper to recover from missing-capability situations.
   This helper is not a general capability browser. It is an execution-time

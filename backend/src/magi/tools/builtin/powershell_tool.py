@@ -192,7 +192,7 @@ class PowerShellTool(Tool):
                 "COM, Get-Process, Get-CimInstance, etc.). Output encoding is "
                 "forced to UTF-8 inside the PowerShell session. For generic "
                 "file system enumeration prefer the `file_list` / `file_info` "
-                "tools; for cross-platform shell execution prefer `bash`. Tip: "
+                "tools. This is the host-native shell on Windows. Tip: "
                 "end pipelines with `| ConvertTo-Json -Depth 4 -Compress` so "
                 "the agent receives structured data instead of formatted "
                 "tables."

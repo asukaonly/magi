@@ -26,6 +26,7 @@ from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.runtime_trace.store import RuntimeTraceStore
 from magi.runtime_trace.subscribers.runtime_trace_subscriber import RuntimeTraceSubscriber
 from magi.tools.schema import ToolExecutionContext
+from magi.tools.platform_tools import native_shell_tool_name
 
 
 async def _flush_trace_bus(bus, subscriber) -> None:
@@ -48,6 +49,7 @@ class _FakeToolRegistry:
             "grep",
             "file_read",
             "bash",
+            "powershell",
             "web-search",
             "find-relevant-tools",
             "agent",
@@ -66,6 +68,7 @@ class _FakeToolRegistryWithTodo:
             "file_info",
             "verify",
             "bash",
+            "powershell",
             "todo_write",
             "agent",
         ]
@@ -958,6 +961,10 @@ def test_coding_worker_tool_profile_excludes_todo_write() -> None:
 
     assert "todo_write" not in selected_tools
     assert "file_write" in selected_tools
+    native_shell = native_shell_tool_name()
+    non_native_shell = "bash" if native_shell == "powershell" else "powershell"
+    assert native_shell in selected_tools
+    assert non_native_shell not in selected_tools
 
 
 @pytest.mark.asyncio

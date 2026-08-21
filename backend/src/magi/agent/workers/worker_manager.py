@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, Optional
 from ...agent.orchestration import get_orchestration_store
 from ...core.logger import get_logger
 from ...runtime_trace import RuntimeTraceStore
+from ...tools.platform_tools import native_shell_tool_name
 from ...tools.registry import ToolRegistry, tool_registry
 from .worker_actions import WorkerActionMixin
 from .worker_execution import WorkerExecutionMixin
@@ -85,7 +86,7 @@ class WorkerAgentManager(
         "grep",
         "file_list",
         "file_info",
-        "bash",
+        native_shell_tool_name(),
         "find-relevant-tools",
     ]
 

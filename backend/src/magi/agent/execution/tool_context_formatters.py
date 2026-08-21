@@ -29,9 +29,12 @@ class ToolContextFormatterRegistry:
     ) -> "ToolContextFormatterRegistry":
         registry = cls()
         registry.register("glob", lambda data: compact_glob_tool_data(data, max_items=max_items))
-        registry.register(
-            "bash", lambda data: compact_bash_tool_data(data, max_text_chars=max_text_chars)
-        )
+
+        def shell_formatter(data: Dict[str, Any]) -> Dict[str, Any]:
+            return compact_shell_tool_data(data, max_text_chars=max_text_chars)
+
+        registry.register("bash", shell_formatter)
+        registry.register("powershell", shell_formatter)
         registry.register("grep", lambda data: compact_grep_tool_data(data, max_items=max_items))
         registry.register(
             "file_list", lambda data: compact_file_list_tool_data(data, max_items=max_items)
@@ -92,7 +95,7 @@ def compact_glob_tool_data(data: Dict[str, Any], *, max_items: int) -> Dict[str,
     }
 
 
-def compact_bash_tool_data(data: Dict[str, Any], *, max_text_chars: int) -> Dict[str, Any]:
+def compact_shell_tool_data(data: Dict[str, Any], *, max_text_chars: int) -> Dict[str, Any]:
     stdout = str(data.get("stdout", ""))
     stderr = str(data.get("stderr", ""))
     return {

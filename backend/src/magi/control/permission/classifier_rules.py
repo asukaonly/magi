@@ -13,7 +13,7 @@ from .contracts import RiskLevel
 def _classify_shell(
     arguments: dict[str, Any], *, workspace: str | None = None
 ) -> ClassificationResult:
-    """Bridge to the shared bash command classifier.
+    """Bridge to the shared shell command classifier.
 
     The classifier lives in the SDK (:mod:`magi_plugin_sdk.command_risk`), a
     downward (allowed) dependency for control. Imported lazily to keep this
@@ -191,6 +191,7 @@ def _is_outside_workspace(path: str, workspace: str | None) -> bool:
 
 RULES: dict[str, Callable[..., ClassificationResult]] = {
     "bash": _classify_shell,
+    "powershell": _classify_shell,
     "shell": _classify_shell,
     "execute_command": _classify_shell,
     "run_command": _classify_shell,

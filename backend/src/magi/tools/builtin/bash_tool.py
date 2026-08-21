@@ -203,7 +203,8 @@ def _decode_bash_output(stdout: bytes, stderr: bytes, return_code: int | None) -
 
 def _bash_description() -> str:
     return (
-        "Execute Bash/Shell commands. Use this for running external programs "
+        "Execute Bash/Shell commands on POSIX hosts. Use this for running "
+        "external programs "
         "(git, build tools, scripts, package managers). Do NOT use this to list "
         "directories or read file metadata — prefer the structured `file_list`, "
         "`file_info`, `file_read`, `glob`, and `grep` tools, which return JSON "

@@ -50,7 +50,13 @@ class KillListMatch:
 # ---------------------------------------------------------------------------
 
 
-_SHELL_TOOLS: tuple[str, ...] = ("bash", "shell", "execute_command", "run_command")
+_SHELL_TOOLS: tuple[str, ...] = (
+    "bash",
+    "powershell",
+    "shell",
+    "execute_command",
+    "run_command",
+)
 
 
 def _command_text(arguments: dict[str, Any]) -> str:
@@ -81,6 +87,27 @@ def _match_rm_root(args: dict[str, Any]) -> bool:
     # Normalise trailing whitespace; add sentinel newline so "/" at EOL matches.
     probe = cmd.strip() + "\n"
     return bool(_RE_RM_ROOT.search(probe))
+
+
+_RE_REMOVE_ITEM = re.compile(r"\bRemove-Item\b(?P<arguments>[^|;&]*)", re.IGNORECASE)
+_RE_POWERSHELL_ROOT = re.compile(
+    r"(?<!\S)[\"']?(?:[A-Za-z]:[\\/]|~[\\/]?|\$HOME[\\/]?)[\"']?(?=\s|$)",
+    re.IGNORECASE,
+)
+
+
+def _match_remove_item_root(args: dict[str, Any]) -> bool:
+    """Match recursive forced deletion of a Windows or user root."""
+    command = _command_text(args)
+    for match in _RE_REMOVE_ITEM.finditer(command):
+        arguments = match.group("arguments")
+        if not re.search(r"(?:^|\s)-Recurse(?:\s|$)", arguments, re.IGNORECASE):
+            continue
+        if not re.search(r"(?:^|\s)-Force(?:\s|$)", arguments, re.IGNORECASE):
+            continue
+        if _RE_POWERSHELL_ROOT.search(arguments):
+            return True
+    return False
 
 
 # dd if=... of=/dev/{disk,sd*,nvme*,rdisk*}
@@ -202,6 +229,12 @@ KILL_LIST: tuple[KillListEntry, ...] = (
         description="rm -rf targeting the filesystem root or $HOME root",
         tool_names=_SHELL_TOOLS,
         predicate=_match_rm_root,
+    ),
+    KillListEntry(
+        key="remove_item_root",
+        description="Remove-Item recursively and forcibly targeting a drive or user root",
+        tool_names=_SHELL_TOOLS,
+        predicate=_match_remove_item_root,
     ),
     KillListEntry(
         key="dd_to_block_device",

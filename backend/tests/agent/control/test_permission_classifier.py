@@ -23,6 +23,7 @@ def classifier() -> RiskClassifier:
         ("bash", {"command": "git status"}, RiskLevel.LOW),
         ("bash", {"command": "git log --oneline"}, RiskLevel.LOW),
         ("bash", {"command": "docker ps"}, RiskLevel.LOW),
+        ("powershell", {"command": "echo hi"}, RiskLevel.LOW),
         # Shell — redirects and ordinary mutating ops stay MEDIUM.
         ("bash", {"command": "echo hi > /tmp/foo"}, RiskLevel.MEDIUM),
         ("bash", {"command": "rm note.txt"}, RiskLevel.MEDIUM),
@@ -40,6 +41,11 @@ def classifier() -> RiskClassifier:
         ("bash", {"command": "git push --force origin main"}, RiskLevel.DESTRUCTIVE),
         ("bash", {"command": "dd if=/dev/zero of=/dev/sda"}, RiskLevel.DESTRUCTIVE),
         ("bash", {"command": "docker system prune"}, RiskLevel.DESTRUCTIVE),
+        (
+            "powershell",
+            {"command": "Remove-Item .\\build -Recurse -Force"},
+            RiskLevel.DESTRUCTIVE,
+        ),
         # File tools.
         ("file_write", {"path": "/tmp/note.md"}, RiskLevel.MEDIUM),
         ("file_edit", {"path": "src/app.py"}, RiskLevel.MEDIUM),

@@ -16,6 +16,17 @@ from magi.control.permission.kill_list import check_kill_list
         ("bash", {"command": "rm -fr /"}, "rm_rf_root"),
         ("bash", {"command": "rm -rf ~"}, "rm_rf_root"),
         ("shell", {"command": "rm -rf /"}, "rm_rf_root"),
+        ("powershell", {"command": "rm -rf /"}, "rm_rf_root"),
+        (
+            "powershell",
+            {"command": "Remove-Item C:\\ -Recurse -Force"},
+            "remove_item_root",
+        ),
+        (
+            "powershell",
+            {"command": "Remove-Item -Force -Recurse $HOME"},
+            "remove_item_root",
+        ),
         # dd to block device
         ("bash", {"command": "dd if=/dev/zero of=/dev/disk2"}, "dd_to_block_device"),
         ("bash", {"command": "dd if=foo of=/dev/sda bs=1M"}, "dd_to_block_device"),
@@ -76,6 +87,10 @@ def test_kill_list_matches(tool: str, args: dict, expected_key: str) -> None:
         ("bash", {"command": "curl https://example.com/page.html"}),
         ("bash", {"command": "echo hi > /tmp/out.log"}),
         ("bash", {"command": "dd if=image.iso of=./out.iso"}),
+        (
+            "powershell",
+            {"command": "Remove-Item .\\node_modules -Recurse -Force"},
+        ),
         ("file_write", {"path": "/Users/alice/.ssh/authorized_keys"}),
         ("file_edit", {"path": "~/.zshrc"}),
     ],

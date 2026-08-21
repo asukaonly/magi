@@ -7,6 +7,7 @@ from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutc
 from magi.agent.batch.driver import BatchDriver
 from magi.agent.batch.runner import parse_job_id_from_goal
 from magi.agent.batch.store import BatchStore
+from magi.tools.platform_tools import native_shell_tool_name
 
 _SCHEMA = """
 CREATE TABLE batch_job (
@@ -72,6 +73,10 @@ async def test_kickoff_builds_correct_spec(store):
     assert "PROMPT-X" in spec.goal                      # handler prompt injected
     assert job.job_id in spec.goal                       # job_id marker for the listener
     assert "batch_item_update" in spec.selected_tools    # write-back tool present
+    native_shell = native_shell_tool_name()
+    non_native_shell = "bash" if native_shell == "powershell" else "powershell"
+    assert native_shell in spec.selected_tools
+    assert non_native_shell not in spec.selected_tools
     assert spec.user_id == "alice"                       # identity from job
     # ADR-0004 P3: batch also speaks RunTrigger (additive).
     assert spec.trigger is not None
