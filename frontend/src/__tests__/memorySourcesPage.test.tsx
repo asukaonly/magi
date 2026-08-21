@@ -48,6 +48,14 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.columns.action': '操作',
         'memory.sourcesPage.actions.view': '查看',
         'memory.sourcesPage.actions.sync': '同步一次',
+        'memory.sourcesPage.actions.configure': '配置来源',
+        'memory.sourcesPage.actions.enable': '启用来源',
+        'memory.sourcesPage.actions.startSync': '开始同步',
+        'memory.sourcesPage.actions.retrySync': '重试同步',
+        'memory.sourcesPage.actions.syncing': '同步中',
+        'memory.sourcesPage.actions.backfilling': '补数据中',
+        'memory.sourcesPage.actions.waitingRetry': '等待重试',
+        'memory.sourcesPage.actions.viewIssue': '查看原因',
         'memory.sourcesPage.actions.backfill': '补旧数据',
         'memory.sourcesPage.actions.settings': '打开设置',
         'memory.sourcesPage.actions.pause': '暂停',
@@ -267,6 +275,7 @@ const sensorPayload = {
       description_translated: '照片可以补充地点和时间线',
       icon: 'photo-library',
       enabled: false,
+      activation_required: true,
       status: 'setup_required',
       running: false,
       last_sync_at: null,
@@ -741,6 +750,125 @@ describe('MemorySourcesPage', () => {
     await waitFor(() => expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history'));
   });
 
+  it('offers configuration instead of sync actions when setup is required', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/memory/sources/photo_library']}>
+        <Routes>
+          <Route path="/memory/sources/:sourceName" element={<MemorySourceDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('照片')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '配置来源' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '同步一次' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '补旧数据' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '配置来源' }));
+
+    expect(useChatShellStore.getState()).toMatchObject({
+      activePanel: 'settings',
+      settingsNavigationIntent: {
+        section: 'timeline',
+        source: 'photo_library',
+      },
+    });
+    expect(pluginsApi.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('offers enablement before sync for a configured disabled source', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: sensorPayload.sources.map((source) => (
+        source.source_name === 'chrome_history'
+          ? {
+              ...source,
+              enabled: false,
+              activation_required: false,
+              status: 'disabled',
+            }
+          : source
+      )),
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={['/memory/sources/chrome_history']}>
+        <Routes>
+          <Route path="/memory/sources/:sourceName" element={<MemorySourceDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('button', { name: '启用来源' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '同步一次' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '补旧数据' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '启用来源' }));
+
+    await waitFor(() => expect(pluginsApi.updateSettings).toHaveBeenCalledWith('chrome-history', {
+      'sensors.chrome_history.enabled': true,
+    }));
+    expect(sensorsApi.requestSync).not.toHaveBeenCalled();
+  });
+
+  it('disables duplicate sync actions while a sync is queued', async () => {
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: sensorPayload.sources.map((source) => (
+        source.source_name === 'chrome_history'
+          ? {
+              ...source,
+              sync_activity: {
+                job_id: 'latest-job-1',
+                mode: 'latest',
+                status: 'queued',
+              },
+            }
+          : source
+      )),
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={['/memory/sources/chrome_history']}>
+        <Routes>
+          <Route path="/memory/sources/:sourceName" element={<MemorySourceDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('button', { name: '同步中' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '补旧数据' })).toBeDisabled();
+  });
+
+  it('offers retry without backfill after a terminal sync error', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: sensorPayload.sources.map((source) => (
+        source.source_name === 'chrome_history'
+          ? {
+              ...source,
+              status: 'error',
+              last_error: 'authorization expired',
+            }
+          : source
+      )),
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={['/memory/sources/chrome_history']}>
+        <Routes>
+          <Route path="/memory/sources/:sourceName" element={<MemorySourceDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('button', { name: '重试同步' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '补旧数据' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '重试同步' }));
+    await waitFor(() => expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history'));
+  });
+
   it('queues a historical backfill from a source detail page', async () => {
     const user = userEvent.setup();
     render(
@@ -901,7 +1029,7 @@ describe('MemorySourcesPage', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('补数据中')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '补数据中' })).toBeDisabled();
     await waitFor(
       () => expect(toast.success).toHaveBeenCalledWith('Chrome 历史 补数据已完成'),
       { timeout: 2500 },

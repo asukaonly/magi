@@ -23,6 +23,7 @@ from ...utils.runtime import get_runtime_paths
 from .sensor_status_projection import (
     _derive_sensor_status,
     _get_nested_value,
+    _resolve_source_settings,
     build_sensor_source_status_payload,
 )
 
@@ -98,6 +99,55 @@ def _normalize_sensor_sync_request(
     )
 
 
+def _plugin_current_settings(plugin_id: str) -> dict[str, Any]:
+    manager = resolve_plugin_manager()
+    get_package = getattr(manager, "get_package", None)
+    package = get_package(plugin_id) if callable(get_package) else None
+    if package is None:
+        package = next(
+            (
+                item
+                for item in manager.list_packages()
+                if str(getattr(getattr(item, "manifest", None), "plugin_id", ""))
+                == plugin_id
+            ),
+            None,
+        )
+    current_settings = getattr(package, "current_settings", {}) if package is not None else {}
+    return current_settings if isinstance(current_settings, dict) else {}
+
+
+def _validate_source_sync_readiness(
+    *,
+    source_name: str,
+    plugin_id: str,
+    spec: Any,
+) -> None:
+    source_settings = _resolve_source_settings(
+        spec,
+        _plugin_current_settings(plugin_id),
+        source_name,
+    )
+    if source_settings["activation_required"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=core_i18n.t(
+                "sensors.errors.setup_required",
+                fallback="Configure this source before syncing: {source_name}",
+                source_name=source_name,
+            ),
+        )
+    if not source_settings["enabled"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=core_i18n.t(
+                "sensors.errors.source_disabled",
+                fallback="Enable this source before syncing: {source_name}",
+                source_name=source_name,
+            ),
+        )
+
+
 @sensors_router.get("/status")
 async def get_sensor_source_status():
     get_config()
@@ -129,7 +179,7 @@ async def trigger_sensor_source_sync(
                 "sensors.errors.source_not_found", fallback="Sensor source not found"
             ),
         )
-    _, _, sensor, _ = resolved
+    plugin_id, _, sensor, spec = resolved
     if not bool(getattr(sensor, "supports_pull_sync", False)):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -139,6 +189,11 @@ async def trigger_sensor_source_sync(
                 source_name=source_name,
             ),
         )
+    _validate_source_sync_readiness(
+        source_name=source_name,
+        plugin_id=plugin_id,
+        spec=spec,
+    )
     try:
         runtime_command_queue = require_runtime_command_queue()
     except RuntimeError as exc:

@@ -57,11 +57,30 @@ class _FakeRuntimeCommandQueue:
         return len(self.sensor_state_flush_commands)
 
 
-def _build_client(monkeypatch):
+def _build_client(
+    monkeypatch,
+    *,
+    source_settings: dict[str, object] | None = None,
+    activation_flow: dict[str, object] | None = None,
+):
     app = FastAPI()
     app.include_router(sensors_router, prefix="/api/sensors")
     monkeypatch.setattr(sensors_module, "get_config", lambda: type("Config", (), {})())
     runtime_base_dir = tempfile.mkdtemp(prefix="magi-runtime-")
+    resolved_source_settings = {
+        "enabled": True,
+        "sync_mode": "interval",
+        "sync_interval_minutes": 5,
+        **(source_settings or {}),
+    }
+    sensor_metadata = {
+        "default_settings": {
+            "enabled": True,
+            "sync_mode": "interval",
+            "sync_interval_minutes": 5,
+        },
+        **({"activation_flow": activation_flow} if activation_flow is not None else {}),
+    }
     monkeypatch.setattr(
         sensors_module,
         "get_runtime_paths",
@@ -81,11 +100,7 @@ def _build_client(monkeypatch):
             "manifest": type("Manifest", (), {"plugin_id": "screen-time", "plugin_dir": "", "icon": "lucide:monitor"})(),
             "current_settings": {
                 "sensors": {
-                    "screen_time": {
-                        "enabled": True,
-                        "sync_mode": "interval",
-                        "sync_interval_minutes": 5,
-                    }
+                    "screen_time": resolved_source_settings,
                 }
             },
         },
@@ -123,11 +138,7 @@ def _build_client(monkeypatch):
                             "metadata": {
                                 "domain": "timeline",
                                 "source_type": "screen_time",
-                                "default_settings": {
-                                    "enabled": True,
-                                    "sync_mode": "interval",
-                                    "sync_interval_minutes": 5,
-                                },
+                                **sensor_metadata,
                                 "settings_actions": [
                                     {
                                         "action_id": "connect_github",
@@ -155,7 +166,7 @@ def _build_client(monkeypatch):
                         "screen-time",
                         "timeline.screen_time",
                         type("Sensor", (), {"supports_pull_sync": True, "supports_state_flush": True})(),
-                        type("Spec", (), {"metadata": {"default_settings": {"enabled": True, "sync_interval_minutes": 5}}})(),
+                        type("Spec", (), {"metadata": sensor_metadata})(),
                     )
                     if source_name == "screen_time"
                     else None
@@ -383,6 +394,46 @@ def test_trigger_sensor_source_sync(monkeypatch):
     assert response.json()["queued"] is True
     assert len(queue.sensor_sync_commands) == 1
     assert queue.sensor_sync_commands[0].first_context is False
+
+
+def test_trigger_sensor_source_sync_rejects_setup_required(monkeypatch):
+    client, queue, _ = _build_client(
+        monkeypatch,
+        source_settings={
+            "enabled": True,
+            "initial_sync_configured": False,
+        },
+        activation_flow={
+            "enabled_key": "sensors.screen_time.enabled",
+            "configured_key": "sensors.screen_time.initial_sync_configured",
+            "fields": [],
+        },
+    )
+
+    with language_context("en"):
+        status_response = client.get("/api/sensors/status")
+        response = client.post("/api/sensors/screen_time/sync")
+
+    assert status_response.status_code == 200
+    assert status_response.json()["sources"][0]["activation_required"] is True
+    assert status_response.json()["sources"][0]["status"] == "setup_required"
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Configure this source before syncing: screen_time"
+    assert queue.sensor_sync_commands == []
+
+
+def test_trigger_sensor_source_sync_rejects_disabled_source(monkeypatch):
+    client, queue, _ = _build_client(
+        monkeypatch,
+        source_settings={"enabled": False},
+    )
+
+    with language_context("en"):
+        response = client.post("/api/sensors/screen_time/sync")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Enable this source before syncing: screen_time"
+    assert queue.sensor_sync_commands == []
 
 
 def test_trigger_first_context_sensor_source_sync(monkeypatch):

@@ -473,7 +473,7 @@ def _resolve_source_settings(
         "enabled": enabled,
         **_source_sync_settings(item, current_settings, source_name),
         **_source_storage_settings(item, current_settings, source_name),
-        "activation_required": _activation_required(item, current_settings, enabled),
+        "activation_required": _activation_required(item, current_settings),
     }
 
 
@@ -535,10 +535,9 @@ def _source_storage_settings(
 def _activation_required(
     item: Any,
     current_settings: dict[str, Any],
-    enabled: bool,
 ) -> bool:
     activation_flow = item.metadata.get("activation_flow")
-    if not isinstance(activation_flow, dict) or enabled:
+    if not isinstance(activation_flow, dict):
         return False
     return not bool(
         _get_nested_value(

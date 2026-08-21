@@ -155,6 +155,8 @@
     "errors": {
       "source_not_found": "未找到传感器来源",
       "pull_sync_unsupported": "传感器来源不支持拉取同步：{source_name}",
+      "setup_required": "请先配置此来源再同步：{source_name}",
+      "source_disabled": "请先启用此来源再同步：{source_name}",
       "state_flush_unsupported": "传感器来源不支持状态清理：{source_name}",
       "scheduler_unavailable": "调度器不可用",
       "authorization_unsupported": "传感器来源不支持授权",

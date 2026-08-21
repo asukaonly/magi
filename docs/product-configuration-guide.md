@@ -708,6 +708,7 @@ Expected product behavior:
 - interval sync should register a recurring schedule when the source is enabled
 - watch mode may be offered as a source capability, but a source without native watch support may fall back to interval semantics
 - sensor source status may expose scheduler-backed state such as last sync, next run, last error, and the latest sync operation's mode, requested backfill range, progress state, and terminal result; source pages should poll while a backfill is active, preserve the selected range across reloads, notify on completion or failure, and then return to the source's ordinary health status
+- source actions must represent the next valid operation, not only static sensor capabilities: unavailable sources lead to their issue details, unconfigured sources lead to configuration, configured but disabled sources lead to enablement, and only operational pull-capable sources expose sync or historical backfill; active or retrying jobs must block duplicate sync requests, and the backend must reject sync requests for unconfigured or disabled sources
 
 ## Timeline Review Surface
 

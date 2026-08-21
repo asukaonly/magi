@@ -74,6 +74,8 @@ import {
 
 interface SourceLedgerRow extends SourceCoverageRow {
   description: string | null;
+  available: boolean | null;
+  activationRequired: boolean;
   supportsPullSync: boolean;
   syncMode: string | null;
   storageMode: string | null;
@@ -151,6 +153,8 @@ const rowFromSource = (
     lastSyncAt: sensor?.last_sync_at ?? sensor?.last_run_at ?? null,
     lastEventAt: source?.last_event_at ?? null,
     description: sensorDescription(sensor),
+    available: sensor?.available == null ? null : Boolean(sensor.available),
+    activationRequired: Boolean(sensor?.activation_required),
     supportsPullSync: Boolean(sensor?.supports_pull_sync),
     syncMode: sensor?.sync_mode ?? null,
     storageMode: sensor?.storage_mode ?? null,
@@ -240,6 +244,142 @@ const isActiveBackfill = (activity: SensorSyncActivity | null | undefined): bool
   activity?.mode === 'backfill'
   && ['queued', 'running', 'retrying', 'continuing'].includes(activity.status)
 );
+
+const isActiveSyncActivity = (activity: SensorSyncActivity | null | undefined): boolean => (
+  Boolean(activity) && ['queued', 'running', 'retrying', 'continuing'].includes(activity?.status || '')
+);
+
+type SourceDetailPrimaryAction = {
+  labelKey: string;
+  target: 'settings' | 'toggle' | 'sync';
+  disabled: boolean;
+  loading: boolean;
+  icon: 'settings' | 'play' | 'sync';
+};
+
+const sourceDetailActionState = (
+  row: SourceLedgerRow,
+  syncing: boolean,
+  backfilling: boolean,
+): {
+  primary: SourceDetailPrimaryAction | null;
+  showBackfill: boolean;
+  backfillDisabled: boolean;
+} => {
+  const setupRequired = row.activationRequired || row.status === 'setup_required';
+  const disabled = row.enabled === false || row.status === 'disabled';
+  const retrying = row.status === 'retrying' || row.syncActivity?.status === 'retrying';
+  const activeBackfill = isActiveBackfill(row.syncActivity);
+  const busy = (
+    syncing
+    || backfilling
+    || Boolean(row.running)
+    || row.status === 'running'
+    || retrying
+    || isActiveSyncActivity(row.syncActivity)
+  );
+  const operational = row.available !== false && !setupRequired && !disabled;
+  const showBackfill = operational && row.supportsPullSync && row.status !== 'error';
+
+  if (row.available === false) {
+    return {
+      primary: {
+        labelKey: 'memory.sourcesPage.actions.viewIssue',
+        target: 'settings',
+        disabled: false,
+        loading: false,
+        icon: 'settings',
+      },
+      showBackfill: false,
+      backfillDisabled: true,
+    };
+  }
+  if (setupRequired) {
+    return {
+      primary: {
+        labelKey: 'memory.sourcesPage.actions.configure',
+        target: 'settings',
+        disabled: false,
+        loading: false,
+        icon: 'settings',
+      },
+      showBackfill: false,
+      backfillDisabled: true,
+    };
+  }
+  if (disabled) {
+    return {
+      primary: {
+        labelKey: 'memory.sourcesPage.actions.enable',
+        target: 'toggle',
+        disabled: false,
+        loading: false,
+        icon: 'play',
+      },
+      showBackfill: false,
+      backfillDisabled: true,
+    };
+  }
+  if (!row.supportsPullSync) {
+    return { primary: null, showBackfill: false, backfillDisabled: true };
+  }
+  if (activeBackfill || backfilling) {
+    return {
+      primary: {
+        labelKey: 'memory.sourcesPage.actions.backfilling',
+        target: 'sync',
+        disabled: true,
+        loading: true,
+        icon: 'sync',
+      },
+      showBackfill,
+      backfillDisabled: true,
+    };
+  }
+  if (retrying) {
+    return {
+      primary: {
+        labelKey: 'memory.sourcesPage.actions.waitingRetry',
+        target: 'sync',
+        disabled: true,
+        loading: true,
+        icon: 'sync',
+      },
+      showBackfill,
+      backfillDisabled: true,
+    };
+  }
+  if (busy) {
+    return {
+      primary: {
+        labelKey: 'memory.sourcesPage.actions.syncing',
+        target: 'sync',
+        disabled: true,
+        loading: true,
+        icon: 'sync',
+      },
+      showBackfill,
+      backfillDisabled: true,
+    };
+  }
+
+  const labelKey = row.status === 'error'
+    ? 'memory.sourcesPage.actions.retrySync'
+    : row.status === 'never_synced'
+      ? 'memory.sourcesPage.actions.startSync'
+      : 'memory.sourcesPage.actions.sync';
+  return {
+    primary: {
+      labelKey,
+      target: 'sync',
+      disabled: false,
+      loading: false,
+      icon: 'sync',
+    },
+    showBackfill,
+    backfillDisabled: false,
+  };
+};
 
 const backfillRangeLabel = (
   activity: SensorSyncActivity | null | undefined,
@@ -1054,6 +1194,8 @@ const fallbackSourceRow = (sourceName: string, t: OverviewTranslateFn): SourceLe
   lastSyncAt: null,
   lastEventAt: null,
   description: null,
+  available: null,
+  activationRequired: false,
   supportsPullSync: false,
   syncMode: null,
   storageMode: null,
@@ -1082,6 +1224,24 @@ function SourceDetailHeader({
 }) {
   const { t, i18n } = useTranslation('app');
   const status = sourceStatusPresentation(row, t);
+  const actionState = sourceDetailActionState(row, syncing, backfilling);
+  const primaryAction = actionState.primary;
+  const handlePrimaryAction = () => {
+    if (primaryAction?.target === 'settings') {
+      onOpenSettings();
+    } else if (primaryAction?.target === 'toggle') {
+      onToggleEnabled();
+    } else if (primaryAction?.target === 'sync') {
+      onSync();
+    }
+  };
+  const canPause = (
+    row.pluginId
+    && row.available !== false
+    && !row.activationRequired
+    && row.status !== 'setup_required'
+    && row.enabled !== false
+  );
   return (
     <section className="rounded-2xl bg-[hsl(var(--memory-panel-elevated)/0.64)] px-5 py-5 shadow-[0_16px_42px_hsl(var(--memory-shadow)/0.035)] sm:px-6">
       <Link
@@ -1119,30 +1279,42 @@ function SourceDetailHeader({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-          <button
-            type="button"
-            className={cn(
-              'inline-flex h-10 items-center gap-2 rounded-md bg-[hsl(var(--memory-accent))] px-4 text-sm font-medium text-[hsl(var(--memory-accent-foreground))] shadow-[0_10px_24px_-18px_hsl(var(--memory-shadow)/0.7)] transition-[background-color,transform,box-shadow] duration-200 hover:-translate-y-px hover:bg-[hsl(var(--memory-accent)/0.92)] hover:shadow-[0_14px_28px_-18px_hsl(var(--memory-shadow)/0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.28)] disabled:pointer-events-none disabled:opacity-50',
-              syncing && 'opacity-70'
-            )}
-            onClick={onSync}
-            disabled={syncing || !row.supportsPullSync}
-          >
-            {syncing ? <LoadingSpinner className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />}
-            {t('memory.sourcesPage.actions.sync')}
-          </button>
-          <button
-            type="button"
-            className={cn(
-              'inline-flex h-10 items-center gap-2 rounded-md bg-[hsl(var(--memory-panel-subtle)/0.62)] px-4 text-sm font-medium text-[hsl(var(--memory-title))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)] disabled:pointer-events-none disabled:opacity-50',
-              backfilling && 'opacity-70'
-            )}
-            onClick={onBackfill}
-            disabled={backfilling || !row.supportsPullSync}
-          >
-            {backfilling ? <LoadingSpinner className="h-3.5 w-3.5" /> : <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />}
-            {t('memory.sourcesPage.actions.backfill')}
-          </button>
+          {primaryAction ? (
+            <button
+              type="button"
+              className={cn(
+                'inline-flex h-10 items-center gap-2 rounded-md bg-[hsl(var(--memory-accent))] px-4 text-sm font-medium text-[hsl(var(--memory-accent-foreground))] shadow-[0_10px_24px_-18px_hsl(var(--memory-shadow)/0.7)] transition-[background-color,transform,box-shadow] duration-200 hover:-translate-y-px hover:bg-[hsl(var(--memory-accent)/0.92)] hover:shadow-[0_14px_28px_-18px_hsl(var(--memory-shadow)/0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.28)] disabled:pointer-events-none disabled:opacity-50',
+                primaryAction.loading && 'opacity-70'
+              )}
+              onClick={handlePrimaryAction}
+              disabled={primaryAction.disabled}
+            >
+              {primaryAction.loading ? (
+                <LoadingSpinner className="h-3.5 w-3.5" />
+              ) : primaryAction.icon === 'settings' ? (
+                <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : primaryAction.icon === 'play' ? (
+                <Play className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {t(primaryAction.labelKey)}
+            </button>
+          ) : null}
+          {actionState.showBackfill ? (
+            <button
+              type="button"
+              className={cn(
+                'inline-flex h-10 items-center gap-2 rounded-md bg-[hsl(var(--memory-panel-subtle)/0.62)] px-4 text-sm font-medium text-[hsl(var(--memory-title))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)] disabled:pointer-events-none disabled:opacity-50',
+                backfilling && 'opacity-70'
+              )}
+              onClick={onBackfill}
+              disabled={actionState.backfillDisabled}
+            >
+              {backfilling ? <LoadingSpinner className="h-3.5 w-3.5" /> : <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />}
+              {t('memory.sourcesPage.actions.backfill')}
+            </button>
+          ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -1161,22 +1333,20 @@ function SourceDetailHeader({
                 <Settings className="h-4 w-4 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
                 {t('memory.sourcesPage.actions.settings')}
               </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-[hsl(var(--memory-divider)/0.72)]" />
-              <DropdownMenuItem
-                destructive={row.enabled !== false}
-                className="h-9 rounded-sm px-2.5"
-                onSelect={onToggleEnabled}
-                disabled={togglingEnabled || !row.pluginId}
-              >
-                {row.enabled === false ? (
-                  <Play className="h-4 w-4" aria-hidden="true" />
-                ) : (
-                  <Pause className="h-4 w-4" aria-hidden="true" />
-                )}
-                {row.enabled === false
-                  ? t('memory.sourcesPage.actions.resume')
-                  : t('memory.sourcesPage.actions.pause')}
-              </DropdownMenuItem>
+              {canPause ? (
+                <>
+                  <DropdownMenuSeparator className="bg-[hsl(var(--memory-divider)/0.72)]" />
+                  <DropdownMenuItem
+                    destructive
+                    className="h-9 rounded-sm px-2.5"
+                    onSelect={onToggleEnabled}
+                    disabled={togglingEnabled}
+                  >
+                    <Pause className="h-4 w-4" aria-hidden="true" />
+                    {t('memory.sourcesPage.actions.pause')}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -1701,6 +1871,10 @@ export const MemorySourceDetailPage = () => {
     try {
       await sensorsApi.requestSync(sourceName);
       await loadMetadata();
+    } catch (err) {
+      toast.error(t('memory.sourcesPage.feedback.syncFailed', {
+        message: err instanceof Error ? err.message : String(err),
+      }));
     } finally {
       setSyncing(false);
     }
@@ -1739,6 +1913,10 @@ export const MemorySourceDetailPage = () => {
   };
 
   const handleToggleEnabled = async () => {
+    if (row.activationRequired || row.status === 'setup_required') {
+      handleOpenSettings();
+      return;
+    }
     const pluginId = sourceSensor?.plugin_id || row.pluginId;
     if (!pluginId) {
       toast.error(t('memory.sourcesPage.feedback.toggleFailed', { message: 'missing_plugin' }));

@@ -344,7 +344,10 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       return;
     }
     const flow = source.activation_flow ?? null;
-    if (source.activation_required && flow) {
+    const activationConfigured = Boolean(
+      flow && resolveSourceValue(source, flow.configured_key, false)
+    );
+    if (flow && !activationConfigured) {
       setActivationDialog({
         source,
         flow,
@@ -558,8 +561,13 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const activationConfigured = Boolean(
     activationFlow && resolveSourceValue(selectedSource, activationFlow.configured_key, false)
   );
-  const activationRequired = Boolean(activationFlow && !sourceEnabled && !activationConfigured);
-  const operationallyEnabled = selectedSource.enabled && sourceEnabled;
+  const activationRequired = Boolean(activationFlow && !activationConfigured);
+  const operationallyEnabled = (
+    selectedSource.enabled
+    && sourceEnabled
+    && !activationRequired
+    && selectedSource.available !== false
+  );
   const retrying = selectedSource.status === 'retrying'
     || selectedSource.sync_activity?.status === 'retrying';
   const retryAt = retrying
@@ -603,8 +611,14 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const showEntrySelector = entrySources.length > 0;
   const knownEntryCount = entrySources.length + availableCapabilityEntries.length;
   const hasMultipleKnownEntries = knownEntryCount > 1;
-  const getEntryEnabled = (source: SensorSourceStatusItem) =>
-    Boolean(resolveSourceValue(source, getSourceEnabledKey(source), source.enabled));
+  const getEntrySetupRequired = (source: SensorSourceStatusItem) => {
+    const flow = source.activation_flow ?? null;
+    return Boolean(flow && !resolveSourceValue(source, flow.configured_key, false));
+  };
+  const getEntryEnabled = (source: SensorSourceStatusItem) => (
+    !getEntrySetupRequired(source)
+    && Boolean(resolveSourceValue(source, getSourceEnabledKey(source), source.enabled))
+  );
   const getEntryAttention = (source: SensorSourceStatusItem) => {
     const retrying = source.status === 'retrying' || source.sync_activity?.status === 'retrying';
     return Boolean((source.last_error && !retrying) || source.available === false);
@@ -612,6 +626,9 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const getEntryStatusLabel = (source: SensorSourceStatusItem) => {
     if (getEntryAttention(source)) {
       return t('settings.timeline.statuses.attention');
+    }
+    if (getEntrySetupRequired(source)) {
+      return t('settings.timeline.statuses.awaitingSetup');
     }
     if (source.status === 'retrying' || source.sync_activity?.status === 'retrying') {
       return t('settings.timeline.statuses.retrying', {
@@ -698,9 +715,10 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       <label className="inline-flex items-center gap-3 text-sm text-foreground">
         <span>{t('settings.timeline.fields.enabled')}</span>
         <Switch
-          checked={sourceEnabled}
+          checked={sourceEnabled && !activationRequired}
           onCheckedChange={(checked) => handleSourceEnabledChange(selectedSource, checked)}
           aria-label={t('settings.timeline.fields.enabled')}
+          disabled={selectedSource.available === false}
         />
       </label>
     </div>

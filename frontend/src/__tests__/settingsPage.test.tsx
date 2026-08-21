@@ -2734,6 +2734,42 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('keeps an unconfigured source non-operational even if enabled was set directly', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: [
+        {
+          ...chromeTimelineSourceFixture,
+          enabled: true,
+          activation_required: true,
+          current_settings: {
+            ...chromeTimelineSourceFixture.current_settings,
+            'sensors.chrome_history.enabled': true,
+            'sensors.chrome_history.initial_sync_configured': false,
+          },
+        },
+      ],
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
+
+    const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
+    const enabledSwitch = within(chromePanel).getByRole('switch', {
+      name: 'settings.timeline.fields.enabled',
+    });
+    expect(enabledSwitch).not.toBeChecked();
+    expect(
+      within(chromePanel).queryByRole('button', { name: 'settings.timeline.actions.syncNow' })
+    ).not.toBeInTheDocument();
+
+    await user.click(enabledSwitch);
+
+    expect(await screen.findByText('Enable Chrome History')).toBeInTheDocument();
+  });
+
   it('does not expose Apple Health in the timeline settings anymore', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);

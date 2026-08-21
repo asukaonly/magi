@@ -155,6 +155,8 @@
     "errors": {
       "source_not_found": "Sensor source not found",
       "pull_sync_unsupported": "Sensor source does not support pull sync: {source_name}",
+      "setup_required": "Configure this source before syncing: {source_name}",
+      "source_disabled": "Enable this source before syncing: {source_name}",
       "state_flush_unsupported": "Sensor source does not support state flush: {source_name}",
       "scheduler_unavailable": "Scheduler unavailable",
       "authorization_unsupported": "Sensor source does not support authorization",
