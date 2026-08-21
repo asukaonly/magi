@@ -1494,6 +1494,14 @@ fn set_skip_quit_confirmation(
 }
 
 #[tauri::command]
+fn set_onboarding_completed(
+    state: State<'_, desktop_presence::DesktopPresenceState>,
+    completed: bool,
+) -> Result<(), String> {
+    state.set_onboarding_completed(completed)
+}
+
+#[tauri::command]
 fn apply_start_minimized(
     app: AppHandle,
     state: State<'_, desktop_presence::DesktopPresenceState>,
@@ -1759,6 +1767,7 @@ fn main() {
             set_close_to_tray_enabled,
             set_start_minimized,
             set_skip_quit_confirmation,
+            set_onboarding_completed,
             apply_start_minimized,
             confirm_exit_app,
             cancel_exit_request,

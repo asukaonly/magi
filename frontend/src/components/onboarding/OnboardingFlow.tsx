@@ -16,6 +16,7 @@ import {
   STORAGE_KEYS,
 } from "@/constants/app";
 import { useConversationStore } from "@/stores/conversation-store";
+import { syncOnboardingCompleted } from "@/runtime/desktop";
 import { configApi } from "../../api/modules/config";
 import type {
   LanguageCode,
@@ -568,6 +569,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     destination: "/" | "/chat" = "/",
     sessionId?: string | null,
   ) => {
+    // From now on, closing the window hides to the tray instead of quitting.
+    // Best-effort: a full reload below re-syncs from backend config anyway.
+    void syncOnboardingCompleted(true);
     const normalizedSessionId = String(sessionId || "").trim();
     if (normalizedSessionId) {
       localStorage.setItem(

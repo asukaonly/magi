@@ -34,6 +34,7 @@ import {
   registerDesktopQuitHandler,
   readPendingFullDataClear,
   syncCloseToTrayPreference,
+  syncOnboardingCompleted,
 } from '@/runtime/desktop';
 
 describe('desktop runtime bridge', () => {
@@ -87,6 +88,14 @@ describe('desktop runtime bridge', () => {
     expect(invokeMock).toHaveBeenNthCalledWith(1, 'set_close_to_tray_enabled', { enabled: false });
     expect(invokeMock).toHaveBeenNthCalledWith(2, 'confirm_exit_app');
     expect(invokeMock).toHaveBeenNthCalledWith(3, 'cancel_exit_request');
+  });
+
+  it('forwards the onboarding completion state to the desktop shell', async () => {
+    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+
+    await syncOnboardingCompleted(true);
+
+    expect(invokeMock).toHaveBeenCalledWith('set_onboarding_completed', { completed: true });
   });
 
   it('hands external URLs to the validated desktop command', async () => {

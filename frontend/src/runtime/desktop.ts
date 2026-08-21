@@ -78,6 +78,10 @@ export async function syncSkipQuitConfirmationPreference(enabled: boolean): Prom
   await invokeDesktopCommand('set_skip_quit_confirmation', { enabled });
 }
 
+export async function syncOnboardingCompleted(completed: boolean): Promise<void> {
+  await invokeDesktopCommand('set_onboarding_completed', { completed });
+}
+
 export async function applyStartMinimized(): Promise<void> {
   await invokeDesktopCommand('apply_start_minimized');
 }

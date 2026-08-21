@@ -28,6 +28,7 @@ struct DesktopPresenceRuntime {
     close_to_tray_enabled: bool,
     start_minimized: bool,
     skip_quit_confirmation: bool,
+    onboarding_completed: bool,
 }
 
 impl Default for DesktopPresenceRuntime {
@@ -36,6 +37,9 @@ impl Default for DesktopPresenceRuntime {
             close_to_tray_enabled: true,
             start_minimized: false,
             skip_quit_confirmation: false,
+            // Until onboarding finishes, closing the window quits the app
+            // instead of hiding to the tray.
+            onboarding_completed: false,
         }
     }
 }
@@ -89,12 +93,23 @@ impl DesktopPresenceState {
         Ok(runtime.skip_quit_confirmation)
     }
 
+    pub fn set_onboarding_completed(&self, completed: bool) -> Result<(), String> {
+        let mut runtime = self
+            .runtime
+            .lock()
+            .map_err(|_| "Failed to acquire desktop presence lock".to_string())?;
+        runtime.onboarding_completed = completed;
+        Ok(())
+    }
+
     pub fn close_action(&self) -> Result<CloseAction, String> {
         let runtime = self
             .runtime
             .lock()
             .map_err(|_| "Failed to acquire desktop presence lock".to_string())?;
-        Ok(if runtime.close_to_tray_enabled {
+        Ok(if !runtime.onboarding_completed {
+            CloseAction::QuitImmediately
+        } else if runtime.close_to_tray_enabled {
             CloseAction::HideToTray
         } else if runtime.skip_quit_confirmation {
             CloseAction::QuitImmediately
@@ -250,8 +265,18 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn desktop_presence_quits_immediately_before_onboarding_completes() {
+        let state = DesktopPresenceState::default();
+
+        // close_to_tray_enabled defaults to true, but an incomplete onboarding
+        // still quits instead of hiding to the tray.
+        assert_eq!(state.close_action().unwrap(), CloseAction::QuitImmediately);
+    }
+
+    #[test]
     fn desktop_presence_defaults_to_hiding_on_close() {
         let state = DesktopPresenceState::default();
+        state.set_onboarding_completed(true).unwrap();
 
         assert_eq!(state.close_action().unwrap(), CloseAction::HideToTray);
     }
@@ -259,6 +284,7 @@ mod tests {
     #[test]
     fn desktop_presence_can_switch_to_quit_confirmation_mode() {
         let state = DesktopPresenceState::default();
+        state.set_onboarding_completed(true).unwrap();
         state.set_close_to_tray_enabled(false).unwrap();
 
         assert_eq!(
@@ -270,6 +296,7 @@ mod tests {
     #[test]
     fn desktop_presence_skips_confirmation_when_user_opted_out() {
         let state = DesktopPresenceState::default();
+        state.set_onboarding_completed(true).unwrap();
         state.set_close_to_tray_enabled(false).unwrap();
         state.set_skip_quit_confirmation(true).unwrap();
 
@@ -280,6 +307,7 @@ mod tests {
     #[test]
     fn desktop_presence_skip_flag_does_not_override_hide_to_tray() {
         let state = DesktopPresenceState::default();
+        state.set_onboarding_completed(true).unwrap();
         state.set_skip_quit_confirmation(true).unwrap();
 
         // close_to_tray_enabled defaults to true, so window close still hides to tray.

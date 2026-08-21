@@ -16,7 +16,7 @@ import type { LanguageCode } from './api/modules/config';
 import { initializeRuntime, readBackendStartupDiagnostics, resetRuntimeInitialization } from './runtime/config';
 import type { BackendStartupDiagnostics, StartupPhase } from './runtime/config';
 import { Button } from './components/ui/button';
-import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference, syncSkipQuitConfirmationPreference, applyStartMinimized } from './runtime/desktop';
+import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference, syncSkipQuitConfirmationPreference, syncOnboardingCompleted, applyStartMinimized } from './runtime/desktop';
 import { syncDesktopNotificationPreferences } from './runtime/desktop-notifications';
 import { initializeDesktopLogging } from './runtime/logging';
 import { scheduleStartupUpdateCheck } from './runtime/updater';
@@ -114,6 +114,7 @@ const RuntimeBootstrap: React.FC = () => {
           await previewLanguageSelection(lang);
         }
         await syncCloseToTrayPreference(prefs?.close_to_tray_enabled ?? true);
+        await syncOnboardingCompleted(prefs?.onboarding_completed ?? false);
         await syncAutoStartPreference(prefs?.auto_start_enabled ?? false);
         await syncStartMinimizedPreference(prefs?.start_minimized ?? false);
         await syncSkipQuitConfirmationPreference(prefs?.skip_quit_confirmation ?? false);
@@ -133,6 +134,9 @@ const RuntimeBootstrap: React.FC = () => {
           },
         });
       } catch {
+        // Config unavailable: keep the previous hide-to-tray fallback instead of
+        // the not-onboarded default (which quits immediately on window close).
+        await syncOnboardingCompleted(true);
         await syncCloseToTrayPreference(true);
         syncDesktopNotificationPreferences(null);
       }
