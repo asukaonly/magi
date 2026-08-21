@@ -386,6 +386,11 @@ scripts/bump-release.sh <major|minor|patch>   # e.g. patch: 0.1.14 -> 0.1.15
 scripts/bump-release.sh resume                # continue a pushed, untagged version after fixing CI
 ```
 
+Releases must be created from `main`. Before starting a new version bump, the
+checked-out local `main` must exactly match `origin/main`; do not release from a
+feature, fix, pull-request, or detached branch. Resume mode must also run on
+`main` and refuses a branch that is behind or diverged from `origin/main`.
+
 It reads the current version from `VERSION`, bumps the requested part, syncs **all**
 metadata via `scripts/release-version.py sync` (VERSION, Cargo.lock, frontend
 `package.json`/lock, `tauri.conf.json`, `src-tauri/Cargo.toml`, `backend/pyproject.toml`),
@@ -400,7 +405,7 @@ incrementing the version again.
 Remote CI is the source of truth because it installs the supported dependency
 versions from a clean environment and runs the complete cross-platform validation;
 a long-lived local environment may lag those versions. Requires: clean working
-tree, a checked-out branch, and authenticated `gh`.
+tree, an up-to-date checked-out `main` branch, and authenticated `gh`.
 
 ---
 

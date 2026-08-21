@@ -10,6 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 TAURI_CONFIG = REPO_ROOT / "frontend" / "src-tauri" / "tauri.conf.json"
 PREPARE_TAURI_BUILD = REPO_ROOT / "scripts" / "prepare-tauri-build.mjs"
+RELEASE_SCRIPT = REPO_ROOT / "scripts" / "bump-release.sh"
 
 
 def _workflow_jobs() -> dict[str, object]:
@@ -68,3 +69,13 @@ def test_tauri_hook_remains_the_single_sidecar_build_owner() -> None:
     assert tauri_config["build"]["beforeBuildCommand"] == "node ../scripts/prepare-tauri-build.mjs"
     assert prepare_script.count("build-sidecar.sh") == 1
     assert prepare_script.count("build-sidecar.ps1") == 1
+
+
+def test_release_script_requires_up_to_date_main_branch() -> None:
+    release_script = RELEASE_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'RELEASE_BRANCH="main"' in release_script
+    assert '[[ "$BRANCH" != "$RELEASE_BRANCH" ]]' in release_script
+    assert 'git fetch origin "$RELEASE_BRANCH"' in release_script
+    assert '[[ "$HEAD_SHA" != "$REMOTE_MAIN_SHA" ]]' in release_script
+    assert 'git merge-base --is-ancestor "$REMOTE_MAIN_SHA" "$HEAD_SHA"' in release_script
