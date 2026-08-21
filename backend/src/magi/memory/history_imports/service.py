@@ -44,6 +44,7 @@ from ..event_contracts import (
 )
 from .markdown_parser import DOCUMENT_AUTHOR, parse_markdown
 from .models import (
+    HistoryImportAppendResult,
     HistoryImportJob,
     HistoryImportRecord,
     HistoryImportSourcePreview,
@@ -219,44 +220,7 @@ class HistoryImportService:
     async def _preview_markdown_paths(self, paths: list[str]) -> HistoryImportJob:
         """Persist one preview while the service operation boundary is held."""
 
-        files = _expand_markdown_paths(paths)
-        parsed_files: list[ParsedHistorySource] = []
-        file_fingerprints: dict[str, str] = {}
-        fingerprint_parts: list[bytes] = []
-        total_bytes = 0
-        calendar_timezone_id = local_calendar_timezone_id()
-        if calendar_timezone_id is None:
-            raise HistoryImportValidationError("history_import_timezone_unavailable")
-        for path, source_name in files:
-            size = int(path.stat().st_size)
-            if size > MAX_MARKDOWN_FILE_BYTES:
-                raise HistoryImportValidationError("markdown_file_too_large")
-            total_bytes += size
-            if total_bytes > MAX_MARKDOWN_TOTAL_BYTES:
-                raise HistoryImportValidationError("markdown_selection_too_large")
-            raw = path.read_bytes()
-            try:
-                text = raw.decode("utf-8-sig")
-            except UnicodeDecodeError as exc:
-                raise HistoryImportValidationError("markdown_not_utf8") from exc
-            normalized_source_name = _normalized_relative_source_name(source_name)
-            file_fingerprint = hashlib.sha256(
-                normalized_source_name.encode("utf-8") + b"\x00" + raw
-            ).hexdigest()
-            file_fingerprints[source_name] = file_fingerprint
-            parsed_files.append(
-                parse_markdown(
-                    source_name=source_name,
-                    text=text,
-                    file_mtime=float(path.stat().st_mtime),
-                    calendar_timezone_id=calendar_timezone_id,
-                )
-            )
-            fingerprint_parts.append(bytes.fromhex(file_fingerprint))
-
-        fingerprint = hashlib.sha256(
-            b"\x00".join([MARKDOWN_IMPORT_POLICY_VERSION, *fingerprint_parts])
-        ).hexdigest()
+        parsed_files, file_fingerprints, fingerprint, warnings = _parse_markdown_selection(paths)
         existing = await self._store.find_active_by_fingerprint(fingerprint)
         if existing is not None:
             return existing
@@ -265,9 +229,6 @@ class HistoryImportService:
         job_id = f"him_{uuid.uuid4().hex}"
         detected_kinds = {item.detected_kind for item in parsed_files}
         detected_kind = next(iter(detected_kinds)) if len(detected_kinds) == 1 else "mixed"
-        warnings = list(
-            dict.fromkeys(warning for parsed in parsed_files for warning in parsed.warnings)
-        )
         records = _build_records(
             job_id=job_id,
             file_fingerprints=file_fingerprints,
@@ -296,6 +257,57 @@ class HistoryImportService:
             updated_at=now,
         )
         return await self._store.create_preview(job=job, records=records)
+
+    async def append_markdown_paths(
+        self,
+        *,
+        job_id: str,
+        paths: list[str],
+    ) -> HistoryImportAppendResult:
+        """Extend an unconfirmed Markdown preview without replacing its selection."""
+
+        async with self._operation():
+            lock = self._lock_for(job_id)
+            async with lock:
+                job = await self._get_job(job_id)
+                if job.source_type != "markdown":
+                    raise HistoryImportValidationError("history_import_append_type_mismatch")
+                if self._scope_confirmed(job) or job.quick_ready or job.imported_count > 0:
+                    raise HistoryImportValidationError("history_import_selection_locked")
+                parsed_files, file_fingerprints, _fingerprint, warnings = _parse_markdown_selection(
+                    paths
+                )
+                incoming_source_ids = {source.source_id for source in parsed_files}
+                if len(set(job.source_ids).union(incoming_source_ids)) > MAX_MARKDOWN_FILES:
+                    raise HistoryImportValidationError("markdown_too_many_files")
+                now = time.time()
+                records = _build_records(
+                    job_id=job_id,
+                    file_fingerprints=file_fingerprints,
+                    parsed_files=parsed_files,
+                    now=now,
+                )
+                try:
+                    return await self._store.append_preview(
+                        job_id=job_id,
+                        records=records,
+                        warnings=_bounded_import_warnings([*job.warnings, *warnings]),
+                        allow_existing_source_updates=False,
+                    )
+                except KeyError as exc:
+                    raise HistoryImportNotFoundError() from exc
+                except ValueError as exc:
+                    reason = str(exc)
+                    if reason in {
+                        "history_import_selection_locked",
+                        "history_import_source_name_conflict",
+                    }:
+                        raise HistoryImportValidationError(reason) from exc
+                    if reason == "history_import_source_identity_conflict":
+                        raise HistoryImportValidationError(
+                            "history_import_selection_changed"
+                        ) from exc
+                    raise
 
     async def preview_importer_paths(
         self,
@@ -1319,6 +1331,54 @@ async def _await_history_importer_result(result: Any) -> Any:
     """Await a parser result inside the worker thread's private event loop."""
 
     return await result
+
+
+def _parse_markdown_selection(
+    paths: list[str],
+) -> tuple[list[ParsedHistorySource], dict[str, str], str, list[str]]:
+    """Read one bounded Markdown selection into deterministic preview inputs."""
+
+    files = _expand_markdown_paths(paths)
+    parsed_files: list[ParsedHistorySource] = []
+    file_fingerprints: dict[str, str] = {}
+    fingerprint_parts: list[bytes] = []
+    total_bytes = 0
+    calendar_timezone_id = local_calendar_timezone_id()
+    if calendar_timezone_id is None:
+        raise HistoryImportValidationError("history_import_timezone_unavailable")
+    for path, source_name in files:
+        size = int(path.stat().st_size)
+        if size > MAX_MARKDOWN_FILE_BYTES:
+            raise HistoryImportValidationError("markdown_file_too_large")
+        total_bytes += size
+        if total_bytes > MAX_MARKDOWN_TOTAL_BYTES:
+            raise HistoryImportValidationError("markdown_selection_too_large")
+        raw = path.read_bytes()
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise HistoryImportValidationError("markdown_not_utf8") from exc
+        normalized_source_name = _normalized_relative_source_name(source_name)
+        file_fingerprint = hashlib.sha256(
+            normalized_source_name.encode("utf-8") + b"\x00" + raw
+        ).hexdigest()
+        file_fingerprints[source_name] = file_fingerprint
+        parsed_files.append(
+            parse_markdown(
+                source_name=source_name,
+                text=text,
+                file_mtime=float(path.stat().st_mtime),
+                calendar_timezone_id=calendar_timezone_id,
+            )
+        )
+        fingerprint_parts.append(bytes.fromhex(file_fingerprint))
+    fingerprint = hashlib.sha256(
+        b"\x00".join([MARKDOWN_IMPORT_POLICY_VERSION, *fingerprint_parts])
+    ).hexdigest()
+    warnings = list(
+        dict.fromkeys(warning for parsed in parsed_files for warning in parsed.warnings)
+    )
+    return parsed_files, file_fingerprints, fingerprint, warnings
 
 
 def _expand_markdown_paths(paths: list[str]) -> list[tuple[Path, str]]:

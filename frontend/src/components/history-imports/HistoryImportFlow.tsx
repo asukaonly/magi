@@ -13,6 +13,7 @@ import {
   AlertCircle,
   BookOpenText,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -24,6 +25,8 @@ import {
   MessagesSquare,
   NotebookPen,
   RotateCcw,
+  Plus,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -41,6 +44,12 @@ import {
 } from "@/api/modules/plugins";
 import { PluginIcon } from "@/components/plugins/PluginIcon";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { createMarkdownComponents } from "@/components/ui/markdown-components";
 import {
   Sheet,
@@ -122,11 +131,15 @@ export const HistoryImportFlow = forwardRef<
   const [importersError, setImportersError] = useState(false);
   const [selfParticipantIds, setSelfParticipantIds] = useState<string[]>([]);
   const [action, setAction] = useState<
-    "preview" | "confirm" | "resume" | "delete" | null
+    "preview" | "append" | "confirm" | "resume" | "delete" | null
   >(null);
   const [previewTarget, setPreviewTarget] = useState<string | null>(null);
   const [selectionBusy, setSelectionBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [appendNotice, setAppendNotice] = useState<{
+    added: number;
+    duplicates: number;
+  } | null>(null);
   const [previewSource, setPreviewSource] =
     useState<HistoryImportSourceSummary | null>(null);
   const [sourcePreview, setSourcePreview] =
@@ -418,6 +431,59 @@ export const HistoryImportFlow = forwardRef<
       if (mountedRef.current) {
         setPreviewTarget(null);
       }
+    }
+  };
+
+  const appendMarkdownSelection = async (
+    picker: "files" | "folder",
+  ): Promise<void> => {
+    if (
+      !job ||
+      job.source_type !== "markdown" ||
+      actionRef.current !== null ||
+      selectionBusyRef.current !== null
+    ) {
+      return;
+    }
+    setCurrentAction("append");
+    setError(null);
+    setAppendNotice(null);
+    let paths: string[];
+    try {
+      paths = picker === "files"
+        ? await pickMarkdownFiles()
+        : await pickDirectory().then((folder) => (folder ? [folder] : []));
+    } catch {
+      if (mountedRef.current) {
+        setError(
+          picker === "folder"
+            ? "history_import_directory_picker_failed"
+            : "history_import_file_picker_failed",
+        );
+      }
+      setCurrentAction(null);
+      return;
+    }
+    if (!mountedRef.current || paths.length === 0) {
+      setCurrentAction(null);
+      return;
+    }
+    try {
+      const result = await historyImportsApi.appendMarkdown(job.job_id, paths);
+      if (!mountedRef.current) {
+        return;
+      }
+      applyJob(result.job);
+      setAppendNotice({
+        added: result.added_source_count,
+        duplicates: result.duplicate_source_count,
+      });
+    } catch (appendError) {
+      if (mountedRef.current) {
+        setError(errorReason(appendError));
+      }
+    } finally {
+      setCurrentAction(null);
     }
   };
 
@@ -761,6 +827,7 @@ export const HistoryImportFlow = forwardRef<
       setPreviewSource(null);
       setSourcePreview(null);
       setSelfParticipantIds([]);
+      setAppendNotice(null);
       onJobUpdateRef.current(null);
       return true;
     } catch (deleteError) {
@@ -1627,20 +1694,74 @@ export const HistoryImportFlow = forwardRef<
           </p>
         ) : null}
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => void chooseAgain()}
-            disabled={action !== null || selectionBusy !== null}
+        {appendNotice ? (
+          <p
+            role="status"
+            className="flex items-center gap-2 text-xs text-muted-foreground"
           >
-            {action === "delete" ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <RotateCcw className="h-4 w-4" aria-hidden="true" />
-            )}
-            {t("firstContext.history.preview.chooseAgain")}
-          </Button>
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            {appendNotice.added > 0 && appendNotice.duplicates > 0
+              ? t("firstContext.history.preview.appendedWithDuplicates", {
+                  added: appendNotice.added,
+                  duplicates: appendNotice.duplicates,
+                })
+              : appendNotice.added > 0
+                ? t("firstContext.history.preview.appended", {
+                    count: appendNotice.added,
+                  })
+                : t("firstContext.history.preview.allDuplicates")}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {job.source_type === "markdown" ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={action !== null || selectionBusy !== null}
+                  >
+                    {action === "append" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Plus className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    {t("firstContext.history.preview.continueAdding")}
+                    <ChevronDown className="h-3.5 w-3.5 opacity-60" aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-44">
+                  <DropdownMenuItem
+                    onSelect={() => void appendMarkdownSelection("files")}
+                  >
+                    <FileText className="h-4 w-4" aria-hidden="true" />
+                    {t("firstContext.history.preview.addFiles")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => void appendMarkdownSelection("folder")}
+                  >
+                    <FolderOpen className="h-4 w-4" aria-hidden="true" />
+                    {t("firstContext.history.preview.addFolder")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => void chooseAgain()}
+              disabled={action !== null || selectionBusy !== null}
+            >
+              {action === "delete" ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+              )}
+              {t("firstContext.history.preview.chooseAgain")}
+            </Button>
+          </div>
           {confirmationPlacement === "inline" ? (
             <Button
               type="button"

@@ -73,6 +73,7 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/memory/portrait" in paths
     assert "/api/memory/portrait/self" in paths
     assert "/api/memory/history-imports/markdown/preview" in paths
+    assert "/api/memory/history-imports/{job_id}/markdown/append" in paths
     assert "/api/memory/history-imports/importers" in paths
     assert "/api/memory/history-imports/importers/{plugin_id}/{importer_id}/preview" in paths
     assert "/api/memory/history-imports" in paths

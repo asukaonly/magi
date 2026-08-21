@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  appendMarkdownMock,
   confirmMock,
   deleteMock,
   getMock,
@@ -18,6 +19,7 @@ const {
   resumeMock,
   updateSelectionMock,
 } = vi.hoisted(() => ({
+  appendMarkdownMock: vi.fn(),
   confirmMock: vi.fn(),
   deleteMock: vi.fn(),
   getMock: vi.fn(),
@@ -53,6 +55,7 @@ vi.mock("@/runtime/desktop", () => ({
 
 vi.mock("@/api/modules/historyImports", () => ({
   historyImportsApi: {
+    appendMarkdown: (...args: unknown[]) => appendMarkdownMock(...args),
     previewMarkdown: (...args: unknown[]) => previewMock(...args),
     previewWithImporter: (...args: unknown[]) => previewImporterMock(...args),
     listImporters: (...args: unknown[]) => listImportersMock(...args),
@@ -244,6 +247,11 @@ describe("FirstContextHistoryImport", () => {
     });
     usePluginInstallPanelStore.getState().closePanel();
     previewMock.mockResolvedValue(documentPreview());
+    appendMarkdownMock.mockResolvedValue({
+      job: documentPreview(),
+      added_source_count: 0,
+      duplicate_source_count: 1,
+    });
     confirmMock.mockResolvedValue(readyJob());
     getMock.mockResolvedValue(readyJob());
     getSourcePreviewMock.mockResolvedValue({
@@ -874,6 +882,82 @@ describe("FirstContextHistoryImport", () => {
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("him-1"));
     expect(screen.getByTestId("history-import-empty")).toBeInTheDocument();
     expect(onJobUpdate).toHaveBeenLastCalledWith(null);
+  });
+
+  it("adds more Markdown files without replacing the current preview", async () => {
+    const user = userEvent.setup();
+    const addedSource = {
+      ...documentPreview().sources[0],
+      source_id: "journal.md",
+      source_name: "journal.md",
+    };
+    appendMarkdownMock.mockResolvedValue({
+      job: {
+        ...documentPreview(),
+        source_ids: ["notes.md", "journal.md"],
+        included_source_ids: ["notes.md", "journal.md"],
+        total_records: 2,
+        meaningful_records: 2,
+        sources: [documentPreview().sources[0], addedSource],
+      },
+      added_source_count: 1,
+      duplicate_source_count: 1,
+    });
+    render(<HistoryImportFlow onJobUpdate={vi.fn()} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.history.picker.files" }),
+    );
+    await screen.findByTestId("history-import-preview");
+    pickMarkdownFilesMock.mockResolvedValueOnce(["/tmp/journal.md"]);
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.preview.continueAdding",
+      }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", {
+        name: "firstContext.history.preview.addFiles",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(appendMarkdownMock).toHaveBeenCalledWith("him-1", [
+        "/tmp/journal.md",
+      ]),
+    );
+    expect(await screen.findByText("journal.md")).toBeInTheDocument();
+    expect(
+      screen.getByText("firstContext.history.preview.appendedWithDuplicates"),
+    ).toBeInTheDocument();
+    expect(deleteMock).not.toHaveBeenCalled();
+  });
+
+  it("can append another Markdown folder to the current preview", async () => {
+    const user = userEvent.setup();
+    pickDirectoryMock.mockResolvedValueOnce("/tmp/more-notes");
+    render(<HistoryImportFlow onJobUpdate={vi.fn()} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.history.picker.files" }),
+    );
+    await screen.findByTestId("history-import-preview");
+    await user.click(
+      screen.getByRole("button", {
+        name: "firstContext.history.preview.continueAdding",
+      }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", {
+        name: "firstContext.history.preview.addFolder",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(appendMarkdownMock).toHaveBeenCalledWith("him-1", [
+        "/tmp/more-notes",
+      ]),
+    );
   });
 
   it("shows and retries a completed import with a memory handoff gap", async () => {

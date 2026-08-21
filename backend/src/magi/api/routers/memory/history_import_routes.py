@@ -117,6 +117,12 @@ class HistoryImportJobResponse(BaseModel):
     preview_records: list[HistoryImportRecordPreviewResponse]
 
 
+class HistoryImportAppendResponse(BaseModel):
+    job: HistoryImportJobResponse
+    added_source_count: int
+    duplicate_source_count: int
+
+
 class HistoryImporterResponse(BaseModel):
     plugin_id: str
     importer_id: str
@@ -291,6 +297,29 @@ async def preview_markdown_history(
     return _response(job)
 
 
+@memory_router.post(
+    "/history-imports/{job_id}/markdown/append",
+    response_model=HistoryImportAppendResponse,
+)
+async def append_markdown_history(
+    job_id: str,
+    body: MarkdownHistoryPreviewBody,
+) -> HistoryImportAppendResponse:
+    try:
+        result = await _require_service().append_markdown_paths(
+            job_id=job_id,
+            paths=body.paths,
+        )
+    except Exception as exc:
+        _raise_service_error(exc)
+        raise
+    return HistoryImportAppendResponse(
+        job=_response(result.job),
+        added_source_count=result.added_source_count,
+        duplicate_source_count=result.duplicate_source_count,
+    )
+
+
 @memory_router.get(
     "/history-imports/importers",
     response_model=list[HistoryImporterResponse],
@@ -461,6 +490,7 @@ async def delete_history_import(job_id: str) -> Response:
 
 
 __all__ = [
+    "HistoryImportAppendResponse",
     "HistoryImportConfirmBody",
     "HistoryImportJobResponse",
     "HistoryImportParticipantResponse",
@@ -470,6 +500,7 @@ __all__ = [
     "HistoryImportSourceSummaryResponse",
     "HistoryImportWarningSummaryResponse",
     "MarkdownHistoryPreviewBody",
+    "append_markdown_history",
     "confirm_history_import",
     "delete_history_import",
     "get_history_import",

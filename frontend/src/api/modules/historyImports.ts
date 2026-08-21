@@ -108,10 +108,24 @@ export interface HistoryImporterPreviewInput {
   paths: string[];
 }
 
+export interface HistoryImportAppendResult {
+  job: HistoryImportJob;
+  added_source_count: number;
+  duplicate_source_count: number;
+}
+
 export const historyImportsApi = {
   async previewMarkdown(paths: string[]): Promise<HistoryImportJob> {
     const response = await api.post<HistoryImportJob>(
       '/memory/history-imports/markdown/preview',
+      { paths },
+    );
+    return unwrapGatewayPayload(response);
+  },
+
+  async appendMarkdown(jobId: string, paths: string[]): Promise<HistoryImportAppendResult> {
+    const response = await api.post<HistoryImportAppendResult>(
+      `/memory/history-imports/${encodeURIComponent(jobId)}/markdown/append`,
       { paths },
     );
     return unwrapGatewayPayload(response);

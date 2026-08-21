@@ -9,6 +9,7 @@ from typing import Any
 
 from ...core.sqlite import sqlite_connection_async
 from .models import (
+    HistoryImportAppendResult,
     HistoryImportJob,
     HistoryImportParticipant,
     HistoryImportRecord,
@@ -238,6 +239,190 @@ class HistoryImportStore:
         if result is None:
             raise RuntimeError("Created history import preview is missing")
         return result
+
+    async def append_preview(
+        self,
+        *,
+        job_id: str,
+        records: list[HistoryImportRecord],
+        warnings: list[str],
+        allow_existing_source_updates: bool,
+    ) -> HistoryImportAppendResult:
+        """Append unseen records to an unconfirmed preview in one transaction."""
+
+        now = time.time()
+        incoming_source_ids = list(dict.fromkeys(record.source_id for record in records))
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    "SELECT * FROM history_import_jobs WHERE job_id = ?",
+                    (job_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if row is None or row["deleted_at"] is not None:
+                    raise KeyError(job_id)
+                if (
+                    str(row["status"]) != "preview_ready"
+                    or bool(row["quick_ready"])
+                    or int(row["imported_count"]) > 0
+                    or json.loads(row["self_participant_ids_json"] or "[]")
+                ):
+                    raise ValueError("history_import_selection_locked")
+
+                existing_source_ids = list(json.loads(row["source_ids_json"] or "[]"))
+                existing_source_set = set(existing_source_ids)
+                existing_record_keys = await _load_job_record_keys(
+                    db,
+                    job_id=job_id,
+                    source_record_keys=[record.source_record_key for record in records],
+                )
+                records_by_source: dict[str, list[HistoryImportRecord]] = {}
+                for record in records:
+                    records_by_source.setdefault(record.source_id, []).append(record)
+                duplicate_source_count = sum(
+                    1
+                    for source_records in records_by_source.values()
+                    if source_records
+                    and all(
+                        record.source_record_key in existing_record_keys
+                        for record in source_records
+                    )
+                )
+                new_records = [
+                    record
+                    for record in records
+                    if record.source_record_key not in existing_record_keys
+                ]
+                if not allow_existing_source_updates and any(
+                    source_id in existing_source_set
+                    and any(
+                        record.source_record_key not in existing_record_keys
+                        for record in source_records
+                    )
+                    for source_id, source_records in records_by_source.items()
+                ):
+                    raise ValueError("history_import_source_name_conflict")
+
+                added_source_ids = [
+                    source_id
+                    for source_id in incoming_source_ids
+                    if source_id not in existing_source_set
+                    and any(
+                        record.source_record_key not in existing_record_keys
+                        for record in records_by_source[source_id]
+                    )
+                ]
+                merged_source_ids = [*existing_source_ids, *added_source_ids]
+                included_source_ids = list(json.loads(row["included_source_ids_json"] or "[]"))
+                merged_included_source_ids = [*included_source_ids, *added_source_ids]
+
+                if records:
+                    await db.executemany(
+                        """
+                        INSERT INTO history_import_source_records(
+                            source_record_key, file_fingerprint, source_id, source_name,
+                            source_kind, parsed_session_key, session_id, session_seq,
+                            speaker_id, speaker_name, message_key, parent_message_key,
+                            speaker_role, content, event_at,
+                            timestamp_confidence, timestamp_anchor_source,
+                            calendar_timezone_id, meaningful, event_id, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(source_record_key) DO NOTHING
+                        """,
+                        [
+                            (
+                                record.source_record_key,
+                                record.file_fingerprint,
+                                record.source_id,
+                                record.source_name,
+                                record.source_kind,
+                                record.parsed_session_key,
+                                record.session_id,
+                                record.session_seq,
+                                record.speaker_id,
+                                record.speaker_name,
+                                record.message_key,
+                                record.parent_message_key,
+                                record.speaker_role,
+                                record.content,
+                                record.event_at,
+                                record.timestamp_confidence,
+                                record.timestamp_anchor_source,
+                                record.calendar_timezone_id,
+                                1 if record.meaningful else 0,
+                                record.event_id,
+                                record.created_at,
+                            )
+                            for record in records
+                        ],
+                    )
+                    stored_identities = await _load_source_identity_rows(
+                        db,
+                        [record.source_record_key for record in records],
+                    )
+                    for record in records:
+                        stored = stored_identities.get(record.source_record_key)
+                        if stored is None or not _same_source_identity(record, stored):
+                            raise ValueError("history_import_source_identity_conflict")
+
+                if new_records:
+                    await db.executemany(
+                        """
+                        INSERT INTO history_import_job_records(
+                            job_record_id, job_id, source_record_key,
+                            source_order, raw_state, projection_state, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            (
+                                record.job_record_id,
+                                record.job_id,
+                                record.source_record_key,
+                                record.session_seq,
+                                record.raw_state,
+                                record.projection_state,
+                                record.created_at,
+                                record.updated_at,
+                            )
+                            for record in new_records
+                        ],
+                    )
+
+                await db.execute(
+                    """
+                    UPDATE history_import_jobs
+                    SET source_ids_json = ?,
+                        included_source_ids_json = ?,
+                        total_records = total_records + ?,
+                        meaningful_records = meaningful_records + ?,
+                        warnings_json = ?,
+                        updated_at = ?
+                    WHERE job_id = ?
+                    """,
+                    (
+                        json.dumps(merged_source_ids, ensure_ascii=False),
+                        json.dumps(merged_included_source_ids, ensure_ascii=False),
+                        len(new_records),
+                        sum(1 for record in new_records if record.meaningful),
+                        json.dumps(warnings, ensure_ascii=False),
+                        now,
+                        job_id,
+                    ),
+                )
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+
+        job = await self.get_job(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        return HistoryImportAppendResult(
+            job=job,
+            added_source_count=len(added_source_ids),
+            duplicate_source_count=duplicate_source_count,
+        )
 
     async def validate_platform_session_prefixes(
         self,
@@ -1294,6 +1479,35 @@ async def _load_source_identity_rows(
             rows = await cursor.fetchall()
         rows_by_key.update({str(row["source_record_key"]): row for row in rows})
     return rows_by_key
+
+
+async def _load_job_record_keys(
+    db: Any,
+    *,
+    job_id: str,
+    source_record_keys: list[str],
+) -> set[str]:
+    """Load candidate record keys already attached to one preview job."""
+
+    unique_keys = list(dict.fromkeys(source_record_keys))
+    loaded: set[str] = set()
+    for offset in range(0, len(unique_keys), _SOURCE_IDENTITY_READ_BATCH_SIZE):
+        batch = unique_keys[offset : offset + _SOURCE_IDENTITY_READ_BATCH_SIZE]
+        if not batch:
+            continue
+        placeholders = ",".join("?" for _ in batch)
+        async with db.execute(
+            f"""
+            SELECT source_record_key
+            FROM history_import_job_records
+            WHERE job_id = ?
+              AND source_record_key IN ({placeholders})
+            """,
+            (job_id, *batch),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        loaded.update(str(row["source_record_key"]) for row in rows)
+    return loaded
 
 
 async def _load_reserved_session_prefixes(

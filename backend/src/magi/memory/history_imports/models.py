@@ -131,6 +131,15 @@ class HistoryImportJob:
 
 
 @dataclass(slots=True)
+class HistoryImportAppendResult:
+    """Result of extending an unconfirmed preview with more source files."""
+
+    job: HistoryImportJob
+    added_source_count: int
+    duplicate_source_count: int
+
+
+@dataclass(slots=True)
 class ParsedHistorySource:
     """Parser output before a preview job receives durable identities."""
 
@@ -143,6 +152,7 @@ class ParsedHistorySource:
 
 
 __all__ = [
+    "HistoryImportAppendResult",
     "HistoryImportJob",
     "HistoryImportParticipant",
     "HistoryImportRecord",

@@ -1541,6 +1541,94 @@ async def test_selection_excludes_unwanted_files_before_any_memory_write(
 
 
 @pytest.mark.asyncio
+async def test_append_markdown_preserves_selection_and_skips_duplicates(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    first = tmp_path / "first.md"
+    second = tmp_path / "second.md"
+    first.write_text("First private note.", encoding="utf-8")
+    second.write_text("Second private note.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+
+    preview = await service.preview_markdown_paths([str(first)])
+    await service.update_selection(job_id=preview.job_id, included_source_ids=[])
+    result = await service.append_markdown_paths(
+        job_id=preview.job_id,
+        paths=[str(first), str(second)],
+    )
+
+    assert result.added_source_count == 1
+    assert result.duplicate_source_count == 1
+    assert result.job.source_ids == ["first.md", "second.md"]
+    assert result.job.included_source_ids == ["second.md"]
+    assert result.job.total_records == 2
+    assert {source.source_name: source.included for source in result.job.sources} == {
+        "first.md": False,
+        "second.md": True,
+    }
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_append_markdown_rejects_changed_content_with_the_same_source_name(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    first_directory = tmp_path / "first"
+    second_directory = tmp_path / "second"
+    first_directory.mkdir()
+    second_directory.mkdir()
+    first = first_directory / "notes.md"
+    conflicting = second_directory / "notes.md"
+    first.write_text("Original private note.", encoding="utf-8")
+    conflicting.write_text("Different private note.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+    preview = await service.preview_markdown_paths([str(first)])
+
+    with pytest.raises(
+        HistoryImportValidationError,
+        match="history_import_source_name_conflict",
+    ):
+        await service.append_markdown_paths(
+            job_id=preview.job_id,
+            paths=[str(conflicting)],
+        )
+    current = await service.get_job(preview.job_id)
+    assert current.source_ids == ["notes.md"]
+    assert current.total_records == 1
+    await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_append_markdown_is_locked_after_scope_confirmation(
+    tmp_path: Path,
+    history_store: HistoryImportStore,
+) -> None:
+    first = tmp_path / "first.md"
+    second = tmp_path / "second.md"
+    first.write_text("First private note.", encoding="utf-8")
+    second.write_text("Second private note.", encoding="utf-8")
+    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+    preview = await service.preview_markdown_paths([str(first)])
+    await history_store.set_scope(
+        job_id=preview.job_id,
+        self_participant_ids=["__document_author__"],
+        included_source_ids=preview.included_source_ids,
+    )
+
+    with pytest.raises(
+        HistoryImportValidationError,
+        match="history_import_selection_locked",
+    ):
+        await service.append_markdown_paths(
+            job_id=preview.job_id,
+            paths=[str(second)],
+        )
+    await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_committed_scope_freezes_selection_and_is_payload_idempotent(
     tmp_path: Path,
     history_store: HistoryImportStore,

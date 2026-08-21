@@ -1135,6 +1135,16 @@ silently reused. Chat-shaped text remains content inside the document; quoted or
 attributed spans still pass through the document authorship gate below rather
 than inheriting user authority.
 
+An unconfirmed Markdown preview may be extended transactionally. Existing job
+memberships and per-source inclusion choices remain authoritative, newly added
+sources receive new memberships and default to included, and records already
+attached to that job are skipped by stable source-record identity. Appending is
+forbidden after scope confirmation or any import work begins. A Markdown source
+name reused with different content is a conflict rather than an in-place update;
+the user must rename the file or clear the unconfirmed preview and select the
+complete set again. This preview mutation does not apply to platform archives,
+whose append-only session rules remain importer-specific.
+
 `history_import_source_records` owns stable source/session/message identity,
 explicit source kind, host-namespaced speaker identity and confirmed role,
 optional parent-message identity, content,
