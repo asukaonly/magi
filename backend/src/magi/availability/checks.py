@@ -19,6 +19,7 @@ from magi_plugin_sdk.contracts import (
     LocalRequirementExecutableInPath,
     LocalRequirementFileExists,
 )
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 
 
 def _current_platform_key() -> str:
@@ -174,6 +175,7 @@ def _check_macos_app(bundle_id: str) -> tuple[bool, str | None]:
             capture_output=True,
             text=True,
             timeout=5,
+            **hidden_process_kwargs(),
         )
     except (subprocess.SubprocessError, OSError) as exc:
         return False, f"mdfind failed: {exc}"

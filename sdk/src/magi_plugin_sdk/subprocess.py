@@ -33,6 +33,7 @@ import json
 import logging
 import os
 import signal
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +42,20 @@ from typing import IO, Any
 logger = logging.getLogger(__name__)
 
 DEFAULT_REGISTRY_PATH = Path.home() / ".magi" / "runtime" / "child_processes.json"
+
+
+def hidden_process_kwargs() -> dict[str, Any]:
+    """Return options that prevent transient child consoles on Windows."""
+    if os.name != "nt":
+        return {}
+
+    startup_info = subprocess.STARTUPINFO()
+    startup_info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startup_info.wShowWindow = subprocess.SW_HIDE
+    return {
+        "creationflags": subprocess.CREATE_NO_WINDOW,
+        "startupinfo": startup_info,
+    }
 
 
 def _default_registry_path() -> Path:
@@ -161,12 +176,13 @@ def _argv0_of(pid: int) -> str | None:
         # macOS + Linux both have `ps -p PID -o comm=`. comm gives the
         # last-path-component of argv[0], which is enough to distinguish
         # `magi-vision-helper` from an unrelated reused PID.
-        import subprocess as _sp
-        result = _sp.run(
+        result = subprocess.run(
             ["ps", "-p", str(pid), "-o", "comm="],
             capture_output=True,
             text=True,
             timeout=2.0,
+            check=False,
+            **hidden_process_kwargs(),
         )
         out = result.stdout.strip()
         return out or None
@@ -218,6 +234,7 @@ class ManagedSubprocess:
             stderr=stderr,
             env=env,
             cwd=cwd,
+            **hidden_process_kwargs(),
         )
         path = registry_path or _default_registry_path()
         instance = cls(
@@ -242,7 +259,7 @@ class ManagedSubprocess:
                 "managed_subprocess.spawned label=%s pid=%d argv0=%s",
                 label, proc.pid, argv[0],
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             # Registry write failed — log and continue. Worst case: this
             # child becomes an orphan on next crash, but the running
             # backend can still use it normally.
@@ -263,7 +280,7 @@ class ManagedSubprocess:
         try:
             _unregister(self.proc.pid, registry_path=self.registry_path)
             self._registered = False
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception(
                 "managed_subprocess.unregister_failed label=%s pid=%d",
                 self.label, self.proc.pid,
@@ -448,7 +465,8 @@ class ManagedSubprocess:
 
 
 __all__ = [
+    "DEFAULT_REGISTRY_PATH",
     "ManagedSubprocess",
     "RegistryEntry",
-    "DEFAULT_REGISTRY_PATH",
+    "hidden_process_kwargs",
 ]

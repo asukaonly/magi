@@ -23,6 +23,8 @@ Protocol (compatible with Claude Code hooks):
 
 from __future__ import annotations
 
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
+
 import asyncio
 import dataclasses
 import json
@@ -134,6 +136,7 @@ def build_shell_hook_handler(
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                **hidden_process_kwargs(),
             )
         except Exception as exc:
             if full_content_logging_enabled():

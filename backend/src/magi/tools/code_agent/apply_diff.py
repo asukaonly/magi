@@ -23,6 +23,8 @@ import os
 import subprocess
 import time
 from dataclasses import dataclass, field
+
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from pathlib import Path
 from typing import Optional
 
@@ -94,6 +96,7 @@ def _files_in_patch(
         cwd=workspace_root,
         capture_output=True,
         check=False,
+        **hidden_process_kwargs(),
     )
     if proc.returncode != 0:
         error = proc.stderr.decode("utf-8", errors="replace").strip()
@@ -313,6 +316,7 @@ def _run_git_apply(workspace_root: Path, patch_path: Path) -> subprocess.Complet
         cwd=workspace_root,
         capture_output=True,
         text=True,
+        **hidden_process_kwargs(),
     )
 
 
@@ -321,6 +325,7 @@ def _reset_mixed(workspace_root: Path, files: list[str]) -> None:
         ["git", "reset", "--mixed", "--", *files],
         cwd=workspace_root,
         capture_output=True,
+        **hidden_process_kwargs(),
     )
 
 

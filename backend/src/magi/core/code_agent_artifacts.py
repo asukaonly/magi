@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .chat_assets.paths import normalize_chat_asset_component
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 
 _DELEGATION_ID_PATTERN = re.compile(r"[0-9a-fA-F]{32}")
 _STATIC_COMPONENT_PATTERN = re.compile(r"[A-Za-z0-9_.-]{1,128}")
@@ -578,6 +579,7 @@ class CodeAgentArtifactGC:
                 capture_output=True,
                 text=True,
                 check=False,
+                **hidden_process_kwargs(),
             )
         except OSError as exc:
             raise CodeAgentArtifactDeletionError(

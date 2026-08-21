@@ -16,6 +16,7 @@ import shutil
 from dataclasses import dataclass
 from typing import Any, Dict
 
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from ..schema import (
     ParameterType,
     Tool,
@@ -258,6 +259,7 @@ class PowerShellTool(Tool):
             stderr=asyncio.subprocess.PIPE,
             cwd=request.cwd,
             env=_build_subprocess_env(),
+            **hidden_process_kwargs(),
         )
 
         try:

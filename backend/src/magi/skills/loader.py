@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from .allowed_tools_rules import parse_allowed_tools, rules_to_strings
 from .schema import SkillContent, SkillFrontmatter
 from .indexer import SkillIndexer
@@ -263,6 +264,7 @@ class SkillLoader:
                     capture_output=True,
                     text=True,
                     timeout=5,
+                    **hidden_process_kwargs(),
                 )
                 output = result.stdout.strip()
                 if not output:

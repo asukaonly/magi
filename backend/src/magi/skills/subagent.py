@@ -18,6 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from .schema import SkillContent, SkillResult
 from .tool_registry_port import ToolRegistryPort
 from magi_plugin_sdk.turn import UserTurnInput
@@ -503,6 +504,7 @@ def _run_skill_script(
         text=True,
         timeout=timeout,
         cwd=str(script_path.parent),
+        **hidden_process_kwargs(),
     )
 
 
