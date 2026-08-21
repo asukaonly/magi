@@ -58,7 +58,10 @@ vi.mock("@/runtime/desktop", () => ({
 
 import type { HistoryImportJob } from "@/api/modules/historyImports";
 import HistoryImportsSection from "@/components/history-imports/HistoryImportsSection";
-import { historyImportProgress } from "@/components/history-imports/historyImportProgress";
+import {
+  historyImportProgress,
+  historyImportStages,
+} from "@/components/history-imports/historyImportProgress";
 
 function completedJob(): HistoryImportJob {
   return {
@@ -155,14 +158,20 @@ describe("HistoryImportsSection", () => {
       screen.queryByText("memory.sourcesPage.historyImports.status.completed"),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByText("memory.sourcesPage.historyImports.memoryQueued"),
+      screen.getByText("memory.sourcesPage.historyImports.stages.source.saved"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("memory.sourcesPage.historyImports.stages.memoryHandoff.paused"),
     ).toBeInTheDocument();
     expect(historyImportProgress(partialJob)).toMatchObject({
       savedCount: 12,
       queuedCount: 8,
-      savedPercent: 100,
       hasMemoryQueueGap: true,
       fullyTransferred: false,
+    });
+    expect(historyImportStages(partialJob)).toEqual({
+      source: "saved",
+      memoryHandoff: "paused",
     });
 
     await user.click(

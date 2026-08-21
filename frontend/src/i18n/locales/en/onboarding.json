@@ -527,9 +527,19 @@
         "completed": "All selected source text has been saved and handed to memory processing.",
         "partial": "Your source text is safe, but some content has not finished importing or entering memory processing.",
         "failed": "The first content is saved, but the remaining import paused. You can continue it.",
-        "progress": "Imported {{progress}}%",
-        "progressLabel": "History content save progress",
-        "memoryQueued": "Sent to memory processing: {{queued}} / {{saved}}",
+        "stages": {
+          "source": {
+            "saving": "Saving source text: {{saved}} / {{total}}",
+            "saved": "Source text saved: {{saved}} / {{total}}",
+            "paused": "Source-text saving paused: {{saved}} / {{total}}"
+          },
+          "memoryHandoff": {
+            "waiting": "Memory handoff will start after the source text is saved",
+            "sending": "Sending to memory processing: {{queued}} / {{total}}",
+            "sent": "Sent to memory processing: {{queued}} / {{total}}",
+            "paused": "Memory handoff paused: {{queued}} / {{total}}"
+          }
+        },
         "retry": "Continue import",
         "progressUnavailable": "Progress could not be refreshed. The last confirmed result is still shown, and background import is not stopped.",
         "refreshProgress": "Refresh progress",

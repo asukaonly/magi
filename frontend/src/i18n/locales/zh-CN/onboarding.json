@@ -527,9 +527,19 @@
         "completed": "所选原文已经全部保存，并已交给记忆整理。",
         "partial": "原文已经保留，但仍有部分内容没有完成导入或进入记忆整理。",
         "failed": "第一批内容已经保存，后续导入暂时中断，可以重新继续。",
-        "progress": "导入进度 {{progress}}%",
-        "progressLabel": "历史内容保存进度",
-        "memoryQueued": "已交给记忆整理 {{queued}} / {{saved}} 条",
+        "stages": {
+          "source": {
+            "saving": "正在保存原文 {{saved}} / {{total}} 条",
+            "saved": "原文已保存 {{saved}} / {{total}} 条",
+            "paused": "原文保存已暂停 {{saved}} / {{total}} 条"
+          },
+          "memoryHandoff": {
+            "waiting": "原文保存完成后会继续交给记忆整理",
+            "sending": "正在交给记忆整理 {{queued}} / {{total}} 条",
+            "sent": "已交给记忆整理 {{queued}} / {{total}} 条",
+            "paused": "记忆整理交接已暂停 {{queued}} / {{total}} 条"
+          }
+        },
         "retry": "继续导入",
         "progressUnavailable": "暂时无法刷新导入进度，已显示最后一次确认的结果。后台导入不会因此停止。",
         "refreshProgress": "刷新进度",

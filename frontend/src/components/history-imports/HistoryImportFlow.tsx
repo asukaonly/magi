@@ -69,6 +69,7 @@ import { localizedPluginText } from "@/utils/plugin-display-groups";
 import {
   canRetryHistoryImport,
   historyImportProgress,
+  historyImportStages,
 } from "./historyImportProgress";
 
 interface HistoryImportFlowProps {
@@ -854,7 +855,6 @@ export const HistoryImportFlow = forwardRef<
     [chooseAgain, confirmImport, primaryAction, resumeImport],
   );
 
-  const progress = job ? historyImportProgress(job) : null;
   const dayFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(i18n.resolvedLanguage ?? i18n.language, {
@@ -1309,8 +1309,10 @@ export const HistoryImportFlow = forwardRef<
   }
 
   if (job.quick_ready) {
-    const complete = job.status === "completed" && progress?.fullyTransferred;
-    const partial = job.status === "completed" && !progress?.fullyTransferred;
+    const readyProgress = historyImportProgress(job);
+    const stages = historyImportStages(job);
+    const complete = job.status === "completed" && readyProgress.fullyTransferred;
+    const partial = job.status === "completed" && !readyProgress.fullyTransferred;
     const failed = job.status === "failed";
     const retryable = canRetryHistoryImport(job);
     return (
@@ -1336,29 +1338,42 @@ export const HistoryImportFlow = forwardRef<
                     : t("firstContext.history.ready.background")}
               </p>
               <div
-                role="progressbar"
-                aria-label={t("firstContext.history.ready.progressLabel")}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={progress?.savedPercent ?? 0}
-                className="mt-4 h-1.5 overflow-hidden rounded-full bg-primary/10"
+                aria-live="polite"
+                className="mt-4 space-y-2 rounded-xl border border-primary/10 bg-background/55 px-3.5 py-3 text-xs text-muted-foreground"
               >
-                <div
-                  className="h-full rounded-full bg-primary transition-[width] duration-300"
-                  style={{ width: `${progress?.savedPercent ?? 0}%` }}
-                />
+                <div className="flex items-center gap-2">
+                  {stages.source === "saved" ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                  ) : stages.source === "paused" ? (
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />
+                  ) : (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" aria-hidden="true" />
+                  )}
+                  <span>
+                    {t(`firstContext.history.ready.stages.source.${stages.source}`, {
+                      saved: readyProgress.savedCount,
+                      total: readyProgress.totalCount,
+                    })}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {stages.memoryHandoff === "sent" ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                  ) : stages.memoryHandoff === "sending" ? (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" aria-hidden="true" />
+                  ) : stages.memoryHandoff === "paused" ? (
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />
+                  ) : (
+                    <span className="h-2 w-2 shrink-0 rounded-full border border-current opacity-45" aria-hidden="true" />
+                  )}
+                  <span>
+                    {t(`firstContext.history.ready.stages.memoryHandoff.${stages.memoryHandoff}`, {
+                      queued: readyProgress.queuedCount,
+                      total: readyProgress.totalCount,
+                    })}
+                  </span>
+                </div>
               </div>
-              <p aria-live="polite" className="mt-2 text-xs text-muted-foreground">
-                {t("firstContext.history.ready.progress", {
-                  progress: progress?.savedPercent ?? 0,
-                })}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t("firstContext.history.ready.memoryQueued", {
-                  queued: progress?.queuedCount ?? 0,
-                  saved: progress?.savedCount ?? 0,
-                })}
-              </p>
             </div>
           </div>
         </div>

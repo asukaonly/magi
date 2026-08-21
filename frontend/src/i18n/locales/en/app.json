@@ -3022,9 +3022,19 @@
         "platformBatch": "Platform conversation import",
         "personalWritingBatch": "Personal writing import",
         "fileCount": "{{count}} items",
-        "progress": "Imported {{progress}}%",
-        "progressLabel": "Import progress for {{name}}",
-        "memoryQueued": "Sent to memory processing: {{queued}} / {{saved}}",
+        "stages": {
+          "source": {
+            "saving": "Saving source text: {{saved}} / {{total}}",
+            "saved": "Source text saved: {{saved}} / {{total}}",
+            "paused": "Source-text saving paused: {{saved}} / {{total}}"
+          },
+          "memoryHandoff": {
+            "waiting": "Waiting for source-text saving to finish",
+            "sending": "Sending to memory processing: {{queued}} / {{total}}",
+            "sent": "Sent to memory processing: {{queued}} / {{total}}",
+            "paused": "Memory handoff paused: {{queued}} / {{total}}"
+          }
+        },
         "review": "Continue review",
         "continue": "Continue import",
         "continueFailed": "The import could not continue. Please try again.",

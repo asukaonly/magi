@@ -4,10 +4,14 @@ export interface HistoryImportProgress {
   totalCount: number;
   savedCount: number;
   queuedCount: number;
-  savedPercent: number;
   hasSaveGap: boolean;
   hasMemoryQueueGap: boolean;
   fullyTransferred: boolean;
+}
+
+export interface HistoryImportStages {
+  source: "saving" | "saved" | "paused";
+  memoryHandoff: "waiting" | "sending" | "sent" | "paused";
 }
 
 export function historyImportProgress(job: HistoryImportJob): HistoryImportProgress {
@@ -21,13 +25,31 @@ export function historyImportProgress(job: HistoryImportJob): HistoryImportProgr
     totalCount,
     savedCount,
     queuedCount,
-    savedPercent: Math.min(
-      100,
-      Math.round((savedCount / Math.max(totalCount, 1)) * 100),
-    ),
     hasSaveGap,
     hasMemoryQueueGap,
     fullyTransferred: !hasSaveGap && !hasMemoryQueueGap,
+  };
+}
+
+export function historyImportStages(job: HistoryImportJob): HistoryImportStages {
+  const progress = historyImportProgress(job);
+  const interrupted = job.status === "failed" || (
+    job.status === "completed" && !progress.fullyTransferred
+  );
+
+  return {
+    source: progress.hasSaveGap
+      ? interrupted
+        ? "paused"
+        : "saving"
+      : "saved",
+    memoryHandoff: progress.fullyTransferred
+      ? "sent"
+      : interrupted
+        ? "paused"
+        : progress.hasSaveGap
+          ? "waiting"
+          : "sending",
   };
 }
 

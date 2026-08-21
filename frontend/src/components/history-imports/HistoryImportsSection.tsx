@@ -29,6 +29,7 @@ import HistoryImportFlow, {
 import {
   canRetryHistoryImport,
   historyImportProgress,
+  historyImportStages,
   historyImportStatusKey,
 } from "./historyImportProgress";
 
@@ -281,7 +282,7 @@ export default function HistoryImportsSection({
               <div className="divide-y divide-[hsl(var(--memory-border)/0.48)] border-t border-[hsl(var(--memory-border)/0.48)]">
                 {jobs.map((job) => {
                   const progress = historyImportProgress(job);
-                  const active = ACTIVE_IMPORT_STATUSES.has(job.status);
+                  const stages = historyImportStages(job);
                   const retryable = canRetryHistoryImport(job);
                   const needsReview = job.status === "preview_ready" || (
                     job.status === "failed" && !job.quick_ready
@@ -312,37 +313,25 @@ export default function HistoryImportsSection({
                       </div>
                       <div className="text-xs text-[hsl(var(--memory-body))]">
                         <p>{t(`memory.sourcesPage.historyImports.status.${statusKey}`)}</p>
-                        {active ? (
-                          <div
-                            role="progressbar"
-                            aria-label={t("memory.sourcesPage.historyImports.progressLabel", {
-                              name: jobLabel(job, fallbackLabel),
-                            })}
-                            aria-valuemin={0}
-                            aria-valuemax={100}
-                            aria-valuenow={progress.savedPercent}
-                            className="mt-2 h-1.5 overflow-hidden rounded-full bg-[hsl(var(--memory-accent)/0.1)]"
-                          >
-                            <div
-                              className="h-full rounded-full bg-[hsl(var(--memory-accent))] transition-[width] duration-300"
-                              style={{ width: `${progress.savedPercent}%` }}
-                            />
-                          </div>
-                        ) : null}
                       </div>
                       <div className="text-xs leading-5 text-[hsl(var(--memory-muted))]">
                         <p>{dateFormatter.format(new Date(job.created_at * 1000))}</p>
-                        <p>
-                          {t("memory.sourcesPage.historyImports.progress", {
-                            progress: progress.savedPercent,
-                          })}
-                        </p>
-                        <p>
-                          {t("memory.sourcesPage.historyImports.memoryQueued", {
-                            queued: progress.queuedCount,
-                            saved: progress.savedCount,
-                          })}
-                        </p>
+                        {!needsReview ? (
+                          <div aria-live="polite" className="mt-1">
+                            <p>
+                              {t(`memory.sourcesPage.historyImports.stages.source.${stages.source}`, {
+                                saved: progress.savedCount,
+                                total: progress.totalCount,
+                              })}
+                            </p>
+                            <p>
+                              {t(`memory.sourcesPage.historyImports.stages.memoryHandoff.${stages.memoryHandoff}`, {
+                                queued: progress.queuedCount,
+                                total: progress.totalCount,
+                              })}
+                            </p>
+                          </div>
+                        ) : null}
                       </div>
                       <div className="flex items-center gap-1 lg:justify-end">
                         {needsReview ? (

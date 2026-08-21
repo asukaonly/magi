@@ -323,6 +323,13 @@ describe("FirstContextHistoryImport", () => {
       selfParticipantIds: [],
     });
     expect(await screen.findByTestId("history-import-ready")).toBeInTheDocument();
+    expect(
+      screen.getByText("firstContext.history.ready.stages.source.saved"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("firstContext.history.ready.stages.memoryHandoff.sending"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(onJobUpdate).toHaveBeenLastCalledWith(
       expect.objectContaining({
         job_id: "him-1",
@@ -980,7 +987,10 @@ describe("FirstContextHistoryImport", () => {
       screen.getByText("firstContext.history.ready.partial"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("firstContext.history.ready.memoryQueued"),
+      screen.getByText("firstContext.history.ready.stages.source.saved"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("firstContext.history.ready.stages.memoryHandoff.paused"),
     ).toBeInTheDocument();
 
     await user.click(
@@ -1234,7 +1244,7 @@ describe("FirstContextHistoryImport", () => {
     ).toBeInTheDocument();
   });
 
-  it("paginates large source selections and exposes progress semantics", async () => {
+  it("paginates large source selections and exposes separate import stages", async () => {
     const user = userEvent.setup();
     const sources = Array.from({ length: 51 }, (_, index) => ({
       ...documentPreview().sources[0],
@@ -1265,10 +1275,13 @@ describe("FirstContextHistoryImport", () => {
     const { rerender } = render(
       <HistoryImportFlow initialJobId="him-ready" onJobUpdate={vi.fn()} />,
     );
-    expect(await screen.findByRole("progressbar")).toHaveAttribute(
-      "aria-valuenow",
-      "100",
-    );
+    expect(
+      await screen.findByText("firstContext.history.ready.stages.source.saved"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("firstContext.history.ready.stages.memoryHandoff.sending"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     rerender(<div />);
   });
 });

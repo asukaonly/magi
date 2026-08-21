@@ -3021,9 +3021,19 @@
         "platformBatch": "平台对话导入",
         "personalWritingBatch": "个人文字导入",
         "fileCount": "{{count}} 项内容",
-        "progress": "导入进度 {{progress}}%",
-        "progressLabel": "{{name}}的导入进度",
-        "memoryQueued": "已交给记忆整理 {{queued}} / {{saved}} 条",
+        "stages": {
+          "source": {
+            "saving": "正在保存原文 {{saved}} / {{total}} 条",
+            "saved": "原文已保存 {{saved}} / {{total}} 条",
+            "paused": "原文保存已暂停 {{saved}} / {{total}} 条"
+          },
+          "memoryHandoff": {
+            "waiting": "等待原文保存完成",
+            "sending": "正在交给记忆整理 {{queued}} / {{total}} 条",
+            "sent": "已交给记忆整理 {{queued}} / {{total}} 条",
+            "paused": "记忆整理交接已暂停 {{queued}} / {{total}} 条"
+          }
+        },
         "review": "继续确认",
         "continue": "继续导入",
         "continueFailed": "暂时没能继续导入，请稍后重试。",
