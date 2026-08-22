@@ -321,7 +321,7 @@ class TraceSnapshotBuilderMixin:
                 if isinstance(orchestration_state, dict)
                 else None
             )
-            if active_steps <= 1 and not subtasks:
+            if active_steps == 0 and not subtasks:
                 return "Orchestrating tasks"
         if active_steps > 0 or completed_steps > 0:
             return "Running tool chain"
