@@ -37,15 +37,25 @@ class WorkerFinding:
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> Optional["WorkerFinding"]:
-        title = str(payload.get("title", "")).strip()
-        detail = str(payload.get("detail", "")).strip()
+        raw_title = payload.get("title")
+        raw_detail = payload.get("detail")
+        raw_path = payload.get("path")
+        raw_why_it_matters = payload.get("why_it_matters")
+        if not isinstance(raw_title, str) or not isinstance(raw_detail, str):
+            return None
+        if raw_path is not None and not isinstance(raw_path, str):
+            return None
+        if raw_why_it_matters is not None and not isinstance(raw_why_it_matters, str):
+            return None
+        title = raw_title.strip()
+        detail = raw_detail.strip()
         if not title or not detail:
             return None
         return cls(
             title=title,
             detail=detail,
-            path=_optional_string(payload.get("path")),
-            why_it_matters=_optional_string(payload.get("why_it_matters")),
+            path=_optional_string(raw_path),
+            why_it_matters=_optional_string(raw_why_it_matters),
         )
 
 
@@ -61,8 +71,12 @@ class WorkerEvidence:
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> Optional["WorkerEvidence"]:
-        path = str(payload.get("path", "")).strip()
-        detail = str(payload.get("detail", "")).strip()
+        raw_path = payload.get("path")
+        raw_detail = payload.get("detail")
+        if not isinstance(raw_path, str) or not isinstance(raw_detail, str):
+            return None
+        path = raw_path.strip()
+        detail = raw_detail.strip()
         if not path or not detail:
             return None
         return cls(path=path, detail=detail)
@@ -139,6 +153,7 @@ class WorkerResult:
     envelope_contract_valid: bool = field(default=True, repr=False, compare=False)
     coding_contract_valid: bool = field(default=True, repr=False, compare=False)
     string_lists_valid: bool = field(default=True, repr=False, compare=False)
+    plan_contract_valid: bool = field(default=True, repr=False, compare=False)
 
     def to_dict(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
@@ -160,6 +175,8 @@ class WorkerResult:
             payload["_string_lists_valid"] = False
         if not self.envelope_contract_valid:
             payload["_envelope_contract_valid"] = False
+        if not self.plan_contract_valid:
+            payload["_plan_contract_valid"] = False
         return payload
 
     @classmethod
@@ -201,6 +218,13 @@ class WorkerResult:
                 and _is_valid_string_list_payload(raw_gaps)
                 and _is_valid_string_list_payload(raw_next_steps)
             ),
+            plan_contract_valid=(
+                payload.get("_plan_contract_valid") is not False
+                and (
+                    "subtasks" not in payload
+                    or _is_valid_planned_subtasks_payload(payload.get("subtasks"))
+                )
+            ),
         )
 
 
@@ -218,15 +242,26 @@ class PlannedSubtask:
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> Optional["PlannedSubtask"]:
-        description = str(payload.get("description", "")).strip()
-        prompt = str(payload.get("prompt", "")).strip()
-        if not description or not prompt:
+        raw_description = payload.get("description")
+        raw_subagent_type = payload.get("subagent_type")
+        raw_prompt = payload.get("prompt")
+        raw_parallel_group = payload.get("parallel_group", "default")
+        if not all(
+            isinstance(value, str)
+            for value in (raw_description, raw_subagent_type, raw_prompt, raw_parallel_group)
+        ):
+            return None
+        description = raw_description.strip()
+        subagent_type = raw_subagent_type.strip()
+        prompt = raw_prompt.strip()
+        parallel_group = raw_parallel_group.strip() or "default"
+        if not description or not subagent_type or not prompt:
             return None
         return cls(
             description=description,
-            subagent_type=str(payload.get("subagent_type", "CodeExplore")).strip() or "CodeExplore",
+            subagent_type=subagent_type,
             prompt=prompt,
-            parallel_group=str(payload.get("parallel_group", "default")).strip() or "default",
+            parallel_group=parallel_group,
         )
 
 
@@ -499,21 +534,49 @@ def _is_valid_worker_envelope_payload(payload: Dict[str, Any]) -> bool:
         "summary",
         "findings",
         "evidence",
+        "records",
         "gaps",
         "next_steps",
     }
     if not required_fields.issubset(payload):
         return False
-    if any(
-        not isinstance(payload.get(field_name), list)
-        for field_name in ("findings", "evidence", "gaps", "next_steps")
-    ):
+    result_status = payload.get("result_status")
+    summary = payload.get("summary")
+    if not isinstance(result_status, str) or result_status.strip() not in {
+        "success",
+        "partial",
+        "failed",
+    }:
         return False
-    records = payload.get("records", [])
+    if not isinstance(summary, str) or not summary.strip():
+        return False
+    findings = payload.get("findings")
+    evidence = payload.get("evidence")
+    records = payload.get("records")
     return (
-        isinstance(records, list)
+        _is_valid_findings_payload(findings)
+        and _is_valid_evidence_payload(evidence)
+        and isinstance(records, list)
         and len(records) <= MAX_WORKER_RESULT_RECORDS
         and all(isinstance(item, dict) for item in records)
+    )
+
+
+def _is_valid_findings_payload(value: Any) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, dict) and WorkerFinding.from_dict(item) is not None for item in value
+    )
+
+
+def _is_valid_evidence_payload(value: Any) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, dict) and WorkerEvidence.from_dict(item) is not None for item in value
+    )
+
+
+def _is_valid_planned_subtasks_payload(value: Any) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, dict) and PlannedSubtask.from_dict(item) is not None for item in value
     )
 
 

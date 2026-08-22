@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from ...agent.orchestration import (
+    PlannedSubtask,
     WorkerEvidence,
     WorkerFinding,
     WorkerResult,
@@ -29,27 +30,47 @@ class WorkerResultValidationMixin:
         parsed = self._parse_worker_json(stripped)
         if not isinstance(parsed, dict):
             raise ValueError("Worker result must be a JSON object")
-        required_keys = {"result_status", "summary", "findings", "evidence", "gaps", "next_steps"}
+        required_keys = {
+            "result_status",
+            "summary",
+            "findings",
+            "evidence",
+            "records",
+            "gaps",
+            "next_steps",
+        }
         if subagent_type == self.TYPE_CODING:
             required_keys.update({"artifacts", "verification"})
         if not required_keys.issubset(set(parsed.keys())):
             raise ValueError("Worker result is missing required fields")
-        result_status = str(parsed.get("result_status", "")).strip()
+        raw_result_status = parsed.get("result_status")
+        if not isinstance(raw_result_status, str):
+            raise ValueError(
+                "Worker result field 'result_status' must be success, partial, or failed"
+            )
+        result_status = raw_result_status.strip()
         if result_status not in {"success", "partial", "failed"}:
             raise ValueError(
                 "Worker result field 'result_status' must be success, partial, or failed"
             )
+        raw_summary = parsed.get("summary")
+        if not isinstance(raw_summary, str) or not raw_summary.strip():
+            raise ValueError("Worker result requires a non-empty string summary")
         list_fields = ["findings", "evidence", "gaps", "next_steps"]
         if subagent_type == self.TYPE_CODING:
             list_fields.extend(["artifacts", "verification"])
         for field_name in list_fields:
             if not isinstance(parsed.get(field_name), list):
                 raise ValueError(f"Worker result field '{field_name}' must be a list")
-        self._validate_records(parsed.get("records", []))
+        self._validate_raw_findings(parsed["findings"])
+        self._validate_raw_evidence(parsed["evidence"])
+        self._validate_string_items(parsed["gaps"], field_name="gaps")
+        self._validate_string_items(parsed["next_steps"], field_name="next_steps")
+        self._validate_records(parsed["records"])
 
         worker_result = WorkerResult.from_dict(parsed)
-        if not worker_result.summary:
-            raise ValueError("Worker result requires a non-empty summary")
+        if not worker_result.envelope_contract_valid:
+            raise ValueError("Worker result contains malformed common fields")
         if not worker_result.string_lists_valid:
             raise ValueError(
                 "Worker result fields 'gaps' and 'next_steps' must contain non-empty strings"
@@ -71,10 +92,9 @@ class WorkerResultValidationMixin:
             subtasks = parsed.get("subtasks")
             if not isinstance(subtasks, list) or not subtasks:
                 raise ValueError("Plan worker result must include non-empty subtasks")
-            if not worker_result.subtasks:
-                raise ValueError(
-                    "Plan worker subtasks require description, subagent_type, and prompt"
-                )
+            self._validate_plan_subtasks(subtasks)
+            if not worker_result.plan_contract_valid:
+                raise ValueError("Plan worker result contains malformed subtasks")
         return worker_result
 
     @staticmethod
@@ -173,6 +193,14 @@ class WorkerResultValidationMixin:
                     )
 
     @staticmethod
+    def _validate_raw_findings(findings: list[Any]) -> None:
+        for index, item in enumerate(findings):
+            if not isinstance(item, dict) or WorkerFinding.from_dict(item) is None:
+                raise ValueError(
+                    f"Worker finding {index} must be an object with valid string fields"
+                )
+
+    @staticmethod
     def _validate_evidence(evidence: list[WorkerEvidence]) -> None:
         for item in evidence:
             path = item.path.strip()
@@ -181,10 +209,29 @@ class WorkerResultValidationMixin:
                 raise ValueError("Each worker evidence entry requires non-empty path and detail")
 
     @staticmethod
+    def _validate_raw_evidence(evidence: list[Any]) -> None:
+        for index, item in enumerate(evidence):
+            if not isinstance(item, dict) or WorkerEvidence.from_dict(item) is None:
+                raise ValueError(
+                    f"Worker evidence {index} must be an object with valid string fields"
+                )
+
+    @staticmethod
     def _validate_string_items(values: list[str], field_name: str) -> None:
         for item in values:
-            if not str(item).strip():
-                raise ValueError(f"Worker result field '{field_name}' cannot contain empty items")
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError(
+                    f"Worker result field '{field_name}' must contain non-empty strings"
+                )
+
+    @staticmethod
+    def _validate_plan_subtasks(subtasks: list[Any]) -> None:
+        for index, item in enumerate(subtasks):
+            if not isinstance(item, dict) or PlannedSubtask.from_dict(item) is None:
+                raise ValueError(
+                    "Plan worker subtask "
+                    f"{index} requires non-empty string description, subagent_type, and prompt"
+                )
 
     @staticmethod
     def _validate_records(records: Any) -> None:

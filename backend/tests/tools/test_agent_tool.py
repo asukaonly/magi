@@ -202,7 +202,7 @@ class _FakeFunctionCallingOrchestrator:
             content = (
                 '{"result_status":"success","summary":"plan ready","findings":[{"title":"plan","detail":"created subtasks"}],'
                 '"evidence":[{"path":"/tmp/plan.json","detail":"planner output"}],'
-                '"gaps":[],"next_steps":["launch subtasks"],"failure_reason":null,'
+                '"records":[],"gaps":[],"next_steps":["launch subtasks"],"failure_reason":null,'
                 '"subtasks":[{"description":"scan module","subagent_type":"CodeExplore","prompt":"Inspect module layout","parallel_group":"g1"}]}'
             )
         else:
@@ -211,7 +211,7 @@ class _FakeFunctionCallingOrchestrator:
                 + user_message
                 + '","path":"/tmp/example.py","why_it_matters":"confirms the bounded worker scope"}],'
                 '"evidence":[{"path":"/tmp/example.py","detail":"validated path"}],'
-                '"gaps":[],"next_steps":["report upstream"],"failure_reason":null}'
+                '"records":[],"gaps":[],"next_steps":["report upstream"],"failure_reason":null}'
             )
         return ExecutionOutcome(
             status="completed",
@@ -534,6 +534,69 @@ def test_coding_worker_rejects_invalid_string_list_items(
 
 
 @pytest.mark.parametrize(
+    ("field_name", "invalid_item", "error_match"),
+    [
+        ("findings", {"title": "", "detail": "empty title"}, "Worker finding 1"),
+        ("evidence", {"path": 42, "detail": "non-string path"}, "Worker evidence 1"),
+    ],
+)
+def test_coding_worker_rejects_mixed_malformed_common_entries(
+    field_name: str,
+    invalid_item: object,
+    error_match: str,
+) -> None:
+    tool = AgentTool()
+    payload = {
+        "result_status": "success",
+        "summary": "Updated the parser",
+        "findings": [{"title": "Parser", "detail": "Updated parser behavior"}],
+        "evidence": [{"path": "src/parser.py", "detail": "Reviewed the diff"}],
+        "artifacts": [{"path": "src/parser.py", "operation": "modified"}],
+        "verification": [{"command": "pytest -q", "status": "passed", "detail": "tests passed"}],
+        "records": [],
+        "gaps": [],
+        "next_steps": [],
+        "failure_reason": None,
+    }
+    assert isinstance(payload[field_name], list)
+    payload[field_name].append(invalid_item)
+
+    with pytest.raises(ValueError, match=error_match):
+        tool._manager._validate_worker_result("Coding", json.dumps(payload))
+
+
+def test_plan_worker_rejects_mixed_valid_and_invalid_subtasks() -> None:
+    tool = AgentTool()
+    payload = {
+        "result_status": "success",
+        "summary": "Plan ready",
+        "findings": [],
+        "evidence": [],
+        "records": [],
+        "gaps": [],
+        "next_steps": ["Launch the workers"],
+        "failure_reason": None,
+        "subtasks": [
+            {
+                "description": "Inspect the parser",
+                "subagent_type": "CodeExplore",
+                "prompt": "Inspect parser ownership and tests",
+                "parallel_group": "g1",
+            },
+            {
+                "description": "Update the parser",
+                "subagent_type": 42,
+                "prompt": "Implement the bounded change",
+                "parallel_group": "g1",
+            },
+        ],
+    }
+
+    with pytest.raises(ValueError, match="Plan worker subtask 1"):
+        tool._manager._validate_worker_result("Plan", json.dumps(payload))
+
+
+@pytest.mark.parametrize(
     ("field", "value", "error_match"),
     [
         ("artifacts", [], "at least one artifact"),
@@ -575,6 +638,7 @@ def test_coding_worker_rejects_unverified_success(
                 "detail": "tests passed",
             }
         ],
+        "records": [],
         "gaps": [],
         "next_steps": [],
         "failure_reason": None,
@@ -594,6 +658,7 @@ def test_coding_worker_structured_failure_may_have_no_artifacts() -> None:
         "evidence": [],
         "artifacts": [],
         "verification": [],
+        "records": [],
         "gaps": ["src/parser.py was not present"],
         "next_steps": ["Confirm the repository path"],
         "failure_reason": "PATH_NOT_FOUND",
@@ -633,6 +698,7 @@ def test_coding_worker_rejects_non_string_artifact_fields(
                 "detail": "tests passed",
             }
         ],
+        "records": [],
         "gaps": [],
         "next_steps": [],
         "failure_reason": None,
@@ -669,6 +735,7 @@ def test_coding_worker_rejects_non_string_verification_fields(
         "evidence": [],
         "artifacts": [{"path": "src/parser.py", "operation": "modified"}],
         "verification": [verification],
+        "records": [],
         "gaps": [],
         "next_steps": [],
         "failure_reason": None,
@@ -687,6 +754,7 @@ def test_failed_worker_rejects_non_string_failure_reason() -> None:
         "evidence": [],
         "artifacts": [],
         "verification": [],
+        "records": [],
         "gaps": ["src/parser.py was not present"],
         "next_steps": ["Confirm the repository path"],
         "failure_reason": {"code": "PATH_NOT_FOUND"},
@@ -712,6 +780,7 @@ def test_partial_coding_worker_requires_gaps_and_next_steps(field: str) -> None:
                 "detail": "tests passed",
             }
         ],
+        "records": [],
         "gaps": ["The serializer still needs an update"],
         "next_steps": ["Update the serializer"],
         "failure_reason": None,
@@ -1330,7 +1399,7 @@ async def test_embedded_json_worker_result_is_accepted(monkeypatch):
                     '"findings":[{"title":"file","detail":"checked",'
                     '"path":"/tmp/a.py","why_it_matters":"evidence"}],'
                     '"evidence":[{"path":"/tmp/a.py","detail":"checked"}],'
-                    '"gaps":[],"next_steps":[],"failure_reason":null}\n```'
+                    '"records":[],"gaps":[],"next_steps":[],"failure_reason":null}\n```'
                 ),
                 iterations=1,
             )
@@ -1401,7 +1470,8 @@ async def test_structured_failed_worker_result_is_not_marked_completed(monkeypat
                 status="completed",
                 content=(
                     '{"result_status":"failed","summary":"path did not exist",'
-                    '"findings":[],"evidence":[],"gaps":["Target path was missing"],'
+                    '"findings":[],"evidence":[],"records":[],'
+                    '"gaps":["Target path was missing"],'
                     '"next_steps":["Verify the repository path"],'
                     '"failure_reason":"PATH_NOT_FOUND"}'
                 ),

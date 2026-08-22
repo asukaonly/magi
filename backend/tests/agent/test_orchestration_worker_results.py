@@ -199,7 +199,7 @@ def test_persisted_coding_result_rejects_invalid_common_envelope(
     assert _worker_result_can_complete(subtask, restored) is False
 
 
-@pytest.mark.parametrize("missing_field", ["findings", "evidence"])
+@pytest.mark.parametrize("missing_field", ["findings", "evidence", "records"])
 def test_persisted_coding_result_requires_common_envelope_fields(
     missing_field: str,
 ) -> None:
@@ -222,6 +222,136 @@ def test_persisted_coding_result_requires_common_envelope_fields(
         subagent_type="Coding",
         prompt="Update the parser",
     )
+
+    assert _worker_result_can_complete(subtask, worker_result) is False
+
+
+@pytest.mark.parametrize(
+    ("field_name", "valid_item", "invalid_item"),
+    [
+        (
+            "findings",
+            {"title": "Parser", "detail": "Updated parser behavior"},
+            {"title": 42, "detail": "invalid title"},
+        ),
+        (
+            "evidence",
+            {"path": "src/app.py", "detail": "Reviewed the diff"},
+            {"path": "src/app.py", "detail": False},
+        ),
+    ],
+)
+def test_persisted_coding_result_cannot_launder_malformed_common_entries(
+    field_name: str,
+    valid_item: dict[str, object],
+    invalid_item: dict[str, object],
+) -> None:
+    payload: dict[str, object] = {
+        "result_status": "success",
+        "summary": "Parser updated",
+        "findings": [],
+        "evidence": [],
+        "artifacts": [{"path": "src/app.py", "operation": "modified"}],
+        "verification": [{"command": "pytest -q", "status": "passed", "detail": "ok"}],
+        "records": [],
+        "gaps": [],
+        "next_steps": [],
+    }
+    payload[field_name] = [valid_item, invalid_item]
+    worker_result = WorkerResult.from_dict(payload)
+    subtask = SubtaskDefinition(
+        subtask_id="subtask-1",
+        description="Update parser",
+        subagent_type="Coding",
+        prompt="Update the parser",
+    )
+
+    assert len(getattr(worker_result, field_name)) == 1
+    assert worker_result.envelope_contract_valid is False
+    assert _worker_result_can_complete(subtask, worker_result) is False
+
+    serialized = worker_result.to_dict()
+    assert serialized["_envelope_contract_valid"] is False
+    restored = WorkerResult.from_dict(serialized)
+    assert restored.envelope_contract_valid is False
+    assert _worker_result_can_complete(subtask, restored) is False
+
+
+def test_plan_contract_invalidity_survives_serialization() -> None:
+    payload = {
+        "result_status": "success",
+        "summary": "Plan ready",
+        "findings": [],
+        "evidence": [],
+        "records": [],
+        "gaps": [],
+        "next_steps": ["Launch the workers"],
+        "subtasks": [
+            {
+                "description": "Inspect parser ownership",
+                "subagent_type": "CodeExplore",
+                "prompt": "Inspect the parser",
+                "parallel_group": "g1",
+            },
+            {
+                "description": "Implement parser change",
+                "subagent_type": True,
+                "prompt": "Update the parser",
+                "parallel_group": "g1",
+            },
+        ],
+    }
+
+    worker_result = WorkerResult.from_dict(payload)
+
+    assert len(worker_result.subtasks) == 1
+    assert worker_result.plan_contract_valid is False
+    serialized = worker_result.to_dict()
+    assert serialized["_plan_contract_valid"] is False
+    assert WorkerResult.from_dict(serialized).plan_contract_valid is False
+
+
+@pytest.mark.parametrize(
+    ("subagent_type", "payload"),
+    [
+        (
+            "general-purpose",
+            {
+                "result_status": "success",
+                "summary": "Inventory ready",
+                "findings": [],
+                "evidence": [],
+                "gaps": [],
+                "next_steps": [],
+            },
+        ),
+        (
+            "Plan",
+            {
+                "result_status": "success",
+                "summary": "Plan ready",
+                "findings": [],
+                "evidence": [],
+                "records": [],
+                "gaps": [],
+                "next_steps": ["Launch workers"],
+                "subtasks": [],
+            },
+        ),
+    ],
+)
+def test_persisted_non_coding_results_keep_live_contract_guards(
+    subagent_type: str,
+    payload: dict[str, object],
+) -> None:
+    subtask = SubtaskDefinition(
+        subtask_id="subtask-1",
+        description="Run bounded work",
+        subagent_type=subagent_type,
+        prompt="Return a structured result",
+    )
+
+    worker_result = WorkerResult.from_dict(payload)
 
     assert _worker_result_can_complete(subtask, worker_result) is False
 

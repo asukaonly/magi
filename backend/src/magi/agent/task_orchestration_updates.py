@@ -260,20 +260,25 @@ def _worker_result_can_complete(
 ) -> bool:
     if worker_result.result_status not in {"success", "partial", "failed"}:
         return False
-    if subtask.subagent_type.strip().casefold() not in {"coding", "code"}:
-        return True
-    if (
-        not worker_result.envelope_contract_valid
-        or not worker_result.coding_contract_valid
-        or not worker_result.string_lists_valid
-    ):
+    if not worker_result.envelope_contract_valid or not worker_result.string_lists_valid:
         return False
     if not isinstance(worker_result.summary, str) or not worker_result.summary.strip():
+        return False
+    normalized_type = subtask.subagent_type.strip().casefold()
+    if normalized_type in {"coding", "code"} and not worker_result.coding_contract_valid:
+        return False
+    if normalized_type == "plan" and (
+        not worker_result.plan_contract_valid or not worker_result.subtasks
+    ):
         return False
     if worker_result.result_status == "failed":
         return isinstance(worker_result.failure_reason, str) and bool(
             worker_result.failure_reason.strip()
         )
+    if normalized_type == "plan":
+        return True
+    if normalized_type not in {"coding", "code"}:
+        return True
     if not worker_result.artifacts or not worker_result.verification:
         return False
     if any(

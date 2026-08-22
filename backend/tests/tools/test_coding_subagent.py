@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 # Import order matters: agent_tool transitively imports workers; importing
@@ -177,7 +179,7 @@ def test_general_purpose_validator_accepts_external_findings_without_path() -> N
             '{"result_status":"success","summary":"ok",'
             '"findings":[{"title":"Transit option","detail":"Metro plus short walk"}],'
             '"evidence":[{"path":"https://example.com/route","detail":"route source"}],'
-            '"gaps":[],"next_steps":[],"failure_reason":null}'
+            '"records":[],"gaps":[],"next_steps":[],"failure_reason":null}'
         ),
     )
     assert result.findings[0].path is None
@@ -197,6 +199,86 @@ def test_general_purpose_validator_preserves_structured_records() -> None:
 
     assert result.records == [{"path": "C:/Inbox/a.pdf", "category": "documents"}]
     assert result.to_dict()["records"] == result.records
+
+
+def test_general_purpose_validator_requires_records_field() -> None:
+    mgr = WorkerAgentManager()
+
+    with pytest.raises(ValueError, match="missing required fields"):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_GENERAL,
+            content=(
+                '{"result_status":"success","summary":"inventory ready",'
+                '"findings":[],"evidence":[],"gaps":[],"next_steps":[],'
+                '"failure_reason":null}'
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "error_match"),
+    [
+        ("result_status", 1, "result_status"),
+        ("summary", {"text": "inventory ready"}, "non-empty string summary"),
+        ("summary", "   ", "non-empty string summary"),
+    ],
+)
+def test_general_purpose_validator_rejects_non_string_or_empty_required_text(
+    field_name: str,
+    value: object,
+    error_match: str,
+) -> None:
+    mgr = WorkerAgentManager()
+    payload = {
+        "result_status": "success",
+        "summary": "inventory ready",
+        "findings": [],
+        "evidence": [],
+        "records": [],
+        "gaps": [],
+        "next_steps": [],
+        "failure_reason": None,
+    }
+    payload[field_name] = value
+
+    with pytest.raises(ValueError, match=error_match):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_GENERAL,
+            content=json.dumps(payload),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_item", "error_match"),
+    [
+        ("findings", {"title": 42, "detail": "not a string title"}, "Worker finding 1"),
+        ("evidence", {"path": "/tmp/a.py", "detail": True}, "Worker evidence 1"),
+    ],
+)
+def test_general_purpose_validator_rejects_mixed_malformed_common_entries(
+    field_name: str,
+    invalid_item: object,
+    error_match: str,
+) -> None:
+    mgr = WorkerAgentManager()
+    payload = {
+        "result_status": "success",
+        "summary": "inventory ready",
+        "findings": [{"title": "Inventory", "detail": "Scanned the folder"}],
+        "evidence": [{"path": "/tmp", "detail": "Folder exists"}],
+        "records": [],
+        "gaps": [],
+        "next_steps": [],
+        "failure_reason": None,
+    }
+    assert isinstance(payload[field_name], list)
+    payload[field_name].append(invalid_item)
+
+    with pytest.raises(ValueError, match=error_match):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_GENERAL,
+            content=json.dumps(payload),
+        )
 
 
 def test_general_purpose_validator_rejects_top_level_array() -> None:
@@ -232,7 +314,7 @@ def test_code_explore_validator_still_requires_path_and_reason() -> None:
                 '{"result_status":"success","summary":"ok",'
                 '"findings":[{"title":"Source fact","detail":"Needs a file path"}],'
                 '"evidence":[{"path":"/tmp/source.py","detail":"source"}],'
-                '"gaps":[],"next_steps":[],"failure_reason":null}'
+                '"records":[],"gaps":[],"next_steps":[],"failure_reason":null}'
             ),
         )
 
