@@ -1175,8 +1175,8 @@ async def test_coordinator_works_without_advisory_provider() -> None:
 
 
 @pytest.mark.asyncio
-async def test_coordinator_injects_fallback_tools_when_tools_active() -> None:
-    """web-search and find-relevant-tools should be appended when tool-calling is active."""
+async def test_coordinator_keeps_local_tool_route_local() -> None:
+    """Local tool routes should not gain network or discovery capabilities."""
     decider = _FakeContextDecider(
         RouteDecision(
             profile="coding",
@@ -1220,9 +1220,7 @@ async def test_coordinator_injects_fallback_tools_when_tools_active() -> None:
     )
 
     decision = await coordinator.match_intent(context)
-    assert "bash" in decision.tools
-    assert "web-search" in decision.tools
-    assert "find-relevant-tools" in decision.tools
+    assert decision.tools == ["bash"]
 
 
 @pytest.mark.asyncio
@@ -1275,7 +1273,7 @@ async def test_coordinator_enters_tool_loop_when_route_needs_tool_discovery() ->
     decision = await coordinator.match_intent(context)
 
     assert decision.execution_mode == ExecutionMode.FUNCTION_CALLING
-    assert decision.tools == ["find-relevant-tools", "web-search"]
+    assert decision.tools == ["find-relevant-tools"]
 
 
 @pytest.mark.asyncio
@@ -1294,7 +1292,7 @@ async def test_coordinator_reranks_shortlist_and_skips_open_breaker_fallbacks() 
     async def advisory_provider(task_context=None, tool_names=None, limit=10):
         if tool_names is None:
             return []
-        assert tool_names == ["bash", "web-search", "find-relevant-tools"]
+        assert tool_names == ["bash", "web-search"]
         return [
             {
                 "tool_name": "bash",
@@ -1315,16 +1313,6 @@ async def test_coordinator_reranks_shortlist_and_skips_open_breaker_fallbacks() 
                 "strategy_hint": None,
                 "context_fit": 0.0,
                 "risk_note": "Circuit breaker open",
-            },
-            {
-                "tool_name": "find-relevant-tools",
-                "available": True,
-                "breaker_state": "closed",
-                "success_rate": 0.93,
-                "total_attempts": 8,
-                "strategy_hint": "Use when the current toolset is missing a next-step capability.",
-                "context_fit": 0.9,
-                "risk_note": None,
             },
         ]
 
@@ -1360,7 +1348,7 @@ async def test_coordinator_reranks_shortlist_and_skips_open_breaker_fallbacks() 
 
     decision = await coordinator.match_intent(context)
 
-    assert decision.tools == ["find-relevant-tools", "bash"]
+    assert decision.tools == ["bash"]
 
 
 @pytest.mark.asyncio

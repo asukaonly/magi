@@ -29,7 +29,7 @@ class _FakeToolRegistry:
         return list(self._tools)
 
 
-def test_turn_route_resolver_finalizes_discovery_and_fallback_tools() -> None:
+def test_turn_route_resolver_exposes_only_discovery_for_discovery_route() -> None:
     module = _resolver_module()
     resolver = module.TurnRouteResolver()
 
@@ -49,7 +49,7 @@ def test_turn_route_resolver_finalizes_discovery_and_fallback_tools() -> None:
     )
 
     assert resolution.execution_mode is ExecutionMode.FUNCTION_CALLING
-    assert resolution.selected_tools == ["find-relevant-tools", "web-search"]
+    assert resolution.selected_tools == ["find-relevant-tools"]
     assert resolution.route_decision.graph_shape == "tool_loop"
 
 
@@ -78,7 +78,7 @@ def test_turn_route_resolver_builds_execution_tool_surface() -> None:
         session_key="chat:session-1",
     )
 
-    assert selected_tools == ["weather", "todo_write", "find-relevant-tools"]
+    assert selected_tools == ["weather", "todo_write"]
 
 
 def test_turn_route_resolver_preserves_explicit_agent_selection() -> None:
@@ -101,7 +101,52 @@ def test_turn_route_resolver_preserves_explicit_agent_selection() -> None:
         session_key="chat:session-explicit-agent",
     )
 
-    assert selected_tools == ["agent", "find-relevant-tools"]
+    assert selected_tools == ["agent"]
+
+
+def test_turn_route_resolver_keeps_local_shell_route_local() -> None:
+    module = _resolver_module()
+    resolver = module.TurnRouteResolver()
+
+    resolution = resolver.resolve_intent_route(
+        user_message="Translate the attached workbook with PowerShell",
+        route_decision=RouteDecision(
+            profile="coding",
+            graph_shape="tool_loop",
+            complexity="simple",
+            tool_need="direct",
+            tools=["powershell"],
+            may_write=True,
+        ),
+        registered_tools={"powershell", "web-search", "find-relevant-tools"},
+        effective_attachments=[],
+        force_direct_external=False,
+    )
+
+    assert resolution.selected_tools == ["powershell"]
+
+
+def test_turn_route_resolver_adds_web_search_for_direct_external_route() -> None:
+    module = _resolver_module()
+    resolver = module.TurnRouteResolver()
+
+    resolution = resolver.resolve_intent_route(
+        user_message="Check the current external status",
+        route_decision=RouteDecision(
+            profile="research",
+            graph_shape="plan_fanout",
+            complexity="medium",
+            tool_need="direct",
+            tools=["agent"],
+            needs_orchestration="required",
+        ),
+        registered_tools={"agent", "web-search", "find-relevant-tools"},
+        effective_attachments=[],
+        force_direct_external=True,
+    )
+
+    assert resolution.selected_tools == ["web-search"]
+    assert resolution.execution_mode is ExecutionMode.FUNCTION_CALLING
 
 
 def test_function_calling_handler_delegates_execution_tool_routing() -> None:

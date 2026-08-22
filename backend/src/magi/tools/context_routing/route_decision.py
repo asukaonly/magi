@@ -72,7 +72,7 @@ class RouteDecision:
     # none     = ordinary no-tool reply.
     # direct   = the router selected concrete capability tools in ``tools``.
     # discover = tool-assisted turn, but exact capability should be found by
-    #            the main model via the resident find-relevant-tools entry.
+    #            the main model via the routed find-relevant-tools entry.
     tool_need: Literal["none", "direct", "discover"] = "none"
     tools: list[str] = field(default_factory=list)
     may_write: bool = False

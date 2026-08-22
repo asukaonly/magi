@@ -21,8 +21,6 @@ ORCH_NONE = "none"
 ORCH_MAYBE = "maybe"
 ORCH_REQUIRED = "required"
 
-FALLBACK_TOOLS: tuple[str, ...] = ("web-search", "find-relevant-tools")
-
 
 @dataclass(slots=True, frozen=True)
 class TurnRouteResolution:
@@ -106,12 +104,6 @@ class TurnRouteResolver:
         ):
             _append_if_registered(selected_tools, "find-relevant-tools", registered)
 
-        if selected_tools:
-            selected_tools = self._append_fallback_tools(
-                selected_tools,
-                registered_tools=registered,
-            )
-
         return self.finalize_intent_route(
             route_decision=route_decision,
             selected_tools=selected_tools,
@@ -187,17 +179,6 @@ class TurnRouteResolver:
             may_write=bool(getattr(route_decision, "may_write", False)),
         )
 
-    def _append_fallback_tools(
-        self,
-        selected_tools: list[str],
-        *,
-        registered_tools: set[str],
-    ) -> list[str]:
-        tools = list(selected_tools)
-        for fallback_tool in FALLBACK_TOOLS:
-            _append_if_registered(tools, fallback_tool, registered_tools)
-        return tools
-
     def _prefer_direct_external_tools(
         self,
         selected_tools: list[str],
@@ -212,7 +193,6 @@ class TurnRouteResolver:
 
 
 __all__ = [
-    "FALLBACK_TOOLS",
     "ORCH_MAYBE",
     "ORCH_NONE",
     "ORCH_REQUIRED",

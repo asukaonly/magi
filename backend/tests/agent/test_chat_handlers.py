@@ -879,7 +879,7 @@ async def test_function_calling_handler_reuses_recent_tool_superset() -> None:
             ),
         )
     )
-    assert first.selected_tools == ["weather", "web-search", "find-relevant-tools"]
+    assert first.selected_tools == ["weather", "web-search"]
 
     now = 1060.0
     second = await handler.build_request(
@@ -904,7 +904,7 @@ async def test_function_calling_handler_reuses_recent_tool_superset() -> None:
         )
     )
 
-    assert second.selected_tools == ["weather", "web-search", "find-relevant-tools"]
+    assert second.selected_tools == ["weather", "web-search"]
 
 
 @pytest.mark.asyncio

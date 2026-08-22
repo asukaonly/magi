@@ -327,15 +327,16 @@ descendants remain controllable even when the original child exits first.
   as `none`, `direct`, or `discover`, but it does not formulate a
   `tool_query` or own the final provider tool surface. When `tool_need` is
   `discover`, chat coordination starts a normal function-calling turn with
-  the resident `find-relevant-tools` entry so the main model can ask for the
+  the routed `find-relevant-tools` entry so the main model can ask for the
   missing concrete capability. The query should describe one focused capability
   gap with the relevant domain/action/object and facts already known; it should
   not be the whole user request or a broad capability-browsing prompt.
   `TurnRouteResolver` then owns final per-turn route resolution. It derives the
   dispatch shape from the coarse route, attachments, orchestration signal, and
-  final selected tools; it also builds the provider-facing tool surface by
-  appending resident runtime-control tools, preserving explicit capability
-  selections, and
+  final selected tools; it exposes tool discovery only for `discover` routes,
+  adds web search only for direct external-information routes, and builds the
+  provider-facing tool surface by appending resident runtime-control tools,
+  preserving explicit capability selections, and
   applying same-session tool-superset reuse when it is safe for the turn's write
   policy. `FunctionCallingHandler` consumes that resolved tool surface; it does
   not reimplement those routing rules.
