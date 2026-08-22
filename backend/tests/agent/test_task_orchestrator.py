@@ -246,7 +246,7 @@ async def test_resolve_workspace_root_supports_docs_relative_scope() -> None:
         user_message="看下 docs/project-overview.md 的文档结构",
     )
 
-    assert resolved.endswith("/docs")
+    assert Path(resolved).name == "docs"
 
 
 @pytest.mark.asyncio
