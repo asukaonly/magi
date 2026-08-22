@@ -7,6 +7,7 @@ import pytest
 
 from magi.agent.execution.task_budget import (
     TaskBudgetExceeded,
+    consume_task_llm_calls,
     task_execution_budget_scope,
 )
 from magi.llm.base import LLMAdapter
@@ -126,6 +127,7 @@ async def test_context_decider_charges_one_logical_call_per_provider_request() -
     decider = ContextDecider(
         tool_registry=_DummyToolRegistry(),
         llm_adapter=_DummyLLMAdapter(),
+        llm_call_budget_consumer=consume_task_llm_calls,
     )  # type: ignore[arg-type]
     provider_calls = 0
 
@@ -138,9 +140,9 @@ async def test_context_decider_charges_one_logical_call_per_provider_request() -
     decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
 
     async with task_execution_budget_scope(max_llm_calls=1) as budget:
-        await decider._call_provider("request-1", "route this")
+        await decider.decide("route this")
         with pytest.raises(TaskBudgetExceeded, match="llm_calls"):
-            await decider._call_provider("request-2", "route this too")
+            await decider.decide("route this too")
 
     assert provider_calls == 1
     assert budget.llm_calls == 1

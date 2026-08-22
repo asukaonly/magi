@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from magi.agent.execution.task_budget import consume_task_llm_calls
 from magi.agent.run.ports import LazyAttachmentResolver
 from magi.agent.runtime.types import TaskAgentType
 from magi.chat import ChatReadService
@@ -108,6 +109,7 @@ def _build_context_decider(config: ChatTaskAgentRuntimeConfig) -> ContextDecider
         tool_registry=tool_registry,
         llm_adapter=config.llm_adapter,
         llm_pool=config.llm_pool,
+        llm_call_budget_consumer=consume_task_llm_calls,
     )
 
 

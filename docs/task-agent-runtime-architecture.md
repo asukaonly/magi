@@ -1151,7 +1151,9 @@ Every batch definition is also validated before the first worker starts, so a
 malformed later item cannot leave an earlier worker running. Provider-internal
 rate-limit retries remain one logical call because charging occurs once at the
 logical caller boundary. Context-decider routing is charged to the applicable
-root turn. Model-backed interruption routing is control-plane work and is
+root turn. The chat composition layer injects that admission callback into the
+tools-layer context decider, so the tools layer does not import the agent budget
+owner. Model-backed interruption routing is control-plane work and is
 deliberately outside that execution budget, so a task at its cap remains
 cancelable, replaceable, and steerable. Each classifier call still requires a
 new user message and keeps its own provider timeout; this exemption prevents a

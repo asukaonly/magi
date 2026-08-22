@@ -13,10 +13,9 @@ import dataclasses
 import logging
 import time
 import uuid
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from ..config.constants import DEFAULT_THINKING_TOKENS
-from ..agent.execution.task_budget import TaskBudgetExceeded, consume_task_llm_calls
 from ..config.models import LLMScenario
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
@@ -61,6 +60,7 @@ class ContextDecider(
         llm_adapter: Optional[LLMAdapter] = None,
         llm_pool=None,
         max_tools: int = 5,
+        llm_call_budget_consumer: Optional[Callable[[], Awaitable[None]]] = None,
     ):
         """
         initialize the Context Decider
@@ -68,13 +68,17 @@ class ContextDecider(
         Args:
             tool_registry: Tool registry instance
             llm_adapter: LLM adapter for analysis
+            llm_pool: Optional scenario-aware LLM pool
             max_tools: Maximum number of tools to select
+            llm_call_budget_consumer: Optional admission callback invoked before
+                each logical provider request
         """
         self.tool_registry = tool_registry
         self._llm_pool = llm_pool
         self.llm = llm_adapter or self._resolve_llm_from_pool()
         self.provider_bridge = LLMProviderBridge(self.llm) if self.llm else None
         self.max_tools = max_tools
+        self._llm_call_budget_consumer = llm_call_budget_consumer
 
     def _resolve_llm_from_pool(self) -> Optional[LLMAdapter]:
         if self._llm_pool is None:
@@ -105,6 +109,9 @@ class ContextDecider(
         available_tools = self._get_available_tools()
         user_prompt = self._build_prompt(user_message, available_tools, context)
 
+        if self._llm_call_budget_consumer is not None:
+            await self._llm_call_budget_consumer()
+
         try:
             return await self._decide_with_llm(
                 user_message=user_message,
@@ -112,8 +119,6 @@ class ContextDecider(
                 available_tools=available_tools,
                 user_prompt=user_prompt,
             )
-        except TaskBudgetExceeded:
-            raise
         except Exception as e:
             logger.error(f"[ContextDecider] Decision failed: {e}")
             return self._error_decision(e)
@@ -189,7 +194,6 @@ class ContextDecider(
         )
 
     async def _call_provider(self, request_id: str, user_prompt: str):
-        await consume_task_llm_calls()
         return await self.provider_bridge.chat_response(
             system_prompt=self.system_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
