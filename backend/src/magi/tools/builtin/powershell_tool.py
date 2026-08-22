@@ -15,6 +15,7 @@ import shutil
 from dataclasses import dataclass
 from typing import Any, Dict
 
+from magi_plugin_sdk.command_risk import classify_powershell_command
 from magi_plugin_sdk.subprocess import run_bounded_subprocess
 from ..schema import (
     ParameterType,
@@ -31,7 +32,6 @@ from .bash_tool import (
     _build_subprocess_env,
     _decode_bounded_process_output,
 )
-from ._bash_grading import classify_command
 
 _UTF8_PRELUDE = (
     "$ErrorActionPreference = 'Stop'; "
@@ -136,7 +136,7 @@ def _powershell_request(
 
 
 def _risk_data(command: str) -> dict[str, str]:
-    grade = classify_command(command)
+    grade = classify_powershell_command(command)
     return {"risk_level": grade.level, "risk_reason": grade.reason}
 
 

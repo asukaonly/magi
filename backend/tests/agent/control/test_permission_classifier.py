@@ -24,6 +24,16 @@ def classifier() -> RiskClassifier:
         ("bash", {"command": "git log --oneline"}, RiskLevel.LOW),
         ("bash", {"command": "docker ps"}, RiskLevel.LOW),
         ("powershell", {"command": "echo hi"}, RiskLevel.LOW),
+        (
+            "powershell",
+            {
+                "command": (
+                    "Get-Process | Select-Object -First 3 Name,Id "
+                    "| ConvertTo-Json -Compress"
+                )
+            },
+            RiskLevel.LOW,
+        ),
         # Shell — redirects and ordinary mutating ops stay MEDIUM.
         ("bash", {"command": "echo hi > /tmp/foo"}, RiskLevel.MEDIUM),
         ("bash", {"command": "rm note.txt"}, RiskLevel.MEDIUM),
@@ -31,11 +41,51 @@ def classifier() -> RiskClassifier:
         ("bash", {"command": "chmod 755 script.sh"}, RiskLevel.MEDIUM),
         ("bash", {"command": "git commit -m 'x'"}, RiskLevel.MEDIUM),
         ("bash", {"command": "sed -i 's/a/b/' file.txt"}, RiskLevel.MEDIUM),
+        (
+            "powershell",
+            {"command": "Set-Content -Path .\\note.txt -Value hello"},
+            RiskLevel.MEDIUM,
+        ),
+        (
+            "powershell",
+            {"command": "Remove-Item .\\note.txt"},
+            RiskLevel.MEDIUM,
+        ),
         # Shell — installers, sudo, and plain git push publish or persist.
         ("bash", {"command": "npm install react"}, RiskLevel.HIGH),
         ("bash", {"command": "pip install requests"}, RiskLevel.HIGH),
         ("bash", {"command": "sudo apt-get update"}, RiskLevel.HIGH),
         ("bash", {"command": "git push origin main"}, RiskLevel.HIGH),
+        (
+            "powershell",
+            {"command": "Some-CustomCommand -DoSomething"},
+            RiskLevel.HIGH,
+        ),
+        (
+            "powershell",
+            {"command": "Set-Content -Path $target -Value hello"},
+            RiskLevel.HIGH,
+        ),
+        (
+            "powershell",
+            {"command": "Remove-Item @dynamicParameters"},
+            RiskLevel.HIGH,
+        ),
+        (
+            "powershell",
+            {"command": "winget install Example.Package"},
+            RiskLevel.HIGH,
+        ),
+        (
+            "powershell",
+            {
+                "command": (
+                    "Set-Content C:\\Windows\\System32\\drivers\\etc\\hosts "
+                    "127.0.0.1"
+                )
+            },
+            RiskLevel.HIGH,
+        ),
         # Shell — destructive verbs.
         ("bash", {"command": "rm -rf ./node_modules"}, RiskLevel.DESTRUCTIVE),
         ("bash", {"command": "git push --force origin main"}, RiskLevel.DESTRUCTIVE),
@@ -46,6 +96,12 @@ def classifier() -> RiskClassifier:
             {"command": "Remove-Item .\\build -Recurse -Force"},
             RiskLevel.DESTRUCTIVE,
         ),
+        (
+            "powershell",
+            {"command": "ri C:\\* -r -fo"},
+            RiskLevel.DESTRUCTIVE,
+        ),
+        ("powershell", {"command": "Clear-Disk -Number 0"}, RiskLevel.DESTRUCTIVE),
         # File tools.
         ("file_write", {"path": "/tmp/note.md"}, RiskLevel.MEDIUM),
         ("file_edit", {"path": "src/app.py"}, RiskLevel.MEDIUM),

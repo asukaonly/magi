@@ -33,6 +33,20 @@ async def test_powershell_remove_item_recurse_force_blocked(tmp_path: Path) -> N
     assert res.data["risk_level"] == "destructive"
 
 
+@pytest.mark.asyncio
+async def test_powershell_alias_and_abbreviated_switches_blocked(
+    tmp_path: Path,
+) -> None:
+    res = await PowerShellTool().execute(
+        {"command": "ri C:\\* -r -fo"},
+        _ctx(tmp_path),
+    )
+
+    assert not res.success
+    assert res.error_code == "POLICY_BLOCKED"
+    assert res.data["risk_level"] == "destructive"
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="non-Windows path through classifier only")
 @pytest.mark.asyncio
 async def test_powershell_safe_command_passes_classifier(tmp_path: Path) -> None:

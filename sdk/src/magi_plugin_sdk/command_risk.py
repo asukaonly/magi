@@ -1,4 +1,4 @@
-"""Lexical Bash/PowerShell command risk classifier.
+"""Dialect-aware Bash and PowerShell command risk classifiers.
 
 Three tiers:
 
@@ -6,9 +6,10 @@ Three tiers:
 * ``mutating``  - anything else that we can't prove is safe (default).
 * ``destructive`` - known irreversible / wide-blast-radius patterns.
 
-The classifier is intentionally small and lexical. It does NOT parse the shell
-grammar. A determined adversary can bypass it (see ``$()`` / ``eval``); the
-goal is to prevent typical agent mistakes, not to be a security boundary.
+The classifiers are intentionally lexical. They do NOT parse complete shell
+grammars. Their purpose is to prevent typical agent mistakes and to provide a
+conservative permission default. They are not a substitute for process
+isolation and must not be treated as a security boundary.
 """
 from __future__ import annotations
 
@@ -336,4 +337,390 @@ def classify_for_permission(arguments: dict[str, Any]) -> ClassificationResult:
     )
 
 
-__all__ = ["CommandGrade", "RiskLevel", "classify_command", "classify_for_permission"]
+# ---------------------------------------------------------------------------
+# PowerShell dialect
+# ---------------------------------------------------------------------------
+
+
+_POWERSHELL_ALIASES: dict[str, str] = {
+    # Read-only aliases.
+    "cat": "get-content",
+    "dir": "get-childitem",
+    "echo": "write-output",
+    "gal": "get-alias",
+    "gc": "get-content",
+    "gci": "get-childitem",
+    "gcm": "get-command",
+    "gi": "get-item",
+    "gl": "get-location",
+    "gp": "get-itemproperty",
+    "gps": "get-process",
+    "gsv": "get-service",
+    "ls": "get-childitem",
+    "ps": "get-process",
+    "pwd": "get-location",
+    "select": "select-object",
+    "sort": "sort-object",
+    "type": "get-content",
+    "write": "write-output",
+    # File-system mutators.
+    "ac": "add-content",
+    "clc": "clear-content",
+    "copy": "copy-item",
+    "cp": "copy-item",
+    "del": "remove-item",
+    "erase": "remove-item",
+    "mi": "move-item",
+    "move": "move-item",
+    "mv": "move-item",
+    "ni": "new-item",
+    "rd": "remove-item",
+    "ren": "rename-item",
+    "ri": "remove-item",
+    "rm": "remove-item",
+    "rmdir": "remove-item",
+    "sc": "set-content",
+    "si": "set-item",
+}
+
+_POWERSHELL_READ_ONLY_HEADS = frozenset({
+    "convertfrom-json",
+    "convertto-json",
+    "format-list",
+    "format-table",
+    "get-acl",
+    "get-alias",
+    "get-childitem",
+    "get-ciminstance",
+    "get-command",
+    "get-content",
+    "get-date",
+    "get-filehash",
+    "get-help",
+    "get-item",
+    "get-itemproperty",
+    "get-location",
+    "get-member",
+    "get-process",
+    "get-service",
+    "get-wmiobject",
+    "join-path",
+    "out-string",
+    "resolve-path",
+    "select-object",
+    "select-string",
+    "split-path",
+    "sort-object",
+    "test-path",
+    "write-host",
+    "write-output",
+})
+
+_POWERSHELL_SCOPED_MUTATING_HEADS = frozenset({
+    "add-content",
+    "clear-content",
+    "copy-item",
+    "move-item",
+    "new-item",
+    "out-file",
+    "remove-item",
+    "rename-item",
+    "set-content",
+    "set-location",
+})
+
+_POWERSHELL_DESTRUCTIVE_HEADS = frozenset({
+    "clear-disk",
+    "clear-recyclebin",
+    "format-volume",
+    "initialize-disk",
+    "remove-partition",
+    "restart-computer",
+    "stop-computer",
+})
+
+
+@dataclass(frozen=True)
+class _PowerShellAnalysis:
+    grade: CommandGrade
+    permission_level: Literal["low", "medium", "high", "destructive"]
+    removes_root: bool = False
+
+
+_POWERSHELL_TOKEN = re.compile(
+    r'''"(?:`.|[^"])*"|'(?:''|[^'])*'|&&|\|\||[|;&\r\n]|(?:`[\s\S]|[^\s|;&])+'''
+)
+_POWERSHELL_SEPARATORS = frozenset({"|", ";", "&&", "||", "\r", "\n"})
+
+
+def _powershell_stages(command: str) -> list[list[str]]:
+    """Tokenize command stages without treating quoted separators as syntax."""
+    stages: list[list[str]] = []
+    current: list[str] = []
+    for token in _POWERSHELL_TOKEN.findall(command):
+        if token in _POWERSHELL_SEPARATORS or (token == "&" and current):
+            if current:
+                stages.append(current)
+                current = []
+            continue
+        current.append(token)
+    if current:
+        stages.append(current)
+    return stages
+
+
+def _powershell_stage_is_opaque(tokens: list[str]) -> bool:
+    for token in tokens:
+        quoted = len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"'}
+        if not quoted and any(marker in token for marker in ("`", "{", "}", "(", ")", ">", "<")):
+            return True
+    return False
+
+
+def _unescape_powershell_token(token: str) -> str:
+    return re.sub(r"`([\s\S])", r"\1", token)
+
+
+def _canonical_powershell_head(head: str) -> str:
+    probe = _unescape_powershell_token(head.strip().strip("'\"")).casefold()
+    if "\\" in probe and ":" not in probe and not probe.startswith((".", "\\")):
+        probe = probe.rsplit("\\", 1)[-1]
+    return _POWERSHELL_ALIASES.get(probe, probe)
+
+
+def _powershell_invocation(tokens: list[str]) -> tuple[str, list[str], bool]:
+    if not tokens:
+        return "", [], False
+    opaque = False
+    index = 0
+    if tokens[index] in {"&", "."}:
+        opaque = True
+        index += 1
+    if index + 2 < len(tokens) and tokens[index].startswith("$") and tokens[index + 1] == "=":
+        opaque = True
+        index += 2
+    if index >= len(tokens):
+        return "", [], True
+    return _canonical_powershell_head(tokens[index]), tokens[index + 1 :], opaque
+
+
+def _parameter_switch_enabled(token: str, parameter: str) -> bool:
+    token = _unescape_powershell_token(token)
+    if not token.startswith("-") or token.startswith("--"):
+        return False
+    name, separator, value = token[1:].partition(":")
+    if not name or not parameter.casefold().startswith(name.casefold()):
+        return False
+    if separator and value.casefold() in {"$false", "false", "0"}:
+        return False
+    return True
+
+
+def _whatif_enabled(token: str) -> bool:
+    token = _unescape_powershell_token(token)
+    if not token.startswith("-") or token.startswith("--"):
+        return False
+    name, separator, value = token[1:].partition(":")
+    if not name or not "whatif".startswith(name.casefold()):
+        return False
+    return not separator or value.casefold() in {"$true", "true", "1"}
+
+
+def _is_powershell_root_target(token: str) -> bool:
+    raw_target = token.strip().strip(",")
+    single_quoted = (
+        len(raw_target) >= 2
+        and raw_target.startswith("'")
+        and raw_target.endswith("'")
+    )
+    target = raw_target.strip("'").strip('"')
+    if single_quoted and target.startswith("$"):
+        return False
+    if target.casefold().startswith("filesystem::"):
+        target = target[len("filesystem::") :]
+    target = target.replace("/", "\\")
+    lowered = target.casefold()
+    if target == "\\":
+        return True
+    if re.fullmatch(r"[a-z]:\\(?:[?*][^\\]*)?", target, re.IGNORECASE):
+        return True
+    if re.fullmatch(r"~\\?(?:[?*][^\\]*)?", target):
+        return True
+    if re.fullmatch(
+        r"(?:\$home|\$\{home\}|\$env:(?:userprofile|systemdrive))"
+        r"\\?(?:[?*][^\\]*)?",
+        lowered,
+    ):
+        return True
+    return bool(
+        re.fullmatch(r"\\\\[^\\]+\\[^\\]+(?:\\(?:[?*][^\\]*)?)?", target)
+    )
+
+
+def _is_protected_windows_path(token: str) -> bool:
+    target = token.strip().strip(",").strip("'\"").replace("/", "\\").casefold()
+    return bool(
+        re.match(r"^(?:[a-z]:\\windows|\$env:(?:systemroot|windir))\\system32(?:\\|$)", target)
+    )
+
+
+def _has_dynamic_powershell_argument(arguments: list[str]) -> bool:
+    """Return whether a mutation depends on runtime-computed arguments."""
+    for argument in arguments:
+        token = _unescape_powershell_token(argument).strip().strip("'\"")
+        if token.startswith(("$", "@")) or "$(" in token:
+            return True
+    return False
+
+
+def _remove_item_analysis(arguments: list[str]) -> tuple[bool, bool]:
+    if any(_whatif_enabled(arg) for arg in arguments):
+        return False, False
+    combined_flags = {
+        arg[1:].casefold()
+        for arg in map(_unescape_powershell_token, arguments)
+        if re.fullmatch(r"-[rf]+", arg, re.IGNORECASE)
+    }
+    recursive = any(
+        _parameter_switch_enabled(arg, "recurse") for arg in arguments
+    ) or any("r" in flags and "f" in flags for flags in combined_flags)
+    forced = any(
+        _parameter_switch_enabled(arg, "force") for arg in arguments
+    ) or any("r" in flags and "f" in flags for flags in combined_flags)
+    root_target = any(_is_powershell_root_target(arg) for arg in arguments)
+    return recursive and forced, recursive and root_target
+
+
+def _analyze_powershell(command: str) -> _PowerShellAnalysis:
+    text = (command or "").strip()
+    if not text:
+        return _PowerShellAnalysis(
+            grade=CommandGrade("mutating", "empty command (defensive default)"),
+            permission_level="low",
+        )
+
+    level: RiskLevel = "read_only"
+    permission_level: Literal["low", "medium", "high", "destructive"] = "low"
+    best_reason = "all PowerShell stages are proven read-only"
+    removes_root = False
+    destructive_reason: str | None = None
+    for tokens in _powershell_stages(text):
+        lexical_opaque = _powershell_stage_is_opaque(tokens)
+        head, arguments, invocation_opaque = _powershell_invocation(tokens)
+        opaque = lexical_opaque or invocation_opaque
+        if not head:
+            level = _max_level(level, "mutating")
+            permission_level = "high"
+            best_reason = "opaque PowerShell stage"
+            continue
+
+        if head == "remove-item":
+            broad_removal, root_removal = _remove_item_analysis(arguments)
+            removes_root = removes_root or root_removal
+            if broad_removal or root_removal:
+                destructive_reason = (
+                    "Remove-Item recursively targets a filesystem root"
+                    if root_removal
+                    else "Remove-Item -Recurse -Force"
+                )
+                continue
+
+        if head in _POWERSHELL_DESTRUCTIVE_HEADS:
+            destructive_reason = f"PowerShell {head}"
+            continue
+
+        if opaque:
+            level = _max_level(level, "mutating")
+            permission_level = "high"
+            best_reason = f"opaque PowerShell stage invoking {head!r}"
+        elif head in _POWERSHELL_READ_ONLY_HEADS:
+            continue
+        elif head in _POWERSHELL_SCOPED_MUTATING_HEADS:
+            level = _max_level(level, "mutating")
+            if _has_dynamic_powershell_argument(arguments):
+                permission_level = "high"
+                best_reason = f"PowerShell {head} uses dynamic mutation arguments"
+            elif any(_is_protected_windows_path(arg) for arg in arguments):
+                permission_level = "high"
+                best_reason = f"PowerShell {head} targets a protected system path"
+            elif permission_level == "low":
+                permission_level = "medium"
+                best_reason = f"PowerShell {head} mutates local state"
+        else:
+            level = _max_level(level, "mutating")
+            permission_level = "high"
+            best_reason = f"unknown PowerShell command {head!r}"
+
+    if destructive_reason is not None:
+        return _PowerShellAnalysis(
+            grade=CommandGrade("destructive", destructive_reason),
+            permission_level="destructive",
+            removes_root=removes_root,
+        )
+    return _PowerShellAnalysis(
+        grade=CommandGrade(level, best_reason),
+        permission_level=permission_level,
+        removes_root=removes_root,
+    )
+
+
+def classify_powershell_command(command: str) -> CommandGrade:
+    """Classify a PowerShell command for the tool's destructive guard."""
+    return _analyze_powershell(command).grade
+
+
+def powershell_removes_root(command: str) -> bool:
+    """Return whether a literal PowerShell removal targets a filesystem root."""
+    return _analyze_powershell(command).removes_root
+
+
+def classify_powershell_for_permission(
+    arguments: dict[str, Any],
+) -> ClassificationResult:
+    """Classify PowerShell conservatively for permission prompting.
+
+    Only explicitly known read-only cmdlets are ``LOW``. Known scoped file
+    mutations are ``MEDIUM``. Unknown, dynamic, installer, persistence, and
+    system-control commands are ``HIGH``. Obvious destructive commands remain
+    ``DESTRUCTIVE``.
+    """
+    from magi_plugin_sdk.permissions import ClassificationResult, RiskSignal
+    from magi_plugin_sdk.permissions import RiskLevel as PermissionRiskLevel
+
+    command = ""
+    for key in ("command", "cmd", "script", "input"):
+        value = arguments.get(key)
+        if isinstance(value, str):
+            command = value
+            break
+
+    analysis = _analyze_powershell(command)
+    preview = command.strip().splitlines()[0][:200] if command.strip() else None
+    signals = [
+        RiskSignal(
+            key=f"powershell_{analysis.permission_level}",
+            description=analysis.grade.reason,
+        )
+    ]
+    permission_levels = {
+        "low": PermissionRiskLevel.LOW,
+        "medium": PermissionRiskLevel.MEDIUM,
+        "high": PermissionRiskLevel.HIGH,
+        "destructive": PermissionRiskLevel.DESTRUCTIVE,
+    }
+    return ClassificationResult(
+        level=permission_levels[analysis.permission_level],
+        signals=signals,
+        preview=preview,
+    )
+
+
+__all__ = [
+    "CommandGrade",
+    "RiskLevel",
+    "classify_command",
+    "classify_for_permission",
+    "classify_powershell_command",
+    "classify_powershell_for_permission",
+    "powershell_removes_root",
+]

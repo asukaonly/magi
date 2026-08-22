@@ -24,6 +24,16 @@ def _classify_shell(
     return classify_for_permission(arguments)
 
 
+def _classify_powershell(
+    arguments: dict[str, Any], *, workspace: str | None = None
+) -> ClassificationResult:
+    """Classify PowerShell with its own conservative command policy."""
+    _ = workspace
+    from magi_plugin_sdk.command_risk import classify_powershell_for_permission
+
+    return classify_powershell_for_permission(arguments)
+
+
 def _classify_file_write(
     arguments: dict[str, Any], *, workspace: str | None = None
 ) -> ClassificationResult:
@@ -191,7 +201,7 @@ def _is_outside_workspace(path: str, workspace: str | None) -> bool:
 
 RULES: dict[str, Callable[..., ClassificationResult]] = {
     "bash": _classify_shell,
-    "powershell": _classify_shell,
+    "powershell": _classify_powershell,
     "shell": _classify_shell,
     "execute_command": _classify_shell,
     "run_command": _classify_shell,

@@ -16,7 +16,7 @@ from magi.control.permission.kill_list import check_kill_list
         ("bash", {"command": "rm -fr /"}, "rm_rf_root"),
         ("bash", {"command": "rm -rf ~"}, "rm_rf_root"),
         ("shell", {"command": "rm -rf /"}, "rm_rf_root"),
-        ("powershell", {"command": "rm -rf /"}, "rm_rf_root"),
+        ("powershell", {"command": "rm -rf /"}, "remove_item_root"),
         (
             "powershell",
             {"command": "Remove-Item C:\\ -Recurse -Force"},
@@ -25,6 +25,36 @@ from magi.control.permission.kill_list import check_kill_list
         (
             "powershell",
             {"command": "Remove-Item -Force -Recurse $HOME"},
+            "remove_item_root",
+        ),
+        (
+            "powershell",
+            {"command": "ri C:\\* -r -fo"},
+            "remove_item_root",
+        ),
+        (
+            "powershell",
+            {"command": 'del -LiteralPath "$HOME\\*" -Rec -Fo'},
+            "remove_item_root",
+        ),
+        (
+            "powershell",
+            {"command": "del -LiteralPath '~\\*' -Rec -Fo"},
+            "remove_item_root",
+        ),
+        (
+            "powershell",
+            {"command": "Microsoft.PowerShell.Management\\Remove-Item C:/ -Recurse"},
+            "remove_item_root",
+        ),
+        (
+            "powershell",
+            {"command": "Clear-Disk -Number 1; ri C:\\* -r -fo"},
+            "remove_item_root",
+        ),
+        (
+            "powershell",
+            {"command": "ri C:\\* -r -fo -WhatIf:$false"},
             "remove_item_root",
         ),
         # dd to block device
@@ -90,6 +120,22 @@ def test_kill_list_matches(tool: str, args: dict, expected_key: str) -> None:
         (
             "powershell",
             {"command": "Remove-Item .\\node_modules -Recurse -Force"},
+        ),
+        (
+            "powershell",
+            {"command": "ri .\\build\\* -r -fo"},
+        ),
+        (
+            "powershell",
+            {"command": "del '$HOME\\*' -Rec -Fo"},
+        ),
+        (
+            "powershell",
+            {"command": "ri C:\\* -r -fo -WhatIf"},
+        ),
+        (
+            "powershell",
+            {"command": "rm -rf / -WhatIf"},
         ),
         ("file_write", {"path": "/Users/alice/.ssh/authorized_keys"}),
         ("file_edit", {"path": "~/.zshrc"}),

@@ -19,6 +19,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from magi_plugin_sdk.command_risk import powershell_removes_root
+
 __all__ = [
     "KillListEntry",
     "KillListMatch",
@@ -57,6 +59,12 @@ _SHELL_TOOLS: tuple[str, ...] = (
     "execute_command",
     "run_command",
 )
+_POSIX_SHELL_TOOLS: tuple[str, ...] = (
+    "bash",
+    "shell",
+    "execute_command",
+    "run_command",
+)
 
 
 def _command_text(arguments: dict[str, Any]) -> str:
@@ -89,25 +97,12 @@ def _match_rm_root(args: dict[str, Any]) -> bool:
     return bool(_RE_RM_ROOT.search(probe))
 
 
-_RE_REMOVE_ITEM = re.compile(r"\bRemove-Item\b(?P<arguments>[^|;&]*)", re.IGNORECASE)
-_RE_POWERSHELL_ROOT = re.compile(
-    r"(?<!\S)[\"']?(?:[A-Za-z]:[\\/]|~[\\/]?|\$HOME[\\/]?)[\"']?(?=\s|$)",
-    re.IGNORECASE,
-)
-
-
 def _match_remove_item_root(args: dict[str, Any]) -> bool:
-    """Match recursive forced deletion of a Windows or user root."""
+    """Match a literal recursive PowerShell deletion of a filesystem root."""
     command = _command_text(args)
-    for match in _RE_REMOVE_ITEM.finditer(command):
-        arguments = match.group("arguments")
-        if not re.search(r"(?:^|\s)-Recurse(?:\s|$)", arguments, re.IGNORECASE):
-            continue
-        if not re.search(r"(?:^|\s)-Force(?:\s|$)", arguments, re.IGNORECASE):
-            continue
-        if _RE_POWERSHELL_ROOT.search(arguments):
-            return True
-    return False
+    if not command:
+        return False
+    return powershell_removes_root(command)
 
 
 # dd if=... of=/dev/{disk,sd*,nvme*,rdisk*}
@@ -227,12 +222,12 @@ KILL_LIST: tuple[KillListEntry, ...] = (
     KillListEntry(
         key="rm_rf_root",
         description="rm -rf targeting the filesystem root or $HOME root",
-        tool_names=_SHELL_TOOLS,
+        tool_names=_POSIX_SHELL_TOOLS,
         predicate=_match_rm_root,
     ),
     KillListEntry(
         key="remove_item_root",
-        description="Remove-Item recursively and forcibly targeting a drive or user root",
+        description="PowerShell recursively removing a drive, share, or user root",
         tool_names=_SHELL_TOOLS,
         predicate=_match_remove_item_root,
     ),
