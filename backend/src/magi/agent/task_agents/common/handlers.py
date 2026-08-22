@@ -144,6 +144,20 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             run_id=getattr(request.context, "session_run_id", None),
             run_revision=int(getattr(request.context, "session_run_revision", 0) or 0),
             turn_id=getattr(request.context.latest_payload, "turn_id", None),
+            root_turn_id=(
+                getattr(request.context, "root_turn_id", None)
+                or getattr(
+                    getattr(request.context, "active_run", None),
+                    "root_turn_id",
+                    None,
+                )
+            ),
+            upstream_task_agent_type=getattr(
+                request.context, "upstream_task_agent_type", None
+            ),
+            upstream_task_agent_id=getattr(
+                request.context, "upstream_task_agent_id", None
+            ),
             user_message_generation=request.context.user_message_generation,
             history=request.context.history,
             history_key=request.context.history_key,

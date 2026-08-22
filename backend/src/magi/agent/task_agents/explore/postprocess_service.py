@@ -5,9 +5,11 @@ import time
 from typing import Callable, Optional
 
 from ....core.logger import get_logger
+from ....agent.execution.task_budget import TaskBudgetExceeded
 from ....agent.runtime.contracts import FactRecord
+from ....i18n import t
 from ..common import ExecutionResult, ExploreTaskCompletedPayload
-from .constants import EXPLORE_TASK_COMPLETED
+from .constants import EXPLORE_TASK_COMPLETED, EXPLORE_TASK_FAILED
 from .contracts import ExploreParseOutcome, ExploreRuntimeContext
 
 logger = get_logger(__name__)
@@ -43,8 +45,58 @@ class ExplorePostProcessService:
                 orchestration_id=result.orchestration_id,
                 message_started_at=result.message_started_at,
                 turn_id=result.turn_id or getattr(context.latest_payload, "turn_id", None),
+                root_turn_id=context.root_turn_id,
             ),
             correlation_id=correlation_id,
+            user_message_generation=context.user_message_generation,
+        )
+        return ExploreParseOutcome(emitted=emitted)
+
+    async def handle_failure(
+        self,
+        context: ExploreRuntimeContext,
+        error: BaseException,
+    ) -> ExploreParseOutcome:
+        """Emit a terminal upstream fact when Explore cannot produce a dossier."""
+        if isinstance(error, TaskBudgetExceeded):
+            response_text = t(
+                "chat.delivery.execution_limit_reached",
+                fallback=(
+                    "This task reached its execution limit and was stopped to "
+                    "avoid an unbounded loop. Narrow the request or start a new task."
+                ),
+            )
+        else:
+            response_text = t(
+                "chat.explore.execution_failed",
+                fallback="The exploration could not complete safely ({error_type}).",
+                error_type=error.__class__.__name__,
+            )
+        latest_fact = context.latest_fact
+        emitted = await self._emit_upstream_fact(
+            event_type=EXPLORE_TASK_FAILED,
+            upstream_task_agent_type=context.upstream_task_agent_type,
+            upstream_task_agent_id=context.upstream_task_agent_id,
+            payload=ExploreTaskCompletedPayload(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                root_user_message=context.latest_user_message,
+                markdown_dossier=response_text,
+                run_id=getattr(context.latest_payload, "run_id", None),
+                run_revision=int(
+                    getattr(context.latest_payload, "run_revision", 0) or 0
+                ),
+                orchestration_id=getattr(
+                    context.latest_payload, "orchestration_id", None
+                ),
+                turn_id=getattr(context.latest_payload, "turn_id", None),
+                root_turn_id=context.root_turn_id,
+            ),
+            correlation_id=(
+                latest_fact.correlation_id
+                if isinstance(latest_fact, FactRecord)
+                else None
+            ),
             user_message_generation=context.user_message_generation,
         )
         return ExploreParseOutcome(emitted=emitted)

@@ -6,7 +6,7 @@ import asyncio
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import AsyncIterator, Iterator
+from typing import AsyncIterator, Iterator, Protocol
 
 DEFAULT_TASK_MAX_LLM_CALLS = 30
 DEFAULT_TASK_MAX_WORKER_LAUNCHES = 8
@@ -33,15 +33,58 @@ class TaskBudgetExceeded(RuntimeError):
         )
 
 
+class TaskExecutionBudgetStore(Protocol):
+    """Persistence contract for one root turn's execution counters."""
+
+    async def ensure_task_execution_budget(
+        self,
+        *,
+        root_turn_id: str,
+        max_llm_calls: int,
+        max_worker_launches: int,
+    ) -> tuple[int, int, int, int]: ...
+
+    async def reserve_task_execution_budget(
+        self,
+        *,
+        root_turn_id: str,
+        resource: str,
+        count: int,
+        max_llm_calls: int,
+        max_worker_launches: int,
+    ) -> tuple[bool, int, int, int, int]: ...
+
+    async def release_task_execution_llm_calls(
+        self,
+        *,
+        root_turn_id: str,
+        count: int,
+    ) -> tuple[int, int, int, int] | None: ...
+
+
 @dataclass(slots=True)
 class TaskExecutionBudget:
-    """Mutable counters shared by every in-process branch of one task."""
+    """Counters shared by every branch and admission of one root task."""
 
     max_llm_calls: int = DEFAULT_TASK_MAX_LLM_CALLS
     max_worker_launches: int = DEFAULT_TASK_MAX_WORKER_LAUNCHES
     llm_calls: int = 0
     worker_launches: int = 0
+    root_turn_id: str | None = None
+    store: TaskExecutionBudgetStore | None = field(default=None, repr=False)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+
+    async def initialize(self) -> None:
+        """Create or reload the durable projection when persistence is bound."""
+        if self.store is None or self.root_turn_id is None:
+            return
+        async with self._lock:
+            state = await self.store.ensure_task_execution_budget(
+                root_turn_id=self.root_turn_id,
+                max_llm_calls=self.max_llm_calls,
+                max_worker_launches=self.max_worker_launches,
+            )
+            self._apply_state(state)
 
     async def reserve_llm_calls(self, count: int = 1) -> None:
         await self._reserve(
@@ -64,6 +107,14 @@ class TaskExecutionBudget:
         if count < 1:
             raise ValueError("Task budget releases must be positive")
         async with self._lock:
+            if self.store is not None and self.root_turn_id is not None:
+                state = await self.store.release_task_execution_llm_calls(
+                    root_turn_id=self.root_turn_id,
+                    count=count,
+                )
+                if state is not None:
+                    self._apply_state(state)
+                return
             if count > self.llm_calls:
                 raise ValueError("Cannot release more LLM calls than are reserved")
             self.llm_calls -= count
@@ -79,6 +130,25 @@ class TaskExecutionBudget:
         if count < 1:
             raise ValueError("Task budget reservations must be positive")
         async with self._lock:
+            if self.store is not None and self.root_turn_id is not None:
+                reservation = await self.store.reserve_task_execution_budget(
+                    root_turn_id=self.root_turn_id,
+                    resource=resource,
+                    count=count,
+                    max_llm_calls=self.max_llm_calls,
+                    max_worker_launches=self.max_worker_launches,
+                )
+                accepted, max_llm, llm_used, max_workers, workers_used = reservation
+                self._apply_state((max_llm, llm_used, max_workers, workers_used))
+                if not accepted:
+                    used = int(getattr(self, used_attribute))
+                    raise TaskBudgetExceeded(
+                        resource=resource,
+                        limit=int(getattr(self, f"max_{resource}")),
+                        used=used,
+                        requested=count,
+                    )
+                return
             used = int(getattr(self, used_attribute))
             if used + count > limit:
                 raise TaskBudgetExceeded(
@@ -88,6 +158,14 @@ class TaskExecutionBudget:
                     requested=count,
                 )
             setattr(self, used_attribute, used + count)
+
+    def _apply_state(self, state: tuple[int, int, int, int]) -> None:
+        (
+            self.max_llm_calls,
+            self.llm_calls,
+            self.max_worker_launches,
+            self.worker_launches,
+        ) = (int(value) for value in state)
 
 
 _CURRENT_TASK_BUDGET: ContextVar[TaskExecutionBudget | None] = ContextVar(
@@ -121,13 +199,28 @@ async def task_execution_budget_scope(
     *,
     max_llm_calls: int = DEFAULT_TASK_MAX_LLM_CALLS,
     max_worker_launches: int = DEFAULT_TASK_MAX_WORKER_LAUNCHES,
+    root_turn_id: str | None = None,
+    store: TaskExecutionBudgetStore | None = None,
 ) -> AsyncIterator[TaskExecutionBudget]:
-    """Create a root budget or reuse it through an isolated reservation frame."""
+    """Create or rehydrate a root budget and add an isolated reservation frame."""
+    normalized_root_turn_id = str(root_turn_id or "").strip() or None
+    if (normalized_root_turn_id is None) != (store is None):
+        raise ValueError("Persistent task budgets require both root_turn_id and store")
     existing = current_task_budget()
+    if (
+        existing is not None
+        and normalized_root_turn_id is not None
+        and existing.root_turn_id != normalized_root_turn_id
+    ):
+        raise RuntimeError("Cannot bind two root turns to one execution context")
     budget = existing or TaskExecutionBudget(
         max_llm_calls=max_llm_calls,
         max_worker_launches=max_worker_launches,
+        root_turn_id=normalized_root_turn_id,
+        store=store,
     )
+    if existing is None:
+        await budget.initialize()
     budget_token = _CURRENT_TASK_BUDGET.set(budget) if existing is None else None
     inherited_frames = _TASK_LLM_RESERVATION_FRAMES.get() if existing is not None else ()
     frame = _TaskLlmReservationFrame(
@@ -273,7 +366,11 @@ async def _release_prepaid_frame(
         prepaid = frame.prepaid_calls
         if prepaid < 1:
             return 0
-        await budget.release_llm_calls(prepaid)
+        # Claim the reservation before awaiting the durable refund. A commit may
+        # succeed even when cancellation or connection teardown prevents the
+        # store call from returning. Retrying that ambiguous refund would risk
+        # subtracting calls consumed by another branch, so uncertainty is
+        # handled conservatively as charged capacity.
         _TASK_LLM_RESERVATION_FRAMES.set(
             _replace_frame(
                 frames,
@@ -284,6 +381,7 @@ async def _release_prepaid_frame(
                 ),
             )
         )
+        await budget.release_llm_calls(prepaid)
         return prepaid
     return 0
 
@@ -300,6 +398,7 @@ __all__ = [
     "DEFAULT_TASK_MAX_WORKER_LAUNCHES",
     "TaskBudgetExceeded",
     "TaskExecutionBudget",
+    "TaskExecutionBudgetStore",
     "consume_task_llm_calls",
     "current_task_budget",
     "fresh_task_execution_budget_context",

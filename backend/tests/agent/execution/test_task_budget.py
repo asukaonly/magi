@@ -212,6 +212,39 @@ async def test_completed_branches_release_unused_final_call_headroom() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ambiguous_durable_refund_is_not_retried() -> None:
+    class _AmbiguousReleaseStore:
+        def __init__(self) -> None:
+            self.llm_calls = 0
+            self.release_calls = 0
+
+        async def ensure_task_execution_budget(self, **_kwargs):  # type: ignore[no-untyped-def]
+            return (2, self.llm_calls, 8, 0)
+
+        async def reserve_task_execution_budget(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.llm_calls += int(kwargs["count"])
+            return (True, 2, self.llm_calls, 8, 0)
+
+        async def release_task_execution_llm_calls(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.release_calls += 1
+            self.llm_calls -= int(kwargs["count"])
+            raise RuntimeError("connection closed after commit")
+
+    store = _AmbiguousReleaseStore()
+    async with task_execution_budget_scope(
+        root_turn_id="turn-root",
+        store=store,
+        max_llm_calls=2,
+    ):
+        await prepay_task_llm_calls()
+        with pytest.raises(RuntimeError, match="after commit"):
+            await release_prepaid_task_llm_calls()
+
+    assert store.release_calls == 1
+    assert store.llm_calls == 0
+
+
+@pytest.mark.asyncio
 async def test_common_llm_prepare_boundary_reserves_calls() -> None:
     class _FakeLlm:
         model_name = "fake-model"

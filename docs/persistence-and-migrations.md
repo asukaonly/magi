@@ -36,7 +36,7 @@ chat payloads, memory records, or plugin state.
 
 | File | Owner | Holds |
 |------|-------|-------|
-| `data/chat/chat.db` | chat | sessions, session-creation idempotency mappings, turns, messages, attachments, per-turn context-usage snapshots, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, context summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |
+| `data/chat/chat.db` | chat | sessions, session-creation idempotency mappings, turns, durable root-turn execution budgets, messages, attachments, per-turn context-usage snapshots, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, context summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |
 | `data/memory/l1_events.db` | memory L1 + L1-projected chat sessions | normalized event log, embeddings, FTS, entity links |
 | `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | short-term attention checkpoints, grounded Claim/evidence/entity-reference ledgers, exact L2 projection attempts and outcomes, knowledge graph, ToM, correction history, stable context identities, summaries, procedural skills |
 | `runtime/runtime_trace.db` | runtime trace | trace turns / spans / llm calls / tools, plugin ingress events |
@@ -361,11 +361,17 @@ Current heads that matter to the chat-clear, memory-projection, and delivery bou
 
 | environment | head | Boundary added at head |
 |-------------|------|------------------------|
-| `chat` | `v11` | accepted visible-turn context usage stored with chat truth |
+| `chat` | `v13` | root-turn execution budgets persist across queue admissions and process restarts |
 | `background_tasks` | `v2` | recoverable terminal-completion snapshots with durable delivery claims, frozen intent/body, and scoped discard during conversation deletion |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
 | `message_queue` | `v7` | pending desktop full-clear transaction adopted before command recovery; success returns to an empty idle row |
 | `memory_shared` | `v48_history_import_l2_reimport` | release stale L2 queue and event-rule identities only for durable explicit history reimports, then make any affected active import ledger resumable |
+
+`chat_task_execution_budgets` is owned by the accepted root turn. Its
+`root_turn_id` is a non-null primary key and a foreign key to `chat_turns`, with
+`ON DELETE CASCADE`, so session, turn, and full-clear deletion cannot leave an
+orphaned allowance. Reservations and refunds use immediate SQLite transactions;
+the limits first persisted for a root remain authoritative after restart.
 
 The L2 Claim-ledger chain was introduced by `memory_shared` revisions `v38`
 through `v42`: grounded Claims and their evidence/projection outcomes, projection

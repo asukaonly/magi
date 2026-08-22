@@ -219,6 +219,7 @@ class ChatPostprocessOutcomeMixin:
         if context.incoming_fact_kind not in {
             IncomingFactKind.WORKER_UPDATE,
             IncomingFactKind.EXPLORE_TASK_COMPLETED,
+            IncomingFactKind.EXPLORE_TASK_FAILED,
         }:
             return None
         turn = await host._chat_store.get_turn(normalized_turn_id)

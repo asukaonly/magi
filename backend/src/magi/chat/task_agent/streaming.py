@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from magi.agent.execution.task_budget import TaskBudgetExceeded
 from magi.llm.error_classifier import LLMErrorKind, classify_exception
 from magi.llm.streaming_events import LLMStreamEvent
 
 
 def format_llm_error(exc: Exception) -> str:
     """Return a concise user-facing error string for an LLM call failure."""
+    if isinstance(exc, TaskBudgetExceeded):
+        return (
+            "⚠️ This task reached its execution limit and was stopped to avoid "
+            "an unbounded loop. Please narrow the request or continue in a new task."
+        )
     classified = classify_exception(exc)
     if classified.kind == LLMErrorKind.RATE_LIMIT:
         return "⚠️ The AI service is rate-limited. Please wait a moment and try again."

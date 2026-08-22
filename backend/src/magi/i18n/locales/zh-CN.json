@@ -5,8 +5,13 @@
   "chat": {
     "image_vision_unsupported": "我收到了图片，但当前核心模型不支持图片输入。请切换到支持视觉能力的核心模型，或补充文字描述后再发送。",
     "context_window_exceeded": "当前对话内容超过了核心模型可接收的长度。请缩短这条消息、开启新会话，或换用上下文容量更大的模型。",
+    "explore": {
+      "execution_failed": "探索任务未能安全完成（{error_type}）。",
+      "execution_failed_generic": "探索任务在生成结果前已停止。"
+    },
     "delivery": {
       "execution_failed": "这条消息没能处理完成。请重新发送一次再试。",
+      "execution_limit_reached": "这个任务已达到执行上限，为避免无边界循环，系统已停止继续执行。请缩小任务范围，或新建一个任务继续。",
       "recovery_failed": "这条消息在上次中断后没能继续处理。请重新发送一次。"
     },
     "runtime": {

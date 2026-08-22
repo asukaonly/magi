@@ -281,6 +281,7 @@ class AgentRuntimeModule(LifecycleModule):
             ),
             build_timeline_handler=self._build_timeline_handler,
             control_session_store_provider=resolve_control_session_store,
+            chat_store=deps.chat_store,
         )
 
     def _build_router_agent(

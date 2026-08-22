@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from magi.core.logger import get_logger
+from magi.agent.execution.task_budget import TaskBudgetExceeded
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.trace import (
     now_wall_ms,
@@ -192,10 +193,19 @@ class ChatPostProcessService:
         ):
             return False
 
-        failure_message = t(
-            "chat.delivery.execution_failed",
-            fallback="I couldn't finish this message. Send it again to retry.",
-        )
+        if isinstance(error, TaskBudgetExceeded):
+            failure_message = t(
+                "chat.delivery.execution_limit_reached",
+                fallback=(
+                    "This task reached its execution limit and was stopped to "
+                    "avoid an unbounded loop. Narrow the request or start a new task."
+                ),
+            )
+        else:
+            failure_message = t(
+                "chat.delivery.execution_failed",
+                fallback="I couldn't finish this message. Send it again to retry.",
+            )
         result = await self._chat_store.finalize_user_turn_delivery_failure(
             turn_id=turn_id,
             delivery_attempt_no=int(source_fact.delivery_attempt_no),
@@ -459,6 +469,7 @@ class ChatPostProcessService:
             IncomingFactKind.USER_MESSAGE,
             IncomingFactKind.WORKER_UPDATE,
             IncomingFactKind.EXPLORE_TASK_COMPLETED,
+            IncomingFactKind.EXPLORE_TASK_FAILED,
         }:
             return ChatParseOutcome(False, False, False, False)
         ux_plan = result.ux_plan if isinstance(result.ux_plan, dict) else {}

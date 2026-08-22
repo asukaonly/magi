@@ -20,11 +20,21 @@ from magi.agent.orchestration import (
     WorkerResult,
 )
 from magi.chat.task_agent.context_assembler import ChatContextAssembler
-from magi.agent.task_agents.handlers import ExecutionMode, ExecutionRequest, IntentDecision, OrchestrationPlan, ToolSelection
+from magi.agent.task_agents.handlers import (
+    ExecutionMode,
+    ExecutionRequest,
+    IncomingFactKind,
+    IntentDecision,
+    OrchestrationPlan,
+    ToolSelection,
+)
 from magi.chat.task_agent import planning_service as planning_service_module
 from magi.tools.context_routing import RouteDecision
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
-from magi.agent.task_agents.explore_task_agent import EXPLORE_TASK_COMPLETED
+from magi.agent.task_agents.explore_task_agent import (
+    EXPLORE_TASK_COMPLETED,
+    EXPLORE_TASK_FAILED,
+)
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.runtime.types import TaskAgentType
 from magi.context.contracts import PromptPackage
@@ -1369,6 +1379,49 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
     assert call_llm["disable_thinking"] is True
     assert "探索报告" in call_llm["messages"][-1]["content"]
     assert "# Request" in call_llm["messages"][-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_explore_failure_render_does_not_call_model(monkeypatch) -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    model_calls = 0
+
+    async def _unexpected_call(**_kwargs):  # type: ignore[no-untyped-def]
+        nonlocal model_calls
+        model_calls += 1
+        raise AssertionError("failure rendering must not call the model")
+
+    monkeypatch.setattr(agent._prompt_service, "call_llm", _unexpected_call)
+    latest_fact = FactRecord(
+        agent_id="chat:s-chat",
+        event_type=EXPLORE_TASK_FAILED,
+        payload={
+            "user_id": "u-chat",
+            "session_id": "s-chat",
+            "root_user_message": "Analyze the repository",
+            "markdown_dossier": "The exploration reached its execution limit.",
+            "root_turn_id": "turn-root",
+            "turn_id": "turn-root",
+        },
+        correlation_id="corr-failed",
+    )
+
+    context = await agent.build_context(await agent.merge_facts([latest_fact]))
+    intent = await agent.match_intent(context)
+    request = ExecutionRequest(
+        mode=intent.execution_mode,
+        context=context,
+        intent=intent,
+        tool_selection=ToolSelection(),
+    )
+    handler = agent._handler_registry.get(ExecutionMode.EXPLORE_TASK_RENDER)
+    prepared = await handler.build_request(request)
+    result = await handler.execute(prepared)
+
+    assert context.incoming_fact_kind == IncomingFactKind.EXPLORE_TASK_FAILED
+    assert intent.execution_mode == ExecutionMode.EXPLORE_TASK_RENDER
+    assert result.response_text == "The exploration reached its execution limit."
+    assert model_calls == 0
 
 
 def test_chat_prompt_service_formats_dense_explore_render_text() -> None:

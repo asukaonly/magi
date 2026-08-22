@@ -400,6 +400,9 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
         run_id=None,
         run_revision=0,
         turn_id="turn-1",
+        root_turn_id="turn-root",
+        upstream_task_agent_type="chat",
+        upstream_task_agent_id="session-1",
         user_message_generation=7,
         history=[],
         history_key="user-1::session-1",
@@ -411,6 +414,9 @@ async def test_start_orchestration_passes_workspace_root_to_planner(monkeypatch:
     assert result.skip_emit is True
     assert captured["kwargs"]["workspace_root"] == "/tmp/magi"
     assert captured["saved_state"].metadata["persona_id"] == "persona-orchestration"
+    assert captured["saved_state"].metadata["root_turn_id"] == "turn-root"
+    assert captured["saved_state"].metadata["upstream_task_agent_type"] == "chat"
+    assert captured["saved_state"].metadata["upstream_task_agent_id"] == "session-1"
     assert captured["saved_state"].user_message_generation == 7
 
 

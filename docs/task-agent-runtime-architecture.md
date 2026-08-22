@@ -1120,10 +1120,25 @@ and both published schemas. Await actions are capped at 300 seconds, below the
 310-second outer agent-tool timeout, so every advertised await value can return
 a structured result instead of being preempted by the generic tool wrapper.
 
-One in-process `TaskExecutionBudget` is bound at each admitted task-agent
-execution boundary (`TaskAgentExecutionEngine` for the standard path and the
-Explore planning boundary for `ExploreTaskAgent`) and reused by nested
-function-calling runs and every worker task created from them.
+Each accepted root chat turn owns one durable `TaskExecutionBudget` projection
+in `chat.db`. `root_turn_id` is the identity boundary: augment, steer,
+orchestration updates, and worker retries keep the original projection, while
+an interrupt that starts a new root turn receives a new budget. Classifying a
+DEFER message is control-plane work against the current run, but after that run
+finishes and the deferred turn is released, the turn becomes a new root with a
+new projection. Every task-agent queue admission reloads the authoritative
+counters before intent routing or execution. The in-process budget object and
+its context variable are only the concurrency carrier for nested
+function-calling runs and worker tasks; SQLite reservations use
+`BEGIN IMMEDIATE` so independently admitted branches or processes cannot
+oversell the same remaining capacity. A product runtime with chat storage but
+without a recoverable root identity fails closed for model calls and worker
+launches instead of silently granting a fresh in-memory allowance.
+Explore orchestration state persists both that root identity and the upstream
+task-agent target, so a later worker update still reaches the originating chat
+session after actor reconstruction. Metadata-read or planning failures preserve
+a terminal `EXPLORE_TASK_FAILED` route; Chat renders that fixed failure directly
+without spending another model call.
 The default budget permits 30 logical LLM calls and eight worker launches across
 the parent plus all workers; those are task totals, not per-agent allowances.
 The task-agent direct/planning service, tool-enabled loop, and tool-free fallback
@@ -1134,7 +1149,14 @@ raise or lower the shared task total. Batch worker starts reserve their entire
 count atomically, so an over-budget batch launches none of its workers.
 Every batch definition is also validated before the first worker starts, so a
 malformed later item cannot leave an earlier worker running. Provider-internal
-rate-limit retries remain one logical call. Before a tool-enabled model turn,
+rate-limit retries remain one logical call because charging occurs once at the
+logical caller boundary. Context-decider routing is charged to the applicable
+root turn. Model-backed interruption routing is control-plane work and is
+deliberately outside that execution budget, so a task at its cap remains
+cancelable, replaceable, and steerable. Each classifier call still requires a
+new user message and keeps its own provider timeout; this exemption prevents a
+runaway task from disabling user control rather than authorizing autonomous
+retries. Before a tool-enabled model turn,
 each loop reserves the current call and one final-response call, so worker fan-out
 cannot consume the continuation needed to interpret tool results and produce the
 parent response. Worker launch itself charges only the shared launch counter;
@@ -1159,15 +1181,18 @@ workers that never committed. Cancellation after commit follows the normal
 cancelled worker lifecycle, including terminal state, traces, and publication.
 
 The shared object follows normal async context propagation, including workers
-that continue in the background after their launching call returns. A later
-orchestration update re-admitted from the persistent task-agent queue begins a
-new execution scope. Persistent task-agent actor tasks are created with request
-budget ContextVars cleared so later queue admissions cannot inherit an exhausted
-worker budget. Carrying the original counter across process restarts or
-separately admitted retries would require a persisted run-budget projection.
-Pre-routing classification and post-turn scenario-model work also sit outside
-this execution-loop budget. Those boundaries are intentional in this minimal
-change and must not be described as globally persisted token accounting.
+that continue in the background after their launching call returns. Persistent
+task-agent actor tasks are created with request budget ContextVars cleared, then
+each later admission rehydrates the root projection instead of inheriting a
+stale Python object. Unused prepaid continuation calls are refunded durably when
+their frame exits. The frame is claimed before the durable refund: if commit
+status becomes ambiguous because cancellation or connection teardown prevents a
+normal return, the refund is not retried and the capacity remains conservatively
+charged. A process crash after reservation is likewise conservatively charged
+because there is no ambiguous time-based lease reset. Post-turn transcript
+summaries and persona maintenance remain separate scenario work and are not
+charged to this execution budget. This is a bounded user-run control, not the
+source of truth for provider token or monetary accounting.
 
 ## Background Tasks
 
