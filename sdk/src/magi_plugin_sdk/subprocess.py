@@ -2,8 +2,8 @@
 
 ``run_bounded_subprocess`` is the shared path for one-shot commands. It drains
 stdout and stderr concurrently, keeps only a bounded tail in memory, and tears
-down the entire process tree when the deadline expires or the caller is
-cancelled.
+down the entire process tree when the root command exits, the deadline expires,
+or the caller is cancelled.
 
 The default `asyncio.create_subprocess_exec(...)` flow has a sharp edge: if
 the parent process is killed unexpectedly (SIGKILL, crash, panic kernel),
@@ -60,10 +60,13 @@ _CREATE_SUSPENDED = 0x00000004
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 _PROCESS_TERMINATE = 0x0001
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _PROCESS_SET_QUOTA = 0x0100
 _THREAD_SUSPEND_RESUME = 0x0002
 _TH32CS_SNAPTHREAD = 0x00000004
 _INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+_STILL_ACTIVE = 259
+_ERROR_ACCESS_DENIED = 5
 
 
 class _JobObjectBasicLimitInformation(ctypes.Structure):
@@ -129,6 +132,8 @@ def _windows_kernel32() -> Any:
     kernel32.SetInformationJobObject.restype = ctypes.c_int
     kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
     kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+    kernel32.GetExitCodeProcess.restype = ctypes.c_int
     kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     kernel32.AssignProcessToJobObject.restype = ctypes.c_int
     kernel32.CreateToolhelp32Snapshot.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
@@ -626,6 +631,16 @@ async def _settle_completion(
     await asyncio.gather(completion, return_exceptions=True)
 
 
+def _raise_component_error(component_tasks: Sequence[asyncio.Task[Any]]) -> None:
+    """Preserve subprocess/drain failures after best-effort tree cleanup."""
+    for task in component_tasks:
+        if task.cancelled():
+            continue
+        error = task.exception()
+        if error is not None:
+            raise error
+
+
 async def _terminate_and_settle(
     process: asyncio.subprocess.Process,
     completion: asyncio.Future[Any],
@@ -714,7 +729,7 @@ async def _collect_bounded_subprocess(
     try:
         timed_out = False
         try:
-            await asyncio.wait_for(asyncio.shield(completion), timeout=timeout)
+            await asyncio.wait_for(asyncio.shield(wait_task), timeout=timeout)
         except asyncio.TimeoutError:
             timed_out = True
             await _terminate_and_settle(
@@ -724,6 +739,18 @@ async def _collect_bounded_subprocess(
                 terminate_grace_seconds,
                 windows_job,
             )
+        else:
+            # A one-shot command owns every descendant it creates. Tear down
+            # the process tree as soon as the root exits so a detached child
+            # cannot outlive a successful tool call or keep inherited pipes
+            # open until the command timeout.
+            await _terminate_process_tree(
+                process,
+                terminate_grace_seconds,
+                windows_job,
+            )
+            await _settle_completion(completion, component_tasks)
+            _raise_component_error(component_tasks)
 
         stdout = stdout_capture.finalize(keep_complete_spill=True)
         stderr = stderr_capture.finalize(keep_complete_spill=True)
@@ -779,10 +806,11 @@ async def run_bounded_subprocess(
 ) -> BoundedSubprocessResult:
     """Run a one-shot command with bounded output and process-tree cleanup.
 
-    Timeout returns a structured partial result. Caller cancellation is
-    re-raised only after the process tree has been terminated and capture tasks
-    have settled. Windows children start suspended and are assigned to a
-    kill-on-close Job Object before any user code can create descendants.
+    Root completion and timeout both terminate remaining descendants. Timeout
+    returns a structured partial result. Caller cancellation is re-raised only
+    after the process tree has been terminated and capture tasks have settled.
+    Windows children start suspended and are assigned to a kill-on-close Job
+    Object before any user code can create descendants.
     """
     _validate_bounded_subprocess_arguments(
         command=command,
@@ -942,6 +970,22 @@ def _pid_alive(pid: int) -> bool:
     """True if a process with this PID currently exists."""
     if pid <= 0:
         return False
+    if os.name == "nt":
+        kernel32 = _windows_kernel32()
+        handle = kernel32.OpenProcess(
+            _PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        )
+        if not handle:
+            return ctypes.get_last_error() == _ERROR_ACCESS_DENIED
+        try:
+            exit_code = ctypes.c_uint32()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return True
+            return exit_code.value == _STILL_ACTIVE
+        finally:
+            _close_windows_handle(kernel32, handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -972,6 +1016,25 @@ def _argv0_of(pid: int) -> str | None:
         return out or None
     except Exception:  # noqa: BLE001
         return None
+
+
+def _terminate_registered_orphan(pid: int, *, force: bool) -> None:
+    """Terminate one registry-owned orphan with a platform-native primitive."""
+    if os.name == "nt":
+        command = ["taskkill", "/PID", str(pid), "/T"]
+        if force:
+            command.append("/F")
+        subprocess.run(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2.0,
+            check=False,
+            **hidden_process_kwargs(),
+        )
+        return
+    os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
 
 
 @dataclass
@@ -1234,7 +1297,8 @@ class ManagedSubprocess:
                     )
                     continue
 
-            # It's an orphan. SIGTERM then SIGKILL.
+            # It's an orphan. Ask the platform to terminate the full tree,
+            # then force it if the process remains alive.
             logger.warning(
                 "managed_subprocess.orphan_kill label=%s pid=%d parent_pid=%d (dead)",
                 entry.label,
@@ -1242,19 +1306,19 @@ class ManagedSubprocess:
                 entry.parent_pid,
             )
             try:
-                os.kill(entry.pid, signal.SIGTERM)
-            except ProcessLookupError:
+                _terminate_registered_orphan(entry.pid, force=False)
+            except (ProcessLookupError, subprocess.SubprocessError, OSError):
                 continue
             # Brief synchronous wait — boot is the only caller, so we can
-            # afford ~1s of latency before SIGKILL.
+            # afford ~1s of latency before forced termination.
             for _ in range(20):
                 time.sleep(0.05)
                 if not _pid_alive(entry.pid):
                     break
             if _pid_alive(entry.pid):
                 try:
-                    os.kill(entry.pid, signal.SIGKILL)
-                except ProcessLookupError:
+                    _terminate_registered_orphan(entry.pid, force=True)
+                except (ProcessLookupError, subprocess.SubprocessError, OSError):
                     pass
             killed += 1
 

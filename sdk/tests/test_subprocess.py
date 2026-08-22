@@ -59,6 +59,49 @@ def test_hidden_process_kwargs_hides_windows_console(monkeypatch) -> None:
     assert kwargs["startupinfo"].wShowWindow == 0
 
 
+@pytest.mark.parametrize(
+    ("exit_code", "expected"),
+    [
+        (managed_subprocess._STILL_ACTIVE, True),
+        (0, False),
+    ],
+)
+def test_windows_pid_probe_is_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+    exit_code: int,
+    expected: bool,
+) -> None:
+    calls: list[tuple[str, int]] = []
+
+    class FakeKernel32:
+        @staticmethod
+        def OpenProcess(access: int, inherit: int, pid: int) -> int:
+            calls.append(("open", access))
+            assert inherit == 0
+            assert pid == 42
+            return 123
+
+        @staticmethod
+        def GetExitCodeProcess(handle: int, output: object) -> int:
+            assert handle == 123
+            output._obj.value = exit_code  # type: ignore[attr-defined]
+            return 1
+
+        @staticmethod
+        def CloseHandle(handle: int) -> int:
+            calls.append(("close", handle))
+            return 1
+
+    monkeypatch.setattr(managed_subprocess.os, "name", "nt")
+    monkeypatch.setattr(managed_subprocess, "_windows_kernel32", lambda: FakeKernel32())
+
+    assert managed_subprocess._pid_alive(42) is expected
+    assert calls == [
+        ("open", managed_subprocess._PROCESS_QUERY_LIMITED_INFORMATION),
+        ("close", 123),
+    ]
+
+
 def _cleanup_spills(*paths: Path | None) -> None:
     parents = {path.parent for path in paths if path is not None}
     for parent in parents:
@@ -288,6 +331,41 @@ async def test_timeout_terminates_descendant_after_root_exits(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_successful_root_exit_terminates_detached_descendant(tmp_path: Path) -> None:
+    pid_path = tmp_path / "success-child.pid"
+    heartbeat_path = tmp_path / "success-heartbeat.txt"
+    child = (
+        "import pathlib,sys,time; "
+        "path=pathlib.Path(sys.argv[1]); "
+        "[(path.write_text(str(time.time()), encoding='utf-8'), time.sleep(0.05)) "
+        "for _ in iter(int, 1)]"
+    )
+    script = (
+        "import pathlib,subprocess,sys,time; "
+        f"child=subprocess.Popen([sys.executable, '-c', {child!r}, "
+        f"{str(heartbeat_path)!r}], stdin=subprocess.DEVNULL, "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+        "time.sleep(0.2); "
+        f"pathlib.Path({str(pid_path)!r}).write_text(str(child.pid), encoding='utf-8')"
+    )
+
+    result = await managed_subprocess.run_bounded_subprocess(
+        [sys.executable, "-c", script],
+        shell=False,
+        timeout=5,
+        terminate_grace_seconds=0.1,
+    )
+
+    child_pid = int(pid_path.read_text(encoding="utf-8"))
+    try:
+        assert result.timed_out is False
+        assert result.returncode == 0
+        await _assert_heartbeat_stopped(heartbeat_path)
+    finally:
+        _force_kill_for_test(child_pid)
+
+
+@pytest.mark.asyncio
 async def test_cancellation_terminates_descendant_and_is_reraised(
     tmp_path: Path,
 ) -> None:
@@ -439,3 +517,31 @@ async def test_windows_taskkill_helper_is_hidden(
     assert command == ("taskkill", "/PID", "42", "/T", "/F")
     assert kwargs["creationflags"] == 0x08000000
     assert kwargs["startupinfo"] == "hidden"
+
+
+def test_windows_orphan_termination_uses_hidden_tree_kill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> object:
+        calls.append((command, kwargs))
+        return object()
+
+    monkeypatch.setattr(managed_subprocess.os, "name", "nt")
+    monkeypatch.setattr(managed_subprocess.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        managed_subprocess,
+        "hidden_process_kwargs",
+        lambda: {"creationflags": 0x08000000, "startupinfo": "hidden"},
+    )
+
+    managed_subprocess._terminate_registered_orphan(42, force=False)
+    managed_subprocess._terminate_registered_orphan(42, force=True)
+
+    assert calls[0][0] == ["taskkill", "/PID", "42", "/T"]
+    assert calls[1][0] == ["taskkill", "/PID", "42", "/T", "/F"]
+    for _, kwargs in calls:
+        assert kwargs["creationflags"] == 0x08000000
+        assert kwargs["startupinfo"] == "hidden"
+        assert kwargs["stdin"] is subprocess.DEVNULL
