@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from .paths import WORKSPACE_STATE_SCHEMA_VERSION, WorkspacePaths, compute_workspace_id
 
 _STATE_LOCKS_GUARD = threading.Lock()
@@ -202,6 +203,7 @@ class WorkspaceStateStore:
                 check=False,
                 capture_output=True,
                 text=True,
+                **hidden_process_kwargs(),
             )
             if ignored.returncode == 0:
                 return

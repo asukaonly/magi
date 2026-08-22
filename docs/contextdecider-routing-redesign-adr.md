@@ -93,8 +93,13 @@ Strength continues to be expressed by the existing `default_leaf_type` (4 leaves
 
 Reuse ADR-0002's established taxonomy, wiring it into the **injection strategy** (ADR-0002 currently uses it only for plugin boundaries and explicitly states "the registry is uniform to the LLM, no injection-strategy distinction" — exactly the gap to close):
 
-- **runtime-control / system tools** (`enter_plan_mode`, `exit_plan_mode`, `todo_write`, `detach_to_background`, `ask_user_question`, `find-relevant-tools`, the new `escalate_to_orchestration`) → **resident on the main LLM**, never filtered by the router. The LLM switches its own state inside the agentic loop.
+- **runtime-control / system tools** (`enter_plan_mode`, `exit_plan_mode`, `todo_write`, `detach_to_background`, `ask_user_question`, the new `escalate_to_orchestration`) → **resident on the main LLM**, never filtered by the router. The LLM switches its own state inside the agentic loop.
 - **capability / normal tools** (file / bash / web / memory / weather / …) → router pre-filters and injects.
+
+`find-relevant-tools` was later narrowed from resident to `tool_need=discover`
+routes. Keeping discovery on every local tool turn increased schema and tool
+selection cost and allowed unrelated capability expansion after the router had
+already selected a sufficient concrete tool.
 
 Minimal mechanism: add a `scope` (`system` | `normal`) dimension (or reuse `category == control`); `build_tools_parameter` unconditionally merges system tools; `ContextDecider._get_available_tools` (context_decider.py:195-206) excludes them from the router prompt.
 

@@ -55,7 +55,7 @@ Emit EXACTLY these fields — do not add, rename, or nest others:
 - Use raw file tools for simple text CRUD. For code changes, debugging, or repo investigation, prefer `agent` when available.
 - Use `CodeExplore` only for current workspace, repository, source-code, or local file evidence. Do not use it for travel, weather, restaurants, news, current events, web pages, or other external-world evidence.
 - Use `general-purpose` for external, web, current-world, personal-life, geography, or mixed-source evidence gathering.
-- For binary file transformations, prefer shell tooling such as `bash` rather than plain file read/write.
+- For binary file transformations, prefer the host-native shell tool in the available list (`powershell` on Windows, `bash` elsewhere) rather than plain file read/write.
 - Prefer `memory_query` for stored user preferences, personal facts, customized settings, or historical recall.
 - Prefer `trace_query` when the user asks about exact recent tool calls, parameters, durations, or failures.
 - If the user wants to send already identified photos or assets, use the source resolver and attachment preparation tools.
@@ -75,8 +75,9 @@ Choose the lowest depth that still matches the routing risk.
 - needs_orchestration:
   - "none": ordinary single-agent turn. This is the default — most turns.
   - "maybe": a single agent should start but may need to fan out to workers
-    partway through; the `agent` tool will be available in the loop so it can
-    self-escalate. Use for open-ended work that MIGHT grow.
+    partway through. This signal is advisory: it does not expose `agent` or force
+    a tool loop. Include `agent` in tools only when immediate, bounded delegation
+    is already justified.
   - "required": the task clearly needs several sub-agents working in parallel up
     front — decomposable multi-part work, or broad research with many items +
     citations / source lists / multi-source comparison / report synthesis.

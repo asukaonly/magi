@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 try:
@@ -21,11 +22,13 @@ from magi.agent.runtime_tools import (
     WORKER_AGENT_COMPLETED,
     WORKER_AGENT_PROGRESS,
 )
+from magi.agent.workers.worker_state import WORKER_TOOL_TIMEOUT_SECONDS
 from magi.agent.execution.function_calling import ExecutionOutcome
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.runtime_trace.store import RuntimeTraceStore
 from magi.runtime_trace.subscribers.runtime_trace_subscriber import RuntimeTraceSubscriber
 from magi.tools.schema import ToolExecutionContext
+from magi.tools.platform_tools import native_shell_tool_name
 
 
 async def _flush_trace_bus(bus, subscriber) -> None:
@@ -48,6 +51,7 @@ class _FakeToolRegistry:
             "grep",
             "file_read",
             "bash",
+            "powershell",
             "web-search",
             "find-relevant-tools",
             "agent",
@@ -66,6 +70,7 @@ class _FakeToolRegistryWithTodo:
             "file_info",
             "verify",
             "bash",
+            "powershell",
             "todo_write",
             "agent",
         ]
@@ -197,7 +202,7 @@ class _FakeFunctionCallingOrchestrator:
             content = (
                 '{"result_status":"success","summary":"plan ready","findings":[{"title":"plan","detail":"created subtasks"}],'
                 '"evidence":[{"path":"/tmp/plan.json","detail":"planner output"}],'
-                '"gaps":[],"next_steps":["launch subtasks"],"failure_reason":null,'
+                '"records":[],"gaps":[],"next_steps":["launch subtasks"],"failure_reason":null,'
                 '"subtasks":[{"description":"scan module","subagent_type":"CodeExplore","prompt":"Inspect module layout","parallel_group":"g1"}]}'
             )
         else:
@@ -206,7 +211,7 @@ class _FakeFunctionCallingOrchestrator:
                 + user_message
                 + '","path":"/tmp/example.py","why_it_matters":"confirms the bounded worker scope"}],'
                 '"evidence":[{"path":"/tmp/example.py","detail":"validated path"}],'
-                '"gaps":[],"next_steps":["report upstream"],"failure_reason":null}'
+                '"records":[],"gaps":[],"next_steps":["report upstream"],"failure_reason":null}'
             )
         return ExecutionOutcome(
             status="completed",
@@ -257,7 +262,7 @@ async def test_agent_tool_launch_foreground(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_agent_tool_uses_30_iteration_default_for_workers(monkeypatch):
+async def test_agent_tool_uses_20_iteration_default_for_workers(monkeypatch):
     from magi.agent.workers import worker_execution as worker_execution_module
 
     fake_orchestrators = []
@@ -298,8 +303,492 @@ async def test_agent_tool_uses_30_iteration_default_for_workers(monkeypatch):
 
     assert result.success is True
     assert fake_orchestrators
-    assert fake_orchestrators[0].last_max_iterations == 30
+    assert fake_orchestrators[0].last_max_iterations == 20
     assert fake_orchestrators[0].last_cancel_token is not None
+
+
+def test_agent_tool_schema_limits_match_runtime_defaults() -> None:
+    from magi.agent.workers import WorkerAgentManager
+    from magi.agent.workers.worker_state import (
+        DEFAULT_WORKER_AWAIT_TIMEOUT_SECONDS,
+        DEFAULT_WORKER_MAX_ITERATIONS,
+        MAX_WORKER_MAX_ITERATIONS,
+        MAX_WORKER_AWAIT_TIMEOUT_SECONDS,
+        WORKER_TOOL_TIMEOUT_SECONDS,
+    )
+
+    tool = AgentTool()
+    manager = WorkerAgentManager()
+    tool_parameters = {item.name: item for item in tool.schema.parameters}
+    manager_parameters = {item.name: item for item in manager.schema.parameters}
+
+    assert tool.schema.timeout == WORKER_TOOL_TIMEOUT_SECONDS
+    assert manager.schema.timeout == tool.schema.timeout
+    assert [item.model_dump(mode="json") for item in manager.schema.parameters] == [
+        item.model_dump(mode="json") for item in tool.schema.parameters
+    ]
+    assert "turn_id" in tool_parameters
+    for parameters in (tool_parameters, manager_parameters):
+        assert parameters["max_iterations"].default == DEFAULT_WORKER_MAX_ITERATIONS
+        assert parameters["max_iterations"].max_value == MAX_WORKER_MAX_ITERATIONS
+        assert parameters["timeout_seconds"].default == DEFAULT_WORKER_AWAIT_TIMEOUT_SECONDS
+        assert parameters["timeout_seconds"].max_value == MAX_WORKER_AWAIT_TIMEOUT_SECONDS
+        assert tool.schema.timeout > parameters["timeout_seconds"].max_value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"action": "await", "worker_id": "worker-1", "timeout_seconds": "bad"},
+        {"action": "status", "worker_ids": ["worker-1", 2]},
+    ],
+)
+async def test_agent_tool_execute_rejects_invalid_non_launch_parameters(
+    parameters: dict[str, object],
+) -> None:
+    tool = AgentTool()
+
+    result = await tool.execute(
+        parameters=parameters,
+        context=ToolExecutionContext(
+            agent_id="chat:u-chat",
+            workspace="/tmp",
+            env_vars={"user_id": "u-chat"},
+            permissions=["authenticated"],
+        ),
+    )
+
+    assert result.success is False
+    assert result.error_code == "INVALID_PARAMETERS"
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_rejects_over_budget_batch_before_starting_workers() -> None:
+    from magi.agent.execution.task_budget import task_execution_budget_scope
+
+    tool = AgentTool()
+    tool.configure(
+        llm_adapter=_FakeLLMAdapter(),
+        tool_registry_instance=_FakeToolRegistry(),
+    )
+    parameters = {
+        "action": "launch",
+        "workers": [
+            {
+                "subagent_type": "CodeExplore",
+                "description": "scan auth flow",
+                "prompt": "Locate token generation points",
+            },
+            {
+                "subagent_type": "CodeExplore",
+                "description": "scan session flow",
+                "prompt": "Locate session validation points",
+            },
+        ],
+    }
+    context = ToolExecutionContext(
+        agent_id="chat:u-chat",
+        workspace="/tmp",
+        env_vars={"user_id": "u-chat", "session_id": "s-chat"},
+        permissions=["authenticated"],
+    )
+
+    async with task_execution_budget_scope(max_worker_launches=1):
+        result = await tool.execute(parameters=parameters, context=context)
+
+    assert result.success is False
+    assert result.error_code == "POLICY_BLOCKED"
+    assert result.data["reason"] == "task_budget_exceeded"
+    assert result.data["requested"] == 2
+    assert tool._runs == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid_worker",
+    [
+        {
+            "subagent_type": "UnsupportedWorker",
+            "description": "invalid worker type",
+            "prompt": "This worker must never start.",
+        },
+        {
+            "subagent_type": "CodeExplore",
+            "description": "invalid iteration bound",
+            "prompt": "This worker must never start.",
+            "max_iterations": "many",
+        },
+    ],
+)
+async def test_agent_tool_prevalidates_entire_batch_before_start(
+    invalid_worker: dict[str, object],
+) -> None:
+    tool = AgentTool()
+    tool.configure(
+        llm_adapter=_FakeLLMAdapter(),
+        tool_registry_instance=_FakeToolRegistry(),
+    )
+
+    result = await tool.execute(
+        parameters={
+            "action": "launch",
+            "workers": [
+                {
+                    "subagent_type": "CodeExplore",
+                    "description": "valid first worker",
+                    "prompt": "This worker would start if validation were incremental.",
+                },
+                invalid_worker,
+            ],
+            "run_in_background": True,
+        },
+        context=ToolExecutionContext(
+            agent_id="chat:u-chat",
+            workspace="/tmp",
+            env_vars={"user_id": "u-chat", "session_id": "s-chat"},
+            permissions=["authenticated"],
+        ),
+    )
+
+    assert result.success is False
+    assert result.error_code == "INVALID_PARAMETERS"
+    assert tool._runs == {}
+
+
+def test_coding_worker_prompt_requires_structured_completion_evidence() -> None:
+    tool = AgentTool()
+
+    rules = tool._manager._build_coding_role_rules()
+
+    assert "return ONLY valid JSON" in rules
+    assert '"artifacts"' in rules
+    assert '"verification"' in rules
+    assert "Final reply: plain text" not in rules
+
+
+def test_coding_worker_plain_text_result_is_rejected() -> None:
+    tool = AgentTool()
+
+    with pytest.raises(ValueError, match="valid JSON"):
+        tool._manager._validate_worker_result("Coding", "Changed src/app.py; tests pass")
+
+
+def test_coding_worker_structured_success_requires_artifacts_and_verification() -> None:
+    tool = AgentTool()
+    payload = {
+        "result_status": "success",
+        "summary": "Updated the parser",
+        "findings": [],
+        "evidence": [],
+        "artifacts": [{"path": "src/parser.py", "operation": "modified"}],
+        "verification": [
+            {
+                "command": "pytest tests/test_parser.py -q",
+                "status": "passed",
+                "detail": "12 tests passed",
+            }
+        ],
+        "records": [],
+        "gaps": [],
+        "next_steps": [],
+        "failure_reason": None,
+    }
+
+    result = tool._manager._validate_worker_result("Coding", json.dumps(payload))
+
+    assert result.result_status == "success"
+    assert result.artifacts[0].path == "src/parser.py"
+    assert result.artifacts[0].operation == "modified"
+    assert result.verification[0].status == "passed"
+
+
+@pytest.mark.parametrize(("field", "invalid_item"), [("gaps", 123), ("next_steps", "")])
+def test_coding_worker_rejects_invalid_string_list_items(
+    field: str,
+    invalid_item: object,
+) -> None:
+    tool = AgentTool()
+    payload = {
+        "result_status": "success",
+        "summary": "Updated the parser",
+        "findings": [],
+        "evidence": [],
+        "artifacts": [{"path": "src/parser.py", "operation": "modified"}],
+        "verification": [
+            {
+                "command": "pytest -q",
+                "status": "passed",
+                "detail": "tests passed",
+            }
+        ],
+        "records": [],
+        "gaps": [],
+        "next_steps": [],
+        "failure_reason": None,
+    }
+    payload[field] = [invalid_item]
+
+    with pytest.raises(ValueError, match="must contain non-empty strings"):
+        tool._manager._validate_worker_result("Coding", json.dumps(payload))
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_item", "error_match"),
+    [
+        ("findings", {"title": "", "detail": "empty title"}, "Worker finding 1"),
+        ("evidence", {"path": 42, "detail": "non-string path"}, "Worker evidence 1"),
+    ],
+)
+def test_coding_worker_rejects_mixed_malformed_common_entries(
+    field_name: str,
+    invalid_item: object,
+    error_match: str,
+) -> None:
+    tool = AgentTool()
+    payload = {
+        "result_status": "success",
+        "summary": "Updated the parser",
+        "findings": [{"title": "Parser", "detail": "Updated parser behavior"}],
+        "evidence": [{"path": "src/parser.py", "detail": "Reviewed the diff"}],
+        "artifacts": [{"path": "src/parser.py", "operation": "modified"}],
+        "verification": [{"command": "pytest -q", "status": "passed", "detail": "tests passed"}],
+        "records": [],
+        "gaps": [],
+        "next_steps": [],
+        "failure_reason": None,
+    }
+    assert isinstance(payload[field_name], list)
+    payload[field_name].append(invalid_item)
+
+    with pytest.raises(ValueError, match=error_match):
+        tool._manager._validate_worker_result("Coding", json.dumps(payload))
+
+
+def test_plan_worker_rejects_mixed_valid_and_invalid_subtasks() -> None:
+    tool = AgentTool()
+    payload = {
+        "result_status": "success",
+        "summary": "Plan ready",
+        "findings": [],
+        "evidence": [],
+        "records": [],
+        "gaps": [],
+        "next_steps": ["Launch the workers"],
+        "failure_reason": None,
+        "subtasks": [
+            {
+                "description": "Inspect the parser",
+                "subagent_type": "CodeExplore",
+                "prompt": "Inspect parser ownership and tests",
+                "parallel_group": "g1",
+            },
+            {
+                "description": "Update the parser",
+                "subagent_type": 42,
+                "prompt": "Implement the bounded change",
+                "parallel_group": "g1",
+            },
+        ],
+    }
+
+    with pytest.raises(ValueError, match="Plan worker subtask 1"):
+        tool._manager._validate_worker_result("Plan", json.dumps(payload))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error_match"),
+    [
+        ("artifacts", [], "at least one artifact"),
+        ("verification", [], "verification evidence"),
+        (
+            "artifacts",
+            [{"path": "src/parser.py", "operation": "rewritten"}],
+            "valid operation",
+        ),
+        (
+            "verification",
+            [
+                {
+                    "command": "pytest -q",
+                    "status": "failed",
+                    "detail": "one test failed",
+                }
+            ],
+            "cannot contain failed verification",
+        ),
+    ],
+)
+def test_coding_worker_rejects_unverified_success(
+    field: str,
+    value: list[dict[str, str]],
+    error_match: str,
+) -> None:
+    tool = AgentTool()
+    payload = {
+        "result_status": "success",
+        "summary": "Updated the parser",
+        "findings": [],
+        "evidence": [],
+        "artifacts": [{"path": "src/parser.py", "operation": "modified"}],
+        "verification": [
+            {
+                "command": "pytest -q",
+                "status": "passed",
+                "detail": "tests passed",
+            }
+        ],
+        "records": [],
+        "gaps": [],
+        "next_steps": [],
+        "failure_reason": None,
+    }
+    payload[field] = value
+
+    with pytest.raises(ValueError, match=error_match):
+        tool._manager._validate_worker_result("Coding", json.dumps(payload))
+
+
+def test_coding_worker_structured_failure_may_have_no_artifacts() -> None:
+    tool = AgentTool()
+    payload = {
+        "result_status": "failed",
+        "summary": "Target file was missing",
+        "findings": [],
+        "evidence": [],
+        "artifacts": [],
+        "verification": [],
+        "records": [],
+        "gaps": ["src/parser.py was not present"],
+        "next_steps": ["Confirm the repository path"],
+        "failure_reason": "PATH_NOT_FOUND",
+    }
+
+    result = tool._manager._validate_worker_result("Coding", json.dumps(payload))
+
+    assert result.result_status == "failed"
+    assert result.failure_reason == "PATH_NOT_FOUND"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error_match"),
+    [
+        ("path", True, "non-empty string path"),
+        ("operation", 1, "operation created, modified, or deleted"),
+    ],
+)
+def test_coding_worker_rejects_non_string_artifact_fields(
+    field: str,
+    value: object,
+    error_match: str,
+) -> None:
+    tool = AgentTool()
+    artifact = {"path": "src/parser.py", "operation": "modified"}
+    artifact[field] = value
+    payload = {
+        "result_status": "success",
+        "summary": "Updated the parser",
+        "findings": [],
+        "evidence": [],
+        "artifacts": [artifact],
+        "verification": [
+            {
+                "command": "pytest -q",
+                "status": "passed",
+                "detail": "tests passed",
+            }
+        ],
+        "records": [],
+        "gaps": [],
+        "next_steps": [],
+        "failure_reason": None,
+    }
+
+    with pytest.raises(ValueError, match=error_match):
+        tool._manager._validate_worker_result("Coding", json.dumps(payload))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error_match"),
+    [
+        ("command", 42, "non-empty string command"),
+        ("status", True, "status passed or failed"),
+        ("detail", {"passed": True}, "non-empty string detail"),
+    ],
+)
+def test_coding_worker_rejects_non_string_verification_fields(
+    field: str,
+    value: object,
+    error_match: str,
+) -> None:
+    tool = AgentTool()
+    verification = {
+        "command": "pytest -q",
+        "status": "passed",
+        "detail": "tests passed",
+    }
+    verification[field] = value
+    payload = {
+        "result_status": "success",
+        "summary": "Updated the parser",
+        "findings": [],
+        "evidence": [],
+        "artifacts": [{"path": "src/parser.py", "operation": "modified"}],
+        "verification": [verification],
+        "records": [],
+        "gaps": [],
+        "next_steps": [],
+        "failure_reason": None,
+    }
+
+    with pytest.raises(ValueError, match=error_match):
+        tool._manager._validate_worker_result("Coding", json.dumps(payload))
+
+
+def test_failed_worker_rejects_non_string_failure_reason() -> None:
+    tool = AgentTool()
+    payload = {
+        "result_status": "failed",
+        "summary": "Target file was missing",
+        "findings": [],
+        "evidence": [],
+        "artifacts": [],
+        "verification": [],
+        "records": [],
+        "gaps": ["src/parser.py was not present"],
+        "next_steps": ["Confirm the repository path"],
+        "failure_reason": {"code": "PATH_NOT_FOUND"},
+    }
+
+    with pytest.raises(ValueError, match="non-empty string failure_reason"):
+        tool._manager._validate_worker_result("Coding", json.dumps(payload))
+
+
+@pytest.mark.parametrize("field", ["gaps", "next_steps"])
+def test_partial_coding_worker_requires_gaps_and_next_steps(field: str) -> None:
+    tool = AgentTool()
+    payload = {
+        "result_status": "partial",
+        "summary": "Updated only the parser",
+        "findings": [],
+        "evidence": [],
+        "artifacts": [{"path": "src/parser.py", "operation": "modified"}],
+        "verification": [
+            {
+                "command": "pytest -q",
+                "status": "passed",
+                "detail": "tests passed",
+            }
+        ],
+        "records": [],
+        "gaps": ["The serializer still needs an update"],
+        "next_steps": ["Update the serializer"],
+        "failure_reason": None,
+    }
+    payload[field] = []
+
+    with pytest.raises(ValueError, match=f"non-empty {field}"):
+        tool._manager._validate_worker_result("Coding", json.dumps(payload))
 
 
 @pytest.mark.asyncio
@@ -531,7 +1020,7 @@ async def test_agent_tool_explore_uses_structured_tools():
     assert selected_tools == ["glob", "grep", "file_read", "find-relevant-tools"]
     assert "bash" not in selected_tools
     assert tool.schema is not None
-    assert tool.schema.timeout == 300
+    assert tool.schema.timeout == WORKER_TOOL_TIMEOUT_SECONDS
 
 
 def test_agent_tool_schema_uses_code_explore_worker_type():
@@ -626,6 +1115,8 @@ def test_agent_tool_general_prompt_matches_validator_schema():
 
     assert '"findings":[{"title":"string","detail":"string"}]' in prompt
     assert '"evidence":[{"path":"string","detail":"string"}]' in prompt
+    assert '"records":[{"field":"value"}]' in prompt
+    assert "Never return a top-level JSON array." in prompt
 
 
 def test_agent_tool_explore_prompt_requires_anchor_and_claim_validation():
@@ -908,7 +1399,7 @@ async def test_embedded_json_worker_result_is_accepted(monkeypatch):
                     '"findings":[{"title":"file","detail":"checked",'
                     '"path":"/tmp/a.py","why_it_matters":"evidence"}],'
                     '"evidence":[{"path":"/tmp/a.py","detail":"checked"}],'
-                    '"gaps":[],"next_steps":[],"failure_reason":null}\n```'
+                    '"records":[],"gaps":[],"next_steps":[],"failure_reason":null}\n```'
                 ),
                 iterations=1,
             )
@@ -956,6 +1447,10 @@ def test_coding_worker_tool_profile_excludes_todo_write() -> None:
 
     assert "todo_write" not in selected_tools
     assert "file_write" in selected_tools
+    native_shell = native_shell_tool_name()
+    non_native_shell = "bash" if native_shell == "powershell" else "powershell"
+    assert native_shell in selected_tools
+    assert non_native_shell not in selected_tools
 
 
 @pytest.mark.asyncio
@@ -975,7 +1470,8 @@ async def test_structured_failed_worker_result_is_not_marked_completed(monkeypat
                 status="completed",
                 content=(
                     '{"result_status":"failed","summary":"path did not exist",'
-                    '"findings":[],"evidence":[],"gaps":["Target path was missing"],'
+                    '"findings":[],"evidence":[],"records":[],'
+                    '"gaps":["Target path was missing"],'
                     '"next_steps":["Verify the repository path"],'
                     '"failure_reason":"PATH_NOT_FOUND"}'
                 ),

@@ -146,8 +146,13 @@ class WorkerStatusMixin:
             return
         if run_state.status != "running":
             return
+        if task.cancelled():
+            _mark_cancelled_run_state(run_state)
+            return
         try:
             task.result()
+        except asyncio.CancelledError:
+            _mark_cancelled_run_state(run_state)
         except Exception as exc:
             run_state.status = "failed"
             run_state.error = str(exc)
@@ -227,3 +232,11 @@ async def _resolve_run_states(
 
 def _pending_worker_tasks(run_states: List[WorkerRunState]) -> List[Any]:
     return [state.task for state in run_states if state.task is not None and not state.task.done()]
+
+
+def _mark_cancelled_run_state(run_state: WorkerRunState) -> None:
+    run_state.status = "cancelled"
+    run_state.error = "Worker cancelled"
+    run_state.failure_reason = "CANCELLED"
+    run_state.updated_at = time.time()
+    run_state.completed_at = run_state.updated_at

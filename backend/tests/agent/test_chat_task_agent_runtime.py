@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -53,6 +54,12 @@ class _PausedPipelineChatAgent(ChatTaskAgent):
         self.batch_taken.set()
         await self.release_batch.wait()
         return await super().merge_facts(new_facts)
+
+    @asynccontextmanager
+    async def execution_scope(self, context):  # type: ignore[no-untyped-def]
+        """Keep this pipeline-stage test double independent of run admission."""
+        _ = context
+        yield
 
     async def build_context(self, merged_facts):  # type: ignore[no-untyped-def]
         turn_id = self._turn_id_from_fact(merged_facts[-1] if merged_facts else None)
@@ -677,6 +684,17 @@ def test_format_llm_error_server() -> None:
 def test_format_llm_error_generic() -> None:
     msg = _format_llm_error(ValueError("something went wrong"))
     assert "ValueError" in msg
+
+
+def test_format_llm_error_task_budget() -> None:
+    from magi.agent.execution.task_budget import TaskBudgetExceeded
+
+    msg = _format_llm_error(
+        TaskBudgetExceeded(resource="llm_calls", limit=30, used=30, requested=1)
+    )
+
+    assert "execution limit" in msg
+    assert "AI service" not in msg
 
 
 # ---------------------------------------------------------------------------

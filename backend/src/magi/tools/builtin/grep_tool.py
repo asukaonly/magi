@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from magi.utils.packaged_paths import get_repo_root
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 
 from ..schema import (
     Tool,
@@ -546,6 +547,7 @@ class GrepTool(Tool):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=plan.run_cwd,
+                **hidden_process_kwargs(),
             )
         except (FileNotFoundError, OSError):
             return None

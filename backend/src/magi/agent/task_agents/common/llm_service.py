@@ -17,6 +17,7 @@ from ....llm.cancellable_client import CancellableLLMClient, CancellationRaised,
 from ....llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
 from ....llm.streaming_events import LLMStreamEvent
 from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
+from ...execution.task_budget import consume_task_llm_calls
 
 logger = get_logger(__name__)
 
@@ -96,6 +97,7 @@ class TaskAgentLLMService:
             event_context=event_context,
         )
         try:
+            await consume_task_llm_calls()
             provider_response = await self._call_provider_response(
                 request_context=request_context,
                 system_prompt=system_prompt,
@@ -148,6 +150,7 @@ class TaskAgentLLMService:
         )
         collected = ""
         try:
+            await consume_task_llm_calls()
             stream_source = self._open_provider_stream(
                 request_context=request_context,
                 system_prompt=system_prompt,

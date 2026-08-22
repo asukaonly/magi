@@ -16,6 +16,7 @@ import uuid
 from typing import Any, Optional
 
 from ..config.constants import DEFAULT_THINKING_TOKENS
+from ..agent.execution.task_budget import TaskBudgetExceeded, consume_task_llm_calls
 from ..config.models import LLMScenario
 from ..llm.base import LLMAdapter
 from ..llm.provider_bridge import LLMProviderBridge
@@ -111,6 +112,8 @@ class ContextDecider(
                 available_tools=available_tools,
                 user_prompt=user_prompt,
             )
+        except TaskBudgetExceeded:
+            raise
         except Exception as e:
             logger.error(f"[ContextDecider] Decision failed: {e}")
             return self._error_decision(e)
@@ -186,6 +189,7 @@ class ContextDecider(
         )
 
     async def _call_provider(self, request_id: str, user_prompt: str):
+        await consume_task_llm_calls()
         return await self.provider_bridge.chat_response(
             system_prompt=self.system_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],

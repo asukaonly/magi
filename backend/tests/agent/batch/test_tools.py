@@ -4,6 +4,7 @@ import pytest
 
 from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutcome
 from magi.agent.batch.store import BatchStore
+from magi.agent.batch.tool_selection import default_batch_tool_names
 from magi.agent.batch.tools import (
     batch_create_tool,
     batch_item_update_tool,
@@ -48,6 +49,28 @@ def _ctx(**env):
     return ToolExecutionContext(agent_id="a", workspace="/tmp", env_vars=env)
 
 
+class _FakeToolRegistry:
+    def __init__(self, *extra_tools: str) -> None:
+        self._tools = set(default_batch_tool_names()) | set(extra_tools)
+
+    @staticmethod
+    def resolve_tool_name(tool_name: str) -> str:
+        return tool_name
+
+    def get_tool(self, tool_name: str):
+        return object() if tool_name in self._tools else None
+
+    @staticmethod
+    def is_skill(_skill_name: str) -> bool:
+        return False
+
+
+def _batch_create_tool(*extra_tools: str) -> batch_create_tool.BatchCreateTool:
+    tool = batch_create_tool.BatchCreateTool()
+    tool._tool_registry_ref = _FakeToolRegistry(*extra_tools)
+    return tool
+
+
 async def _seed_job(store, n_inputs):
     job = await store.create_job(
         title="t", owner="local_user", origin_session_id="", origin_turn_id="",
@@ -57,12 +80,19 @@ async def _seed_job(store, n_inputs):
     return job
 
 
+def test_batch_create_schema_uses_native_shell_guidance() -> None:
+    schema = batch_create_tool.BatchCreateTool().get_schema()
+
+    assert "native shell/file tools" in schema.description
+    assert "bash/file tools" not in schema.description
+
+
 @pytest.mark.asyncio
 async def test_batch_create_seeds_and_runs(store, tmp_path):
     (tmp_path / "a.mkv").write_text("")
     (tmp_path / "b.mkv").write_text("")
     (tmp_path / "c.txt").write_text("")
-    tool = batch_create_tool.BatchCreateTool()
+    tool = _batch_create_tool()
     res = await tool.execute(
         {"handler_ref": "movie-rename",
          "seed_spec": {"source": "fs", "root": str(tmp_path), "patterns": ["*.mkv"]}},
@@ -79,7 +109,7 @@ async def test_batch_create_seeds_and_runs(store, tmp_path):
 
 @pytest.mark.asyncio
 async def test_batch_create_bad_seed(store):
-    tool = batch_create_tool.BatchCreateTool()
+    tool = _batch_create_tool()
     res = await tool.execute(
         {"handler_ref": "h", "seed_spec": {"source": "prompt"}}, _ctx()
     )
@@ -133,7 +163,7 @@ async def test_batch_review_approve_and_skip(store):
 @pytest.mark.asyncio
 async def test_batch_create_inline_handler_prompt(store, tmp_path):
     (tmp_path / "a.mkv").write_text("")
-    tool = batch_create_tool.BatchCreateTool()
+    tool = _batch_create_tool()
     res = await tool.execute(
         {"handler_prompt": "Rename each file to 'Title (Year)'.",
          "seed_spec": {"source": "fs", "root": str(tmp_path), "patterns": ["*.mkv"]}},
@@ -147,7 +177,7 @@ async def test_batch_create_inline_handler_prompt(store, tmp_path):
 
 @pytest.mark.asyncio
 async def test_batch_create_requires_handler(store):
-    tool = batch_create_tool.BatchCreateTool()
+    tool = _batch_create_tool()
     res = await tool.execute({"seed_spec": {"source": "fs", "root": "/tmp", "patterns": ["*.x"]}}, _ctx())
     assert not res.success
     assert res.error_code == "INVALID_PARAMETERS"
@@ -157,7 +187,7 @@ async def test_batch_create_requires_handler(store):
 async def test_batch_create_concurrency_reaches_job(store, tmp_path):
     (tmp_path / "a.mkv").write_text("")
     (tmp_path / "b.mkv").write_text("")
-    tool = batch_create_tool.BatchCreateTool()
+    tool = _batch_create_tool()
     res = await tool.execute(
         {"handler_prompt": "Look up each movie and rename it.",
          "seed_spec": {"source": "fs", "root": str(tmp_path), "patterns": ["*.mkv"]},
@@ -173,7 +203,7 @@ async def test_batch_create_concurrency_reaches_job(store, tmp_path):
 @pytest.mark.asyncio
 async def test_batch_create_concurrency_defaults_to_3(store, tmp_path):
     (tmp_path / "a.mkv").write_text("")
-    tool = batch_create_tool.BatchCreateTool()
+    tool = _batch_create_tool()
     res = await tool.execute(
         {"handler_prompt": "Rename each file.",
          "seed_spec": {"source": "fs", "root": str(tmp_path), "patterns": ["*.mkv"]}},
@@ -182,3 +212,62 @@ async def test_batch_create_concurrency_defaults_to_3(store, tmp_path):
     assert res.success
     job = await store.get_job(res.data["job_id"])
     assert job.concurrency == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "requested_tool",
+    [
+        "missing-tool",
+        "bash" if default_batch_tool_names()[2] == "powershell" else "powershell",
+    ],
+)
+async def test_batch_create_rejects_unavailable_tool_override_before_persisting(
+    store,
+    tmp_path,
+    requested_tool,
+):
+    (tmp_path / "a.txt").write_text("")
+    tool = _batch_create_tool()
+
+    result = await tool.execute(
+        {
+            "handler_prompt": "Process each file.",
+            "handler_config": {"tools": [requested_tool]},
+            "seed_spec": {
+                "source": "fs",
+                "root": str(tmp_path),
+                "patterns": ["*.txt"],
+            },
+        },
+        _ctx(user_id="local_user"),
+    )
+
+    assert result.success is False
+    assert result.error_code == "INVALID_PARAMETERS"
+    assert requested_tool in (result.error or "")
+    for status in BatchJobStatus:
+        assert await store.list_jobs_by_status(status) == []
+
+
+@pytest.mark.asyncio
+async def test_batch_create_persists_canonical_valid_tool_override(store, tmp_path):
+    (tmp_path / "a.txt").write_text("")
+    tool = _batch_create_tool("file_read")
+
+    result = await tool.execute(
+        {
+            "handler_prompt": "Read each file.",
+            "handler_config": {"tools": ["file_read", "file_read"]},
+            "seed_spec": {
+                "source": "fs",
+                "root": str(tmp_path),
+                "patterns": ["*.txt"],
+            },
+        },
+        _ctx(user_id="local_user"),
+    )
+
+    assert result.success is True
+    job = await store.get_job(result.data["job_id"])
+    assert job.handler_config["tools"] == ["file_read", "batch_item_update"]

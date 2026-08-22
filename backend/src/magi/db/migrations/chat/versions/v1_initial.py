@@ -59,6 +59,21 @@ CREATE TABLE IF NOT EXISTS chat_turns (
     supersession_reason TEXT
 );
 
+CREATE TABLE IF NOT EXISTS chat_task_execution_budgets (
+    root_turn_id TEXT NOT NULL PRIMARY KEY,
+    max_llm_calls INTEGER NOT NULL CHECK (max_llm_calls > 0),
+    llm_calls_used INTEGER NOT NULL DEFAULT 0
+        CHECK (llm_calls_used >= 0 AND llm_calls_used <= max_llm_calls),
+    max_worker_launches INTEGER NOT NULL CHECK (max_worker_launches > 0),
+    worker_launches_used INTEGER NOT NULL DEFAULT 0
+        CHECK (
+            worker_launches_used >= 0
+            AND worker_launches_used <= max_worker_launches
+        ),
+    created_at_ms INTEGER NOT NULL,
+    FOREIGN KEY (root_turn_id) REFERENCES chat_turns(turn_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS chat_messages (
     message_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
@@ -570,6 +585,7 @@ DROP TABLE IF EXISTS chat_attachments;
 
 DROP TABLE IF EXISTS chat_messages;
 
+DROP TABLE IF EXISTS chat_task_execution_budgets;
 DROP TABLE IF EXISTS chat_turns;
 
 DROP TABLE IF EXISTS chat_session_creation_requests;

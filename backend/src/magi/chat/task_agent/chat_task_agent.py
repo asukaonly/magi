@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Iterable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from magi.agent.cancel import SessionRunCancelToken
+from magi.agent.execution.task_budget import (
+    TaskExecutionBudgetStore,
+    fresh_task_execution_budget_context,
+    task_execution_budget_scope,
+)
 from magi.control.run_control import null_run_control
 from magi.agent.trace import now_wall_ms
 from magi.chat import ChatReadService, ChatStore
@@ -39,6 +45,10 @@ from magi.agent.task_agents.handlers import (
     ExecutionRequest,
     ExecutionResult,
     ToolSelection,
+)
+from magi.agent.task_agents.explore.constants import (
+    EXPLORE_TASK_COMPLETED,
+    EXPLORE_TASK_FAILED,
 )
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from magi.chat.task_agent.reply_context import ChatReplyContextMixin
@@ -408,10 +418,42 @@ class ChatTaskAgent(
     ) -> bool:
         """Keep admitted user turns as non-mergeable command boundaries."""
 
-        return (
+        if (
             next_fact.event_type == EventTypes.USER_MESSAGE
             and any(fact.event_type == EventTypes.USER_MESSAGE for fact in batch)
-        )
+        ):
+            return True
+        explore_terminal_types = {
+            EXPLORE_TASK_COMPLETED,
+            EXPLORE_TASK_FAILED,
+        }
+        if next_fact.event_type in explore_terminal_types or any(
+            fact.event_type in explore_terminal_types for fact in batch
+        ):
+            return True
+        next_key = self._fact_execution_key(next_fact)
+        if next_key is None:
+            return False
+        existing_keys = {
+            key
+            for fact in batch
+            if (key := self._fact_execution_key(fact)) is not None
+        }
+        return bool(existing_keys and next_key not in existing_keys)
+
+    @staticmethod
+    def _fact_execution_key(fact: FactRecord) -> tuple[str, str] | None:
+        payload = fact.payload if isinstance(fact.payload, dict) else {}
+        session_id = str(payload.get("session_id") or "").strip()
+        execution_id = str(
+            payload.get("orchestration_id")
+            or payload.get("root_turn_id")
+            or payload.get("turn_id")
+            or ""
+        ).strip()
+        if not session_id or not execution_id:
+            return None
+        return session_id, execution_id
 
     async def merge_facts(self, new_facts: list[FactRecord]) -> list[FactRecord]:
         executable_facts = [
@@ -490,7 +532,10 @@ class ChatTaskAgent(
             )
             await self._reconcile_finished_active_run(classified.session_id)
             await self._before_execution_run_admission(classified=classified)
-            run_decision = await self._session_run_coordinator.aroute(classified)
+            # Interruption routing is control-plane work: an exhausted task must
+            # still be steerable, replaceable, or cancellable by the user.
+            with fresh_task_execution_budget_context():
+                run_decision = await self._session_run_coordinator.aroute(classified)
             turn_control = null_run_control()
             if run_decision.active_run is not None:
                 turn_control.cancel_token = SessionRunCancelToken(
@@ -786,6 +831,90 @@ class ChatTaskAgent(
         result = await self._coordinator.match_intent(context)
         await self._raise_if_execution_cancelled(context)
         return result
+
+    @asynccontextmanager
+    async def execution_scope(
+        self,
+        context: ChatRuntimeContext,
+    ) -> AsyncIterator[None]:
+        """Rehydrate the root turn's model and worker budget for this admission."""
+        root_turn_id = await self._resolve_context_root_turn_id(context)
+        async with self._task_budget_scope(root_turn_id):
+            yield
+
+    async def _resolve_context_root_turn_id(self, context: object) -> str:
+        """Recover the durable budget identity even after the chat actor restarts."""
+        latest_payload = getattr(context, "latest_payload", None)
+        payload_root = str(
+            getattr(latest_payload, "root_turn_id", "") or ""
+        ).strip()
+        if payload_root:
+            return payload_root
+
+        orchestration_id = str(
+            getattr(latest_payload, "orchestration_id", "") or ""
+        ).strip()
+        orchestration_store = getattr(self, "_orchestration_store", None)
+        get_orchestration = getattr(orchestration_store, "get_orchestration", None)
+        if orchestration_id and callable(get_orchestration):
+            state = await get_orchestration(orchestration_id)
+            if state is not None:
+                persisted_root = str(
+                    state.metadata.get("root_turn_id") or ""
+                ).strip()
+                if persisted_root:
+                    return persisted_root
+
+        active_run = getattr(context, "active_run", None)
+        active_root = str(getattr(active_run, "root_turn_id", "") or "").strip()
+        if active_root:
+            return active_root
+
+        session_id = str(getattr(context, "session_id", "") or "").strip()
+        run_coordinator = getattr(self, "_session_run_coordinator", None)
+        get_active_run = getattr(run_coordinator, "get_active_run", None)
+        if session_id and callable(get_active_run):
+            restored_run = get_active_run(session_id)
+            return str(
+                getattr(restored_run, "root_turn_id", "") or ""
+            ).strip()
+        return ""
+
+    @asynccontextmanager
+    async def _task_budget_scope(
+        self,
+        root_turn_id: str,
+    ) -> AsyncIterator[None]:
+        store = self._durable_task_budget_store()
+        if root_turn_id and store is not None:
+            async with task_execution_budget_scope(
+                root_turn_id=root_turn_id,
+                store=store,
+            ):
+                yield
+            return
+        if self._chat_store is not None:
+            # Product runtime has durable chat storage. Missing identity or a
+            # partially wired store must deny model/worker reservations instead
+            # of silently resetting a fresh per-admission allowance.
+            raise RuntimeError(
+                "Durable chat task budget root identity is unavailable"
+            )
+        async with task_execution_budget_scope():
+            yield
+
+    def _durable_task_budget_store(self) -> TaskExecutionBudgetStore | None:
+        store = self._chat_store
+        required_methods = (
+            "ensure_task_execution_budget",
+            "reserve_task_execution_budget",
+            "release_task_execution_llm_calls",
+        )
+        if store is None or not all(
+            callable(getattr(store, method, None)) for method in required_methods
+        ):
+            return None
+        return cast(TaskExecutionBudgetStore, store)
 
     async def match_tools(self, context: ChatRuntimeContext, intent_result):
         await self._raise_if_execution_cancelled(context)

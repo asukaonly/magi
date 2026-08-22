@@ -33,6 +33,7 @@ from magi.agent.batch.runner import (
     parse_job_id_from_goal,
 )
 from magi.agent.batch.store import BatchStore
+from magi.agent.batch.tool_selection import default_batch_tool_names
 from magi.agent.cancel import CancelToken
 
 _BATCH_SCHEMA = """
@@ -53,6 +54,22 @@ CREATE TABLE batch_item (
 );
 CREATE INDEX idx_batch_item_job_status ON batch_item(job_id, status);
 """
+
+
+class _FakeToolRegistry:
+    def __init__(self) -> None:
+        self._tools = set(default_batch_tool_names())
+
+    @staticmethod
+    def resolve_tool_name(tool_name: str) -> str:
+        return tool_name
+
+    def get_tool(self, tool_name: str):
+        return object() if tool_name in self._tools else None
+
+    @staticmethod
+    def is_skill(_skill_name: str) -> bool:
+        return False
 
 
 async def _wait_until(predicate, *, timeout: float = 3.0) -> None:
@@ -171,7 +188,11 @@ async def test_resume_running_jobs_drives_to_done_after_restart(
     # --- fresh process: real manager + real BatchDriver, only the agent run stubbed ---
     bg_store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     manager = BackgroundTaskManager(store=bg_store, run_fn=_make_batch_run_fn(batch_store), max_concurrent=1)
-    driver = BatchDriver(manager, store_factory=lambda: batch_store)
+    driver = BatchDriver(
+        manager,
+        tool_registry=_FakeToolRegistry(),
+        store_factory=lambda: batch_store,
+    )
     manager.add_listener(driver.on_terminal)
     await manager.start()
     try:

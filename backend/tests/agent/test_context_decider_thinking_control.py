@@ -5,6 +5,10 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 import pytest
 
+from magi.agent.execution.task_budget import (
+    TaskBudgetExceeded,
+    task_execution_budget_scope,
+)
 from magi.llm.base import LLMAdapter
 from magi.config.models import LLMScenario
 from magi.tools.context_decider import ContextDecider
@@ -115,6 +119,31 @@ async def test_context_decider_always_disables_thinking() -> None:
     )
 
     assert seen["disable_thinking"] is True
+
+
+@pytest.mark.asyncio
+async def test_context_decider_charges_one_logical_call_per_provider_request() -> None:
+    decider = ContextDecider(
+        tool_registry=_DummyToolRegistry(),
+        llm_adapter=_DummyLLMAdapter(),
+    )  # type: ignore[arg-type]
+    provider_calls = 0
+
+    async def _fake_chat_response(**kwargs):  # type: ignore[no-untyped-def]
+        nonlocal provider_calls
+        _ = kwargs
+        provider_calls += 1
+        return SimpleNamespace(content="{}", metadata={})
+
+    decider.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
+
+    async with task_execution_budget_scope(max_llm_calls=1) as budget:
+        await decider._call_provider("request-1", "route this")
+        with pytest.raises(TaskBudgetExceeded, match="llm_calls"):
+            await decider._call_provider("request-2", "route this too")
+
+    assert provider_calls == 1
+    assert budget.llm_calls == 1
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Literal, Optional
 
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from .bash_tool import _build_subprocess_env, _decode_process_output_with_encoding
 
 
@@ -58,6 +59,7 @@ async def _run_subprocess(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=_build_subprocess_env(),
+            **hidden_process_kwargs(),
         )
     except FileNotFoundError:
         return VerifyOutcome(

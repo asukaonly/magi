@@ -12,6 +12,7 @@ class ExploreRuntimeContext(BaseRuntimeContext):
 
     upstream_task_agent_type: str
     upstream_task_agent_id: str
+    root_turn_id: str | None = None
 
 
 @dataclass(slots=True, kw_only=True)

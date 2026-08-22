@@ -10,12 +10,13 @@ code page. For generic file system enumeration prefer the structured
 
 from __future__ import annotations
 
-import asyncio
 import os
 import shutil
 from dataclasses import dataclass
 from typing import Any, Dict
 
+from magi_plugin_sdk.command_risk import classify_powershell_command
+from magi_plugin_sdk.subprocess import run_bounded_subprocess
 from ..schema import (
     ParameterType,
     Tool,
@@ -25,8 +26,18 @@ from ..schema import (
     ToolResult,
     ToolSchema,
 )
-from .bash_tool import _build_subprocess_env, _decode_process_output_with_encoding
-from ._bash_grading import classify_command
+from .bash_tool import (
+    SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS,
+    _ShellOutput,
+    _bounded_output_data,
+    _build_subprocess_env,
+    _decode_bounded_process_output,
+)
+
+MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS = 600
+POWERSHELL_TOOL_TIMEOUT_SECONDS = (
+    MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS + SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
+)
 
 _UTF8_PRELUDE = (
     "$ErrorActionPreference = 'Stop'; "
@@ -46,15 +57,6 @@ class _PowerShellRequest:
     confirm_destructive: bool
 
 
-@dataclass(frozen=True)
-class _PowerShellOutput:
-    return_code: int | None
-    stdout: str
-    stderr: str
-    stdout_encoding: str
-    stderr_encoding: str
-
-
 def _resolve_powershell_executable() -> str | None:
     """Return the best PowerShell executable available, or None."""
     for candidate in ("pwsh", "powershell"):
@@ -62,6 +64,21 @@ def _resolve_powershell_executable() -> str | None:
         if resolved:
             return resolved
     return None
+
+
+def _well_known_windows_powershell_executable() -> str | None:
+    """Resolve the inbox Windows PowerShell executable outside PATH."""
+    if os.name != "nt":
+        return None
+    system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    fallback = os.path.join(
+        system_root,
+        "System32",
+        "WindowsPowerShell",
+        "v1.0",
+        "powershell.exe",
+    )
+    return fallback if os.path.isfile(fallback) else None
 
 
 def _powershell_parameters() -> list[ToolParameter]:
@@ -86,7 +103,7 @@ def _powershell_parameters() -> list[ToolParameter]:
             required=False,
             default=60,
             min_value=1,
-            max_value=600,
+            max_value=MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS,
         ),
         ToolParameter(
             name="prefer_pwsh",
@@ -114,7 +131,7 @@ def _powershell_examples() -> list[dict[str, Any]]:
         {
             "input": {
                 "command": (
-                    "Get-Process | Select-Object -First 3 Name,Id | " "ConvertTo-Json -Compress"
+                    "Get-Process | Select-Object -First 3 Name,Id | ConvertTo-Json -Compress"
                 )
             },
             "output": "Returns the first three processes as JSON.",
@@ -140,7 +157,7 @@ def _powershell_request(
 
 
 def _risk_data(command: str) -> dict[str, str]:
-    grade = classify_command(command)
+    grade = classify_powershell_command(command)
     return {"risk_level": grade.level, "risk_reason": grade.reason}
 
 
@@ -191,7 +208,7 @@ class PowerShellTool(Tool):
                 "COM, Get-Process, Get-CimInstance, etc.). Output encoding is "
                 "forced to UTF-8 inside the PowerShell session. For generic "
                 "file system enumeration prefer the `file_list` / `file_info` "
-                "tools; for cross-platform shell execution prefer `bash`. Tip: "
+                "tools. This is the host-native shell on Windows. Tip: "
                 "end pipelines with `| ConvertTo-Json -Depth 4 -Compress` so "
                 "the agent receives structured data instead of formatted "
                 "tables."
@@ -201,7 +218,7 @@ class PowerShellTool(Tool):
             author="Magi Team",
             parameters=_powershell_parameters(),
             examples=_powershell_examples(),
-            timeout=120,
+            timeout=POWERSHELL_TOOL_TIMEOUT_SECONDS,
             retry_on_failure=False,
             dangerous=True,
             tags=["system", "windows", "powershell", "shell"],
@@ -222,9 +239,7 @@ class PowerShellTool(Tool):
             return _unsupported_result(risk_data)
 
         try:
-            output = await self._run_powershell(executable, request, risk_data)
-            if isinstance(output, ToolResult):
-                return output
+            output = await self._run_powershell(executable, request)
             return self._result_from_output(
                 executable=executable,
                 request=request,
@@ -250,74 +265,54 @@ class PowerShellTool(Tool):
         self,
         executable: str,
         request: _PowerShellRequest,
-        risk_data: dict[str, str],
-    ) -> _PowerShellOutput | ToolResult:
-        process = await asyncio.create_subprocess_exec(
-            *_argv(executable, request.command),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+    ) -> _ShellOutput:
+        result = await run_bounded_subprocess(
+            _argv(executable, request.command),
+            shell=False,
+            timeout=request.timeout,
             cwd=request.cwd,
             env=_build_subprocess_env(),
+            max_spill_bytes=0,
         )
-
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=request.timeout,
-            )
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            return ToolResult(
-                success=False,
-                error=f"PowerShell command timed out after {request.timeout}s",
-                error_code=ToolErrorCode.TIMEOUT.value,
-                data=risk_data,
-            )
-
-        stdout_text, stdout_encoding = (
-            _decode_process_output_with_encoding(stdout) if stdout else ("", "utf-8")
-        )
-        stderr_text, stderr_encoding = (
-            _decode_process_output_with_encoding(stderr) if stderr else ("", "utf-8")
-        )
-        return _PowerShellOutput(
-            return_code=process.returncode,
-            stdout=stdout_text,
-            stderr=stderr_text,
-            stdout_encoding=stdout_encoding,
-            stderr_encoding=stderr_encoding,
-        )
+        return _decode_bounded_process_output(result)
 
     def _result_from_output(
         self,
         *,
         executable: str,
         request: _PowerShellRequest,
-        output: _PowerShellOutput,
+        output: _ShellOutput,
         risk_data: dict[str, str],
     ) -> ToolResult:
         result_data = {
             "executable": executable,
             "command": request.command,
-            "return_code": output.return_code,
-            "stdout": output.stdout,
-            "stderr": output.stderr,
-            "stdout_encoding": output.stdout_encoding,
-            "stderr_encoding": output.stderr_encoding,
+            **_bounded_output_data(output),
             **risk_data,
         }
+        if output.process.timed_out:
+            return ToolResult(
+                success=False,
+                error=f"PowerShell command timed out after {request.timeout}s",
+                error_code=ToolErrorCode.TIMEOUT.value,
+                data=result_data,
+            )
         return ToolResult(
-            success=output.return_code == 0,
+            success=output.process.returncode == 0,
             data=result_data,
-            error=output.stderr if output.return_code != 0 else None,
-            error_code=(ToolErrorCode.COMMAND_FAILED.value if output.return_code != 0 else None),
+            error=output.stderr if output.process.returncode != 0 else None,
+            error_code=(
+                ToolErrorCode.COMMAND_FAILED.value if output.process.returncode != 0 else None
+            ),
         )
 
     @staticmethod
     def _select_executable(prefer_pwsh: bool) -> str | None:
         if prefer_pwsh:
-            return _resolve_powershell_executable()
+            resolved = _resolve_powershell_executable()
+            if resolved:
+                return resolved
+            return _well_known_windows_powershell_executable()
 
         # Caller explicitly asked for the legacy host first.
         for candidate in ("powershell", "pwsh"):
@@ -325,16 +320,4 @@ class PowerShellTool(Tool):
             if resolved:
                 return resolved
 
-        # Last resort: well-known location on Windows installations.
-        if os.name == "nt":
-            system_root = os.environ.get("SystemRoot", r"C:\Windows")
-            fallback = os.path.join(
-                system_root,
-                "System32",
-                "WindowsPowerShell",
-                "v1.0",
-                "powershell.exe",
-            )
-            if os.path.isfile(fallback):
-                return fallback
-        return None
+        return _well_known_windows_powershell_executable()

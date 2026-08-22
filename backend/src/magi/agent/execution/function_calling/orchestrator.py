@@ -27,6 +27,10 @@ from magi.control.run_control import (
     null_run_control,
 )
 from ..context_compactor import ContextCompactor
+from ..task_budget import (
+    release_prepaid_task_llm_calls,
+    task_execution_budget_scope,
+)
 from .failures import FunctionCallingFailureMixin
 from .fallback import FunctionCallingFallbackMixin
 from .guardrails import FunctionCallingGuardrailsMixin
@@ -79,6 +83,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     # How many failed iterations we tolerate before forcing a re-plan. Two
     # gives the LLM one opportunity to self-correct without loop-thrashing.
     _FAILED_ITERATION_REPLAN_LIMIT = 2
+    _REPEATED_BLOCKER_LIMIT = 2
     _RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
     _MAX_TOOL_EXPANSIONS_PER_TURN = 1
     _MAX_TOOLS_PER_EXPANSION = 2
@@ -94,12 +99,21 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         "PROVIDER_NOT_CONFIGURED",
         "READ_ONLY",
         "REPEATED_FAILED_TOOL_CALL",
+        "REPEATED_TOOL_BLOCKER",
         "ROLE_NOT_ALLOWED",
     }
     _TERMINAL_TOOL_ERROR_CODES = {
         "NO_PROVIDERS_CONFIGURED",
         "PROVIDER_CHALLENGE",
         "PROVIDER_NOT_CONFIGURED",
+        "REPEATED_TOOL_BLOCKER",
+    }
+    _TRANSIENT_BLOCKER_ERROR_CODES = {
+        "CANCELLED",
+        "LLM_RATE_LIMIT",
+        "RATE_LIMITED",
+        "TIMEOUT",
+        "WORKER_TIMEOUT",
     }
     _SUPPRESS_TOOL_AFTER_ERROR_CODES = {
         "NO_PROVIDERS_CONFIGURED",
@@ -329,38 +343,42 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         ignored; when only legacy kwargs are supplied they are folded into a
         fresh :func:`null_run_control` bundle via :meth:`_resolve_control`.
         """
-        effective = self._resolve_control(
-            control=control,
-            cancel_token=cancel_token,
-            steer_inbox=steer_inbox,
-            detach_signal=detach_signal,
-        )
-        with bind_detach_signal(effective.detach_signal):
-            return await self._execute_with_tools_impl(
-                turn=turn,
-                system_prompt=system_prompt,
-                selected_tools=selected_tools,
-                user_id=user_id,
-                session_id=session_id,
-                session_run_id=session_run_id,
-                session_run_revision=session_run_revision,
-                turn_id=turn_id,
-                intent=intent,
-                execution_agent_id=execution_agent_id,
-                execution_workspace=execution_workspace,
-                llm_timeout_seconds=llm_timeout_seconds,
-                conversation_history=conversation_history,
-                session_summary=session_summary,
-                session_origin=session_origin,
-                reply_context=reply_context,
-                ephemeral_context=ephemeral_context,
-                max_iterations=max_iterations,
-                thinking_depth=thinking_depth,
-                disable_thinking=disable_thinking,
-                final_response_json_mode=final_response_json_mode,
-                control=effective,
-                route_decision=route_decision,
-            )
+        async with task_execution_budget_scope():
+            try:
+                effective = self._resolve_control(
+                    control=control,
+                    cancel_token=cancel_token,
+                    steer_inbox=steer_inbox,
+                    detach_signal=detach_signal,
+                )
+                with bind_detach_signal(effective.detach_signal):
+                    return await self._execute_with_tools_impl(
+                        turn=turn,
+                        system_prompt=system_prompt,
+                        selected_tools=selected_tools,
+                        user_id=user_id,
+                        session_id=session_id,
+                        session_run_id=session_run_id,
+                        session_run_revision=session_run_revision,
+                        turn_id=turn_id,
+                        intent=intent,
+                        execution_agent_id=execution_agent_id,
+                        execution_workspace=execution_workspace,
+                        llm_timeout_seconds=llm_timeout_seconds,
+                        conversation_history=conversation_history,
+                        session_summary=session_summary,
+                        session_origin=session_origin,
+                        reply_context=reply_context,
+                        ephemeral_context=ephemeral_context,
+                        max_iterations=max_iterations,
+                        thinking_depth=thinking_depth,
+                        disable_thinking=disable_thinking,
+                        final_response_json_mode=final_response_json_mode,
+                        control=effective,
+                        route_decision=route_decision,
+                    )
+            finally:
+                await release_prepaid_task_llm_calls()
 
     async def run(self, run_input: "EngineRunInput") -> ExecutionOutcome:
         """Engine front door (ADR-0004 P4): run one bounded LLM↔tool run from a
@@ -467,9 +485,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             return None
 
         removed_tools = (
-            self._drop_lower_priority_optional_tools_until_fit(state)
-            if include_tools
-            else []
+            self._drop_lower_priority_optional_tools_until_fit(state) if include_tools else []
         )
         if removed_tools:
             usage = self._measure_context_usage(state, include_tools=True)
@@ -544,9 +560,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         state: FunctionCallingStepState,
     ) -> list[str]:
         resident_tools = set(resolve_resident_system_tools(self.tool_registry))
-        optional_tools = [
-            name for name in state.selected_tool_names if name not in resident_tools
-        ]
+        optional_tools = [name for name in state.selected_tool_names if name not in resident_tools]
         removed: list[str] = []
         while len(optional_tools) > 1:
             tool_name = optional_tools.pop()

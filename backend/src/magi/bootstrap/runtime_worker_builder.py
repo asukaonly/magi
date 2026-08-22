@@ -19,6 +19,7 @@ from ..agent.execution.function_calling.headless_factory import (
     build_function_calling_orchestrator,
     build_headless_engine_run_input,
 )
+from ..agent.execution.task_budget import reserve_task_llm_calls
 from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModule
 from ..chat import get_chat_read_service
 from ..chat.task_agent.factory import create_chat_agent_factory
@@ -261,6 +262,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
             tool_registry=tool_registry,
             orchestrator_factory=build_function_calling_orchestrator,
             engine_run_input_factory=build_headless_engine_run_input,
+            llm_call_reserver=reserve_task_llm_calls,
         ),
         MCPModule(context),
         PersonalityModule(context),

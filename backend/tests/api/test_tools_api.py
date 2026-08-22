@@ -8,6 +8,7 @@ import magi.config as config_module
 from magi.api.routers.tools import (
     ToolConfigUpdateRequest,
     _build_tool_config_response,
+    _get_tool_display_name,
     list_tools_with_config,
     tools_router,
     update_tool_config,
@@ -42,6 +43,10 @@ def test_tools_config_route_matches_static_endpoint_first():
             return
 
     pytest.fail("Expected /config to match the static tool config endpoint")
+
+
+def test_powershell_display_name_preserves_product_casing() -> None:
+    assert _get_tool_display_name("powershell") == "PowerShell"
 
 
 def test_web_fetch_config_response_has_no_user_provider_toggle():

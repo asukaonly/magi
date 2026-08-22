@@ -13,6 +13,7 @@ from ....llm.error_classifier import (
     classify_exception,
     is_rate_limit_exception,
 )
+from ..task_budget import TaskBudgetExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,8 @@ class FunctionCallingFailureMixin:
     _RATE_LIMIT_BACKOFF_SECONDS: tuple[float, ...]
 
     def _classify_exception_failure(self, exc: Exception) -> str:
+        if isinstance(exc, TaskBudgetExceeded):
+            return "TASK_BUDGET_EXCEEDED"
         classified: ClassifiedError = classify_exception(exc)
         return _KIND_TO_TRACE_BUCKET.get(classified.kind, "EXECUTION_ERROR")
 

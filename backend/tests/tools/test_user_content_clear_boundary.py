@@ -152,9 +152,7 @@ async def test_clear_boundary_allows_nested_work_to_drain_without_deadlock() -> 
     parent = registry.get_tool("nested-parent-test-tool")
     assert isinstance(parent, _NestedParentTool)
 
-    execution = asyncio.create_task(
-        registry.execute("nested-parent-test-tool", {}, _context())
-    )
+    execution = asyncio.create_task(registry.execute("nested-parent-test-tool", {}, _context()))
     await parent.ready_for_nested.wait()
 
     boundary_entered = asyncio.Event()
@@ -245,7 +243,18 @@ async def test_clear_boundary_erases_builtin_tool_caches() -> None:
 @pytest.mark.asyncio
 async def test_worker_manager_clear_cancels_runs_and_erases_retained_content() -> None:
     manager = WorkerAgentManager()
-    worker_task = asyncio.create_task(asyncio.sleep(60))
+    teardown_started = asyncio.Event()
+    release_teardown = asyncio.Event()
+
+    async def wait_for_clear() -> None:
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            teardown_started.set()
+            await release_teardown.wait()
+            raise
+
+    worker_task = asyncio.create_task(wait_for_clear())
     state = WorkerRunState(
         worker_id="worker-1",
         subagent_type="Plan",
@@ -266,9 +275,22 @@ async def test_worker_manager_clear_cancels_runs_and_erases_retained_content() -
         task=worker_task,
     )
     manager._runs[state.worker_id] = state
+    old_key = ("session-1", "run-1", 1)
+    new_key = ("session-2", "run-2", 2)
+    manager._cancelled_run_keys[old_key] = 1.0
 
-    await manager.clear_user_content()
+    clear_task = asyncio.create_task(manager.clear_user_content())
+    await teardown_started.wait()
+    await manager.cancel_run_workers(
+        session_id=new_key[0],
+        run_id=new_key[1],
+        run_revision=new_key[2],
+    )
+    release_teardown.set()
+    await clear_task
 
     assert manager._runs == {}
+    assert old_key not in manager._cancelled_run_keys
+    assert new_key in manager._cancelled_run_keys
     assert worker_task.done()
     assert worker_task.cancelled()

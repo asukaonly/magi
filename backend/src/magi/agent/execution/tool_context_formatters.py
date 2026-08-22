@@ -29,9 +29,12 @@ class ToolContextFormatterRegistry:
     ) -> "ToolContextFormatterRegistry":
         registry = cls()
         registry.register("glob", lambda data: compact_glob_tool_data(data, max_items=max_items))
-        registry.register(
-            "bash", lambda data: compact_bash_tool_data(data, max_text_chars=max_text_chars)
-        )
+
+        def shell_formatter(data: Dict[str, Any]) -> Dict[str, Any]:
+            return compact_shell_tool_data(data, max_text_chars=max_text_chars)
+
+        registry.register("bash", shell_formatter)
+        registry.register("powershell", shell_formatter)
         registry.register("grep", lambda data: compact_grep_tool_data(data, max_items=max_items))
         registry.register(
             "file_list", lambda data: compact_file_list_tool_data(data, max_items=max_items)
@@ -45,7 +48,9 @@ class ToolContextFormatterRegistry:
         registry.register("prepare_chat_attachments", compact_prepare_chat_attachments_tool_data)
         registry.register(
             "read_chat_attachment",
-            lambda data: compact_read_chat_attachment_tool_data(data, max_text_chars=max_text_chars),
+            lambda data: compact_read_chat_attachment_tool_data(
+                data, max_text_chars=max_text_chars
+            ),
         )
         registry.register(
             "web-search",
@@ -92,16 +97,23 @@ def compact_glob_tool_data(data: Dict[str, Any], *, max_items: int) -> Dict[str,
     }
 
 
-def compact_bash_tool_data(data: Dict[str, Any], *, max_text_chars: int) -> Dict[str, Any]:
+def compact_shell_tool_data(data: Dict[str, Any], *, max_text_chars: int) -> Dict[str, Any]:
     stdout = str(data.get("stdout", ""))
     stderr = str(data.get("stderr", ""))
+    stdout_preview = stdout[-max_text_chars:] if max_text_chars > 0 else ""
+    stderr_preview = stderr[-max_text_chars:] if max_text_chars > 0 else ""
     return {
         "command": data.get("command"),
         "return_code": data.get("return_code"),
-        "stdout_preview": stdout[:max_text_chars],
-        "stdout_truncated": len(stdout) > max_text_chars,
-        "stderr_preview": stderr[:max_text_chars],
-        "stderr_truncated": len(stderr) > max_text_chars,
+        "stdout_preview": stdout_preview,
+        "stdout_preview_truncated": len(stdout) > len(stdout_preview),
+        "stdout_total_bytes": data.get("stdout_total_bytes"),
+        "stdout_truncated": bool(data.get("stdout_truncated")),
+        "stderr_preview": stderr_preview,
+        "stderr_preview_truncated": len(stderr) > len(stderr_preview),
+        "stderr_total_bytes": data.get("stderr_total_bytes"),
+        "stderr_truncated": bool(data.get("stderr_truncated")),
+        "timed_out": bool(data.get("timed_out")),
     }
 
 
@@ -248,7 +260,9 @@ def compact_prepare_chat_attachments_tool_data(data: Dict[str, Any]) -> Dict[str
     }
 
 
-def compact_read_chat_attachment_tool_data(data: Dict[str, Any], *, max_text_chars: int) -> Dict[str, Any]:
+def compact_read_chat_attachment_tool_data(
+    data: Dict[str, Any], *, max_text_chars: int
+) -> Dict[str, Any]:
     text = str(data.get("text") or "")
     compact: Dict[str, Any] = {
         "attachment": data.get("attachment"),

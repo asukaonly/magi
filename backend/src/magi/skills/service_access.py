@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 import logging
 from typing import Any
@@ -35,7 +36,9 @@ def get_enabled_skill_names() -> set[str]:
     return _get_enabled_skill_names()
 
 
-def register_enabled_skills(skills: dict[str, Any], *, tool_registry: ToolRegistryPort) -> dict[str, Any]:
+def register_enabled_skills(
+    skills: dict[str, Any], *, tool_registry: ToolRegistryPort
+) -> dict[str, Any]:
     """Register only enabled skills into the shared tool registry."""
 
     return register_enabled_skills_with_indexer(
@@ -75,6 +78,7 @@ def build_skills_runtime(
     tool_registry: ToolRegistryPort,
     orchestrator_factory=None,
     engine_run_input_factory=None,
+    llm_call_reserver: Callable[[], Awaitable[None]] | None = None,
 ) -> SkillsRuntimeBindings:
     """Build shared skills runtime services without storing module-level globals.
 
@@ -98,6 +102,7 @@ def build_skills_runtime(
         engine_run_input_factory=engine_run_input_factory,
         active_model_provider=active_model_provider,
         scenario_llm_pool=scenario_llm_pool,
+        llm_call_reserver=llm_call_reserver,
     )
 
     skills = skill_indexer.scan_all()

@@ -23,6 +23,8 @@ import asyncio
 import os
 import platform
 import re
+
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from dataclasses import dataclass
 from typing import Optional
 
@@ -130,6 +132,7 @@ async def _scan_macos() -> list[WiFiAP]:
         _AIRPORT_PATH, "-s",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
+        **hidden_process_kwargs(),
     )
     stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
     text = stdout.decode("utf-8", errors="replace")
@@ -160,6 +163,7 @@ async def _scan_windows() -> list[WiFiAP]:
         "netsh", "wlan", "show", "networks", "mode=bssid",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
+        **hidden_process_kwargs(),
     )
     stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
     text = stdout.decode("utf-8", errors="replace")
@@ -194,6 +198,7 @@ async def _scan_linux() -> list[WiFiAP]:
         "nmcli", "-t", "-f", "BSSID,SIGNAL", "dev", "wifi", "list",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
+        **hidden_process_kwargs(),
     )
     stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
     return _parse_nmcli_output(stdout.decode("utf-8", errors="replace"))

@@ -26,6 +26,10 @@ from ..providers.web_search import (
     SearXNGSearchProvider,
     TavilySearchProvider,
 )
+from ..providers.web_search.rate_limit import (
+    SharedProviderRateLimiter,
+    get_web_search_rate_limiter,
+)
 from ...config import get_config, save_config
 from ...i18n import t
 
@@ -454,6 +458,9 @@ class WebSearchTool(MultiProviderTool):
         attempts: List[Dict[str, Any]] = []
         ddg_challenge_seen = False
         for provider_name in candidates:
+            limiter = self._rate_limiter_for_provider(provider_name)
+            if limiter is not None:
+                await limiter.wait(provider_name)
             result = await self.execute_with_provider(
                 provider_name,
                 {
@@ -462,6 +469,13 @@ class WebSearchTool(MultiProviderTool):
                     "proxy_url": request.proxy_url,
                 },
             )
+            if result.error_code == ToolErrorCode.RATE_LIMITED.value and limiter is not None:
+                retry_after_seconds = (
+                    result.data.get("retry_after_seconds")
+                    if isinstance(result.data, dict)
+                    else None
+                )
+                limiter.defer(provider_name, retry_after_seconds)
             if result.success:
                 self._finalize_successful_search_result(
                     context=context,
@@ -491,6 +505,17 @@ class WebSearchTool(MultiProviderTool):
             attempts=attempts,
             date_range_applied=request.date_range_applied,
         )
+
+    def _rate_limiter_for_provider(
+        self,
+        provider_name: str,
+    ) -> SharedProviderRateLimiter | None:
+        if provider_name != "brave":
+            return None
+        config = self._get_provider_config(provider_name)
+        if not str(getattr(config, "api_key", None) or "").strip():
+            return None
+        return get_web_search_rate_limiter()
 
     def _finalize_successful_search_result(
         self,
@@ -533,11 +558,14 @@ class WebSearchTool(MultiProviderTool):
         provider_name: str,
         result: ToolResult,
     ) -> Dict[str, Any]:
-        return {
+        attempt = {
             "provider": provider_name,
             "error_code": result.error_code,
             "error": str(result.error or ""),
         }
+        if isinstance(result.data, dict) and result.data.get("retry_after_seconds") is not None:
+            attempt["retry_after_seconds"] = result.data["retry_after_seconds"]
+        return attempt
 
     def _build_duplicate_turn_result(
         self,

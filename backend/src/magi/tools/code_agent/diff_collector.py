@@ -4,12 +4,14 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from .contracts import DiffSnapshot, DiffStats
 
 
 def _run_git(args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args], cwd=cwd, capture_output=True, text=True, check=False,
+        **hidden_process_kwargs(),
     )
 
 

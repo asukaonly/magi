@@ -36,6 +36,7 @@ _WRITE_TOOL_MARKERS = (
     "bash",
     "powershell",
 )
+_NON_REUSABLE_EXTRA_TOOLS = {"agent"}
 
 
 @dataclass(slots=True, frozen=True)
@@ -136,9 +137,11 @@ class ToolExposurePolicy:
         cached_set = set(cached_tools)
         if not cached_set.issuperset(current_set):
             return False
+        extra_tools = cached_set - current_set
+        if extra_tools.intersection(_NON_REUSABLE_EXTRA_TOOLS):
+            return False
         if may_write:
             return True
-        extra_tools = cached_set - current_set
         return not any(_looks_write_capable(tool) for tool in extra_tools)
 
 

@@ -505,6 +505,19 @@ class MultiProviderTool(Tool):
                 error_code="INVALID_CONFIG",
             )
         except Exception as e:
+            if getattr(e, "status_code", None) == 429:
+                retry_after_seconds = getattr(e, "retry_after_seconds", None)
+                data = (
+                    {"retry_after_seconds": retry_after_seconds}
+                    if retry_after_seconds is not None
+                    else None
+                )
+                return ToolResult(
+                    success=False,
+                    data=data,
+                    error=str(e),
+                    error_code="RATE_LIMITED",
+                )
             return ToolResult(
                 success=False,
                 error=str(e),

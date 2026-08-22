@@ -10,6 +10,7 @@ from ....core.logger import get_logger
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.types import TaskAgentType
 from ....context.scenarios import Scenario
+from ....i18n import t
 from ....utils.diagnostic_logging import full_content_logging_enabled
 from ..common import (
     BaseExecutionHandler,
@@ -19,6 +20,7 @@ from ..common import (
     ExploreTaskCompletedPayload,
     ExploreTaskRequestPayload,
     ExploreRenderRequest,
+    IncomingFactKind,
 )
 from ..explore.constants import EXPLORE_TASK_REQUEST
 from .handler_helpers import serialize_ux_plan as _serialize_ux_plan
@@ -45,6 +47,11 @@ async def start_explore_task_agent(
         upstream_task_agent_type=TaskAgentType.CHAT.value,
         upstream_task_agent_id=request.context.session_id or request.context.user_id,
         turn_id=getattr(request.context.latest_payload, "turn_id", None),
+        root_turn_id=getattr(
+            getattr(request.context, "active_run", None),
+            "root_turn_id",
+            None,
+        ),
     )
     fact = FactRecord(
         agent_id=f"{TaskAgentType.EXPLORE.value}:{request.context.user_id}",
@@ -131,6 +138,25 @@ class ExploreRenderHandler(BaseExecutionHandler):
         dossier = request.markdown_dossier
         root_user_message = str(request.root_user_message or request.context.latest_user_message).strip()
         orchestration_id = request.orchestration_id
+        if request.context.incoming_fact_kind == IncomingFactKind.EXPLORE_TASK_FAILED:
+            return ExecutionResult(
+                mode=request.mode,
+                response_text=dossier
+                or t(
+                    "chat.explore.execution_failed_generic",
+                    fallback="The exploration stopped before it could produce a result.",
+                ),
+                root_user_message=root_user_message,
+                correlation_id=(
+                    request.context.latest_fact.correlation_id
+                    if isinstance(request.context.latest_fact, FactRecord)
+                    else None
+                ),
+                orchestration_id=orchestration_id,
+                message_started_at=request.message_started_at,
+                turn_id=getattr(request.context.latest_payload, "turn_id", None),
+                ux_plan=_serialize_ux_plan(request.intent),
+            )
         if not dossier:
             return ExecutionResult(
                 mode=request.mode,

@@ -1,13 +1,16 @@
 """TaskAgent base abstraction for multi-instance runtime."""
+
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Generic, Optional, TypeVar, cast
 
 from ...core.logger import get_logger
+from ..execution.task_budget import fresh_task_execution_budget_context
 from .contracts import FactRecord
 from .types import TaskAgentType, build_task_agent_key, get_task_agent_type_value
 
@@ -179,7 +182,8 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
         self._running = True
         if not self._fact_queue.empty():
             self._facts_available.set()
-        self._task = asyncio.create_task(self._run_loop())
+        with fresh_task_execution_budget_context():
+            self._task = asyncio.create_task(self._run_loop())
         logger.info(f"TaskAgent started | key={self.runtime_key}")
 
     async def stop(self) -> None:
@@ -281,18 +285,19 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
                 if facts:
                     stage = "build_context"
                     context = await self.build_context(facts)
-                    stage = "match_intent"
-                    intent_result = await self.match_intent(context)
-                    stage = "match_tools"
-                    tool_result = await self.match_tools(context, intent_result)
-                    stage = "assemble_llm_params"
-                    llm_params = await self.assemble_llm_params(
-                        context,
-                        intent_result,
-                        tool_result,
-                    )
-                    stage = "call_llm"
-                    raw_result = await self.call_llm(context, llm_params)
+                    async with self.execution_scope(context):
+                        stage = "match_intent"
+                        intent_result = await self.match_intent(context)
+                        stage = "match_tools"
+                        tool_result = await self.match_tools(context, intent_result)
+                        stage = "assemble_llm_params"
+                        llm_params = await self.assemble_llm_params(
+                            context,
+                            intent_result,
+                            tool_result,
+                        )
+                        stage = "call_llm"
+                        raw_result = await self.call_llm(context, llm_params)
                     stage = "parse_result"
                     await self.parse_result(context, raw_result)
             except asyncio.CancelledError:
@@ -406,6 +411,12 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
                 runtime_key=self.runtime_key,
             ),
         )
+
+    @asynccontextmanager
+    async def execution_scope(self, context: ContextT) -> AsyncIterator[None]:
+        """Bind resources shared by the model-facing stages of one admission."""
+        _ = context
+        yield
 
     async def match_intent(self, context: ContextT) -> IntentT:
         """Intent and complexity matching for model/tool path selection."""

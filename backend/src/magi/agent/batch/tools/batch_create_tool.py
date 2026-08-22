@@ -6,6 +6,7 @@ from typing import Any, Dict
 from .. import BatchJobStatus
 from ..enumerator import enumerate_seed
 from ..store import default_batch_store
+from ..tool_selection import BatchToolSelectionError, resolve_batch_tool_names
 
 # agent.batch.tools is host runtime-control code (L12). Import the Tool base +
 # schema helpers straight from the SDK (downward, legal), mirroring how
@@ -30,8 +31,8 @@ class BatchCreateTool(Tool):
             description=(
                 "Create a long-running batch job over MANY homogeneous items — e.g. "
                 "rename every video in a folder, transcode a directory, batch-verify a "
-                "list. **Use this instead of processing items one-by-one with bash/file "
-                "tools whenever there are many similar items**: first glob the target; if "
+                "list. **Use this instead of processing items one-by-one with native "
+                "shell/file tools whenever there are many similar items**: first glob the target; if "
                 "it's more than ~30 items, use batch_create. (One-by-one hits the per-turn "
                 "iteration cap, can't resume on crash, and re-prompts for permission each "
                 "time.) Provide how to process ONE item via `handler_prompt` (inline "
@@ -60,7 +61,11 @@ class BatchCreateTool(Tool):
                 ),
                 ToolParameter(
                     name="handler_config", type=ParameterType.OBJECT, required=False, default={},
-                    description="Opaque handler params (engine does not interpret), e.g. {dry_run:true}.",
+                    description=(
+                        "Handler options, e.g. {dry_run:true}. An optional `tools` array "
+                        "overrides the live registered tool set; unknown and non-native "
+                        "shell names are rejected."
+                    ),
                 ),
                 ToolParameter(
                     name="title", type=ParameterType.STRING, required=False, default="Batch job",
@@ -89,6 +94,21 @@ class BatchCreateTool(Tool):
                 error="provide handler_prompt (inline instruction) or handler_ref (skill name)",
                 error_code=ToolErrorCode.INVALID_PARAMETERS.value,
             )
+
+        handler_config = dict(parameters.get("handler_config") or {})
+        registry = getattr(self, "_tool_registry_ref", None)
+        try:
+            handler_config["tools"] = resolve_batch_tool_names(
+                handler_config.get("tools"),
+                registry=registry,
+            )
+        except BatchToolSelectionError as exc:
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+            )
+
         try:
             inputs = enumerate_seed(seed_spec)
         except (ValueError, KeyError) as exc:
@@ -97,7 +117,6 @@ class BatchCreateTool(Tool):
                 error_code=ToolErrorCode.INVALID_PARAMETERS.value,
             )
 
-        handler_config = dict(parameters.get("handler_config") or {})
         if handler_prompt:
             handler_config["prompt"] = handler_prompt  # inline handler; no skill needed
 
@@ -124,7 +143,10 @@ class BatchCreateTool(Tool):
             from ...background.provider import resolve_background_task_manager
             from ..driver import BatchDriver
 
-            started = await BatchDriver(resolve_background_task_manager()).kickoff(job.job_id)
+            started = await BatchDriver(
+                resolve_background_task_manager(),
+                tool_registry=registry,
+            ).kickoff(job.job_id)
             kickoff = f"started {started} runs"
         except Exception as exc:  # noqa: BLE001 - report kickoff failure, don't hide it
             kickoff = f"kickoff failed: {type(exc).__name__}: {exc}"
