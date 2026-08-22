@@ -221,7 +221,7 @@ async def test_worker_run_marks_stream_events_as_worker_source(
                 status="completed",
                 content=(
                     '{"result_status":"success","summary":"done",'
-                    '"findings":[],"evidence":[],"gaps":[],"next_steps":[],'
+                    '"findings":[],"evidence":[],"records":[],"gaps":[],"next_steps":[],'
                     '"failure_reason":null}'
                 ),
             )
