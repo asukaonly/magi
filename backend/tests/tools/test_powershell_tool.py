@@ -8,13 +8,21 @@ applied by round-tripping a CJK string back through stdout.
 
 from __future__ import annotations
 
+import ntpath
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from magi_plugin_sdk.subprocess import BoundedStreamOutput, BoundedSubprocessResult
-from magi.tools.builtin.powershell_tool import PowerShellTool
+from magi.tools.builtin.powershell_tool import (
+    MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS,
+    POWERSHELL_TOOL_TIMEOUT_SECONDS,
+    PowerShellTool,
+    _well_known_windows_powershell_executable,
+)
+from magi.tools.builtin.bash_tool import SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
 from magi.tools.schema import ToolExecutionContext
 
 
@@ -26,6 +34,48 @@ def _powershell_available() -> bool:
     return any(shutil.which(name) for name in ("pwsh", "powershell"))
 
 
+def test_powershell_schema_leaves_outer_cleanup_headroom() -> None:
+    tool = PowerShellTool()
+    timeout_parameter = next(item for item in tool.schema.parameters if item.name == "timeout")
+
+    assert timeout_parameter.max_value == MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS
+    assert tool.schema.timeout == POWERSHELL_TOOL_TIMEOUT_SECONDS
+    assert tool.schema.timeout == timeout_parameter.max_value + SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
+
+
+def test_prefer_pwsh_falls_back_to_inbox_windows_powershell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fallback = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+    monkeypatch.setattr(
+        "magi.tools.builtin.powershell_tool._resolve_powershell_executable",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "magi.tools.builtin.powershell_tool._well_known_windows_powershell_executable",
+        lambda: fallback,
+    )
+
+    assert PowerShellTool._select_executable(prefer_pwsh=True) == fallback
+
+
+def test_inbox_windows_powershell_uses_system_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = r"D:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+    fake_os = SimpleNamespace(
+        name="nt",
+        environ={"SystemRoot": r"D:\Windows"},
+        path=SimpleNamespace(
+            join=ntpath.join,
+            isfile=lambda path: path == expected,
+        ),
+    )
+    monkeypatch.setattr("magi.tools.builtin.powershell_tool.os", fake_os)
+
+    assert _well_known_windows_powershell_executable() == expected
+
+
 @pytest.mark.asyncio
 async def test_powershell_missing_executable(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
@@ -34,6 +84,10 @@ async def test_powershell_missing_executable(monkeypatch: pytest.MonkeyPatch) ->
     )
     monkeypatch.setattr(
         "magi.tools.builtin.powershell_tool._resolve_powershell_executable",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "magi.tools.builtin.powershell_tool._well_known_windows_powershell_executable",
         lambda: None,
     )
 

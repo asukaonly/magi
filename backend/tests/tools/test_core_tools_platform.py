@@ -32,11 +32,21 @@ def test_shell_context_formatting_is_shared_by_both_dialects() -> None:
         max_text_chars=3,
         memory_formatter=lambda data: data,
     )
-    payload = {"command": "echo", "return_code": 0, "stdout": "abcdef", "stderr": ""}
+    payload = {
+        "command": "echo",
+        "return_code": 0,
+        "stdout": "abcdef",
+        "stderr": "",
+        "stdout_total_bytes": 6,
+        "stderr_total_bytes": 0,
+        "stdout_truncated": False,
+        "stderr_truncated": False,
+        "timed_out": False,
+    }
     bash_formatter = registry.get("bash")
     powershell_formatter = registry.get("powershell")
 
     assert bash_formatter is not None
     assert powershell_formatter is not None
     assert bash_formatter(payload) == powershell_formatter(payload)
-    assert powershell_formatter(payload)["stdout_preview"] == "abc"
+    assert powershell_formatter(payload)["stdout_preview"] == "def"

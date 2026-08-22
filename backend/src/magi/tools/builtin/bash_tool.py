@@ -5,6 +5,7 @@ Bash command execution tool
 import ctypes
 import locale
 import os
+import shutil
 from dataclasses import dataclass
 from typing import Dict, Any
 from magi_plugin_sdk.subprocess import (
@@ -33,6 +34,13 @@ _PROXY_ENV_KEYS = (
     "all_proxy",
     "no_proxy",
 )
+
+MAX_BASH_COMMAND_TIMEOUT_SECONDS = 300
+# The bounded runner can spend up to 18 seconds terminating the process tree
+# and settling stream readers. Keep two additional seconds for bounded result
+# construction and the registry handoff.
+SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS = 20
+BASH_TOOL_TIMEOUT_SECONDS = MAX_BASH_COMMAND_TIMEOUT_SECONDS + SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
 
 
 def _windows_code_page_encoding(function_name: str) -> str | None:
@@ -132,6 +140,11 @@ def _build_subprocess_env() -> dict[str, str]:
     return env
 
 
+def _resolve_bash_executable() -> str | None:
+    """Return the Bash executable available on PATH, if any."""
+    return shutil.which("bash")
+
+
 @dataclass(frozen=True)
 class _BashRequest:
     command: str
@@ -175,6 +188,15 @@ def _destructive_block_result(risk_data: dict[str, str]) -> ToolResult:
             "narrower form."
         ),
         error_code=ToolErrorCode.POLICY_BLOCKED.value,
+        data=risk_data,
+    )
+
+
+def _unsupported_bash_result(risk_data: dict[str, str]) -> ToolResult:
+    return ToolResult(
+        success=False,
+        error="Bash executable not found on PATH",
+        error_code=ToolErrorCode.UNSUPPORTED.value,
         data=risk_data,
     )
 
@@ -259,7 +281,7 @@ def _bash_parameters() -> list[ToolParameter]:
             required=False,
             default=30,
             min_value=1,
-            max_value=300,
+            max_value=MAX_BASH_COMMAND_TIMEOUT_SECONDS,
         ),
         ToolParameter(
             name="confirm_destructive",
@@ -322,7 +344,7 @@ class BashTool(Tool):
             author="Magi Team",
             parameters=_bash_parameters(),
             examples=_bash_examples(),
-            timeout=60,
+            timeout=BASH_TOOL_TIMEOUT_SECONDS,
             retry_on_failure=False,
             dangerous=True,  # Executing commands is a dangerous operation
             tags=["system", "shell", "command"],
@@ -338,8 +360,12 @@ class BashTool(Tool):
         if risk_data["risk_level"] == "destructive" and not request.confirm_destructive:
             return _destructive_block_result(risk_data)
 
+        executable = _resolve_bash_executable()
+        if executable is None:
+            return _unsupported_bash_result(risk_data)
+
         try:
-            output = await self._run_bash(request)
+            output = await self._run_bash(executable, request)
             return self._result_from_output(request, output, risk_data)
 
         except FileNotFoundError:
@@ -359,11 +385,12 @@ class BashTool(Tool):
 
     async def _run_bash(
         self,
+        executable: str,
         request: _BashRequest,
     ) -> _ShellOutput:
         result = await run_bounded_subprocess(
-            request.command,
-            shell=True,
+            [executable, "-c", request.command],
+            shell=False,
             timeout=request.timeout,
             cwd=request.cwd,
             env=_build_subprocess_env(),

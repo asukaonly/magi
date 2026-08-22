@@ -27,10 +27,16 @@ from ..schema import (
     ToolSchema,
 )
 from .bash_tool import (
+    SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS,
     _ShellOutput,
     _bounded_output_data,
     _build_subprocess_env,
     _decode_bounded_process_output,
+)
+
+MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS = 600
+POWERSHELL_TOOL_TIMEOUT_SECONDS = (
+    MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS + SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
 )
 
 _UTF8_PRELUDE = (
@@ -60,6 +66,21 @@ def _resolve_powershell_executable() -> str | None:
     return None
 
 
+def _well_known_windows_powershell_executable() -> str | None:
+    """Resolve the inbox Windows PowerShell executable outside PATH."""
+    if os.name != "nt":
+        return None
+    system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    fallback = os.path.join(
+        system_root,
+        "System32",
+        "WindowsPowerShell",
+        "v1.0",
+        "powershell.exe",
+    )
+    return fallback if os.path.isfile(fallback) else None
+
+
 def _powershell_parameters() -> list[ToolParameter]:
     return [
         ToolParameter(
@@ -82,7 +103,7 @@ def _powershell_parameters() -> list[ToolParameter]:
             required=False,
             default=60,
             min_value=1,
-            max_value=600,
+            max_value=MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS,
         ),
         ToolParameter(
             name="prefer_pwsh",
@@ -197,7 +218,7 @@ class PowerShellTool(Tool):
             author="Magi Team",
             parameters=_powershell_parameters(),
             examples=_powershell_examples(),
-            timeout=120,
+            timeout=POWERSHELL_TOOL_TIMEOUT_SECONDS,
             retry_on_failure=False,
             dangerous=True,
             tags=["system", "windows", "powershell", "shell"],
@@ -288,7 +309,10 @@ class PowerShellTool(Tool):
     @staticmethod
     def _select_executable(prefer_pwsh: bool) -> str | None:
         if prefer_pwsh:
-            return _resolve_powershell_executable()
+            resolved = _resolve_powershell_executable()
+            if resolved:
+                return resolved
+            return _well_known_windows_powershell_executable()
 
         # Caller explicitly asked for the legacy host first.
         for candidate in ("powershell", "pwsh"):
@@ -296,16 +320,4 @@ class PowerShellTool(Tool):
             if resolved:
                 return resolved
 
-        # Last resort: well-known location on Windows installations.
-        if os.name == "nt":
-            system_root = os.environ.get("SystemRoot", r"C:\Windows")
-            fallback = os.path.join(
-                system_root,
-                "System32",
-                "WindowsPowerShell",
-                "v1.0",
-                "powershell.exe",
-            )
-            if os.path.isfile(fallback):
-                return fallback
-        return None
+        return _well_known_windows_powershell_executable()
