@@ -5,10 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Protocol, cast
 
 from ...tools.schema import ToolErrorCode, ToolExecutionContext, ToolResult
-from ..execution.task_budget import (
-    TaskBudgetExceeded,
-    reserve_task_worker_launches,
-)
+from ..execution.task_budget import TaskBudgetExceeded
 from .worker_state import (
     DEFAULT_WORKER_AWAIT_TIMEOUT_SECONDS,
     MAX_WORKER_MAX_ITERATIONS,
@@ -137,10 +134,11 @@ class WorkerActionMixin:
                     parameters.get("timeout_seconds", DEFAULT_WORKER_AWAIT_TIMEOUT_SECONDS)
                 ),
             )
-        workers = parameters.get("workers")
-        launch_count = len(workers) if isinstance(workers, list) and workers else 1
         try:
-            await reserve_task_worker_launches(launch_count)
+            workers = parameters.get("workers")
+            if isinstance(workers, list) and workers:
+                return await host._launch_workers_batch(parameters, context)
+            return await host._launch_worker(parameters, context)
         except TaskBudgetExceeded as exc:
             return ToolResult(
                 success=False,
@@ -154,9 +152,6 @@ class WorkerActionMixin:
                 error=str(exc),
                 error_code=ToolErrorCode.POLICY_BLOCKED.value,
             )
-        if isinstance(workers, list) and workers:
-            return await host._launch_workers_batch(parameters, context)
-        return await host._launch_worker(parameters, context)
 
 
 def _validate_worker_definition(

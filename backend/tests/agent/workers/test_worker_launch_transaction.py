@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from magi.agent.execution.task_budget import task_execution_budget_scope
 from magi.agent.workers.worker_launch import WorkerLaunchMixin
 from magi.agent.workers.worker_manager import WorkerAgentManager
 from magi.agent.workers.worker_state import WorkerRunState
@@ -263,6 +264,29 @@ async def test_batch_trace_failure_rolls_back_all_workers_before_body_runs() -> 
         assert run_state.worker_id in host.cancelled_attempt_span_ids
     assert host.terminalized_while_registered == []
     assert host.cancelled_fact_ids == []
+
+
+@pytest.mark.asyncio
+async def test_batch_trace_rollback_does_not_consume_worker_budget() -> None:
+    host = _WorkerLaunchHost()
+    host.fail_started_trace_number = 2
+
+    async with task_execution_budget_scope(max_worker_launches=2) as budget:
+        with pytest.raises(RuntimeError, match="started trace failed"):
+            await host._launch_workers_batch(
+                {
+                    "workers": [
+                        _parameters(description="first worker"),
+                        _parameters(description="second worker"),
+                    ],
+                    "run_in_background": True,
+                },
+                _context(),
+            )
+
+    assert budget.worker_launches == 0
+    assert host._runs == {}
+    assert host._pending_runs == {}
 
 
 @pytest.mark.asyncio

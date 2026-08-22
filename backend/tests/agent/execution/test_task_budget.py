@@ -122,6 +122,37 @@ async def test_independent_root_tasks_receive_isolated_budgets() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unconfigured_launch_does_not_consume_worker_budget() -> None:
+    from magi.agent.runtime_tools import AgentTool
+    from magi.tools.schema import ToolExecutionContext
+
+    tool = AgentTool()
+    context = ToolExecutionContext(
+        agent_id="chat:u-chat",
+        workspace="/tmp",
+        env_vars={"user_id": "u-chat", "session_id": "s-chat"},
+        permissions=["authenticated"],
+    )
+
+    async with task_execution_budget_scope(max_worker_launches=1) as budget:
+        result = await tool.execute(
+            parameters={
+                "action": "launch",
+                "subagent_type": "CodeExplore",
+                "description": "inspect startup",
+                "prompt": "This worker cannot start before configuration.",
+                "run_in_background": True,
+            },
+            context=context,
+        )
+        await budget.reserve_worker_launches()
+
+    assert result.success is False
+    assert result.error_code == "EXECUTION_ERROR"
+    assert budget.worker_launches == 1
+
+
+@pytest.mark.asyncio
 async def test_background_child_keeps_shared_budget_after_parent_scope_exits() -> None:
     continue_child = asyncio.Event()
 

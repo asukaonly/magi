@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from magi.agent.execution.task_budget import task_execution_budget_scope
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.runtime.task_agent import TaskAgent
 from magi.agent.runtime.types import TaskAgentType
@@ -70,17 +71,19 @@ async def test_registry_returns_cancelled_result_for_late_worker_start() -> None
     registry, tool = _configured_registry()
     await _add_tombstone(tool)
 
-    result = await registry.execute(
-        "agent",
-        _launch_parameters(),
-        _tool_context(),
-    )
+    async with task_execution_budget_scope(max_worker_launches=1) as budget:
+        result = await registry.execute(
+            "agent",
+            _launch_parameters(),
+            _tool_context(),
+        )
 
     assert result.success is False
     assert result.error_code == "CANCELLED"
     assert result.data == {"reason": "run_cancelled_before_worker_start"}
     assert tool._manager._runs == {}
     assert tool._manager._pending_runs == {}
+    assert budget.worker_launches == 0
 
 
 class _RegistryCallingTaskAgent(TaskAgent):

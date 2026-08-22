@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Protocol, cast
 
 from ..cancel import EventCancelToken
+from ..execution.task_budget import reserve_task_worker_launches
 from ...core.logger import get_logger
 from ...tools.schema import ToolErrorCode, ToolExecutionContext, ToolResult
 from .worker_state import (
@@ -568,6 +569,8 @@ async def _commit_worker_runs(
                 host._pending_runs.pop(run_state.worker_id, None)
                 host._runs[run_state.worker_id] = run_state
             host._trim_history(max_runs=100)
+            if run_states:
+                await reserve_task_worker_launches(len(run_states))
             for run_state in run_states:
                 run_state.startup_committed = True
         except BaseException:
