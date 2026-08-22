@@ -21,6 +21,14 @@ from .worker_state import (
 logger = get_logger(__name__)
 
 
+class _WorkerStartRejected(Exception):
+    """Reject one staged worker start without cancelling its caller task."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
 @dataclass(frozen=True, slots=True)
 class _WorkerStartSpec:
     subagent_type: str
@@ -205,6 +213,14 @@ class WorkerLaunchMixin:
                 await _commit_worker_runs(host, [run_state])
                 if start_gate is None:
                     worker_start_gate.set()
+        except _WorkerStartRejected as exc:
+            await _rollback_worker_starts(
+                host,
+                [run_state],
+                reason=exc.reason,
+                terminalize_traces=start_trace_attempted,
+            )
+            return _worker_start_rejected_result(exc.reason)
         except BaseException:
             await _rollback_worker_starts(
                 host,
@@ -273,6 +289,13 @@ class WorkerLaunchMixin:
                 run_states.append(run_state)
                 start_gates.append(start_gate)
             await _commit_worker_runs(host, run_states)
+        except _WorkerStartRejected as exc:
+            await _rollback_worker_starts(
+                host,
+                run_states,
+                reason=exc.reason,
+            )
+            return _worker_start_rejected_result(exc.reason)
         except BaseException:
             await _rollback_worker_starts(
                 host,
@@ -534,16 +557,13 @@ async def _commit_worker_runs(
         try:
             for run_state in run_states:
                 run_key = _worker_run_key(run_state)
-                if (
-                    host._pending_runs.get(run_state.worker_id) is not run_state
-                    or run_key in host._cancelled_run_keys
-                    or run_state.status != "running"
-                    or (
-                        run_state.cancel_token is not None
-                        and run_state.cancel_token.reason is not None
-                    )
-                ):
-                    raise asyncio.CancelledError
+                rejection_reason = _worker_start_rejection_reason(
+                    host,
+                    run_state,
+                    run_key=run_key,
+                )
+                if rejection_reason is not None:
+                    raise _WorkerStartRejected(rejection_reason)
             for run_state in run_states:
                 host._pending_runs.pop(run_state.worker_id, None)
                 host._runs[run_state.worker_id] = run_state
@@ -568,8 +588,34 @@ async def _register_pending_worker_run(
         if _worker_run_key(run_state) in host._cancelled_run_keys:
             if run_state.cancel_token is not None:
                 run_state.cancel_token.cancel("run_cancelled_before_worker_start")
-            raise asyncio.CancelledError
+            raise _WorkerStartRejected("run_cancelled_before_worker_start")
         host._pending_runs[run_state.worker_id] = run_state
+
+
+def _worker_start_rejection_reason(
+    host: _WorkerLaunchHostProtocol,
+    run_state: WorkerRunState,
+    *,
+    run_key: tuple[str, str, int],
+) -> str | None:
+    if host._pending_runs.get(run_state.worker_id) is not run_state:
+        return "worker_start_no_longer_pending"
+    if run_key in host._cancelled_run_keys:
+        return "run_cancelled_before_worker_start"
+    if run_state.cancel_token is not None and run_state.cancel_token.reason is not None:
+        return run_state.cancel_token.reason
+    if run_state.status != "running":
+        return "worker_start_no_longer_running"
+    return None
+
+
+def _worker_start_rejected_result(reason: str) -> ToolResult:
+    return ToolResult(
+        success=False,
+        data={"reason": reason},
+        error="Worker startup was cancelled before commit",
+        error_code=ToolErrorCode.CANCELLED.value,
+    )
 
 
 def _worker_run_key(run_state: WorkerRunState) -> tuple[str, str, int]:

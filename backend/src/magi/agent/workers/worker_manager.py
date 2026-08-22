@@ -169,6 +169,7 @@ class WorkerAgentManager(
         """Request cancellation for every live worker attached to one session run."""
         run_key = (session_id, run_id, int(run_revision))
         async with self._lock:
+            self._cancelled_run_keys.pop(run_key, None)
             self._cancelled_run_keys[run_key] = time.monotonic()
             while len(self._cancelled_run_keys) > 1024:
                 oldest_key = next(iter(self._cancelled_run_keys))

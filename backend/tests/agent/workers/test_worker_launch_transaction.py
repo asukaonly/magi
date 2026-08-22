@@ -330,9 +330,12 @@ async def test_run_cancellation_includes_private_single_worker_start() -> None:
     assert len(cancelled_ids) == 1
     host.release_started_trace.set()
 
-    with pytest.raises(asyncio.CancelledError):
-        await launch_task
+    result = await launch_task
 
+    assert isinstance(result, ToolResult)
+    assert result.success is False
+    assert result.error_code == "CANCELLED"
+    assert result.data == {"reason": "run_cancelled_before_worker_start"}
     assert host._runs == {}
     assert host._pending_runs == {}
     assert host.run_started_ids == []
@@ -351,12 +354,15 @@ async def test_run_cancellation_tombstone_rejects_late_worker_start() -> None:
     )
     assert cancelled_ids == []
 
-    with pytest.raises(asyncio.CancelledError):
-        await host._start_worker(
-            {**_parameters(), "run_id": "run-late", "run_revision": 4},
-            _context(),
-        )
+    result = await host._start_worker(
+        {**_parameters(), "run_id": "run-late", "run_revision": 4},
+        _context(),
+    )
 
+    assert isinstance(result, ToolResult)
+    assert result.success is False
+    assert result.error_code == "CANCELLED"
+    assert result.data == {"reason": "run_cancelled_before_worker_start"}
     assert host._runs == {}
     assert host._pending_runs == {}
     assert host.trace_events == []
@@ -520,3 +526,28 @@ async def test_refresh_cancelled_task_does_not_raise_cancelled_error() -> None:
     assert run_state.status == "cancelled"
     assert run_state.failure_reason == "CANCELLED"
     assert run_state.completed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_refreshing_full_tombstone_cache_keeps_recent_run_cancelled() -> None:
+    host = _WorkerLaunchHost()
+    refreshed_key = ("session-refreshed", "run-refreshed", 1)
+    host._cancelled_run_keys[refreshed_key] = 1.0
+    for index in range(1, 1024):
+        host._cancelled_run_keys[(f"session-{index}", f"run-{index}", index)] = float(index + 1)
+
+    await host.cancel_run_workers(
+        session_id=refreshed_key[0],
+        run_id=refreshed_key[1],
+        run_revision=refreshed_key[2],
+    )
+    await host.cancel_run_workers(
+        session_id="session-new",
+        run_id="run-new",
+        run_revision=1025,
+    )
+
+    assert len(host._cancelled_run_keys) == 1024
+    assert refreshed_key in host._cancelled_run_keys
+    assert ("session-1", "run-1", 1) not in host._cancelled_run_keys
+    assert ("session-new", "run-new", 1025) in host._cancelled_run_keys
