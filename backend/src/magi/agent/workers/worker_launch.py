@@ -606,7 +606,7 @@ def _worker_start_rejection_reason(
     if run_key in host._cancelled_run_keys:
         return "run_cancelled_before_worker_start"
     if run_state.cancel_token is not None and run_state.cancel_token.reason is not None:
-        return run_state.cancel_token.reason
+        return str(run_state.cancel_token.reason)
     if run_state.status != "running":
         return "worker_start_no_longer_running"
     return None
