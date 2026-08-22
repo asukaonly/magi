@@ -269,6 +269,7 @@ class SkillSubagent:
             "execute",
             "run",
             "bash",
+            "powershell",
             "command",
             "fetch",
             "get",

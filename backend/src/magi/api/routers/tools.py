@@ -85,6 +85,7 @@ def _get_tool_display_name(tool_name: str) -> str:
         "weather": "Weather",
         "web-fetch": "Web Fetch",
         "bash": "Bash",
+        "powershell": "PowerShell",
         "file-read": "File Read",
         "file-write": "File Write",
         "file-list": "File List",
@@ -373,4 +374,3 @@ async def update_tool_config(tool_name: str, request: ToolConfigUpdateRequest):
         "success": False,
         "message": core_i18n.t("tools.config.save_failed", fallback="Failed to save configuration"),
     }
-
