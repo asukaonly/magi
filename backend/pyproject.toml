@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "magi"
-version = "0.1.28"
+version = "0.1.29"
 description = "Local-first AI agent with personality, memory, and temporal awareness"
 readme = "README.md"
 requires-python = ">=3.10"
