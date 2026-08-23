@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
@@ -262,27 +264,73 @@ class FunctionCallingToolBatchExecutor:
                 ),
             )
 
-        result = await self._driver._execute_tool_call(
+        result = await self._execute_tool_call_until_cancelled(
             tool_call=tool_call,
-            user_message=ctx.user_message,
-            user_id=ctx.user_id,
-            session_id=ctx.session_id,
-            session_run_id=ctx.session_run_id,
-            session_run_revision=ctx.session_run_revision,
-            turn_id=ctx.turn_id,
-            intent=ctx.intent,
-            execution_agent_id=ctx.execution_agent_id,
-            iteration=iteration,
-            execution_workspace=ctx.execution_workspace,
             cancel_token=cancel_token,
-            recent_messages=state.messages,
-            route_decision=ctx.route_decision,
+            invocation=self._driver._execute_tool_call(
+                tool_call=tool_call,
+                user_message=ctx.user_message,
+                user_id=ctx.user_id,
+                session_id=ctx.session_id,
+                session_run_id=ctx.session_run_id,
+                session_run_revision=ctx.session_run_revision,
+                turn_id=ctx.turn_id,
+                intent=ctx.intent,
+                execution_agent_id=ctx.execution_agent_id,
+                iteration=iteration,
+                execution_workspace=ctx.execution_workspace,
+                cancel_token=cancel_token,
+                recent_messages=state.messages,
+                route_decision=ctx.route_decision,
+            ),
         )
         return _ToolExecutionRecord(
             tool_call=tool_call,
             fingerprint=fingerprint,
             result=result,
         )
+
+    @staticmethod
+    async def _execute_tool_call_until_cancelled(
+        *,
+        tool_call: Any,
+        cancel_token: CancelToken,
+        invocation: Any,
+    ) -> ToolCallResult:
+        tool_task = asyncio.create_task(
+            invocation,
+            name=f"function-calling-tool:{tool_call.name}:{tool_call.id}",
+        )
+        cancel_task = asyncio.create_task(
+            cancel_token.wait(),
+            name=f"function-calling-tool-cancel:{tool_call.id}",
+        )
+        try:
+            done, _ = await asyncio.wait(
+                {tool_task, cancel_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if tool_task in done:
+                return await tool_task
+            tool_task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await tool_task
+            return ToolCallResult(
+                tool_call_id=tool_call.id,
+                tool_name=tool_call.name,
+                success=False,
+                error=cancel_token.reason or "Run cancelled during tool execution",
+                error_code="CANCELLED",
+            )
+        finally:
+            if not cancel_task.done():
+                cancel_task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await cancel_task
+            if not tool_task.done():
+                tool_task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await tool_task
 
     async def _record_tool_execution(
         self,
