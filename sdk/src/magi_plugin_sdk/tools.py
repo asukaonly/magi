@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -121,6 +121,27 @@ class ToolSchema(BaseModel):
     )
     allowed_roles: List[str] = Field(default_factory=list, description="Allowed roles")
     dangerous: bool = Field(default=False, description="Whether dangerous operation")
+    effect_replay_policy: Literal[
+        "read_only",
+        "idempotent",
+        "idempotent_with_key",
+        "non_idempotent",
+        "reconcilable",
+        "unknown",
+    ] = Field(
+        default="unknown",
+        description=(
+            "Crash-replay safety for external effects. Unknown is fail-closed "
+            "when an earlier attempt has an ambiguous outcome."
+        ),
+    )
+    effect_idempotency_key_parameter: Optional[str] = Field(
+        default=None,
+        description=(
+            "Argument carrying the provider idempotency key when "
+            "effect_replay_policy is idempotent_with_key."
+        ),
+    )
     feature_flags: List[str] = Field(
         default_factory=list, description="Required feature flags"
     )

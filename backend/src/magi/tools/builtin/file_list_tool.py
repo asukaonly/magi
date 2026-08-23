@@ -183,6 +183,7 @@ class FileListTool(Tool):
             timeout=15,
             retry_on_failure=False,
             dangerous=False,
+            effect_replay_policy="read_only",
             tags=["file", "directory", "list", "structured"],
         )
 

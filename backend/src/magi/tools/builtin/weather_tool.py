@@ -106,6 +106,7 @@ class WeatherTool(MultiProviderTool):
             retry_on_failure=True,
             max_retries=2,
             dangerous=False,
+            effect_replay_policy="read_only",
             tags=["weather", "information"],
         )
 

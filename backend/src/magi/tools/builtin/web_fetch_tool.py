@@ -162,6 +162,7 @@ class WebFetchTool(MultiProviderTool):
             timeout=60,
             retry_on_failure=False,
             dangerous=False,
+            effect_replay_policy="read_only",
             tags=["web", "fetch", "scrape", "content"],
             metadata=self._metadata(),
         )

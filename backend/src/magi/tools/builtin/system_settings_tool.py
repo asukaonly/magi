@@ -116,6 +116,7 @@ class SystemSettingsTool(SystemSettingsPathMixin, SystemSettingsActionsMixin, To
             timeout=10,
             retry_on_failure=False,
             dangerous=False,
+            effect_replay_policy="reconcilable",
             tags=["system", "config", "settings"],
             metadata={
                 "task_intents": ["inspect_config", "apply_change", "inspect_runtime_state"],

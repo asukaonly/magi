@@ -39,6 +39,7 @@ class TraceQueryTool(Tool):
             category="debug",
             parameters=self._trace_query_parameters(),
             tags=["trace", "debug", "audit", "tools"],
+            effect_replay_policy="read_only",
             timeout=15,
         )
 

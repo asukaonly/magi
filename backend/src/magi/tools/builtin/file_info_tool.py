@@ -74,6 +74,7 @@ class FileInfoTool(Tool):
             timeout=5,
             retry_on_failure=False,
             dangerous=False,
+            effect_replay_policy="read_only",
             tags=["file", "metadata", "structured"],
         )
 

@@ -33,7 +33,7 @@ def test_v3_upgrades_existing_v2_database(tmp_path: Path) -> None:
         for column in _BUDGET_COLUMNS:
             connection.execute(f"ALTER TABLE background_tasks DROP COLUMN {column}")
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "v3")
 
     with sqlite3.connect(db_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(background_tasks)")}
@@ -45,7 +45,7 @@ def test_v3_downgrades_when_budget_is_unused(tmp_path: Path) -> None:
     target = _target()
     db_path = tmp_path / "background-tasks-unused.db"
     config = _build_config(target, db_path)
-    command.upgrade(config, "head")
+    command.upgrade(config, "v3")
 
     command.downgrade(config, "v2")
 
@@ -59,7 +59,7 @@ def test_v3_refuses_downgrade_after_budget_use(tmp_path: Path) -> None:
     target = _target()
     db_path = tmp_path / "background-tasks-used.db"
     config = _build_config(target, db_path)
-    command.upgrade(config, "head")
+    command.upgrade(config, "v3")
     spec = BackgroundTaskSpec(
         user_id="user-1",
         session_id="session-1",

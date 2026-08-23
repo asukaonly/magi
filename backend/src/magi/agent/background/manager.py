@@ -108,19 +108,11 @@ class _BackgroundTaskAdmissionScope:
         if all(values is None for values in identifiers):
             return True
         return bool(
-            (
-                self.origin_turn_ids is not None
-                and spec.origin_turn_id in self.origin_turn_ids
-            )
-            or (
-                self.task_ids is not None
-                and task_id is not None
-                and task_id in self.task_ids
-            )
+            (self.origin_turn_ids is not None and spec.origin_turn_id in self.origin_turn_ids)
+            or (self.task_ids is not None and task_id is not None and task_id in self.task_ids)
             or (
                 self.pending_message_ids is not None
-                and str(spec.pending_message_id or "").strip()
-                in self.pending_message_ids
+                and str(spec.pending_message_id or "").strip() in self.pending_message_ids
             )
         )
 
@@ -325,15 +317,9 @@ class BackgroundTaskManager:
                 user_id=user_id,
                 session_id=session_id,
                 origin_turn_ids=(
-                    set(scope.origin_turn_ids)
-                    if scope.origin_turn_ids is not None
-                    else None
+                    set(scope.origin_turn_ids) if scope.origin_turn_ids is not None else None
                 ),
-                task_ids=(
-                    set(scope.task_ids)
-                    if scope.task_ids is not None
-                    else None
-                ),
+                task_ids=(set(scope.task_ids) if scope.task_ids is not None else None),
                 pending_message_ids=(
                     set(scope.pending_message_ids)
                     if scope.pending_message_ids is not None
@@ -343,6 +329,14 @@ class BackgroundTaskManager:
                 timeout_seconds=timeout_seconds,
             )
             yield
+            await self._store.discard_tool_effects_for_scope(
+                user_id=user_id,
+                session_id=session_id,
+                turn_ids=(
+                    set(scope.origin_turn_ids) if scope.origin_turn_ids is not None else None
+                ),
+                task_ids=(set(scope.task_ids) if scope.task_ids is not None else None),
+            )
         finally:
             async with self._admission_lock:
                 self._admission_scopes.pop(token, None)
@@ -353,9 +347,7 @@ class BackgroundTaskManager:
         self._require_started()
         async with self._admission_lock:
             if not any(scope.is_global for scope in self._admission_scopes.values()):
-                raise RuntimeError(
-                    "Background task history clear requires a global admission seal"
-                )
+                raise RuntimeError("Background task history clear requires a global admission seal")
             return await self._store.clear_all()
 
     async def cancel(self, task_id: str, *, reason: str = "user_requested") -> bool:
@@ -373,11 +365,7 @@ class BackgroundTaskManager:
                 task = await self._store.persist_cancellation_request(
                     task_id=task_id,
                     reason=reason,
-                    updated_at=(
-                        self._clock()
-                        if self._clock is not None
-                        else time.time()
-                    ),
+                    updated_at=(self._clock() if self._clock is not None else time.time()),
                 )
                 if task is None:
                     return False
@@ -395,9 +383,7 @@ class BackgroundTaskManager:
             previous = task.status
             task.status = BackgroundTaskStatus.CANCELLED
             task.cancel_reason = reason
-            task.finished_at = (
-                self._clock() if self._clock is not None else time.time()
-            )
+            task.finished_at = self._clock() if self._clock is not None else time.time()
             task.updated_at = task.finished_at
             await self._store.persist_terminal_transition(
                 task,
@@ -440,11 +426,7 @@ class BackgroundTaskManager:
             else None
         )
         normalized_task_ids = (
-            {
-                task_id
-                for raw_task_id in task_ids
-                if (task_id := str(raw_task_id or "").strip())
-            }
+            {task_id for raw_task_id in task_ids if (task_id := str(raw_task_id or "").strip())}
             if task_ids is not None
             else None
         )
@@ -475,10 +457,7 @@ class BackgroundTaskManager:
                     normalized_turn_ids is not None
                     and task.spec.origin_turn_id in normalized_turn_ids
                 )
-                or (
-                    normalized_task_ids is not None
-                    and task.task_id in normalized_task_ids
-                )
+                or (normalized_task_ids is not None and task.task_id in normalized_task_ids)
                 or (
                     normalized_pending_message_ids is not None
                     and str(task.spec.pending_message_id or "").strip()
@@ -507,11 +486,7 @@ class BackgroundTaskManager:
             ],
             limit=10_000,
         )
-        target_ids = {
-            task.task_id
-            for task in nonterminal
-            if matches(task)
-        }
+        target_ids = {task.task_id for task in nonterminal if matches(task)}
         running_snapshot = list(self._running.items())
         for task_id, _entry in running_snapshot:
             task = await self._store.get_task(task_id)
@@ -543,9 +518,7 @@ class BackgroundTaskManager:
         ]
         attempt_notifications = [
             notification
-            for (task_id, _attempt_index), notification in list(
-                self._attempt_notifications.items()
-            )
+            for (task_id, _attempt_index), notification in list(self._attempt_notifications.items())
             if task_id in target_ids
         ]
         current = asyncio.current_task()
@@ -557,9 +530,7 @@ class BackgroundTaskManager:
                 *attempt_notifications,
             ]
         ):
-            raise RuntimeError(
-                "Background task cannot delete its own conversation scope"
-            )
+            raise RuntimeError("Background task cannot delete its own conversation scope")
         waiters = [*attempts, *notifications, *attempt_notifications]
         if waiters:
             try:
@@ -586,16 +557,11 @@ class BackgroundTaskManager:
             if not late_notifications:
                 break
             if any(notification is current for notification in late_notifications):
-                raise RuntimeError(
-                    "Background task cannot delete its own conversation scope"
-                )
+                raise RuntimeError("Background task cannot delete its own conversation scope")
             try:
                 await asyncio.wait_for(
                     asyncio.gather(
-                        *(
-                            asyncio.shield(notification)
-                            for notification in late_notifications
-                        ),
+                        *(asyncio.shield(notification) for notification in late_notifications),
                     ),
                     timeout=max(0.001, deadline - loop.time()),
                 )
@@ -616,27 +582,21 @@ class BackgroundTaskManager:
             limit=10_000,
         )
         if any(matches(task) for task in remaining):
-            raise RuntimeError(
-                "Background conversation work remained active before deletion"
-            )
+            raise RuntimeError("Background conversation work remained active before deletion")
 
         while True:
-            _discarded, processing = (
-                await self._store.discard_pending_completions_in_scope(
-                    user_id=user_id,
-                    session_id=session_id,
-                    origin_turn_ids=normalized_turn_ids,
-                    task_ids=normalized_task_ids,
-                    pending_message_ids=normalized_pending_message_ids,
-                )
+            _discarded, processing = await self._store.discard_pending_completions_in_scope(
+                user_id=user_id,
+                session_id=session_id,
+                origin_turn_ids=normalized_turn_ids,
+                task_ids=normalized_task_ids,
+                pending_message_ids=normalized_pending_message_ids,
             )
             if processing == 0:
                 break
             remaining_seconds = deadline - loop.time()
             if remaining_seconds <= 0:
-                raise RuntimeError(
-                    "Background completion delivery did not stop before deletion"
-                )
+                raise RuntimeError("Background completion delivery did not stop before deletion")
             await asyncio.sleep(min(0.01, remaining_seconds))
         return len(target_ids)
 
@@ -734,9 +694,7 @@ class BackgroundTaskManager:
             task.result_payload = {}
             task.started_at = None
             task.finished_at = None
-            task.updated_at = (
-                self._clock() if self._clock is not None else task.created_at
-            )
+            task.updated_at = self._clock() if self._clock is not None else task.created_at
             await self._store.update_task(task)
             await self._store.append_event(
                 BackgroundTaskEvent.transition(
@@ -758,8 +716,7 @@ class BackgroundTaskManager:
         spec: BackgroundTaskSpec,
     ) -> None:
         if any(
-            scope.matches(task_id=task_id, spec=spec)
-            for scope in self._admission_scopes.values()
+            scope.matches(task_id=task_id, spec=spec) for scope in self._admission_scopes.values()
         ):
             raise BackgroundTaskAdmissionBlockedError(
                 "Background task belongs to a conversation being deleted"
@@ -778,9 +735,7 @@ class BackgroundTaskManager:
             if values is None:
                 return None
             return frozenset(
-                value
-                for raw_value in values
-                if (value := str(raw_value or "").strip())
+                value for raw_value in values if (value := str(raw_value or "").strip())
             )
 
         return _BackgroundTaskAdmissionScope(
@@ -903,8 +858,7 @@ class BackgroundTaskManager:
         notification = asyncio.create_task(
             self._notify_attempt_listeners(snapshot),
             name=(
-                "background-attempt-notification:"
-                f"{snapshot.task_id}:{snapshot.attempt_index}"
+                "background-attempt-notification:" f"{snapshot.task_id}:{snapshot.attempt_index}"
             ),
         )
         self._attempt_notifications[key] = notification
@@ -981,6 +935,4 @@ class BackgroundTaskManager:
 
     def _require_started(self) -> None:
         if not self._started:
-            raise RuntimeError(
-                "BackgroundTaskManager has not been started. Call start() first."
-            )
+            raise RuntimeError("BackgroundTaskManager has not been started. Call start() first.")

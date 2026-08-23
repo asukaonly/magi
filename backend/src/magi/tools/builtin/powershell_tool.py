@@ -221,6 +221,7 @@ class PowerShellTool(Tool):
             timeout=POWERSHELL_TOOL_TIMEOUT_SECONDS,
             retry_on_failure=False,
             dangerous=True,
+            effect_replay_policy="reconcilable",
             tags=["system", "windows", "powershell", "shell"],
         )
 

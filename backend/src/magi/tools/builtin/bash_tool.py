@@ -347,6 +347,7 @@ class BashTool(Tool):
             timeout=BASH_TOOL_TIMEOUT_SECONDS,
             retry_on_failure=False,
             dangerous=True,  # Executing commands is a dangerous operation
+            effect_replay_policy="reconcilable",
             tags=["system", "shell", "command"],
             metadata=_bash_metadata(),
         )

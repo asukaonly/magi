@@ -84,7 +84,7 @@ the new files and finishes removing plaintext rollback artifacts.
 | `runtime/bootstrap_state.db` | bootstrap | completed revisions, content fingerprints, attempts, and errors for versioned startup work |
 | `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups, plugin/sensor full-clear checkpoint, pending desktop full-clear transaction |
 | `runtime/sensor_state.db` | sensors | per-source cursors, fingerprints, stats |
-| `runtime/background_tasks.db` | runtime | background-task rows and event history, stable task-level execution budgets, plus recoverable terminal-completion snapshots with frozen outreach intent/body |
+| `runtime/background_tasks.db` | runtime | background-task rows and event history, stable task-level execution budgets, privacy-minimized tool-effect intent/completion records, plus recoverable terminal-completion snapshots with frozen outreach intent/body |
 | `runtime/permission_rules.db` | runtime permissions | trust and permission rule state |
 | `data/channels/channels.db` | channels + outreach | external channel session mappings, binding preferences, delivery receipts, notification cursors, proactive-outreach outbox and delivery log |
 | `data/identity/identity.db` | identity | external channel identity to canonical user mapping |
@@ -397,7 +397,7 @@ Current heads that matter to the chat-clear, memory-projection, and delivery bou
 | environment | head | Boundary added at head |
 |-------------|------|------------------------|
 | `chat` | `v13` | root-turn execution budgets persist across queue admissions and process restarts |
-| `background_tasks` | `v3` | stable execution-budget counters for standalone background tasks and retries |
+| `background_tasks` | `v4` | tool-effect intent/completion ledger with explicit uncertain crash recovery |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
 | `message_queue` | `v7` | pending desktop full-clear transaction adopted before command recovery; success returns to an empty idle row |
 | `memory_shared` | `v48_history_import_l2_reimport` | release stale L2 queue and event-rule identities only for durable explicit history reimports, then make any affected active import ledger resumable |
@@ -411,6 +411,14 @@ Chat-derived background continuations retain this root identity. Standalone
 background tasks store the equivalent counters on their `background_tasks` row,
 keyed by the stable task id, so another attempt or process restart rehydrates the
 same allowance.
+
+`tool_effect_attempts` is the execution-safety source of truth for non-read-only
+tool calls. It stores stable scope and tool-call identities plus SHA-256 digests,
+never raw arguments or results. An intent is committed before the tool body is
+entered. Process recovery converts leftover `attempting` rows to `uncertain`;
+only policies that prove replay safety may pass an unresolved matching row.
+Conversation-scoped deletion removes matching effect rows, and global clear
+removes and compacts the complete ledger under the background admission seal.
 
 The L2 Claim-ledger chain was introduced by `memory_shared` revisions `v38`
 through `v42`: grounded Claims and their evidence/projection outcomes, projection

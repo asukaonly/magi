@@ -160,6 +160,7 @@ class WebSearchTool(MultiProviderTool):
             retry_on_failure=False,
             max_retries=0,
             dangerous=False,
+            effect_replay_policy="read_only",
             tags=["web", "search", "information"],
             metadata=_web_search_metadata(),
         )

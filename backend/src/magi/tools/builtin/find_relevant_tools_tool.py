@@ -106,6 +106,7 @@ class FindRelevantToolsTool(Tool):
             timeout=10,
             retry_on_failure=False,
             dangerous=False,
+            effect_replay_policy="read_only",
             tags=["system", "discovery", "tooling"],
             metadata={
                 "task_intents": ["expand_toolset", "recover_execution_path"],

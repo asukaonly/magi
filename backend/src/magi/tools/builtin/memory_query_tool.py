@@ -224,6 +224,7 @@ class MemoryQueryTool(Tool):
             category="memory",
             parameters=_memory_query_parameters(plugin_projection_service),
             tags=["memory", "search", "history"],
+            effect_replay_policy="read_only",
             timeout=30,
             metadata=_memory_query_metadata(),
         )

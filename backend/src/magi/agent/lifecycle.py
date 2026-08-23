@@ -101,11 +101,18 @@ class AgentRuntimeModule(LifecycleModule):
             post_turn_understanding_service
         )
         background_wiring = self._build_background_wiring(deps)
+        recovered_effects = await background_wiring.store.recover_incomplete_tool_effects()
+        if recovered_effects:
+            logger.warning(
+                "Recovered tool effects with uncertain outcomes",
+                count=recovered_effects,
+            )
         self._register_background_attempt_listener(
             background_wiring,
             post_turn_understanding_service,
         )
         self._publish_background_wiring(background_wiring)
+        tool_registry.bind_tool_effect_ledger(background_wiring.store, required=True)
         self._register_batch_driver(background_wiring)
 
         task_agent_manager = self._build_task_agent_manager(
@@ -403,6 +410,7 @@ class AgentRuntimeModule(LifecycleModule):
         if self._context.agent_runtime.agent_runtime is not None:
             await self._context.agent_runtime.agent_runtime.stop()
             self._context.agent_runtime.agent_runtime = None
+        tool_registry.unbind_tool_effect_ledger()
         self._context.agent_runtime.task_agent_manager = None
         post_turn_understanding_service = (
             self._context.agent_runtime.post_turn_understanding_service

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .store_budgets import BackgroundTaskBudgetStoreMixin
 from .store_completions import BackgroundTaskCompletionStoreMixin
+from .store_effects import BackgroundTaskEffectStoreMixin
 from .store_events import BackgroundTaskEventStoreMixin
 from .store_mapping import BackgroundTaskRowMappingMixin
 from .store_schema import BackgroundTaskSchemaMixin
@@ -17,6 +18,7 @@ _DEFAULT_DB_PATH = "~/.magi/runtime/background_tasks.db"
 
 class BackgroundTaskStore(
     BackgroundTaskCompletionStoreMixin,
+    BackgroundTaskEffectStoreMixin,
     BackgroundTaskBudgetStoreMixin,
     BackgroundTaskRowStoreMixin,
     BackgroundTaskEventStoreMixin,

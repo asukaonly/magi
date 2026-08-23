@@ -176,6 +176,7 @@ class GlobTool(Tool):
             timeout=30,
             retry_on_failure=False,
             dangerous=False,
+            effect_replay_policy="read_only",
             tags=["file", "find", "pattern", "glob"],
             metadata=_glob_metadata(),
         )

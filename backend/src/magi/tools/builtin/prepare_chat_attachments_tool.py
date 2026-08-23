@@ -25,6 +25,7 @@ class PrepareChatAttachmentsTool(Tool):
             name="prepare_chat_attachments",
             description="Import local files into managed chat attachments for the current chat turn.",
             category="chat",
+            effect_replay_policy="reconcilable",
             parameters=[
                 ToolParameter(
                     name="file_paths",

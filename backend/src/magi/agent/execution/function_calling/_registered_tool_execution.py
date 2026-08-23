@@ -18,6 +18,14 @@ from .types import ToolCallResult
 logger = logging.getLogger(__name__)
 
 
+def _execution_task_id(request: _RegisteredToolExecutionRequest) -> str | None:
+    agent_id = str(request.execution_agent_id or "").strip()
+    prefix = "background:"
+    if agent_id.startswith(prefix):
+        return agent_id[len(prefix) :].strip() or None
+    return None
+
+
 class _RegisteredToolExecutor:
     """Execute non-skill tools through the shared invocation service."""
 
@@ -109,6 +117,7 @@ class _RegisteredToolExecutor:
         )
         return ToolExecutionContext(
             agent_id=request.execution_agent_id,
+            task_id=_execution_task_id(request),
             workspace=request.workspace_root,
             env_vars={
                 "user_id": request.user_id,
@@ -272,8 +281,7 @@ class _RegisteredToolExecutor:
             return
         if not full_content_logging_enabled():
             logger.warning(
-                "[FunctionCalling] Slow scan tool: %s | elapsed_ms=%.1f | "
-                "argument_names=%s",
+                "[FunctionCalling] Slow scan tool: %s | elapsed_ms=%.1f | " "argument_names=%s",
                 request.tool_name,
                 execution_time * 1000,
                 sorted(arguments),

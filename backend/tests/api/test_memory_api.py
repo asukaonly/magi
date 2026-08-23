@@ -230,6 +230,7 @@ def _isolate_background_task_history_cleanup(monkeypatch):
         conversation_scope_boundary=boundary,
         clear_all_history=AsyncMock(
             return_value={
+                "tool_effect_attempts": 0,
                 "background_tasks": 0,
                 "background_task_events": 0,
                 "background_task_completion_intents": 0,

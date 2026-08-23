@@ -68,6 +68,7 @@ class FileDiffTool(Tool):
             timeout=10,
             retry_on_failure=False,
             dangerous=False,
+            effect_replay_policy="read_only",
             tags=["file", "diff"],
             metadata={
                 "task_intents": ["inspect_change"],

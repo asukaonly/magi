@@ -74,6 +74,7 @@ class FileRollbackTool(Tool):
             timeout=10,
             retry_on_failure=False,
             dangerous=True,
+            effect_replay_policy="reconcilable",
             tags=["file", "rollback"],
             metadata={
                 "task_intents": ["recover_state"],

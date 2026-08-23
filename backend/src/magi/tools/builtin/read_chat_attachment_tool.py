@@ -132,6 +132,7 @@ class ReadChatAttachmentTool(Tool):
             timeout=20,
             retry_on_failure=False,
             dangerous=False,
+            effect_replay_policy="read_only",
             tags=["chat", "attachment", "read"],
             metadata={
                 "task_intents": [

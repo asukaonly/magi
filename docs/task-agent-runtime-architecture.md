@@ -645,8 +645,10 @@ Inbound chat command admission has a different contract: it is durable
 at-least-once admission, not exactly-once execution. That queue cannot
 atomically commit arbitrary model or tool side effects. Chat completion must
 converge on the existing stable turn and final-message records, and any
-external side effect must provide its own idempotency keyed by the stable turn
-or message identity.
+external side effect should still provide provider-level idempotency keyed by
+the stable turn or message identity. The canonical tool invocation seam adds a
+separate local intent/completion ledger; it prevents ambiguous attempts from
+being issued again but cannot make a remote provider transaction atomic.
 
 Every external outreach, including a `PUSH_NOW` decision, first enters the
 outbox. Before invoking a channel, the service atomically moves that row from
@@ -944,6 +946,24 @@ Explicit historical recall is handled separately from implicit prompt injection:
 workers, and background tasks. The loop treats some failures as terminal for
 the current plan instead of spending extra LLM rounds on retries that cannot
 change the outcome:
+
+- tool schemas declare `effect_replay_policy`; undeclared plugin and MCP tools
+  default to `unknown`, which is fail-closed rather than assumed read-only
+- immediately before any non-read-only tool body runs, the canonical invocation
+  service persists a privacy-minimized intent containing stable task/turn
+  scope, tool identity, policy, and argument digests; raw arguments and results
+  are not written to this ledger
+- a confirmed return persists `succeeded`, while an explicitly proven
+  pre-effect failure persists `failed_no_effect`; cancellation, timeout,
+  exception, or an unqualified failed result persists `uncertain`
+- startup converts orphaned `attempting` rows to `uncertain`. Matching
+  `non_idempotent`, `reconcilable`, and `unknown` calls then fail with
+  `TOOL_EFFECT_UNCERTAIN` and suppress automatic reuse of that tool for the
+  turn. Only `read_only`, `idempotent`, or `idempotent_with_key` with the
+  declared key may execute again automatically
+- an exact completed tool-call identity is not executed twice. The runtime
+  returns `TOOL_EFFECT_ALREADY_COMPLETED` rather than manufacturing a result it
+  did not persist
 
 - provider content-inspection failures are classified as
   `CONTENT_INSPECTION_FAILED`, retain a compact upstream error trace for

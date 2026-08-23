@@ -51,6 +51,7 @@ EXPECTED_TABLES: dict[str, set[str]] = {
         "background_tasks",
         "background_task_events",
         "background_task_completion_intents",
+        "tool_effect_attempts",
     },
     "message_queue": {
         "runtime_commands",

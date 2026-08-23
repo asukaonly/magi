@@ -11,6 +11,11 @@ from magi.agent.background import (
     BackgroundTaskStore,
     BackgroundTaskTriggerSource,
 )
+from magi.agent.execution.tool_effects import (
+    ToolEffectIntent,
+    ToolEffectReplayPolicy,
+    ToolEffectState,
+)
 
 
 def _make_spec(
@@ -143,6 +148,75 @@ async def test_task_budget_persists_across_store_instances(
     assert rejected == (False, 2, 2, 1, 0)
 
 
+def _effect_intent(
+    *,
+    semantic_key: str = "semantic-1",
+    task_id: str | None = "task-1",
+) -> ToolEffectIntent:
+    return ToolEffectIntent(
+        semantic_key=semantic_key,
+        scope_id="task:task-1",
+        user_id="u-alice",
+        session_id="s-1",
+        turn_id="turn-root",
+        task_id=task_id,
+        tool_call_id="call-1",
+        tool_name="file_write",
+        replay_policy=ToolEffectReplayPolicy.RECONCILABLE,
+        arguments_digest="digest-only",
+    )
+
+
+@pytest.mark.asyncio
+async def test_effect_recovery_blocks_ambiguous_replay(
+    store: BackgroundTaskStore,
+) -> None:
+    first = await store.begin_tool_effect(
+        _effect_intent(),
+        permit_ambiguous_retry=False,
+    )
+
+    recovered = await store.recover_incomplete_tool_effects()
+    blocked = await store.begin_tool_effect(
+        _effect_intent(),
+        permit_ambiguous_retry=False,
+    )
+    safe_retry = await store.begin_tool_effect(
+        _effect_intent(),
+        permit_ambiguous_retry=True,
+    )
+
+    assert first.admitted is True
+    assert recovered == 1
+    assert blocked.admitted is False
+    assert blocked.blocked_by_attempt_id == first.attempt_id
+    assert blocked.blocked_state is ToolEffectState.UNCERTAIN
+    assert safe_retry.admitted is True
+
+
+@pytest.mark.asyncio
+async def test_effect_completion_and_scoped_discard(
+    store: BackgroundTaskStore,
+) -> None:
+    admitted = await store.begin_tool_effect(
+        _effect_intent(),
+        permit_ambiguous_retry=False,
+    )
+    assert admitted.attempt_id is not None
+    await store.finish_tool_effect(
+        attempt_id=admitted.attempt_id,
+        state=ToolEffectState.SUCCEEDED,
+    )
+    assert await store.list_unresolved_tool_effects() == []
+
+    removed = await store.discard_tool_effects_for_scope(
+        user_id="u-alice",
+        session_id="s-1",
+        turn_ids={"turn-root"},
+    )
+    assert removed == 1
+
+
 @pytest.mark.asyncio
 async def test_get_task_returns_none_for_unknown_id(store: BackgroundTaskStore) -> None:
     assert await store.get_task("bg_missing") is None
@@ -222,6 +296,7 @@ async def test_clear_all_removes_tasks_events_and_completion_intents(
     removed = await store.clear_all()
 
     assert removed == {
+        "tool_effect_attempts": 0,
         "background_tasks": 1,
         "background_task_events": 1,
         "background_task_completion_intents": 1,

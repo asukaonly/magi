@@ -78,9 +78,40 @@ CREATE INDEX IF NOT EXISTS idx_bg_events_task_created
 
 CREATE INDEX IF NOT EXISTS idx_bg_completion_intents_state_created
     ON background_task_completion_intents(state, created_at);
+
+CREATE TABLE IF NOT EXISTS tool_effect_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    semantic_key TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    user_id TEXT,
+    session_id TEXT,
+    turn_id TEXT,
+    task_id TEXT,
+    tool_call_id TEXT,
+    tool_name TEXT NOT NULL,
+    replay_policy TEXT NOT NULL,
+    arguments_digest TEXT NOT NULL,
+    idempotency_key_digest TEXT,
+    state TEXT NOT NULL CHECK (
+        state IN ('attempting', 'succeeded', 'failed_no_effect', 'uncertain')
+    ),
+    error_code TEXT,
+    started_at REAL NOT NULL,
+    finished_at REAL,
+    updated_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_effect_attempts_semantic_state
+    ON tool_effect_attempts(semantic_key, state, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tool_effect_attempts_scope
+    ON tool_effect_attempts(scope_id, started_at DESC);
 """
 
 DROP_SQL = """
+DROP INDEX IF EXISTS idx_tool_effect_attempts_scope;
+
+DROP INDEX IF EXISTS idx_tool_effect_attempts_semantic_state;
+
 DROP INDEX IF EXISTS idx_bg_completion_intents_state_created;
 
 DROP INDEX IF EXISTS idx_bg_events_task_created;
@@ -94,6 +125,8 @@ DROP INDEX IF EXISTS idx_bg_tasks_user_status;
 DROP TABLE IF EXISTS background_task_events;
 
 DROP TABLE IF EXISTS background_task_completion_intents;
+
+DROP TABLE IF EXISTS tool_effect_attempts;
 
 DROP TABLE IF EXISTS background_tasks;
 """

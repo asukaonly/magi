@@ -3,6 +3,7 @@ Tool registry.
 
 Provides tool registration, lookup, execution, and monitoring.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -50,6 +51,22 @@ class ToolRegistry(
         self._user_content_clear_active = False
         self._active_tool_invocations = 0
         self._active_tool_invocation_lineages: dict[str, int] = {}
+        self._tool_effect_ledger = None
+        self._tool_effect_ledger_required = False
+
+    def bind_tool_effect_ledger(self, ledger, *, required: bool = True) -> None:
+        """Bind durable effect governance to canonical tool invocations."""
+        self._tool_effect_ledger = ledger
+        self._tool_effect_ledger_required = bool(required)
+
+    def unbind_tool_effect_ledger(self) -> None:
+        """Remove the runtime-owned effect ledger during shutdown."""
+        self._tool_effect_ledger = None
+        self._tool_effect_ledger_required = False
+
+    def resolve_tool_effect_ledger(self):
+        """Return the bound ledger and whether effect calls require it."""
+        return self._tool_effect_ledger, self._tool_effect_ledger_required
 
     def register(self, tool_class: type[Tool]) -> None:
         """

@@ -421,6 +421,7 @@ class GrepTool(Tool):
             timeout=30,
             retry_on_failure=False,
             dangerous=False,
+            effect_replay_policy="read_only",
             tags=["file", "search", "regex", "grep"],
             metadata=_grep_metadata(),
         )

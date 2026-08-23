@@ -114,6 +114,10 @@ class BackgroundTaskRowStoreMixin:
         await self.initialize()
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.execute(
+                "DELETE FROM tool_effect_attempts WHERE task_id = ?",
+                (task_id,),
+            )
+            await db.execute(
                 "DELETE FROM background_task_completion_intents WHERE task_id = ?",
                 (task_id,),
             )
@@ -132,6 +136,7 @@ class BackgroundTaskRowStoreMixin:
         """Atomically remove all task rows, events, and completion intents."""
         await self.initialize()
         tables = (
+            "tool_effect_attempts",
             "background_task_completion_intents",
             "background_task_events",
             "background_tasks",
@@ -177,8 +182,7 @@ class BackgroundTaskRowStoreMixin:
             params.extend(status.value for status in statuses)
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         query = (
-            f"SELECT * FROM background_tasks {where} "
-            "ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            f"SELECT * FROM background_tasks {where} " "ORDER BY created_at DESC LIMIT ? OFFSET ?"
         )
         params.extend([int(limit), int(offset)])
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
@@ -317,6 +321,10 @@ class BackgroundTaskRowStoreMixin:
             await db.execute(
                 "DELETE FROM background_task_completion_intents "
                 f"WHERE task_id IN ({placeholders})",
+                task_ids,
+            )
+            await db.execute(
+                f"DELETE FROM tool_effect_attempts WHERE task_id IN ({placeholders})",
                 task_ids,
             )
             await db.execute(

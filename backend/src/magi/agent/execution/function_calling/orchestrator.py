@@ -101,12 +101,20 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         "REPEATED_FAILED_TOOL_CALL",
         "REPEATED_TOOL_BLOCKER",
         "ROLE_NOT_ALLOWED",
+        "TOOL_EFFECT_ALREADY_COMPLETED",
+        "TOOL_EFFECT_IDENTITY_REQUIRED",
+        "TOOL_EFFECT_LEDGER_UNAVAILABLE",
+        "TOOL_EFFECT_UNCERTAIN",
     }
     _TERMINAL_TOOL_ERROR_CODES = {
         "NO_PROVIDERS_CONFIGURED",
         "PROVIDER_CHALLENGE",
         "PROVIDER_NOT_CONFIGURED",
         "REPEATED_TOOL_BLOCKER",
+        "TOOL_EFFECT_ALREADY_COMPLETED",
+        "TOOL_EFFECT_IDENTITY_REQUIRED",
+        "TOOL_EFFECT_LEDGER_UNAVAILABLE",
+        "TOOL_EFFECT_UNCERTAIN",
     }
     _TRANSIENT_BLOCKER_ERROR_CODES = {
         "CANCELLED",
@@ -119,6 +127,8 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         "NO_PROVIDERS_CONFIGURED",
         "PROVIDER_CHALLENGE",
         "PROVIDER_NOT_CONFIGURED",
+        "TOOL_EFFECT_ALREADY_COMPLETED",
+        "TOOL_EFFECT_UNCERTAIN",
     }
     _SLOW_SCAN_WARNING_SECONDS = 5.0
     # Parent-context budget passed down to spawned sub-tasks. 20 messages /

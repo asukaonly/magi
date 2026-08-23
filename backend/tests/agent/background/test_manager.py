@@ -64,9 +64,7 @@ async def _wait_until(
         await asyncio.sleep(0.005)
 
 
-async def _get_status(
-    store: BackgroundTaskStore, task_id: str
-) -> BackgroundTaskStatus | None:
+async def _get_status(store: BackgroundTaskStore, task_id: str) -> BackgroundTaskStatus | None:
     task = await store.get_task(task_id)
     return task.status if task is not None else None
 
@@ -111,9 +109,7 @@ async def _wait_for_terminal_event(
 
 @pytest.mark.asyncio
 async def test_enqueued_task_runs_to_succeeded(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult(
@@ -155,9 +151,7 @@ async def test_enqueued_task_runs_to_succeeded(runtime_paths_with_schema) -> Non
 
 @pytest.mark.asyncio
 async def test_concurrency_cap_is_respected(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     gate = asyncio.Event()
     active_ids: list[str] = []
     peak = {"value": 0}
@@ -180,8 +174,7 @@ async def test_concurrency_cap_is_respected(runtime_paths_with_schema) -> None:
         async def _all_succeeded() -> bool:
             rows = await asyncio.gather(*[store.get_task(t.task_id) for t in tasks])
             return all(
-                row is not None and row.status == BackgroundTaskStatus.SUCCEEDED
-                for row in rows
+                row is not None and row.status == BackgroundTaskStatus.SUCCEEDED for row in rows
             )
 
         await _wait_until(_all_succeeded)
@@ -197,9 +190,7 @@ async def test_concurrency_cap_is_respected(runtime_paths_with_schema) -> None:
 
 @pytest.mark.asyncio
 async def test_cancel_running_task_transitions_to_cancelled(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     running = asyncio.Event()
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
@@ -247,9 +238,7 @@ async def test_cancel_running_task_transitions_to_cancelled(runtime_paths_with_s
 
 @pytest.mark.asyncio
 async def test_cancel_unknown_task_returns_false(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult()
@@ -266,9 +255,7 @@ async def test_cancel_unknown_task_returns_false(runtime_paths_with_schema) -> N
 async def test_cancel_pending_task_skips_dispatch(runtime_paths_with_schema) -> None:
     """Cancelling a queued-but-not-dispatched task must flip it to cancelled
     without ever invoking ``run_fn``."""
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     first_running = asyncio.Event()
     release_first = asyncio.Event()
     run_calls: list[str] = []
@@ -304,9 +291,7 @@ async def test_cancel_pending_task_skips_dispatch(runtime_paths_with_schema) -> 
 async def test_cancel_pending_returns_before_listener_and_stop_waits_for_it(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     first_running = asyncio.Event()
     release_first = asyncio.Event()
     listener_started = asyncio.Event()
@@ -331,9 +316,7 @@ async def test_cancel_pending_returns_before_listener_and_stop_waits_for_it(
     await manager.start()
     try:
         await manager.enqueue(_make_spec(origin_turn_id="first"))
-        pending = await manager.enqueue(
-            _make_spec(origin_turn_id="cancelled-pending")
-        )
+        pending = await manager.enqueue(_make_spec(origin_turn_id="cancelled-pending"))
         await first_running.wait()
 
         assert await asyncio.wait_for(
@@ -359,9 +342,7 @@ async def test_cancel_pending_returns_before_listener_and_stop_waits_for_it(
 async def test_cancel_scope_waits_for_matching_terminal_listener(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     target_running = asyncio.Event()
     survivor_running = asyncio.Event()
     listener_started = asyncio.Event()
@@ -434,9 +415,7 @@ async def test_cancel_scope_collects_attempt_notification_created_after_wait_sta
 ) -> None:
     import magi.agent.background.manager as manager_module
 
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     attempt_callback_entered = asyncio.Event()
     initial_wait_started = asyncio.Event()
     allow_attempt_notification = asyncio.Event()
@@ -463,10 +442,7 @@ async def test_cancel_scope_collects_attempt_notification_created_after_wait_sta
     real_shield = asyncio.shield
 
     def tracking_shield(waiter, *args, **kwargs):  # type: ignore[no-untyped-def]
-        if (
-            isinstance(waiter, asyncio.Task)
-            and waiter.get_name().startswith("background-task:")
-        ):
+        if isinstance(waiter, asyncio.Task) and waiter.get_name().startswith("background-task:"):
             initial_wait_started.set()
         return real_shield(waiter, *args, **kwargs)
 
@@ -512,9 +488,7 @@ async def test_cancel_scope_collects_attempt_notification_created_after_wait_sta
 async def test_cancel_scope_cancels_suspended_task(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     running = asyncio.Event()
 
     async def run_fn(
@@ -555,9 +529,7 @@ async def test_cancel_scope_cancels_suspended_task(
 async def test_cancel_scope_fails_when_matching_work_does_not_stop(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     running = asyncio.Event()
     release = asyncio.Event()
 
@@ -594,9 +566,7 @@ async def test_cancel_scope_fails_when_matching_work_does_not_stop(
 async def test_conversation_scope_boundary_rejects_exact_pending_message_admission(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     release = asyncio.Event()
 
     async def run_fn(
@@ -654,9 +624,7 @@ async def test_conversation_scope_boundary_rejects_exact_pending_message_admissi
 async def test_clear_all_history_requires_and_uses_global_admission_seal(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult(summary="done")
@@ -691,6 +659,7 @@ async def test_clear_all_history_requires_and_uses_global_admission_seal(
             removed = await manager.clear_all_history()
 
         assert removed == {
+            "tool_effect_attempts": 0,
             "background_tasks": 1,
             "background_task_events": 1,
             "background_task_completion_intents": 1,
@@ -706,9 +675,7 @@ async def test_clear_all_history_requires_and_uses_global_admission_seal(
 async def test_conversation_scope_boundary_cancels_existing_pending_message_task(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     blocker_running = asyncio.Event()
     release_blocker = asyncio.Event()
     target_started = False
@@ -757,9 +724,7 @@ async def test_conversation_scope_boundary_cancels_existing_pending_message_task
 async def test_conversation_scope_boundary_rejects_matching_retry(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(
         task: BackgroundTask,
@@ -798,9 +763,7 @@ async def test_conversation_scope_boundary_rejects_matching_retry(
 async def test_conversation_scope_boundary_blocks_only_the_selected_session(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     release = asyncio.Event()
 
     async def run_fn(
@@ -818,12 +781,8 @@ async def test_conversation_scope_boundary_blocks_only_the_selected_session(
             session_id="deleted-session",
         ):
             with pytest.raises(BackgroundTaskAdmissionBlockedError):
-                await manager.enqueue(
-                    _make_spec(session_id="deleted-session")
-                )
-            survivor = await manager.enqueue(
-                _make_spec(session_id="surviving-session")
-            )
+                await manager.enqueue(_make_spec(session_id="deleted-session"))
+            survivor = await manager.enqueue(_make_spec(session_id="surviving-session"))
 
         release.set()
         await _wait_until(
@@ -845,9 +804,7 @@ async def test_conversation_scope_boundary_blocks_only_the_selected_session(
 
 @pytest.mark.asyncio
 async def test_run_fn_exception_marks_task_failed(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         raise RuntimeError("boom")
@@ -868,9 +825,7 @@ async def test_run_fn_exception_marks_task_failed(runtime_paths_with_schema) -> 
 
 @pytest.mark.asyncio
 async def test_run_fn_timeout_marks_task_failed(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         raise asyncio.TimeoutError
@@ -893,10 +848,10 @@ async def test_run_fn_timeout_marks_task_failed(runtime_paths_with_schema) -> No
 
 
 @pytest.mark.asyncio
-async def test_retry_after_failure_reruns_with_incremented_attempt(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+async def test_retry_after_failure_reruns_with_incremented_attempt(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     attempt_counter = {"value": 0}
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
@@ -928,9 +883,7 @@ async def test_retry_after_failure_reruns_with_incremented_attempt(runtime_paths
 async def test_retry_during_slow_terminal_listener_is_not_lost(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     listener_started = asyncio.Event()
     release_listener = asyncio.Event()
     run_attempts: list[int] = []
@@ -945,10 +898,7 @@ async def test_retry_during_slow_terminal_listener_is_not_lost(
         return BackgroundTaskRunResult(summary="retry completed")
 
     async def listener(task: BackgroundTask) -> None:
-        if (
-            task.attempt_index == 0
-            and task.status == BackgroundTaskStatus.FAILED
-        ):
+        if task.attempt_index == 0 and task.status == BackgroundTaskStatus.FAILED:
             listener_started.set()
             await release_listener.wait()
 
@@ -981,9 +931,7 @@ async def test_retry_during_slow_terminal_listener_is_not_lost(
 async def test_concurrent_retry_admits_only_one_new_attempt(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     release_retry = asyncio.Event()
 
     async def run_fn(
@@ -1030,9 +978,7 @@ async def test_concurrent_retry_admits_only_one_new_attempt(
 
 @pytest.mark.asyncio
 async def test_retry_running_task_is_rejected(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     running = asyncio.Event()
     release = asyncio.Event()
 
@@ -1064,9 +1010,7 @@ async def test_retry_running_task_is_rejected(runtime_paths_with_schema) -> None
 async def test_start_marks_stale_running_as_failed_and_rehydrates_pending(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     # Simulate a previous process that was mid-run.
     stale = BackgroundTask.new(_make_spec(origin_turn_id="stale"))
@@ -1098,9 +1042,7 @@ async def test_start_marks_stale_running_as_failed_and_rehydrates_pending(
 
 @pytest.mark.asyncio
 async def test_start_is_idempotent(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult()
@@ -1116,9 +1058,7 @@ async def test_start_is_idempotent(runtime_paths_with_schema) -> None:
 
 @pytest.mark.asyncio
 async def test_enqueue_before_start_raises(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult()
@@ -1130,9 +1070,7 @@ async def test_enqueue_before_start_raises(runtime_paths_with_schema) -> None:
 
 @pytest.mark.asyncio
 async def test_stop_cancels_in_flight_tasks(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     running = asyncio.Event()
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
@@ -1163,9 +1101,7 @@ async def test_stop_cancels_in_flight_tasks(runtime_paths_with_schema) -> None:
 async def test_slow_attempt_listener_does_not_delay_task_execution(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     listener_started = asyncio.Event()
     release_listener = asyncio.Event()
     run_started = asyncio.Event()
@@ -1204,9 +1140,7 @@ async def test_slow_attempt_listener_does_not_delay_task_execution(
 async def test_listener_is_invoked_on_succeeded_terminal_state(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult(summary="ok", result_payload={})
@@ -1221,9 +1155,7 @@ async def test_listener_is_invoked_on_succeeded_terminal_state(
     await manager.start()
     try:
         task = await manager.enqueue(_make_spec())
-        await _wait_until(
-            _status_reaches(store, task.task_id, BackgroundTaskStatus.SUCCEEDED)
-        )
+        await _wait_until(_status_reaches(store, task.task_id, BackgroundTaskStatus.SUCCEEDED))
         await _wait_until(lambda: len(seen) == 1)
         assert seen == [(task.task_id, BackgroundTaskStatus.SUCCEEDED)]
     finally:
@@ -1232,9 +1164,7 @@ async def test_listener_is_invoked_on_succeeded_terminal_state(
 
 @pytest.mark.asyncio
 async def test_listener_is_invoked_on_failure_terminal_state(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         raise RuntimeError("boom")
@@ -1249,9 +1179,7 @@ async def test_listener_is_invoked_on_failure_terminal_state(runtime_paths_with_
     await manager.start()
     try:
         task = await manager.enqueue(_make_spec())
-        await _wait_until(
-            _status_reaches(store, task.task_id, BackgroundTaskStatus.FAILED)
-        )
+        await _wait_until(_status_reaches(store, task.task_id, BackgroundTaskStatus.FAILED))
         await _wait_until(lambda: len(seen) == 1)
         assert seen == [BackgroundTaskStatus.FAILED]
     finally:
@@ -1262,9 +1190,7 @@ async def test_listener_is_invoked_on_failure_terminal_state(runtime_paths_with_
 async def test_listener_exception_does_not_break_other_listeners(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult(summary="ok", result_payload={})
@@ -1293,9 +1219,7 @@ async def test_listener_exception_does_not_break_other_listeners(
 async def test_remove_listener_stops_subsequent_invocations(
     runtime_paths_with_schema,
 ) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult(summary="ok", result_payload={})
@@ -1320,9 +1244,7 @@ async def test_remove_listener_stops_subsequent_invocations(
         manager.remove_listener(listener)
 
         second = await manager.enqueue(_make_spec(origin_turn_id="t2"))
-        await _wait_until(
-            _status_reaches(store, second.task_id, BackgroundTaskStatus.SUCCEEDED)
-        )
+        await _wait_until(_status_reaches(store, second.task_id, BackgroundTaskStatus.SUCCEEDED))
         # Let any pending listener dispatch complete.
         await asyncio.sleep(0.02)
         assert calls == [first.task_id]
@@ -1332,9 +1254,7 @@ async def test_remove_listener_stops_subsequent_invocations(
 
 @pytest.mark.asyncio
 async def test_suspend_and_resume_waiting_user(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     running = asyncio.Event()
     proceed = asyncio.Event()
 
@@ -1348,25 +1268,17 @@ async def test_suspend_and_resume_waiting_user(runtime_paths_with_schema) -> Non
     try:
         task = await manager.enqueue(_make_spec())
         await running.wait()
-        await _wait_until(
-            _status_reaches(store, task.task_id, BackgroundTaskStatus.RUNNING)
-        )
+        await _wait_until(_status_reaches(store, task.task_id, BackgroundTaskStatus.RUNNING))
 
         assert (
-            await manager.suspend_waiting_user(
-                task.task_id, reason="awaiting_user_answer"
-            )
-            is True
+            await manager.suspend_waiting_user(task.task_id, reason="awaiting_user_answer") is True
         )
         fetched = await store.get_task(task.task_id)
         assert fetched is not None
         assert fetched.status == BackgroundTaskStatus.SUSPENDED_WAITING_USER
 
         # Suspending twice is a no-op (only RUNNING → SUSPENDED allowed).
-        assert (
-            await manager.suspend_waiting_user(task.task_id)
-            is False
-        )
+        assert await manager.suspend_waiting_user(task.task_id) is False
 
         assert await manager.resume_from_wait(task.task_id) is True
         fetched = await store.get_task(task.task_id)
@@ -1389,9 +1301,7 @@ async def test_suspend_and_resume_waiting_user(runtime_paths_with_schema) -> Non
 
 @pytest.mark.asyncio
 async def test_resume_from_wait_unknown_or_non_suspended(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult()

@@ -430,6 +430,7 @@ class HelloTool(Tool):
             name="hello-tool",
             description="Return a greeting.",
             category="utility",
+            effect_replay_policy="read_only",
             parameters=[],
         )
 
@@ -445,6 +446,18 @@ class ExamplePlugin(Plugin):
 Guidelines:
 
 - treat tool implementations exactly like other Magi tools
+- declare `effect_replay_policy` accurately. Use `read_only` only when repeated
+  execution cannot mutate local or remote state; use `idempotent` when the
+  operation itself is repeat-safe; use `idempotent_with_key` together with
+  `effect_idempotency_key_parameter` when a provider key makes it repeat-safe;
+  use `non_idempotent` when it must never replay automatically; and use
+  `reconcilable` when external state can be checked before a later explicit
+  retry. The default `unknown` is intentionally fail-closed after an ambiguous
+  attempt
+- when returning a failure before the tool body has produced any effect, set
+  `ToolResult.metadata["effect_state"] = "none"`. When a remote effect is known
+  committed even though the overall result is a failure, set it to
+  `"committed"`. Omit the field when the outcome is ambiguous
 - use the plugin only as the registration container
 - if the tool needs settings, expose them through plugin contribution fields rather than custom frontend UI
 - if a long-lived tool instance keeps user queries, prompts, fetched content,
