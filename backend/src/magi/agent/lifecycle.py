@@ -156,6 +156,7 @@ class AgentRuntimeModule(LifecycleModule):
             llm_pool=deps.llm_pool,
             skill_runner=deps.skill_runner,
             runtime_trace_store=deps.runtime_trace_store,
+            chat_task_budget_store=deps.chat_store,
             max_concurrent=bg_settings.max_concurrent,
             permission_gateway_provider=get_permission_gateway,
         )

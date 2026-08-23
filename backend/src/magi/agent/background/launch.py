@@ -24,13 +24,15 @@ coordinator after the dispatcher's verdict.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
 import structlog
 
 from ..cancel import CancelToken
 from ..turn_input import UserTurnInput
 from ..execution.function_calling.run_input import EngineRunInput
+from ..execution.task_budget import TaskExecutionBudgetStore, task_execution_budget_scope
 from .contracts import (
     BackgroundTask,
     BackgroundTaskSpec,
@@ -110,6 +112,13 @@ def build_spec_from_request(
     context = request.context
     latest_payload = getattr(context, "latest_payload", None)
     turn_id = getattr(latest_payload, "turn_id", None) or ""
+    active_run = getattr(context, "active_run", None)
+    task_budget_root_turn_id = (
+        str(getattr(active_run, "root_turn_id", "") or "").strip()
+        or str(getattr(latest_payload, "root_turn_id", "") or "").strip()
+        or str(turn_id).strip()
+        or None
+    )
     workspace_path = str(getattr(latest_payload, "workspace_path", "") or "").strip() or None
     user_message = context.latest_user_message or ""
     return BackgroundTaskSpec(
@@ -124,10 +133,9 @@ def build_spec_from_request(
         trigger=trigger,
         timeout_seconds=timeout_seconds,
         max_iterations=max_iterations,
+        task_budget_root_turn_id=task_budget_root_turn_id,
         initial_messages=(
-            [dict(m) for m in initial_messages]
-            if initial_messages is not None
-            else None
+            [dict(m) for m in initial_messages] if initial_messages is not None else None
         ),
     )
 
@@ -154,9 +162,7 @@ class BackgroundLaunchService:
         ack_builder: Callable[[BackgroundTaskSpec, BackgroundTask], str] | None = None,
     ) -> None:
         self._manager = manager
-        self._ack_builder = ack_builder or (
-            lambda spec, _task: default_ack_text(spec.title)
-        )
+        self._ack_builder = ack_builder or (lambda spec, _task: default_ack_text(spec.title))
 
     async def enqueue_from_request(
         self,
@@ -223,6 +229,8 @@ def _serialize_ux_plan(intent: Any) -> dict | None:
 def build_background_run_fn(
     *,
     function_calling_orchestrator: Any,
+    chat_task_budget_store: TaskExecutionBudgetStore | None = None,
+    background_task_budget_store: TaskExecutionBudgetStore | None = None,
     execution_agent_id_prefix: str = "background",
     intent_label: str = "background",
 ) -> BackgroundTaskRunFn:
@@ -253,32 +261,35 @@ def build_background_run_fn(
         # final user entry already present in the snapshot.
         if spec.initial_messages:
             user_message: str = ""
-            conversation_history: list[dict[str, Any]] = [
-                dict(m) for m in spec.initial_messages
-            ]
+            conversation_history: list[dict[str, Any]] = [dict(m) for m in spec.initial_messages]
         else:
             user_message = spec.goal
             conversation_history = []
-        outcome = await function_calling_orchestrator.run(
-            EngineRunInput.headless(
-                turn=UserTurnInput(
-                    text=user_message,
-                    attachments=[],
+        async with _background_task_budget_scope(
+            task=task,
+            chat_store=chat_task_budget_store,
+            background_store=background_task_budget_store,
+        ):
+            outcome = await function_calling_orchestrator.run(
+                EngineRunInput.headless(
+                    turn=UserTurnInput(
+                        text=user_message,
+                        attachments=[],
+                        user_id=spec.user_id,
+                        session_id=spec.session_id or None,
+                    ),
+                    selected_tools=list(spec.selected_tools),
                     user_id=spec.user_id,
                     session_id=spec.session_id or None,
-                ),
-                selected_tools=list(spec.selected_tools),
-                user_id=spec.user_id,
-                session_id=spec.session_id or None,
-                turn_id=spec.origin_turn_id or None,
-                conversation_history=conversation_history,
-                max_iterations=spec.max_iterations,
-                intent=intent_label,
-                execution_agent_id=execution_agent_id,
-                execution_workspace=spec.workspace_path,
-                cancel_token=cancel_token,
+                    turn_id=spec.origin_turn_id or None,
+                    conversation_history=conversation_history,
+                    max_iterations=spec.max_iterations,
+                    intent=intent_label,
+                    execution_agent_id=execution_agent_id,
+                    execution_workspace=spec.workspace_path,
+                    cancel_token=cancel_token,
+                )
             )
-        )
         summary = (outcome.content or "").strip()
         return BackgroundTaskRunResult(
             summary=summary,
@@ -287,3 +298,28 @@ def build_background_run_fn(
         )
 
     return _run
+
+
+@asynccontextmanager
+async def _background_task_budget_scope(
+    *,
+    task: BackgroundTask,
+    chat_store: TaskExecutionBudgetStore | None,
+    background_store: TaskExecutionBudgetStore | None,
+) -> AsyncIterator[None]:
+    root_turn_id = str(task.spec.task_budget_root_turn_id or "").strip()
+    if root_turn_id:
+        if chat_store is None:
+            raise RuntimeError("Chat task budget store is unavailable for background continuation")
+        async with task_execution_budget_scope(root_turn_id=root_turn_id, store=chat_store):
+            yield
+        return
+    if background_store is None:
+        async with task_execution_budget_scope():
+            yield
+        return
+    async with task_execution_budget_scope(
+        root_turn_id=task.task_id,
+        store=background_store,
+    ):
+        yield

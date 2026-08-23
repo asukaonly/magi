@@ -265,6 +265,17 @@ def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) ->
         } <= delivery_columns
         assert "runtime_enqueued" not in delivery_columns
 
+    background_db_path = next(
+        target for target in MIGRATION_TARGETS if target.name == "background_tasks"
+    ).db_path(runtime_paths)
+    with sqlite3.connect(background_db_path) as conn:
+        assert {
+            "task_max_llm_calls",
+            "task_llm_calls_used",
+            "task_max_worker_launches",
+            "task_worker_launches_used",
+        } <= _columns(conn, "background_tasks")
+
 
 def test_chat_delivery_state_upgrades_from_pre_delta_v1(tmp_path: Path) -> None:
     target = next(item for item in MIGRATION_TARGETS if item.name == "chat")
@@ -493,17 +504,14 @@ async def test_failed_legacy_user_message_can_retry_after_upgrade_and_gc(
 
     command.upgrade(config, "head")
     with sqlite3.connect(db_path) as conn:
-        assert (
-            conn.execute(
-                """
+        assert conn.execute(
+            """
             SELECT current_attempt_no, current_command_id, delivery_status
             FROM runtime_user_message_idempotency
             WHERE correlation_id = ?
             """,
-                (original.correlation_id,),
-            ).fetchone()
-            == (0, failed_id, "failed")
-        )
+            (original.correlation_id,),
+        ).fetchone() == (0, failed_id, "failed")
         conn.execute(
             "DELETE FROM runtime_commands WHERE command_id = ?",
             (failed_id,),
@@ -530,17 +538,14 @@ async def test_failed_legacy_user_message_can_retry_after_upgrade_and_gc(
         )
         assert retried_id != failed_id
         with sqlite3.connect(db_path) as conn:
-            assert (
-                conn.execute(
-                    """
+            assert conn.execute(
+                """
                 SELECT current_attempt_no, current_command_id, delivery_status
                 FROM runtime_user_message_idempotency
                 WHERE correlation_id = ?
                 """,
-                    (original.correlation_id,),
-                ).fetchone()
-                == (1, retried_id, "open")
-            )
+                (original.correlation_id,),
+            ).fetchone() == (1, retried_id, "open")
         claimed = await queue.claim_next(
             consumer_name="migration-test",
             command_types=(RuntimeCommandType.USER_MESSAGE,),

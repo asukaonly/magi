@@ -38,9 +38,7 @@ def _make_spec(
 
 @pytest.fixture
 def store(runtime_paths_with_schema) -> BackgroundTaskStore:
-    return BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    return BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
 
 # ----------------------------------------------------------------------
@@ -101,6 +99,48 @@ async def test_create_and_get_task_round_trip(store: BackgroundTaskStore) -> Non
     assert fetched.status is BackgroundTaskStatus.PENDING
     assert fetched.attempt_index == 0
     assert fetched.result_payload == {}
+
+
+@pytest.mark.asyncio
+async def test_task_budget_persists_across_store_instances(
+    store: BackgroundTaskStore,
+) -> None:
+    task = BackgroundTask.new(_make_spec())
+    await store.create_task(task)
+
+    initial = await store.ensure_task_execution_budget(
+        root_turn_id=task.task_id,
+        max_llm_calls=2,
+        max_worker_launches=1,
+    )
+    first = await store.reserve_task_execution_budget(
+        root_turn_id=task.task_id,
+        resource="llm_calls",
+        count=1,
+        max_llm_calls=2,
+        max_worker_launches=1,
+    )
+
+    restarted = BackgroundTaskStore(db_path=store.db_path)
+    second = await restarted.reserve_task_execution_budget(
+        root_turn_id=task.task_id,
+        resource="llm_calls",
+        count=1,
+        max_llm_calls=99,
+        max_worker_launches=99,
+    )
+    rejected = await restarted.reserve_task_execution_budget(
+        root_turn_id=task.task_id,
+        resource="llm_calls",
+        count=1,
+        max_llm_calls=99,
+        max_worker_launches=99,
+    )
+
+    assert initial == (2, 0, 1, 0)
+    assert first == (True, 2, 1, 1, 0)
+    assert second == (True, 2, 2, 1, 0)
+    assert rejected == (False, 2, 2, 1, 0)
 
 
 @pytest.mark.asyncio
@@ -300,7 +340,9 @@ async def test_recover_stale_running_marks_running_and_cancelling_as_failed(
     fetched_pending = await store.get_task(pending.task_id)
     fetched_succeeded = await store.get_task(succeeded.task_id)
     assert fetched_pending is not None and fetched_pending.status is BackgroundTaskStatus.PENDING
-    assert fetched_succeeded is not None and fetched_succeeded.status is BackgroundTaskStatus.SUCCEEDED
+    assert (
+        fetched_succeeded is not None and fetched_succeeded.status is BackgroundTaskStatus.SUCCEEDED
+    )
 
 
 @pytest.mark.asyncio

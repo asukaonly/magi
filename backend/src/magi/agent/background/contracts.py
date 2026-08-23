@@ -4,6 +4,7 @@ These types are the serialization boundary between the runtime layer (phases
 1+) and the persistence layer (phase 0). They intentionally carry no
 behavior — the store owns IO, the manager owns lifecycle transitions.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -51,17 +52,15 @@ class BackgroundTaskStatus(str, Enum):
 class BackgroundTaskTriggerSource(str, Enum):
     """How a task was launched. Used for auditing and dispatcher metrics."""
 
-    PLANNER = "planner"            # LLM planner returned run_in_background=true
-    CLASSIFIER = "classifier"      # long-task classifier (LLM slow path)
-    USER = "user"                  # user message explicitly asked for background
-    MANUAL = "manual"              # UI "move to background" action
-    RULE = "rule"                  # dispatcher rule fast-path match
-    SCHEDULE = "schedule"          # scheduler-created agent task
+    PLANNER = "planner"  # LLM planner returned run_in_background=true
+    CLASSIFIER = "classifier"  # long-task classifier (LLM slow path)
+    USER = "user"  # user message explicitly asked for background
+    MANUAL = "manual"  # UI "move to background" action
+    RULE = "rule"  # dispatcher rule fast-path match
+    SCHEDULE = "schedule"  # scheduler-created agent task
 
     @classmethod
-    def from_trigger(
-        cls, trigger: "RunTrigger | None"
-    ) -> "BackgroundTaskTriggerSource":
+    def from_trigger(cls, trigger: "RunTrigger | None") -> "BackgroundTaskTriggerSource":
         """Derive the coarse launch-source enum from a unified ``RunTrigger``.
 
         ADR-0004 P3 makes ``RunTrigger`` the source of truth for run
@@ -120,6 +119,13 @@ class BackgroundTaskSpec:
     priority: int = 0
     max_iterations: int = 50
     timeout_seconds: int | None = 1800
+    task_budget_root_turn_id: str | None = None
+    """Root chat turn whose durable execution budget this task continues.
+
+    Detached and chat-dispatched tasks set this value. Standalone scheduled,
+    batch, and manually-created tasks leave it unset and use ``task_id`` as
+    their background-owned budget identity.
+    """
     initial_messages: list[dict[str, Any]] | None = None
     """Optional resume payload from an orchestrator snapshot.
 
@@ -189,15 +195,14 @@ class BackgroundTaskSpec:
             "timeout_seconds": (
                 int(self.timeout_seconds) if self.timeout_seconds is not None else None
             ),
+            "task_budget_root_turn_id": self.task_budget_root_turn_id,
             "initial_messages": (
                 [dict(m) for m in self.initial_messages]
                 if self.initial_messages is not None
                 else None
             ),
             "initial_run_snapshot": (
-                dict(self.initial_run_snapshot)
-                if self.initial_run_snapshot is not None
-                else None
+                dict(self.initial_run_snapshot) if self.initial_run_snapshot is not None else None
             ),
             "pending_message_id": self.pending_message_id,
         }
@@ -212,23 +217,22 @@ class BackgroundTaskSpec:
             goal=str(data["goal"]),
             selected_tools=list(data.get("selected_tools") or []),
             workspace_path=(
-                str(data["workspace_path"])
-                if data.get("workspace_path") is not None
-                else None
+                str(data["workspace_path"]) if data.get("workspace_path") is not None else None
             ),
             trigger_source=BackgroundTaskTriggerSource(
                 str(data.get("trigger_source") or BackgroundTaskTriggerSource.RULE.value)
             ),
             trigger=(
-                RunTrigger.from_dict(data["trigger"])
-                if data.get("trigger") is not None
-                else None
+                RunTrigger.from_dict(data["trigger"]) if data.get("trigger") is not None else None
             ),
             priority=int(data.get("priority") or 0),
             max_iterations=int(data.get("max_iterations") or 20),
             timeout_seconds=(
-                int(data["timeout_seconds"])
-                if data.get("timeout_seconds") is not None
+                int(data["timeout_seconds"]) if data.get("timeout_seconds") is not None else None
+            ),
+            task_budget_root_turn_id=(
+                str(data["task_budget_root_turn_id"])
+                if data.get("task_budget_root_turn_id") is not None
                 else None
             ),
             initial_messages=(
@@ -300,12 +304,8 @@ class BackgroundTask:
             "error": self.error,
             "cancel_reason": self.cancel_reason,
             "created_at": float(self.created_at),
-            "started_at": (
-                float(self.started_at) if self.started_at is not None else None
-            ),
-            "finished_at": (
-                float(self.finished_at) if self.finished_at is not None else None
-            ),
+            "started_at": (float(self.started_at) if self.started_at is not None else None),
+            "finished_at": (float(self.finished_at) if self.finished_at is not None else None),
             "updated_at": float(self.updated_at),
         }
 

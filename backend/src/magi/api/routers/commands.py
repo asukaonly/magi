@@ -344,6 +344,9 @@ def _background_skill_spec(
         trigger_source=BackgroundTaskTriggerSource.MANUAL,
         max_iterations=int(request.max_iterations),
         timeout_seconds=request.timeout_seconds,
+        task_budget_root_turn_id=(
+            str(request.origin_turn_id).strip() if request.origin_turn_id else None
+        ),
         pending_message_id=pending_message_id,
     )
 

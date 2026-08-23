@@ -1141,6 +1141,13 @@ function-calling runs and worker tasks; SQLite reservations use
 oversell the same remaining capacity. A product runtime with chat storage but
 without a recoverable root identity fails closed for model calls and worker
 launches instead of silently granting a fresh in-memory allowance.
+When that chat run detaches or dispatches work into the background, the
+persisted background spec carries the same `root_turn_id`, so the continuation
+rehydrates the chat projection instead of receiving a second allowance.
+Standalone scheduled, batch, and manually created background tasks have no chat
+root; they use their stable background `task_id` as the budget identity and
+persist the counters in `background_tasks.db`. Every retry reuses that task id,
+so retrying cannot reset either limit.
 Explore orchestration state persists both that root identity and the upstream
 task-agent target, so a later worker update still reaches the originating chat
 session after actor reconstruction. Metadata-read or planning failures preserve

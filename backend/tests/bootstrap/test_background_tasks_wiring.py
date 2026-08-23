@@ -20,6 +20,7 @@ def test_build_background_task_wiring_composes_components(tmp_path: Path) -> Non
         llm_pool=None,
         skill_runner=None,
         runtime_trace_store=None,
+        chat_task_budget_store=None,
         max_concurrent=3,
     )
     assert isinstance(wiring.store, BackgroundTaskStore)

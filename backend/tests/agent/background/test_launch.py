@@ -22,6 +22,10 @@ from magi_plugin_sdk.run_trigger import RunTrigger
 
 from magi.agent.cancel import CancelToken, EventCancelToken, null_cancel_token
 from magi.agent.execution.function_calling import ExecutionOutcome
+from magi.agent.execution.task_budget import (
+    consume_task_llm_calls,
+    current_task_budget,
+)
 from magi.agent.task_agents.common.contracts import (
     BaseIntentDecision,
     BaseRuntimeContext,
@@ -31,15 +35,14 @@ from magi.agent.task_agents.common.contracts import (
     ToolSelection,
     UserMessagePayload,
 )
-from magi.agent.turn_input import UserTurnInput
-
-
+from magi.chat import ChatStore
 # ----------------------------------------------------------------------
 # Fixtures
 # ----------------------------------------------------------------------
 
 
-def _make_request(*,
+def _make_request(
+    *,
     user_message: str = "summarise the recent PRs",
     tools: list[str] | None = None,
     workspace_path: str | None = None,
@@ -82,9 +85,7 @@ def _make_request(*,
 
 @pytest.fixture
 async def manager(runtime_paths_with_schema) -> BackgroundTaskManager:
-    store = BackgroundTaskStore(
-        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
-    )
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     async def _noop_run(task: Any, token: CancelToken) -> BackgroundTaskRunResult:
         return BackgroundTaskRunResult(summary="", result_payload={})
@@ -121,15 +122,14 @@ def test_default_ack_text_handles_empty_title() -> None:
 
 
 def test_build_spec_captures_request_snapshot() -> None:
-    request = _make_request(user_message="deep research: renewable energy storage trends",
+    request = _make_request(
+        user_message="deep research: renewable energy storage trends",
         tools=["deep_research"],
         workspace_path="/home/u/repos/energy",
         turn_id="turn-xyz",
     )
 
-    spec = build_spec_from_request(
-        request, trigger_source=BackgroundTaskTriggerSource.RULE
-    )
+    spec = build_spec_from_request(request, trigger_source=BackgroundTaskTriggerSource.RULE)
 
     assert spec.user_id == "u1"
     assert spec.session_id == "s1"
@@ -139,15 +139,14 @@ def test_build_spec_captures_request_snapshot() -> None:
     assert spec.selected_tools == ["deep_research"]
     assert spec.workspace_path == "/home/u/repos/energy"
     assert spec.trigger_source is BackgroundTaskTriggerSource.RULE
+    assert spec.task_budget_root_turn_id == "turn-xyz"
 
 
 def test_build_spec_derives_title_from_first_line_and_truncates() -> None:
     long_msg = "a" * 200
     request = _make_request(user_message=long_msg)
 
-    spec = build_spec_from_request(
-        request, trigger_source=BackgroundTaskTriggerSource.CLASSIFIER
-    )
+    spec = build_spec_from_request(request, trigger_source=BackgroundTaskTriggerSource.CLASSIFIER)
 
     assert len(spec.title) <= 80
     assert spec.title.endswith("...")
@@ -157,9 +156,7 @@ def test_build_spec_derives_title_from_first_line_and_truncates() -> None:
 def test_build_spec_first_line_becomes_title() -> None:
     request = _make_request(user_message="Do the thing\nand then some\ncontinued")
 
-    spec = build_spec_from_request(
-        request, trigger_source=BackgroundTaskTriggerSource.USER
-    )
+    spec = build_spec_from_request(request, trigger_source=BackgroundTaskTriggerSource.USER)
 
     assert spec.title == "Do the thing"
 
@@ -167,9 +164,7 @@ def test_build_spec_first_line_becomes_title() -> None:
 def test_build_spec_defaults_title_when_message_empty() -> None:
     request = _make_request(user_message="")
 
-    spec = build_spec_from_request(
-        request, trigger_source=BackgroundTaskTriggerSource.MANUAL
-    )
+    spec = build_spec_from_request(request, trigger_source=BackgroundTaskTriggerSource.MANUAL)
 
     assert spec.title == "background task"
 
@@ -177,9 +172,7 @@ def test_build_spec_defaults_title_when_message_empty() -> None:
 def test_build_spec_omits_blank_workspace_path() -> None:
     request = _make_request(workspace_path="   ")
 
-    spec = build_spec_from_request(
-        request, trigger_source=BackgroundTaskTriggerSource.RULE
-    )
+    spec = build_spec_from_request(request, trigger_source=BackgroundTaskTriggerSource.RULE)
 
     assert spec.workspace_path is None
 
@@ -204,9 +197,7 @@ def test_build_spec_carries_run_trigger() -> None:
 
 
 def test_build_spec_trigger_defaults_to_none() -> None:
-    spec = build_spec_from_request(
-        _make_request(), trigger_source=BackgroundTaskTriggerSource.RULE
-    )
+    spec = build_spec_from_request(_make_request(), trigger_source=BackgroundTaskTriggerSource.RULE)
     assert spec.trigger is None
 
 
@@ -234,7 +225,8 @@ async def test_launch_service_enqueues_task_and_returns_ack(
     manager: BackgroundTaskManager,
 ) -> None:
     service = BackgroundLaunchService(manager)
-    request = _make_request(user_message="deep research job",
+    request = _make_request(
+        user_message="deep research job",
         tools=["deep_research"],
         turn_id="turn-7",
     )
@@ -322,6 +314,22 @@ class _RecordingOrchestrator:
         return await self.execute_with_tools(**run_input.to_execute_kwargs())
 
 
+class _BudgetConsumingOrchestrator:
+    def __init__(self) -> None:
+        self.roots: list[str | None] = []
+
+    async def run(self, _run_input: Any) -> ExecutionOutcome:
+        budget = current_task_budget()
+        self.roots.append(budget.root_turn_id if budget is not None else None)
+        await consume_task_llm_calls()
+        return ExecutionOutcome(
+            status="completed",
+            content="done",
+            tool_failures=[],
+            iterations=1,
+        )
+
+
 @pytest.mark.asyncio
 async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
     outcome = ExecutionOutcome(
@@ -371,9 +379,7 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
 
 @pytest.mark.asyncio
 async def test_run_fn_passes_cancel_token_through() -> None:
-    outcome = ExecutionOutcome(
-        status="cancelled", content="", tool_failures=[], iterations=1
-    )
+    outcome = ExecutionOutcome(status="cancelled", content="", tool_failures=[], iterations=1)
     orchestrator = _RecordingOrchestrator(outcome)
     run_fn = build_background_run_fn(function_calling_orchestrator=orchestrator)
 
@@ -394,6 +400,90 @@ async def test_run_fn_passes_cancel_token_through() -> None:
 
     assert result.summary == ""
     assert orchestrator.calls[0]["cancel_token"] is token
+
+
+@pytest.mark.asyncio
+async def test_standalone_run_rehydrates_task_budget_across_retries(
+    runtime_paths_with_schema,
+) -> None:
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
+    orchestrator = _BudgetConsumingOrchestrator()
+    run_fn = build_background_run_fn(
+        function_calling_orchestrator=orchestrator,
+        background_task_budget_store=store,
+    )
+    from magi.agent.background.contracts import BackgroundTask
+
+    task = BackgroundTask.new(
+        BackgroundTaskSpec(
+            user_id="u",
+            session_id="s",
+            origin_turn_id="",
+            title="T",
+            goal="g",
+            trigger_source=BackgroundTaskTriggerSource.SCHEDULE,
+        )
+    )
+    await store.create_task(task)
+
+    await run_fn(task, null_cancel_token())
+    await run_fn(task, null_cancel_token())
+
+    state = await store.ensure_task_execution_budget(
+        root_turn_id=task.task_id,
+        max_llm_calls=30,
+        max_worker_launches=8,
+    )
+    assert orchestrator.roots == [task.task_id, task.task_id]
+    assert state == (30, 2, 8, 0)
+
+
+@pytest.mark.asyncio
+async def test_chat_background_run_continues_root_turn_budget(
+    runtime_paths_with_schema,
+) -> None:
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    await chat_store.create_user_turn(
+        session_id="s",
+        user_id="u",
+        turn_id="turn-root",
+        message_text="continue in background",
+        created_at_ms=100,
+    )
+    background_store = BackgroundTaskStore(
+        db_path=str(runtime_paths_with_schema.background_tasks_db_path)
+    )
+    orchestrator = _BudgetConsumingOrchestrator()
+    run_fn = build_background_run_fn(
+        function_calling_orchestrator=orchestrator,
+        chat_task_budget_store=chat_store,
+        background_task_budget_store=background_store,
+    )
+    from magi.agent.background.contracts import BackgroundTask
+
+    task = BackgroundTask.new(
+        BackgroundTaskSpec(
+            user_id="u",
+            session_id="s",
+            origin_turn_id="turn-root",
+            title="T",
+            goal="g",
+            trigger_source=BackgroundTaskTriggerSource.MANUAL,
+            task_budget_root_turn_id="turn-root",
+        )
+    )
+    await background_store.create_task(task)
+
+    await run_fn(task, null_cancel_token())
+    await run_fn(task, null_cancel_token())
+
+    state = await chat_store.ensure_task_execution_budget(
+        root_turn_id="turn-root",
+        max_llm_calls=30,
+        max_worker_launches=8,
+    )
+    assert orchestrator.roots == ["turn-root", "turn-root"]
+    assert state == (30, 2, 8, 0)
 
 
 @pytest.mark.asyncio

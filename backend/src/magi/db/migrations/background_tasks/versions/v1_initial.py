@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS background_tasks (
     result_payload_json TEXT NOT NULL DEFAULT '{}',
     error TEXT,
     cancel_reason TEXT,
+    task_max_llm_calls INTEGER,
+    task_llm_calls_used INTEGER NOT NULL DEFAULT 0,
+    task_max_worker_launches INTEGER,
+    task_worker_launches_used INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL,
     started_at REAL,
     finished_at REAL,
@@ -93,6 +97,7 @@ DROP TABLE IF EXISTS background_task_completion_intents;
 
 DROP TABLE IF EXISTS background_tasks;
 """
+
 
 def upgrade() -> None:
     op.get_bind().connection.executescript(SCHEMA_SQL)
