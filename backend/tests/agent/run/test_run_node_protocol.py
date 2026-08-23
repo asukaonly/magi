@@ -139,9 +139,9 @@ def test_validate_node_snapshot_returns_empty_dict() -> None:
     """ValidateNode has no persistent state between invocations."""
     from magi.agent.run.nodes.validate import ValidateNode
 
-    class _StubRegistry:
-        async def execute(self, tool_name, parameters, context):
+    class _StubInvocationService:
+        async def invoke(self, call, context):
             return None
 
-    node = ValidateNode(tool_registry=_StubRegistry())
+    node = ValidateNode(tool_invocation_service=_StubInvocationService())
     assert node.snapshot() == {}

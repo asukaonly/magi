@@ -12,11 +12,11 @@ def test_validate_node_declares_node_type_validate() -> None:
 
 
 def test_validate_node_is_a_run_node_protocol_conformer() -> None:
-    class _StubToolRegistry:
-        async def execute(self, tool_name, parameters, context):
+    class _StubToolInvocationService:
+        async def invoke(self, call, context):
             return None
 
-    node = ValidateNode(tool_registry=_StubToolRegistry())
+    node = ValidateNode(tool_invocation_service=_StubToolInvocationService())
     assert isinstance(node, RunNode)
 
 
@@ -29,9 +29,9 @@ async def test_validate_node_returns_done_when_verify_tool_succeeds() -> None:
 
     captured_calls = []
 
-    class _StubToolRegistry:
-        async def execute(self, tool_name, parameters, context):
-            captured_calls.append((tool_name, parameters))
+    class _StubToolInvocationService:
+        async def invoke(self, call, context):
+            captured_calls.append((call.name, dict(call.args)))
             return ToolResult(
                 success=True,
                 data={
@@ -43,7 +43,7 @@ async def test_validate_node_returns_done_when_verify_tool_succeeds() -> None:
 
     from agent.fixtures_validate_node import build_minimal_request_for_validate
 
-    node = ValidateNode(tool_registry=_StubToolRegistry())
+    node = ValidateNode(tool_invocation_service=_StubToolInvocationService())
     request = build_minimal_request_for_validate()
 
     result = await node.execute(request)
@@ -60,8 +60,8 @@ async def test_validate_node_returns_failed_when_verify_tool_reports_file_errors
     returns NodeResult(FAILED) with the failed file paths surfaced."""
     from magi.tools.schema import ToolResult
 
-    class _StubToolRegistry:
-        async def execute(self, tool_name, parameters, context):
+    class _StubToolInvocationService:
+        async def invoke(self, call, context):
             return ToolResult(
                 success=True,
                 data={
@@ -76,7 +76,7 @@ async def test_validate_node_returns_failed_when_verify_tool_reports_file_errors
 
     from agent.fixtures_validate_node import build_minimal_request_for_validate
 
-    node = ValidateNode(tool_registry=_StubToolRegistry())
+    node = ValidateNode(tool_invocation_service=_StubToolInvocationService())
     request = build_minimal_request_for_validate()
 
     result = await node.execute(request)
@@ -92,8 +92,8 @@ async def test_validate_node_returns_failed_when_tool_itself_fails() -> None:
     ValidateNode returns NodeResult(FAILED) with the tool's error."""
     from magi.tools.schema import ToolResult
 
-    class _StubToolRegistry:
-        async def execute(self, tool_name, parameters, context):
+    class _StubToolInvocationService:
+        async def invoke(self, call, context):
             return ToolResult(
                 success=False,
                 error="bad mode arg",
@@ -102,7 +102,7 @@ async def test_validate_node_returns_failed_when_tool_itself_fails() -> None:
 
     from agent.fixtures_validate_node import build_minimal_request_for_validate
 
-    node = ValidateNode(tool_registry=_StubToolRegistry())
+    node = ValidateNode(tool_invocation_service=_StubToolInvocationService())
     request = build_minimal_request_for_validate()
 
     result = await node.execute(request)
@@ -118,8 +118,8 @@ async def test_validate_node_returns_done_when_no_files_changed() -> None:
     case where a coding turn was just a conversation with no edits."""
     from magi.tools.schema import ToolResult
 
-    class _StubToolRegistry:
-        async def execute(self, tool_name, parameters, context):
+    class _StubToolInvocationService:
+        async def invoke(self, call, context):
             return ToolResult(
                 success=True,
                 data={
@@ -131,7 +131,7 @@ async def test_validate_node_returns_done_when_no_files_changed() -> None:
 
     from agent.fixtures_validate_node import build_minimal_request_for_validate
 
-    node = ValidateNode(tool_registry=_StubToolRegistry())
+    node = ValidateNode(tool_invocation_service=_StubToolInvocationService())
     request = build_minimal_request_for_validate()
     result = await node.execute(request)
 
@@ -148,8 +148,8 @@ async def test_validate_node_builds_tool_execution_context() -> None:
 
     received_contexts = []
 
-    class _StubToolRegistry:
-        async def execute(self, tool_name, parameters, context):
+    class _StubToolInvocationService:
+        async def invoke(self, call, context):
             received_contexts.append(context)
             return ToolResult(
                 success=True,
@@ -162,12 +162,12 @@ async def test_validate_node_builds_tool_execution_context() -> None:
 
     from agent.fixtures_validate_node import build_minimal_request_for_validate
 
-    node = ValidateNode(tool_registry=_StubToolRegistry())
+    node = ValidateNode(tool_invocation_service=_StubToolInvocationService())
     request = build_minimal_request_for_validate()
     await node.execute(request)
 
     assert len(received_contexts) == 1
-    ctx = received_contexts[0]
+    ctx = received_contexts[0].execution_context
     assert isinstance(ctx, ToolExecutionContext), (
         f"Expected ToolExecutionContext, got {type(ctx)}"
     )
@@ -179,15 +179,42 @@ async def test_validate_node_builds_tool_execution_context() -> None:
 async def test_validate_node_handles_tool_exception_as_failed() -> None:
     """If the verify tool itself raises, ValidateNode returns FAILED."""
 
-    class _RaisingRegistry:
-        async def execute(self, tool_name, parameters, context):
-            raise RuntimeError("tool registry boom")
+    class _RaisingInvocationService:
+        async def invoke(self, call, context):
+            raise RuntimeError("tool invocation boom")
 
     from agent.fixtures_validate_node import build_minimal_request_for_validate
 
-    node = ValidateNode(tool_registry=_RaisingRegistry())
+    node = ValidateNode(tool_invocation_service=_RaisingInvocationService())
     request = build_minimal_request_for_validate()
     result = await node.execute(request)
 
     assert result.outcome == NodeOutcome.FAILED
-    assert "tool registry boom" in (result.error or "")
+    assert "tool invocation boom" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_validate_node_uses_canonical_pre_tool_hook() -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from magi.agent.execution.tool_invocation_service import ToolInvocationService
+    from magi.hooks.contracts import HookDecision
+
+    class _Registry:
+        execute = AsyncMock()
+
+    from agent.fixtures_validate_node import build_minimal_request_for_validate
+
+    registry = _Registry()
+    node = ValidateNode(
+        tool_invocation_service=ToolInvocationService(registry),
+    )
+    with patch(
+        "magi.hooks.dispatch.dispatch_hook",
+        new=AsyncMock(return_value=HookDecision.deny("validation blocked")),
+    ):
+        result = await node.execute(build_minimal_request_for_validate())
+
+    registry.execute.assert_not_awaited()
+    assert result.outcome == NodeOutcome.FAILED
+    assert result.error == "validation blocked"

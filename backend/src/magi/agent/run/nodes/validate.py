@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ....events.domain_payloads import TaskContext
 from ..nodes.protocol import NodeOutcome, NodeResult
 from ....tools.schema import ToolExecutionContext
 from magi.tools.capabilities import build_tool_capabilities
@@ -32,20 +33,20 @@ class ValidateNode:
 
     node_type: str = "validate"
 
-    __slots__ = ("_tool_registry",)
+    __slots__ = ("_tool_invocation_service",)
 
-    def __init__(self, tool_registry: Any) -> None:
-        """``tool_registry`` is the chat task agent's ToolRegistry — it
-        exposes ``async execute(tool_name, parameters, context)``."""
-        self._tool_registry = tool_registry
+    def __init__(self, tool_invocation_service: Any) -> None:
+        """Initialize the node with the canonical tool invocation service."""
+        self._tool_invocation_service = tool_invocation_service
 
     async def execute(self, request: "ExecutionRequest") -> NodeResult:
         try:
-            tool_context = self._build_tool_context(request)
-            tool_result = await self._tool_registry.execute(
-                "verify",
-                {"mode": "changed"},
-                tool_context,
+            from ...execution.tool_invocation_service import ToolCall  # noqa: PLC0415
+
+            invocation_context = self._build_invocation_context(request)
+            tool_result = await self._tool_invocation_service.invoke(
+                ToolCall(name="verify", args={"mode": "changed"}),
+                invocation_context,
             )
         except Exception as exc:
             return NodeResult(outcome=NodeOutcome.FAILED, error=str(exc))
@@ -60,12 +61,13 @@ class ValidateNode:
         if not tool_result.success:
             return NodeResult(
                 outcome=NodeOutcome.FAILED,
-                error=tool_result.error or "verify tool reported failure",
+                error=getattr(tool_result, "error", None) or "verify tool reported failure",
             )
 
         # Tool ran successfully — now check whether any individual file
         # verification failed by inspecting data["summary"].
-        data = tool_result.data if isinstance(tool_result.data, dict) else {}
+        raw_data = getattr(tool_result, "data", None)
+        data = raw_data if isinstance(raw_data, dict) else {}
         summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
         if not isinstance(summary, dict):
             summary = {}
@@ -138,6 +140,26 @@ class ValidateNode:
             env_vars={"session_id": str(session_id)},
             permissions=["authenticated", "dangerous_tools"],
             capabilities=build_tool_capabilities(),
+        )
+
+    @classmethod
+    def _build_invocation_context(
+        cls,
+        request: "ExecutionRequest",
+    ) -> Any:
+        from ...execution.tool_invocation_service import InvocationContext  # noqa: PLC0415
+
+        context = getattr(request, "context", None)
+        latest_payload = getattr(context, "latest_payload", None)
+        return InvocationContext(
+            tool_category="validation",
+            task_context=TaskContext(
+                session_id=getattr(context, "session_id", None),
+                turn_id=getattr(latest_payload, "turn_id", None),
+                task_id=getattr(context, "session_run_id", None),
+                user_id=getattr(context, "user_id", None),
+            ),
+            execution_context=cls._build_tool_context(request),
         )
 
 

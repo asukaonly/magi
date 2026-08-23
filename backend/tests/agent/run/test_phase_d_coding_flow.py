@@ -55,6 +55,7 @@ async def test_coding_profile_runs_tool_loop_then_validate_end_to_end() -> None:
     from magi.agent.run.nodes.validate import ValidateNode
     from magi.agent.run.registry import NodeRegistry
     from magi.agent.run.runner import NodeSequenceRunner
+    from magi.agent.execution.tool_invocation_service import ToolInvocationService
     from magi.agent.task_agents.common.contracts import (
         ExecutionMode,
         FunctionCallingExecutionResult,
@@ -85,7 +86,11 @@ async def test_coding_profile_runs_tool_loop_then_validate_end_to_end() -> None:
     registry.register(ReplyNode(direct_llm_handler=_StubFCHandler()))
     registry.register(ToolLoopNode(function_calling_handler=_StubFCHandler()))
     registry.register(PlanFanoutNode(orchestration_launch_handler=_StubFCHandler()))
-    registry.register(ValidateNode(tool_registry=_StubToolRegistry()))
+    registry.register(
+        ValidateNode(
+            tool_invocation_service=ToolInvocationService(_StubToolRegistry()),
+        )
+    )
 
     builder = GraphBuilder()
     runner = NodeSequenceRunner(node_registry=registry)
@@ -115,6 +120,7 @@ async def test_coding_profile_validation_failure_surfaces_both_outputs() -> None
     from magi.agent.run.nodes.validate import ValidateNode
     from magi.agent.run.registry import NodeRegistry
     from magi.agent.run.runner import NodeSequenceRunner
+    from magi.agent.execution.tool_invocation_service import ToolInvocationService
     from magi.agent.task_agents.common.contracts import (
         ExecutionMode, FunctionCallingExecutionResult,
     )
@@ -144,7 +150,11 @@ async def test_coding_profile_validation_failure_surfaces_both_outputs() -> None
     registry.register(ReplyNode(direct_llm_handler=_StubFCHandler()))
     registry.register(ToolLoopNode(function_calling_handler=_StubFCHandler()))
     registry.register(PlanFanoutNode(orchestration_launch_handler=_StubFCHandler()))
-    registry.register(ValidateNode(tool_registry=_ValidateFailRegistry()))
+    registry.register(
+        ValidateNode(
+            tool_invocation_service=ToolInvocationService(_ValidateFailRegistry()),
+        )
+    )
 
     builder = GraphBuilder()
     runner = NodeSequenceRunner(node_registry=registry)
@@ -175,6 +185,7 @@ async def test_non_coding_profile_runs_single_node_no_validate() -> None:
     from magi.agent.run.nodes.validate import ValidateNode
     from magi.agent.run.registry import NodeRegistry
     from magi.agent.run.runner import NodeSequenceRunner
+    from magi.agent.execution.tool_invocation_service import ToolInvocationService
     from magi.agent.task_agents.common.contracts import ExecutionMode, ExecutionResult
     from magi.tools.context_routing import RouteDecision
 
@@ -207,7 +218,11 @@ async def test_non_coding_profile_runs_single_node_no_validate() -> None:
     registry.register(ReplyNode(direct_llm_handler=_StubDirect()))
     registry.register(ToolLoopNode(function_calling_handler=_StubFC()))
     registry.register(PlanFanoutNode(orchestration_launch_handler=_StubOrch()))
-    registry.register(ValidateNode(tool_registry=_AssertNotCalledValidate()))
+    registry.register(
+        ValidateNode(
+            tool_invocation_service=ToolInvocationService(_AssertNotCalledValidate()),
+        )
+    )
 
     builder = GraphBuilder()
     runner = NodeSequenceRunner(node_registry=registry)

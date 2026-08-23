@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ..execution.task_budget import task_execution_budget_scope
+from ..execution.tool_invocation_service import get_tool_invocation_service
 from ..task_agents.common.contracts import ExecutionMode, ExecutionRequest, ExecutionResult
 from .builder import GraphBuilder
 from .nodes.plan_fanout import PlanFanoutNode
@@ -110,7 +111,11 @@ class TaskAgentExecutionEngine:
             self._node_registry.register(
                 PlanFanoutNode(orchestration_launch_handler=orchestration_launch)
             )
-        self._node_registry.register(ValidateNode(tool_registry=tool_registry))
+        self._node_registry.register(
+            ValidateNode(
+                tool_invocation_service=get_tool_invocation_service(tool_registry),
+            )
+        )
 
     def _get_handler_or_none(self, mode: ExecutionMode) -> Any | None:
         try:
