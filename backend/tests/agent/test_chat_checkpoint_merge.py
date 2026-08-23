@@ -14,6 +14,7 @@ from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, Intent
 from magi.agent.task_agents.handlers.handlers import ChatHandlerDependencies, FunctionCallingHandler
 from magi.chat.task_agent.interruption_classifier import InterruptionDisposition
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
+from magi.control.run_control import RetractRequested, SuspendRequested, null_run_control
 from magi.llm.model_context import unknown_model_context
 from magi.agent.task_agents.common import (
     ExecutionMode,
@@ -42,6 +43,7 @@ class _FakeOrchestrator:
         self.prepare_context_calls = 0
         self.prepare_context_include_tools: list[bool] = []
         self.context_failure = context_failure
+        self.execute_step_calls: list[dict[str, object]] = []
 
     def build_step_state(
         self,
@@ -76,6 +78,7 @@ class _FakeOrchestrator:
         )
 
     async def _execute_step(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.execute_step_calls.append(dict(kwargs))
         state = kwargs["state"]
         if self._on_step is not None:
             callback = self._on_step(state)
@@ -84,6 +87,14 @@ class _FakeOrchestrator:
         outcome = self._step_results.pop(0)
         state.iteration = outcome.iteration
         return outcome
+
+    @staticmethod
+    def _build_retracted_outcome(state, _signal):  # type: ignore[no-untyped-def]
+        return ExecutionOutcome(status="retracted", content="", iterations=state.iteration)
+
+    @staticmethod
+    def _build_suspended_outcome(state, _signal):  # type: ignore[no-untyped-def]
+        return ExecutionOutcome(status="suspended", content="", iterations=state.iteration)
 
     async def _prepare_context_for_model(
         self,
@@ -304,6 +315,7 @@ async def test_augment_turn_is_merged_at_next_checkpoint() -> None:
         "Inspect the login flow.",
         "Inspect the login flow.\n\nInstead of the login flow, inspect the signup flow.",
     ]
+    assert result.execution_outcome["iterations"] == 2
 
 
 @pytest.mark.asyncio
@@ -442,6 +454,112 @@ async def test_cancel_between_steps_short_circuits_loop() -> None:
     assert result.response_text == ""
     # Only one step state built (for iteration 0); cancel fires before iter 1.
     assert len(orchestrator.build_step_state_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_loop_honors_registered_retract_control() -> None:
+    coordinator = SessionRunCoordinator()
+    first_turn = coordinator.handle_user_turn(
+        UserMessagePayload(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Inspect the login flow.",
+            turn_id="turn-1",
+        )
+    )
+    control = null_run_control()
+    coordinator.register_active_run_control(
+        "s-chat",
+        first_turn.active_run.run_id,
+        control,
+    )
+    assert coordinator.request_retract(
+        session_id="s-chat",
+        payload=RetractRequested(reason="user_retract"),
+    )
+    orchestrator = _FakeOrchestrator(step_results=[])
+    handler = _make_handler(orchestrator, coordinator)
+    context = _make_context(
+        active_run=first_turn.active_run,
+        revision=first_turn.active_run.revision,
+        latest_user_message="Inspect the login flow.",
+    )
+    context.control = control
+
+    result = await handler.execute(_make_request(context))
+
+    assert result.execution_outcome["status"] == "retracted"
+    assert orchestrator.execute_step_calls == []
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_loop_honors_registered_suspend_control() -> None:
+    coordinator = SessionRunCoordinator()
+    first_turn = coordinator.handle_user_turn(
+        UserMessagePayload(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Inspect the login flow.",
+            turn_id="turn-1",
+        )
+    )
+    control = null_run_control()
+    control.suspend_signal.request(SuspendRequested(reason="window_closed"))
+    orchestrator = _FakeOrchestrator(step_results=[])
+    handler = _make_handler(orchestrator, coordinator)
+    context = _make_context(
+        active_run=first_turn.active_run,
+        revision=first_turn.active_run.revision,
+        latest_user_message="Inspect the login flow.",
+    )
+    context.control = control
+
+    result = await handler.execute(_make_request(context))
+
+    assert result.execution_outcome["status"] == "suspended"
+    assert orchestrator.execute_step_calls == []
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_loop_passes_control_into_model_step() -> None:
+    coordinator = SessionRunCoordinator()
+    first_turn = coordinator.handle_user_turn(
+        UserMessagePayload(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Inspect the login flow.",
+            turn_id="turn-1",
+        )
+    )
+    control = null_run_control()
+    coordinator.register_active_run_control(
+        "s-chat",
+        first_turn.active_run.run_id,
+        control,
+    )
+
+    def _retract_during_step(_state):  # type: ignore[no-untyped-def]
+        coordinator.request_retract(
+            session_id="s-chat",
+            payload=RetractRequested(reason="user_retract"),
+        )
+
+    orchestrator = _FakeOrchestrator(
+        step_results=[FunctionCallingStepOutcome(status="aborted", iteration=1)],
+        on_step=_retract_during_step,
+    )
+    handler = _make_handler(orchestrator, coordinator)
+    context = _make_context(
+        active_run=first_turn.active_run,
+        revision=first_turn.active_run.revision,
+        latest_user_message="Inspect the login flow.",
+    )
+    context.control = control
+
+    result = await handler.execute(_make_request(context))
+
+    assert result.execution_outcome["status"] == "retracted"
+    assert orchestrator.execute_step_calls[0]["control"] is control
 
 
 @pytest.mark.asyncio

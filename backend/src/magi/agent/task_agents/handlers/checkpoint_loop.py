@@ -10,9 +10,9 @@ from ....agent.execution.task_budget import TaskBudgetExceeded, prepay_task_llm_
 from ....agent.turn_input import UserTurnInput
 from magi.control.run_control import (
     DetachSignal,
+    RunControl,
     SteerInbox,
     bind_detach_signal,
-    null_run_control,
 )
 from ...run.ports import AttachmentResolverPort
 from ..common import FunctionCallingExecutionResult, FunctionCallingRequest
@@ -46,13 +46,11 @@ class FunctionCallingCheckpointLoop:
         *,
         deps: Any,
         attachment_resolver: AttachmentResolverPort,
-        cancel_token_factory: Callable[[FunctionCallingRequest], CancelToken],
         detached_result_builder: Callable[..., FunctionCallingExecutionResult],
         drain_pending_steer_turns: Callable[..., Awaitable[None]],
     ) -> None:
         self._deps = deps
         self._attachment_resolver = attachment_resolver
-        self._cancel_token_factory = cancel_token_factory
         self._detached_result_builder = detached_result_builder
         self._drain_pending_steer_turns = drain_pending_steer_turns
 
@@ -61,24 +59,20 @@ class FunctionCallingCheckpointLoop:
         request: FunctionCallingRequest,
         *,
         execution_workspace: str | None,
-        detach_signal: DetachSignal | None = None,
-        steer_inbox: SteerInbox | None = None,
+        control: RunControl,
     ) -> FunctionCallingExecutionResult:
         orchestrator = self._deps.function_calling_orchestrator
         cursor = self._initial_cursor(request)
-        cancel_token = self._cancel_token_factory(request)
         max_iterations = int(getattr(orchestrator, "MAX_ITERATIONS", 10) or 10)
         final_response_reason = "max_iterations_reached"
 
-        with bind_detach_signal(detach_signal):
+        with bind_detach_signal(control.detach_signal):
             while cursor.step_state.iteration < max_iterations:
                 iteration_result = await self._run_iteration(
                     request=request,
                     cursor=cursor,
                     execution_workspace=execution_workspace,
-                    cancel_token=cancel_token,
-                    detach_signal=detach_signal,
-                    steer_inbox=steer_inbox,
+                    control=control,
                 )
                 if iteration_result.terminal_result is not None:
                     return iteration_result.terminal_result
@@ -92,7 +86,7 @@ class FunctionCallingCheckpointLoop:
                 request=request,
                 cursor=cursor,
                 execution_workspace=execution_workspace,
-                cancel_token=cancel_token,
+                control=control,
                 final_response_reason=final_response_reason,
             )
 
@@ -102,34 +96,23 @@ class FunctionCallingCheckpointLoop:
         request: FunctionCallingRequest,
         cursor: _LoopCursor,
         execution_workspace: str | None,
-        cancel_token: CancelToken,
-        detach_signal: DetachSignal | None,
-        steer_inbox: SteerInbox | None,
+        control: RunControl,
     ) -> _LoopIterationResult:
-        cancelled = await self._maybe_build_cancelled_result(
+        control_result = await self._poll_control_boundary(
             request=request,
             cursor=cursor,
-            cancel_token=cancel_token,
-            include_payload=True,
+            control=control,
         )
-        if cancelled is not None:
-            return _LoopIterationResult(terminal_result=cancelled)
+        if control_result is not None:
+            return _LoopIterationResult(terminal_result=control_result)
 
-        detached = self._build_detached_result_if_requested(
-            request=request,
-            cursor=cursor,
-            detach_signal=detach_signal,
-        )
-        if detached is not None:
-            return _LoopIterationResult(terminal_result=detached)
-
-        await self._drain_steer_turns(request, cursor, steer_inbox)
+        await self._drain_steer_turns(request, cursor, control.steer_inbox)
         context_failure = await self._deps.function_calling_orchestrator._prepare_context_for_model(
             cursor.step_state
         )
         if context_failure is not None:
             return _LoopIterationResult(
-                terminal_result=self._build_failed_result(
+                terminal_result=self._build_execution_outcome_result(
                     request=request,
                     cursor=cursor,
                     execution_outcome=context_failure,
@@ -146,7 +129,7 @@ class FunctionCallingCheckpointLoop:
             request=request,
             cursor=cursor,
             execution_workspace=execution_workspace,
-            cancel_token=cancel_token,
+            control=control,
         )
         terminal = self._build_step_terminal_result(
             request=request,
@@ -158,17 +141,57 @@ class FunctionCallingCheckpointLoop:
         if step_outcome.status == "failed":
             return _LoopIterationResult(stop_for_fallback=True)
 
-        detached = self._build_detached_result_if_requested(
+        control_result = await self._poll_control_boundary(
             request=request,
             cursor=cursor,
-            detach_signal=detach_signal,
+            control=control,
         )
-        if detached is not None:
-            return _LoopIterationResult(terminal_result=detached)
+        if control_result is not None:
+            return _LoopIterationResult(terminal_result=control_result)
         return await self._maybe_rebuild_for_next_iteration(
             request=request,
             cursor=cursor,
-            steer_inbox=steer_inbox,
+            steer_inbox=control.steer_inbox,
+        )
+
+    async def _poll_control_boundary(
+        self,
+        *,
+        request: FunctionCallingRequest,
+        cursor: _LoopCursor,
+        control: RunControl,
+    ) -> FunctionCallingExecutionResult | None:
+        cancelled = await self._maybe_build_cancelled_result(
+            request=request,
+            cursor=cursor,
+            cancel_token=control.cancel_token,
+            include_payload=True,
+        )
+        if cancelled is not None:
+            return cancelled
+        orchestrator = self._deps.function_calling_orchestrator
+        if control.retract_signal.is_requested():
+            return self._build_execution_outcome_result(
+                request=request,
+                cursor=cursor,
+                execution_outcome=orchestrator._build_retracted_outcome(
+                    cursor.step_state,
+                    control.retract_signal,
+                ),
+            )
+        if control.suspend_signal.is_requested():
+            return self._build_execution_outcome_result(
+                request=request,
+                cursor=cursor,
+                execution_outcome=orchestrator._build_suspended_outcome(
+                    cursor.step_state,
+                    control.suspend_signal,
+                ),
+            )
+        return self._build_detached_result_if_requested(
+            request=request,
+            cursor=cursor,
+            detach_signal=control.detach_signal,
         )
 
     async def _drain_steer_turns(
@@ -246,9 +269,10 @@ class FunctionCallingCheckpointLoop:
         request: FunctionCallingRequest,
         cursor: _LoopCursor,
         execution_workspace: str | None,
-        cancel_token: CancelToken,
+        control: RunControl,
     ) -> Any:
-        return await self._deps.function_calling_orchestrator.step_executor.execute_step(
+        iteration_before = int(getattr(cursor.step_state, "iteration", 0) or 0)
+        outcome = await self._deps.function_calling_orchestrator.step_executor.execute_step(
             state=cursor.step_state,
             user_message=cursor.user_message,
             thinking_depth=request.thinking_depth,
@@ -260,9 +284,18 @@ class FunctionCallingCheckpointLoop:
             intent=request.intent.intent,
             execution_agent_id=request.context.runtime_key,
             execution_workspace=execution_workspace,
-            cancel_token=cancel_token,
+            cancel_token=control.cancel_token,
+            control=control,
             route_decision=request.intent.route_decision,
         )
+        completed_iteration = max(
+            iteration_before + 1,
+            int(getattr(cursor.step_state, "iteration", 0) or 0),
+            int(getattr(outcome, "iteration", 0) or 0),
+        )
+        cursor.step_state.iteration = completed_iteration
+        outcome.iteration = completed_iteration
+        return outcome
 
     async def _maybe_build_cancelled_result(
         self,
@@ -364,7 +397,7 @@ class FunctionCallingCheckpointLoop:
             ux_plan=_serialize_ux_plan(request.intent),
         )
 
-    def _build_failed_result(
+    def _build_execution_outcome_result(
         self,
         *,
         request: FunctionCallingRequest,
@@ -417,7 +450,11 @@ class FunctionCallingCheckpointLoop:
         cursor.revision = active_run.revision
         cursor.user_message = str(active_run.root_user_message or cursor.user_message)
         cursor.turn_id = active_run.root_turn_id or cursor.turn_id
-        cursor.step_state = self._build_step_state(request, cursor.user_message)
+        cursor.step_state = self._rebuild_step_state(
+            request,
+            cursor.user_message,
+            previous_iteration=cursor.step_state.iteration,
+        )
         if steer_inbox is not None:
             await steer_inbox.drain()
         return True
@@ -435,8 +472,26 @@ class FunctionCallingCheckpointLoop:
             return False
         cursor.user_message = str(checkpoint.visible_user_message or cursor.user_message)
         cursor.turn_id = checkpoint.pending_turns[-1].turn_id or cursor.turn_id
-        cursor.step_state = self._build_step_state(request, cursor.user_message)
+        cursor.step_state = self._rebuild_step_state(
+            request,
+            cursor.user_message,
+            previous_iteration=cursor.step_state.iteration,
+        )
         return True
+
+    def _rebuild_step_state(
+        self,
+        request: FunctionCallingRequest,
+        user_message: str,
+        *,
+        previous_iteration: int,
+    ) -> Any:
+        step_state = self._build_step_state(request, user_message)
+        step_state.iteration = max(
+            int(getattr(step_state, "iteration", 0) or 0),
+            int(previous_iteration),
+        )
+        return step_state
 
     async def _run_fallback(
         self,
@@ -444,7 +499,7 @@ class FunctionCallingCheckpointLoop:
         request: FunctionCallingRequest,
         cursor: _LoopCursor,
         execution_workspace: str | None,
-        cancel_token: CancelToken,
+        control: RunControl,
         final_response_reason: str,
     ) -> FunctionCallingExecutionResult:
         context_failure = await self._deps.function_calling_orchestrator._prepare_context_for_model(
@@ -452,17 +507,11 @@ class FunctionCallingCheckpointLoop:
             include_tools=False,
         )
         if context_failure is not None:
-            return self._build_failed_result(
+            return self._build_execution_outcome_result(
                 request=request,
                 cursor=cursor,
                 execution_outcome=context_failure,
             )
-        fallback_control = (
-            request.context.control
-            if hasattr(request.context, "control") and request.context.control is not None
-            else null_run_control()
-        )
-        fallback_control.cancel_token = cancel_token
         execution_outcome = (
             await self._deps.function_calling_orchestrator._execute_fallback_final_response(
                 state=cursor.step_state,
@@ -478,8 +527,8 @@ class FunctionCallingCheckpointLoop:
                 llm_timeout_seconds=None,
                 final_response_json_mode=False,
                 final_response_reason=final_response_reason,
-                cancel_token=cancel_token,
-                control=fallback_control,
+                cancel_token=control.cancel_token,
+                control=control,
                 route_decision=request.intent.route_decision,
             )
         )

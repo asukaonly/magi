@@ -131,7 +131,6 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         return FunctionCallingCheckpointLoop(
             deps=self._deps,
             attachment_resolver=self._attachment_resolver,
-            cancel_token_factory=self._build_cancel_token,
             detached_result_builder=self._build_detached_chat_result,
             drain_pending_steer_turns=self._drain_pending_steer_turns,
         )
@@ -246,13 +245,22 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         session_id = str(getattr(request.context, "session_id", "") or "").strip()
         detach_signal = self._build_detach_signal(session_id=session_id)
         steer_inbox = await self._build_steer_inbox(request)
+        cancel_token = self._build_cancel_token(request)
+        context_control = (
+            request.context.control if hasattr(request.context, "control") else None
+        )
+        control = self._build_run_control(
+            context_control,
+            cancel_token,
+            detach_signal=detach_signal,
+            steer_inbox=steer_inbox,
+        )
         try:
             if self._can_use_checkpoint_loop(request):
                 result = await self._execute_checkpoint_loop(
                     request,
                     execution_workspace=execution_workspace,
-                    detach_signal=detach_signal,
-                    steer_inbox=steer_inbox,
+                    control=control,
                 )
                 result.streamed = streaming_enabled
                 handoff = await self._maybe_handoff_detached_outcome(request, result)
@@ -260,11 +268,6 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                     return handoff
                 return result
 
-            cancel_token = self._build_cancel_token(request)
-            context_control = (
-                request.context.control if hasattr(request.context, "control") else None
-            )
-            control = self._build_run_control(context_control, cancel_token)
             route_decision = getattr(request.intent, "route_decision", None)
             execution_outcome = await self._execute_orchestrator_run(
                 request,
@@ -300,22 +303,30 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         request: FunctionCallingRequest,
         *,
         execution_workspace: str | None,
-        detach_signal: Any,
-        steer_inbox: Any,
+        control: Any,
     ) -> FunctionCallingExecutionResult:
         return await self._build_checkpoint_loop().run(
             request,
             execution_workspace=execution_workspace,
-            detach_signal=detach_signal,
-            steer_inbox=steer_inbox,
+            control=control,
         )
 
     @staticmethod
-    def _build_run_control(context_control: Any, cancel_token: CancelToken) -> Any:
+    def _build_run_control(
+        context_control: Any,
+        cancel_token: CancelToken,
+        *,
+        detach_signal: Any = None,
+        steer_inbox: Any = None,
+    ) -> Any:
         # Overlay the locally-built cancel token so the legacy cancel-button
         # path continues to work with the context-owned RunControl bundle.
         control = context_control if context_control is not None else null_run_control()
         control.cancel_token = cancel_token
+        if detach_signal is not None:
+            control.detach_signal = detach_signal
+        if steer_inbox is not None:
+            control.steer_inbox = steer_inbox
         return control
 
     async def _execute_orchestrator_run(
