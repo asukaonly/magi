@@ -6,6 +6,7 @@
 export { LabeledSelectField, NumberField, type SelectOption } from './form-fields';
 export { ExpandableMemoryLayerCard, type ExpandableMemoryLayerCardProps } from './ExpandableMemoryLayerCard';
 export {
+  MemoryDataSettingsSection,
   MemoryEventsSettingsSection,
   MemoryGeneralSettingsSection,
   MemoryKnowledgeSettingsSection,

@@ -1,5 +1,6 @@
 import type { SystemConfig } from '@/api/modules/config';
 import {
+  MemoryDataSettingsSection,
   MemoryEventsSettingsSection,
   MemoryGeneralSettingsSection,
   MemoryKnowledgeSettingsSection,
@@ -11,6 +12,7 @@ import type { MemoryToggleFieldId } from '@/types/settings';
 
 type SettingsMemorySectionId =
   | 'memoryGeneral'
+  | 'memoryData'
   | 'memoryWorkbench'
   | 'memoryEvents'
   | 'memoryKnowledge'
@@ -44,6 +46,9 @@ export function SettingsMemorySection({
           hasCrossEncoderModel={hasCrossEncoderModel}
         />
       );
+
+    case 'memoryData':
+      return <MemoryDataSettingsSection />;
 
     case 'memoryWorkbench':
       return (

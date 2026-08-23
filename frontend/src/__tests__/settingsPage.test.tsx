@@ -1389,6 +1389,7 @@ describe('settings page draft saving', () => {
 
     expect(memoryGroupButton).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryGeneral' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.tabs.memoryData' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryWorkbench' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryEvents' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryKnowledge' })).not.toBeInTheDocument();
@@ -1399,6 +1400,7 @@ describe('settings page draft saving', () => {
 
     expect(memoryGroupButton).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('button', { name: 'settings.tabs.memoryGeneral' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.memoryData' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'settings.tabs.memoryWorkbench' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'settings.tabs.memoryEvents' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'settings.tabs.memoryKnowledge' })).toBeInTheDocument();
@@ -1414,7 +1416,7 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryGeneral' })).not.toBeInTheDocument();
   });
 
-  it('places memory data management after vector maintenance and before danger without dirtying config', async () => {
+  it('places memory data management after vector maintenance and before danger on the data page without dirtying config', async () => {
     const user = userEvent.setup();
     pickDirectoryMock.mockResolvedValue('/tmp/portable memory backups');
     vi.mocked(configApi.get).mockResolvedValue({
@@ -1429,7 +1431,8 @@ describe('settings page draft saving', () => {
     render(<SettingsPage />);
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
-    await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryData' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryData' });
 
     const vectorTitle = screen.getByText('settings.memory.vector.title');
     const dataManagement = screen.getByTestId('memory-data-management-section');
@@ -1437,9 +1440,9 @@ describe('settings page draft saving', () => {
     expect(vectorTitle.compareDocumentPosition(dataManagement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(dataManagement.compareDocumentPosition(dangerZone) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    expect(screen.getByText('settings.allChangesSaved')).toBeInTheDocument();
-    const saveButton = screen.getByRole('button', { name: 'settings.actions.save' });
-    expect(saveButton).toBeDisabled();
+    // Immediate-action page: the draft save footer does not apply here.
+    expect(screen.queryByText('settings.allChangesSaved')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.actions.save' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', {
       name: 'settings.memory.dataManagement.backup.action',
@@ -1449,8 +1452,6 @@ describe('settings page draft saving', () => {
     }));
 
     expect(screen.getByText('/tmp/portable memory backups')).toBeInTheDocument();
-    expect(screen.getByText('settings.allChangesSaved')).toBeInTheDocument();
-    expect(saveButton).toBeDisabled();
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -1469,9 +1470,12 @@ describe('settings page draft saving', () => {
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
 
-    expect(await screen.findByTestId('memory-data-management-section')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'settings.tabs.memoryGeneral' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.memoryData' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'settings.tabs.memoryWorkbench' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.memoryData' }));
+    expect(await screen.findByTestId('memory-data-management-section')).toBeInTheDocument();
   });
 
   it('saves the workbench attention update cadence', async () => {

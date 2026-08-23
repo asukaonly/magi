@@ -50,6 +50,7 @@ const ADVANCED_MEMORY_SECTION_IDS = new Set([
 
 const MEMORY_SECTION_IDS = new Set<string>([
   'memoryGeneral',
+  'memoryData',
   'memoryWorkbench',
   'memoryEvents',
   'memoryKnowledge',
@@ -207,7 +208,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const effectiveActiveSection = quickMode && ADVANCED_MEMORY_SECTION_IDS.has(activeSection)
     ? 'memoryGeneral'
     : activeSection;
-  const showSettingsFooter = !['personalitySelection'].includes(effectiveActiveSection);
+  const showSettingsFooter = !['personalitySelection', 'memoryData'].includes(effectiveActiveSection);
   const browsePluginMarketplace = () => {
     setGroupExpanded('plugins', true);
     handleNavItemClick('pluginsMarketplace', false);
@@ -291,6 +292,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         return <RuntimeStatisticsSection />;
 
       case 'memoryGeneral':
+      case 'memoryData':
       case 'memoryWorkbench':
       case 'memoryEvents':
       case 'memoryKnowledge':

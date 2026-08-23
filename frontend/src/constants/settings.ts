@@ -42,6 +42,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Database,
     children: [
       { id: 'memoryGeneral' },
+      { id: 'memoryData' },
       { id: 'memoryWorkbench' },
       { id: 'memoryEvents' },
       { id: 'memoryKnowledge' },

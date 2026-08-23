@@ -1345,6 +1345,7 @@
       "personalitySettings": "Personality Settings",
       "memory": "Memory",
       "memoryGeneral": "General Memory",
+      "memoryData": "Data & Backup",
       "memoryWorkbench": "Workbench Memory",
       "memoryEvents": "Event Memory",
       "memoryKnowledge": "Knowledge Memory",

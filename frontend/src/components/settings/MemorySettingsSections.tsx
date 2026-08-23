@@ -253,10 +253,7 @@ export function MemoryGeneralSettingsSection({
   hasCrossEncoderModel,
 }: MemoryGeneralSettingsSectionProps) {
   const { t } = useTranslation('app');
-  const [clearDialogOpen, setClearDialogOpen] = useState(false);
-  const [clearing, setClearing] = useState(false);
   const [pickingArchivePath, setPickingArchivePath] = useState(false);
-  const [vectorRefreshRevision, setVectorRefreshRevision] = useState(0);
   const defaultArchivePath = DEFAULT_SYSTEM_CONFIG.memory.archive_path ?? '~/.magi/data/memory/archive';
   const effectiveArchivePath = draftConfig.memory.archive_path ?? defaultArchivePath;
   const canRestoreArchivePath = effectiveArchivePath !== defaultArchivePath;
@@ -280,32 +277,6 @@ export function MemoryGeneralSettingsSection({
     ...DEFAULT_SYSTEM_CONFIG.memory.graph_spreading,
     ...draftConfig.memory.graph_spreading,
   };
-
-  const handleClearConfirm = useCallback(async () => {
-    setClearing(true);
-    try {
-      const result = await clearAllMemory();
-      const feedback = summarizeMemoryClear(result);
-      toast.success(t('settings.memoryCleared', { count: feedback.clearedItemCount }));
-      if (feedback.recoveryPending) {
-        toast.warning(t('settings.memoryClearRecoveryPending'));
-      }
-      if (feedback.diagnosticLogsIncomplete) {
-        toast.warning(t('settings.memoryClearDiagnosticLogsIncomplete'));
-      }
-      if (feedback.browserStateIncomplete) {
-        toast.warning(t('settings.memoryClearBrowserStateIncomplete'));
-      }
-      if (feedback.otherWarningsPresent) {
-        toast.warning(t('settings.memoryClearCompletedWithWarnings'));
-      }
-      setClearDialogOpen(false);
-    } catch {
-      toast.error(t('settings.memoryClearFailed'));
-    } finally {
-      setClearing(false);
-    }
-  }, [t]);
 
   const handlePickArchivePath = useCallback(async () => {
     setPickingArchivePath(true);
@@ -459,7 +430,44 @@ export function MemoryGeneralSettingsSection({
           ) : null}
         </div>
       </MemoryGroup>
+    </MemorySectionShell>
+  );
+}
 
+export function MemoryDataSettingsSection() {
+  const { t } = useTranslation('app');
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [vectorRefreshRevision, setVectorRefreshRevision] = useState(0);
+
+  const handleClearConfirm = useCallback(async () => {
+    setClearing(true);
+    try {
+      const result = await clearAllMemory();
+      const feedback = summarizeMemoryClear(result);
+      toast.success(t('settings.memoryCleared', { count: feedback.clearedItemCount }));
+      if (feedback.recoveryPending) {
+        toast.warning(t('settings.memoryClearRecoveryPending'));
+      }
+      if (feedback.diagnosticLogsIncomplete) {
+        toast.warning(t('settings.memoryClearDiagnosticLogsIncomplete'));
+      }
+      if (feedback.browserStateIncomplete) {
+        toast.warning(t('settings.memoryClearBrowserStateIncomplete'));
+      }
+      if (feedback.otherWarningsPresent) {
+        toast.warning(t('settings.memoryClearCompletedWithWarnings'));
+      }
+      setClearDialogOpen(false);
+    } catch {
+      toast.error(t('settings.memoryClearFailed'));
+    } finally {
+      setClearing(false);
+    }
+  }, [t]);
+
+  return (
+    <MemorySectionShell className="space-y-0">
       <MemoryGroup>
         <VectorMaintenancePanel refreshRevision={vectorRefreshRevision} />
       </MemoryGroup>
