@@ -5,12 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from magi_plugin_sdk.run_trigger import IncomingEvent
-
 from magi.control.run_control import DetachSignal, RetractRequested
 from magi.agent.runtime.contracts import FactRecord
 from magi.core.logger import get_logger
-from magi.agent.run_triggers import build_user_message_trigger, is_external_source
+from magi.agent.run_triggers import build_user_message_trigger
 from magi.agent.task_agents.common import IncomingFactKind, UserMessagePayload
 from magi.agent.task_agents.handlers.run_contracts import ActiveRun
 from .fact_classifier import ClassifiedFact
@@ -32,9 +30,7 @@ logger = get_logger(__name__)
 _CHECKPOINT_EVENT_TYPES = {"CHAT_TOOL_LOOP_STEP"}
 
 # Phase H+1 / ADR-0004 P3: source→RunTrigger classification moved to the
-# trigger seam (``magi.agent.run_triggers``: build_user_message_trigger /
-# is_external_source). External sources additionally produce an
-# ``IncomingEvent(external_inbound)`` when landing on an already-active run.
+# trigger seam (``magi.agent.run_triggers.build_user_message_trigger``).
 
 
 @dataclass(slots=True)
@@ -391,34 +387,6 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             session_id=classified_fact.session_id,
         )
 
-    @staticmethod
-    def _build_external_inbound_event(
-        *,
-        payload: UserMessagePayload,
-        active_run_id: str | None,
-    ) -> IncomingEvent:
-        """Phase H+1: build the ``IncomingEvent(external_inbound)`` queued
-        alongside the legacy ``pending_turn`` when an external message
-        lands on an already-active run.
-
-        Kept as a helper so both the sync and async ``handle_user_turn``
-        paths share one construction site.
-        """
-        import time
-        import uuid
-
-        return IncomingEvent(
-            event_id=uuid.uuid4().hex,
-            event_type="external_inbound",
-            target_run_id=active_run_id,
-            arrived_at_ms=int(time.time() * 1000),
-            payload={
-                "source_channel": payload.source,
-                "content": payload.content,
-                "user_id": payload.user_id,
-            },
-        )
-
     def handle_user_turn(
         self,
         payload: UserMessagePayload,
@@ -547,7 +515,6 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             active_run=active_run,
             disposition=disposition,
         )
-        self._append_external_inbound_event_if_needed(applied.active_run, payload)
         return SessionFactDecision(
             active_run=applied.active_run,
             planner_fact=source_fact,
@@ -603,18 +570,4 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             active_run=self._run_store.get_active_run(payload.session_id),
             planner_fact_kind=IncomingFactKind.OTHER_FACT,
             superseded_turns=[],
-        )
-
-    def _append_external_inbound_event_if_needed(
-        self,
-        active_run: ActiveRun | None,
-        payload: UserMessagePayload,
-    ) -> None:
-        if active_run is None or not is_external_source(payload.source):
-            return
-        active_run.pending_events.append(
-            self._build_external_inbound_event(
-                payload=payload,
-                active_run_id=active_run.run_id,
-            )
         )

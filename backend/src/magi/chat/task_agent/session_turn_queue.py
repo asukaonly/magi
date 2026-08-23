@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from magi_plugin_sdk.run_trigger import IncomingEvent
-
 from magi.control.run_control import DetachRequested, DetachSignal
 from .interruption_classifier import InterruptionDisposition
 from magi.agent.task_agents.handlers.run_contracts import ActiveRun, PendingTurn
@@ -13,25 +11,6 @@ from .session_run_decisions import CheckpointDecision, TurnSupersession
 
 if TYPE_CHECKING:
     from .run_store import SessionRunStore
-
-
-# Phase H: IncomingEvent types that flow through the legacy PendingTurn-shaped
-# queue. Other event types (user_retract, child_run_completed, ...) are
-# handled by SessionRunCoordinator.dispatch_event.
-_STEER_LIKE_EVENT_TYPES = frozenset({"user_steer", "user_augment"})
-
-
-def _incoming_event_to_pending_turn(event: IncomingEvent) -> PendingTurn:
-    """Project a steer-style IncomingEvent into the legacy PendingTurn shape
-    so existing queue-consumption logic Just Works."""
-    return PendingTurn(
-        turn_id=event.event_id,
-        content=str(event.payload.get("content") or ""),
-        revision=int(event.payload.get("revision") or 0),
-        disposition=str(event.payload.get("disposition") or InterruptionDisposition.AUGMENT.value),
-        # PendingTurn.created_at is a float seconds; arrived_at_ms is ms.
-        created_at=event.arrived_at_ms / 1000.0,
-    )
 
 
 class SessionRunTurnQueueMixin:
@@ -178,20 +157,11 @@ class SessionRunTurnQueueMixin:
     def _current_revision_pending_turns(active_run: ActiveRun | None) -> list[PendingTurn]:
         if active_run is None:
             return []
-        items: list[PendingTurn] = [
+        return [
             pending_turn
             for pending_turn in active_run.pending_turns
             if pending_turn.revision == active_run.revision
         ]
-        # Phase H: also surface steer-style IncomingEvents that were dropped
-        # onto active_run.pending_events by SessionRunCoordinator.dispatch_event.
-        for event in active_run.pending_events:
-            if event.event_type not in _STEER_LIKE_EVENT_TYPES:
-                continue
-            projected = _incoming_event_to_pending_turn(event)
-            if projected.revision == active_run.revision:
-                items.append(projected)
-        return items
 
     @staticmethod
     def _current_revision_augment_pending_turns(active_run: ActiveRun | None) -> list[PendingTurn]:

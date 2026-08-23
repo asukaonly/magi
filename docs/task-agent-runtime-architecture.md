@@ -827,6 +827,12 @@ work. FACT_ONLY handling for AUGMENT / STEER / DEFER records acceptance only:
 it must not complete the pending `ChatTurn`, close its delivery ledger, or
 finalize the active run.
 
+`pending_turns` is the single live queue for user-authored follow-ups from both
+native and external channels. The typed `RunTrigger` and durable delivery
+envelope retain source provenance; the coordinator does not mirror external
+messages into a second process-local `IncomingEvent` queue. This keeps reads,
+deep-copy semantics, and checkpoint consumption on one source of truth.
+
 DEFER recovery is ledger-driven rather than L0-driven. If the process stops
 before run completion, each admitted non-terminal delivery is re-driven from
 its durable envelope. If releasing a captured DEFER batch fails while the
