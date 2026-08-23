@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+from magi_plugin_sdk.subprocess import BoundedStreamOutput, BoundedSubprocessResult
 from magi.tools.builtin.bash_tool import (
+    BASH_TOOL_TIMEOUT_SECONDS,
+    MAX_BASH_COMMAND_TIMEOUT_SECONDS,
+    SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS,
+    BashTool,
     _build_subprocess_env,
+    _decode_bounded_stream,
     _decode_process_output_with_encoding,
 )
+from magi.tools.schema import ToolExecutionContext
 
 
 def test_decode_process_output_prefers_utf8(monkeypatch):
@@ -19,6 +29,34 @@ def test_decode_process_output_prefers_utf8(monkeypatch):
 
     decoded, _ = _decode_process_output_with_encoding(text.encode("utf-8"))
     assert decoded == text
+
+
+def test_bash_schema_leaves_outer_cleanup_headroom() -> None:
+    tool = BashTool()
+    timeout_parameter = next(item for item in tool.schema.parameters if item.name == "timeout")
+
+    assert timeout_parameter.max_value == MAX_BASH_COMMAND_TIMEOUT_SECONDS
+    assert tool.schema.timeout == BASH_TOOL_TIMEOUT_SECONDS
+    assert tool.schema.timeout == timeout_parameter.max_value + SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_bash_missing_executable_returns_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "magi.tools.builtin.bash_tool._resolve_bash_executable",
+        lambda: None,
+    )
+
+    result = await BashTool().execute(
+        {"command": "echo hi"},
+        ToolExecutionContext(agent_id="test-agent", workspace="."),
+    )
+
+    assert result.success is False
+    assert result.error_code == "UNSUPPORTED"
+    assert result.error == "Bash executable not found on PATH"
 
 
 def test_decode_process_output_falls_back_to_windows_code_page(monkeypatch):
@@ -104,12 +142,79 @@ def test_build_subprocess_env_removes_proxy_when_disabled(monkeypatch):
 def test_build_subprocess_env_uses_configured_proxy(monkeypatch):
     monkeypatch.setattr(
         "magi.config.get_config",
-        lambda: SimpleNamespace(
-            network=SimpleNamespace(proxy_url=lambda: "http://127.0.0.1:7890")
-        ),
+        lambda: SimpleNamespace(network=SimpleNamespace(proxy_url=lambda: "http://127.0.0.1:7890")),
     )
 
     env = _build_subprocess_env()
 
     assert env["HTTP_PROXY"] == "http://127.0.0.1:7890"
     assert env["HTTPS_PROXY"] == "http://127.0.0.1:7890"
+
+
+def test_decode_truncated_utf8_tail_uses_replacement() -> None:
+    encoded = "前后".encode("utf-8")
+    stream = BoundedStreamOutput(
+        tail=encoded[1:],
+        total_bytes=len(encoded) + 10,
+        truncated=True,
+        spill_path=None,
+    )
+
+    decoded, encoding = _decode_bounded_stream(stream)
+
+    assert decoded.endswith("后")
+    assert "\ufffd" in decoded
+    assert encoding == "utf-8/replace"
+
+
+@pytest.mark.asyncio
+async def test_bash_timeout_keeps_partial_output_and_bounded_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[object, dict[str, object]]] = []
+    spill_path = Path("C:/temp/full-stdout.bin")
+
+    async def fake_run(command: object, **kwargs: object) -> BoundedSubprocessResult:
+        calls.append((command, kwargs))
+        return BoundedSubprocessResult(
+            returncode=1,
+            stdout=BoundedStreamOutput(
+                tail="部分输出".encode("utf-8"),
+                total_bytes=100_000,
+                truncated=True,
+                spill_path=spill_path,
+            ),
+            stderr=BoundedStreamOutput(
+                tail=b"",
+                total_bytes=0,
+                truncated=False,
+                spill_path=None,
+            ),
+            timed_out=True,
+        )
+
+    monkeypatch.setattr("magi.tools.builtin.bash_tool.run_bounded_subprocess", fake_run)
+    monkeypatch.setattr(
+        "magi.tools.builtin.bash_tool._resolve_bash_executable",
+        lambda: "/usr/bin/bash",
+    )
+    tool = BashTool()
+    result = await tool.execute(
+        {"command": "echo hi", "cwd": ".", "timeout": 7},
+        ToolExecutionContext(agent_id="test-agent", workspace="."),
+    )
+
+    assert result.success is False
+    assert result.error_code == "TIMEOUT"
+    assert result.data["command"] == "echo hi"
+    assert result.data["stdout"] == "部分输出"
+    assert result.data["return_code"] == 1
+    assert result.data["stdout_total_bytes"] == 100_000
+    assert result.data["stdout_truncated"] is True
+    assert result.data["stdout_spill_path"] == str(spill_path)
+    assert result.data["timed_out"] is True
+    command, kwargs = calls[0]
+    assert command == ["/usr/bin/bash", "-c", "echo hi"]
+    assert kwargs["shell"] is False
+    assert kwargs["timeout"] == 7
+    assert kwargs["max_spill_bytes"] == 0

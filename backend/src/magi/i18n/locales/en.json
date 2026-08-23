@@ -5,8 +5,13 @@
   "chat": {
     "image_vision_unsupported": "I received an image, but the current core model does not support image input. Please switch to a vision-capable core model or resend the message with a text description.",
     "context_window_exceeded": "This conversation is too long for the current core model. Please shorten the current message, start a new conversation, or choose a model with a larger context capacity.",
+    "explore": {
+      "execution_failed": "The exploration could not complete safely ({error_type}).",
+      "execution_failed_generic": "The exploration stopped before it could produce a result."
+    },
     "delivery": {
       "execution_failed": "I couldn't finish this message. Send it again to retry.",
+      "execution_limit_reached": "This task reached its execution limit and was stopped to avoid an unbounded loop. Narrow the request or start a new task.",
       "recovery_failed": "This message could not continue after the last interruption. Please send it again."
     },
     "runtime": {

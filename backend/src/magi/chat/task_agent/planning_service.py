@@ -15,6 +15,7 @@ from magi.llm.streaming_events import get_stream_sink, stream_source
 from magi.tools.registry import ToolRegistry
 from magi.tools.tool_hint_resolver import ToolHintResolver
 from magi.utils.diagnostic_logging import full_content_logging_enabled
+from magi.agent.execution.task_budget import TaskBudgetExceeded
 from magi.agent.execution.tool_invocation_service import (
     InvocationContext,
     ToolCall as _ServiceToolCall,
@@ -331,6 +332,8 @@ class ChatPlanningService(ChatPlanningPromptMixin):
         )
         try:
             response = await self._call_task_agent_planner(planning_request)
+        except TaskBudgetExceeded:
+            raise
         except Exception as exc:
             logger.warning("Task-agent planning call failed | error=%s", exc)
             return None

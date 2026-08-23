@@ -77,12 +77,13 @@ class WorkerPromptMixin:
         if subagent_type == host.TYPE_PLAN:
             return (
                 "Act as a software architect. Return ONLY valid JSON with this schema: "
-                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null","subtasks":[{"description":"string","subagent_type":"CodeExplore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
+                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"records":[{"field":"value"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null","subtasks":[{"description":"string","subagent_type":"CodeExplore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
                 "The plan must be decision-complete, keep subtasks bounded, and not include any final user-facing aggregation. "
                 "Start from the most concrete anchor or owning code path you can identify, then split by neighboring responsibilities only when needed. "
                 "Prefer execution-ready subtasks organized around concrete entry points, interfaces, modules, or discriminating checks. "
                 "Avoid generic subtasks like gathering context or summarizing risks unless the parent request explicitly needs them or ambiguity remains unresolved. "
                 "If you name a file, symbol, route, flag, or config key in findings or evidence, confirm it exists in the current code before treating it as fact. "
+                "Put homogeneous structured rows in records, or use an empty list when there are none. Never return a top-level JSON array. "
                 "Any response that is not a single valid JSON object will be treated as failure."
             )
         if subagent_type == host.TYPE_CODING:
@@ -93,9 +94,10 @@ class WorkerPromptMixin:
         return (
             "Act as a general-purpose leaf execution agent for one bounded task. "
             "Return ONLY valid JSON with this schema: "
-            '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null"}. '
+            '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"records":[{"field":"value"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null"}. '
             "For external evidence, evidence.path should be the canonical URL or source label. "
             "For local file evidence, evidence.path should be the verified file path. "
+            "Put homogeneous structured rows such as file inventories or candidate lists in records, or use an empty list when there are none. Never return a top-level JSON array. "
             "Treat the iteration limit as a safety ceiling, not a target: stop as soon as the bounded task has enough evidence, and do not repeat equivalent searches. "
             "Any response that is not a single valid JSON object will be treated as failure."
         )
@@ -111,13 +113,25 @@ class WorkerPromptMixin:
             "3. Match existing nearby style. Do not refactor unrelated code, do not "
             "add backwards-compatibility shims, and do not add comments unless the "
             "*why* is non-obvious.\n"
-            "4. If a destructive bash command (rm -rf, git push --force, git reset "
-            "--hard) is required, STOP and report. Never pass confirm_destructive=true "
+            "4. If a destructive shell command (for example rm -rf, Remove-Item "
+            "-Recurse -Force, git push --force, or git reset --hard) is required, "
+            "STOP and report. Never pass confirm_destructive=true "
             "on your own initiative; that decision is the user's.\n"
             "5. If two consecutive verify cycles still fail, stop and report what "
             "blocked you instead of looping.\n"
-            "Final reply: plain text. List (a) files changed, (b) intent of the "
-            "change, (c) verify summary, (d) anything you noticed but did not do."
+            "Final reply: return ONLY valid JSON with this schema: "
+            '{"result_status":"success|partial|failed","summary":"string",'
+            '"findings":[{"title":"string","detail":"string"}],'
+            '"evidence":[{"path":"string","detail":"string"}],'
+            '"artifacts":[{"path":"string","operation":"created|modified|deleted"}],'
+            '"verification":[{"command":"string","status":"passed|failed",'
+            '"detail":"string"}],"records":[{"field":"value"}],"gaps":["string"],'
+            '"next_steps":["string"],"failure_reason":"string|null"}. '
+            "Success or partial requires at least one artifact, at least one verification "
+            "entry, and every verification status must be passed. Failed results may use "
+            "empty artifact and verification lists but must include failure_reason. Partial "
+            "results must include at least one gap and one next step. "
+            "Do not emit Markdown, code fences, or prose outside the JSON object."
         )
 
     def _build_worker_environment_rules(self, execution_workspace: Optional[str]) -> str:
@@ -167,11 +181,13 @@ Return ONLY valid JSON with this schema:
   "summary": "string",
   "findings": [{"title": "string", "detail": "string", "path": "string", "why_it_matters": "string"}],
   "evidence": [{"path": "string", "detail": "string"}],
+  "records": [{"field": "value"}],
   "gaps": ["string"],
   "next_steps": ["string"],
   "failure_reason": "string|null"
 }
 Do not emit Markdown, prose before the JSON, or fenced code blocks.
+Put homogeneous structured rows in records, or use an empty list when there are none. Never return a top-level JSON array.
 Before sending the final answer, self-check that it can be parsed by json.loads and that all required fields are present.
 """
         return "\n".join([common_rules.strip(), profile, schema_rules.strip()])

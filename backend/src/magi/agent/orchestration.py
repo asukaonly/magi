@@ -9,9 +9,11 @@ from .orchestration_models import (
     SubtaskDefinition,
     SubtaskPlan,
     TaskOrchestrationState,
+    WorkerArtifact,
     WorkerEvidence,
     WorkerFinding,
     WorkerResult,
+    WorkerVerification,
 )
 from .orchestration_store import OrchestrationStore, get_orchestration_store
 
@@ -24,8 +26,10 @@ __all__ = [
     "SubtaskDefinition",
     "SubtaskPlan",
     "TaskOrchestrationState",
+    "WorkerArtifact",
     "WorkerEvidence",
     "WorkerFinding",
     "WorkerResult",
+    "WorkerVerification",
     "get_orchestration_store",
 ]

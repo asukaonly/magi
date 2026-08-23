@@ -17,7 +17,7 @@ Consequences:
 
 Residency is defined as: every tool in the ``control`` category, plus a small
 explicit allowlist of ``system``-category tools that are control-in-spirit
-(they change execution context / discover tools) but are not categorised as
+(they change execution context) but are not categorised as
 ``control``.
 """
 from __future__ import annotations
@@ -36,7 +36,6 @@ from typing import Any
 # depending on the router having pre-selected it.
 _EXPLICIT_RESIDENT_TOOLS: tuple[str, ...] = (
     "detach_to_background",
-    "find-relevant-tools",
     "batch_create",
 )
 

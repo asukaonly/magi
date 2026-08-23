@@ -7,6 +7,7 @@ import asyncio
 import os
 from typing import Any, Dict
 
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from ..base import Provider, ProviderConfig
 
 
@@ -71,6 +72,7 @@ class CurlFetchProvider(Provider):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            **hidden_process_kwargs(),
         )
         stdout, stderr = await process.communicate()
 

@@ -352,6 +352,43 @@ def test_chat_planning_service_generic_fallback_and_leaf_prompt_emphasize_anchor
 
 
 @pytest.mark.asyncio
+async def test_chat_planning_does_not_decompose_after_task_budget_exhaustion() -> None:
+    from magi.agent.execution.task_budget import TaskBudgetExceeded
+
+    class _ExhaustedPromptService:
+        async def call_llm(self, **_kwargs):  # type: ignore[no-untyped-def]
+            raise TaskBudgetExceeded(
+                resource="llm_calls",
+                limit=1,
+                used=1,
+                requested=1,
+            )
+
+    service = ChatPlanningService(
+        agent_id="user-1",
+        runtime_key="chat:user-1",
+        context_service=SimpleNamespace(),
+        prompt_service=_ExhaustedPromptService(),
+        context_assembler=SimpleNamespace(),
+        tool_registry=_registry_with_file_tools(),
+        parent_task_agent_type="chat",
+    )
+
+    with pytest.raises(TaskBudgetExceeded, match="llm_calls"):
+        await service.generate_subtask_plan(
+            user_message="Analyze task orchestration",
+            history=[],
+            orchestration_plan=OrchestrationPlan(
+                mode="decompose",
+                default_leaf_type="CodeExplore",
+                allow_parallel=True,
+            ),
+            user_id="user-1",
+            session_id="session-1",
+        )
+
+
+@pytest.mark.asyncio
 async def test_chat_planning_service_mixed_evidence_prompt_preserves_external_leaf_and_drops_synthesis() -> None:
     captured: dict[str, object] = {}
 
@@ -643,6 +680,7 @@ async def test_start_explore_task_agent_routes_upstream_to_chat_session() -> Non
             history=[],
             conversation_history=[],
             active_orchestrations=[],
+            active_run=SimpleNamespace(root_turn_id="turn-root"),
             recent_tool_errors=[],
             latest_user_message="analyze repo",
             incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -674,6 +712,7 @@ async def test_start_explore_task_agent_routes_upstream_to_chat_session() -> Non
     assert agent_id == "user-1"
     assert fact.payload["upstream_task_agent_type"] == "chat"
     assert fact.payload["upstream_task_agent_id"] == "session-1"
+    assert fact.payload["root_turn_id"] == "turn-root"
     assert fact.user_message_generation == 7
 
 
@@ -705,6 +744,7 @@ async def test_explore_completion_payload_targets_chat_session() -> None:
         latest_payload=UserMessagePayload(user_id="user-1", session_id="session-1", content="analyze repo"),
         upstream_task_agent_type="chat",
         upstream_task_agent_id="session-1",
+        root_turn_id="turn-root",
         user_message_generation=7,
     )
 
@@ -726,6 +766,7 @@ async def test_explore_completion_payload_targets_chat_session() -> None:
     assert fact.agent_id == "chat:session-1"
     assert fact.payload["target_task_agent_type"] == "chat"
     assert fact.payload["target_task_agent_id"] == "session-1"
+    assert fact.payload["root_turn_id"] == "turn-root"
     assert fact.user_message_generation == 7
 
 

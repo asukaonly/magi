@@ -11,6 +11,17 @@ from ..workers import (
     WORKER_AGENT_FAILED,
     WORKER_AGENT_PROGRESS,
 )
+from ..workers.worker_state import (
+    DEFAULT_WORKER_AWAIT_TIMEOUT_SECONDS,
+    DEFAULT_WORKER_MAX_ITERATIONS,
+    MAX_WORKER_AWAIT_TIMEOUT_SECONDS,
+    MAX_WORKER_MAX_ITERATIONS,
+    WORKER_TOOL_TIMEOUT_SECONDS,
+)
+from ..workers.worker_schema import (
+    build_worker_schema_examples,
+    build_worker_schema_parameters,
+)
 
 # L12 -> L8 downward (legal): the agent tool still hands its sub-agents a
 # reference to the host tool registry so they can resolve their own tool set.
@@ -63,7 +74,7 @@ class AgentTool(Tool):
             name="agent",
             description=(
                 "Launch a specialized worker agent for complex tasks. "
-                "Worker types: general-purpose, CodeExplore, Plan. "
+                "Worker types: general-purpose, CodeExplore, Plan, Coding. "
                 "Supports foreground wait and background execution."
             ),
             category="agent",
@@ -71,7 +82,7 @@ class AgentTool(Tool):
             author="Magi Team",
             parameters=_agent_tool_schema_parameters(self),
             examples=_agent_tool_schema_examples(),
-            timeout=300,
+            timeout=WORKER_TOOL_TIMEOUT_SECONDS,
             dangerous=False,
             tags=["agent", "worker", "planning", "exploration"],
             metadata=_agent_tool_schema_metadata(),
@@ -107,42 +118,7 @@ class AgentTool(Tool):
         valid, error = await super().validate_parameters(parameters)
         if not valid:
             return valid, error
-
-        action = str(parameters.get("action", self.ACTION_LAUNCH))
-        if action not in {self.ACTION_LAUNCH, self.ACTION_STATUS, self.ACTION_AWAIT}:
-            return False, f"Unsupported action: {action}"
-
-        worker_ids = parameters.get("worker_ids")
-        has_worker_ids = isinstance(worker_ids, list) and len(worker_ids) > 0
-        has_worker_id = bool(str(parameters.get("worker_id", "")).strip())
-        if (
-            action in {self.ACTION_STATUS, self.ACTION_AWAIT}
-            and not has_worker_id
-            and not has_worker_ids
-        ):
-            return False, "worker_id or worker_ids is required for status/await actions"
-
-        if action == self.ACTION_LAUNCH:
-            workers = parameters.get("workers")
-            if isinstance(workers, list) and workers:
-                for idx, worker in enumerate(workers):
-                    if not isinstance(worker, dict):
-                        return False, f"workers[{idx}] must be an object"
-                    if not str(worker.get("subagent_type", "")).strip():
-                        return False, f"workers[{idx}].subagent_type is required"
-                    if not str(worker.get("description", "")).strip():
-                        return False, f"workers[{idx}].description is required"
-                    if not str(worker.get("prompt", "")).strip():
-                        return False, f"workers[{idx}].prompt is required"
-            else:
-                if not str(parameters.get("subagent_type", "")).strip():
-                    return False, "subagent_type is required for launch action"
-                if not str(parameters.get("description", "")).strip():
-                    return False, "description is required for launch action"
-                if not str(parameters.get("prompt", "")).strip():
-                    return False, "prompt is required for launch action"
-
-        return True, None
+        return await self._manager.validate_parameters(parameters)
 
     async def execute(
         self,
@@ -181,13 +157,7 @@ class AgentTool(Tool):
 
 
 def _agent_tool_schema_parameters(tool: AgentTool) -> list[ToolParameter]:
-    return [
-        *_agent_action_parameters(tool),
-        *_agent_launch_parameters(tool),
-        *_agent_execution_parameters(),
-        *_agent_routing_parameters(),
-        *_agent_context_parameters(),
-    ]
+    return build_worker_schema_parameters(tool)
 
 
 def _agent_action_parameters(tool: AgentTool) -> list[ToolParameter]:
@@ -283,18 +253,18 @@ def _agent_execution_parameters() -> list[ToolParameter]:
             type=ParameterType.INTEGER,
             description="Maximum internal tool-loop iterations for this worker",
             required=False,
-            default=20,
+            default=DEFAULT_WORKER_MAX_ITERATIONS,
             min_value=1,
-            max_value=50,
+            max_value=MAX_WORKER_MAX_ITERATIONS,
         ),
         ToolParameter(
             name="timeout_seconds",
             type=ParameterType.INTEGER,
             description="Timeout in seconds for await action",
             required=False,
-            default=300,
+            default=DEFAULT_WORKER_AWAIT_TIMEOUT_SECONDS,
             min_value=1,
-            max_value=3600,
+            max_value=MAX_WORKER_AWAIT_TIMEOUT_SECONDS,
         ),
     ]
 
@@ -366,17 +336,7 @@ def _agent_context_parameters() -> list[ToolParameter]:
 
 
 def _agent_tool_schema_examples() -> list[dict[str, object]]:
-    return [
-        {
-            "input": {
-                "action": "launch",
-                "subagent_type": "CodeExplore",
-                "description": "scan auth flow",
-                "prompt": "Find where JWT token is created and validated.",
-            },
-            "output": "Returns worker id and status",
-        }
-    ]
+    return build_worker_schema_examples()
 
 
 def _agent_tool_schema_metadata() -> dict[str, object]:

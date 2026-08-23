@@ -93,6 +93,22 @@ async def test_off_mode_still_blocks_kill_list() -> None:
 
 
 @pytest.mark.asyncio
+async def test_off_mode_blocks_powershell_root_alias_bypass() -> None:
+    prompter = _StubPrompter(UserPromptResponse(allow=True))
+    gateway, _ = await _make_gateway(mode=PermissionMode.OFF, prompter=prompter)
+
+    decision = await gateway.gate(
+        tool_name="powershell",
+        arguments={"command": "ri C:\\* -r -fo"},
+        agent_id="a1",
+    )
+
+    assert decision.outcome is PermissionOutcome.KILL_LISTED
+    assert decision.source == "kill_list:remove_item_root"
+    assert prompter.calls == []
+
+
+@pytest.mark.asyncio
 async def test_high_only_lets_low_risk_through_silently() -> None:
     prompter = _StubPrompter(UserPromptResponse(allow=False))
     gateway, _ = await _make_gateway(mode=PermissionMode.HIGH_ONLY, prompter=prompter)
@@ -118,6 +134,23 @@ async def test_high_only_prompts_on_high_risk() -> None:
     assert decision.outcome is PermissionOutcome.ALLOWED
     assert decision.source == "user"
     assert len(prompter.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_high_only_prompts_for_unknown_powershell_command() -> None:
+    prompter = _StubPrompter(UserPromptResponse(allow=True))
+    gateway, _ = await _make_gateway(mode=PermissionMode.HIGH_ONLY, prompter=prompter)
+
+    decision = await gateway.gate(
+        tool_name="powershell",
+        arguments={"command": "Some-CustomCommand -DoSomething"},
+        agent_id="a1",
+    )
+
+    assert decision.outcome is PermissionOutcome.ALLOWED
+    assert decision.source == "user"
+    assert len(prompter.calls) == 1
+    assert prompter.calls[0].risk_level.value == "high"
 
 
 @pytest.mark.asyncio

@@ -475,6 +475,52 @@ async def test_chat_pipeline_failure_writes_retryable_terminal_surface(
 
 
 @pytest.mark.asyncio
+async def test_budget_failure_writes_execution_limit_terminal_surface(
+    runtime_paths_with_schema,
+) -> None:
+    from magi.agent.execution.task_budget import TaskBudgetExceeded
+    from magi.i18n import language_context
+
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    await store.initialize()
+    turn_id = "turn-budget-failure"
+    await _create_admitted_turn(
+        store,
+        session_id="session-budget-failure",
+        turn_id=turn_id,
+    )
+    agent = ChatTaskAgent(
+        agent_id="session-budget-failure",
+        llm_adapter=_FakeLLMAdapter(),
+        chat_store=store,
+    )
+
+    with language_context("en"):
+        finalized = await agent._postprocess_service.handle_pipeline_failure(
+            source_fact=_fact(
+                session_id="session-budget-failure",
+                turn_id=turn_id,
+            ),
+            error=TaskBudgetExceeded(
+                resource="llm_calls",
+                limit=30,
+                used=30,
+                requested=1,
+            ),
+            stage="match_intent",
+        )
+
+    final = await store.get_latest_message_for_turn(
+        turn_id,
+        message_kind="assistant_final",
+    )
+    assert finalized is True
+    assert final is not None
+    assert "execution limit" in str(final.content_text)
+    assert "Send it again" not in str(final.content_text)
+
+
+@pytest.mark.asyncio
 async def test_pipeline_failure_uses_shared_deferred_release_barrier(
     runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,

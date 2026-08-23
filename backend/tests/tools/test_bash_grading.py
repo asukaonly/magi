@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from magi.tools.builtin._bash_grading import classify_command
+from magi_plugin_sdk.command_risk import classify_powershell_command
 
 
 @pytest.mark.parametrize("cmd", [
@@ -163,3 +164,31 @@ def test_grade_carries_reason() -> None:
 def test_powershell_destructive(cmd: str) -> None:
     grade = classify_command(cmd)
     assert grade.level == "destructive", f"{cmd!r} graded {grade.level}"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "ri C:\\* -r -fo",
+        'del -LiteralPath "$HOME\\*" -Rec -Fo',
+        "Clear-Disk -Number 0",
+    ],
+)
+def test_powershell_dialect_destructive(cmd: str) -> None:
+    grade = classify_powershell_command(cmd)
+    assert grade.level == "destructive", f"{cmd!r} graded {grade.level}"
+
+
+def test_powershell_whatif_is_not_destructive() -> None:
+    grade = classify_powershell_command("ri C:\\* -r -fo -WhatIf")
+    assert grade.level == "mutating"
+
+
+def test_powershell_disabled_whatif_remains_destructive() -> None:
+    grade = classify_powershell_command("ri C:\\* -r -fo -WhatIf:$false")
+    assert grade.level == "destructive"
+
+
+def test_powershell_dynamic_falsey_whatif_does_not_bypass_guard() -> None:
+    grade = classify_powershell_command("ri C:\\* -r -fo -WhatIf:$null")
+    assert grade.level == "destructive"

@@ -24,6 +24,13 @@ def _make_skill(script_path: Path | None = None) -> SkillContent:
     )
 
 
+def test_tool_need_heuristic_recognizes_native_shell_names() -> None:
+    subagent = SkillSubagent(skill=_make_skill(), llm_adapter=MagicMock())
+
+    assert subagent._should_use_tools("Run this with bash") is True
+    assert subagent._should_use_tools("Run this with PowerShell") is True
+
+
 @pytest.mark.asyncio
 async def test_execute_script_returns_not_found_for_missing_script() -> None:
     subagent = SkillSubagent(skill=_make_skill(), llm_adapter=MagicMock())

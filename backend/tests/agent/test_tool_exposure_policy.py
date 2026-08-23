@@ -58,6 +58,32 @@ def test_tool_exposure_policy_does_not_reuse_write_tools_for_read_only_turn() ->
     assert read_only == ["file_read", "find-relevant-tools"]
 
 
+def test_tool_exposure_policy_never_reuses_agent_as_an_extra_tool() -> None:
+    now = 2500.0
+
+    def clock() -> float:
+        return now
+
+    policy = ToolExposurePolicy(ttl_seconds=300.0, clock=clock)
+    registered = {"agent", "weather", "find-relevant-tools"}
+    policy.resolve(
+        session_key="chat:s-agent",
+        requested_tools=["agent", "weather", "find-relevant-tools"],
+        registered_tools=registered,
+        may_write=True,
+    )
+
+    now = 2560.0
+    resolved = policy.resolve(
+        session_key="chat:s-agent",
+        requested_tools=["weather", "find-relevant-tools"],
+        registered_tools=registered,
+        may_write=True,
+    )
+
+    assert resolved == ["weather", "find-relevant-tools"]
+
+
 def test_tool_exposure_policy_expires_cached_superset() -> None:
     now = 3000.0
 

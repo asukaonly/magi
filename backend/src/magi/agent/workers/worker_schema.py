@@ -5,6 +5,13 @@ from __future__ import annotations
 from typing import Protocol, cast
 
 from ...tools.schema import ParameterType, ToolParameter, ToolSchema
+from .worker_state import (
+    DEFAULT_WORKER_AWAIT_TIMEOUT_SECONDS,
+    DEFAULT_WORKER_MAX_ITERATIONS,
+    MAX_WORKER_MAX_ITERATIONS,
+    MAX_WORKER_AWAIT_TIMEOUT_SECONDS,
+    WORKER_TOOL_TIMEOUT_SECONDS,
+)
 
 
 class _WorkerSchemaHostProtocol(Protocol):
@@ -14,6 +21,7 @@ class _WorkerSchemaHostProtocol(Protocol):
     TYPE_GENERAL: str
     TYPE_EXPLORE: str
     TYPE_PLAN: str
+    TYPE_CODING: str
     schema: ToolSchema
 
 
@@ -26,21 +34,21 @@ class WorkerSchemaMixin:
             name="agent",
             description=(
                 "Launch a specialized worker agent for complex tasks. "
-                "Worker types: general-purpose, CodeExplore, Plan. "
+                "Worker types: general-purpose, CodeExplore, Plan, Coding. "
                 "Supports foreground wait and background execution."
             ),
             category="agent",
             version="1.0.0",
             author="Magi Team",
-            parameters=_worker_schema_parameters(host),
-            examples=_worker_schema_examples(),
-            timeout=300,
+            parameters=build_worker_schema_parameters(host),
+            examples=build_worker_schema_examples(),
+            timeout=WORKER_TOOL_TIMEOUT_SECONDS,
             dangerous=False,
             tags=["agent", "worker", "planning", "exploration"],
         )
 
 
-def _worker_schema_parameters(
+def build_worker_schema_parameters(
     host: _WorkerSchemaHostProtocol,
 ) -> list[ToolParameter]:
     return [
@@ -83,16 +91,19 @@ def _launch_parameters(host: _WorkerSchemaHostProtocol) -> list[ToolParameter]:
         ToolParameter(
             name="subagent_type",
             type=ParameterType.STRING,
-            description="Worker type: general-purpose, CodeExplore, or Plan",
+            description="Worker type: general-purpose, CodeExplore, Plan, or Coding",
             required=False,
             enum=[
                 host.TYPE_GENERAL,
                 host.TYPE_EXPLORE,
                 host.TYPE_PLAN,
+                host.TYPE_CODING,
                 "code-explore",
                 "code_explore",
                 "plan",
+                "coding",
                 "general",
+                "code",
             ],
         ),
         ToolParameter(
@@ -142,18 +153,18 @@ def _execution_parameters() -> list[ToolParameter]:
             type=ParameterType.INTEGER,
             description="Maximum internal tool-loop iterations for this worker",
             required=False,
-            default=20,
+            default=DEFAULT_WORKER_MAX_ITERATIONS,
             min_value=1,
-            max_value=50,
+            max_value=MAX_WORKER_MAX_ITERATIONS,
         ),
         ToolParameter(
             name="timeout_seconds",
             type=ParameterType.INTEGER,
             description="Timeout in seconds for await action",
             required=False,
-            default=300,
+            default=DEFAULT_WORKER_AWAIT_TIMEOUT_SECONDS,
             min_value=1,
-            max_value=3600,
+            max_value=MAX_WORKER_AWAIT_TIMEOUT_SECONDS,
         ),
     ]
 
@@ -231,7 +242,7 @@ def _context_parameters() -> list[ToolParameter]:
     ]
 
 
-def _worker_schema_examples() -> list[dict[str, object]]:
+def build_worker_schema_examples() -> list[dict[str, object]]:
     return [
         {
             "input": {

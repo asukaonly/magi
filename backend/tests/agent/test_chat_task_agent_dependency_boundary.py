@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import fields
 import inspect
+from types import SimpleNamespace
 
 import pytest
 
+from magi.agent.execution.task_budget import consume_task_llm_calls
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent, _RUNTIME_CONFIG_INIT_FIELDS
 from magi.chat.task_agent import runtime_dependencies
 from magi.chat.task_agent import runtime_context_builder
@@ -87,6 +89,14 @@ def test_chat_runtime_domain_builders_own_core_chat_wiring() -> None:
         "ExecutionHandlerRegistry",
     ):
         assert f"{constructor_name}(" in source
+
+
+def test_chat_context_builder_injects_task_budget_admission() -> None:
+    config = SimpleNamespace(llm_adapter=None, llm_pool=None)
+
+    decider = runtime_context_builder._build_context_decider(config)  # type: ignore[arg-type]
+
+    assert decider._llm_call_budget_consumer is consume_task_llm_calls
 
 
 def test_chat_runtime_builder_does_not_pull_from_bootstrap_container() -> None:

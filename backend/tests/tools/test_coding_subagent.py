@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 # Import order matters: agent_tool transitively imports workers; importing
 # AgentTool first lets the workers module finish initializing.
 from magi.agent.runtime_tools import AgentTool
 from magi.agent.workers import WorkerAgentManager
+from magi.tools.platform_tools import native_shell_tool_name
 
 
 class _FakeRegistry:
@@ -31,7 +34,7 @@ _CODING_REGISTRY_TOOLS = [
     "grep",
     "file_list",
     "file_info",
-    "bash",
+    native_shell_tool_name(),
     "find-relevant-tools",
     "todo_write",
     "agent",
@@ -83,16 +86,16 @@ def test_coding_tool_whitelist_filters_against_registry() -> None:
         "verify",
         "glob",
         "grep",
-        "bash",
+        native_shell_tool_name(),
         "find-relevant-tools",
     }
-    assert expected_present.issubset(
-        set(tools)
-    ), f"Coding whitelist missing: {expected_present - set(tools)}"
+    assert expected_present.issubset(set(tools)), (
+        f"Coding whitelist missing: {expected_present - set(tools)}"
+    )
     excluded = {"agent", "memory_query", "web_search", "web_fetch"}
-    assert excluded.isdisjoint(
-        set(tools)
-    ), f"Coding whitelist must not include {excluded & set(tools)}"
+    assert excluded.isdisjoint(set(tools)), (
+        f"Coding whitelist must not include {excluded & set(tools)}"
+    )
 
 
 def test_coding_system_prompt_mentions_role_and_workspace(tmp_path) -> None:
@@ -111,8 +114,10 @@ def test_coding_system_prompt_mentions_role_and_workspace(tmp_path) -> None:
     assert "verify" in prompt
     assert str(tmp_path) in prompt
     assert "confirm_destructive" in prompt
-    assert "ONLY valid JSON" not in prompt
-    assert '"result_status"' not in prompt
+    assert "ONLY valid JSON" in prompt
+    assert '"result_status"' in prompt
+    assert '"artifacts"' in prompt
+    assert '"verification"' in prompt
 
 
 def test_coding_system_prompt_lists_only_whitelisted_tools() -> None:
@@ -133,21 +138,18 @@ def test_coding_system_prompt_lists_only_whitelisted_tools() -> None:
         assert t in rules_line
 
 
-def test_coding_validator_accepts_plaintext() -> None:
-    """The result validator must NOT reject a plaintext final reply for Coding."""
+def test_coding_validator_rejects_plaintext() -> None:
     mgr = WorkerAgentManager()
     plaintext = (
         "Changed: src/config.py - added max_retries argument to connect().\n"
         "verify: pass.\n"
         "Did not touch tests."
     )
-    result = mgr._validate_worker_result(
-        subagent_type=WorkerAgentManager.TYPE_CODING,
-        content=plaintext,
-    )
-    assert result.summary
-    assert plaintext.strip() in result.summary or result.summary.startswith("Changed:")
-    assert result.result_status in {"success", "partial", "failed"}
+    with pytest.raises(ValueError, match="valid JSON"):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_CODING,
+            content=plaintext,
+        )
 
 
 def test_coding_validator_rejects_empty() -> None:
@@ -177,10 +179,130 @@ def test_general_purpose_validator_accepts_external_findings_without_path() -> N
             '{"result_status":"success","summary":"ok",'
             '"findings":[{"title":"Transit option","detail":"Metro plus short walk"}],'
             '"evidence":[{"path":"https://example.com/route","detail":"route source"}],'
-            '"gaps":[],"next_steps":[],"failure_reason":null}'
+            '"records":[],"gaps":[],"next_steps":[],"failure_reason":null}'
         ),
     )
     assert result.findings[0].path is None
+
+
+def test_general_purpose_validator_preserves_structured_records() -> None:
+    mgr = WorkerAgentManager()
+    result = mgr._validate_worker_result(
+        subagent_type=WorkerAgentManager.TYPE_GENERAL,
+        content=(
+            '{"result_status":"success","summary":"inventory ready",'
+            '"findings":[],"evidence":[],'
+            '"records":[{"path":"C:/Inbox/a.pdf","category":"documents"}],'
+            '"gaps":[],"next_steps":[],"failure_reason":null}'
+        ),
+    )
+
+    assert result.records == [{"path": "C:/Inbox/a.pdf", "category": "documents"}]
+    assert result.to_dict()["records"] == result.records
+
+
+def test_general_purpose_validator_requires_records_field() -> None:
+    mgr = WorkerAgentManager()
+
+    with pytest.raises(ValueError, match="missing required fields"):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_GENERAL,
+            content=(
+                '{"result_status":"success","summary":"inventory ready",'
+                '"findings":[],"evidence":[],"gaps":[],"next_steps":[],'
+                '"failure_reason":null}'
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "error_match"),
+    [
+        ("result_status", 1, "result_status"),
+        ("summary", {"text": "inventory ready"}, "non-empty string summary"),
+        ("summary", "   ", "non-empty string summary"),
+    ],
+)
+def test_general_purpose_validator_rejects_non_string_or_empty_required_text(
+    field_name: str,
+    value: object,
+    error_match: str,
+) -> None:
+    mgr = WorkerAgentManager()
+    payload = {
+        "result_status": "success",
+        "summary": "inventory ready",
+        "findings": [],
+        "evidence": [],
+        "records": [],
+        "gaps": [],
+        "next_steps": [],
+        "failure_reason": None,
+    }
+    payload[field_name] = value
+
+    with pytest.raises(ValueError, match=error_match):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_GENERAL,
+            content=json.dumps(payload),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_item", "error_match"),
+    [
+        ("findings", {"title": 42, "detail": "not a string title"}, "Worker finding 1"),
+        ("evidence", {"path": "/tmp/a.py", "detail": True}, "Worker evidence 1"),
+    ],
+)
+def test_general_purpose_validator_rejects_mixed_malformed_common_entries(
+    field_name: str,
+    invalid_item: object,
+    error_match: str,
+) -> None:
+    mgr = WorkerAgentManager()
+    payload = {
+        "result_status": "success",
+        "summary": "inventory ready",
+        "findings": [{"title": "Inventory", "detail": "Scanned the folder"}],
+        "evidence": [{"path": "/tmp", "detail": "Folder exists"}],
+        "records": [],
+        "gaps": [],
+        "next_steps": [],
+        "failure_reason": None,
+    }
+    assert isinstance(payload[field_name], list)
+    payload[field_name].append(invalid_item)
+
+    with pytest.raises(ValueError, match=error_match):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_GENERAL,
+            content=json.dumps(payload),
+        )
+
+
+def test_general_purpose_validator_rejects_top_level_array() -> None:
+    mgr = WorkerAgentManager()
+
+    with pytest.raises(ValueError, match="JSON object"):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_GENERAL,
+            content='[{"path":"C:/Inbox/a.pdf","category":"documents"}]',
+        )
+
+
+def test_general_purpose_validator_rejects_non_object_record() -> None:
+    mgr = WorkerAgentManager()
+
+    with pytest.raises(ValueError, match=r"records\[0\].*JSON object"):
+        mgr._validate_worker_result(
+            subagent_type=WorkerAgentManager.TYPE_GENERAL,
+            content=(
+                '{"result_status":"success","summary":"inventory ready",'
+                '"findings":[],"evidence":[],"records":["a.pdf"],'
+                '"gaps":[],"next_steps":[],"failure_reason":null}'
+            ),
+        )
 
 
 def test_code_explore_validator_still_requires_path_and_reason() -> None:
@@ -192,7 +314,7 @@ def test_code_explore_validator_still_requires_path_and_reason() -> None:
                 '{"result_status":"success","summary":"ok",'
                 '"findings":[{"title":"Source fact","detail":"Needs a file path"}],'
                 '"evidence":[{"path":"/tmp/source.py","detail":"source"}],'
-                '"gaps":[],"next_steps":[],"failure_reason":null}'
+                '"records":[],"gaps":[],"next_steps":[],"failure_reason":null}'
             ),
         )
 

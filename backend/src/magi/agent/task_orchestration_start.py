@@ -38,6 +38,9 @@ class TaskOrchestrationStartRequest:
     run_id: str | None
     run_revision: int
     turn_id: Optional[str]
+    root_turn_id: Optional[str]
+    upstream_task_agent_type: Optional[str]
+    upstream_task_agent_id: Optional[str]
     user_message_generation: int | None
     history: list[dict[str, Any]]
     history_key: str
@@ -368,6 +371,9 @@ def _build_orchestration_state(
         metadata={
             "run_id": request.run_id,
             "run_revision": request.run_revision,
+            "root_turn_id": request.root_turn_id,
+            "upstream_task_agent_type": request.upstream_task_agent_type,
+            "upstream_task_agent_id": request.upstream_task_agent_id,
             "persona_id": str(request.persona_id or "").strip() or None,
         },
         subtasks=_build_subtask_definitions(plan_payload, created_at=now),

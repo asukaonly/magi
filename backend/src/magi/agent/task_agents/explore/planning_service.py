@@ -8,6 +8,7 @@ from ....utils.diagnostic_logging import full_content_logging_enabled
 from ....core.logger import get_logger
 from ....tools.registry import tool_registry
 from ....tools.tool_hint_resolver import ToolHintResolver
+from ...execution.task_budget import TaskBudgetExceeded
 from ...orchestration import PlannedSubtask, SubtaskPlan
 from ..common import OrchestrationPlan
 from .prompt_service import ExplorePromptService
@@ -104,6 +105,8 @@ class ExplorePlanningService:
                 json_mode=True,
                 timeout_seconds=STRUCTURED_PLANNING_TIMEOUT_SECONDS,
             )
+        except TaskBudgetExceeded:
+            raise
         except Exception as exc:
             logger.warning("ExploreTaskAgent planning call failed | error=%s", exc)
             return None

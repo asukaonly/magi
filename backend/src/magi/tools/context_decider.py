@@ -13,7 +13,7 @@ import dataclasses
 import logging
 import time
 import uuid
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from ..config.constants import DEFAULT_THINKING_TOKENS
 from ..config.models import LLMScenario
@@ -60,6 +60,7 @@ class ContextDecider(
         llm_adapter: Optional[LLMAdapter] = None,
         llm_pool=None,
         max_tools: int = 5,
+        llm_call_budget_consumer: Optional[Callable[[], Awaitable[None]]] = None,
     ):
         """
         initialize the Context Decider
@@ -67,13 +68,17 @@ class ContextDecider(
         Args:
             tool_registry: Tool registry instance
             llm_adapter: LLM adapter for analysis
+            llm_pool: Optional scenario-aware LLM pool
             max_tools: Maximum number of tools to select
+            llm_call_budget_consumer: Optional admission callback invoked before
+                each logical provider request
         """
         self.tool_registry = tool_registry
         self._llm_pool = llm_pool
         self.llm = llm_adapter or self._resolve_llm_from_pool()
         self.provider_bridge = LLMProviderBridge(self.llm) if self.llm else None
         self.max_tools = max_tools
+        self._llm_call_budget_consumer = llm_call_budget_consumer
 
     def _resolve_llm_from_pool(self) -> Optional[LLMAdapter]:
         if self._llm_pool is None:
@@ -103,6 +108,9 @@ class ContextDecider(
 
         available_tools = self._get_available_tools()
         user_prompt = self._build_prompt(user_message, available_tools, context)
+
+        if self._llm_call_budget_consumer is not None:
+            await self._llm_call_budget_consumer()
 
         try:
             return await self._decide_with_llm(

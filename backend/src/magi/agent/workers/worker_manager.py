@@ -5,11 +5,13 @@ Worker manager for launching and tracking specialized worker agents.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Callable, Dict, Optional
 
 from ...agent.orchestration import get_orchestration_store
 from ...core.logger import get_logger
 from ...runtime_trace import RuntimeTraceStore
+from ...tools.platform_tools import native_shell_tool_name
 from ...tools.registry import ToolRegistry, tool_registry
 from .worker_actions import WorkerActionMixin
 from .worker_execution import WorkerExecutionMixin
@@ -85,7 +87,7 @@ class WorkerAgentManager(
         "grep",
         "file_list",
         "file_info",
-        "bash",
+        native_shell_tool_name(),
         "find-relevant-tools",
     ]
 
@@ -99,6 +101,8 @@ class WorkerAgentManager(
         self._runtime_trace_store: RuntimeTraceStore | None = None
         self._permission_gateway_provider: Callable[[], Any] | None = None
         self._runs: Dict[str, WorkerRunState] = {}
+        self._pending_runs: Dict[str, WorkerRunState] = {}
+        self._cancelled_run_keys: Dict[tuple[str, str, int], float] = {}
         self._lock = asyncio.Lock()
         self._orchestration_store = get_orchestration_store()
         super().__init__()
@@ -134,8 +138,10 @@ class WorkerAgentManager(
     async def clear_user_content(self) -> None:
         """Cancel worker runs and discard their retained prompts and results."""
         async with self._lock:
-            run_states = list(self._runs.values())
+            run_states = list(self._runs.values()) + list(self._pending_runs.values())
             self._runs.clear()
+            self._pending_runs.clear()
+            self._cancelled_run_keys.clear()
         for run_state in run_states:
             if run_state.cancel_token is not None:
                 run_state.cancel_token.cancel("user_content_cleared")
@@ -150,6 +156,7 @@ class WorkerAgentManager(
             await asyncio.gather(*live_tasks, return_exceptions=True)
         async with self._lock:
             self._runs.clear()
+            self._pending_runs.clear()
 
     async def cancel_run_workers(
         self,
@@ -160,8 +167,14 @@ class WorkerAgentManager(
         reason: str = "run_cancelled",
     ) -> list[str]:
         """Request cancellation for every live worker attached to one session run."""
+        run_key = (session_id, run_id, int(run_revision))
         async with self._lock:
-            matching_states = [
+            self._cancelled_run_keys.pop(run_key, None)
+            self._cancelled_run_keys[run_key] = time.monotonic()
+            while len(self._cancelled_run_keys) > 1024:
+                oldest_key = next(iter(self._cancelled_run_keys))
+                self._cancelled_run_keys.pop(oldest_key, None)
+            public_states = [
                 run_state
                 for run_state in self._runs.values()
                 if run_state.session_id == session_id
@@ -169,15 +182,32 @@ class WorkerAgentManager(
                 and int(run_state.run_revision) == int(run_revision)
                 and run_state.status == "running"
             ]
+            pending_states = [
+                run_state
+                for run_state in self._pending_runs.values()
+                if run_state.session_id == session_id
+                and run_state.run_id == run_id
+                and int(run_state.run_revision) == int(run_revision)
+                and run_state.status == "running"
+            ]
+            matching_states = public_states + pending_states
+            for run_state in matching_states:
+                if run_state.cancel_token is not None:
+                    run_state.cancel_token.cancel(reason)
 
-        cancelled_worker_ids: list[str] = []
-        for run_state in matching_states:
-            if run_state.cancel_token is not None:
-                run_state.cancel_token.cancel(reason)
-            cancelled_worker_ids.append(run_state.worker_id)
+        cancelled_worker_ids = [run_state.worker_id for run_state in matching_states]
+        pending_tasks = [
+            run_state.task
+            for run_state in pending_states
+            if run_state.task is not None and not run_state.task.done()
+        ]
+        for task in pending_tasks:
+            task.cancel()
+        if pending_tasks:
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
         live_tasks = [
             run_state.task
-            for run_state in matching_states
+            for run_state in public_states
             if run_state.task is not None and not run_state.task.done()
         ]
         if live_tasks:

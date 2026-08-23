@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from magi.agent.execution.task_budget import task_execution_budget_scope
 from magi.agent.execution.function_calling.step_executor import (
     FunctionCallingStepOutcome,
     FunctionCallingStepState,
@@ -14,7 +15,13 @@ from magi.agent.task_agents.handlers.handlers import ChatHandlerDependencies, Fu
 from magi.chat.task_agent.interruption_classifier import InterruptionDisposition
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.llm.model_context import unknown_model_context
-from magi.agent.task_agents.common import ExecutionMode, FunctionCallingRequest, IncomingFactKind, ToolSelection, UserMessagePayload
+from magi.agent.task_agents.common import (
+    ExecutionMode,
+    FunctionCallingRequest,
+    IncomingFactKind,
+    ToolSelection,
+    UserMessagePayload,
+)
 
 
 class _FakeOrchestrator:
@@ -36,8 +43,31 @@ class _FakeOrchestrator:
         self.prepare_context_include_tools: list[bool] = []
         self.context_failure = context_failure
 
-    def build_step_state(self, *, turn, system_prompt, selected_tools, conversation_history=None, session_summary=None, session_origin=None, reply_context=None, allow_attachment_grounding=False, ephemeral_context=None, **kwargs):  # type: ignore[no-untyped-def]
-        _ = (system_prompt, selected_tools, conversation_history, session_summary, session_origin, reply_context, allow_attachment_grounding, ephemeral_context, kwargs)
+    def build_step_state(
+        self,
+        *,
+        turn,
+        system_prompt,
+        selected_tools,
+        conversation_history=None,
+        session_summary=None,
+        session_origin=None,
+        reply_context=None,
+        allow_attachment_grounding=False,
+        ephemeral_context=None,
+        **kwargs,
+    ):  # type: ignore[no-untyped-def]
+        _ = (
+            system_prompt,
+            selected_tools,
+            conversation_history,
+            session_summary,
+            session_origin,
+            reply_context,
+            allow_attachment_grounding,
+            ephemeral_context,
+            kwargs,
+        )
         self.build_step_state_calls.append(turn.text)
         return FunctionCallingStepState(
             messages=[{"role": "user", "content": turn.text}],
@@ -139,7 +169,9 @@ def _make_request(context: ChatRuntimeContext) -> FunctionCallingRequest:
     )
 
 
-def _make_handler(orchestrator: _FakeOrchestrator, coordinator: SessionRunCoordinator) -> FunctionCallingHandler:
+def _make_handler(
+    orchestrator: _FakeOrchestrator, coordinator: SessionRunCoordinator
+) -> FunctionCallingHandler:
     deps = ChatHandlerDependencies(
         context_service=SimpleNamespace(),
         prompt_service=SimpleNamespace(),
@@ -191,6 +223,35 @@ async def test_checkpoint_loop_stops_before_model_when_context_cannot_fit() -> N
 
 
 @pytest.mark.asyncio
+async def test_checkpoint_loop_uses_last_budget_slot_for_fallback() -> None:
+    coordinator = SessionRunCoordinator()
+    first_turn = coordinator.handle_user_turn(
+        UserMessagePayload(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Inspect the login flow.",
+            turn_id="turn-1",
+        )
+    )
+    orchestrator = _FakeOrchestrator(
+        step_results=[FunctionCallingStepOutcome(status="continue", iteration=1)]
+    )
+    handler = _make_handler(orchestrator, coordinator)
+    context = _make_context(
+        active_run=first_turn.active_run,
+        revision=first_turn.active_run.revision,
+        latest_user_message="Inspect the login flow.",
+    )
+
+    async with task_execution_budget_scope(max_llm_calls=1):
+        result = await handler.execute(_make_request(context))
+
+    assert result.response_text == "fallback result"
+    assert orchestrator.fallback_calls[0]["final_response_reason"] == ("task_budget_finalization")
+    assert len(orchestrator._step_results) == 1
+
+
+@pytest.mark.asyncio
 async def test_augment_turn_is_merged_at_next_checkpoint() -> None:
     """Verify the FC handler merges an AUGMENT pending turn at the
     next checkpoint boundary.
@@ -223,7 +284,9 @@ async def test_augment_turn_is_merged_at_next_checkpoint() -> None:
     orchestrator = _FakeOrchestrator(
         step_results=[
             FunctionCallingStepOutcome(status="continue", iteration=1),
-            FunctionCallingStepOutcome(status="completed", iteration=1, content="final after augment"),
+            FunctionCallingStepOutcome(
+                status="completed", iteration=1, content="final after augment"
+            ),
         ]
     )
     handler = _make_handler(orchestrator, coordinator)
@@ -278,7 +341,9 @@ async def test_interrupt_turn_stops_continuation_and_replans() -> None:
     orchestrator = _FakeOrchestrator(
         step_results=[
             FunctionCallingStepOutcome(status="continue", iteration=1),
-            FunctionCallingStepOutcome(status="completed", iteration=1, content="final after interrupt"),
+            FunctionCallingStepOutcome(
+                status="completed", iteration=1, content="final after interrupt"
+            ),
         ],
         on_step=_interrupt_after_first_step,
     )
@@ -395,7 +460,9 @@ async def test_function_calling_handler_passes_prompt_workspace_to_execute_with_
         session_run_coordinator=None,
     )
     handler = FunctionCallingHandler(deps)
-    context = _make_context(active_run=None, revision=0, latest_user_message="Inspect the login flow.")
+    context = _make_context(
+        active_run=None, revision=0, latest_user_message="Inspect the login flow."
+    )
 
     result = await handler.execute(_make_request(context))
 

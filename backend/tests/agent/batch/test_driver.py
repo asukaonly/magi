@@ -7,6 +7,11 @@ from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutc
 from magi.agent.batch.driver import BatchDriver
 from magi.agent.batch.runner import parse_job_id_from_goal
 from magi.agent.batch.store import BatchStore
+from magi.agent.batch.tool_selection import (
+    BatchToolSelectionError,
+    default_batch_tool_names,
+)
+from magi.tools.platform_tools import native_shell_tool_name
 
 _SCHEMA = """
 CREATE TABLE batch_job (
@@ -44,12 +49,37 @@ def store(tmp_path):
 
 
 async def _job(store, n, **over):
+    handler_config = over.pop("handler_config", {"prompt": "PROMPT-X"})
     job = await store.create_job(
         title="movies", owner="alice", origin_session_id="s", origin_turn_id="u",
-        handler_ref="inline", handler_config={"prompt": "PROMPT-X"}, seed_spec={}, **over,
+        handler_ref="inline", handler_config=handler_config, seed_spec={}, **over,
     )
     await store.add_items(job.job_id, [{"path": f"/{i}.mkv"} for i in range(n)])
     return await store.get_job(job.job_id)
+
+
+class _FakeToolRegistry:
+    def __init__(self, *extra_tools: str) -> None:
+        self._tools = set(default_batch_tool_names()) | set(extra_tools)
+
+    @staticmethod
+    def resolve_tool_name(tool_name: str) -> str:
+        return tool_name
+
+    def get_tool(self, tool_name: str):
+        return object() if tool_name in self._tools else None
+
+    @staticmethod
+    def is_skill(_skill_name: str) -> bool:
+        return False
+
+
+def _driver(manager, store, *, registry=None):
+    return BatchDriver(
+        manager,
+        tool_registry=registry or _FakeToolRegistry(),
+        store_factory=lambda: store,
+    )
 
 
 @pytest.mark.asyncio
@@ -63,7 +93,7 @@ async def test_kickoff_builds_correct_spec(store):
         async def enqueue(self, spec):
             enqueued.append(spec)
 
-    driver = BatchDriver(FakeManager(), store_factory=lambda: store)
+    driver = _driver(FakeManager(), store)
     n = await driver.kickoff(job.job_id)
 
     assert n == 1  # default concurrency=1 → effective_N = min(1, 4-1) = 1 run
@@ -72,6 +102,10 @@ async def test_kickoff_builds_correct_spec(store):
     assert "PROMPT-X" in spec.goal                      # handler prompt injected
     assert job.job_id in spec.goal                       # job_id marker for the listener
     assert "batch_item_update" in spec.selected_tools    # write-back tool present
+    native_shell = native_shell_tool_name()
+    non_native_shell = "bash" if native_shell == "powershell" else "powershell"
+    assert native_shell in spec.selected_tools
+    assert non_native_shell not in spec.selected_tools
     assert spec.user_id == "alice"                       # identity from job
     # ADR-0004 P3: batch also speaks RunTrigger (additive).
     assert spec.trigger is not None
@@ -102,7 +136,7 @@ async def test_on_terminal_drives_chain_to_done(store):
             await self.driver.on_terminal(_FakeTask(spec.goal))
 
     mgr = FakeManager()
-    driver = BatchDriver(mgr, store_factory=lambda: store)
+    driver = _driver(mgr, store)
     mgr.driver = driver
 
     await driver.kickoff(job.job_id)
@@ -113,7 +147,7 @@ async def test_on_terminal_drives_chain_to_done(store):
 
 @pytest.mark.asyncio
 async def test_on_terminal_ignores_non_batch_run(store):
-    driver = BatchDriver(None, store_factory=lambda: store)
+    driver = _driver(None, store)
     # a background run that isn't a batch (no job_id marker) must be a safe no-op
     await driver.on_terminal(_FakeTask("just a regular background task goal"))
 
@@ -129,9 +163,9 @@ class _Mgr:
 @pytest.mark.asyncio
 async def test_effective_n_reserves_one_slot(store):
     job = await _job(store, 1, concurrency=10)
-    d = BatchDriver(_Mgr(max_concurrent=4), store_factory=lambda: store)
+    d = _driver(_Mgr(max_concurrent=4), store)
     assert d._effective_n(job) == 3           # min(10, 4-1)
-    d2 = BatchDriver(_Mgr(max_concurrent=1), store_factory=lambda: store)
+    d2 = _driver(_Mgr(max_concurrent=1), store)
     assert d2._effective_n(job) == 1          # max(1, min(10, 0))
 
 
@@ -139,7 +173,7 @@ async def test_effective_n_reserves_one_slot(store):
 async def test_kickoff_starts_effective_n_runs(store):
     job = await _job(store, 20, batch_size=2, concurrency=3)
     mgr = _Mgr(max_concurrent=4)
-    d = BatchDriver(mgr, store_factory=lambda: store)
+    d = _driver(mgr, store)
     started = await d.kickoff(job.job_id)
     assert started == 3                        # effective_N = min(3, 3)
     assert len(mgr.enqueued) == 3
@@ -157,7 +191,7 @@ async def test_resume_running_jobs_refills(store):
     await store.lease_next_batch(job.job_id, limit=2, lease_owner="dead",
                                  lease_ttl_ms=30*60*1000, now_ms=int(time.time()*1000))
     mgr = _Mgr(max_concurrent=4)
-    d = BatchDriver(mgr, store_factory=lambda: store)
+    d = _driver(mgr, store)
     n = await d.resume_running_jobs()
     assert n == 1                              # one RUNNING job resumed
     assert len(mgr.enqueued) >= 1              # refilled at least one run despite non-expired lease
@@ -170,3 +204,47 @@ async def test_resume_running_jobs_refills(store):
         if i.lease_owner == "dead"
     ]
     assert leftover_dead == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "requested_tool",
+    [
+        "missing-tool",
+        "bash" if native_shell_tool_name() == "powershell" else "powershell",
+    ],
+)
+async def test_kickoff_rejects_invalid_tools_before_leasing(
+    store,
+    requested_tool,
+):
+    job = await _job(
+        store,
+        2,
+        handler_config={"prompt": "PROMPT-X", "tools": [requested_tool]},
+    )
+    manager = _Mgr(max_concurrent=4)
+
+    with pytest.raises(BatchToolSelectionError, match=requested_tool):
+        await _driver(manager, store).kickoff(job.job_id)
+
+    assert (await store.get_job(job.job_id)).status == BatchJobStatus.FAILED
+    assert len(await store.list_by_status(job.job_id, BatchItemStatus.PENDING)) == 2
+    assert manager.enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_resume_rejects_stale_unavailable_tool_and_continues(store):
+    job = await _job(
+        store,
+        2,
+        handler_config={"prompt": "PROMPT-X", "tools": ["removed-plugin-tool"]},
+    )
+    await store.set_job_status(job.job_id, BatchJobStatus.RUNNING)
+    manager = _Mgr(max_concurrent=4)
+
+    resumed = await _driver(manager, store).resume_running_jobs()
+
+    assert resumed == 0
+    assert (await store.get_job(job.job_id)).status == BatchJobStatus.FAILED
+    assert manager.enqueued == []

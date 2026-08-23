@@ -6,6 +6,8 @@ import pytest
 
 import magi.tools.builtin.web_search_tool as web_search_tool
 from magi.tools.builtin.web_search_tool import WebSearchTool
+from magi.tools.providers.base import ProviderConfig
+from magi.tools.providers.http_errors import ProviderRateLimitError
 from magi.tools.schema import ToolExecutionContext
 
 
@@ -134,3 +136,42 @@ async def test_all_providers_failed_reports_aggregate(monkeypatch) -> None:
     assert result.success is False
     assert set(result.data["attempted_providers"]) == {"brave", "duckduckgo"}
     assert result.data["terminal"] is True
+
+
+@pytest.mark.asyncio
+async def test_brave_rate_limit_defers_shared_gate_and_falls_back(monkeypatch) -> None:
+    monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
+    limiter_events: list[tuple[str, str, float | None]] = []
+
+    class _Limiter:
+        async def wait(self, provider_name: str) -> None:
+            limiter_events.append(("wait", provider_name, None))
+
+        def defer(self, provider_name: str, retry_after_seconds: float | None) -> None:
+            limiter_events.append(("defer", provider_name, retry_after_seconds))
+
+    def rate_limited(_params):
+        raise ProviderRateLimitError("slow down", retry_after_seconds=4.0)
+
+    monkeypatch.setattr(
+        web_search_tool,
+        "get_web_search_rate_limiter",
+        lambda: _Limiter(),
+    )
+    tool = _tool(
+        [
+            _FakeProvider("brave", behavior=rate_limited),
+            _FakeProvider("tavily"),
+        ],
+        default="brave",
+    )
+    tool._get_provider_config = lambda name: ProviderConfig(api_key="configured")  # type: ignore[assignment]
+
+    result = await tool.execute({"query": "hello"}, _ctx())
+
+    assert result.success is True
+    assert result.data["actual_provider"] == "tavily"
+    assert limiter_events == [
+        ("wait", "brave", None),
+        ("defer", "brave", 4.0),
+    ]

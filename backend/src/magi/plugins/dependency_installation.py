@@ -23,6 +23,7 @@ import time
 from packaging.markers import default_environment
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 
 logger = logging.getLogger(__name__)
 InstallProgressReporter = Callable[[str, str, float | None], None]
@@ -286,6 +287,7 @@ def _probe_python_for_pip(executable: str) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=10,
+            **hidden_process_kwargs(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return False, str(exc)
@@ -756,6 +758,7 @@ def _run_dependency_install_process(
         env=env,
         cwd=str(cwd) if cwd is not None else None,
         start_new_session=os.name != "nt",
+        **hidden_process_kwargs(),
     )
 
     def read_output() -> None:

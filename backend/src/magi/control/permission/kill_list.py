@@ -19,6 +19,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from magi_plugin_sdk.command_risk import powershell_removes_root
+
 __all__ = [
     "KillListEntry",
     "KillListMatch",
@@ -50,7 +52,19 @@ class KillListMatch:
 # ---------------------------------------------------------------------------
 
 
-_SHELL_TOOLS: tuple[str, ...] = ("bash", "shell", "execute_command", "run_command")
+_SHELL_TOOLS: tuple[str, ...] = (
+    "bash",
+    "powershell",
+    "shell",
+    "execute_command",
+    "run_command",
+)
+_POSIX_SHELL_TOOLS: tuple[str, ...] = (
+    "bash",
+    "shell",
+    "execute_command",
+    "run_command",
+)
 
 
 def _command_text(arguments: dict[str, Any]) -> str:
@@ -81,6 +95,14 @@ def _match_rm_root(args: dict[str, Any]) -> bool:
     # Normalise trailing whitespace; add sentinel newline so "/" at EOL matches.
     probe = cmd.strip() + "\n"
     return bool(_RE_RM_ROOT.search(probe))
+
+
+def _match_remove_item_root(args: dict[str, Any]) -> bool:
+    """Match a literal recursive PowerShell deletion of a filesystem root."""
+    command = _command_text(args)
+    if not command:
+        return False
+    return powershell_removes_root(command)
 
 
 # dd if=... of=/dev/{disk,sd*,nvme*,rdisk*}
@@ -200,8 +222,14 @@ KILL_LIST: tuple[KillListEntry, ...] = (
     KillListEntry(
         key="rm_rf_root",
         description="rm -rf targeting the filesystem root or $HOME root",
-        tool_names=_SHELL_TOOLS,
+        tool_names=_POSIX_SHELL_TOOLS,
         predicate=_match_rm_root,
+    ),
+    KillListEntry(
+        key="remove_item_root",
+        description="PowerShell recursively removing a drive, share, or user root",
+        tool_names=_SHELL_TOOLS,
+        predicate=_match_remove_item_root,
     ),
     KillListEntry(
         key="dd_to_block_device",

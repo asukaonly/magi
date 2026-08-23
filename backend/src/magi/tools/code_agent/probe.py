@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from .contracts import AdapterName, ProbeResult
 from ._user_paths import code_agent_probe_cache_path
 from .runtime_env import build_exec_env
@@ -104,6 +105,7 @@ def probe_one(
             text=True,
             timeout=PROBE_TIMEOUT_S,
             env=build_exec_env(binary),
+            **hidden_process_kwargs(),
         )
     except subprocess.TimeoutExpired:
         return ProbeResult(

@@ -281,6 +281,23 @@ orchestration while preserving decomposition for source-heavy news
 research, repository-wide analysis, migration plans, and other broad
 verification work.
 
+Shell capability is host-native at registration time. Windows runtime workers
+register and expose `powershell`; POSIX runtime workers register and expose
+`bash`. Context routing, discovery, recommendation, capability listing, and
+leaf-worker profiles all consume that same live registry, so a model never sees
+both shell dialects or receives a shell schema that the host does not support.
+
+One-shot Bash and PowerShell execution share the SDK bounded-subprocess runner.
+It drains stdout and stderr concurrently, retains at most a 64 KiB tail for
+each stream, and can retain a complete stream only in a size-capped private
+spill directory. The product shell tools disable spill retention and return
+the bounded tails plus byte-count and truncation metadata. A timeout returns
+the partial capture after terminating the whole process tree; caller
+cancellation performs the same cleanup before it is re-raised. POSIX commands
+run in a new process group. Windows commands remain console-hidden, start
+suspended, and enter a kill-on-close Job Object before execution resumes, so
+descendants remain controllable even when the original child exits first.
+
   During function-calling turns, the execution LLM may also use a bounded
   tool-discovery helper to recover from missing-capability situations.
   This helper is not a general capability browser. It is an execution-time
@@ -311,17 +328,26 @@ verification work.
   as `none`, `direct`, or `discover`, but it does not formulate a
   `tool_query` or own the final provider tool surface. When `tool_need` is
   `discover`, chat coordination starts a normal function-calling turn with
-  the resident `find-relevant-tools` entry so the main model can ask for the
+  the routed `find-relevant-tools` entry so the main model can ask for the
   missing concrete capability. The query should describe one focused capability
   gap with the relevant domain/action/object and facts already known; it should
   not be the whole user request or a broad capability-browsing prompt.
   `TurnRouteResolver` then owns final per-turn route resolution. It derives the
   dispatch shape from the coarse route, attachments, orchestration signal, and
-  final selected tools; it also builds the provider-facing tool surface by
-  appending resident runtime-control tools, conditionally exposing `agent`, and
+  final selected tools; it exposes tool discovery only for `discover` routes,
+  adds web search only for direct external-information routes, and builds the
+  provider-facing tool surface by appending resident runtime-control tools,
+  preserving explicit capability selections, and
   applying same-session tool-superset reuse when it is safe for the turn's write
   policy. `FunctionCallingHandler` consumes that resolved tool surface; it does
   not reimplement those routing rules.
+
+  `needs_orchestration=maybe` is advisory only. It neither exposes `agent` nor
+  forces a tool loop: explicit selected tools determine whether the turn enters
+  function calling. Required orchestration still selects planned fan-out, and
+  an explicitly selected `agent` tool remains available for bounded delegation.
+  Tool-superset caching never restores `agent` when it is absent from the current
+  route.
 
   For session-bound function-calling turns, `FunctionCallingHandler` remains the
   chat-mode entry point, while `FunctionCallingCheckpointLoop` owns the
@@ -924,6 +950,11 @@ change the outcome:
 - an unchanged tool call that already failed in the same loop is blocked with
   `REPEATED_FAILED_TOOL_CALL`; the model must change parameters or choose a
   different path before another attempt is allowed
+- non-transient failures also carry a semantic signature across the whole run,
+  including successful iterations between them; after the same blocker occurs
+  twice with changed arguments, the runtime suppresses that tool and emits
+  `tools_suppressed_after_repeated_blocker`, or terminates with
+  `REPEATED_TOOL_BLOCKER` when no alternative tool remains
 - final response synthesis should prefer the latest successful verification or
   listing evidence over older failed attempts, and a dry-run reporting zero
   planned operations is treated as current-state evidence rather than an
@@ -1067,6 +1098,104 @@ Worker outputs must still satisfy the typed worker-result contract, but the
 validator accepts a JSON object embedded in surrounding prose or a fenced code
 block before checking required fields. This keeps minor formatting drift from
 turning an otherwise valid worker result into an orchestration failure.
+The envelope also provides a bounded `records` list for homogeneous structured
+rows such as file inventories or candidate tables. Workers must put such rows
+inside the envelope rather than returning a top-level JSON array; every record
+must be a JSON object, and malformed or oversized record lists fail validation.
+
+`Coding` workers use the same JSON envelope and must additionally report typed
+`artifacts` (`path` plus `created|modified|deleted`) and `verification`
+(`command`, `passed|failed`, and detail). A `success` or `partial` result needs
+at least one artifact and one verification record, and every reported check
+must pass. A `partial` result also identifies at least one gap and one next
+step. Plain-text completion is invalid; a blocked worker reports `failed` with
+a string `failure_reason`. Persisted Coding results are checked against the same
+completion evidence before orchestration marks their subtask completed. A
+missing common envelope field, wrong list shape, malformed record, artifact, or
+verification item remains fail-closed across serialization and rehydration.
+This is structured, model-reported completion evidence, not independent
+attestation of filesystem state.
+
+The worker loop default is one shared constant (20 iterations) across runtime
+and both published schemas. Await actions are capped at 300 seconds, below the
+310-second outer agent-tool timeout, so every advertised await value can return
+a structured result instead of being preempted by the generic tool wrapper.
+
+Each accepted root chat turn owns one durable `TaskExecutionBudget` projection
+in `chat.db`. `root_turn_id` is the identity boundary: augment, steer,
+orchestration updates, and worker retries keep the original projection, while
+an interrupt that starts a new root turn receives a new budget. Classifying a
+DEFER message is control-plane work against the current run, but after that run
+finishes and the deferred turn is released, the turn becomes a new root with a
+new projection. Every task-agent queue admission reloads the authoritative
+counters before intent routing or execution. The in-process budget object and
+its context variable are only the concurrency carrier for nested
+function-calling runs and worker tasks; SQLite reservations use
+`BEGIN IMMEDIATE` so independently admitted branches or processes cannot
+oversell the same remaining capacity. A product runtime with chat storage but
+without a recoverable root identity fails closed for model calls and worker
+launches instead of silently granting a fresh in-memory allowance.
+Explore orchestration state persists both that root identity and the upstream
+task-agent target, so a later worker update still reaches the originating chat
+session after actor reconstruction. Metadata-read or planning failures preserve
+a terminal `EXPLORE_TASK_FAILED` route; Chat renders that fixed failure directly
+without spending another model call.
+The default budget permits 30 logical LLM calls and eight worker launches across
+the parent plus all workers; those are task totals, not per-agent allowances.
+The task-agent direct/planning service, tool-enabled loop, and tool-free fallback
+all consume the same counter. Each LLM-backed context-compaction chunk also
+consumes one, but compaction preserves capacity for the main model call that
+must follow it. Local loop iteration limits remain independent bounds and cannot
+raise or lower the shared task total. Batch worker starts reserve their entire
+count atomically, so an over-budget batch launches none of its workers.
+Every batch definition is also validated before the first worker starts, so a
+malformed later item cannot leave an earlier worker running. Provider-internal
+rate-limit retries remain one logical call because charging occurs once at the
+logical caller boundary. Context-decider routing is charged to the applicable
+root turn. The chat composition layer injects that admission callback into the
+tools-layer context decider, so the tools layer does not import the agent budget
+owner. Model-backed interruption routing is control-plane work and is
+deliberately outside that execution budget, so a task at its cap remains
+cancelable, replaceable, and steerable. Each classifier call still requires a
+new user message and keeps its own provider timeout; this exemption prevents a
+runaway task from disabling user control rather than authorizing autonomous
+retries. Before a tool-enabled model turn,
+each loop reserves the current call and one final-response call, so worker fan-out
+cannot consume the continuation needed to interpret tool results and produce the
+parent response. Worker launch itself charges only the shared launch counter;
+orchestration-internal launches outside such a loop do not create an unrelated
+LLM-call reservation. If only one call remains, the loop skips further tool
+selection and uses the established tool-free final-response path, including its
+JSON-mode and no-more-tools contract. Unused branch-owned reservations are
+released when that loop completes, fails, or is cancelled; copied parent
+reservations cannot be released by child tasks. Same-task nested loops receive
+separate reservation frames, so an inline fork skill cannot release the outer
+loop's final-response capacity. A fork skill that calls a provider directly is
+charged independently and does not consume that outer continuation reservation.
+
+Worker startup is transactional with respect to registration, start traces, and
+batch visibility. Worker bodies wait behind start gates until the complete batch
+is prepared. Prepared runs live in a private pending registry so status queries
+cannot observe a partial batch, while run cancellation can still find and stop
+them. A run-cancellation tombstone rejects a worker that arrives after the
+cancellation sweep. A staging failure cancels and unregisters every prepared run
+and closes any running trace spans without publishing worker lifecycle facts for
+workers that never committed. Cancellation after commit follows the normal
+cancelled worker lifecycle, including terminal state, traces, and publication.
+
+The shared object follows normal async context propagation, including workers
+that continue in the background after their launching call returns. Persistent
+task-agent actor tasks are created with request budget ContextVars cleared, then
+each later admission rehydrates the root projection instead of inheriting a
+stale Python object. Unused prepaid continuation calls are refunded durably when
+their frame exits. The frame is claimed before the durable refund: if commit
+status becomes ambiguous because cancellation or connection teardown prevents a
+normal return, the refund is not retried and the capacity remains conservatively
+charged. A process crash after reservation is likewise conservatively charged
+because there is no ambiguous time-based lease reset. Post-turn transcript
+summaries and persona maintenance remain separate scenario work and are not
+charged to this execution budget. This is a bounded user-run control, not the
+source of truth for provider token or monetary accounting.
 
 ## Background Tasks
 
@@ -1763,6 +1892,7 @@ Two rules matter here:
 - `DIRECT_LLM` turns carry explicit trace context into provider calls so the main model call is attached under the turn root and contributes token metrics
 - function-calling LLM usage labels distinguish chat-level tool decisions from worker tool decisions with separate request kinds, so usage dashboards can explain which loop consumed tokens
 - function-calling turns group each bounded loop as an `iteration` span; LLM decisions and semantic tool calls inside that loop must be children of the iteration, and low-level `tool_invocation` spans should sit under their semantic `tool_call`
+- chat execution summary step counts include semantic actions only (`tool_call`, `worker_attempt`, `skill_call`, plus legacy worker rows); transport, LLM, iteration, dispatch, response, and low-level `tool_invocation` spans remain visible in the trace tree but must not inflate the user-facing step totals
 - response rhythm segmentation emits a `rhythm_processing` span when the final answer is split into multiple natural-language segments
 - prompt-cache diagnostics flow with LLM usage events into `llm_usage.db`; they keep only provider cache counters, stable hashes, sizes, strategy labels, and bounded tool-name metadata so operators can compare cache stability without storing raw prompts or tool payloads
 - user-facing input/output details in trace UI must remain bounded previews, not raw full prompts, transcripts, or tool payloads

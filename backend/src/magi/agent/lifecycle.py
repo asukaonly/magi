@@ -174,8 +174,14 @@ class AgentRuntimeModule(LifecycleModule):
         # each finished background run fires this listener, which continues the
         # batch (next slice) or finalizes it. Non-batch runs are ignored.
         from .batch.driver import BatchDriver
+        from ..tools import tool_registry
 
-        background_wiring.manager.add_listener(BatchDriver(background_wiring.manager).on_terminal)
+        background_wiring.manager.add_listener(
+            BatchDriver(
+                background_wiring.manager,
+                tool_registry=tool_registry,
+            ).on_terminal
+        )
 
     @staticmethod
     def _register_background_attempt_listener(
@@ -275,6 +281,7 @@ class AgentRuntimeModule(LifecycleModule):
             ),
             build_timeline_handler=self._build_timeline_handler,
             control_session_store_provider=resolve_control_session_store,
+            chat_store=deps.chat_store,
         )
 
     def _build_router_agent(
@@ -351,6 +358,7 @@ class AgentRuntimeModule(LifecycleModule):
         # process (manager._running is empty after restart) and refill their runs.
         from .batch.driver import BatchDriver
         from .batch.store import default_batch_store
+        from ..tools import tool_registry
 
         if await global_clear_pending():
             cleared = await default_batch_store().clear_all()
@@ -360,7 +368,10 @@ class AgentRuntimeModule(LifecycleModule):
             )
             return
 
-        resumed = await BatchDriver(background_wiring.manager).resume_running_jobs()
+        resumed = await BatchDriver(
+            background_wiring.manager,
+            tool_registry=tool_registry,
+        ).resume_running_jobs()
         if resumed:
             logger.info("batch jobs resumed after restart", count=resumed)
 

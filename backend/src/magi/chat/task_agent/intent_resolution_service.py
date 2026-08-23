@@ -93,6 +93,13 @@ class ChatIntentResolutionService:
                 execution_mode=ExecutionMode.EXPLORE_TASK_RENDER,
                 reasoning="ExploreTaskAgent produced a Markdown dossier that must be rendered back to the user.",
             )
+        if planner_fact_kind == IncomingFactKind.EXPLORE_TASK_FAILED:
+            return self._build_fixed_intent(
+                context,
+                intent="explore_task_failed",
+                execution_mode=ExecutionMode.EXPLORE_TASK_RENDER,
+                reasoning="ExploreTaskAgent emitted a terminal failure that must be shown without another model call.",
+            )
         if planner_fact_kind == IncomingFactKind.OTHER_FACT:
             return self._build_fixed_intent(
                 context,

@@ -37,14 +37,12 @@ def test_required_is_plan_fanout_even_without_tools() -> None:
     )
 
 
-def test_maybe_is_tool_loop_to_allow_self_escalation() -> None:
-    # Even without capability tools, "maybe" gets a tool loop so the model has a
-    # place to call the injected agent tool and escalate to workers.
+def test_maybe_uses_selected_tools_to_choose_execution_shape() -> None:
     assert (
         derive_execution_shape(
             has_image_attachments=False, orchestration="maybe", has_tools=False
         )
-        == "tool_loop"
+        == "reply"
     )
     assert (
         derive_execution_shape(

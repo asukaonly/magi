@@ -2963,7 +2963,7 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     assert worker["children"][0]["label"] == "grep tool call"
 
 
-def test_trace_summary_counts_active_intent_before_response(tmp_path):
+def test_trace_summary_does_not_count_intent_as_semantic_step(tmp_path):
     service = ChatTraceReadService()
     service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     service._orchestrations_path = tmp_path / "task_orchestrations.json"
@@ -2998,9 +2998,9 @@ def test_trace_summary_counts_active_intent_before_response(tmp_path):
     summary = service.get_trace_summary(user_id="u1", session_id="s1", turn_id="turn_plan")
 
     assert summary is not None
-    assert summary["headline"] == "Running tool chain"
+    assert summary["headline"] == "Thinking"
     assert summary["active_steps"] == 0
-    assert summary["completed_steps"] == 1
+    assert summary["completed_steps"] == 0
 
 
 def test_trace_summary_exposes_orchestration_plan_preview(tmp_path):

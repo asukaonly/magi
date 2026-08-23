@@ -24,6 +24,7 @@ class IncomingFactKind(str, Enum):
     USER_MESSAGE = "user_message"
     WORKER_UPDATE = "worker_update"
     EXPLORE_TASK_COMPLETED = "explore_task_completed"
+    EXPLORE_TASK_FAILED = "explore_task_failed"
     EXPLORE_TASK_REQUEST = "explore_task_request"
     OTHER_FACT = "other_fact"
 
@@ -245,6 +246,7 @@ class ExploreTaskRequestPayload:
     upstream_task_agent_type: str = "chat"
     upstream_task_agent_id: str = ""
     turn_id: Optional[str] = None
+    root_turn_id: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -260,6 +262,8 @@ class ExploreTaskRequestPayload:
             payload["run_id"] = self.run_id
         if self.turn_id is not None:
             payload["turn_id"] = self.turn_id
+        if self.root_turn_id is not None:
+            payload["root_turn_id"] = self.root_turn_id
         return payload
 
     @classmethod
@@ -277,6 +281,7 @@ class ExploreTaskRequestPayload:
             upstream_task_agent_type=str(payload.get("upstream_task_agent_type") or "chat"),
             upstream_task_agent_id=str(payload.get("upstream_task_agent_id") or fallback_user_id),
             turn_id=_optional_string(payload.get("turn_id")),
+            root_turn_id=_optional_string(payload.get("root_turn_id")),
         )
 
 
@@ -293,6 +298,7 @@ class ExploreTaskCompletedPayload:
     orchestration_id: Optional[str] = None
     message_started_at: Optional[float] = None
     turn_id: Optional[str] = None
+    root_turn_id: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -310,6 +316,8 @@ class ExploreTaskCompletedPayload:
             payload["message_started_at"] = self.message_started_at
         if self.turn_id is not None:
             payload["turn_id"] = self.turn_id
+        if self.root_turn_id is not None:
+            payload["root_turn_id"] = self.root_turn_id
         return payload
 
     @classmethod
@@ -326,6 +334,7 @@ class ExploreTaskCompletedPayload:
             orchestration_id=_optional_string(payload.get("orchestration_id")),
             message_started_at=_optional_float(payload.get("message_started_at")),
             turn_id=_optional_string(payload.get("turn_id")),
+            root_turn_id=_optional_string(payload.get("root_turn_id")),
         )
 
 

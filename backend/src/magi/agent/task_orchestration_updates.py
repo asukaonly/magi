@@ -122,6 +122,11 @@ class TaskOrchestrationUpdateProcessor:
             context.subtask.status = "failed"
             context.subtask.failure_reason = "INVALID_WORKER_RESULT"
             context.subtask.failure_details = _build_subtask_failure_details(context.payload)
+        elif not _worker_result_can_complete(context.subtask, worker_result):
+            context.subtask.worker_result = worker_result
+            context.subtask.status = "failed"
+            context.subtask.failure_reason = "INVALID_WORKER_RESULT"
+            context.subtask.failure_details = _build_subtask_failure_details(context.payload)
         elif worker_result.result_status == "failed":
             context.subtask.worker_result = worker_result
             context.subtask.failure_reason = (
@@ -247,6 +252,57 @@ def _mark_subtask_progress(context: _WorkerUpdateContext) -> None:
     if context.subtask.status == "pending":
         context.subtask.status = "running"
     _touch_subtask_and_state(context)
+
+
+def _worker_result_can_complete(
+    subtask: SubtaskDefinition,
+    worker_result: WorkerResult,
+) -> bool:
+    if worker_result.result_status not in {"success", "partial", "failed"}:
+        return False
+    if not worker_result.envelope_contract_valid or not worker_result.string_lists_valid:
+        return False
+    if not isinstance(worker_result.summary, str) or not worker_result.summary.strip():
+        return False
+    normalized_type = subtask.subagent_type.strip().casefold()
+    if normalized_type in {"coding", "code"} and not worker_result.coding_contract_valid:
+        return False
+    if normalized_type == "plan" and (
+        not worker_result.plan_contract_valid or not worker_result.subtasks
+    ):
+        return False
+    if worker_result.result_status == "failed":
+        return isinstance(worker_result.failure_reason, str) and bool(
+            worker_result.failure_reason.strip()
+        )
+    if normalized_type == "plan":
+        return True
+    if normalized_type not in {"coding", "code"}:
+        return True
+    if not worker_result.artifacts or not worker_result.verification:
+        return False
+    if any(
+        not isinstance(item.path, str)
+        or not item.path.strip()
+        or item.operation not in {"created", "modified", "deleted"}
+        for item in worker_result.artifacts
+    ):
+        return False
+    if any(
+        not isinstance(item.command, str)
+        or not item.command.strip()
+        or item.status != "passed"
+        or not isinstance(item.detail, str)
+        or not item.detail.strip()
+        for item in worker_result.verification
+    ):
+        return False
+    if worker_result.result_status == "partial":
+        return all(
+            values and all(isinstance(item, str) and item.strip() for item in values)
+            for values in (worker_result.gaps, worker_result.next_steps)
+        )
+    return True
 
 
 def _touch_subtask_and_state(context: _WorkerUpdateContext) -> None:

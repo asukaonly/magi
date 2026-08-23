@@ -7,6 +7,7 @@ import aiohttp
 from typing import Dict, Any, List
 
 from ..base import Provider, ProviderConfig
+from ..http_errors import ProviderRateLimitError, parse_retry_after_seconds
 
 
 class BraveSearchProvider(Provider):
@@ -59,6 +60,13 @@ class BraveSearchProvider(Provider):
 
         async with aiohttp.ClientSession(trust_env=False) as session:
             async with session.get(url, headers=headers, params=request_params, proxy=proxy_url) as response:
+                if response.status == 429:
+                    raise ProviderRateLimitError(
+                        "Brave Search rate limit exceeded",
+                        retry_after_seconds=parse_retry_after_seconds(
+                            response.headers.get("Retry-After")
+                        ),
+                    )
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"Brave API error: {response.status} - {error_text}")

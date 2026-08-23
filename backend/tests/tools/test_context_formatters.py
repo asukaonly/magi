@@ -4,6 +4,7 @@ from magi.agent.execution.tool_context_formatters import (
     compact_agent_tool_data,
     compact_glob_tool_data,
     compact_read_chat_attachment_tool_data,
+    compact_shell_tool_data,
 )
 from magi.memory.tool_context_formatter import compact_memory_tool_data
 from magi.memory.tool_context_rendering import render_memory_context
@@ -30,6 +31,33 @@ def test_compact_glob_tool_data_trims_matches() -> None:
     assert len(compact["matches"]) == 40
     assert compact["matches"][0]["path"] == "/tmp/file_0.py"
     assert "size" not in compact["matches"][0]
+
+
+def test_compact_shell_tool_data_keeps_tail_and_runner_metadata() -> None:
+    compact = compact_shell_tool_data(
+        {
+            "command": "run-check",
+            "return_code": 1,
+            "stdout": "prefix-final-marker",
+            "stderr": "warning-timeout-marker",
+            "stdout_total_bytes": 100_000,
+            "stderr_total_bytes": 80_000,
+            "stdout_truncated": True,
+            "stderr_truncated": True,
+            "timed_out": True,
+        },
+        max_text_chars=12,
+    )
+
+    assert compact["stdout_preview"] == "final-marker"
+    assert compact["stderr_preview"] == "meout-marker"
+    assert compact["stdout_preview_truncated"] is True
+    assert compact["stderr_preview_truncated"] is True
+    assert compact["stdout_total_bytes"] == 100_000
+    assert compact["stderr_total_bytes"] == 80_000
+    assert compact["stdout_truncated"] is True
+    assert compact["stderr_truncated"] is True
+    assert compact["timed_out"] is True
 
 
 def test_compact_agent_tool_data_keeps_worker_summary() -> None:

@@ -8,6 +8,8 @@ import logging
 import os
 from typing import Any, Callable
 
+from magi_plugin_sdk.subprocess import hidden_process_kwargs
+
 from .config import StdioTransport
 from .log_security import (
     redact_mcp_log_text,
@@ -161,6 +163,7 @@ class StdioConnection(MCPConnection):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self._t.cwd or None,
                 env=env,
+                **hidden_process_kwargs(),
             )
         self.state = ConnectionState.CONNECTED
         self._reader_task = asyncio.create_task(self._read_loop())

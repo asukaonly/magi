@@ -14,7 +14,10 @@ from magi.agent.task_agents.common import (
     UserMessagePayload,
     WorkerUpdatePayload,
 )
-from magi.agent.task_agents.explore.constants import EXPLORE_TASK_COMPLETED
+from magi.agent.task_agents.explore.constants import (
+    EXPLORE_TASK_COMPLETED,
+    EXPLORE_TASK_FAILED,
+)
 
 WORKER_AGENT_EVENT_TYPES = {
     "WORKER_AGENT_PROGRESS",
@@ -22,10 +25,10 @@ WORKER_AGENT_EVENT_TYPES = {
     "WORKER_AGENT_FAILED",
 }
 CHAT_TOOL_LOOP_STEP_EVENT_TYPE = "CHAT_TOOL_LOOP_STEP"
+EXPLORE_TASK_RESULT_EVENT_TYPES = {EXPLORE_TASK_COMPLETED, EXPLORE_TASK_FAILED}
 SESSION_RUN_RESULT_EVENT_TYPES = WORKER_AGENT_EVENT_TYPES | {
     CHAT_TOOL_LOOP_STEP_EVENT_TYPE,
-    EXPLORE_TASK_COMPLETED,
-}
+} | EXPLORE_TASK_RESULT_EVENT_TYPES
 
 
 @dataclass(slots=True)
@@ -125,7 +128,14 @@ class ChatFactClassifier:
         ):
             return IncomingFactKind.WORKER_UPDATE
         if any(
-            isinstance(fact, FactRecord) and fact.event_type == EXPLORE_TASK_COMPLETED
+            isinstance(fact, FactRecord)
+            and fact.event_type == EXPLORE_TASK_FAILED
+            for fact in batch_facts
+        ):
+            return IncomingFactKind.EXPLORE_TASK_FAILED
+        if any(
+            isinstance(fact, FactRecord)
+            and fact.event_type == EXPLORE_TASK_COMPLETED
             for fact in batch_facts
         ):
             return IncomingFactKind.EXPLORE_TASK_COMPLETED
@@ -140,6 +150,8 @@ class ChatFactClassifier:
             return IncomingFactKind.USER_MESSAGE
         if fact.event_type in WORKER_AGENT_EVENT_TYPES:
             return IncomingFactKind.WORKER_UPDATE
+        if fact.event_type == EXPLORE_TASK_FAILED:
+            return IncomingFactKind.EXPLORE_TASK_FAILED
         if fact.event_type == EXPLORE_TASK_COMPLETED:
             return IncomingFactKind.EXPLORE_TASK_COMPLETED
         return IncomingFactKind.OTHER_FACT
@@ -163,10 +175,14 @@ class ChatFactClassifier:
                 predicate=lambda fact: fact.event_type in WORKER_AGENT_EVENT_TYPES,
                 fallback=latest_fact,
             )
-        if kind == IncomingFactKind.EXPLORE_TASK_COMPLETED:
+        if kind in {
+            IncomingFactKind.EXPLORE_TASK_COMPLETED,
+            IncomingFactKind.EXPLORE_TASK_FAILED,
+        }:
             return self._find_last_matching_fact(
                 batch_facts=batch_facts,
-                predicate=lambda fact: fact.event_type == EXPLORE_TASK_COMPLETED,
+                predicate=lambda fact: fact.event_type
+                in EXPLORE_TASK_RESULT_EVENT_TYPES,
                 fallback=latest_fact,
             )
         if batch_facts:
@@ -212,7 +228,10 @@ class ChatFactClassifier:
             return UserMessagePayload.from_dict(payload, fallback_user_id=fallback_user_id)
         if kind == IncomingFactKind.WORKER_UPDATE:
             return WorkerUpdatePayload.from_dict(payload, fallback_user_id=fallback_user_id)
-        if kind == IncomingFactKind.EXPLORE_TASK_COMPLETED:
+        if kind in {
+            IncomingFactKind.EXPLORE_TASK_COMPLETED,
+            IncomingFactKind.EXPLORE_TASK_FAILED,
+        }:
             return ExploreTaskCompletedPayload.from_dict(payload, fallback_user_id=fallback_user_id)
         return GenericFactPayload(raw=dict(payload))
 
