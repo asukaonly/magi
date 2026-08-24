@@ -37,9 +37,9 @@ def test_explicit_system_tools_are_resident_but_other_system_tools_are_not() -> 
     )
     resident = resolve_resident_system_tools(reg)
     assert "detach_to_background" in resident  # explicit allowlist
+    assert "find-relevant-tools" in resident
     assert "enter_plan_mode" in resident  # control category
-    # plain capability/system tools stay out so they are routed normally
-    assert "find-relevant-tools" not in resident
+    # Shell tools are capability tools, not resident governance tools.
     assert "bash" not in resident
     assert "powershell" not in resident
 

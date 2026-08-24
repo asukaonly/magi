@@ -193,6 +193,7 @@ class FileEditTool(Tool):
             timeout=10,
             retry_on_failure=False,
             dangerous=True,  # Editing files is a dangerous operation
+            effect_class="local_write",
             effect_replay_policy="reconcilable",
             tags=["file", "edit", "io"],
             metadata=_file_edit_metadata(),

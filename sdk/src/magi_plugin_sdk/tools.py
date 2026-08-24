@@ -121,6 +121,19 @@ class ToolSchema(BaseModel):
     )
     allowed_roles: List[str] = Field(default_factory=list, description="Allowed roles")
     dangerous: bool = Field(default=False, description="Whether dangerous operation")
+    effect_class: Literal[
+        "read_only",
+        "local_write",
+        "external_write",
+        "destructive",
+        "unknown",
+    ] = Field(
+        default="unknown",
+        description=(
+            "The class of state changed by a successful invocation. Unknown is "
+            "fail-closed for capability reuse and automatic completion."
+        ),
+    )
     effect_replay_policy: Literal[
         "read_only",
         "idempotent",

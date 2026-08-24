@@ -261,6 +261,7 @@ class AskUserQuestionTool(Tool):
                 "false. The call returns the user's reply as a string."
             ),
             category="control",
+            effect_class="external_write",
             effect_replay_policy="non_idempotent",
             parameters=_ask_parameters(),
             tags=["control", "ask"],

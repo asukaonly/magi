@@ -87,6 +87,7 @@ class DetachToBackgroundTool(Tool):
             timeout=5,
             retry_on_failure=False,
             dangerous=False,
+            effect_class="external_write",
             effect_replay_policy="idempotent",
             tags=["system", "background", "runtime-control"],
         )

@@ -176,7 +176,7 @@ class TurnRouteResolver:
             session_key=session_key,
             requested_tools=selected_tools,
             registered_tools=registered_tools,
-            may_write=bool(getattr(route_decision, "may_write", False)),
+            tool_registry=tool_registry,
         )
 
     def _prefer_direct_external_tools(

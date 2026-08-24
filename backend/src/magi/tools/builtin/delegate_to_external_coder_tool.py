@@ -207,6 +207,7 @@ class DelegateToExternalCoderTool(Tool):
             timeout=3600,
             retry_on_failure=False,
             dangerous=False,  # Runs in isolated worktree, safer than direct file edits
+            effect_class="external_write",
             effect_replay_policy="reconcilable",
             tags=["agent", "delegate", "code"],
             metadata=_delegate_metadata(),

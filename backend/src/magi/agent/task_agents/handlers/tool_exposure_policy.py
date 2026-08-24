@@ -5,38 +5,12 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
-
-_WRITE_TOOL_NAMES = {
-    "agent",
-    "bash",
-    "powershell",
-    "file_edit",
-    "file_write",
-    "file_rollback",
-    "batch_create",
-    "detach_to_background",
-    "schedule",
-    "todo_write",
-}
-_WRITE_TOOL_MARKERS = (
-    "write",
-    "edit",
-    "delete",
-    "remove",
-    "create",
-    "update",
-    "patch",
-    "rollback",
-    "commit",
-    "push",
-    "send",
-    "execute",
-    "shell",
-    "bash",
-    "powershell",
+from ...execution.tool_metadata import (
+    ToolEffectClass,
+    resolve_tool_capability_metadata,
 )
-_NON_REUSABLE_EXTRA_TOOLS = {"agent"}
 
 
 @dataclass(slots=True, frozen=True)
@@ -62,13 +36,6 @@ def _normalize_tools(
     return normalized
 
 
-def _looks_write_capable(tool_name: str) -> bool:
-    normalized = tool_name.replace("-", "_").lower()
-    if normalized in _WRITE_TOOL_NAMES:
-        return True
-    return any(marker in normalized for marker in _WRITE_TOOL_MARKERS)
-
-
 @dataclass(slots=True)
 class ToolExposurePolicy:
     """Reuse recent tool supersets when that improves provider prompt caching."""
@@ -84,7 +51,7 @@ class ToolExposurePolicy:
         session_key: str,
         requested_tools: Sequence[str],
         registered_tools: Collection[str] | None,
-        may_write: bool,
+        tool_registry: Any | None,
     ) -> list[str]:
         current = _normalize_tools(
             requested_tools,
@@ -106,7 +73,7 @@ class ToolExposurePolicy:
                 current_tools=current,
                 cached_at=cached.updated_at,
                 now=now,
-                may_write=may_write,
+                tool_registry=tool_registry,
             ):
                 self._cache[key] = _CachedToolExposure(
                     tools=tuple(cached_tools),
@@ -127,7 +94,7 @@ class ToolExposurePolicy:
         current_tools: list[str],
         cached_at: float,
         now: float,
-        may_write: bool,
+        tool_registry: Any | None,
     ) -> bool:
         if not cached_tools or len(cached_tools) > self.max_reused_tools:
             return False
@@ -138,11 +105,26 @@ class ToolExposurePolicy:
         if not cached_set.issuperset(current_set):
             return False
         extra_tools = cached_set - current_set
-        if extra_tools.intersection(_NON_REUSABLE_EXTRA_TOOLS):
-            return False
-        if may_write:
+        if not extra_tools:
             return True
-        return not any(_looks_write_capable(tool) for tool in extra_tools)
+        if tool_registry is None:
+            return False
+        current_effects = {
+            resolve_tool_capability_metadata(tool_registry, tool).effect_class
+            for tool in current_tools
+        }
+        for tool_name in extra_tools:
+            effect_class = resolve_tool_capability_metadata(
+                tool_registry,
+                tool_name,
+            ).effect_class
+            if effect_class is ToolEffectClass.READ_ONLY:
+                continue
+            if effect_class in {ToolEffectClass.UNKNOWN, ToolEffectClass.DESTRUCTIVE}:
+                return False
+            if effect_class not in current_effects:
+                return False
+        return True
 
 
 default_tool_exposure_policy = ToolExposurePolicy()

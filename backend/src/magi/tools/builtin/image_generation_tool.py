@@ -126,6 +126,7 @@ class ImageGenerationTool(Tool):
             timeout=DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS,
             retry_on_failure=False,
             dangerous=False,
+            effect_class="external_write",
             effect_replay_policy="reconcilable",
             tags=["image", "generation", "creative"],
         )

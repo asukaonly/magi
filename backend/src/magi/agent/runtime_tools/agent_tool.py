@@ -84,6 +84,7 @@ class AgentTool(Tool):
             examples=_agent_tool_schema_examples(),
             timeout=WORKER_TOOL_TIMEOUT_SECONDS,
             dangerous=False,
+            effect_class="external_write",
             effect_replay_policy="reconcilable",
             tags=["agent", "worker", "planning", "exploration"],
             metadata=_agent_tool_schema_metadata(),

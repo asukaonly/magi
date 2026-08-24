@@ -74,6 +74,7 @@ class FileRollbackTool(Tool):
             timeout=10,
             retry_on_failure=False,
             dangerous=True,
+            effect_class="local_write",
             effect_replay_policy="reconcilable",
             tags=["file", "rollback"],
             metadata={

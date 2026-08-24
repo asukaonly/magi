@@ -41,6 +41,7 @@ class BatchCreateTool(Tool):
                 "Returns job_id + total_items."
             ),
             category="automation",
+            effect_class="external_write",
             parameters=[
                 ToolParameter(
                     name="seed_spec", type=ParameterType.OBJECT, required=True,

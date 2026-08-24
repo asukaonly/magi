@@ -5,15 +5,9 @@ detach, tool discovery) rather than doing capability work. Per ADR-0002 they
 are *runtime-control* tools; per ADR-0005 they are RESIDENT on the main chat
 LLM's tool loop instead of being routed.
 
-Consequences:
-* The router (``ContextDecider``) excludes them from its prompt — it only
-  filters capability tools, so it does not waste budget reasoning about them.
-* They are appended to the main LLM's tool list by ``TurnRouteResolver`` after
-  the execution shape is derived — so they never turn a tool-less ``reply`` into
-  a ``tool_loop``.
-* The model can therefore always switch its own state mid-loop (enter plan
-  mode, ask the user, detach to background) without depending on the router
-  having pre-selected the control tool.
+The unified loop exposes these tools before the first model call. A resident
+schema is availability, not authorization; invocation still crosses capability,
+permission, effect, and budget guards.
 
 Residency is defined as: every tool in the ``control`` category, plus a small
 explicit allowlist of ``system``-category tools that are control-in-spirit
@@ -37,6 +31,10 @@ from typing import Any
 _EXPLICIT_RESIDENT_TOOLS: tuple[str, ...] = (
     "detach_to_background",
     "batch_create",
+    "agent",
+    "find-relevant-tools",
+    "memory_query",
+    "trace_query",
 )
 
 

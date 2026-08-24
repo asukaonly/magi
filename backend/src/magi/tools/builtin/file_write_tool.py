@@ -80,6 +80,7 @@ def _build_file_write_schema() -> ToolSchema:
         timeout=10,
         retry_on_failure=False,
         dangerous=True,
+        effect_class="local_write",
         effect_replay_policy="reconcilable",
         tags=["file", "write", "io"],
         metadata=_file_write_metadata(),

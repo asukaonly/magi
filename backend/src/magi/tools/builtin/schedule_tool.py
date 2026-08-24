@@ -79,6 +79,7 @@ class ScheduleTool(Tool):
                 "and tools_allow are also accepted. Interval schedules must be at least 60 seconds."
             ),
             category="automation",
+            effect_class="external_write",
             effect_replay_policy="reconcilable",
             parameters=self._schema_parameters(),
             tags=["schedule", "automation", "background", "reminder"],

@@ -116,6 +116,7 @@ class SystemSettingsTool(SystemSettingsPathMixin, SystemSettingsActionsMixin, To
             timeout=10,
             retry_on_failure=False,
             dangerous=False,
+            effect_class="local_write",
             effect_replay_policy="reconcilable",
             tags=["system", "config", "settings"],
             metadata={

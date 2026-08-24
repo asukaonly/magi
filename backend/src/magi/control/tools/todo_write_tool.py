@@ -46,6 +46,7 @@ class TodoWriteTool(Tool):
                 "at a time."
             ),
             category="control",
+            effect_class="external_write",
             parameters=[
                 ToolParameter(
                     name="items",
