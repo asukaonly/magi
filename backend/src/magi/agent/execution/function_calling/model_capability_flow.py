@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from ....config.models import ThinkingDepth
+from ....context.window_budget import estimate_context_tokens
 from ....llm.streaming_events import stream_scope
 from magi.control.run_control import RunControl
 from ..context_fingerprint import stable_hash
@@ -46,6 +47,7 @@ class FunctionCallingModelCapabilityFlow:
         issue = profile.validate_run(
             has_images=_messages_contain_images(state.messages),
             tool_count=len(state.selected_tool_names),
+            schema_tokens=(estimate_context_tokens(state.tools) if state.tools else 0),
         )
         if issue is None:
             return None
@@ -211,6 +213,9 @@ def _model_capability_error(reason_code: str) -> str:
         ),
         "tool_schema_limit_exceeded": (
             "The initial capability set exceeds the selected model's tool-schema limit."
+        ),
+        "tool_schema_token_limit_exceeded": (
+            "The initial capability schemas exceed the selected model's schema-token limit."
         ),
     }.get(reason_code, "The selected model does not support this run shape.")
 

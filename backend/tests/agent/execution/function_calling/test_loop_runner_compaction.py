@@ -49,6 +49,49 @@ async def test_required_capability_fails_before_model_call_when_tools_are_unsupp
 
 
 @pytest.mark.asyncio
+async def test_oversized_tool_schemas_fail_before_model_call() -> None:
+    class _StepExecutor:
+        async def execute_step(self, **kwargs: object) -> FunctionCallingStepOutcome:
+            raise AssertionError("model call must not run")
+
+    class _Host:
+        step_executor = _StepExecutor()
+        _current_messages: list[dict[str, object]] = []
+
+        def build_step_state(self, **kwargs: object) -> FunctionCallingStepState:
+            return FunctionCallingStepState(
+                messages=[{"role": "user", "content": "use the tool"}],
+                effective_system_prompt="system",
+                tools=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "demo",
+                            "description": "x" * 2_000,
+                            "parameters": {"type": "object", "properties": {}},
+                        },
+                    }
+                ],
+                selected_tool_names=["demo"],
+            )
+
+    runner = FunctionCallingLoopRunner(_Host())
+    outcome = await runner.run(
+        AgentRunRequest(
+            turn=UserTurnInput(text="use the tool"),
+            system_prompt="system",
+            selected_tools=["demo"],
+            user_id="user-1",
+            model_capabilities=ModelCapabilityProfile(max_schema_tokens=20),
+        ),
+        control=null_run_control(),
+    )
+
+    assert outcome.status == "failed"
+    assert outcome.failure_reason == "tool_schema_token_limit_exceeded"
+
+
+@pytest.mark.asyncio
 async def test_compacts_before_first_model_request() -> None:
     events: list[str] = []
 

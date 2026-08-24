@@ -33,7 +33,13 @@ class ModelCapabilityProfile:
             ),
         )
 
-    def validate_run(self, *, has_images: bool, tool_count: int) -> str | None:
+    def validate_run(
+        self,
+        *,
+        has_images: bool,
+        tool_count: int,
+        schema_tokens: int = 0,
+    ) -> str | None:
         if has_images and not self.supports_images:
             return "attachments_unsupported"
         if tool_count and not self.supports_tool_calls:
@@ -42,6 +48,8 @@ class ModelCapabilityProfile:
             return "attachment_observation_required"
         if self.max_tool_schemas is not None and tool_count > self.max_tool_schemas:
             return "tool_schema_limit_exceeded"
+        if self.max_schema_tokens is not None and schema_tokens > self.max_schema_tokens:
+            return "tool_schema_token_limit_exceeded"
         return None
 
 
