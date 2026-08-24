@@ -206,7 +206,7 @@ def test_profile_memory_recent_emotion_uses_labels_without_scores() -> None:
 
 def test_persona_identity_in_head_per_turn_steer_in_tail() -> None:
     # The persona DEFINITION (Identity Core + Baseline Voice) is stable across
-    # turns and stays in the cached head. The per-turn STEER (register,
+    # turns and stays in the cached head. The per-turn run input (register,
     # modulation, examples) is recomputed every turn by PersonaTurnPlanner, so it
     # must sit below the boundary or it invalidates the cached prefix each turn
     # (root cause of cache read=0 on the chat path).

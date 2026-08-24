@@ -11,7 +11,7 @@ from magi.chat.task_agent.session_run_coordinator import (
 def _build_coordinator(store: SessionRunStore) -> SessionRunCoordinator:
     """Construct a minimal SessionRunCoordinator backed by the given store.
 
-    The interruption_classifier is not exercised by request_retract tests
+    The the input queue is not exercised by request_retract tests
     so a default (rule-based) classifier is fine.
     """
     return SessionRunCoordinator(run_store=store)

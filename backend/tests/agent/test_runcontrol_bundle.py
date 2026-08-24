@@ -153,11 +153,11 @@ async def test_suspend_signal_clear_then_request_accepts_new_payload() -> None:
     assert signal.payload == second
 
 
-from magi.agent.cancel import EventCancelToken, null_cancel_token  # noqa: E402
+from magi.agent.cancel import EventCancelToken  # noqa: E402
 from magi.control.run_control import (  # noqa: E402
     DetachSignal,
     RunControl,
-    SteerInbox,
+    RunInputInbox,
     null_run_control,
 )
 
@@ -167,21 +167,21 @@ def test_run_control_bundles_all_five_signals() -> None:
     detach = DetachSignal()
     retract = RetractSignal()
     suspend = SuspendSignal()
-    steer = SteerInbox()
+    input_queue = RunInputInbox()
 
     control = RunControl(
         cancel_token=cancel,
         detach_signal=detach,
         retract_signal=retract,
         suspend_signal=suspend,
-        steer_inbox=steer,
+        input_queue=input_queue,
     )
 
     assert control.cancel_token is cancel
     assert control.detach_signal is detach
     assert control.retract_signal is retract
     assert control.suspend_signal is suspend
-    assert control.steer_inbox is steer
+    assert control.input_queue is input_queue
 
 
 def test_run_control_fields_are_reassignable() -> None:
@@ -195,19 +195,19 @@ def test_run_control_fields_are_reassignable() -> None:
     real_detach = DetachSignal()
     real_retract = RetractSignal()
     real_suspend = SuspendSignal()
-    real_steer = SteerInbox()
+    real_input_queue = RunInputInbox()
 
     control.cancel_token = real_cancel
     control.detach_signal = real_detach
     control.retract_signal = real_retract
     control.suspend_signal = real_suspend
-    control.steer_inbox = real_steer
+    control.input_queue = real_input_queue
 
     assert control.cancel_token is real_cancel
     assert control.detach_signal is real_detach
     assert control.retract_signal is real_retract
     assert control.suspend_signal is real_suspend
-    assert control.steer_inbox is real_steer
+    assert control.input_queue is real_input_queue
 
 
 def test_null_run_control_is_safe_to_poll() -> None:
@@ -216,7 +216,7 @@ def test_null_run_control_is_safe_to_poll() -> None:
     assert control.detach_signal is not None
     assert control.retract_signal is not None
     assert control.suspend_signal is not None
-    assert control.steer_inbox is not None
+    assert control.input_queue is not None
 
 
 @pytest.mark.asyncio
@@ -226,7 +226,7 @@ async def test_null_run_control_never_signals() -> None:
     assert not control.detach_signal.is_requested()
     assert not control.retract_signal.is_requested()
     assert not control.suspend_signal.is_requested()
-    assert control.steer_inbox.is_empty()
+    assert control.input_queue.is_empty()
 
 
 @pytest.mark.asyncio

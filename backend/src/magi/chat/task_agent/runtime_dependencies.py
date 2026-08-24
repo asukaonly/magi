@@ -41,7 +41,6 @@ def build_chat_task_agent_runtime_parts(
         context_assembler=context_parts.context_assembler,
         fact_classifier=context_parts.fact_classifier,
         prompt_service=context_parts.prompt_service,
-        interruption_classifier=context_parts.interruption_classifier,
         session_run_coordinator=execution_parts.session_run_coordinator,
         transcript_summarizer=execution_parts.transcript_summarizer,
         postprocess_service=execution_parts.postprocess_service,

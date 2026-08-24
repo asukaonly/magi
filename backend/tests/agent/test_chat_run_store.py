@@ -193,44 +193,36 @@ def test_stale_revision_completion_does_not_clear_new_revision_control() -> None
     assert store.get_active_run_control("session-1", "run-1") is new_control
 
 
-def test_complete_active_run_atomically_returns_only_current_deferred_turns() -> None:
+def test_complete_active_run_atomically_returns_current_unconsumed_inputs() -> None:
     store = SessionRunStore()
     store.create_active_run(session_id="session-1", run_id="run-1")
     store.append_pending_turn(
         session_id="session-1",
-        turn_id="turn-augment",
-        content="Use this in the current task",
-        disposition="augment",
-    )
-    store.append_pending_turn(
-        session_id="session-1",
-        turn_id="turn-deferred",
+        turn_id="turn-input",
         content="Handle this after the current task",
-        disposition="defer",
     )
 
-    completed, deferred_turns = store.complete_active_run_with_deferred(
+    completed, pending_inputs = store.complete_active_run_with_pending_inputs(
         "session-1",
         run_id="run-1",
         revision=0,
     )
 
     assert completed is True
-    assert [turn.turn_id for turn in deferred_turns] == ["turn-deferred"]
+    assert [turn.turn_id for turn in pending_inputs] == ["turn-input"]
     assert store.get_active_run("session-1") is None
 
 
-def test_complete_active_run_mismatch_does_not_detach_deferred_turns() -> None:
+def test_complete_active_run_mismatch_does_not_detach_pending_inputs() -> None:
     store = SessionRunStore()
     store.create_active_run(session_id="session-1", run_id="run-current")
     store.append_pending_turn(
         session_id="session-1",
-        turn_id="turn-deferred",
+        turn_id="turn-input",
         content="Handle this after the current task",
-        disposition="defer",
     )
 
-    completed, deferred_turns = store.complete_active_run_with_deferred(
+    completed, pending_inputs = store.complete_active_run_with_pending_inputs(
         "session-1",
         run_id="run-stale",
         revision=0,
@@ -238,10 +230,10 @@ def test_complete_active_run_mismatch_does_not_detach_deferred_turns() -> None:
 
     active_run = store.get_active_run("session-1")
     assert completed is False
-    assert deferred_turns == []
+    assert pending_inputs == []
     assert active_run is not None
     assert [turn.turn_id for turn in active_run.pending_turns] == [
-        "turn-deferred"
+        "turn-input"
     ]
 
 
@@ -267,7 +259,7 @@ async def test_create_active_run_does_not_change_l0_attention(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_interrupting_run_does_not_change_l0_attention(
+async def test_revising_run_does_not_change_l0_attention(
     tmp_path,
 ) -> None:
     workbench_store = L0WorkingMemoryStore(
@@ -324,13 +316,13 @@ def test_consume_pending_turns_only_clears_requested_revision() -> None:
     store.append_pending_turn(
         session_id="session-1",
         turn_id="turn-1",
-        content="first revision augment",
+        content="first revision input",
     )
     store.bump_revision("session-1", clear_pending_turns=False)
     store.append_pending_turn(
         session_id="session-1",
         turn_id="turn-2",
-        content="second revision augment",
+        content="second revision input",
     )
 
     consumed = store.consume_pending_turns("session-1", revision=1)

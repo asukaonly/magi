@@ -82,7 +82,7 @@ CASE
                       turns.status = 'completed'
                       AND LOWER(
                           TRIM(COALESCE(turns.run_disposition, ''))
-                      ) NOT IN ('augment', 'defer', 'steer')
+                      ) != 'message'
                       AND LOWER(
                           TRIM(COALESCE(turns.response_mode, ''))
                       ) IN ('none', 'reaction_only')

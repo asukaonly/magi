@@ -17,7 +17,7 @@ from ...turn_input import UserTurnInput
 from magi.control.run_control import (
     DetachSignal,
     RetractSignal,
-    SteerInbox,
+    RunInputInbox,
     SuspendSignal,
     bind_detach_signal,
     null_run_control,
@@ -465,13 +465,13 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         state.ephemeral_context_message_index = None
         state.ephemeral_context_original_content = None
 
-    async def apply_steer_messages(
+    async def apply_run_inputs(
         self,
         state: FunctionCallingStepState,
-        steer_inbox: SteerInbox,
+        input_queue: RunInputInbox,
     ) -> list[dict[str, Any]]:
-        """Drain ``steer_inbox`` and append each message to ``state.messages``."""
-        pending = await steer_inbox.drain()
+        """Drain ``input_queue`` and append each message to ``state.messages``."""
+        pending = await input_queue.drain()
         if not pending:
             return []
         injected: list[dict[str, Any]] = []
@@ -489,7 +489,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 }
             )
             logger.info(
-                "[FunctionCalling] Steer message injected at iteration=%s reason=%s",
+                "[FunctionCalling] Run input injected at iteration=%s reason=%s",
                 state.iteration,
                 message.reason,
             )

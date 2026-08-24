@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, is_dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
 from ....core.logger import get_logger
@@ -175,7 +175,6 @@ class ChatHandlerDependencies:
     attachment_resolver: AttachmentResolverPort = field(default_factory=NullAttachmentResolver)
     session_run_coordinator: Any | None = None
     background_launch_service: BackgroundLaunchService | None = None
-    persist_turn_supersessions: Callable[[list[Any], int], Awaitable[None]] | None = None
     # Phase G+1: Optional reference to the ChatExecutionCoordinator so the
     # streaming-path handler can route ``text_delta`` chunks through
     # ``coordinator.dispatch_stream_chunk`` (multi-channel fanout). Optional
@@ -315,7 +314,6 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
         session_id = str(getattr(request.context, "session_id", "") or "").strip()
         detach_signal = self._build_detach_signal(session_id=session_id)
-        steer_inbox = await self._build_steer_inbox(request)
         cancel_token = self._build_cancel_token(request)
         context_control = (
             request.context.control if hasattr(request.context, "control") else None
@@ -324,7 +322,6 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             context_control,
             cancel_token,
             detach_signal=detach_signal,
-            steer_inbox=steer_inbox,
         )
         try:
             execution_outcome = await self._execute_orchestrator_run(
@@ -353,16 +350,13 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
         cancel_token: CancelToken,
         *,
         detach_signal: Any = None,
-        steer_inbox: Any = None,
     ) -> Any:
-        # Overlay the locally-built cancel token so the legacy cancel-button
-        # path continues to work with the context-owned RunControl bundle.
+        """Overlay live controls while preserving the context-owned input queue."""
+
         control = context_control if context_control is not None else null_run_control()
         control.cancel_token = cancel_token
         if detach_signal is not None:
             control.detach_signal = detach_signal
-        if steer_inbox is not None:
-            control.steer_inbox = steer_inbox
         return control
 
     async def _execute_orchestrator_run(

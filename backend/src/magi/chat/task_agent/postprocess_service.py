@@ -22,7 +22,6 @@ from magi.runtime_trace import (
     RuntimeTraceStore,
 )
 from magi.agent.task_agents.common import (
-    ExecutionMode,
     ExecutionResult,
     AgentRunExecutionResult,
     IncomingFactKind,
@@ -45,7 +44,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_PENDING_INTERJECTION_DISPOSITIONS = frozenset({"augment", "defer", "steer"})
 _TERMINAL_TURN_STATUSES = frozenset({"cancelled", "interrupted", "merged"})
 
 
@@ -103,7 +101,7 @@ class ChatPostProcessService:
         chat_read_service_factory: Callable[[], Any] | None = None,
         complete_session_run: Callable[[str, str, int], Any] | None = None,
         resolve_session_run_status: Callable[[str, str, int], Any] | None = None,
-        release_deferred_turns: Callable[[str, list[Any]], Any] | None = None,
+        release_pending_inputs: Callable[[str, list[Any]], Any] | None = None,
         response_rhythm_planner: Any | None = None,
         transcript_summarizer: Any | None = None,
         event_bus: Any | None = None,
@@ -130,7 +128,7 @@ class ChatPostProcessService:
         self._wire_session_runtime(
             complete_session_run=complete_session_run,
             resolve_session_run_status=resolve_session_run_status,
-            release_deferred_turns=release_deferred_turns,
+            release_pending_inputs=release_pending_inputs,
             response_rhythm_planner=response_rhythm_planner,
             transcript_summarizer=transcript_summarizer,
         )
@@ -139,7 +137,7 @@ class ChatPostProcessService:
         """Cancel detached post-processing created before a destructive clear."""
 
         await self._cancel_detached_background_tasks()
-        self._deferred_release_retry_keys.clear()
+        self._pending_input_release_retry_keys.clear()
 
     async def shutdown_background_tasks(self) -> None:
         """Finish runtime handoff before a normal session-agent shutdown."""
@@ -152,7 +150,7 @@ class ChatPostProcessService:
         if handoff_tasks:
             await asyncio.gather(*handoff_tasks, return_exceptions=True)
         await self._cancel_detached_background_tasks()
-        self._deferred_release_retry_keys.clear()
+        self._pending_input_release_retry_keys.clear()
 
     async def _cancel_detached_background_tasks(self) -> None:
         """Cancel and drain currently detached post-processing tasks."""
@@ -167,7 +165,7 @@ class ChatPostProcessService:
     def has_pending_background_work(self) -> bool:
         """Return whether post-processing still owns the session."""
 
-        return bool(self._deferred_release_retry_keys)
+        return bool(self._pending_input_release_retry_keys)
 
     async def handle_pipeline_failure(
         self,
@@ -316,13 +314,13 @@ class ChatPostProcessService:
         *,
         complete_session_run: Callable[[str, str, int], Any] | None,
         resolve_session_run_status: Callable[[str, str, int], Any] | None,
-        release_deferred_turns: Callable[[str, list[Any]], Any] | None,
+        release_pending_inputs: Callable[[str, list[Any]], Any] | None,
         response_rhythm_planner: Any | None,
         transcript_summarizer: Any | None,
     ) -> None:
         self._complete_session_run = complete_session_run
         self._resolve_session_run_status = resolve_session_run_status
-        self._release_deferred_turns = release_deferred_turns
+        self._release_pending_inputs = release_pending_inputs
         self._response_rhythm_planner = response_rhythm_planner
         self._transcript_summarizer = transcript_summarizer
 
@@ -332,7 +330,7 @@ class ChatPostProcessService:
     ) -> None:
         self._deliver_final_response = deliver_final_response
         self._background_tasks: set[asyncio.Task[Any]] = set()
-        self._deferred_release_retry_keys: set[tuple[str, str, int]] = set()
+        self._pending_input_release_retry_keys: set[tuple[str, str, int]] = set()
 
     def __getattr__(self, name: str) -> Any:
         operations = self.__dict__.get("_operations")
@@ -932,14 +930,6 @@ class ChatPostProcessService:
         latest_fact: FactRecord,
         ux_plan: dict[str, Any],
     ) -> bool:
-        if (
-            result.mode == ExecutionMode.FACT_ONLY
-            and str(context.session_run_disposition or "").strip().lower()
-            in _PENDING_INTERJECTION_DISPOSITIONS
-        ):
-            # AUGMENT / STEER / DEFER facts have only been durably accepted by
-            # the active run.  They have not produced a terminal chat outcome.
-            return True
         response_mode = str(ux_plan.get("assistant_surface_mode") or "").strip()
         if response_mode not in {"none", "reaction_only"}:
             return False

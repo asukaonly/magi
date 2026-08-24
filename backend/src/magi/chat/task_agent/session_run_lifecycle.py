@@ -10,7 +10,7 @@ from magi.control.run_control import RunControl
 from magi.agent.task_agents.common import UserMessagePayload
 from .fact_classifier import ClassifiedFact
 from magi.agent.task_agents.handlers.run_contracts import (
-    ActiveRun,
+    AgentRun,
     PendingTurn,
     RunResult,
 )
@@ -24,7 +24,7 @@ class SessionRunLifecycleMixin:
 
     _run_store: "SessionRunStore"
 
-    def get_active_run(self, session_id: str) -> ActiveRun | None:
+    def get_active_run(self, session_id: str) -> AgentRun | None:
         """Return the current active run for one session."""
         return self._run_store.get_active_run(session_id)
 
@@ -52,7 +52,7 @@ class SessionRunLifecycleMixin:
         requested_by: str,
         reason: str = "user_cancel",
         anchor_turn_id: str | None = None,
-    ) -> ActiveRun | None:
+    ) -> AgentRun | None:
         """Mark the active run as cancelling when one exists."""
         active_run = self._run_store.get_active_run(session_id)
         if active_run is None:
@@ -90,23 +90,23 @@ class SessionRunLifecycleMixin:
         revision: int | None = None,
     ) -> bool:
         """Complete the active run if it still matches the expected identity."""
-        completed, _ = self.complete_run_with_deferred(
+        completed, _ = self.complete_run_with_pending_inputs(
             session_id=session_id,
             run_id=run_id,
             revision=revision,
         )
         return completed
 
-    def complete_run_with_deferred(
+    def complete_run_with_pending_inputs(
         self,
         *,
         session_id: str,
         run_id: str | None = None,
         revision: int | None = None,
     ) -> tuple[bool, list[PendingTurn]]:
-        """Complete one exact run and atomically detach its DEFER turns."""
+        """Complete one exact run and atomically detach unconsumed inputs."""
 
-        return self._run_store.complete_active_run_with_deferred(
+        return self._run_store.complete_active_run_with_pending_inputs(
             session_id,
             run_id=run_id,
             revision=revision,
@@ -141,7 +141,7 @@ class SessionRunLifecycleMixin:
         self,
         *,
         classified_fact: ClassifiedFact,
-        active_run: ActiveRun | None,
+        active_run: AgentRun | None,
     ) -> RunResult | None:
         result_fact = classified_fact.latest_result_fact
         if active_run is None or not isinstance(result_fact, FactRecord):

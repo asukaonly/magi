@@ -18,10 +18,9 @@ class SessionRunStore(
 
     In-memory companion: ``_run_controls`` holds the live ``RunControl``
     bundle for each active run keyed by ``(session_id, run_id)``. The
-    bundle contains asyncio Events and inboxes that cannot be persisted;
-    it is the runtime-only counterpart to the persisted ``ActiveRun``
-    record. Process restart recovery is ledger-driven and creates a new run
-    instead of restoring a control-less active record.
+    bundle contains asyncio events and queues that cannot be persisted.
+    Process restart recovery is ledger-driven and creates a new run instead
+    of restoring control-less process state.
     """
 
     def __init__(

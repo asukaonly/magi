@@ -8,8 +8,8 @@ import pytest
 from magi.control.run_control import (
     DetachRequested,
     DetachSignal,
-    SteerInbox,
-    SteerMessage,
+    RunInputInbox,
+    RunInputMessage,
 )
 from magi.agent.execution.checkpoint import AgentRunCheckpoint
 from magi.agent.execution.evidence import ToolExecutionEvidence
@@ -17,10 +17,10 @@ from magi.agent.execution.reasoning import ReasoningPolicy, ReasoningState
 
 
 @pytest.mark.asyncio
-async def test_steer_inbox_drain_returns_pushed_messages_in_order() -> None:
-    inbox = SteerInbox()
-    await inbox.push(SteerMessage(content="first"))
-    await inbox.push(SteerMessage(content="second"))
+async def test_input_queue_drain_returns_pushed_messages_in_order() -> None:
+    inbox = RunInputInbox()
+    await inbox.push(RunInputMessage(content="first"))
+    await inbox.push(RunInputMessage(content="second"))
 
     drained = await inbox.drain()
 
@@ -28,9 +28,9 @@ async def test_steer_inbox_drain_returns_pushed_messages_in_order() -> None:
 
 
 @pytest.mark.asyncio
-async def test_steer_inbox_drain_empties_the_queue() -> None:
-    inbox = SteerInbox()
-    await inbox.push(SteerMessage(content="only"))
+async def test_input_queue_drain_empties_the_queue() -> None:
+    inbox = RunInputInbox()
+    await inbox.push(RunInputMessage(content="only"))
 
     first = await inbox.drain()
     second = await inbox.drain()
@@ -41,12 +41,12 @@ async def test_steer_inbox_drain_empties_the_queue() -> None:
 
 
 @pytest.mark.asyncio
-async def test_steer_inbox_concurrent_producers_do_not_lose_messages() -> None:
-    inbox = SteerInbox()
+async def test_input_queue_concurrent_producers_do_not_lose_messages() -> None:
+    inbox = RunInputInbox()
 
     async def push_batch(prefix: str, count: int) -> None:
         for i in range(count):
-            await inbox.push(SteerMessage(content=f"{prefix}-{i}"))
+            await inbox.push(RunInputMessage(content=f"{prefix}-{i}"))
 
     await asyncio.gather(push_batch("a", 5), push_batch("b", 5))
 

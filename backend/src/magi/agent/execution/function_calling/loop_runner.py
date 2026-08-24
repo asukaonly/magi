@@ -402,15 +402,15 @@ class FunctionCallingLoopRunner:
                 ExecutionOutcome,
                 self._host._build_suspended_outcome(state, control.suspend_signal),
             )
-        injected_controls = await self._host.apply_steer_messages(
+        injected_inputs = await self._host.apply_run_inputs(
             state,
-            control.steer_inbox,
+            control.input_queue,
         )
-        if injected_controls and state.journal is not None:
+        if injected_inputs and state.journal is not None:
             await state.journal.append(
                 AgentRunEventType.CONTROL_RECEIVED,
                 step_index=state.iteration,
-                payload={"controls": injected_controls},
+                payload={"inputs": injected_inputs},
             )
         if control.detach_signal.is_requested():
             return cast(

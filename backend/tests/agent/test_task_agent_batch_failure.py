@@ -519,7 +519,7 @@ async def test_budget_failure_writes_execution_limit_terminal_surface(
 
 
 @pytest.mark.asyncio
-async def test_pipeline_failure_uses_shared_deferred_release_barrier(
+async def test_pipeline_failure_uses_shared_pending_input_release_barrier(
     runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -545,33 +545,33 @@ async def test_pipeline_failure_uses_shared_deferred_release_barrier(
     )
     agent._session_run_coordinator._run_store.append_pending_turn(
         session_id,
-        "turn-deferred",
+        "turn-input",
         "Handle this after the failed root task",
-        disposition="defer",
+        disposition="message",
     )
     barrier_calls: list[tuple[str, str, int, list[str]]] = []
 
-    async def _release_deferred(
+    async def _release_pending(
         *,
         session_id: str,
         run_id: str,
         revision: int,
-        deferred_turns: list,
+        pending_inputs: list,
     ) -> bool:
         barrier_calls.append(
             (
                 session_id,
                 run_id,
                 revision,
-                [turn.turn_id for turn in deferred_turns],
+                [turn.turn_id for turn in pending_inputs],
             )
         )
         return True
 
     monkeypatch.setattr(
         agent._postprocess_service,
-        "release_deferred_after_run_completion",
-        _release_deferred,
+        "release_pending_inputs_after_run_completion",
+        _release_pending,
     )
 
     await agent.handle_batch_failure(
@@ -582,7 +582,7 @@ async def test_pipeline_failure_uses_shared_deferred_release_barrier(
     )
 
     assert barrier_calls == [
-        (session_id, "run-failure-barrier", 0, ["turn-deferred"])
+        (session_id, "run-failure-barrier", 0, ["turn-input"])
     ]
 
 

@@ -24,17 +24,16 @@ def test_agent_run_accepts_typed_trigger():
 
 
 def test_agent_run_trigger_defaults_to_none():
-    """Backward compat — callers that don't set trigger still construct."""
     run = AgentRun(session_id="s1", run_id="r1")
     assert run.trigger is None
 
 
 def test_agent_run_accepts_pending_turns():
     from magi.agent.task_agents.handlers.run_contracts import PendingTurn
-    legacy = PendingTurn(turn_id="t1", content="legacy", revision=0)
+    pending_input = PendingTurn(turn_id="t1", content="follow up", revision=0)
     run = AgentRun(
         session_id="s1",
         run_id="r1",
-        pending_turns=[legacy],
+        pending_turns=[pending_input],
     )
-    assert run.pending_turns[0].content == "legacy"
+    assert run.pending_turns[0].content == "follow up"

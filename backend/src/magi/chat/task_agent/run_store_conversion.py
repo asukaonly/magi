@@ -7,7 +7,13 @@ from typing import Any
 
 from magi_plugin_sdk.run_trigger import RunTrigger
 
-from magi.agent.task_agents.handlers.run_contracts import ActiveRun, PendingTurn, RunResult, RunResultDisposition
+from magi.agent.task_agents.handlers.run_contracts import (
+    AgentRun,
+    PendingTurn,
+    RUN_INPUT_DISPOSITION,
+    RunResult,
+    RunResultDisposition,
+)
 
 
 class SessionRunConversionMixin:
@@ -15,7 +21,7 @@ class SessionRunConversionMixin:
 
     _execution_store: Any
 
-    def _get_run(self, session_id: str) -> ActiveRun | None:
+    def _get_run(self, session_id: str) -> AgentRun | None:
         state = self._execution_store.get_execution_state_sync(session_id)
         run = state.get("run")
         if not isinstance(run, dict):
@@ -27,7 +33,7 @@ class SessionRunConversionMixin:
             if isinstance(trigger_dict, dict)
             else None
         )
-        return ActiveRun(
+        return AgentRun(
             session_id=str(run["session_id"]),
             run_id=run_id,
             status=str(run.get("status") or "running"),
@@ -58,7 +64,7 @@ class SessionRunConversionMixin:
             trigger=trigger,
         )
 
-    def _require_run(self, session_id: str) -> ActiveRun:
+    def _require_run(self, session_id: str) -> AgentRun:
         active_run = self._get_run(session_id)
         if active_run is None:
             raise ValueError(f"No active run for session_id={session_id!r}")
@@ -66,9 +72,11 @@ class SessionRunConversionMixin:
 
     @staticmethod
     def _to_pending_turn(payload: dict[str, Any]) -> PendingTurn:
-        disposition = str(payload.get("disposition") or "augment").strip().lower()
-        if disposition not in {"augment", "defer", "steer"}:
-            disposition = "augment"
+        disposition = str(
+            payload.get("disposition") or RUN_INPUT_DISPOSITION
+        ).strip().lower()
+        if disposition != RUN_INPUT_DISPOSITION:
+            raise ValueError(f"Unsupported pending input disposition: {disposition!r}")
         return PendingTurn(
             turn_id=str(payload["turn_id"]),
             content=str(payload["content"]),

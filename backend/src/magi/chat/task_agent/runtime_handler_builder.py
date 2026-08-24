@@ -76,7 +76,6 @@ def _build_handler_dependencies(
         attachment_resolver=context_parts.attachment_resolver,
         session_run_coordinator=execution_parts.session_run_coordinator,
         background_launch_service=config.background_launch_service,
-        persist_turn_supersessions=callbacks.persist_turn_supersessions,
     )
 
 

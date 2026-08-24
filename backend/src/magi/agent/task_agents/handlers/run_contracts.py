@@ -8,6 +8,8 @@ from time import time
 
 from magi_plugin_sdk.run_trigger import RunTrigger  # noqa: F401 — re-export for callers
 
+RUN_INPUT_DISPOSITION = "message"
+
 
 class RunResultDisposition(str, Enum):
     """How a run result should be treated by the session store."""
@@ -18,12 +20,12 @@ class RunResultDisposition(str, Enum):
 
 @dataclass(slots=True)
 class PendingTurn:
-    """A pending user turn attached to an active session run."""
+    """An unconsumed user message attached to an active session run."""
 
     turn_id: str
     content: str
     revision: int
-    disposition: str = "augment"
+    disposition: str = RUN_INPUT_DISPOSITION
     created_at: float = field(default_factory=time)
 
 
@@ -43,13 +45,9 @@ class RunResult:
 class AgentRun:
     """The active execution state for one chat session.
 
-    Phase E adds graph + node_states + consumed_events + trigger + deliveries.
-    Phase E keeps the legacy name ``ActiveRun`` as an alias so callers
-    that imported the old name continue working without churn.
-    Phase H upgrades ``trigger`` from ``str | None`` to a typed
-    ``RunTrigger | None``. Live user-turn coordination remains canonical in
-    ``pending_turns``; generic ``IncomingEvent`` values are trigger inputs,
-    not a second process-local run queue.
+    Live user messages wait in ``pending_turns`` until the loop reaches a safe
+    boundary. Generic ``IncomingEvent`` values are run triggers, not another
+    process-local input queue.
     """
 
     session_id: str
@@ -67,14 +65,8 @@ class AgentRun:
     stale_results: list[RunResult] = field(default_factory=list)
     created_at: float = field(default_factory=time)
     updated_at: float = field(default_factory=time)
-    # === Phase E ===
     graph: tuple[str, ...] = ()
     node_states: dict[str, dict[str, Any]] = field(default_factory=dict)
     consumed_events: tuple[str, ...] = ()
-    # === Phase H: trigger upgraded from str to RunTrigger ===
     trigger: RunTrigger | None = None
     deliveries: tuple[str, ...] = ()
-
-
-# Backward-compat alias — many call sites still import ActiveRun.
-ActiveRun = AgentRun

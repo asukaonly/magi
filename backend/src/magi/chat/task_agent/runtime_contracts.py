@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from magi.chat.task_agent.context_assembler import ChatContextAssembler
     from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
     from magi.chat.task_agent.fact_classifier import ChatFactClassifier
-    from magi.chat.task_agent.interruption_classifier import InterruptionClassifier
     from magi.chat.task_agent.postprocess_service import ChatPostProcessService
     from magi.chat.task_agent.prompt_service import ChatPromptService
     from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
@@ -61,11 +60,10 @@ class ChatTaskAgentRuntimeCallbacks:
     get_task_agent_manager: Callable[[], Any]
     get_sensor_hub: Callable[[], Any]
     max_fact_memory: int
-    release_deferred_turns: Callable[..., Any]
+    release_pending_inputs: Callable[..., Any]
     deliver_final_response: Callable[..., Any]
     tool_advisory_provider: Callable[..., Any]
     session_workspace_provider: Callable[..., Any]
-    persist_turn_supersessions: Callable[..., Any]
 
 
 @dataclass(slots=True)
@@ -80,7 +78,6 @@ class ChatTaskAgentRuntimeParts:
     context_assembler: ChatContextAssembler
     fact_classifier: ChatFactClassifier
     prompt_service: ChatPromptService
-    interruption_classifier: InterruptionClassifier
     session_run_coordinator: SessionRunCoordinator
     transcript_summarizer: ChatTranscriptSummarizer
     postprocess_service: ChatPostProcessService

@@ -186,7 +186,7 @@ async def test_execute_records_consumed_message_ids() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_uses_context_revision_for_record_consumed() -> None:
-    """When the context carries a non-zero revision (steered turn), the
+    """When the context carries a non-zero revision (updated run), the
     recorded entry tags the same revision so find_dependents differentiates
     pre- vs post-interrupt consumption."""
     log = _RecordingLog(visible_ids=["m1"])

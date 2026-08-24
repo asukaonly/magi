@@ -1,4 +1,4 @@
-"""Integration tests for steer + detach wiring in the function-calling loop."""
+"""Integration tests for run-input and detach handling in the unified loop."""
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -15,8 +15,8 @@ from magi.agent.execution.function_calling import (
 from magi.control.run_control import (
     DetachRequested,
     DetachSignal,
-    SteerInbox,
-    SteerMessage,
+    RunInputInbox,
+    RunInputMessage,
     null_run_control,
 )
 from magi.agent.turn_input import UserTurnInput
@@ -37,10 +37,10 @@ def _build_orchestrator() -> FunctionCallingOrchestrator:
     )
 
 
-def _run_control(*, steer_inbox=None, detach_signal=None):  # type: ignore[no-untyped-def]
+def _run_control(*, input_queue=None, detach_signal=None):  # type: ignore[no-untyped-def]
     control = null_run_control()
-    if steer_inbox is not None:
-        control.steer_inbox = steer_inbox
+    if input_queue is not None:
+        control.input_queue = input_queue
     if detach_signal is not None:
         control.detach_signal = detach_signal
     return control
@@ -60,17 +60,17 @@ def _patch_trace_and_event_helpers(monkeypatch, orchestrator: FunctionCallingOrc
 
 
 @pytest.mark.asyncio
-async def test_execute_with_tools_injects_steer_messages_before_next_llm_call(
+async def test_execute_with_tools_injects_run_inputs_before_next_llm_call(
     monkeypatch,
 ) -> None:
     orchestrator = _build_orchestrator()
     _patch_trace_and_event_helpers(monkeypatch, orchestrator)
 
-    inbox = SteerInbox()
-    # Push a steer message *before* the run starts so the first iteration
+    inbox = RunInputInbox()
+    # Push an input *before* the run starts so the first iteration
     # already sees it — this mimics the chat handler routing a follow-up
     # into an in-flight run at the boundary preceding the next LLM call.
-    await inbox.push(SteerMessage(content="use Python, not JavaScript"))
+    await inbox.push(RunInputMessage(content="use Python, not JavaScript"))
 
     llm_call_messages: list[list[dict[str, object]]] = []
 
@@ -92,12 +92,12 @@ async def test_execute_with_tools_injects_steer_messages_before_next_llm_call(
         selected_tools=[],
         user_id="u",
         max_iterations=5,
-        control=_run_control(steer_inbox=inbox),
+        control=_run_control(input_queue=inbox),
     )
 
     assert outcome.status == "completed"
     assert len(llm_call_messages) == 1
-    # The steer message lands after the original user message as a separate
+    # The run input lands after the original user message as a separate
     # ``user`` entry and precedes any assistant response, ready for the next
     # LLM call.
     contents = [(m.get("role"), m.get("content")) for m in llm_call_messages[0]]
@@ -108,13 +108,13 @@ async def test_execute_with_tools_injects_steer_messages_before_next_llm_call(
 
 
 @pytest.mark.asyncio
-async def test_execute_with_tools_skips_empty_steer_messages(monkeypatch) -> None:
+async def test_execute_with_tools_skips_empty_run_inputs(monkeypatch) -> None:
     orchestrator = _build_orchestrator()
     _patch_trace_and_event_helpers(monkeypatch, orchestrator)
 
-    inbox = SteerInbox()
-    await inbox.push(SteerMessage(content="   "))
-    await inbox.push(SteerMessage(content=""))
+    inbox = RunInputInbox()
+    await inbox.push(RunInputMessage(content="   "))
+    await inbox.push(RunInputMessage(content=""))
 
     async def _fake_call_llm_with_tools(*, messages, **_kwargs):  # type: ignore[no-untyped-def]
         return {
@@ -132,7 +132,7 @@ async def test_execute_with_tools_skips_empty_steer_messages(monkeypatch) -> Non
         selected_tools=[],
         user_id="u",
         max_iterations=3,
-        control=_run_control(steer_inbox=inbox),
+        control=_run_control(input_queue=inbox),
     )
     assert outcome.status == "completed"
 

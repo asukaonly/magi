@@ -178,11 +178,10 @@ class ChatTaskAgent(
             get_task_agent_manager=lambda: self._task_agent_manager,
             get_sensor_hub=lambda: self._sensor_hub,
             max_fact_memory=self._max_fact_memory,
-            release_deferred_turns=self._release_deferred_turns,
+            release_pending_inputs=self._release_pending_inputs,
             deliver_final_response=self._deliver_final_response_from_postprocess,
             tool_advisory_provider=self._get_tool_advisory,
             session_workspace_provider=self._resolve_session_workspace_path,
-            persist_turn_supersessions=self._persist_turn_supersessions_from_handler,
         )
 
     def _bind_runtime_views(self) -> None:
@@ -207,7 +206,6 @@ class ChatTaskAgent(
         self._context_assembler = runtime_parts.context_assembler
         self._fact_classifier = runtime_parts.fact_classifier
         self._prompt_service = runtime_parts.prompt_service
-        self._interruption_classifier = runtime_parts.interruption_classifier
         self._session_run_coordinator = runtime_parts.session_run_coordinator
         self._transcript_summarizer = runtime_parts.transcript_summarizer
         self._postprocess_service = runtime_parts.postprocess_service
@@ -257,22 +255,6 @@ class ChatTaskAgent(
         if excluded_channel_types:
             delivery_kwargs["exclude_channel_types"] = excluded_channel_types
         return await deliver(context, **delivery_kwargs)
-
-    async def _persist_turn_supersessions_from_handler(
-        self,
-        superseded_turns: list[Any],
-        updated_at_ms: int,
-    ) -> None:
-        """Bridge STEER supersessions from handler -> post-process service.
-
-        Exposed as a callable on :class:`ChatHandlerDependencies` so the
-        function-calling handler can emit STEER supersession bookkeeping
-        whenever it drains persisted STEER pending turns into the inbox.
-        """
-        await self._postprocess_service.persist_turn_supersessions(
-            superseded_turns=superseded_turns,
-            updated_at_ms=updated_at_ms,
-        )
 
     async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
         summary = await self._chat_read_service.aget_session_summary(user_id, session_id)
@@ -360,17 +342,13 @@ class ChatTaskAgent(
             return []
 
     async def add_fact(self, fact: FactRecord) -> bool:
-        """Enqueue the fact, fast-pathing obvious INTERRUPT user turns.
+        """Admit controls and active-run inputs without starting a second loop."""
 
-        When a USER_MESSAGE arrives while an earlier run is still executing
-        and the text matches the INTERRUPT rule patterns, we proactively
-        call ``request_cancel`` on the coordinator so the in-flight
-        execution can bail out at the next ``cancel_token`` probe — even
-        before the run loop gets a chance to pull the fact off the queue
-        and classify it.
-        """
         async with self._chat_execution_admission_boundary():
-            await self._request_ingress_interrupt_at_admission_boundary(fact)
+            if await self._request_ingress_cancel_at_admission_boundary(fact):
+                return True
+            if self._queue_active_run_input_at_admission_boundary(fact):
+                return True
             return await super().add_fact(fact)
 
     async def add_fact_with_admission(
@@ -379,22 +357,18 @@ class ChatTaskAgent(
         *,
         admit: Callable[[], Awaitable[bool]],
     ) -> FactAdmissionResult:
-        """Admit and enqueue a managed fact through the same interrupt boundary."""
+        """Atomically admit a managed root, control, or active-run input."""
 
         async with self._chat_execution_admission_boundary():
-
-            async def _admit_and_interrupt() -> bool:
-                admitted = await admit()
-                if admitted:
-                    await self._request_ingress_interrupt_at_admission_boundary(
-                        fact
-                    )
-                return admitted
-
-            return await super().add_fact_with_admission(
-                fact,
-                admit=_admit_and_interrupt,
-            )
+            if self._fact_targets_active_run(fact):
+                if not await admit():
+                    return FactAdmissionResult(queued=False, superseded=True)
+                if await self._request_ingress_cancel_at_admission_boundary(fact):
+                    return FactAdmissionResult(queued=True)
+                if self._queue_active_run_input_at_admission_boundary(fact):
+                    return FactAdmissionResult(queued=True)
+                return FactAdmissionResult(queued=await super().add_fact(fact))
+            return await super().add_fact_with_admission(fact, admit=admit)
 
     async def handle_fact(self, fact: FactRecord) -> None:
         _ = fact
@@ -490,8 +464,6 @@ class ChatTaskAgent(
             )
             await self._reconcile_finished_active_run(classified.session_id)
             await self._before_execution_run_admission(classified=classified)
-            # Interruption routing is control-plane work: an exhausted task must
-            # still be steerable, replaceable, or cancellable by the user.
             with fresh_task_execution_budget_context():
                 run_decision = await self._session_run_coordinator.aroute(classified)
             turn_control = null_run_control()
@@ -502,6 +474,13 @@ class ChatTaskAgent(
                     run_id=run_decision.active_run.run_id,
                     revision=int(run_decision.active_run.revision or 0),
                 )
+                turn_control.input_queue = self._session_run_coordinator.create_run_input_queue(
+                    session_id=classified.session_id,
+                    run_id=run_decision.active_run.run_id,
+                    revision=int(run_decision.active_run.revision or 0),
+                    root_turn_id=run_decision.active_run.root_turn_id,
+                    on_consumed=self._persist_run_input_supersessions,
+                )
             self._register_turn_control(
                 classified.session_id,
                 run_decision,
@@ -511,8 +490,6 @@ class ChatTaskAgent(
                 classified=classified,
                 run_decision=run_decision,
             )
-
-        await self._persist_context_supersessions(run_decision, latest_fact)
 
         context_inputs = await self._load_context_inputs(classified, run_decision)
 
@@ -593,11 +570,9 @@ class ChatTaskAgent(
     async def _reconcile_finished_active_run(self, session_id: str) -> None:
         """Discard an L0 run whose durable chat surface already finished.
 
-        Chat and L0 checkpoints live in different databases.  A process can
-        stop after the final chat result commits but before the L0 completion
-        checkpoint.  Delivery recovery then replays a deferred turn; this
-        check prevents that original turn from being attached to the stale
-        finished run again.
+        Durable chat projection and process-local run state commit separately.
+        A process can finish the visible result before clearing the live run;
+        this check prevents a recovered delivery from joining that stale run.
         """
 
         active_run = self._session_run_coordinator.get_active_run(session_id)
@@ -710,7 +685,6 @@ class ChatTaskAgent(
             planner_fact=run_decision.planner_fact,
             planner_fact_kind=run_decision.planner_fact_kind,
             planner_payload=run_decision.latest_payload,
-            pending_turns=list(run_decision.checkpoint_pending_turns),
             reply_context=context_inputs.reply_context,
             recall_feedback=context_inputs.recall_feedback,
             session_summary=context_inputs.history_context.session_summary,
@@ -727,21 +701,15 @@ class ChatTaskAgent(
             control=turn_control,
         )
 
-    async def _persist_context_supersessions(
+    async def _persist_run_input_supersessions(
         self,
-        run_decision: Any,
-        latest_fact: FactRecord | None,
+        superseded_turns: list[Any],
     ) -> None:
-        if not run_decision.superseded_turns:
-            return
-        updated_at_ms = (
-            int(latest_fact.timestamp * 1000)
-            if isinstance(latest_fact, FactRecord)
-            else now_wall_ms()
-        )
+        """Commit safe-boundary input consumption to chat and trace views."""
+
         await self._postprocess_service.persist_turn_supersessions(
-            superseded_turns=run_decision.superseded_turns,
-            updated_at_ms=updated_at_ms,
+            superseded_turns=superseded_turns,
+            updated_at_ms=now_wall_ms(),
         )
 
     def _register_turn_control(
@@ -1107,8 +1075,8 @@ class ChatTaskAgent(
         active_run = self._session_run_coordinator.get_active_run(session_id)
         if active_run is None or active_run.root_turn_id != turn_id:
             return
-        completed, deferred_turns = (
-            self._session_run_coordinator.complete_run_with_deferred(
+        completed, pending_inputs = (
+            self._session_run_coordinator.complete_run_with_pending_inputs(
                 session_id=session_id,
                 run_id=active_run.run_id,
                 revision=active_run.revision,
@@ -1116,11 +1084,11 @@ class ChatTaskAgent(
         )
         if not completed:
             return
-        await self._postprocess_service.release_deferred_after_run_completion(
+        await self._postprocess_service.release_pending_inputs_after_run_completion(
             session_id=session_id,
             run_id=active_run.run_id,
             revision=active_run.revision,
-            deferred_turns=deferred_turns,
+            pending_inputs=pending_inputs,
         )
 
     def get_conversation_history(self, user_id: str, session_id: str) -> list[dict]:

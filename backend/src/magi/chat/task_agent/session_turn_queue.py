@@ -1,46 +1,21 @@
-"""Pending-turn queues, detach signals, and supersession bookkeeping."""
+"""Active-run detach and pending-input deletion helpers."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 from magi.control.run_control import DetachRequested, DetachSignal
-from .interruption_classifier import InterruptionDisposition
-from magi.agent.task_agents.handlers.run_contracts import ActiveRun, PendingTurn
-from .session_run_decisions import CheckpointDecision, TurnSupersession
+from magi.agent.task_agents.handlers.run_contracts import AgentRun, PendingTurn
 
 if TYPE_CHECKING:
     from .run_store import SessionRunStore
 
 
 class SessionRunTurnQueueMixin:
-    """Queue and timeline helpers for :class:`SessionRunCoordinator`."""
+    """Control helpers for :class:`SessionRunCoordinator`."""
 
     _run_store: "SessionRunStore"
     _detach_signals: dict[str, DetachSignal]
-
-    def consume_checkpoint(self, session_id: str) -> CheckpointDecision:
-        """Expose and clear AUGMENT pending turns at a checkpoint boundary."""
-        active_run = self._run_store.get_active_run(session_id)
-        if active_run is None:
-            return CheckpointDecision(session_id=session_id, run_id="", revision=0)
-        pending_turns = self._run_store.consume_pending_turns(
-            session_id,
-            revision=active_run.revision,
-            disposition=InterruptionDisposition.AUGMENT.value,
-        )
-        visible_user_message = self._merge_visible_user_message(
-            root_user_message=active_run.root_user_message,
-            pending_turns=pending_turns,
-        )
-        refreshed_run = self._run_store.get_active_run(session_id)
-        return CheckpointDecision(
-            session_id=session_id,
-            run_id=active_run.run_id,
-            revision=refreshed_run.revision if refreshed_run is not None else active_run.revision,
-            pending_turns=pending_turns,
-            visible_user_message=visible_user_message,
-        )
 
     def bind_detach_signal(self, session_id: str, signal: DetachSignal) -> None:
         """Expose the active run's detach signal for out-of-band user requests."""
@@ -72,7 +47,7 @@ class SessionRunTurnQueueMixin:
         requested_by: str,
         reason: str = "user_detach",
         note: str = "",
-    ) -> ActiveRun | None:
+    ) -> AgentRun | None:
         """Request that the active run detach to background at the next boundary."""
         normalized_session_id = str(session_id or "").strip()
         if not normalized_session_id:
@@ -91,41 +66,6 @@ class SessionRunTurnQueueMixin:
             )
         return active_run
 
-    def peek_steer_turns(
-        self,
-        session_id: str,
-        *,
-        revision: int | None = None,
-    ) -> list[PendingTurn]:
-        """Return STEER pending turns without removing them from the store."""
-        active_run = self._run_store.get_active_run(session_id)
-        if active_run is None:
-            return []
-        target_revision = active_run.revision if revision is None else int(revision)
-        return [
-            pending_turn
-            for pending_turn in active_run.pending_turns
-            if pending_turn.revision == target_revision
-            and pending_turn.disposition == InterruptionDisposition.STEER.value
-        ]
-
-    def consume_steer_turns(
-        self,
-        session_id: str,
-        *,
-        revision: int | None = None,
-    ) -> list[PendingTurn]:
-        """Pop STEER pending turns queued on the active run."""
-        active_run = self._run_store.get_active_run(session_id)
-        if active_run is None:
-            return []
-        target_revision = active_run.revision if revision is None else int(revision)
-        return self._run_store.consume_pending_turns(
-            session_id,
-            revision=target_revision,
-            disposition=InterruptionDisposition.STEER.value,
-        )
-
     async def discard_pending_turn_for_message_delete(
         self,
         *,
@@ -142,145 +82,3 @@ class SessionRunTurnQueueMixin:
             run_id=run_id,
             revision=revision,
         )
-
-    def _merge_visible_user_message(
-        self,
-        *,
-        root_user_message: str,
-        pending_turns: list[PendingTurn],
-    ) -> str:
-        messages = [root_user_message.strip()] if root_user_message.strip() else []
-        messages.extend(turn.content.strip() for turn in pending_turns if turn.content.strip())
-        return "\n\n".join(messages)
-
-    @staticmethod
-    def _current_revision_pending_turns(active_run: ActiveRun | None) -> list[PendingTurn]:
-        if active_run is None:
-            return []
-        return [
-            pending_turn
-            for pending_turn in active_run.pending_turns
-            if pending_turn.revision == active_run.revision
-        ]
-
-    @staticmethod
-    def _current_revision_augment_pending_turns(active_run: ActiveRun | None) -> list[PendingTurn]:
-        if active_run is None:
-            return []
-        return [
-            pending_turn
-            for pending_turn in active_run.pending_turns
-            if pending_turn.revision == active_run.revision
-            and pending_turn.disposition == InterruptionDisposition.AUGMENT.value
-        ]
-
-    @staticmethod
-    def _current_revision_steer_pending_turns(active_run: ActiveRun | None) -> list[PendingTurn]:
-        if active_run is None:
-            return []
-        return [
-            pending_turn
-            for pending_turn in active_run.pending_turns
-            if pending_turn.revision == active_run.revision
-            and pending_turn.disposition == InterruptionDisposition.STEER.value
-        ]
-
-    @staticmethod
-    def _build_augment_supersessions(
-        *,
-        root_turn_id: str | None,
-        pending_turns: list[PendingTurn],
-        anchor_turn_id: str | None,
-    ) -> list[TurnSupersession]:
-        return SessionRunTurnQueueMixin._build_merge_supersessions(
-            root_turn_id=root_turn_id,
-            pending_turns=pending_turns,
-            anchor_turn_id=anchor_turn_id,
-            reason=InterruptionDisposition.AUGMENT.value,
-        )
-
-    @staticmethod
-    def _build_steer_supersessions(
-        *,
-        root_turn_id: str | None,
-        pending_turns: list[PendingTurn],
-        anchor_turn_id: str | None,
-    ) -> list[TurnSupersession]:
-        return SessionRunTurnQueueMixin._build_merge_supersessions(
-            root_turn_id=root_turn_id,
-            pending_turns=pending_turns,
-            anchor_turn_id=anchor_turn_id,
-            reason=InterruptionDisposition.STEER.value,
-        )
-
-    @staticmethod
-    def _build_merge_supersessions(
-        *,
-        root_turn_id: str | None,
-        pending_turns: list[PendingTurn],
-        anchor_turn_id: str | None,
-        reason: str,
-    ) -> list[TurnSupersession]:
-        normalized_anchor_turn_id = str(anchor_turn_id or "").strip()
-        if not normalized_anchor_turn_id:
-            return []
-        superseded: list[TurnSupersession] = []
-        seen_turn_ids: set[str] = set()
-        normalized_root_turn_id = str(root_turn_id or "").strip()
-        if normalized_root_turn_id and normalized_root_turn_id != normalized_anchor_turn_id:
-            superseded.append(
-                TurnSupersession(
-                    turn_id=normalized_root_turn_id,
-                    anchor_turn_id=normalized_anchor_turn_id,
-                    reason=reason,
-                )
-            )
-            seen_turn_ids.add(normalized_root_turn_id)
-        for pending_turn in pending_turns[:-1]:
-            turn_id = str(pending_turn.turn_id or "").strip()
-            if not turn_id or turn_id == normalized_anchor_turn_id or turn_id in seen_turn_ids:
-                continue
-            superseded.append(
-                TurnSupersession(
-                    turn_id=turn_id,
-                    anchor_turn_id=normalized_anchor_turn_id,
-                    reason=reason,
-                )
-            )
-            seen_turn_ids.add(turn_id)
-        return superseded
-
-    @staticmethod
-    def _build_interrupt_supersessions(
-        *,
-        active_run: ActiveRun,
-        anchor_turn_id: str | None,
-    ) -> list[TurnSupersession]:
-        normalized_anchor_turn_id = str(anchor_turn_id or "").strip()
-        if not normalized_anchor_turn_id:
-            return []
-        superseded: list[TurnSupersession] = []
-        seen_turn_ids: set[str] = set()
-        normalized_root_turn_id = str(active_run.root_turn_id or "").strip()
-        if normalized_root_turn_id and normalized_root_turn_id != normalized_anchor_turn_id:
-            superseded.append(
-                TurnSupersession(
-                    turn_id=normalized_root_turn_id,
-                    anchor_turn_id=normalized_anchor_turn_id,
-                    reason=InterruptionDisposition.INTERRUPT.value,
-                )
-            )
-            seen_turn_ids.add(normalized_root_turn_id)
-        for pending_turn in active_run.pending_turns:
-            turn_id = str(pending_turn.turn_id or "").strip()
-            if not turn_id or turn_id == normalized_anchor_turn_id or turn_id in seen_turn_ids:
-                continue
-            superseded.append(
-                TurnSupersession(
-                    turn_id=turn_id,
-                    anchor_turn_id=normalized_anchor_turn_id,
-                    reason=InterruptionDisposition.INTERRUPT.value,
-                )
-            )
-            seen_turn_ids.add(turn_id)
-        return superseded

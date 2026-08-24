@@ -365,7 +365,7 @@ async def test_startup_requires_visible_result_except_for_no_reply_turns(
         store,
         turn_id="turn-completed-defer",
         created_at_ms=300,
-        run_disposition="defer",
+        run_disposition="message",
     )
     await store.append_message(
         ChatMessageRecord(

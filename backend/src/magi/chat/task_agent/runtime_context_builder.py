@@ -10,7 +10,6 @@ from magi.agent.runtime.types import TaskAgentType
 from magi.chat import ChatReadService
 from magi.chat.task_agent.context_assembler import ChatContextAssembler
 from magi.chat.task_agent.fact_classifier import ChatFactClassifier
-from magi.chat.task_agent.interruption_classifier import InterruptionClassifier
 from magi.chat.task_agent.prompt_service import ChatPromptService
 from magi.context import (
     ContextAssemblyService,
@@ -42,7 +41,6 @@ class ChatContextRuntimeParts:
     context_assembler: ChatContextAssembler
     fact_classifier: ChatFactClassifier
     prompt_service: ChatPromptService
-    interruption_classifier: InterruptionClassifier
     model_context_provider: Callable[[], ModelContextProfile]
 
 
@@ -80,10 +78,6 @@ def build_chat_context_runtime_parts(
         context_assembler=_build_context_assembler(config, chat_read_service_factory),
         fact_classifier=ChatFactClassifier(),
         prompt_service=ChatPromptService(
-            llm_adapter=config.llm_adapter,
-            llm_pool=config.llm_pool,
-        ),
-        interruption_classifier=InterruptionClassifier(
             llm_adapter=config.llm_adapter,
             llm_pool=config.llm_pool,
         ),

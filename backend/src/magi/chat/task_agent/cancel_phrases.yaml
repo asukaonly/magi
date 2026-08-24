@@ -1,0 +1,32 @@
+# Exact normalized phrases accepted by the text cancel fallback.
+# Typed cancel commands remain the primary protocol. Substring matching is
+# intentionally forbidden so ordinary task text reaches the active run.
+
+en:
+  - stop
+  - cancel
+  - abort
+  - nevermind
+  - halt
+  - quit
+  - stopit
+  - stopnow
+  - cancelit
+  - cancelthat
+  - abortit
+  - dontdothat
+  - donotdothat
+
+zh:
+  - 不用做了
+  - 不用了
+  - 先停
+  - 先停一下
+  - 停一下
+  - 停下
+  - 停止
+  - 取消
+  - 别做了
+  - 算了
+  - 算了吧
+  - 不做了

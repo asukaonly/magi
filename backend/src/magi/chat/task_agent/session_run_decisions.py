@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.task_agents.common import IncomingFactKind, TaskFactPayload
-from .interruption_classifier import InterruptionDisposition
-from magi.agent.task_agents.handlers.run_contracts import ActiveRun, PendingTurn
+from magi.agent.task_agents.handlers.run_contracts import AgentRun
 
 
 @dataclass(slots=True)
 class SessionFactDecision:
     """Normalized session-run decision for one incoming chat fact batch."""
 
-    active_run: ActiveRun | None
+    active_run: AgentRun | None
     planner_fact: FactRecord | None
     planner_fact_kind: IncomingFactKind
     planner_user_message: str
@@ -22,9 +21,6 @@ class SessionFactDecision:
     user_id: str
     session_id: str
     run_disposition: str | None = None
-    interruption_disposition: InterruptionDisposition | None = None
-    checkpoint_pending_turns: list[PendingTurn] = field(default_factory=list)
-    superseded_turns: list["TurnSupersession"] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -37,23 +33,9 @@ class TurnSupersession:
 
 
 def supersession_terminal_status(reason: str) -> str:
-    """Map merge-like interjections separately from true interruption."""
+    """Map safe-boundary input injection separately from replacement."""
 
     normalized_reason = str(reason or "").strip().lower()
-    if normalized_reason in {
-        InterruptionDisposition.AUGMENT.value,
-        InterruptionDisposition.STEER.value,
-    }:
+    if normalized_reason == "message":
         return "merged"
     return "interrupted"
-
-
-@dataclass(slots=True)
-class CheckpointDecision:
-    """Visible pending-turn merge for one session checkpoint."""
-
-    session_id: str
-    run_id: str
-    revision: int
-    pending_turns: list[PendingTurn] = field(default_factory=list)
-    visible_user_message: str = ""

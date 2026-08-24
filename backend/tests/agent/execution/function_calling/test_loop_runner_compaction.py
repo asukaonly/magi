@@ -68,7 +68,7 @@ async def test_compacts_before_first_model_request() -> None:
                 tools=[{"type": "function", "function": {"name": "demo"}}],
             )
 
-        async def apply_steer_messages(self, state: object, inbox: object) -> None:
+        async def apply_run_inputs(self, state: object, inbox: object) -> None:
             return None
 
         async def _prepare_context_for_model(
@@ -116,7 +116,7 @@ async def test_context_failure_stops_before_model_request() -> None:
                 tools=[],
             )
 
-        async def apply_steer_messages(self, state: object, inbox: object) -> None:
+        async def apply_run_inputs(self, state: object, inbox: object) -> None:
             return None
 
         async def _prepare_context_for_model(

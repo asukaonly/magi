@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -11,7 +10,6 @@ import pytest
 
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.runtime.types import TaskAgentType
-from magi.chat.task_agent.interruption_classifier import InterruptionDisposition
 from magi.chat.task_agent.postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
 from magi.chat.task_agent import chat_task_agent as chat_task_agent_module
 from magi.chat.task_agent import session_control as session_control_module
@@ -175,35 +173,6 @@ class _AroutePausedChatAgent(ChatTaskAgent):
         )
 
 
-class _StubInterruptionClassifier:
-    """Forces the bound :class:`SessionRunCoordinator` to apply a scripted
-    interruption disposition.
-
-    Phase H6 made the sync ``InterruptionClassifier.classify`` strict
-    (only full-message matches against ``interruption_phrases.yaml``
-    yield INTERRUPT; everything else returns DEFER). These runtime tests
-    target the *agent* end-to-end flow for AUGMENT / INTERRUPT cases
-    without spinning up a real LLM, so they swap in this stub.
-    """
-
-    def __init__(self, dispositions: list[InterruptionDisposition]) -> None:
-        self._queue: deque[InterruptionDisposition] = deque(dispositions)
-        self._last: InterruptionDisposition = InterruptionDisposition.DEFER
-
-    def classify(self, context):  # type: ignore[no-untyped-def]
-        _ = context
-        if self._queue:
-            self._last = self._queue.popleft()
-        return self._last
-
-    async def aclassify(self, context):  # type: ignore[no-untyped-def]
-        return self.classify(context)
-
-    def looks_like_strict_interrupt(self, user_text: str) -> bool:
-        _ = user_text
-        return False
-
-
 def _user_fact(content: str, *, turn_id: str) -> FactRecord:
     return FactRecord(
         agent_id="chat:u-chat",
@@ -361,14 +330,6 @@ async def test_chat_task_agent_routes_each_queued_user_message_independently() -
         agent_id="u-chat",
         llm_adapter=_FakeLLMAdapter(),
     )
-    agent._session_run_coordinator._interruption_classifier = (
-        _StubInterruptionClassifier(
-            [
-                InterruptionDisposition.DEFER,
-                InterruptionDisposition.DEFER,
-            ]
-        )
-    )
     for index in range(1, 4):
         assert await agent.add_fact(
             _user_fact(f"message {index}", turn_id=f"turn-{index}")
@@ -481,129 +442,6 @@ async def test_chat_task_agent_prefers_user_fact_over_tool_loop_trace_in_mixed_b
     assert context.planner_fact_kind == IncomingFactKind.USER_MESSAGE
     assert context.latest_user_message == "Help me inspect the login flow."
     assert decision.execution_mode is None
-
-
-@pytest.mark.asyncio
-async def test_chat_task_agent_routes_pending_augment_into_next_checkpoint() -> None:
-    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
-    # The sync InterruptionClassifier only emits INTERRUPT / DEFER. Force
-    # AUGMENT so the coordinator queues the second turn for checkpoint
-    # merging instead of dropping it as a deferred turn.
-    agent._session_run_coordinator._interruption_classifier = _StubInterruptionClassifier(
-        [InterruptionDisposition.AUGMENT]
-    )
-    first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
-    first_context = await agent.build_context(await agent.merge_facts([first_fact]))
-    await agent.match_intent(first_context)
-
-    augment_fact = _user_fact("Instead of the login flow, inspect the signup flow.", turn_id="turn-2")
-    augment_context = await agent.build_context(await agent.merge_facts([augment_fact]))
-
-    assert augment_context.planner_fact_kind == IncomingFactKind.OTHER_FACT
-    assert augment_context.session_run_id
-    assert [item.content for item in augment_context.pending_turns] == [
-        "Instead of the login flow, inspect the signup flow."
-    ]
-
-    checkpoint_fact = _tool_loop_fact()
-    checkpoint_context = await agent.build_context(await agent.merge_facts([checkpoint_fact]))
-    checkpoint_decision = await agent.match_intent(checkpoint_context)
-
-    assert checkpoint_context.planner_fact == checkpoint_fact
-    assert checkpoint_context.planner_fact_kind == IncomingFactKind.USER_MESSAGE
-    assert checkpoint_context.latest_user_message == "\n\n".join(
-        [
-            "Inspect the login flow.",
-            "Instead of the login flow, inspect the signup flow.",
-        ]
-    )
-    assert checkpoint_decision.execution_mode is None
-
-
-@pytest.mark.asyncio
-async def test_chat_task_agent_marks_augmented_turn_as_merged(
-    runtime_paths_with_schema,
-) -> None:
-    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
-    await chat_store.initialize()
-    await chat_store.create_user_turn(
-        session_id="s-chat",
-        user_id="u-chat",
-        turn_id="turn-1",
-        message_text="Inspect the login flow.",
-        created_at_ms=100,
-    )
-    await chat_store.create_user_turn(
-        session_id="s-chat",
-        user_id="u-chat",
-        turn_id="turn-2",
-        message_text="Instead of the login flow, inspect the signup flow.",
-        created_at_ms=200,
-    )
-    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter(), chat_store=chat_store)
-    agent._session_run_coordinator._interruption_classifier = _StubInterruptionClassifier(
-        [InterruptionDisposition.AUGMENT]
-    )
-
-    first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
-    first_context = await agent.build_context(await agent.merge_facts([first_fact]))
-    await agent.match_intent(first_context)
-
-    augment_fact = _user_fact("Instead of the login flow, inspect the signup flow.", turn_id="turn-2")
-    await agent.build_context(await agent.merge_facts([augment_fact]))
-
-    checkpoint_fact = _tool_loop_fact()
-    await agent.build_context(await agent.merge_facts([checkpoint_fact]))
-
-    first_turn = await chat_store.get_turn("turn-1")
-    assert first_turn is not None
-    assert first_turn.status == "merged"
-    assert first_turn.response_anchor_turn_id == "turn-2"
-    assert first_turn.superseded_by_turn_id == "turn-2"
-    assert first_turn.supersession_reason == "merged"
-
-
-@pytest.mark.asyncio
-async def test_chat_task_agent_marks_interrupted_turn_as_interrupted(
-    runtime_paths_with_schema,
-) -> None:
-    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
-    await chat_store.initialize()
-    await chat_store.create_user_turn(
-        session_id="s-chat",
-        user_id="u-chat",
-        turn_id="turn-1",
-        message_text="Inspect the login flow.",
-        created_at_ms=100,
-    )
-    await chat_store.create_user_turn(
-        session_id="s-chat",
-        user_id="u-chat",
-        turn_id="turn-2",
-        message_text="Stop and change the goal to checkout.",
-        created_at_ms=200,
-    )
-    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter(), chat_store=chat_store)
-    # Phase H6 sync InterruptionClassifier only matches the strict
-    # cancel-phrase list; "Stop and change the goal..." no longer
-    # qualifies. Force INTERRUPT so this test still exercises the
-    # interrupt-supersession bookkeeping path.
-    agent._session_run_coordinator._interruption_classifier = _StubInterruptionClassifier(
-        [InterruptionDisposition.INTERRUPT]
-    )
-
-    first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
-    await agent.build_context(await agent.merge_facts([first_fact]))
-
-    interrupt_fact = _user_fact("Stop and change the goal to checkout.", turn_id="turn-2")
-    await agent.build_context(await agent.merge_facts([interrupt_fact]))
-
-    first_turn = await chat_store.get_turn("turn-1")
-    assert first_turn is not None
-    assert first_turn.status == "interrupted"
-    assert first_turn.response_anchor_turn_id == "turn-2"
-    assert first_turn.superseded_by_turn_id == "turn-2"
-    assert first_turn.supersession_reason == "interrupted"
 
 
 # ---------------------------------------------------------------------------
@@ -863,7 +701,7 @@ async def test_failed_llm_turn_is_finalized_before_next_user_message(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_add_fact_ingress_interrupt_requests_cancel_on_active_run() -> None:
+async def test_add_fact_strict_cancel_requests_cancel_on_active_run() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     # Prime an active run as if a turn is in flight.
     agent._session_run_coordinator.handle_user_turn(
@@ -878,20 +716,21 @@ async def test_add_fact_ingress_interrupt_requests_cancel_on_active_run() -> Non
     assert agent._session_run_coordinator.get_active_run("s-chat").status == "running"
 
     # Enqueue a fact whose normalized form exactly equals a cancel phrase.
-    interrupt_fact = _user_fact("Stop!", turn_id="turn-interrupt")
-    enqueued = await agent.add_fact(interrupt_fact)
+    cancel_fact = _user_fact("Stop!", turn_id="turn-cancel")
+    enqueued = await agent.add_fact(cancel_fact)
 
     assert enqueued is True
     active_run = agent._session_run_coordinator.get_active_run("s-chat")
     assert active_run is not None
     assert active_run.status == "cancelling"
     assert active_run.cancel_requested_by == "user"
-    assert active_run.cancel_reason == "ingress_interrupt"
-    assert active_run.cancel_anchor_turn_id == "turn-interrupt"
+    assert active_run.cancel_reason == "user_cancel"
+    assert active_run.cancel_anchor_turn_id == "turn-1"
+    assert agent._fact_queue.empty()
 
 
 @pytest.mark.asyncio
-async def test_add_fact_ingress_interrupt_accepts_chinese_cancel_phrase() -> None:
+async def test_add_fact_strict_cancel_accepts_chinese_phrase() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     agent._session_run_coordinator.handle_user_turn(
         SimpleNamespace(
@@ -903,8 +742,8 @@ async def test_add_fact_ingress_interrupt_accepts_chinese_cancel_phrase() -> Non
         )  # type: ignore[arg-type]
     )
 
-    interrupt_fact = _user_fact("取消！", turn_id="turn-cancel")
-    enqueued = await agent.add_fact(interrupt_fact)
+    cancel_fact = _user_fact("取消！", turn_id="turn-cancel")
+    enqueued = await agent.add_fact(cancel_fact)
 
     assert enqueued is True
     active_run = agent._session_run_coordinator.get_active_run("s-chat")
@@ -913,13 +752,7 @@ async def test_add_fact_ingress_interrupt_accepts_chinese_cancel_phrase() -> Non
 
 
 @pytest.mark.asyncio
-async def test_add_fact_long_message_containing_stop_keyword_falls_through_to_llm() -> None:
-    """Strict ingress matching must NOT trigger on substring keywords.
-
-    A long message that merely mentions "stop" in passing should be enqueued
-    normally and left for the LLM-backed classifier in ``ahandle_user_turn``
-    to judge — not pre-emptively cancelled by the ingress fast path.
-    """
+async def test_add_fact_long_message_containing_stop_becomes_run_input() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     agent._session_run_coordinator.handle_user_turn(
         SimpleNamespace(
@@ -943,10 +776,12 @@ async def test_add_fact_long_message_containing_stop_keyword_falls_through_to_ll
     # The substring "stop" must not trigger cancellation.
     assert active_run.status == "running"
     assert active_run.cancel_requested_by is None
+    assert [item.turn_id for item in active_run.pending_turns] == ["turn-passing"]
+    assert agent._fact_queue.empty()
 
 
 @pytest.mark.asyncio
-async def test_add_fact_non_interrupt_does_not_cancel_active_run() -> None:
+async def test_add_fact_ordinary_message_queues_active_run_input() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     agent._session_run_coordinator.handle_user_turn(
         SimpleNamespace(
@@ -958,32 +793,35 @@ async def test_add_fact_non_interrupt_does_not_cancel_active_run() -> None:
         )  # type: ignore[arg-type]
     )
 
-    augment_fact = _user_fact("Also, include the staging endpoint.", turn_id="turn-aug")
-    enqueued = await agent.add_fact(augment_fact)
+    input_fact = _user_fact("Also, include the staging endpoint.", turn_id="turn-input")
+    enqueued = await agent.add_fact(input_fact)
 
     assert enqueued is True
     active_run = agent._session_run_coordinator.get_active_run("s-chat")
     assert active_run is not None
-    # AUGMENT must not hijack the cancellation path.
     assert active_run.status == "running"
     assert active_run.cancel_requested_by is None
+    assert [
+        (item.turn_id, item.disposition) for item in active_run.pending_turns
+    ] == [("turn-input", "message")]
+    assert agent._fact_queue.empty()
 
 
 @pytest.mark.asyncio
-async def test_add_fact_ingress_interrupt_noop_when_no_active_run() -> None:
+async def test_strict_cancel_text_is_an_ordinary_root_without_active_run() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
 
     # No active run exists; the ingress fast-path must stay silent and
     # simply enqueue the fact.
-    interrupt_fact = _user_fact("stop", turn_id="turn-only")
-    enqueued = await agent.add_fact(interrupt_fact)
+    cancel_fact = _user_fact("stop", turn_id="turn-only")
+    enqueued = await agent.add_fact(cancel_fact)
 
     assert enqueued is True
     assert agent._session_run_coordinator.get_active_run("s-chat") is None
 
 
 @pytest.mark.asyncio
-async def test_rejected_managed_interrupt_does_not_cancel_active_run() -> None:
+async def test_rejected_managed_cancel_does_not_cancel_active_run() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     agent._session_run_coordinator.handle_user_turn(
         SimpleNamespace(
@@ -1008,7 +846,7 @@ async def test_rejected_managed_interrupt_does_not_cancel_active_run() -> None:
 
 
 @pytest.mark.asyncio
-async def test_strict_ingress_interrupt_waits_for_run_admission_boundary() -> None:
+async def test_strict_cancel_waits_for_run_admission_boundary() -> None:
     agent = _AroutePausedChatAgent(
         agent_id="u-chat",
         llm_adapter=_FakeLLMAdapter(),
@@ -1017,32 +855,32 @@ async def test_strict_ingress_interrupt_waits_for_run_admission_boundary() -> No
     root_fact = _user_fact("Inspect the login flow.", turn_id="turn-root")
     merged = await agent.merge_facts([root_fact])
     build_task = asyncio.create_task(agent.build_context(merged))
-    interrupt_task: asyncio.Task[bool] | None = None
+    cancel_task: asyncio.Task[bool] | None = None
 
     try:
         await asyncio.wait_for(agent.final_check_passed.wait(), timeout=1.0)
-        interrupt_task = asyncio.create_task(
+        cancel_task = asyncio.create_task(
             agent.add_fact(
-                _user_fact("Stop!", turn_id="turn-interrupt")
+                _user_fact("Stop!", turn_id="turn-cancel")
             )
         )
         await asyncio.sleep(0)
-        assert not interrupt_task.done()
+        assert not cancel_task.done()
 
         agent.release_run_admission.set()
         context = await asyncio.wait_for(build_task, timeout=1.0)
-        assert await asyncio.wait_for(interrupt_task, timeout=1.0)
+        assert await asyncio.wait_for(cancel_task, timeout=1.0)
 
         active_run = agent._session_run_coordinator.get_active_run("s-chat")
         assert active_run is not None
         assert active_run.run_id == context.session_run_id
         assert active_run.status == "cancelling"
-        assert active_run.cancel_anchor_turn_id == "turn-interrupt"
-        assert agent._fact_queue.qsize() == 1
+        assert active_run.cancel_anchor_turn_id == "turn-root"
+        assert agent._fact_queue.empty()
     finally:
         agent.release_run_admission.set()
-        if interrupt_task is not None and not interrupt_task.done():
-            interrupt_task.cancel()
+        if cancel_task is not None and not cancel_task.done():
+            cancel_task.cancel()
         if not build_task.done():
             build_task.cancel()
 
@@ -1118,7 +956,7 @@ async def test_detach_waits_for_run_admission_and_targets_admitted_run(
 
 
 @pytest.mark.asyncio
-async def test_session_cancel_uses_shared_deferred_release_barrier(
+async def test_session_cancel_uses_shared_pending_input_release_barrier(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
@@ -1130,9 +968,8 @@ async def test_session_cancel_uses_shared_deferred_release_barrier(
     )
     agent._session_run_coordinator._run_store.append_pending_turn(
         "s-chat",
-        "turn-deferred",
+        "turn-input",
         "Handle this after the root task",
-        disposition="defer",
     )
     barrier_calls: list[tuple[str, str, int, list[str]]] = []
     cancellation_order: list[str] = []
@@ -1150,14 +987,14 @@ async def test_session_cancel_uses_shared_deferred_release_barrier(
         session_id: str,
         run_id: str,
         revision: int,
-        deferred_turns: list,
+        pending_inputs: list,
     ) -> bool:
         barrier_calls.append(
             (
                 session_id,
                 run_id,
                 revision,
-                [turn.turn_id for turn in deferred_turns],
+                [turn.turn_id for turn in pending_inputs],
             )
         )
         return True
@@ -1173,7 +1010,7 @@ async def test_session_cancel_uses_shared_deferred_release_barrier(
     monkeypatch.setattr(session_control_module, "_cancel_child_runs", _cancel_run)
     monkeypatch.setattr(
         agent._postprocess_service,
-        "release_deferred_after_run_completion",
+        "release_pending_inputs_after_run_completion",
         _checkpoint_and_release,
     )
     monkeypatch.setattr(
@@ -1188,7 +1025,7 @@ async def test_session_cancel_uses_shared_deferred_release_barrier(
     )
 
     assert barrier_calls == [
-        ("s-chat", "run-root", 0, ["turn-deferred"])
+        ("s-chat", "run-root", 0, ["turn-input"])
     ]
     assert cancellation_order == ["durable_cancel", "worker_cancel"]
 
@@ -1254,7 +1091,7 @@ async def test_session_cancel_is_durable_before_worker_shutdown(
     monkeypatch.setattr(session_control_module, "_cancel_child_runs", _cancel_run)
     monkeypatch.setattr(
         agent._postprocess_service,
-        "release_deferred_after_run_completion",
+        "release_pending_inputs_after_run_completion",
         _checkpoint_and_release,
     )
     monkeypatch.setattr(
@@ -1757,7 +1594,7 @@ async def test_aroute_winner_is_cancelled_before_tools_or_model(
     monkeypatch.setattr(session_control_module, "_cancel_child_runs", _cancel_workers)
     monkeypatch.setattr(
         agent._postprocess_service,
-        "release_deferred_after_run_completion",
+        "release_pending_inputs_after_run_completion",
         _checkpoint_and_release,
     )
     monkeypatch.setattr(
@@ -2017,17 +1854,17 @@ async def test_pending_message_delete_keeps_root_run_and_discards_only_target(
     run_store.append_pending_turn(
         "s-chat",
         "turn-delete",
-        "Delete this deferred follow-up",
-        disposition="defer",
+        "Delete this pending follow-up",
+        disposition="message",
     )
     run_store.append_pending_turn(
         "s-chat",
         "turn-keep",
         "Keep this later follow-up",
-        disposition="defer",
+        disposition="message",
     )
     deleted_fact = _user_fact(
-        "Delete this deferred follow-up",
+        "Delete this pending follow-up",
         turn_id="turn-delete",
     )
     agent._fact_memory = [
@@ -2078,7 +1915,7 @@ async def test_pending_delete_linearizes_before_checkpoint_consumption() -> None
         "s-chat",
         "turn-delete",
         "Do not include this deleted follow-up",
-        disposition="augment",
+        disposition="message",
     )
     checkpoint_fact = _tool_loop_fact()
     merged = await agent.merge_facts([checkpoint_fact])
@@ -2148,7 +1985,7 @@ async def test_queued_message_delete_does_not_interrupt_active_root() -> None:
             session_id="s-chat",
             turn_id="turn-delete",
             run_id=None,
-            run_revision=0,
+            run_revision=1,
         )
     finally:
         agent._active_batch_facts = []
@@ -2164,11 +2001,11 @@ async def test_queued_message_delete_does_not_interrupt_active_root() -> None:
 
 
 @pytest.mark.asyncio
-async def test_release_deferred_turns_requeues_original_durable_turn(
+async def test_release_pending_inputs_requeues_original_durable_turn(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """DEFER handoff preserves the original turn and full runtime envelope."""
+    """Unconsumed-input handoff preserves the original turn and full runtime envelope."""
 
     store = ChatStore(db_path=str(tmp_path / "chat.db"))
     await store.initialize()
@@ -2178,21 +2015,21 @@ async def test_release_deferred_turns_requeues_original_durable_turn(
         "magi.core.runtime_bindings.require_runtime_command_queue",
         lambda: queue,
     )
-    deferred_turn_id = "turn-deferred-original"
+    pending_turn_id = "turn-pending-original"
     content = "And also draft the release notes after."
     attachments = [{"attachment_id": "att-1", "kind": "document"}]
     metadata = {"reply_to_message_id": "msg-root", "custom": "keep-me"}
     await store.create_user_turn_once(
         session_id="s-chat",
         user_id="u-chat",
-        turn_id=deferred_turn_id,
+        turn_id=pending_turn_id,
         message_text=content,
         created_at_ms=1710000000000,
         runtime_envelope={
             "source": "api",
             "user_id": "u-chat",
             "session_id": "s-chat",
-            "turn_id": deferred_turn_id,
+            "turn_id": pending_turn_id,
             "message": content,
             "attachments": attachments,
             "workspace_path": "/tmp/project",
@@ -2200,16 +2037,16 @@ async def test_release_deferred_turns_requeues_original_durable_turn(
             "metadata": metadata,
             "runtime_namespace": "desktop",
         },
-        request_fingerprint="deferred-fingerprint",
+        request_fingerprint="pending-input-fingerprint",
     )
     assert await store.mark_user_turn_delivery_queued(
-        turn_id=deferred_turn_id,
+        turn_id=pending_turn_id,
         delivery_attempt_no=0,
         command_id=10,
         updated_at_ms=1710000000001,
     )
     assert await store.mark_user_turn_delivery_admitted(
-        turn_id=deferred_turn_id,
+        turn_id=pending_turn_id,
         delivery_attempt_no=0,
         command_id=10,
         updated_at_ms=1710000000002,
@@ -2231,25 +2068,25 @@ async def test_release_deferred_turns_requeues_original_durable_turn(
     )
     agent._session_run_coordinator._run_store.append_pending_turn(
         "s-chat",
-        deferred_turn_id,
+        pending_turn_id,
         content,
-        disposition="defer",
+        disposition="message",
     )
 
     try:
         active_run = agent._session_run_coordinator.get_active_run("s-chat")
         assert active_run is not None
-        completed, deferred_turns = (
-            agent._session_run_coordinator.complete_run_with_deferred(
+        completed, pending_inputs = (
+            agent._session_run_coordinator.complete_run_with_pending_inputs(
                 session_id="s-chat",
                 run_id=active_run.run_id,
                 revision=active_run.revision,
             )
         )
         assert completed
-        await agent._release_deferred_turns("s-chat", deferred_turns)
+        await agent._release_pending_inputs("s-chat", pending_inputs)
 
-        delivery = await store.get_user_turn_delivery(turn_id=deferred_turn_id)
+        delivery = await store.get_user_turn_delivery(turn_id=pending_turn_id)
         assert delivery is not None
         assert delivery.delivery_attempt_no == 1
         assert delivery.delivery_state == CHAT_DELIVERY_STATE_QUEUED
@@ -2260,7 +2097,7 @@ async def test_release_deferred_turns_requeues_original_durable_turn(
             command_types=[RuntimeCommandType.USER_MESSAGE],
         )
         assert command is not None
-        assert command.payload["turn_id"] == deferred_turn_id
+        assert command.payload["turn_id"] == pending_turn_id
         assert command.payload["attachments"] == attachments
         assert command.payload["workspace_path"] == "/tmp/project"
         assert command.payload["metadata"] == metadata

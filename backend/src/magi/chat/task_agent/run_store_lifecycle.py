@@ -12,7 +12,11 @@ from magi_plugin_sdk.run_trigger import RunTrigger
 
 from magi.core.logger import get_logger
 from magi.control.run_control import RunControl
-from magi.agent.task_agents.handlers.run_contracts import AgentRun, ActiveRun, PendingTurn
+from magi.agent.task_agents.handlers.run_contracts import (
+    AgentRun,
+    PendingTurn,
+    RUN_INPUT_DISPOSITION,
+)
 
 logger = get_logger(__name__)
 
@@ -33,7 +37,7 @@ class SessionRunLifecycleMixin:
         root_user_message: str = "",
         run_id: str | None = None,
         trigger: RunTrigger | None = None,
-    ) -> ActiveRun:
+    ) -> AgentRun:
         """Create or replace the active run for a session.
 
         The optional typed trigger describes what initiated the live run.
@@ -64,7 +68,7 @@ class SessionRunLifecycleMixin:
             )
             return deepcopy(active_run)
 
-    def get_active_run(self, session_id: str) -> ActiveRun | None:
+    def get_active_run(self, session_id: str) -> AgentRun | None:
         """Return the current active run for a session."""
         with self._lock:
             active_run = self._get_run(session_id)
@@ -76,7 +80,7 @@ class SessionRunLifecycleMixin:
         turn_id: str,
         content: str,
         *,
-        disposition: str = "augment",
+        disposition: str = RUN_INPUT_DISPOSITION,
     ) -> PendingTurn:
         """Attach a pending turn to the active run for the session."""
         with self._lock:
@@ -106,7 +110,7 @@ class SessionRunLifecycleMixin:
         *,
         turn_id: str | None,
         content: str,
-    ) -> ActiveRun:
+    ) -> AgentRun:
         """Set or replace the root user turn for the active run."""
         with self._lock:
             active_run = self._require_run(session_id)
@@ -142,21 +146,21 @@ class SessionRunLifecycleMixin:
         revision: int | None = None,
     ) -> bool:
         """Clear the active run when the expected run/revision is still current."""
-        completed, _ = self.complete_active_run_with_deferred(
+        completed, _ = self.complete_active_run_with_pending_inputs(
             session_id,
             run_id=run_id,
             revision=revision,
         )
         return completed
 
-    def complete_active_run_with_deferred(
+    def complete_active_run_with_pending_inputs(
         self,
         session_id: str,
         *,
         run_id: str | None = None,
         revision: int | None = None,
     ) -> tuple[bool, list[PendingTurn]]:
-        """Complete one exact run and atomically return its DEFER turns."""
+        """Complete one exact run and atomically return unconsumed inputs."""
 
         with self._lock:
             active_run = self._get_run(session_id)
@@ -166,14 +170,14 @@ class SessionRunLifecycleMixin:
                 return False, []
             if revision is not None and active_run.revision != int(revision):
                 return False, []
-            deferred_turns = [
+            pending_inputs = [
                 self._to_pending_turn(item)
                 for item in self._execution_store.get_execution_state_sync(
                     session_id
                 ).get("pending_turns", [])
                 if int(item.get("revision") or 0) == active_run.revision
                 and str(item.get("disposition") or "").strip().lower()
-                == "defer"
+                == RUN_INPUT_DISPOSITION
             ]
             if active_run.status == "cancelling":
                 self.mark_cancelled(
@@ -184,24 +188,24 @@ class SessionRunLifecycleMixin:
                 self._execution_store.consume_execution_pending_turns_sync(
                     session_id,
                     revision=active_run.revision,
-                    disposition="defer",
+                    disposition=RUN_INPUT_DISPOSITION,
                 )
                 self._discard_exact_run_control(
                     session_id=session_id,
                     run_id=active_run.run_id,
                 )
-                return True, deferred_turns
+                return True, pending_inputs
             if active_run.status == "cancelled":
                 self._execution_store.consume_execution_pending_turns_sync(
                     session_id,
                     revision=active_run.revision,
-                    disposition="defer",
+                    disposition=RUN_INPUT_DISPOSITION,
                 )
                 self._discard_exact_run_control(
                     session_id=session_id,
                     run_id=active_run.run_id,
                 )
-                return True, deferred_turns
+                return True, pending_inputs
             self._execution_store.clear_execution_state_sync(session_id)
             self._discard_exact_run_control(
                 session_id=session_id,
@@ -213,7 +217,7 @@ class SessionRunLifecycleMixin:
                 run_id=active_run.run_id,
                 revision=active_run.revision,
             )
-            return True, deferred_turns
+            return True, pending_inputs
 
     def request_cancel(
         self,
@@ -222,7 +226,7 @@ class SessionRunLifecycleMixin:
         requested_by: str,
         reason: str = "user_cancel",
         anchor_turn_id: str | None = None,
-    ) -> ActiveRun:
+    ) -> AgentRun:
         """Mark the active run as cancelling and retain cancel metadata."""
         with self._lock:
             active_run = self._require_run(session_id)
@@ -257,7 +261,7 @@ class SessionRunLifecycleMixin:
         *,
         run_id: str | None = None,
         revision: int | None = None,
-    ) -> ActiveRun:
+    ) -> AgentRun:
         """Transition the active run from cancelling to cancelled."""
         with self._lock:
             active_run = self._require_run(session_id)
@@ -441,7 +445,7 @@ class SessionRunLifecycleMixin:
         *,
         root_user_message: str | None = None,
         clear_pending_turns: bool = False,
-    ) -> ActiveRun:
+    ) -> AgentRun:
         """Advance the active revision for a session run."""
         with self._lock:
             active_run = self._require_run(session_id)
@@ -468,26 +472,5 @@ class SessionRunLifecycleMixin:
                 clear_pending_turns=clear_pending_turns,
             )
             return deepcopy(active_run)
-
-    def list_active_runs(self, session_id: str) -> list[AgentRun]:
-        """Phase E: return the list of active runs for ``session_id``.
-
-        Phase E scope: returns at most one run (single-active-run
-        semantics preserved). Phase G/H enables real concurrent runs
-        (multi-channel inbound); the API surface is established now so
-        callers can be written against the list form.
-        """
-        single = self.get_active_run(session_id)
-        return [single] if single is not None else []
-
-    def single_active_run(self, session_id: str) -> AgentRun | None:
-        """Convenience accessor: returns the first active run or None.
-
-        Use this from callers that have not yet been migrated to handle
-        multiple concurrent runs. New code should iterate
-        ``list_active_runs`` directly.
-        """
-        runs = self.list_active_runs(session_id)
-        return runs[0] if runs else None
 
 __all__ = ["SessionRunLifecycleMixin"]

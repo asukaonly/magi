@@ -5,11 +5,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
-MAX_PENDING_TURNS_PER_SESSION = 64
 MAX_RESULTS_PER_SESSION = 64
 RUN_STATUSES = frozenset({"running", "cancelling", "cancelled"})
 RESULT_DISPOSITIONS = frozenset({"accepted", "stale"})
-PENDING_DISPOSITIONS = frozenset({"augment", "defer", "steer"})
+PENDING_DISPOSITIONS = frozenset({"message"})
 
 
 class SessionExecutionStateStore:
@@ -17,7 +16,7 @@ class SessionExecutionStateStore:
 
     Crash recovery is owned by the durable chat delivery ledger. A Python
     process cannot resume live asyncio controls, provider streams, or tool
-    calls, so restoring an ``ActiveRun`` record without those controls creates
+    calls, so restoring an ``AgentRun`` record without those controls creates
     a ghost run. The delivery ledger redrives every non-terminal turn instead.
     """
 
@@ -118,11 +117,11 @@ class SessionExecutionStateStore:
         turn_id: str,
         content: str,
         revision: int,
-        disposition: str = "augment",
+        disposition: str = "message",
     ) -> dict[str, Any]:
         normalized_session_id = self._required_text(session_id, "session_id")
         normalized_turn_id = self._required_text(turn_id, "turn_id")
-        normalized_disposition = str(disposition or "augment").strip().lower()
+        normalized_disposition = str(disposition or "message").strip().lower()
         if normalized_disposition not in PENDING_DISPOSITIONS:
             raise ValueError(f"Unsupported pending-turn disposition: {disposition!r}")
 
@@ -146,8 +145,6 @@ class SessionExecutionStateStore:
             "created_at": time.time(),
         }
         pending_turns.append(pending_turn)
-        if len(pending_turns) > MAX_PENDING_TURNS_PER_SESSION:
-            del pending_turns[: len(pending_turns) - MAX_PENDING_TURNS_PER_SESSION]
         return dict(pending_turn)
 
     def consume_execution_pending_turns_sync(
@@ -175,7 +172,7 @@ class SessionExecutionStateStore:
                 (revision is None or int(item.get("revision") or 0) == int(revision))
                 and (
                     target_disposition is None
-                    or str(item.get("disposition") or "augment").strip().lower()
+                    or str(item.get("disposition") or "message").strip().lower()
                     == target_disposition
                 )
                 and (

@@ -91,7 +91,6 @@ def _build_session_run_coordinator(
                 config.unified_memory.l0 if config.unified_memory is not None else None
             ),
         ),
-        interruption_classifier=context_parts.interruption_classifier,
         delivery_dispatcher=delivery_dispatcher,
         conversation_log=conversation_log,
     )
@@ -137,7 +136,7 @@ def _build_postprocess_service(
         runtime_trace_store=config.runtime_trace_store,
         chat_store=config.chat_store,
         chat_read_service_factory=context_parts.chat_read_service_factory,
-        complete_session_run=lambda session_id, run_id, revision: session_run_coordinator.complete_run_with_deferred(
+        complete_session_run=lambda session_id, run_id, revision: session_run_coordinator.complete_run_with_pending_inputs(
             session_id=session_id,
             run_id=run_id,
             revision=revision,
@@ -147,7 +146,7 @@ def _build_postprocess_service(
             run_id=run_id,
             revision=revision,
         ),
-        release_deferred_turns=callbacks.release_deferred_turns,
+        release_pending_inputs=callbacks.release_pending_inputs,
         response_rhythm_planner=ResponseRhythmPlanner(),
         transcript_summarizer=transcript_summarizer,
         event_bus=config.message_bus,

@@ -18,15 +18,18 @@ from magi.chat.contracts import (
 )
 from magi.core.logger import get_logger
 from magi.events.events import EventTypes
+from magi.agent.task_agents.common import UserMessagePayload
 from magi.agent.task_agents.handlers.run_contracts import PendingTurn
+
+from .cancel_protocol import is_strict_cancel_text
+from .session_run_decisions import TurnSupersession
 
 logger = get_logger(__name__)
 
 
 class ChatSessionControlMixin:
-    """Ingress interrupt, deferred-turn, cancel, and detach helpers."""
+    """Ingress input, cancel, deletion, and detach helpers."""
 
-    _interruption_classifier: Any
     _session_run_coordinator: Any
     _task_agent_manager: Any
     _postprocess_service: Any
@@ -397,62 +400,127 @@ class ChatSessionControlMixin:
             raise RuntimeError("Unsafe chat run could not be cleared for replay")
         return True
 
-    async def _request_ingress_interrupt(self, fact: FactRecord) -> None:
-        """Best-effort strict interrupt handling before the fact queue drains."""
+    async def _request_ingress_cancel(self, fact: FactRecord) -> bool:
+        """Handle a strict text cancel before the fact queue drains."""
         async with self._chat_execution_admission_boundary():
-            await self._request_ingress_interrupt_at_admission_boundary(fact)
+            return await self._request_ingress_cancel_at_admission_boundary(fact)
 
-    async def _request_ingress_interrupt_at_admission_boundary(
+    async def _request_ingress_cancel_at_admission_boundary(
         self,
         fact: FactRecord,
-    ) -> None:
-        """Apply a strict interrupt while the execution boundary is held."""
+    ) -> bool:
+        """Apply an exact cancel control while the execution boundary is held."""
 
+        cancellation_requested = False
         try:
             if fact.event_type != EventTypes.USER_MESSAGE:
-                return
+                return False
             payload = fact.payload or {}
             session_id = str(payload.get("session_id") or "").strip()
             content = str(payload.get("content") or "")
             turn_id = str(payload.get("turn_id") or "").strip() or None
-            if not (
-                session_id
-                and content
-                and self._interruption_classifier.looks_like_strict_interrupt(content)
-            ):
-                return
+            if not (session_id and content and is_strict_cancel_text(content)):
+                return False
             active_run = self._session_run_coordinator.get_active_run(session_id)
             if active_run is None or active_run.status not in ("running", "cancelling"):
-                return
+                return False
             if not await self._mark_session_turn_cancelled(
                 active_run,
                 turn_id=active_run.root_turn_id,
-                reason="ingress_interrupt",
+                reason="user_cancel",
             ):
-                return
+                return False
             self._session_run_coordinator.request_cancel(
                 session_id=session_id,
                 requested_by="user",
-                reason="ingress_interrupt",
-                anchor_turn_id=turn_id,
+                reason="user_cancel",
+                anchor_turn_id=active_run.root_turn_id,
             )
+            cancellation_requested = True
+            if turn_id:
+                await self._postprocess_service.persist_turn_supersessions(
+                    superseded_turns=[
+                        TurnSupersession(
+                            turn_id=turn_id,
+                            anchor_turn_id=str(active_run.root_turn_id or turn_id),
+                            reason="message",
+                        )
+                    ],
+                    updated_at_ms=now_wall_ms(),
+                )
             logger.info(
-                "Ingress INTERRUPT detected; requested cancel",
+                "Strict cancel control requested active run cancellation",
                 session_id=session_id,
                 turn_id=turn_id,
             )
+            return True
         except Exception as exc:
-            logger.debug(
-                "Ingress INTERRUPT classification failed",
+            logger.warning(
+                "Strict cancel control failed",
                 error=str(exc),
             )
+            return cancellation_requested
 
-    async def _release_deferred_turns(
+    def _fact_targets_active_run(self, fact: FactRecord) -> bool:
+        """Return whether one user fact belongs to an existing live run."""
+
+        if fact.event_type != EventTypes.USER_MESSAGE:
+            return False
+        payload = fact.payload if isinstance(fact.payload, dict) else {}
+        session_id = str(payload.get("session_id") or "").strip()
+        if not session_id:
+            return False
+        active_run = self._session_run_coordinator.get_active_run(session_id)
+        return bool(
+            active_run is not None
+            and active_run.status in {"running", "cancelling"}
+            and str(payload.get("turn_id") or "").strip()
+            != str(active_run.root_turn_id or "").strip()
+        )
+
+    def _queue_active_run_input_at_admission_boundary(
+        self,
+        fact: FactRecord,
+    ) -> bool:
+        """Persist an ordinary user message on the currently active run."""
+
+        if fact.event_type != EventTypes.USER_MESSAGE:
+            return False
+        payload_dict = fact.payload if isinstance(fact.payload, dict) else {}
+        payload = UserMessagePayload.from_dict(
+            payload_dict,
+            fallback_user_id=self.agent_id,
+        )
+        if not payload.session_id or not payload.content:
+            return False
+        if any(
+            (
+                payload.attachments,
+                payload.reply_to_message_id,
+                payload.recall_feedback,
+                payload.first_context,
+                payload.skill_invocation,
+                payload.reasoning_preference,
+            )
+        ):
+            return False
+        active_run = self._session_run_coordinator.get_active_run(payload.session_id)
+        if active_run is None or active_run.status not in {"running", "cancelling"}:
+            return False
+        if payload.turn_id and payload.turn_id == active_run.root_turn_id:
+            return False
+        decision = self._session_run_coordinator.handle_user_turn(
+            payload,
+            source_fact=fact,
+        )
+        return decision.run_disposition == "message"
+
+    async def _release_pending_inputs(
         self,
         session_id: str,
-        deferred_turns: Sequence[PendingTurn],
+        pending_inputs: Sequence[PendingTurn],
     ) -> None:
-        """Move detached DEFER turns back to the durable runtime queue.
+        """Move unconsumed run inputs back to the durable runtime queue.
 
         The chat delivery row, not an in-memory ``FactRecord``, owns retry
         identity and the complete original envelope.  The caller atomically
@@ -462,11 +530,11 @@ class ChatSessionControlMixin:
         normalized_session_id = str(session_id or "").strip()
         if not normalized_session_id:
             return
-        if not deferred_turns:
+        if not pending_inputs:
             return
         chat_store = self._chat_store
         if chat_store is None:
-            raise RuntimeError("Chat store is required to release deferred turns")
+            raise RuntimeError("Chat store is required to release pending inputs")
         from magi.core.runtime_bindings import require_runtime_command_queue
         from magi.chat.user_turn_delivery import ChatUserTurnDeliveryScheduler
 
@@ -474,13 +542,13 @@ class ChatSessionControlMixin:
             chat_store=chat_store,
             runtime_command_queue=require_runtime_command_queue(),
         )
-        for pending_turn in deferred_turns:
+        for pending_turn in pending_inputs:
             record = await chat_store.get_user_turn_delivery(
                 turn_id=pending_turn.turn_id,
             )
             if record is None:
                 raise RuntimeError(
-                    f"Deferred turn '{pending_turn.turn_id}' has no delivery record"
+                    f"Pending input '{pending_turn.turn_id}' has no delivery record"
                 )
             if record.delivery_state == CHAT_DELIVERY_STATE_TERMINAL:
                 continue
@@ -496,7 +564,7 @@ class ChatSessionControlMixin:
                     )
                 if prepared is None:
                     raise RuntimeError(
-                        f"Deferred turn '{record.turn_id}' lost its delivery record"
+                        f"Pending input '{record.turn_id}' lost its delivery record"
                     )
                 record = prepared
             if record.delivery_state not in {
@@ -506,7 +574,7 @@ class ChatSessionControlMixin:
                 CHAT_DELIVERY_STATE_TERMINAL,
             }:
                 raise RuntimeError(
-                    f"Deferred turn '{record.turn_id}' cannot be released from "
+                    f"Pending input '{record.turn_id}' cannot be released from "
                     f"delivery state '{record.delivery_state}'"
                 )
             if record.delivery_state != CHAT_DELIVERY_STATE_TERMINAL:
@@ -522,7 +590,7 @@ class ChatSessionControlMixin:
                     ):
                         raise
                     logger.warning(
-                        "Deferred turn remains ready for background retry",
+                        "Pending input remains ready for background retry",
                         session_id=normalized_session_id,
                         turn_id=record.turn_id,
                         delivery_attempt_no=current.delivery_attempt_no,
@@ -627,19 +695,19 @@ class ChatSessionControlMixin:
             turn_id=cancellation_turn_id,
             source_fact=None,
         )
-        completed, deferred_turns = (
-            self._session_run_coordinator.complete_run_with_deferred(
+        completed, pending_inputs = (
+            self._session_run_coordinator.complete_run_with_pending_inputs(
                 session_id=normalized_session_id,
                 run_id=active_run.run_id,
                 revision=active_run.revision,
             )
         )
         if completed:
-            await self._postprocess_service.release_deferred_after_run_completion(
+            await self._postprocess_service.release_pending_inputs_after_run_completion(
                 session_id=session_id,
                 run_id=active_run.run_id,
                 revision=active_run.revision,
-                deferred_turns=deferred_turns,
+                pending_inputs=pending_inputs,
             )
         await self._postprocess_service.emit_execution_control_notification(
             user_id=normalized_user_id or self.agent_id,

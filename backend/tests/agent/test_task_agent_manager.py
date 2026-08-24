@@ -1079,7 +1079,7 @@ def _managed_user_fact(
 
 
 @pytest.mark.asyncio
-async def test_managed_strict_interrupt_cancels_before_queue_drain(
+async def test_managed_strict_cancel_cancels_before_queue_drain(
     runtime_paths_with_schema,
 ) -> None:
     chat_store = ChatStore(
@@ -1123,7 +1123,7 @@ async def test_managed_strict_interrupt_cancels_before_queue_drain(
     class _NoDrainChatTaskAgent(ChatTaskAgent):
         def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
             super().__init__(*args, **kwargs)
-            self.ingress_interrupt_checks = 0
+            self.ingress_cancel_checks = 0
 
         async def start(  # type: ignore[no-untyped-def]
             self,
@@ -1135,12 +1135,12 @@ async def test_managed_strict_interrupt_cancels_before_queue_drain(
             self._task_agent_manager = task_agent_manager
             self._sensor_hub = sensor_hub
 
-        async def _request_ingress_interrupt_at_admission_boundary(
+        async def _request_ingress_cancel_at_admission_boundary(
             self,
             fact: FactRecord,
-        ) -> None:
-            self.ingress_interrupt_checks += 1
-            await super()._request_ingress_interrupt_at_admission_boundary(
+        ) -> bool:
+            self.ingress_cancel_checks += 1
+            return await super()._request_ingress_cancel_at_admission_boundary(
                 fact
             )
 
@@ -1206,15 +1206,15 @@ async def test_managed_strict_interrupt_cancels_before_queue_drain(
         )
         assert active_run is not None
         assert active_run.status == "cancelling"
-        assert active_run.cancel_anchor_turn_id == "turn-stop"
+        assert active_run.cancel_anchor_turn_id == "turn-root"
         assert root_turn is not None
         assert root_turn.status == "cancelled"
         assert root_delivery is not None
         assert root_delivery.delivery_state == "terminal"
         assert stop_delivery is not None
-        assert stop_delivery.delivery_state == "admitted"
-        assert agent._fact_queue.qsize() == 1
-        assert agent.ingress_interrupt_checks == 1
+        assert stop_delivery.delivery_state == "terminal"
+        assert agent._fact_queue.empty()
+        assert agent.ingress_cancel_checks == 1
         assert acknowledgements == [802]
     finally:
         await manager.stop_all()

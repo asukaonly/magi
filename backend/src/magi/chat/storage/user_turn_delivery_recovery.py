@@ -126,7 +126,7 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                     or turn_status in {"cancelled", "merged", "interrupted"}
                     or (
                         turn_status == "completed"
-                        and run_disposition not in {"augment", "defer", "steer"}
+                        and run_disposition != "message"
                         and response_mode in {"none", "reaction_only"}
                     )
                 )

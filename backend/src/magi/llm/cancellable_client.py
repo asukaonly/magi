@@ -11,7 +11,7 @@ Design notes
 ------------
 * Suspend and detach are *not* raised here — those are graceful
   boundaries observed by the calling node, not transport aborts.
-* Steer messages are not drained here either — they are consumed at
+* Run inputs are not drained here either — they are consumed at
   agent-step boundaries, not mid-LLM-call.
 * Non-streaming :meth:`call` cannot poll mid-flight, so it only checks
   cancel/retract once before dispatch. Streaming :meth:`stream` checks

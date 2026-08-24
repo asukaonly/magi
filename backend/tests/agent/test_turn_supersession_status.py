@@ -19,9 +19,8 @@ from magi.chat.task_agent.session_run_decisions import (
 @pytest.mark.parametrize(
     ("reason", "expected"),
     [
-        ("augment", "merged"),
-        ("steer", "merged"),
-        ("interrupt", "interrupted"),
+        ("message", "merged"),
+        ("replace", "interrupted"),
     ],
 )
 def test_supersession_terminal_status(reason: str, expected: str) -> None:
@@ -29,7 +28,7 @@ def test_supersession_terminal_status(reason: str, expected: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_steer_persists_as_merge_in_chat_and_trace() -> None:
+async def test_run_input_persists_as_merge_in_chat_and_trace() -> None:
     original = ChatTurnRecord(
         turn_id="turn-1",
         session_id="session-1",
@@ -63,7 +62,7 @@ async def test_steer_persists_as_merge_in_chat_and_trace() -> None:
     await writer.persist_turn_supersession(
         turn_id="turn-1",
         anchor_turn_id="turn-2",
-        reason="steer",
+        reason="message",
         updated_at_ms=200,
     )
 
@@ -75,7 +74,7 @@ async def test_steer_persists_as_merge_in_chat_and_trace() -> None:
     context = trace_mixin._trace_supersession_context(
         existing_turn=SimpleNamespace(started_at_ms=100),
         anchor_turn_id="turn-2",
-        reason="steer",
+        reason="message",
         updated_at_ms=200,
     )
     assert context.status == "merged"

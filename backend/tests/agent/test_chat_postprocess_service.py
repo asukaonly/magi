@@ -31,7 +31,6 @@ from magi.chat.task_agent.session_run_decisions import TurnSupersession
 from magi.agent.task_agents.common import (
     AssistantResponsePlan,
     AssistantResponseSegment,
-    ExecutionMode,
     ExecutionResult,
     IncomingFactKind,
     ToolSelection,
@@ -2197,7 +2196,7 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
     await service.record_tool_selection(first_context, decision, ToolSelection())
     await service.persist_turn_supersessions(
         superseded_turns=[
-            TurnSupersession(turn_id="turn-1", anchor_turn_id="turn-2", reason="interrupt"),
+            TurnSupersession(turn_id="turn-1", anchor_turn_id="turn-2", reason="replace"),
         ],
         updated_at_ms=1710000001000,
     )
@@ -3413,12 +3412,12 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
 
 
 @pytest.mark.asyncio
-async def test_release_deferred_turns_callback_invoked_after_completion() -> None:
+async def test_release_pending_inputs_callback_invoked_after_completion() -> None:
     calls: list[tuple[str, list[object]]] = []
-    deferred_turn = object()
+    pending_input = object()
 
-    async def _release(session_id: str, deferred_turns: list[object]) -> None:
-        calls.append((session_id, deferred_turns))
+    async def _release(session_id: str, pending_inputs: list[object]) -> None:
+        calls.append((session_id, pending_inputs))
 
     service = ChatPostProcessService(
         agent_id="chat:local_user",
@@ -3427,7 +3426,7 @@ async def test_release_deferred_turns_callback_invoked_after_completion() -> Non
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         max_fact_memory=10,
-        release_deferred_turns=_release,
+        release_pending_inputs=_release,
     )
     context = ChatRuntimeContext(
         latest_fact=None,
@@ -3451,19 +3450,18 @@ async def test_release_deferred_turns_callback_invoked_after_completion() -> Non
         planner_fact=None,
         planner_fact_kind=IncomingFactKind.USER_MESSAGE,
         planner_payload=None,
-        pending_turns=[],
     )
 
-    await service._release_deferred_user_turns(
+    await service._release_pending_user_inputs(
         session_id=context.session_id,
-        deferred_turns=[deferred_turn],
+        pending_inputs=[pending_input],
     )
 
-    assert calls == [("session-1", [deferred_turn])]
+    assert calls == [("session-1", [pending_input])]
 
 
 @pytest.mark.asyncio
-async def test_release_deferred_turns_callback_absent_is_noop() -> None:
+async def test_release_pending_inputs_callback_absent_is_noop() -> None:
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
@@ -3494,20 +3492,19 @@ async def test_release_deferred_turns_callback_absent_is_noop() -> None:
         planner_fact=None,
         planner_fact_kind=IncomingFactKind.USER_MESSAGE,
         planner_payload=None,
-        pending_turns=[],
     )
 
     # Must not raise; simply returns without calling anything.
-    await service._release_deferred_user_turns(
+    await service._release_pending_user_inputs(
         session_id=context.session_id,
-        deferred_turns=[object()],
+        pending_inputs=[object()],
     )
 
 
 @pytest.mark.asyncio
-async def test_release_deferred_turns_swallows_callback_exception() -> None:
-    def _raising(session_id: str, deferred_turns: list[object]) -> None:
-        _ = (session_id, deferred_turns)
+async def test_release_pending_inputs_swallows_callback_exception() -> None:
+    def _raising(session_id: str, pending_inputs: list[object]) -> None:
+        _ = (session_id, pending_inputs)
         raise RuntimeError("boom")
 
     service = ChatPostProcessService(
@@ -3517,7 +3514,7 @@ async def test_release_deferred_turns_swallows_callback_exception() -> None:
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
         max_fact_memory=10,
-        release_deferred_turns=_raising,
+        release_pending_inputs=_raising,
     )
     context = ChatRuntimeContext(
         latest_fact=None,
@@ -3541,13 +3538,12 @@ async def test_release_deferred_turns_swallows_callback_exception() -> None:
         planner_fact=None,
         planner_fact_kind=IncomingFactKind.USER_MESSAGE,
         planner_payload=None,
-        pending_turns=[],
     )
 
     # Exception is logged as a warning but not re-raised.
-    await service._release_deferred_user_turns(
+    await service._release_pending_user_inputs(
         session_id=context.session_id,
-        deferred_turns=[object()],
+        pending_inputs=[object()],
     )
 
 
@@ -4162,119 +4158,8 @@ async def test_cancelled_outcome_does_not_leak_response_trace(
     assert rhythm_span is None
 
 
-@pytest.mark.parametrize("disposition", ["augment", "defer", "steer"])
 @pytest.mark.asyncio
-async def test_pending_fact_only_turn_stays_open_on_active_run(
-    chat_store: ChatStore,
-    disposition: str,
-) -> None:
-    coordinator = SessionRunCoordinator()
-    coordinator._run_store.create_active_run(
-        session_id="session-1",
-        run_id="run-pending",
-        root_turn_id="turn-root",
-        root_user_message="Finish the original task",
-    )
-    coordinator._run_store.append_pending_turn(
-        session_id="session-1",
-        turn_id=f"turn-{disposition}",
-        content="One more thing",
-        disposition=disposition,
-    )
-    completion_calls: list[tuple[str, str, int]] = []
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: _FakeEventEmitter(),
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        chat_store=chat_store,
-        complete_session_run=lambda session_id, run_id, revision: completion_calls.append(
-            (session_id, run_id, revision)
-        ),
-        resolve_session_run_status=lambda session_id, run_id, revision: coordinator.get_run_status(
-            session_id=session_id,
-            run_id=run_id,
-            revision=revision,
-        ),
-        max_fact_memory=10,
-    )
-    turn_id = f"turn-{disposition}"
-    latest_fact = FactRecord(
-        agent_id="chat:local_user",
-        event_type=EventTypes.USER_MESSAGE,
-        payload={
-            "content": "One more thing",
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": turn_id,
-        },
-        agent_type="chat",
-        agent_instance_id="local_user",
-        timestamp=1710000000.0,
-        correlation_id=f"corr-{disposition}",
-        delivery_attempt_no=0,
-        runtime_command_id=101,
-    )
-    active_run = coordinator.get_active_run("session-1")
-    assert active_run is not None
-    context = ChatRuntimeContext(
-        latest_fact=latest_fact,
-        recent_facts=[latest_fact],
-        batch_facts=[latest_fact],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        recent_tool_errors=[],
-        session_run_id=active_run.run_id,
-        session_run_revision=active_run.revision,
-        session_run_disposition=disposition,
-        active_run=active_run,
-        latest_user_message="One more thing",
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=UserMessagePayload(
-            user_id="local_user",
-            session_id="session-1",
-            content="One more thing",
-            turn_id=turn_id,
-        ),
-    )
-    await _create_admitted_user_turn(
-        chat_store,
-        turn_id=turn_id,
-        message_text="One more thing",
-        run_disposition=disposition,
-    )
-    result = ExecutionResult(
-        mode=ExecutionMode.FACT_ONLY,
-        response_text="",
-        skip_emit=True,
-        correlation_id=f"corr-{disposition}",
-        turn_id=turn_id,
-        ux_plan={"assistant_surface_mode": "none"},
-    )
-
-    await service.handle(context, result)
-
-    turn = await chat_store.get_turn(turn_id)
-    delivery = await chat_store.get_user_turn_delivery(turn_id=turn_id)
-    still_active = coordinator.get_active_run("session-1")
-    assert turn is not None
-    assert turn.status != "completed"
-    assert delivery is not None
-    assert delivery.delivery_state == CHAT_DELIVERY_STATE_ADMITTED
-    assert still_active is not None
-    assert [item.turn_id for item in still_active.pending_turns] == [turn_id]
-    assert completion_calls == []
-
-
-@pytest.mark.asyncio
-async def test_deferred_turn_is_released_after_old_run_completion() -> None:
+async def test_pending_input_is_released_after_old_run_completion() -> None:
     coordinator = SessionRunCoordinator()
     coordinator._run_store.create_active_run(
         session_id="session-1",
@@ -4284,9 +4169,9 @@ async def test_deferred_turn_is_released_after_old_run_completion() -> None:
     )
     coordinator._run_store.append_pending_turn(
         session_id="session-1",
-        turn_id="turn-deferred",
+        turn_id="turn-pending",
         content="Start this after the first task",
-        disposition="defer",
+        disposition="message",
     )
     active_run = coordinator.get_active_run("session-1")
     assert active_run is not None
@@ -4298,22 +4183,22 @@ async def test_deferred_turn_is_released_after_old_run_completion() -> None:
         revision: int,
     ):
         order.append("complete")
-        return coordinator.complete_run_with_deferred(
+        return coordinator.complete_run_with_pending_inputs(
             session_id=session_id,
             run_id=run_id,
             revision=revision,
         )
 
-    async def _release(session_id: str, deferred_turns: list[Any]) -> None:
+    async def _release(session_id: str, pending_inputs: list[Any]) -> None:
         order.append("release")
         assert coordinator.get_active_run(session_id) is None
-        assert [turn.turn_id for turn in deferred_turns] == ["turn-deferred"]
+        assert [turn.turn_id for turn in pending_inputs] == ["turn-pending"]
         decision = coordinator.handle_user_turn(
             UserMessagePayload(
                 user_id="local_user",
                 session_id=session_id,
                 content="Start this after the first task",
-                turn_id="turn-deferred",
+                turn_id="turn-pending",
             )
         )
         assert decision.run_disposition == "root"
@@ -4330,7 +4215,7 @@ async def test_deferred_turn_is_released_after_old_run_completion() -> None:
             run_id=run_id,
             revision=revision,
         ),
-        release_deferred_turns=_release,
+        release_pending_inputs=_release,
         max_fact_memory=10,
     )
     context = SimpleNamespace(
@@ -4348,23 +4233,23 @@ async def test_deferred_turn_is_released_after_old_run_completion() -> None:
     assert order == ["complete", "release"]
     next_run = coordinator.get_active_run("session-1")
     assert next_run is not None
-    assert next_run.root_turn_id == "turn-deferred"
+    assert next_run.root_turn_id == "turn-pending"
 
 
 @pytest.mark.asyncio
-async def test_deferred_turn_retries_failed_release_and_releases_once(
+async def test_pending_input_retries_failed_release_and_releases_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import magi.chat.task_agent.postprocess.session as session_module
 
     monkeypatch.setattr(
         session_module,
-        "_DEFERRED_RELEASE_RETRY_INITIAL_SECONDS",
+        "_PENDING_INPUT_RELEASE_RETRY_INITIAL_SECONDS",
         0.001,
     )
     monkeypatch.setattr(
         session_module,
-        "_DEFERRED_RELEASE_RETRY_MAX_SECONDS",
+        "_PENDING_INPUT_RELEASE_RETRY_MAX_SECONDS",
         0.01,
     )
     coordinator = SessionRunCoordinator()
@@ -4376,9 +4261,9 @@ async def test_deferred_turn_retries_failed_release_and_releases_once(
     )
     coordinator._run_store.append_pending_turn(
         session_id="session-retry",
-        turn_id="turn-deferred",
+        turn_id="turn-pending",
         content="Start this after the first task",
-        disposition="defer",
+        disposition="message",
     )
     active_run = coordinator.get_active_run("session-retry")
     assert active_run is not None
@@ -4387,13 +4272,13 @@ async def test_deferred_turn_retries_failed_release_and_releases_once(
     release_attempts = 0
     released = asyncio.Event()
 
-    async def _release(session_id: str, deferred_turns: list[Any]) -> None:
+    async def _release(session_id: str, pending_inputs: list[Any]) -> None:
         nonlocal release_attempts
         assert session_id == "session-retry"
         release_attempts += 1
         if release_attempts == 1:
             raise RuntimeError("temporary ledger release failure")
-        release_calls.append([turn.turn_id for turn in deferred_turns])
+        release_calls.append([turn.turn_id for turn in pending_inputs])
         released.set()
 
     service = ChatPostProcessService(
@@ -4402,7 +4287,7 @@ async def test_deferred_turn_retries_failed_release_and_releases_once(
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
-        complete_session_run=lambda session_id, run_id, revision: coordinator.complete_run_with_deferred(
+        complete_session_run=lambda session_id, run_id, revision: coordinator.complete_run_with_pending_inputs(
             session_id=session_id,
             run_id=run_id,
             revision=revision,
@@ -4412,7 +4297,7 @@ async def test_deferred_turn_retries_failed_release_and_releases_once(
             run_id=run_id,
             revision=revision,
         ),
-        release_deferred_turns=_release,
+        release_pending_inputs=_release,
         max_fact_memory=10,
     )
     context = SimpleNamespace(
@@ -4434,14 +4319,14 @@ async def test_deferred_turn_retries_failed_release_and_releases_once(
         await asyncio.sleep(0.02)
 
         assert release_attempts == 2
-        assert release_calls == [["turn-deferred"]]
-        assert service._deferred_release_retry_keys == set()
+        assert release_calls == [["turn-pending"]]
+        assert service._pending_input_release_retry_keys == set()
     finally:
         await service.cancel_background_tasks()
 
 
 @pytest.mark.asyncio
-async def test_completed_run_without_deferred_turns_finishes_immediately() -> None:
+async def test_completed_run_without_pending_inputs_finishes_immediately() -> None:
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
@@ -4452,11 +4337,11 @@ async def test_completed_run_without_deferred_turns_finishes_immediately() -> No
     )
 
     try:
-        completed = await service.release_deferred_after_run_completion(
-            session_id="session-no-defer",
-            run_id="run-no-defer",
+        completed = await service.release_pending_inputs_after_run_completion(
+            session_id="session-no-pending",
+            run_id="run-no-pending",
             revision=0,
-            deferred_turns=[],
+            pending_inputs=[],
         )
 
         assert completed is True
@@ -4481,9 +4366,9 @@ async def test_noncritical_background_work_does_not_pin_chat_session() -> None:
 
     try:
         assert service.has_pending_background_work() is False
-        service._deferred_release_retry_keys.add(("session-1", "run-1", 0))
+        service._pending_input_release_retry_keys.add(("session-1", "run-1", 0))
         assert service.has_pending_background_work() is True
-        service._deferred_release_retry_keys.clear()
+        service._pending_input_release_retry_keys.clear()
         assert service.has_pending_background_work() is False
     finally:
         release.set()

@@ -4,15 +4,13 @@ This module complements :mod:`magi.control.cancel` by providing two
 cooperative signals that live *alongside* (not instead of) a cancel
 token:
 
-* :class:`SteerInbox` — a thread-safe FIFO queue of user-authored
+* :class:`RunInputInbox` — a thread-safe FIFO queue of user-authored
   follow-up messages that the chat layer can push into an already
   running orchestrator loop. The orchestrator drains the inbox at each
-  tool boundary and appends the contents to its message history before
-  the next LLM call. This is the "steer" semantic pioneered by
-  OpenClaw's command-queue and refined for Magi: interrupt-style
-  supersede remains available for hard aborts, but routine mid-run
-  clarifications ("use Python not JS", "also include 2023 data") no
-  longer throw away the in-flight run.
+  safe step boundary and appends the contents to model history before
+  the next LLM call. Routine mid-run clarifications ("use Python not
+  JS", "also include 2023 data") therefore extend the current run
+  without a separate semantic classifier.
 
 * :class:`DetachSignal` — a one-shot flag the chat layer can set when
   the run should stop occupying the foreground chat turn and hand its
@@ -25,7 +23,7 @@ token:
   completed.
 
 * :class:`RunControl` — bundle of all five cooperative signals
-  (``CancelToken``, ``DetachSignal``, ``SteerInbox``, ``RetractSignal``,
+  (``CancelToken``, ``DetachSignal``, ``RunInputInbox``, ``RetractSignal``,
   ``SuspendSignal``) passed as one parameter to every node in a run.
   Construct with :func:`null_run_control` for tests / default callers.
 
@@ -37,7 +35,7 @@ its ``tool`` messages appended, but **before** the next LLM call. That
 point is already the one where :class:`CancelToken` is polled, and it
 is the only point in the loop where the full in-progress state
 collapses to a serialisable ``messages: list[dict]``. Keeping all three
-signals on the same boundary avoids partially-applied steers (e.g. a
+signals on the same boundary avoids partially-applied inputs (e.g. a
 message injected after the LLM chose tools but before the tool batch
 ran) and rules out any need for coroutine-level checkpointing.
 
@@ -46,7 +44,7 @@ Thread/loop safety
 Both classes are designed to be produced by one coroutine (the chat
 handler) and consumed by another (the orchestrator loop), running on
 the same event loop. Internal state is plain ``deque`` / ``bool`` with
-an ``asyncio.Lock`` guarding :class:`SteerInbox` mutations so producers
+an ``asyncio.Lock`` guarding :class:`RunInputInbox` mutations so producers
 and consumers can race without corruption. Neither primitive performs
 any IO.
 """
@@ -68,9 +66,9 @@ __all__ = [
     "RetractRequested",
     "RetractSignal",
     "RunControl",
-    "SteerInbox",
-    "SteerMessage",
-    "SteerReason",
+    "ControlReason",
+    "RunInputInbox",
+    "RunInputMessage",
     "SuspendRequested",
     "SuspendSignal",
     "bind_detach_signal",
@@ -79,20 +77,20 @@ __all__ = [
 ]
 
 
-SteerReason = str
+ControlReason = str
 
 
 @dataclass(slots=True, frozen=True)
-class SteerMessage:
+class RunInputMessage:
     """A user-authored follow-up delivered to an in-flight run."""
 
     content: str
-    reason: SteerReason = "follow_up"
+    reason: ControlReason = "follow_up"
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-class SteerInbox:
-    """FIFO queue of :class:`SteerMessage` entries awaiting injection.
+class RunInputInbox:
+    """FIFO queue of :class:`RunInputMessage` entries awaiting injection.
 
     Producers call :meth:`push`; consumers call :meth:`drain` at each
     tool boundary and receive every message enqueued since the previous
@@ -103,15 +101,15 @@ class SteerInbox:
     __slots__ = ("_queue", "_lock")
 
     def __init__(self) -> None:
-        self._queue: deque[SteerMessage] = deque()
+        self._queue: deque[RunInputMessage] = deque()
         self._lock = asyncio.Lock()
 
-    async def push(self, message: SteerMessage) -> None:
+    async def push(self, message: RunInputMessage) -> None:
         """Enqueue ``message`` for the next drain."""
         async with self._lock:
             self._queue.append(message)
 
-    async def drain(self) -> list[SteerMessage]:
+    async def drain(self) -> list[RunInputMessage]:
         """Pop and return every pending message in FIFO order."""
         async with self._lock:
             if not self._queue:
@@ -129,7 +127,7 @@ class SteerInbox:
 class DetachRequested:
     """Metadata describing why a detach was requested."""
 
-    reason: SteerReason = "user_request"
+    reason: ControlReason = "user_request"
     requested_by: str = "user"
     note: str = ""
 
@@ -184,7 +182,7 @@ class RetractRequested:
     ``RetractSignal`` instructs the DeliveryRouter to undo them.
     """
 
-    reason: SteerReason = "user_retract"
+    reason: ControlReason = "user_retract"
     requested_by: str = "user"
     note: str = ""
 
@@ -240,7 +238,7 @@ class SuspendRequested:
     ``clear()`` rather than constructing a fresh signal.
     """
 
-    reason: SteerReason = "window_closed"
+    reason: ControlReason = "window_closed"
     requested_by: str = "user"
     note: str = ""
 
@@ -313,7 +311,7 @@ class RunControl:
     detach_signal: DetachSignal
     retract_signal: RetractSignal
     suspend_signal: SuspendSignal
-    steer_inbox: SteerInbox
+    input_queue: RunInputInbox
 
 
 def null_run_control() -> RunControl:
@@ -330,7 +328,7 @@ def null_run_control() -> RunControl:
         detach_signal=DetachSignal(),
         retract_signal=RetractSignal(),
         suspend_signal=SuspendSignal(),
-        steer_inbox=SteerInbox(),
+        input_queue=RunInputInbox(),
     )
 
 

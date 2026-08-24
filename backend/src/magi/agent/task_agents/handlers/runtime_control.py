@@ -8,7 +8,6 @@ from ....agent.background.contracts import BackgroundTaskTriggerSource
 from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
 from magi.control.run_control import (
     DetachSignal,
-    SteerInbox,
 )
 from ....core.logger import get_logger
 from ..common import AgentRunExecutionResult, ExecutionResult, PreparedAgentRunRequest
@@ -20,7 +19,7 @@ logger = get_logger(__name__)
 
 
 class FunctionCallingRuntimeControlMixin:
-    """Background dispatch, detach handoff, steer, and cancellation helpers."""
+    """Background dispatch, detach handoff, and cancellation helpers."""
 
     _deps: Any
 
@@ -46,16 +45,6 @@ class FunctionCallingRuntimeControlMixin:
         if coordinator is None or not callable(release_signal) or not session_id:
             return
         release_signal(session_id, detach_signal)
-
-    async def _build_steer_inbox(
-        self, request: PreparedAgentRunRequest
-    ) -> SteerInbox | None:
-        """Return an empty steer inbox for this turn, or ``None``."""
-        coordinator = self._deps.session_run_coordinator
-        session_id = str(getattr(request.context, "session_id", "") or "").strip()
-        if coordinator is None or not session_id:
-            return None
-        return SteerInbox()
 
     async def _maybe_handoff_detached_outcome(
         self,
@@ -103,10 +92,8 @@ class FunctionCallingRuntimeControlMixin:
         """Best-effort fetch of the active run's origin ``RunTrigger``.
 
         Returns ``None`` when no coordinator is wired, no active run exists, or
-        the run predates trigger propagation — letting callers fall back to
-        legacy behavior. ``getattr``-defensive so test deps that omit the
-        coordinator do not raise, and never lets a provenance lookup break the
-        detach hand-off.
+        the run has no trigger. Defensive lookup keeps provenance failures from
+        breaking the detach hand-off.
         """
         if not session_id:
             return None

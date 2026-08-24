@@ -52,7 +52,7 @@ async def test_chat_turn_run_metadata_round_trips(runtime_paths_with_schema) -> 
                 error_text=turn.error_text,
                 run_id="run-1",
                 run_revision=2,
-                run_disposition="augment",
+                run_disposition="message",
                 response_anchor_turn_id="turn-2",
                 superseded_by_turn_id="turn-2",
                 supersession_reason="merged",
@@ -64,7 +64,7 @@ async def test_chat_turn_run_metadata_round_trips(runtime_paths_with_schema) -> 
         assert updated_turn is not None
         assert updated_turn.run_id == "run-1"
         assert updated_turn.run_revision == 2
-        assert updated_turn.run_disposition == "augment"
+        assert updated_turn.run_disposition == "message"
         assert updated_turn.response_anchor_turn_id == "turn-2"
         assert updated_turn.superseded_by_turn_id == "turn-2"
         assert updated_turn.supersession_reason == "merged"

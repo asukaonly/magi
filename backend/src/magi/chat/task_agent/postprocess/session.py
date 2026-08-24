@@ -12,18 +12,18 @@ from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 
 logger = get_logger(__name__)
 
-_DEFERRED_RELEASE_RETRY_INITIAL_SECONDS = 0.1
-_DEFERRED_RELEASE_RETRY_MAX_SECONDS = 5.0
+_PENDING_INPUT_RELEASE_RETRY_INITIAL_SECONDS = 0.1
+_PENDING_INPUT_RELEASE_RETRY_MAX_SECONDS = 5.0
 
 
 class _SessionPostprocessHostProtocol(Protocol):
     _complete_session_run: Callable[[str, str, int], Any] | None
     _resolve_session_run_status: Callable[[str, str, int], Any] | None
-    _release_deferred_turns: Callable[[str, list[Any]], Any] | None
+    _release_pending_inputs: Callable[[str, list[Any]], Any] | None
     _unified_memory: Any
     _chat_store: Any
     _background_tasks: set[asyncio.Task[Any]]
-    _deferred_release_retry_keys: set[tuple[str, str, int]]
+    _pending_input_release_retry_keys: set[tuple[str, str, int]]
 
     async def mark_user_turn_delivery_terminal_if_persisted(
         self,
@@ -49,7 +49,7 @@ class _SessionPostprocessHostProtocol(Protocol):
 
 
 class ChatPostprocessSessionMixin:
-    """Finalize chat session runs and deferred turn side effects."""
+    """Finalize chat session runs and pending input release."""
 
     async def _finalize_session_run(self, context: ChatRuntimeContext) -> None:
         host = cast(_SessionPostprocessHostProtocol, self)
@@ -109,7 +109,7 @@ class ChatPostprocessSessionMixin:
                 error=str(exc),
             )
             raise
-        completed, deferred_turns = self._normalize_run_completion(completion)
+        completed, pending_inputs = self._normalize_run_completion(completion)
         if not completed:
             return
         if status in {"cancelling", "cancelled"}:
@@ -124,11 +124,11 @@ class ChatPostprocessSessionMixin:
                 can_cancel=False,
                 label="Run cancelled",
             )
-        await self.release_deferred_after_run_completion(
+        await self.release_pending_inputs_after_run_completion(
             session_id=context.session_id,
             run_id=run_id,
             revision=revision,
-            deferred_turns=deferred_turns,
+            pending_inputs=pending_inputs,
         )
         await self._notify_memory_session_end(context.session_id)
 
@@ -139,8 +139,8 @@ class ChatPostprocessSessionMixin:
         """Normalize the completion callback's result."""
 
         if isinstance(completion, tuple) and len(completion) == 2:
-            completed, deferred_turns = completion
-            return bool(completed), list(deferred_turns or [])
+            completed, pending_inputs = completion
+            return bool(completed), list(pending_inputs or [])
         return completion is not False, []
 
     async def _mark_cancelled_turn(self, context: ChatRuntimeContext) -> bool:
@@ -209,45 +209,45 @@ class ChatPostprocessSessionMixin:
             )
         return True
 
-    async def _release_deferred_user_turns(
+    async def _release_pending_user_inputs(
         self,
         *,
         session_id: str,
-        deferred_turns: list[Any],
+        pending_inputs: list[Any],
     ) -> bool:
-        """Release detached DEFER turns after durable run completion."""
+        """Release unconsumed run inputs after durable run completion."""
 
         host = cast(_SessionPostprocessHostProtocol, self)
-        if not deferred_turns:
+        if not pending_inputs:
             return True
         normalized_session_id = str(session_id or "").strip()
-        if host._release_deferred_turns is None or not normalized_session_id:
+        if host._release_pending_inputs is None or not normalized_session_id:
             return False
         try:
-            result = host._release_deferred_turns(
+            result = host._release_pending_inputs(
                 normalized_session_id,
-                deferred_turns,
+                pending_inputs,
             )
             if inspect.isawaitable(result):
                 await result
             return True
         except Exception as exc:
             logger.warning(
-                "Failed to release deferred user turns",
+                "Failed to release pending user inputs",
                 session_id=normalized_session_id,
                 error=str(exc),
             )
             return False
 
-    async def release_deferred_after_run_completion(
+    async def release_pending_inputs_after_run_completion(
         self,
         *,
         session_id: str,
         run_id: str,
         revision: int,
-        deferred_turns: list[Any],
+        pending_inputs: list[Any],
     ) -> bool:
-        """Release a completed run's DEFER batch through the durable ledger."""
+        """Release a completed run's unconsumed inputs through the durable ledger."""
 
         host = cast(_SessionPostprocessHostProtocol, self)
         normalized_session_id = str(session_id or "").strip()
@@ -255,72 +255,72 @@ class ChatPostprocessSessionMixin:
         if not normalized_session_id or not normalized_run_id:
             return False
 
-        captured_turns = list(deferred_turns)
+        captured_turns = list(pending_inputs)
         key = (normalized_session_id, normalized_run_id, int(revision))
-        if key in host._deferred_release_retry_keys:
+        if key in host._pending_input_release_retry_keys:
             return False
-        host._deferred_release_retry_keys.add(key)
+        host._pending_input_release_retry_keys.add(key)
 
         try:
-            if await self._release_deferred_user_turns(
+            if await self._release_pending_user_inputs(
                 session_id=normalized_session_id,
-                deferred_turns=captured_turns,
+                pending_inputs=captured_turns,
             ):
-                host._deferred_release_retry_keys.discard(key)
+                host._pending_input_release_retry_keys.discard(key)
                 return True
         except asyncio.CancelledError:
-            host._deferred_release_retry_keys.discard(key)
+            host._pending_input_release_retry_keys.discard(key)
             raise
 
         try:
-            self._schedule_deferred_release_retry(
+            self._schedule_pending_input_release_retry(
                 session_id=normalized_session_id,
                 run_id=normalized_run_id,
                 revision=revision,
-                deferred_turns=captured_turns,
+                pending_inputs=captured_turns,
             )
         except Exception:
-            host._deferred_release_retry_keys.discard(key)
+            host._pending_input_release_retry_keys.discard(key)
             raise
         return False
 
-    def _schedule_deferred_release_retry(
+    def _schedule_pending_input_release_retry(
         self,
         *,
         session_id: str,
         run_id: str,
         revision: int,
-        deferred_turns: list[Any],
+        pending_inputs: list[Any],
     ) -> None:
-        """Retry one detached DEFER batch without releasing it twice."""
+        """Retry one unconsumed input batch without releasing it twice."""
 
         host = cast(_SessionPostprocessHostProtocol, self)
         key = (session_id, run_id, int(revision))
-        captured_turns = list(deferred_turns)
+        captured_turns = list(pending_inputs)
 
         async def _runner() -> None:
-            delay_seconds = _DEFERRED_RELEASE_RETRY_INITIAL_SECONDS
+            delay_seconds = _PENDING_INPUT_RELEASE_RETRY_INITIAL_SECONDS
             try:
                 while True:
                     await asyncio.sleep(max(0.0, delay_seconds))
-                    if await self._release_deferred_user_turns(
+                    if await self._release_pending_user_inputs(
                         session_id=session_id,
-                        deferred_turns=captured_turns,
+                        pending_inputs=captured_turns,
                     ):
                         return
                     delay_seconds = min(
                         max(
-                            _DEFERRED_RELEASE_RETRY_INITIAL_SECONDS,
+                            _PENDING_INPUT_RELEASE_RETRY_INITIAL_SECONDS,
                             delay_seconds * 2,
                         ),
-                        _DEFERRED_RELEASE_RETRY_MAX_SECONDS,
+                        _PENDING_INPUT_RELEASE_RETRY_MAX_SECONDS,
                     )
             finally:
-                host._deferred_release_retry_keys.discard(key)
+                host._pending_input_release_retry_keys.discard(key)
 
         task = asyncio.create_task(
             _runner(),
-            name=f"deferred-release:{session_id}:{run_id}:{revision}",
+            name=f"pending-input-release:{session_id}:{run_id}:{revision}",
         )
         host._background_tasks.add(task)
         task.add_done_callback(host._background_tasks.discard)

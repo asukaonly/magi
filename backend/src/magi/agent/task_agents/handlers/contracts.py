@@ -15,7 +15,7 @@ from ..common import (
     IncomingFactKind,
     TaskFactPayload,
 )
-from .run_contracts import ActiveRun, PendingTurn
+from .run_contracts import AgentRun
 from ...execution.capability_resolver import CapabilityResolution
 from ...execution.reasoning import ReasoningPreference
 
@@ -78,14 +78,13 @@ class ChatRuntimeContext(BaseRuntimeContext):
     conversation_history: list[dict[str, Any]]
     recent_tool_errors: list[dict[str, Any]] = field(default_factory=list)
     recent_tool_state: list[dict[str, Any]] = field(default_factory=list)
-    active_run: ActiveRun | None = None
+    active_run: AgentRun | None = None
     session_run_id: str | None = None
     session_run_revision: int = 0
     session_run_disposition: str | None = None
     planner_fact: FactRecord | None = None
     planner_fact_kind: IncomingFactKind = IncomingFactKind.OTHER_FACT
     planner_payload: TaskFactPayload = field(default_factory=GenericFactPayload)
-    pending_turns: list[PendingTurn] = field(default_factory=list)
     reply_context: "ChatReplyContext | None" = None
     recall_feedback: "RecallFeedbackContext | None" = None
     session_summary: str | None = None
