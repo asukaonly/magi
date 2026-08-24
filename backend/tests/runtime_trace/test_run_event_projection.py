@@ -131,6 +131,7 @@ def test_projection_builds_plan_worker_validation_repair_and_metrics() -> None:
         "validation_attempts": 1,
         "validation_failures": 1,
         "repair_iterations": 1,
+        "repair_exhaustions": 0,
         "reasoning_escalations": 1,
         "child_fanout": 1,
         "child_cancellations": 0,
@@ -142,6 +143,51 @@ def test_projection_builds_plan_worker_validation_repair_and_metrics() -> None:
     }
     kinds = [child.kind for step in snapshot.root.children for child in step.children]
     assert {"tool", "worker", "validation", "repair", "reasoning"}.issubset(kinds)
+
+
+def test_projection_marks_running_repair_failed_when_budget_is_exhausted() -> None:
+    events = [
+        _event(1, AgentRunEventType.RUN_STARTED),
+        _event(
+            2,
+            AgentRunEventType.REPAIR_STARTED,
+            step_index=1,
+            payload={"repair_iteration": 1, "reason_code": "validation_failed"},
+        ),
+        _event(
+            3,
+            AgentRunEventType.REPAIR_EXHAUSTED,
+            step_index=2,
+            payload={"reason_code": "repair_exhausted", "repair_iterations": 1},
+        ),
+        _event(
+            4,
+            AgentRunEventType.RUN_BLOCKED,
+            step_index=2,
+            payload={"failure_reason": "repair_exhausted"},
+        ),
+    ]
+
+    snapshot = project_run_events(
+        events,
+        user_id="user-1",
+        session_id="session-1",
+        turn_id="turn-1",
+    )
+
+    assert snapshot is not None
+    repair_nodes = [
+        child
+        for step in snapshot.root.children
+        for child in step.children
+        if child.kind == "repair"
+    ]
+    assert [(node.label, node.status) for node in repair_nodes] == [
+        ("Repairing completion requirements", "failed"),
+        ("Repair budget exhausted", "failed"),
+    ]
+    assert snapshot.root.children[0].status == "failed"
+    assert snapshot.summary.runtime_metrics["repair_exhaustions"] == 1
 
 
 def test_chat_trace_read_service_prefers_canonical_run_events(tmp_path) -> None:

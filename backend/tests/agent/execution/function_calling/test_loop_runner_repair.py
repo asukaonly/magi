@@ -1,0 +1,68 @@
+from __future__ import annotations
+
+import pytest
+
+from magi.agent.execution.completion_policy import CompletionPolicy
+from magi.agent.execution.contracts import AgentRunEventType
+from magi.agent.execution.evidence import ToolExecutionEvidence
+from magi.agent.execution.function_calling.loop_runner import FunctionCallingLoopRunner
+from magi.agent.execution.function_calling.run_input import AgentRunRequest
+from magi.agent.execution.function_calling.step_models import (
+    FunctionCallingStepOutcome,
+    FunctionCallingStepState,
+)
+from magi.agent.execution.journal import AgentRunJournal
+from magi.agent.execution.reasoning import ReasoningPolicy, ReasoningState
+from magi.agent.turn_input import UserTurnInput
+
+
+@pytest.mark.asyncio
+async def test_repair_exhaustion_is_recorded_before_blocking() -> None:
+    state = FunctionCallingStepState(
+        messages=[],
+        effective_system_prompt="system",
+        tools=[],
+        iteration=2,
+        repair_iterations=1,
+        tool_evidence=[
+            ToolExecutionEvidence(
+                tool_name="file_write",
+                success=True,
+                effect_class="local_write",
+                replay_policy="reconcilable",
+            )
+        ],
+        reasoning_state=ReasoningState.start(ReasoningPolicy()),
+    )
+    state.journal = AgentRunJournal(
+        run_id="run-1",
+        turn_id="turn-1",
+        session_id="session-1",
+        user_id="user-1",
+    )
+    run_input = AgentRunRequest(
+        turn=UserTurnInput(text="finish the change"),
+        system_prompt="system",
+        selected_tools=[],
+        user_id="user-1",
+        completion_policy=CompletionPolicy(max_repair_iterations=1),
+    )
+
+    outcome = await FunctionCallingLoopRunner(object())._evaluate_proposed_final(
+        state=state,
+        step_outcome=FunctionCallingStepOutcome(
+            status="completed",
+            iteration=2,
+            content="done",
+        ),
+        run_input=run_input,
+    )
+
+    assert outcome is not None
+    assert outcome.status == "blocked"
+    assert outcome.failure_reason == "repair_exhausted"
+    assert [event.event_type for event in state.journal.events] == [
+        AgentRunEventType.COMPLETION_REQUESTED,
+        AgentRunEventType.COMPLETION_REJECTED,
+        AgentRunEventType.REPAIR_EXHAUSTED,
+    ]

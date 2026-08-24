@@ -372,6 +372,18 @@ class FunctionCallingLoopRunner:
                 )
             )
             return None
+        if self._repair_budget_exhausted(
+            decision=decision,
+            state=state,
+            run_input=run_input,
+        ):
+            await self._record_repair_exhausted(
+                state=state,
+                step_index=step_outcome.iteration,
+                reason_code=decision.reason_code,
+                observations=decision.observations,
+                max_repair_iterations=run_input.completion_policy.max_repair_iterations,
+            )
         return ExecutionOutcome(
             status="blocked",
             content=_blocked_outcome_message(decision),
@@ -399,6 +411,15 @@ class FunctionCallingLoopRunner:
             run_input=run_input,
         )
         if gated is None:
+            await self._record_repair_exhausted(
+                state=state,
+                step_index=outcome.iterations,
+                reason_code="task_budget_finalization",
+                observations=(
+                    "The task budget ended before the required completion repair could run.",
+                ),
+                max_repair_iterations=run_input.completion_policy.max_repair_iterations,
+            )
             return await self._record_terminal_outcome(
                 state,
                 ExecutionOutcome(
@@ -411,6 +432,50 @@ class FunctionCallingLoopRunner:
                 ),
             )
         return await self._record_terminal_outcome(state, gated)
+
+    @staticmethod
+    def _repair_budget_exhausted(
+        *,
+        decision: CompletionDecision,
+        state: FunctionCallingStepState,
+        run_input: AgentRunRequest,
+    ) -> bool:
+        if decision.reason_code == "repair_exhausted":
+            return True
+        return bool(
+            decision.reason_code == "required_plan_incomplete"
+            and state.repair_iterations
+            >= run_input.completion_policy.max_repair_iterations
+        )
+
+    @staticmethod
+    async def _record_repair_exhausted(
+        *,
+        state: FunctionCallingStepState,
+        step_index: int,
+        reason_code: str,
+        observations: tuple[str, ...],
+        max_repair_iterations: int,
+    ) -> None:
+        if state.journal is not None:
+            await state.journal.append(
+                AgentRunEventType.REPAIR_EXHAUSTED,
+                step_index=step_index,
+                payload={
+                    "reason_code": reason_code,
+                    "repair_iterations": state.repair_iterations,
+                    "max_repair_iterations": max_repair_iterations,
+                    "observations": list(observations),
+                },
+            )
+        await emit_stream_event(
+            LLMStreamEvent(
+                kind="status_update",
+                text="Repair budget exhausted; the run is blocked.",
+                source="chat",
+                step_label="completion_repair_exhausted",
+            )
+        )
 
     async def _record_terminal_outcome(
         self,

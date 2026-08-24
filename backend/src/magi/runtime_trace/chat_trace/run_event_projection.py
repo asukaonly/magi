@@ -144,6 +144,22 @@ def _project_step_nodes(events: list[AgentRunEvent]) -> list[ExecutionTraceNode]
                 children=children,
             )
         )
+    exhausted_events = [
+        event for event in events if event.event_type is AgentRunEventType.REPAIR_EXHAUSTED
+    ]
+    if exhausted_events:
+        exhausted_at = max(event.created_at_ms for event in exhausted_events) / 1000
+        for step in reversed(nodes):
+            candidates = [step, *step.children]
+            for child in reversed(candidates):
+                if child.kind == "repair" and child.status == "running":
+                    child.status = "failed"
+                    child.ended_at = exhausted_at
+                    child.error = "repair_exhausted"
+                    if step.kind == "attempt":
+                        step.status = "failed"
+                        step.ended_at = exhausted_at
+                    return nodes
     return nodes
 
 
@@ -252,6 +268,17 @@ def _project_event_nodes(events: list[AgentRunEvent]) -> list[ExecutionTraceNode
                     kind="repair",
                     label="Repairing completion requirements",
                     status="running",
+                    metadata=dict(payload),
+                )
+            )
+        elif event.event_type is AgentRunEventType.REPAIR_EXHAUSTED:
+            nodes.append(
+                _node(
+                    event,
+                    kind="repair",
+                    label="Repair budget exhausted",
+                    status="failed",
+                    error=str(payload.get("reason_code") or "repair_exhausted"),
                     metadata=dict(payload),
                 )
             )
@@ -366,6 +393,7 @@ def _project_metrics(
         "validation_attempts": len(validations),
         "validation_failures": sum(not bool(event.payload.get("success")) for event in validations),
         "repair_iterations": event_types.count(AgentRunEventType.REPAIR_STARTED),
+        "repair_exhaustions": event_types.count(AgentRunEventType.REPAIR_EXHAUSTED),
         "reasoning_escalations": event_types.count(AgentRunEventType.REASONING_DEPTH_CHANGED),
         "child_fanout": event_types.count(AgentRunEventType.CHILD_STARTED),
         "child_cancellations": event_types.count(AgentRunEventType.CHILD_CANCELLED),
