@@ -18,9 +18,6 @@ from magi.skills.active_restrictions import (
     push_skill_rules,
     pop_skill_rules,
     skill_preapproval,
-    # Back-compat shims — should still import and behave permissively.
-    is_tool_allowed,
-    disallowed_reason,
 )
 from magi.skills.allowed_tools_rules import ToolRule
 
@@ -123,16 +120,3 @@ async def test_preapproval_propagates_into_awaited_child_and_task():
     assert seen_child == [True]
     # create_task inherits the contextvar snapshot.
     assert seen_sibling == [True]
-
-
-# ---------------------------------------------------------------------------
-# Back-compat shims
-# ---------------------------------------------------------------------------
-
-
-def test_legacy_is_tool_allowed_is_permissive():
-    """The old hard-deny API now always returns True (spec alignment)."""
-    with skill_preapproval(["Bash"]):
-        assert is_tool_allowed("Bash") is True
-        assert is_tool_allowed("Write") is True  # Not "denied" — just not pre-approved.
-        assert disallowed_reason("Write") is None

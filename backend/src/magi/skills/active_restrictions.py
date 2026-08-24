@@ -133,51 +133,6 @@ def skill_preapproval(
         pop_skill_rules(token)
 
 
-# ---------------------------------------------------------------------------
-# Back-compat shims (the previous "hard restriction" API used by older
-# call sites). They are intentionally lenient now: the old "deny if not
-# in list" behaviour is no longer the spec, so :func:`is_tool_allowed`
-# always returns ``True`` and :func:`disallowed_reason` always returns
-# ``None``. They remain so any straggler imports keep working.
-# ---------------------------------------------------------------------------
-
-
-def current_restrictions() -> Tuple[Tuple[ToolRule, ...], ...]:
-    """Deprecated alias for :func:`current_preapproval_frames`."""
-    return current_preapproval_frames()
-
-
-def is_tool_allowed(tool_name: str) -> bool:  # noqa: ARG001 — back-compat shim
-    """Pre-approval is additive; no hard deny exists. Always returns ``True``."""
-    return True
-
-
-def disallowed_reason(tool_name: str) -> Optional[str]:  # noqa: ARG001
-    """Pre-approval cannot deny; always returns ``None``."""
-    return None
-
-
-def push_restriction(
-    allowed_tools: Optional[Iterable[str | ToolRule]],
-) -> contextvars.Token:
-    """Deprecated alias for :func:`push_skill_rules`."""
-    return push_skill_rules(allowed_tools)
-
-
-def pop_restriction(token: contextvars.Token) -> None:
-    """Deprecated alias for :func:`pop_skill_rules`."""
-    pop_skill_rules(token)
-
-
-@contextmanager
-def skill_restriction(
-    allowed_tools: Optional[Iterable[str | ToolRule]],
-) -> Iterator[None]:
-    """Deprecated alias for :func:`skill_preapproval`."""
-    with skill_preapproval(allowed_tools):
-        yield
-
-
 __all__ = [
     "current_preapproval_frames",
     "is_call_preapproved",
@@ -185,11 +140,4 @@ __all__ = [
     "push_skill_rules",
     "pop_skill_rules",
     "skill_preapproval",
-    # Back-compat
-    "current_restrictions",
-    "is_tool_allowed",
-    "disallowed_reason",
-    "push_restriction",
-    "pop_restriction",
-    "skill_restriction",
 ]
