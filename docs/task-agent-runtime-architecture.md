@@ -2,2097 +2,526 @@
 
 ## Purpose
 
-This document describes the current backend runtime architecture for bootstrap, task-agent orchestration, worker execution, scheduler registration, and the service and transport boundaries around them.
+This document is the source of truth for Magi's current task-agent runtime. It
+covers ordinary chat turns, headless/background execution, child runs, runtime
+control, completion governance, reasoning policy, persistence, and read-side
+projection.
 
-It is implementation-oriented and should stay synchronized with the current codebase.
+The architecture is model-first but runtime-governed:
 
-## Design Intent
+- the main model decides task semantics and the next useful action;
+- deterministic code owns admission, permissions, effect policy, budgets,
+  cancellation, persistence, completion requirements, and bounded recovery;
+- ordinary user messages do not pass through a semantic intent-classifier LLM;
+- chat, background, worker, and skill-backed work share one bounded run loop.
 
-The current runtime is built around four ideas:
+Last reviewed against the implementation: 2026-08-24.
 
-- keep the composition root thin
-- keep user-facing task logic in task agents instead of workers
-- keep workers leaf-only and tightly scoped
-- use typed internal contracts for execution, orchestration, worker results, and classified facts
+## Core Decisions
 
-## Composition Root
+1. **One model-facing loop.** A direct reply is simply a run whose first model
+   step proposes a final response and passes the completion gate. It is not a
+   separate execution mode or handler.
+2. **No ordinary-turn semantic pre-router.** `ChatTurnAdmissionService` only
+   separates user messages from non-user domain facts. `CapabilityResolver`
+   builds an initial bounded capability surface deterministically.
+3. **Code governs invariants, not task semantics.** Permissions, destructive
+   controls, effect replay, validation requirements, budgets, and repair bounds
+   are enforced by code. The model chooses whether to answer, call tools, update
+   a plan, or launch child runs within those bounds.
+4. **Plans are runtime state.** `RunPlan` is versioned and evidence-linked. The
+   main model updates it through `todo_write`; the frontend reads a projection
+   from canonical run events rather than a duplicate chat transcript message.
+5. **Child agents are child runs.** The `agent` tool launches bounded runs via
+   `ChildRunCoordinator`. There is no separate parent DAG orchestrator.
+6. **Reasoning depth is a policy, not an inferred intent field.** The user picks
+   `auto`, `fast`, or `deep`; the runtime may escalate monotonically from
+   evidence such as failed validation, within a fixed budget.
+7. **The run journal is the execution fact source.** Context manifests and
+   ordered run events are durable. Chat trace summaries, plan state, metrics,
+   validation, repair, and child-run status are read-side projections.
 
-The composition root lives in `backend/src/magi/bootstrap/`.
+## System Topology
 
-Important files:
+The desktop runtime is split across two Python roles behind the Rust gateway:
 
-- `backend.py`
-  Starts and stops the runtime through `ModuleLifecycleOrchestrator`
+- **API process** — accepts product requests, owns chat ingress transactions,
+  enqueues durable runtime commands, and serves chat/control/trace read APIs;
+- **runtime worker** — consumes commands, runs task agents, owns the in-process
+  message bus, executes model/tool loops, and writes runtime events and chat
+  outcomes.
 
-- `builder.py`
-  Builds the ordered lifecycle module list from the owning layers
-
-- `context.py`
-  Defines the shared bootstrap context slices
-
-- `exports.py`
-  Exports initialized runtime services to the DI container and runtime-binding boundary
-
-### Bootstrap context slices
-
-The bootstrap context is intentionally split by ownership instead of using one generic bag of runtime state.
-
-Key slices include:
-
-- core
-- llm
-- message bus
-- memory
-- personality
-- plugins
-- timeline
-- scheduler
-- agent runtime
-
-This keeps ownership explicit and stops bootstrap assembly from becoming a hidden business layer.
-
-## Bootstrap Order
-
-Lifecycle modules are built in dependency order in `bootstrap/builder.py`.
-
-The ordered runtime-worker phase catalog is centralized in `bootstrap/runtime_worker_builder.py` via `get_runtime_worker_phase_definitions()` and `describe_runtime_worker_phase_plan()`. Keep docs, readiness surfaces, and operational logs aligned with that manifest.
-
-The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
-
-### Phase 1: infrastructure bring-up
-
-1. `subprocess_orphan_cleanup`
-2. `runtime_core_dependencies`
-3. `runtime_initialization_state`
-4. `runtime_memory_restore_recovery`
-5. `runtime_database_migrations`
-6. `runtime_identity`
-7. `runtime_configuration`
-8. `runtime_command_queue`
-9. `runtime_message_bus`
-10. `runtime_chat_store`
-11. `runtime_plugin_system`
-12. `runtime_llm`
-
-### Phase 2: stateful services and read/write stores
-
-13. `runtime_memory`
-14. `runtime_chat_forgetting_recovery`
-15. `runtime_media_registry`
-16. `runtime_location`
-17. `runtime_manual_entries`
-18. `runtime_history_imports`
-19. `runtime_memory_ingestion_subscriber`
-20. `runtime_llm_usage_subscriber`
-21. `runtime_chat_projector`
-22. `runtime_chat_assistant_memory_projection`
-23. `runtime_control_transcript_subscriber`
-24. `runtime_trace`
-25. `runtime_trace_subscriber`
-26. `runtime_hooks`
-27. `runtime_first_party_tools`
-28. `runtime_tools`
-29. `runtime_skills`
-30. `runtime_mcp`
-31. `runtime_personality`
-32. `runtime_sensor_hub`
-33. `runtime_context`
-34. `runtime_agent_core`
-
-### Phase 3: long-running processors and business services
-
-35. `runtime_chat_delivery_recovery`
-36. `runtime_command_processor`
-37. `runtime_plugin_ingress_processor`
-38. `runtime_timeline`
-39. `runtime_timeline_subscriber`
-40. `runtime_kg_subscriber`
-41. `runtime_sensor_state_subscriber`
-42. `runtime_scheduler`
-43. `runtime_agent_schedule_registration`
-44. `runtime_sensor_scheduler`
-### Phase 4: exports and maintenance registration
-
-45. `runtime_exports`
-46. `runtime_control_plane`
-47. `runtime_l1_maintenance_scheduler`
-48. `runtime_l2_maintenance_scheduler`
-49. `runtime_l2_consolidation_scheduler`
-50. `runtime_l2_derive_scheduler`
-51. `runtime_l3_summary_scheduler`
-52. `runtime_l3_maintenance_scheduler`
-53. `runtime_l4_maintenance_scheduler`
-54. `runtime_timeline_schedulers`
-55. `runtime_operational_gc_scheduler`
-56. `runtime_other_dependencies`
-57. `runtime_channels`
-58. `runtime_outreach`
-59. `runtime_scheduler_activation`
-60. `runtime_sensor_sync_executor`
-
-Important rule: bootstrap order is dependency order, not ownership order. For example, the scheduler engine is infrastructure even though it is started after timeline services that will register schedules into it.
-
-The scheduler is prepared in a paused state. Startup contributors first bind
-their handlers and reconcile their persisted schedule definitions. Only
-`runtime_scheduler_activation` allows jobs to fire, and the sensor executor
-starts after that boundary. Re-registering an unchanged definition is a
-read-only operation so normal startup does not rewrite the scheduler database.
-
-`runtime_initialization_state` owns the central startup ledger. Versioned or
-content-addressed setup records success only after its operation completes, and
-skips later launches only when both the expected revision and input fingerprint
-still match. This ledger never suppresses crash recovery or process-local
-runtime binding.
-
-Important rule: `runtime_llm` is the current deferral boundary. If LLM selections are incomplete or invalid during onboarding, startup stops there and later phases do not run.
-
-## Deferred Startup Mode
-
-When `LLMRuntimeModule` cannot initialize, startup enters a deliberate deferred mode instead of failing the whole worker process.
-
-In this mode:
-
-- already-started infrastructure modules stay alive
-- the worker readiness snapshot reports `startup_state=deferred`
-- `/api/ready` and `/api/health` report degraded startup state instead of pretending the full runtime is ready
-- lightweight configuration and skills flows remain available
-- bootstrap opening generation must fall back to static persona config until `scenario_llm_pool` becomes available
-
-The modules that are expected to remain usable in deferred mode are:
-
-- runtime command queue
-- message bus
-- chat store
-- plugin manager
-- sensor registry
-- runtime trace store
-
-This is why onboarding and early settings screens can still function before the full agent runtime is online.
-
-## Full-Clear Recovery Startup Mode
-
-The desktop host owns a durable marker for a product-wide data clear. On every
-managed backend launch it passes the marker's transaction ID to the worker. The
-runtime command queue adopts that transaction before ordinary claimed-command
-recovery, so a crash after the desktop marker but before the clear API begins
-cannot revive old work.
-
-While the transaction is pending, bootstrap is deliberately clear-only:
-
-- schema migration, configuration, and the persistence owners required by the
-  clear are initialized
-- the command queue does not return prior claims to pending work
-- plugins are discovered without activation, and temporary trusted instances
-  are created only inside the bounded user-content clear hook
-- the message bus, recovery subscribers, runtime processors, scheduler
-  activation, sensors, external channels, outreach, tools, skills, MCP servers,
-  background execution, task agents, and LLM execution do not start
-- the desktop blocks the application surface and calls only the authenticated
-  clear flow
-
-The replay is idempotent and does not require a configured model. A backend
-success resets its pending transaction row to empty `idle`; browser and
-desktop-log cleanup then complete under the host marker. The host removes that
-marker only at the final success edge and restarts the normal runtime once.
-
-## Readiness States
-
-The runtime now exposes two layers of state:
-
-- worker liveness
-  Gateway `/api/ready` asks the IPC worker over the local worker channel with a
-  short timeout. When the worker itself answers, liveness is derived from the
-  process-local startup snapshot. If the worker channel does not answer in
-  time, the gateway reports `runtime_status=unresponsive`.
-
-- event-loop delay diagnostics
-  The IPC worker keeps a lightweight monitor that logs when the runtime event
-  loop is delayed. It does not write runtime readiness rows into
-  `runtime_trace.db`; persisted trace data is kept for execution observability.
-
-- full runtime readiness
-  Derived from worker liveness plus critical bindings such as `scenario_llm_pool` and `agent_runtime`
-
-Current startup-state values are:
-
-- `offline`
-  No live worker signal is available
-
-- `starting`
-  The worker is still assembling lifecycle modules
-
-- `deferred`
-  Infrastructure is up, but the LLM/runtime boundary has not completed yet
-
-- `ready`
-  Full runtime is online and exported to the DI container
-
-- `failed`
-  Startup or shutdown hit a non-recoverable runtime error
-
-- `stopping`
-  Runtime shutdown is in progress
-
-- `unresponsive`
-  The gateway is alive but the IPC worker did not answer the bounded readiness request
-
-Frontend flows should treat `ready` as the only state that guarantees first-chat bootstrap and normal agent execution are fully available. `deferred` is intentionally usable for onboarding and configuration, but not equivalent to a fully initialized runtime.
-
-## Main Runtime Flow
+The message bus is process-local. SQLite queues and domain stores, not the bus,
+own restart recovery.
 
 ```mermaid
 flowchart TD
-    U["User Message"] --> G["Rust Axum Gateway"]
-    G --> IPC["IPC Dispatch (UDS)"]
-    IPC --> D["Chat User Message Ingress"]
-    D --> Q["Runtime Command Queue"]
-    Q --> B["Runtime Worker Local Message Bus"]
-    B --> R["Router Agent / Sensor Hub"]
-    R --> C["ChatTaskAgent"]
-
-    C --> M{"Execution Mode"}
-    M -->|direct llm| L["Direct LLM Handler"]
-    M -->|tool use| F["Function Calling Handler"]
-    M -->|orchestration| O["TaskOrchestrator"]
-    M -->|large explore| X["ExploreTaskAgent"]
-
-    O --> W["Leaf Workers"]
-    W --> O
-    O --> C
-
-    X --> XW["CodeExplore Leaf Workers"]
-    XW --> XA["Dossier Aggregation"]
-    XA --> C
-
-    C --> A["User-Facing Response"]
+    U[User or external message] --> G[Rust gateway]
+    G --> I[Typed chat ingress]
+    I --> C{Envelope control?}
+    C -->|client/control command| X[Deterministic command owner]
+    C -->|inline skill| S[Expand trusted skill context]
+    C -->|ordinary message| Q[Durable runtime command queue]
+    S --> Q
+    Q --> B[Runtime worker message bus]
+    B --> T[ChatTaskAgent]
+    T --> A[Deterministic turn admission]
+    A --> R[Build AgentRunRequest]
+    R --> L[Unified model/tool loop]
+    L -->|tool call| P[Permission + effect policy]
+    P --> L
+    L -->|agent tool| W[ChildRunCoordinator]
+    W --> L
+    L -->|proposed final| K[CompletionGate]
+    K -->|continue/repair| L
+    K -->|suspend| H[Wait for explicit user input]
+    K -->|complete| O[Durable chat outcome]
+    O --> V[Run-event trace projection]
 ```
 
-Routing policy keeps worker decomposition for requests whose required
-evidence or implementation surface is genuinely larger than a single
-chat turn. External-world `general-purpose` decomposition is reserved
-for explicit broad research signals such as many requested items,
-citations, links, source lists, multi-source comparison, verification,
-or report-style synthesis. Bounded external planning, advice, and
-option comparison can still use direct function-calling with web tools;
-they should not become parallel worker orchestration simply because the
-domain is travel, food, transit, news, or local geography. This policy
-prevents ordinary advisory follow-ups from becoming parent-task
-orchestration while preserving decomposition for source-heavy news
-research, repository-wide analysis, migration plans, and other broad
-verification work.
-
-Shell capability is host-native at registration time. Windows runtime workers
-register and expose `powershell`; POSIX runtime workers register and expose
-`bash`. Context routing, discovery, recommendation, capability listing, and
-leaf-worker profiles all consume that same live registry, so a model never sees
-both shell dialects or receives a shell schema that the host does not support.
-
-One-shot Bash and PowerShell execution share the SDK bounded-subprocess runner.
-It drains stdout and stderr concurrently, retains at most a 64 KiB tail for
-each stream, and can retain a complete stream only in a size-capped private
-spill directory. The product shell tools disable spill retention and return
-the bounded tails plus byte-count and truncation metadata. A timeout returns
-the partial capture after terminating the whole process tree; caller
-cancellation performs the same cleanup before it is re-raised. POSIX commands
-run in a new process group. Windows commands remain console-hidden, start
-suspended, and enter a kill-on-close Job Object before execution resumes, so
-descendants remain controllable even when the original child exits first.
-
-  During function-calling turns, the execution LLM may also use a bounded
-  tool-discovery helper to recover from missing-capability situations.
-  This helper is not a general capability browser. It is an execution-time
-  recovery mechanism that can append a very small number of additional
-  tools or skills to the current turn when the existing allowlist cannot
-  complete the next grounded step. Its first-stage recall is owned by the
-  tools layer through a unified discovery index over registered tools and
-  skill metadata. Builtin tools, plugin-contributed tools, and MCP adapter
-  tools enter this index through the shared tool registry; skills enter through
-  the registered skill metadata index. Each candidate is normalized into a
-  compact search document made from its name, split name tokens, description,
-  category, source, tags, selected metadata, argument hints, examples, and
-  top-level parameter names/descriptions. The first-stage recall ranks these
-  documents with in-memory BM25 plus small capability-family boosts for broad
-  classes such as memory, photo, and attachment tasks; the query side may use
-  lightweight multilingual expansion, while candidate documents stay close to
-  their real schema text so descriptions are not inflated into unrelated
-  capabilities. The builtin helper then applies execution-context checks and L4
-  advisory reranking before returning the bounded expansion payload. The helper
-  may reuse a short-lived same-session discovery result when the query, active
-  registry, feature flags, permissions, and current-tool set are unchanged. Its
-  tool result includes compact discovery metrics, such as candidate/recommendation
-  counts by source and whether a cache hit occurred, so runtime traces can be
-  used to evaluate recall quality and cache stability without moving discovery
-  policy into the routing layer.
-
-  ContextDecider stays a coarse, cheap classifier. It may emit `tool_need`
-  as `none`, `direct`, or `discover`, but it does not formulate a
-  `tool_query` or own the final provider tool surface. When `tool_need` is
-  `discover`, chat coordination starts a normal function-calling turn with
-  the routed `find-relevant-tools` entry so the main model can ask for the
-  missing concrete capability. The query should describe one focused capability
-  gap with the relevant domain/action/object and facts already known; it should
-  not be the whole user request or a broad capability-browsing prompt.
-  `TurnRouteResolver` then owns final per-turn route resolution. It derives the
-  dispatch shape from the coarse route, attachments, orchestration signal, and
-  final selected tools; it exposes tool discovery only for `discover` routes,
-  adds web search only for direct external-information routes, and builds the
-  provider-facing tool surface by appending resident runtime-control tools,
-  preserving explicit capability selections, and
-  applying same-session tool-superset reuse when it is safe for the turn's write
-  policy. `FunctionCallingHandler` consumes that resolved tool surface; it does
-  not reimplement those routing rules.
-
-  `needs_orchestration=maybe` is advisory only. It neither exposes `agent` nor
-  forces a tool loop: explicit selected tools determine whether the turn enters
-  function calling. Required orchestration still selects planned fan-out, and
-  an explicitly selected `agent` tool remains available for bounded delegation.
-  Tool-superset caching never restores `agent` when it is absent from the current
-  route.
-
-  For session-bound function-calling turns, `FunctionCallingHandler` remains the
-  chat-mode entry point, while `FunctionCallingCheckpointLoop` owns the
-  checkpoint-aware execution loop. That loop coordinates cancel, detach,
-  mid-run steering, pending-turn checkpoint rebuilds, one-step tool execution,
-  and fallback response generation. Keeping that loop outside the handler keeps
-  chat entry routing separate from long-running tool-run control flow.
-
-  Reply-target continuity in chat is intentionally compact but now carries more than plain text excerpts.
-  When a user replies to an earlier assistant message, the runtime may include a sanitized structured payload summary from that replied-to message, such as managed attachment references, so follow-up turns can reuse concrete artifacts without re-exposing raw local file paths.
-  Tool-driven chat turns may persist this reusable state through assistant message payloads. In particular, function-calling tools can return a sanitized `assistant_payload` with generic `asset_refs`, which later reply turns may see through reply context and hand back to source resolver tools before calling `prepare_chat_attachments`.
-  Tools that directly create local media, such as `image-generation`, should also use the existing managed `chat_attachments` channel for immediate chat presentation and may include attachment-backed `assistant_payload.asset_refs` for reply-turn reuse. They should not rely on raw workspace file paths as the long-lived chat protocol.
-  Beyond explicit reply targets, chat prompt assembly may inject a compact `Recent Tool State` block derived from the last few tool interactions in the same session. This block is intentionally lossy: tool name, coarse success/failure state, short outcome summary, limited reusable handles, and coarse duration only.
-  Important rule: `Recent Tool State` is continuity guidance for the chat LLM, not the canonical execution audit trail. Exact parameters, full outputs, and detailed timing remain in `runtime_trace.db` and should be queried through trace read APIs or the builtin `trace_query` tool.
-
-  Chat attachment continuity follows the same compact-reference pattern. The runtime may include a lightweight session attachment manifest in prompt context containing managed `attachment_id` values, names, kinds, and coarse parse metadata. Full attachment text is not permanently embedded in every turn; follow-up questions about earlier files should use the managed attachment id with the builtin `read_chat_attachment` tool, which resolves the session-owned resource and performs Python-side text/PDF reading on demand. When the current user turn is an explicit reply to an earlier attachment-bearing message, that reply target is annotated in the latest user prompt and its attachments are treated as effective current-turn attachments for routing and multimodal grounding.
-
-## Runtime And Persistence Boundaries
-
-The current dual-process topology is intentionally split by responsibility:
-
-- API process
-  Accepts user input, writes `chat.db`, enqueues runtime commands, and serves read-side chat and trace APIs. It does not own the runtime message bus.
-
-- runtime worker
-  Consumes commands and plugin ingress events, fans out local runtime events on the in-process message bus, updates `chat.db`, writes `runtime_trace.db`, and projects canonical memory facts into `l1_events.db`
-
-Persistence is separated the same way:
-
-- `chat.db`
-  Source of truth for `chat_sessions`, `chat_turns`, and `chat_messages`
-  Current path: `~/.magi/data/chat/chat.db`
-
-  Assistant chat messages may persist managed attachment payloads in `chat_messages.payload_json`.
-  Chat messages may also store `persona_id` as the active persona identity snapshot for same-thread multi-persona conversations. The row stores only the stable persona ID; display name and avatar are resolved from the persona registry when rendering history.
-  Chat prompt assembly also receives the stored turn `persona_id` and resolves that persona record, including soft-deleted records, when building the system prompt for direct replies, function-calling replies, explore result rendering, and orchestration aggregation.
-  Local source plugins should not bypass this boundary by exposing raw local file paths directly to the frontend.
-
-- `runtime_trace.db`
-  Execution observability only, including spans, tool calls, turn summaries, intent records, live notifications, and append-only plugin ingress events emitted by the desktop shell or other local producers
-  Current path: `~/.magi/runtime/runtime_trace.db`
-
-  Chat prompt assembly may derive compact recent-tool summaries from recent tool interaction records, but those summaries are explicitly lossy and must not replace `runtime_trace.db` as the source of truth for execution details.
-
-### Session Prompt History And Rolling Summaries
-
-Chat prompt history is selected by context budget instead of a fixed message-count window.
-Short sessions can be passed to the model as raw transcript history. When the raw session tail would exceed the prompt-history budget, prompt assembly keeps the newest raw messages and prepends a compact session-origin anchor so the model still knows where the thread began.
-
-Durable rolling summaries live with chat truth in `chat.db`, not in long-term memory tables. The `chat_context_summaries` table stores session-scoped continuation state: the active summary text, the summary kind, the parent summary, the covered transcript frontier, and the first raw message that should be kept after the summary. A later summary supersedes the previous active summary in the same session/scope, so normal prompt assembly reads only the latest active summary plus the raw tail after its frontier.
-
-`ChatHistoryService` owns the runtime bridge from durable summary state into prompt history. Prompt assembly has no fixed message-count ceiling. Before the first summary it loads the complete durable transcript; once an active `token_budget` summary exists, storage queries begin inclusively at `first_kept_message_id` and return only the complete unsummarized tail. Session attachment references use a separate bounded metadata query, so earlier files remain addressable without reloading summarized message bodies. Attachment-reference enrichment is optional: a metadata read failure omits only that manifest and never discards an otherwise valid conversation history. A core transcript read failure may reuse an existing compatible in-memory snapshot, but without one it fails the turn instead of presenting the model with an empty conversation. Display-history pagination remains a separate read concern and never defines model context. Direct LLM and function-calling execution both feed that summary context into prompt message assembly before appending the current user turn.
-
-`ChatTranscriptSummarizer` runs after chat responses are persisted, off the response critical path. It estimates the prompt-history token footprint, summarizes the older raw range when the retained tail grows beyond the trigger budget, and activates a new `token_budget` summary. Summary frontiers are selected only between complete user-led turns, so a retained answer or rhythm segment never loses its initiating user request. Long message bodies and attachment references are passed through the capacity-aware summary runner without per-message clipping, including user turns that contain attachments but no text. Persona-boundary summaries reuse the same prompt-visible attachment references from chat messages. The summarizer captures the durable history version before reading its source range and checks it again after loading and after generation; final activation uses an atomic compare-and-set against that same version, so a transcript change in the last write window also rejects the stale candidate. If summary A is active, the next summary is generated from summary A plus the newly covered raw range, then summary B supersedes A for normal prompt reads.
-
-All generated context summaries use the shared output-budget policy in `context/window_budget.py`. The model that will consume the summary determines the target size, while the model that writes the summary provides the final output ceiling. Rolling transcript summaries and function-calling compaction summaries use the general profile: 5% of destination input capacity, with a 1,024-token floor and a 16,384-token ceiling. Persona-boundary continuity summaries use a deliberately smaller profile: 2% of destination input capacity, with a 512-token floor and a 4,096-token ceiling. Every profile is still capped by the summary model's configured output limit and by the space required to feed a partial summary into the next merge request. The shared summary runner measures each complete writer-model request, including instructions and cumulative state, before selecting the next multilingual source chunk; no summary path uses a fixed characters-per-token split.
-
-Direct chat without tools performs a final hard-capacity check immediately before calling the active core model. It first requires the active session summary, the complete raw tail after that summary, and the current turn to fit together. If they do not fit, it drops the stale summary and retains the largest recent suffix of complete user-led exchanges. It never keeps a summary while silently skipping an unsummarized exchange, and it never sends a partial latest exchange. If even the latest complete exchange plus the current turn exceeds the model input capacity, the request fails locally without contacting the provider.
-
-Workbench Memory may expose the active `token_budget` summary and the latest context-budget usage snapshot for the selected session. This is a session-continuation inspection surface: it helps users understand what was compressed and how full the recent prompt context was, without promoting the summary into long-term memory layers.
-
-Function-calling loops have a separate per-turn compaction guard inside the agent execution layer. The model resolver passes the selected adapter and its model limits together, so each chat, background, worker, or skill-subagent run uses the capacity of the model that will actually receive that request. Tool-enabled chat assembles the active session summary, the complete raw tail after that summary, and the current user turn before this guard runs; it does not discard individual history messages before compaction. On the first model call, older history is compacted only as complete user-led turns. Later calls in the same run retain the existing assistant/tool round grouping so long tool loops can still compact completed tool exchanges. Both summary and rule-based compaction select the retained suffix from complete groups against the active model's recent-tail budget; the summary path also caps that suffix at three groups. The guard checks the complete provider-facing input before every model call, including the stable system prompt and active tool schemas only on calls that actually send the tool parameter. Final-response calls omit tool-schema cost from their capacity decision. The guard compacts only the mutable message list and does not own durable session summaries.
-
-Under context pressure, existing tool results are first passed through the shared structured size bound while their call identifiers and protocol envelopes remain intact. The summary renderer then preserves that bounded payload in full instead of applying a second text-length cutoff, and includes tool names, call IDs, and arguments from both supported provider message shapes. Inline image bytes are represented by a media marker in summary source text instead of being copied as base64 into the summary request. Generated compaction output is one structured continuation summary rather than separate analysis and summary copies; it preserves requests, constraints, exact references, tool outcomes, errors, status, and unresolved work without repeating the same facts. The guard compacts older history and re-measures the complete provider-facing input. Rule-based fallback may remove only whole conversation or tool-round groups; it never truncates user or assistant message bodies, and the latest user request is always retained verbatim. Crossing the compaction trigger is only an early-pressure signal, so a request may still proceed above that trigger when it remains within the active model's input capacity. As a final recovery step, the execution layer may remove lower-priority turn-selected tools from the end of the selection while preserving resident runtime-control tools and at least the highest-priority capability tool. Tool schemas are always kept structurally complete and are never text-truncated. If the request still cannot fit, execution fails locally before contacting the provider. Both the normal engine loop and the checkpoint-aware chat loop use this same pre-request guard.
-
-The in-loop raw tool-history high-water mark remains a separate cache-stability optimization: it rewrites older completed tool blocks only after the configured block count is reached, then keeps the recent raw floor. Whenever that rewrite occurs, the provider-usage snapshot from the previous prompt is invalidated before the next capacity decision so the rewritten history is not compacted again based on stale usage.
-
-Summary-model failures use whole-group rule fallback immediately so the active request can still proceed. After three consecutive failures, further summary attempts pause for a bounded cooldown instead of remaining disabled for the process lifetime; the next attempt after that window closes the circuit on success or starts a new cooldown on failure.
-
-Context-budget policy is shared by direct chat history, durable rolling summaries, and per-turn tool-loop compaction. Before provider usage is available, the shared lightweight estimate preserves the existing ratio for ASCII text and counts non-ASCII text more conservatively from its UTF-8 byte size. Inline image payloads are measured as media with a conservative per-image token reserve; their base64 transport bytes are not counted as prompt text. Direct chat and tool-enabled chat use the same provider-prompt measurement path, and the measurement never mutates the image payload sent to the provider. Provider-reported input usage remains a lower bound for later tool-loop measurements. The input capacity is the configured context window minus the configured maximum output. Models below 512k trigger compaction at 75% of that input capacity; models at or above 512k trigger at 50%, and the retained recent tail targets 20% of the trigger. If model limits are absent, runtime uses a conservative 128k context window with an 8k output reserve. The model used to generate a summary controls only whether that summary request itself fits; it never determines when the source conversation needs compaction.
-
-The user-facing context meter is chat outcome state, not L0 memory and not
-runtime telemetry. Direct and tool-enabled execution attach their final model
-input measurement to the normalized result. The accepted visible assistant
-outcome stores it in `chat.db` in the same transaction as the transcript and
-delivery terminal state. Conversation history returns the latest still-visible
-snapshot, while a post-commit runtime notification provides immediate refresh.
-The stored snapshot owns both numerator and denominator; the UI must not pair
-an old token count with a newly selected model window. Before a snapshot exists,
-the UI shows an unknown measurement rather than reporting zero. The composer
-labels this as the latest accepted reply, shows used tokens against that
-reply's captured model window, and fills the ring against the captured
-compaction threshold because that is the point where visible pressure begins.
-The L0 inspector may mirror the same durable snapshot for the selected chat,
-but does not own or update it.
-
-Worker and background-run measurements are execution observability, not chat
-outcomes. They use a separate `worker_context_usage` notification channel and
-must never update the conversation context meter, even when they carry the
-parent session and turn identifiers.
-
-Persona switches add a second prompt-history boundary. When a session tail contains messages from an older active persona followed by the current persona's segment, `ChatHistoryService` condenses the older segment into an active `persona_boundary` summary scoped by the current persona ID. Prompt assembly then receives the neutral boundary summary plus only the raw tail for the current persona segment, so continuity survives without carrying another persona's assistant voice into the active persona prompt. If neutral summary generation is unavailable, prompt assembly keeps the original history instead of substituting a fixed-length fallback that could omit continuity.
-
-Memory retrieval remains a separate input to prompt assembly. Long-term memory can be queried alongside session summaries, but session summaries are not promoted into L1/L2/L3/L4 by default because they are continuation checkpoints rather than canonical cross-session facts.
-
-- `memory/l1_events.db`
-  Canonical memory projection only; it stores user messages and completed assistant replies as lossy memory facts, but it is no longer the chat transcript source of truth. Assistant replies are projected from a durable `chat.db` queue after the transcript commit, and the queue row is removed only after L1 confirms the stable message identity.
-  Current path: `~/.magi/data/memory/l1_events.db`
-
-- `message_queue.db`
-  Runtime command queue only
-  Current path: `~/.magi/runtime/message_queue.db`
-
-- `scheduler.db`
-  Unified scheduler definitions, target runtime state, schedule execution records, and queued sensor-sync jobs
-  Current path: `~/.magi/runtime/scheduler.db`
-
-  Product task surfaces read this store through `/api/schedules` to display enabled schedules and current/upcoming scheduler activity. They may manually trigger an enabled schedule once through `/api/schedules/{schedule_id}/run`, which executes with `manual=True` while preserving the schedule's normal future cadence. Sensor-owned schedules remain derived from timeline source settings and must be updated through the sensor settings UI instead of direct schedule edits.
-
-  Agent-created schedules use the `user_agent_task` scheduler target. They are created and managed through the builtin `schedule` tool, store an `agent_task` payload, and enqueue a background task when fired. The scheduler owns timing and execution bookkeeping; the background-task runtime owns the actual LLM/tool execution.
-  Successful background tasks that produce a user-facing LLM summary are delivered back to the originating chat session as ordinary `assistant_final` messages, while the background-task row remains available for audit/debug status.
-
-- `cache/plugins/<plugin_id>/`
-  Rebuildable plugin-owned runtime state such as in-progress sensor aggregation files
-  Current path pattern: `~/.magi/cache/plugins/<plugin_id>/`
-
-Important rule: runtime notifications are best-effort live fan-out of already committed chat state. Transcript recovery and reload must come from `chat.db`, not from notifications or `fact_events`. A desktop pending-response lock belongs to one exact `session_id` + `turn_id`; unrelated events cannot release it. Terminal notifications for streamed, rhythm, none, and reaction-only outcomes trigger a matching history check, and a bounded delayed history check provides convergence when any live notification is lost.
-
-Important rule: response post-processing never publishes assistant memory
-directly. The same transaction that completes the turn stores the assistant
-rows and derives one projection intent from them. Runtime startup recovers
-forget operations before starting the assistant projection worker, and starts
-that worker before accepting runtime commands. Memory delay or failure cannot
-hide an already committed user-visible reply.
-
-Assistant projection recovery and accepted-user-turn delivery recovery share
-one full-clear lifecycle. Every pass captures the durable full-clear generation
-before it claims or reads chat records, then revalidates that generation before
-and after memory publication, projection settlement, and command scheduling.
-The destructive clear acquires this lifecycle before the runtime-command clear
-boundary: new recovery reads stop, already-read work either drains or observes
-the advanced local fence, and only then may the command generation advance and
-chat plus memory be deleted. The lifecycle remains exclusive through the whole
-clear. This lock order prevents both a stale post-clear L1 projection and a
-recovery-to-command-queue deadlock, while a later generation can recover new
-chat work normally.
-
-Important rule: the runtime message bus is process-local to `runtime_worker`. It is not a durable cross-process broker and it does not own SQLite queue persistence.
-
-Important rule: on normal startup, user-message runtime commands remain claimed after process-local
-bus publication and are acknowledged only after task-agent admission. The
-stable correlation ID identifies the logical turn; the delivery attempt number
-and runtime command ID identify one physical handoff. Repeating the same attempt
-returns the existing command, an older attempt is stale, and only an explicitly
-higher attempt creates another command. Lease expiry or acknowledgement failure
-may replay the same physical command and attempt. On an ordinary process startup, the queue
-first restores claimed rows, then chat delivery recovery verifies durable
-terminal surfaces. Any remaining pre-restart non-terminal attempt is superseded
-by a higher attempt and scheduled with a new command ID while preserving the
-stable turn ID and runtime envelope. The durable chat delivery record rejects
-an already admitted or superseded replay before it can enter the agent again,
-then acknowledges that physical command.
-
-If a desktop full-clear marker is pending, this normal recovery order is
-suppressed: the queue first adopts the clear transaction and leaves every old
-claim fenced until the clear deletes it.
-
-The delivery ledger becomes terminal only after chat truth exposes a durable
-terminal result: a complete visible final response, every expected visible
-rhythm segment, a legal none/reaction outcome, a persisted
-cancelled/interrupted/merged turn, or another durable handoff. Normal completion
-uses the exact turn ID, attempt number, and command ID from the admitted fact.
-If that compare-and-set loses to a newer attempt, it must not close the newer
-attempt or fan out the stale response. Recovery may close the current attempt
-without command identity only after independently verifying the terminal chat
-surface. Session-run completion is part of the same fail-closed boundary: an
-exception there returns to the idempotent failure finalizer, which preserves an
-already-persisted answer without replacing it with a failure message and then
-releases the exact active run.
-
-The chat-owned delivery implementation preserves these boundaries through
-separate durable responsibilities. `chat/storage/user_turn_acceptance.py` owns
-the single `BEGIN IMMEDIATE` transaction that accepts a user turn: its session
-metadata, turn row, first visible user message, managed attachment ownership,
-and initial ready delivery record either commit together or all roll back.
-`chat/storage/user_turn_delivery_ledger.py` owns attempt-scoped
-compare-and-set transitions, while
-`chat/storage/user_turn_delivery_recovery.py` owns the two multi-row recovery
-transactions: reconciling a verified terminal surface, and quarantining an
-unreplayable envelope with a visible failure result. A recovery transaction
-must not leave the turn terminal while its delivery remains open, or expose a
-failure message while the ledger remains replayable.
-
-Runtime-envelope JSON validation and deterministic encoding live in
-`chat/user_turn_delivery/envelope.py`; runtime queue attachment and restart
-recovery live in the adjacent scheduler and recovery modules. These services
-depend only on the narrow ports declared in
-`chat/user_turn_delivery/contracts.py`. The storage composition entry exposes
-the combined write surface to `ChatStore`, but does not absorb transaction
-logic. This separation is an ownership boundary, not a change to retry,
-idempotency, privacy-barrier, or restart-recovery behavior.
-
-Explicit chat stop is scoped to the exact user, session, and turn rather than
-only to an in-memory active run. In one `chat.db` transaction, cancellation
-verifies that ownership still matches, changes a queued or running turn to
-cancelled, and closes its ready, queued, or admitted delivery. This means a stop
-accepted immediately after send still wins even when runtime admission has not
-happened yet. A later copy of that runtime command is rejected by the terminal
-delivery record and acknowledged without entering the agent. An admitted fact
-that has already moved into an agent batch is checked again against the exact
-delivery before context assembly, intent matching, tools, or model execution;
-cancelled and superseded facts are removed while executable siblings in the same
-batch continue. That final check and active-run creation share one per-agent
-boundary with explicit stop. If stop wins the boundary, no run is created. If
-run creation wins, stop observes that exact run, marks its durable turn
-cancelled, and requests run cancellation before later intent, tool, and model
-stages can proceed. Those stages also honor the exact delivery and run cancel
-token at their side-effect boundaries. If the completed outcome commits first,
-the late stop cannot overwrite it.
-
-Direct and delivery-managed user messages use the same ingress boundary. A
-managed strict-interrupt phrase may request cancellation only after its exact
-delivery attempt is durably admitted and before that fact enters the queue; a
-stale or superseded attempt cannot interrupt the current run. Strict interrupt,
-message-deletion planning and pending-turn removal, detach requests, final
-delivery revalidation, and run creation all use the same execution boundary.
-Operations that also inspect or mutate the fact queue always acquire the
-execution boundary before the fact-transfer boundary. Therefore deletion and a
-checkpoint consume in one observable order: either deletion removes the pending
-turn before context assembly, or context assembly wins and deletion treats the
-affected run as consumed work that must be cancelled or replayed.
-
-Runtime-only run controls follow the durable run lifecycle. Every successful
-normal or cancelled run completion removes the control for that exact run, while
-an identity or revision mismatch leaves the current run's control untouched.
-Creating a new root or replacing the active root also removes obsolete controls
-for that session, so later run-control lookups cannot target a finished run.
-
-Only after the accepted chat outcome is durable and the exact delivery attempt
-has reached its terminal state may post-processing update the in-process
-conversation cache or schedule memory and reflection work. A failed persistence
-step or a stale attempt therefore cannot teach the system an answer that was not
-accepted as the durable result for that turn.
-
-The same boundary feeds short-term attention. Chat post-processing registers
-the newly accepted complete turn with the shared post-turn understanding
-service; it does not write a raw user message directly into L0. The service
-batches pending accepted turns per session and may produce an L0 attention
-delta, personality or relationship observations, and durable-memory
-candidates in one bounded model call. Those products keep separate validators
-and storage owners, so sharing a model call does not let an L0 inference bypass
-long-term-memory evidence rules.
-
-The default L0 understanding triggers are three newly accepted turns, 30
-seconds of conversational idle time, or a hard 90-second delay from the first
-pending accepted turn. They are configured by
-`attention_update_turn_threshold`, `attention_update_idle_seconds`, and
-`attention_update_max_delay_seconds` under the L0 settings. The idle timer may
-move with new activity; the hard deadline may not. Explicit correction, topic
-closure, an important current-state change, a new local constraint, or a
-promise that must survive into the next turn may request an immediate flush
-when it matches the scheduler's conservative message patterns or an explicitly
-urgent fact kind; unmatched wording follows the normal batch timers. The
-scheduler suppresses repeated enqueue attempts for the same turn only while
-that scheduler instance still remembers it. It does not currently guarantee
-that acknowledgement-only turns are filtered before a later model batch.
-
-This understanding is asynchronous and cannot delay an accepted reply. One
-runtime-scoped service owns its pending queue, retry timers, deduplication, and
-task-attempt lifecycle updates across chat-agent instances. Updates for the
-same session are serialized, while at most two model analyses run across
-different sessions. Failed batches retry with bounded exponential backoff. An
-older base revision cannot overwrite a newer attention frame: the same fixed
-batch is read against the new frame and re-analyzed. Forgetting is checked
-before and after analysis and again before each destination write; a partially
-forgotten batch is re-analyzed with only its surviving turns. The current user
-message is never inserted into L0 before answering that same message.
-
-Queued turns retain the durable response commit time rather than the detached
-enqueue time. Activating any durable forget request advances the runtime memory
-epoch and makes its post-turn boundary visible even when L0 is disabled.
-Prepared chat deletion intents take effect only after their runtime barrier is
-activated. Deletion pages also publish shared cutoffs for exact raw turn
-identities. Attention writes and restart restore recheck the original
-source-turn times, so delayed analysis or a later background-task notification
-cannot make old evidence appear newer. A genuinely new accepted outcome after
-a temporal cutoff remains eligible unless its source identity was permanently
-forgotten.
-
-Ordinary chat-agent eviction leaves the shared queue running. Runtime shutdown
-gathers detached attention-enqueue tasks and gives the scheduler up to five
-seconds to force-flush pending batches; a timeout cancels what remains. A forced
-process termination loses pending attention work and any L0 mutation that has
-not reached its debounced checkpoint. Startup restores checkpointed L0 items
-but does not reconstruct a missed analysis queue from chat history. Shared
-post-turn destinations also do not commit atomically: a
-personality or durable-observation write can fail after L0 has changed, and
-those best-effort failures are logged without keeping the batch queued. An
-unexpected exception after an earlier write can instead cause the scheduler to
-retry the batch. L0 post-turn processing is therefore neither atomic,
-exactly-once, nor durable at-least-once. Durable chat history still supplies
-ordinary conversation context when L0 is delayed or absent.
-
-Inbound chat command admission has a different contract: it is durable
-at-least-once admission, not exactly-once execution. That queue cannot
-atomically commit arbitrary model or tool side effects. Chat completion must
-converge on the existing stable turn and final-message records, and any
-external side effect should still provide provider-level idempotency keyed by
-the stable turn or message identity. The canonical tool invocation seam adds a
-separate local intent/completion ledger; it prevents ambiguous attempts from
-being issued again but cannot make a remote provider transaction atomic.
-
-Every external outreach, including a `PUSH_NOW` decision, first enters the
-outbox. Before invoking a channel, the service atomically moves that row from
-`pending` to `attempting`. A failed claim prevents the channel call. Rows left
-in `attempting` or changed to `uncertain` are never selected automatically
-again, including after restart. Only a typed failure that proves no channel was
-called may move the row back to `pending`. This deliberately chooses
-at-most-once delivery: a crash after the claim but before the channel call can
-miss a notification, but it cannot duplicate one. A confirmed receipt remains
-successful even if auxiliary delivery-log or final-status persistence fails,
-because the durable `attempting` claim still prevents replay. A governor
-`DEFER` decision moves the pending row to the returned release time, so each
-drain cycle does not repeatedly resolve and compose work that is not yet
-eligible.
-
-Normal chat response delivery has a separate boundary. The desktop transcript
-is durable before notification, so a client can recover it from history.
-External-channel fanout currently happens after that commit without a durable
-per-target egress intent. A process crash between the chat commit and the
-channel call can therefore leave the desktop result intact while the external
-reply is never sent. Delivery receipts cannot repair that pre-send gap, and
-this path must not be described as exactly-once or durable at-least-once
-external delivery. Closing it requires a dedicated per-target egress outbox
-with stable message identities and channel-side idempotency; the proactive
-outreach outbox is not interchangeable with chat reply delivery.
-
-External `ask_user` questions have the same unresolved recovery class. The
-channel subscriber suppresses duplicate pending events only in one process and
-attempts delivery once; it does not persist a per-target egress intent. A
-restart or lost acknowledgement therefore cannot be repaired automatically
-without risking a duplicate question. Ordinary external replies and asks need
-their own recoverable per-target outbox before either path can promise durable
-delivery.
-
-## Agent Runtime
-
-The L12 runtime lives under `backend/src/magi/agent/`.
-
-Agent-owned scheduler targets are registered by `AgentScheduleRegistrationModule` after `runtime_scheduler` starts. The current supported target is `user_agent_task`; its handler converts the persisted schedule payload into a `BackgroundTaskSpec` and enqueues it through `BackgroundTaskManager` with `trigger_source=schedule`.
-
-### `TaskAgent`
-
-The shared base loop lives in `agent/runtime/task_agent.py`.
-
-It acts as a typed pipeline over these stages:
-
-1. `build_context`
-2. `match_intent`
-3. `match_tools`
-4. `assemble_llm_params`
-5. `call_llm`
-6. `parse_result`
-
-The base class is generic over runtime context, intent result, tool selection, execution request, and execution result.
-
-`agent/runtime/task_agent_manager.py` owns task-agent instance admission,
-lifecycle, and the shared session-quiesce state. Exact chat-message deletion is
-coordinated by `agent/runtime/chat_message_delete.py`: it plans the affected
-terminal and replay turns through the chat-agent control contract, holds only
-the target session across the durable deletion barrier, and stops or abandons
-unsafe work after that barrier. Keep this deletion protocol out of the generic
-manager and do not add capability-detection fallbacks for incomplete chat-agent
-implementations.
-
-### `ChatTaskAgent`
-
-Primary user-facing task agent driver in `chat/task_agent/chat_task_agent.py`.
-
-Current responsibilities:
-
-- build chat runtime context
-- delegate execution routing to the chat execution coordinator
-- own chat-specific session and postprocess services
-- delegate prompt-package assembly to the L11 context layer service
-- render final user-facing answers
-
-Runtime collaborator construction for the chat driver lives in
-`chat/task_agent/runtime_dependencies.py`. `ChatTaskAgent` receives the built
-parts and runs the turn pipeline; it should not directly instantiate the
-coordinator, prompt/planning/postprocess services, handler registry, or
-function-calling orchestrator. Bootstrap still injects the top-level
-`create_chat_agent_factory` plus runtime adapters such as delivery, conversation
-log, and message bus accessors, while chat-domain assembly stays inside the chat
-domain.
-
-The chat driver is still a task-agent implementation, but graph execution is not
-chat-owned. `ChatExecutionCoordinator` prepares the chat request and delegates
-graph-backed execution to `agent/run/TaskAgentExecutionEngine`; graph building,
-node registration, node adapters, sequence running, and snapshot persistence stay
-behind that engine boundary.
-
-`ChatExecutionCoordinator` remains the sequence coordinator, not the owner of every
-per-turn policy. Chat-facing presentation decisions live in
-`chat/task_agent/turn_ux_planner.py`, while runtime tool hints, recommendation
-ordering, and procedural-memory tool reranking live in
-`chat/task_agent/tool_selection_service.py`. Foreground/background placement
-lives in `chat/task_agent/run_placement_service.py`: after tools are selected
-but before handler request construction, the chat driver may turn an automatic
-long-task decision into a background launch request. If launch fails, the
-coordinator builds the normal foreground request and continues safely.
-
-### Conversation presentation planning
-
-Intent routing now also produces a chat-facing presentation decision for each turn.
-
-- `IntentDecision`
-  Still owns routing outputs such as `execution_mode`, selected tools, and orchestration strategy
-
-- `TurnUXPlan`
-  Owns presentation-facing guidance such as whether the assistant should surface a final reply, a reaction-only acknowledgement, an interim-then-final flow, and whether trace or tool-chain UI should be hidden or collapsible
-
-Important rule: chat UI behavior should not depend directly on raw intent-classifier details. The coordinator should translate intent and execution shape into a stable presentation contract, and downstream chat-domain services should react to that contract instead of re-implementing routing heuristics.
-
-`TurnUXPlan` is now persisted on `chat_turns.ux_plan_json` and reused by both runtime notifications and history read models. This keeps reload behavior aligned with the same presentation contract that was active when the turn originally ran.
-
-Active execution placeholders are a live tail control for the current turn, not a transcript event. Chat clients should render the active runtime-status card or interim execution placeholder after other in-run transcript/control messages, and remove or quiet that placeholder once a final assistant message finalizes the turn.
-
-The current call-trace visibility policy intentionally separates storage from presentation:
-
-- runtime trace persistence should remain available for every user-visible turn so support, debugging, and history reload can recover the execution path consistently
-- `DIRECT_LLM` replies should surface a lightweight trace entry with `trace_display_mode=collapsible`
-- tool-driven and orchestration-backed turns should surface a stronger trace affordance with `trace_display_mode=prominent`
-- internal `FACT_ONLY` turns and reaction-only acknowledgements should keep `trace_display_mode=none` because they do not represent a user-visible answer flow
-
-Important rule: trace-entry visibility is a UX decision, not the storage boundary. If a user-visible turn produced trace data, prefer preserving retrieval and reload fidelity even when the chat surface chooses a lighter affordance.
-
-Conversation rhythm extends this presentation boundary after execution handlers
-produce a canonical answer. The core direct-LLM, function-calling, and
-orchestration-render handlers still return a single authoritative
-`ExecutionResult.response_text`; when enabled, the main reply may contain
-internal bubble-boundary markers that chat post-processing validates and turns
-into a multi-message presentation plan. See
-[Conversation Rhythm Architecture](./conversation-rhythm-architecture.md) for
-the segmentation contract, persistence shape, and streaming restrictions.
-
-Chat post-processing also owns the final response delivery shape. It derives a
-small final-response plan after outcome persistence, then passes that plan to
-the injected delivery seam. Final fanout to both the desktop chat surface and
-external origin/configured channels happens only after the matching chat outcome
-is durable. Streamed turns exclude the desktop SSE target from that final fanout
-because it already received chunks, while non-streaming external channels still
-receive the assembled final response. Delivery branching for single-message,
-streamed, and conversation-rhythm responses lives in
-`chat/task_agent/postprocess/delivery.py`,
-so new chat-surface delivery behavior should not be added to the post-process
-service coordinator itself. `ChatTaskAgent` wires the seam at construction time
-and does not mutate post-processing internals after the coordinator is built.
-
-### Interruption Dispositions
-
-When a user sends another message while a chat turn is already running, the `SessionRunCoordinator` classifies the interruption into one of four dispositions and routes it accordingly. The classifier lives in `backend/src/magi/chat/task_agent/interruption_classifier.py` and combines rule-based keyword matching with an optional LLM fallback.
-
-Recall-correction turns are already structured by the chat contract, so they do
-not go through text-based interruption or intent classification. If another run
-is active they take the `INTERRUPT` path directly, then execute as a dedicated
-direct-response turn. Context assembly disables implicit memory retrieval for
-that turn and receives the resolved evidence snapshot from chat history. This
-keeps localized or user-edited correction text from being mistaken for a new
-memory query and prevents a removed record from re-entering through normal
-recall.
-
-- `INTERRUPT`
-  The new message contradicts or cancels the running turn (for example, "stop", "wait", "nevermind"). The active run is cancelled and a new root turn starts from scratch. The `ActiveRun` revision bumps and in-flight tool results are discarded.
-
-- `AUGMENT`
-  The new message re-scopes the running turn (for example, "instead of …", "switch to …", "改用 …"). The two turns are merged at the next planner checkpoint: the root user message and the augmenting turn are concatenated into a single visible user message, the prompt is rebuilt from `conversation_history`, and any tool results that belonged only to the abandoned scope are dropped. The merge shape is captured as `TurnSupersession(turn_id=root, anchor_turn_id=newest, reason="augment")` entries.
-
-- `STEER`
-  The new message adds information without changing scope (for example, "also …", "by the way …", "补充 …", "另外 …"). The tool loop keeps running and tool results are preserved; the steer text is drained from the persistent queue at the top of the next iteration and appended to `state.messages` as a plain user message, so the next LLM call sees it without rebuilding the prompt. Supersession bookkeeping uses `reason="steer"` with the same root-plus-intermediate shape as AUGMENT.
-
-- `DEFER`
-  The new message is unrelated or better treated as a follow-up (for example, "帮我看看 github 的仓库吧" while an email draft is in flight). It remains attached to the current live run and its chat delivery stays non-terminal. Exact run completion atomically captures the current revision's DEFER turns while clearing the finished run. Each captured turn is then prepared as a higher delivery attempt and rescheduled from its durable original envelope, preserving the same turn ID, attachments, workspace, and metadata. An immediate consumer therefore sees no old running root and starts a new root turn.
-
-The current run and its interruption dispositions are process-local
-coordination state. Appending a pending entry is idempotent by stable turn ID,
-so replaying one admitted runtime command cannot create duplicate live pending
-work. FACT_ONLY handling for AUGMENT / STEER / DEFER records acceptance only:
-it must not complete the pending `ChatTurn`, close its delivery ledger, or
-finalize the active run.
-
-`pending_turns` is the single live queue for user-authored follow-ups from both
-native and external channels. The typed `RunTrigger` and durable delivery
-envelope retain source provenance; the coordinator does not mirror external
-messages into a second process-local `IncomingEvent` queue. This keeps reads,
-deep-copy semantics, and checkpoint consumption on one source of truth.
-
-DEFER recovery is ledger-driven rather than L0-driven. If the process stops
-before run completion, each admitted non-terminal delivery is re-driven from
-its durable envelope. If releasing a captured DEFER batch fails while the
-process remains alive, one bounded-backoff retry retains that exact batch. If
-the process stops after completion but before scheduling, the delivery is
-either still admitted or already prepared as ready work; startup recovery can
-advance and schedule it. Scheduling failure leaves a ready attempt for the
-normal retry path. The runtime never mints a replacement turn ID.
-
-L0 expiration applies only to disposable short-term attention and is
-independent of live or admitted chat work. This makes timeout a relevance
-fallback for temporary context, not a cancellation or recovery mechanism.
-Current item deadlines are six hours for current situations, 24 hours for
-focus, active objects, constraints, and recent consensus, and 72 hours for open
-loops; resolved or superseded items remain inspectable for one hour but are
-excluded from prompts. Reads and restart restore enforce item expiry. Idle
-session cleanup removes a session only after its remaining attention has also
-expired, so physical row deletion may lag logical prompt expiry.
-
-AUGMENT and STEER share the same persistent queue and the same supersession shape but differ in when and how they are consumed:
-
-- AUGMENT waits for the next planner checkpoint, is consumed through `consume_pending_turns(disposition="augment")` in `SessionRunCoordinator.aroute`, and rebuilds the prompt. It is appropriate when in-flight tool results would be invalidated by the new scope.
-- STEER is consumed every iteration through `consume_steer_turns` driven by `FunctionCallingHandler._drain_pending_steer_turns`, pushes into a per-turn `SteerInbox`, and is applied via `FunctionCallingOrchestrator.apply_steer_messages`. It is appropriate when in-flight tool results are still valuable and only need additional context to finish well.
-
-### Context-owned prompt assembly
-
-Prompt assembly ownership lives in `backend/src/magi/context/`.
-
-The current split is:
-
-- `ChatTaskAgent.build_context`
-  Builds typed runtime context such as fact classification, explicit session identity, conversation history, recent tool errors, recent lightweight tool state, active orchestrations, and routing environment facts like OS, current datetime, timezone, workspace path, and home directory
-
-- `ContextAssemblyService`
-  Owns prompt-context policy, implicit retrieval query selection, prompt module assembly, and final system prompt rendering
-
-- `PersonaTurnPlanner`
-  Lives in the Personality Layer and produces the per-turn `PersonaTurnPlan` consumed by prompt assembly. Chat runtime provides the current user message, execution mode, intent/tool-routing hints, stored `persona_id`, relationship state, and dynamic persona state as inputs, but it does not interpret persona-specific triggers itself.
-
-- `ChatPromptService`
-  Owns plain LLM invocation and chat-specific helper text for aggregation and dossier rendering
-
-This keeps runtime fact assembly in the task agent while moving prompt-context ownership back into the context layer.
-
-Persona behavior follows the same boundary: the task agent builds runtime facts, the Personality Layer plans persona behavior, and the Context Layer renders that plan. The final system prompt should receive the selected register, quiet-hour clamps, active triggers, relationship modifiers, and dynamic-state modulations, not the full raw persona rule library. The durable contract is documented in [Persona Runtime Architecture](./persona-runtime-architecture.md).
-
-Prompt caching follows the same ownership split. The cacheable system head contains stable identity and persona definition only. Per-turn tool-use guidance, persona steer, memory/profile context, runtime facts, attachments, and recent tool state are turn-scoped context and must stay below the cache boundary so changing the selected tools does not invalidate the stable persona prefix.
-
-The prompt text must not duplicate the provider-facing tool catalog. Concrete tool names, descriptions, parameter schemas, and tool-specific rules belong in the function-calling `tools` parameter owned by the execution/tool layer. The context layer may render only short cross-tool guidance such as when to verify with available tools or how to recover from failures.
-
-### LLM capacity scheduling
-
-LLM scenarios still own model selection: `core`, `context_decider`,
-`memory_summarizer`, `embedding`, and other scenarios decide which provider,
-model, capability set, and context window a call uses. Runtime capacity is a
-separate concern owned by `LLMConcurrencyLimiter`.
-
-The limiter keeps one shared total cap per provider/base-url/model/request
-family key, then schedules waiters by request priority:
-
-- high priority: foreground chat, direct replies, function-calling decisions, and streamed user-facing responses
-- medium priority: chat-origin L2 extraction and its immediate entity/conflict resolution work
-- low priority: non-chat L2 extraction, L2 maintenance work, and L3 summary generation
-
-Low and medium priority calls may use idle capacity, but they cannot consume the
-last reserved slot when the model cap is greater than one. This keeps at least
-one slot available for a high-priority foreground chat call without increasing
-the provider/model concurrency ceiling. The limiter can only prioritize queued
-work; it does not preempt provider requests that have already started.
-
-Current implicit-memory policy is intentionally conservative:
-
-- default implicit injection is `L0` only
-- active L0 items that pass confidence and salience thresholds are rendered in
-  a small block explicitly labelled as short-term context; current focus,
-  current situation, open loops, active objects with their relevance, and
-  local constraints remain distinct instead of collapsing into an unlabelled
-  summary
-- a sufficiently supported background item is included only when its summary
-  or linked identity shares normalized terms with the current message. It is
-  rendered in a separate reference-only section that explicitly says it is not
-  a new instruction; this prompt selection does not change its stored status
-  back to active
-- L0 may resolve references or shape an explicit long-term-memory query, but it
-  is not part of the L1-L4 retrieval index
-- user profile and preferences still come from personality/profile memory, not retrieval payload expansion
-- `L4` procedural memory is opt-in and currently requires a user message that explicitly asks to reuse a prior workflow or usual process
-- `L2` and `L3` are not injected implicitly by default and should instead flow through explicit memory/tool usage when needed
-
-Explicit historical recall is handled separately from implicit prompt injection:
-
-- `ContextDecider` remains a fast classifier and only performs a lightweight rule-based post-pass to mark explicit memory recall requests
-- routing prompt assembly may include only a compact top-N subset of notable `L4` tool advisories rather than dumping every known procedural note into `Tool Experience Notes`
-- when such a request is detected, `memory_query` is promoted into the selected tool set and a routing-scoped structured hint payload (`routing_memory_hint`) is attached for first-attempt parameters
-- that first-attempt hint carries the unified memory `query_mode` when the desired answer shape is clear, or omits it to let retrieval auto-route
-- parameter hint generation is handled by rules, not by an extra LLM planning step, to keep routing latency and variance low
-- the main LLM may still discover additional memory needs later during function calling and issue a refined tool call; the routing hint is advisory, not the final execution payload
-- once `memory_query` has returned, its answer-facing `historical_recall` payload is marked as the source of truth for historical recall in the current turn, and final-response prompt rules explicitly forbid replacing missing recall results with implicit memory or guesses
-- the memory result has already applied correction-aware current, historical, time-range, and scope selection before ranking; raw L2 lifecycle rows and corrected L1 evidence are not a second fallback available to the chat runtime
-- event, episode, and experience recall may include an item explicitly marked as a historical record or later corrected; the final response must preserve that time-qualified meaning rather than restating it as current truth
-- final responses must keep historical claims inside the returned findings and coverage boundary; persona tone may change phrasing but must not turn representative records into broader claims about habits, preferences, diversity, frequency, or totals unless the findings directly establish them
-- that `historical_recall` contract may carry compact `entity_refs` and `asset_refs` alongside human-readable findings so later turns can reuse concrete entities or assets without leaking raw source paths into the chat protocol
-- raw retrieval traces remain in the debug/trace path and are not reinjected into the main LLM tool-message context
-- cross-turn tool continuity uses only a compact chat-specific summary block; old raw tool transcripts, full arguments, and full results are not replayed into the general chat prompt
-
-### Function-calling recovery rules
-
-`FunctionCallingOrchestrator` owns the bounded tool loop used by chat turns,
-workers, and background tasks. The loop treats some failures as terminal for
-the current plan instead of spending extra LLM rounds on retries that cannot
-change the outcome:
-
-- tool schemas declare `effect_replay_policy`; undeclared plugin and MCP tools
-  default to `unknown`, which is fail-closed rather than assumed read-only
-- immediately before any non-read-only tool body runs, the canonical invocation
-  service persists a privacy-minimized intent containing stable task/turn
-  scope, tool identity, policy, and argument digests; raw arguments and results
-  are not written to this ledger
-- a confirmed return persists `succeeded`, while an explicitly proven
-  pre-effect failure persists `failed_no_effect`; cancellation, timeout,
-  exception, or an unqualified failed result persists `uncertain`
-- startup converts orphaned `attempting` rows to `uncertain`. Matching
-  `non_idempotent`, `reconcilable`, and `unknown` calls then fail with
-  `TOOL_EFFECT_UNCERTAIN` and suppress automatic reuse of that tool for the
-  turn. Only `read_only`, `idempotent`, or `idempotent_with_key` with the
-  declared key may execute again automatically
-- an exact completed tool-call identity is not executed twice. The runtime
-  returns `TOOL_EFFECT_ALREADY_COMPLETED` rather than manufacturing a result it
-  did not persist
-
-- provider content-inspection failures are classified as
-  `CONTENT_INSPECTION_FAILED`, retain a compact upstream error trace for
-  diagnostics, and do not trigger automatic replanning
-- provider configuration failures and provider challenges, including
-  `NO_PROVIDERS_CONFIGURED`, `PROVIDER_NOT_CONFIGURED`, and
-  `PROVIDER_CHALLENGE`, are terminal for the current failed tool path; the
-  runtime suppresses the failed tool for the rest of the turn instead of
-  spending additional LLM rounds on equivalent retries
-- an unchanged tool call that already failed in the same loop is blocked with
-  `REPEATED_FAILED_TOOL_CALL`; the model must change parameters or choose a
-  different path before another attempt is allowed
-- non-transient failures also carry a semantic signature across the whole run,
-  including successful iterations between them; after the same blocker occurs
-  twice with changed arguments, the runtime suppresses that tool and emits
-  `tools_suppressed_after_repeated_blocker`, or terminates with
-  `REPEATED_TOOL_BLOCKER` when no alternative tool remains
-- final response synthesis should prefer the latest successful verification or
-  listing evidence over older failed attempts, and a dry-run reporting zero
-  planned operations is treated as current-state evidence rather than an
-  instruction to ask the user to run a script
-- before execution starts, router-selected tools and static fallback tools are
-  post-processed through shared `L4` advisory reranking so breaker-open tools
-  can be skipped and historically better-fitting tools can move earlier in the
-  current-turn allowlist
-
-Tool-message context stays compact. Large listing-style tools, including
-`glob` and `file_list`, plus web-search result and failure payloads, expose
-bounded summaries to the LLM while leaving exact execution details in
-`runtime_trace.db`. Unregistered skill and MCP tools receive the same generic
-depth, item-count, text-length, and total serialized-payload bounds before their
-results return to the model, while tool-specific formatters may preserve a
-richer purpose-built projection when it already fits the total bound. Error
-text follows the same total bound, and resumed tool messages are rechecked
-before reuse.
-
-Worker failures preserve a compact diagnostic chain for final aggregation:
-function-calling execution records failed tool name, error code, short error
-text, and selected provider guidance fields; worker failure facts carry that
-list internally; `TaskOrchestrator` persists it on the failed subtask as
-`failure_details`. Aggregation should use this to explain scoped gaps and next
-actions instead of reducing every worker failure to a generic
-`ALL_TOOLS_FAILED` label.
-
-Structured worker failures must preserve the same diagnostic chain even when
-the worker model returns a typed `result_status="failed"` payload. The
-worker-authored failure reason is useful context, but it must not replace the
-tool-layer provider errors needed for user-facing recovery guidance.
-
-Execution-time tool discovery remains bounded and append-only. When the
-execution model calls `find-relevant-tools`, the helper still starts from the
-runtime registry plus tool/skill metadata, but it now reranks tool candidates
-through `L4` procedural advisory before appending anything to the current
-turn. Historical signals such as circuit-breaker state, success rate,
-context-fit, and extracted strategy hints can promote or demote candidates;
-tools with an open breaker are skipped for the current turn instead of being
-re-added as likely next steps.
-
-Tool discovery ranks builtin tools, plugin/MCP tools, and skills in one
-candidate list instead of always appending skills after tools. BM25 remains the
-baseline retrieval path because it works without an embedding model and is
-stable for names, descriptions, and parameter fields. Lightweight multilingual
-query expansion and capability-family boosts are only a recall aid for common
-cross-language gaps such as calendar availability, weather, photo, web, code,
-attachment, and memory tasks. This remains a bounded recovery path, not a full
-capability browser.
-
-### `ExploreTaskAgent`
-
-Specialized task agent in `agent/task_agents/explore_task_agent.py`.
-
-Current responsibilities:
-
-- accept large exploration requests from chat
-- plan bounded explore subtasks
-- delegate worker orchestration to `TaskOrchestrator`
-- aggregate completed worker results into a Markdown dossier
-- send the dossier back upstream to `ChatTaskAgent`
-- preserve the originating user-message generation across the request,
-  orchestration state, worker updates, and completed dossier
-
-`ChatTaskAgent` and `ExploreTaskAgent` share one destructive user-content
-boundary. A full clear pauses admission for both types, removes and stops every
-live instance of both types, and restarts only the core chat instance after the
-clear commits. `EXPLORE` facts require the active user-message generation, and
-all generation-bound facts are revalidated at task-agent admission. Therefore a
-worker update or dossier produced for a pre-clear request cannot recreate an
-Explore or Chat instance after the generation advances.
-
-### `TaskOrchestrator`
-
-Shared parent-task orchestrator in `agent/task_orchestrator.py`.
-
-Current responsibilities:
-
-- start parent orchestration
-- persist orchestration state
-- launch leaf workers
-- process worker progress, completion, and failure updates
-- apply retry policy
-- trigger final aggregation
-
-Final aggregation keeps instructions and evidence separate. The system prompt
-contains the aggregation role and response contract; the final user message
-contains the original user request plus the internal evidence dossier. Do not
-encode dynamic worker evidence or tool failure payloads into the system prompt,
-and do not use tool-role messages unless there is a provider-valid assistant
-tool-call message for them to answer.
-
-If every subtask failed and no completed worker evidence exists, chat should
-bypass full aggregation and use the lightweight failure-status path instead.
-That path uses the core model with thinking disabled, sends only the original
-request plus attempted/failed step diagnostics, and asks for an intermediate
-status update rather than a final conclusion. This avoids spending a full
-analysis synthesis round when there is no evidence to synthesize.
-
-Final aggregation and lightweight failure-status rendering are user-visible
-stream sources when a stream sink is active. Planner and worker text/reasoning
-streams remain hidden, but `aggregator` and `failure_status` text/reasoning
-deltas may flow into the chat bubble and mark the orchestration result as
-streamed so the final notification is not duplicated.
-
-### `WorkerAgentManager`
-
-Leaf worker lifecycle manager in `agent/workers/worker_manager.py`.
-
-Current responsibilities:
-
-- launch workers of specific types
-- restrict available tools by worker type
-- validate worker result schema
-- publish worker progress and completion facts
-- persist worker results for parent-task recovery
-
-Workers remain leaf executors and do not recursively create other workers.
-They also do not own user-facing control state: worker tool profiles exclude
-`todo_write`, and function-calling execution rejects worker-originated
-`todo_write` calls even if a stale or custom profile exposes the tool.
-
-When a parent task passes conversation context into a worker, that inherited
-context is launch-only. The worker sees it on the first function-calling
-decision so it can disambiguate the assignment, then the loop drops it before
-subsequent tool iterations. Repeated tool-loop prompts keep the worker system
-contract, assigned task, and observed tool results, not the full parent
-conversation snapshot.
-
-`CodeExplore` workers are workspace/codebase inspectors with a deliberately
-narrow tool profile (`glob`, `grep`, `file_read`, plus `find-relevant-tools`
-when registered). This leaf worker type is for
-current repository, source-code, and local-file evidence only. `ExploreTaskAgent`
-is the higher-level codebase exploration orchestrator that can decompose a large
-repo request into multiple `CodeExplore` workers. Planning normalization must
-route external-life, local geography, travel, transit, weather, restaurant,
-news, current-place, and other web evidence tasks to `general-purpose` workers
-so web-search or other external provider tools are available.
-
-Worker outputs must still satisfy the typed worker-result contract, but the
-validator accepts a JSON object embedded in surrounding prose or a fenced code
-block before checking required fields. This keeps minor formatting drift from
-turning an otherwise valid worker result into an orchestration failure.
-The envelope also provides a bounded `records` list for homogeneous structured
-rows such as file inventories or candidate tables. Workers must put such rows
-inside the envelope rather than returning a top-level JSON array; every record
-must be a JSON object, and malformed or oversized record lists fail validation.
-
-`Coding` workers use the same JSON envelope and must additionally report typed
-`artifacts` (`path` plus `created|modified|deleted`) and `verification`
-(`command`, `passed|failed`, and detail). A `success` or `partial` result needs
-at least one artifact and one verification record, and every reported check
-must pass. A `partial` result also identifies at least one gap and one next
-step. Plain-text completion is invalid; a blocked worker reports `failed` with
-a string `failure_reason`. Persisted Coding results are checked against the same
-completion evidence before orchestration marks their subtask completed. A
-missing common envelope field, wrong list shape, malformed record, artifact, or
-verification item remains fail-closed across serialization and rehydration.
-This is structured, model-reported completion evidence, not independent
-attestation of filesystem state.
-
-The worker loop default is one shared constant (20 iterations) across runtime
-and both published schemas. Await actions are capped at 300 seconds, below the
-310-second outer agent-tool timeout, so every advertised await value can return
-a structured result instead of being preempted by the generic tool wrapper.
-
-Each accepted root chat turn owns one durable `TaskExecutionBudget` projection
-in `chat.db`. `root_turn_id` is the identity boundary: augment, steer,
-orchestration updates, and worker retries keep the original projection, while
-an interrupt that starts a new root turn receives a new budget. Classifying a
-DEFER message is control-plane work against the current run, but after that run
-finishes and the deferred turn is released, the turn becomes a new root with a
-new projection. Every task-agent queue admission reloads the authoritative
-counters before intent routing or execution. The in-process budget object and
-its context variable are only the concurrency carrier for nested
-function-calling runs and worker tasks; SQLite reservations use
-`BEGIN IMMEDIATE` so independently admitted branches or processes cannot
-oversell the same remaining capacity. A product runtime with chat storage but
-without a recoverable root identity fails closed for model calls and worker
-launches instead of silently granting a fresh in-memory allowance.
-When that chat run detaches or dispatches work into the background, the
-persisted background spec carries the same `root_turn_id`, so the continuation
-rehydrates the chat projection instead of receiving a second allowance.
-Standalone scheduled, batch, and manually created background tasks have no chat
-root; they use their stable background `task_id` as the budget identity and
-persist the counters in `background_tasks.db`. Every retry reuses that task id,
-so retrying cannot reset either limit.
-Explore orchestration state persists both that root identity and the upstream
-task-agent target, so a later worker update still reaches the originating chat
-session after actor reconstruction. Metadata-read or planning failures preserve
-a terminal `EXPLORE_TASK_FAILED` route; Chat renders that fixed failure directly
-without spending another model call.
-The default budget permits 30 logical LLM calls and eight worker launches across
-the parent plus all workers; those are task totals, not per-agent allowances.
-The task-agent direct/planning service, tool-enabled loop, and tool-free fallback
-all consume the same counter. Each LLM-backed context-compaction chunk also
-consumes one, but compaction preserves capacity for the main model call that
-must follow it. Local loop iteration limits remain independent bounds and cannot
-raise or lower the shared task total. Batch worker starts reserve their entire
-count atomically, so an over-budget batch launches none of its workers.
-Every batch definition is also validated before the first worker starts, so a
-malformed later item cannot leave an earlier worker running. Provider-internal
-rate-limit retries remain one logical call because charging occurs once at the
-logical caller boundary. Context-decider routing is charged to the applicable
-root turn. The chat composition layer injects that admission callback into the
-tools-layer context decider, so the tools layer does not import the agent budget
-owner. Model-backed interruption routing is control-plane work and is
-deliberately outside that execution budget, so a task at its cap remains
-cancelable, replaceable, and steerable. Each classifier call still requires a
-new user message and keeps its own provider timeout; this exemption prevents a
-runaway task from disabling user control rather than authorizing autonomous
-retries. Before a tool-enabled model turn,
-each loop reserves the current call and one final-response call, so worker fan-out
-cannot consume the continuation needed to interpret tool results and produce the
-parent response. Worker launch itself charges only the shared launch counter;
-orchestration-internal launches outside such a loop do not create an unrelated
-LLM-call reservation. If only one call remains, the loop skips further tool
-selection and uses the established tool-free final-response path, including its
-JSON-mode and no-more-tools contract. Unused branch-owned reservations are
-released when that loop completes, fails, or is cancelled; copied parent
-reservations cannot be released by child tasks. Same-task nested loops receive
-separate reservation frames, so an inline fork skill cannot release the outer
-loop's final-response capacity. A fork skill that calls a provider directly is
-charged independently and does not consume that outer continuation reservation.
-
-Worker startup is transactional with respect to registration, start traces, and
-batch visibility. Worker bodies wait behind start gates until the complete batch
-is prepared. Prepared runs live in a private pending registry so status queries
-cannot observe a partial batch, while run cancellation can still find and stop
-them. A run-cancellation tombstone rejects a worker that arrives after the
-cancellation sweep. A staging failure cancels and unregisters every prepared run
-and closes any running trace spans without publishing worker lifecycle facts for
-workers that never committed. Cancellation after commit follows the normal
-cancelled worker lifecycle, including terminal state, traces, and publication.
-
-The shared object follows normal async context propagation, including workers
-that continue in the background after their launching call returns. Persistent
-task-agent actor tasks are created with request budget ContextVars cleared, then
-each later admission rehydrates the root projection instead of inheriting a
-stale Python object. Unused prepaid continuation calls are refunded durably when
-their frame exits. The frame is claimed before the durable refund: if commit
-status becomes ambiguous because cancellation or connection teardown prevents a
-normal return, the refund is not retried and the capacity remains conservatively
-charged. A process crash after reservation is likewise conservatively charged
-because there is no ambiguous time-based lease reset. Post-turn transcript
-summaries and persona maintenance remain separate scenario work and are not
-charged to this execution budget. This is a bounded user-run control, not the
-source of truth for provider token or monetary accounting.
-
-## Background Tasks
-
-Long-running goals that the user doesn't want to watch live run in a
-dedicated subsystem under [backend/src/magi/agent/background/](../backend/src/magi/agent/background/).
-It is separate from the `ChatTaskAgent` turn loop so a detached task
-can outlive the originating session, survive a backend restart, and
-report back asynchronously.
-
-Key components:
-
-- `BackgroundTaskStore` ([store.py](../backend/src/magi/agent/background/store.py))
-  — SQLite-backed persistence for task rows and an append-only event
-  log. Every terminal transition also writes a completion snapshot in the same
-  transaction; its private payload is scrubbed after handling or governed
-  discard. The store owns restart recovery (``running`` /
-  ``cancelling`` rows from a previous process become
-  ``failed(reason="backend_restart")`` with the same completion snapshot) and
-  ``purge_expired``, which hard-deletes terminal rows, event history, and their
-  completion intents once they predate the configured retention window.
-- `BackgroundTaskManager` ([manager.py](../backend/src/magi/agent/background/manager.py))
-  — runtime-singleton scheduler with a bounded semaphore, pending
-  queue, and a pluggable ``run_fn`` so phases can swap the orchestrator
-  without touching this module. Supports ``enqueue`` / ``cancel`` /
-  ``retry`` / ``list_active`` / ``list_pending`` and fan-outs to
-  listeners after each terminal transition.
-- `BackgroundTaskDispatcher` + `BackgroundTaskLaunchService`
-  ([dispatcher.py](../backend/src/magi/agent/background/dispatcher.py),
-  [launch.py](../backend/src/magi/agent/background/launch.py))
-  — entry points that let planners, rules, or explicit user actions
-  hand a spec to the manager. ``build_background_run_fn`` tags every
-  orchestrator invocation with ``execution_agent_id=f"background:{task_id}"``
-  so runtime-trace rows can be filtered back to the owning task.
-  Requests routed to the builtin ``schedule`` tool stay in the foreground
-  unless the user explicitly asks for background execution, because the
-  schedule record itself owns future/asynchronous execution.
-- `BackgroundTaskExecutor` ([executor.py](../backend/src/magi/agent/background/executor.py))
-  — wraps a single attempt: transitions, cancellation plumbing, and
-  persisted ``BackgroundTaskEvent`` entries.
-- `BackgroundTaskRetentionScheduleContrib` ([retention.py](../backend/src/magi/agent/background/retention.py))
-  — registers the scheduler-owned hourly purge driven by
-  ``agent.background_tasks.history_retention_days``.
-
-Lifecycle is split between
-[agent/lifecycle.py](../backend/src/magi/agent/lifecycle.py) and the later
-[outreach/lifecycle.py](../backend/src/magi/outreach/lifecycle.py):
-
-1. `build_background_task_wiring` composes store + executor + manager +
-   dispatcher + launch service from config.
-2. The Tasks-page listener
-   `broadcast_background_task_state_changed` and the batch driver are
-   registered before ``manager.start()``. The state listener writes a
-   ``background_task_state_changed`` row onto the runtime notification
-   channel; the Rust gateway relays it onto the Tauri event stream.
-3. `manager.start()` runs restart recovery, rehydrates any ``pending``
-   rows, and spawns the dispatcher loop.
-4. `runtime_agent_schedule_registration` registers both user-agent
-   schedules and the ``background_task_retention`` cleanup schedule, so
-   retention executions are visible through the same scheduler execution
-   ledger as other periodic runtime work.
-5. After channels start, `runtime_outreach` builds `OutreachService`,
-   attaches the background-completion producer before draining every pending
-   completion snapshot, and registers the durable outreach-drain schedule. The
-   same bounded 15-minute scheduled pass retries pending completion snapshots
-   before it drains due external-outbox work. A task that finished before this
-   phase is recovered from the snapshot rather than depending on a listener
-   that did not yet exist. This replaces the old desktop-only completion
-   handshake.
-
-The completion producer treats one task attempt as one logical notification.
-Its identity is ``<task_id>:attempt:<attempt_index>``: a repeated callback for
-the same attempt converges on the same desktop message and external outbox row,
-while a user retry receives a new identity and may report a different result.
-Only attempt zero may replace the original pending chat card. Batch runs stay
-quiet while work remains and use a stable digest of the terminal status counts
-for the final job-level notification, so an unchanged terminal snapshot is not
-announced twice.
-
-The producer acknowledges a completion snapshot only after submitting the
-corresponding outreach intent, or after deciding that the terminal task has no
-user-facing intent. Before any delivery side effect, the first derived outreach
-intent and composed user-facing body are frozen on that snapshot; retries reuse
-them instead of asking the composer to generate different text. If submission
-fails, the snapshot returns to pending for the next bounded scheduled pass or
-startup drain. Every delivery first claims the task attempt in the database;
-restart releases a crash-interrupted claim, and the producer's in-process lock
-additionally serializes live listener delivery with both drain paths. A handled
-attempt leaves no pending payload for the next pass, while its stable identity
-keeps repeated callbacks from producing another result.
-
-Destructive conversation operations use
-`BackgroundTaskManager.conversation_scope_boundary`, not a one-shot
-cancellation. The boundary installs its admission scope under the same lock
-used by enqueue and retry, drains existing matching work and completion
-delivery, and remains installed until memory and chat-surface cleanup exits.
-Session deletion and history clear seal the whole user/session scope; full
-memory clear seals all background admission. Exact-message deletion first reads
-the complete logical replacement chain, then seals the related origin turns,
-task IDs, and pending-message IDs before preparing the final delete snapshot.
-Matching enqueue or retry is rejected during that window, while sibling work
-outside the scope continues. A processing completion is allowed to settle;
-pending matching completions are discarded and scrubbed so a later scheduled
-or startup drain cannot recreate the deleted surface.
-
-Successful task summaries are written to the originating desktop transcript as
-ordinary assistant final messages. Failures, cancellations, and tasks without
-user-facing output use ``message_kind="background_task_completion"`` with the
-task identity, status, title, and attempt in the payload. External proactive
-delivery always enters the outreach outbox before a channel is invoked. A row
-is claimed as ``attempting`` before the external call; an uncertain outcome is
-not retried automatically, which favors at-most-once delivery over duplicate
-notifications.
-
-External code delegation has a separate durable identity from the background
-task that may host it. A tool result projects
-``code_agent_delegations`` into the assistant message payload as structured
-references containing the delegation ID, origin turn ID, and workspace path
-used for that execution. Foreground replies persist those references directly.
-Background completion carries the same references from the task result into the
-completion message and preserves the origin turn on the chat row. The frontend
-therefore restores the correct delegation after reload even if the conversation
-workspace later changes. It must never interpret ``background_task_id`` as a
-code-delegation ID.
-
-Before a code delegation creates its first local artifact, the tool registers
-that exact session, turn, delegation, and workspace identity in `chat.db`
-through the SDK capability port. Message persistence adds a separate visible
-ownership reference. Message/session/history deletion uses both records: it
-removes an orphaned delegation's private logs, diffs, temporary worktree, and
-branch, but preserves the artifact while another visible message still owns it.
-Changes already applied to the main workspace are never rolled back. If cleanup
-fails, the transcript is already inaccessible and the private registry remains
-for deterministic retry.
-
-Outreach resolves the current channel registry and session mapper at delivery
-time rather than retaining the instances that existed during startup. Channel
-restart therefore does not leave proactive delivery pointing at a stopped
-adapter. Delivery also enters the channel module's operation boundary, so
-restart and a pending global conversation clear block it safely.
-
-Configuration lives under `agent.background_tasks` in
-[config.example.yaml](../backend/configs/config.example.yaml):
-``enabled``, ``max_concurrent``, ``queue_when_full``,
-``auto_detect_long_task``, ``auto_detect_threshold``,
-``default_task_timeout_seconds``, ``history_retention_days``. When
-``enabled`` is ``false`` the lifecycle leaves the dispatcher and launch
-service unwired so the runtime still boots. ``auto_detect_long_task``
-defaults to ``false``; when disabled, `ChatRunPlacementService` skips the
-planner/rule/LLM automatic placement chain while keeping manual
-detach-to-background available as long as the background subsystem is enabled.
-Automatic placement runs after chat tool selection and before
-`FunctionCallingHandler.build_request()`, so long-task classification does not
-need the full prompt package and no longer lives in the function-calling
-execution path.
-
-REST surface: the `/api/background-tasks` router
-([api/routers/background_tasks.py](../backend/src/magi/api/routers/background_tasks.py))
-exposes `list`, `get`, `cancel`, `retry`, `dismiss` for the Tasks UI;
-each endpoint sits on the public-route allowlist.
-
-Realtime: the manager's listener pipeline is push-only. The UI hydrates
-once from `GET /api/background-tasks`, then replaces or inserts
-individual rows as each ``background_task_state_changed`` notification
-arrives — no polling.
-
-Conversation deletion and full-memory clear cancel matching non-terminal
-background work and wait through its terminal listeners before removing the
-chat surface. Scoped conversation deletion keeps unrelated terminal audit
-rows. Full-memory clear additionally deletes every task row, event, and
-completion intent from the Tasks store while global admission remains sealed,
-so no user-authored goal, result, or error survives the product-wide clear.
-
-### Mid-turn detach to background
-
-Some chat turns reveal mid-flight that a goal is too long to finish
-synchronously (e.g. a multi-step research crawl). Rather than forcing
-the user to cancel and resubmit, the orchestrator lets a running tool
-loop hand itself off to the background runtime while preserving the
-exact tool-loop state.
-
-Primitives (in
-[control/run_control.py](../backend/src/magi/control/run_control.py)):
-
-- ``DetachSignal`` — one-shot flag flipped by a tool or a user action.
-  Exposes ``request(payload)`` and ``is_requested()``.
-- ``OrchestratorSnapshot`` — serializable view of ``state.messages``
-  plus ``iterations`` / ``reason`` / ``note``.
-- ``bind_detach_signal(signal)`` — context manager that publishes the
-  signal to tools via a ``ContextVar`` bridge
-  (``current_detach_signal()``). A ``None`` signal is a no-op.
-
-The
-[`detach_to_background` tool](../backend/src/magi/tools/builtin/detach_to_background_tool.py)
-reads ``current_detach_signal()`` and calls ``signal.request(...)``.
-Outside a bound context it returns ``error_code="detach_not_supported"``.
-
-Flow inside a chat turn
-([agent/task_agents/handlers/handlers.py](../backend/src/magi/agent/task_agents/handlers/handlers.py)):
-
-1. ``FunctionCallingHandler.execute()`` builds a fresh ``DetachSignal``
-   via ``_build_detach_signal()`` — only when a ``BackgroundLaunchService``
-   is wired. Without a launch service there is nowhere to hand off, so
-   the signal is ``None`` and the tool correctly reports
-  ``detach_not_supported``. When a ``SessionRunCoordinator`` is
-  present, the handler also registers that signal under the active
-  session so the chat status card can request the same detach path via
-  ``POST /api/messages/session/{session_id}/detach-run``.
-2. The signal is threaded into both execution paths:
-   - ``execute_with_tools`` (plain path) wraps its body in
-     ``bind_detach_signal(signal)`` and, on trip, returns an
-     ``ExecutionOutcome`` with ``status="detached"`` and the current
-     ``OrchestratorSnapshot``.
-   - ``_execute_with_session_checkpoints`` (the hand-rolled loop that
-     bypasses ``execute_with_tools`` to cooperate with
-     ``SessionRunCoordinator``) wraps its own ``while`` loop plus the
-     fallback final response inside ``bind_detach_signal(signal)`` and
-     polls the signal at two boundaries per iteration — before the
-     next LLM call and after each tool batch — so a tool that flipped
-     the signal this iteration exits before burning another LLM round.
-3. ``_maybe_handoff_detached_outcome`` inspects the result. When
-   ``execution_outcome.status == "detached"``, it re-enqueues the run
-   via ``BackgroundLaunchService.enqueue_from_request`` with
-   ``trigger_source=MANUAL`` and ``initial_messages=<snapshot.messages>``.
-   ``build_background_run_fn`` honors ``spec.initial_messages`` by
-   passing them as ``conversation_history`` with ``user_message=""``,
-   so the background task resumes from the exact tool-loop state
-   instead of replaying the user message from scratch.
-4. Hand-off is degrade-safe: if ``enqueue_from_request`` raises, the
-   original detached result is surfaced and
-   ``ChatPostProcessService`` emits
-   ``"Failed to move this task to the background."`` so the user never
-   silently loses the turn.
-
-## Control Plane
-
-The control plane is the cross-cutting surface that lets the user see
-and influence a running turn without editing config. It covers
-permission prompts, ask-user questions, plan mode, and todo updates,
-and it ships as runtime notification channels plus UI surfaces that
-render either direct prompts or durable chat-backed status messages.
-
-Permission interactions are chat-backed action cards by default. Ask-user
-questions are persisted as assistant transcript bubbles with stable
-``ask:<request_id>`` message ids, and answered asks add a paired user
-``ask-response:<request_id>`` transcript row. Answer submission is routed
-through the shared user-message dispatch path. Plan mode and todo updates
-are mirrored into ``chat_messages`` as ``plan_state`` / ``todo_state`` status messages.
-Those status rows use replacement semantics within the same turn so the
-chat transcript keeps the latest control state without accumulating
-stale intermediate copies after reloads or reconnects.
-
-The ``ask_user_question`` tool is a thin SDK capability shell. The
-composition-root ``InteractionPort`` adapter delegates to
-``control.ask_service.ControlAskService``; that control-layer service owns
-opening the ask, waiting on the ``InteractionBroker``, timeout/cancel
-handling, background suspend/resume, and control-event publication. External
-channels do not sit inside that ask lifecycle. ``ChannelsModule`` starts an
-``AskFanoutSubscriber`` that listens for pending ``CONTROL_ASK_REQUESTED``
-events and delivers the question to the session's origin channel.
-
-Event channels (all published via
-[`publish_control_event`](../backend/src/magi/control/common/events.py)):
-
-- ``control.permission.requested`` — emitted by the permission prompter
-  when a gated tool call waits for a user decision. Payload carries
-  ``turn_id`` (canonical). Pending
-  permission snapshots include ``created_at_ms``, ``timeout_seconds``,
-  and ``expires_at_ms`` so clients can disable stale affordances at the
-  same deadline the backend broker will enforce.
-- ``control.ask.requested`` — emitted by the ``ask_user_question`` tool
-  when it opens a user question. Ask snapshots expose a frontend-facing ``status`` plus
-  ``created_at_ms``, ``timeout_seconds``, and ``expires_at_ms``; legacy
-  ``asked_at`` / ``resolution`` fields may still appear for diagnostics.
-- ``control.background.suspended`` / ``control.background.resumed``
-  — emitted when a background task transitions in and out of
-  ``SUSPENDED_WAITING_USER`` (see below).
-- ``control.plan.updated`` — emitted when the plan-mode tool toggles.
-  Carries ``session_id`` plus optional plan text.
-- ``control.todo.updated`` — emitted whenever the session todo list
-  is rewritten. The authoritative writer is the planner side of the
-  orchestration runtime (``TaskOrchestrator._publish_session_todos``),
-  which mirrors the planned subtasks and their live status onto the
-  control-plane store at ``start_orchestration`` and after every
-  worker progress/completion/failure fact. Leaf workers do not own the
-  todo list; their ``todo_write`` tool is removed from worker tool
-  allowlists and denied at execution time so the planner stays the
-  single source of truth. Once the orchestration or all of its subtasks
-  reach terminal states, the planner publishes an empty todo list so the
-  frontend does not keep stale in-progress items after completion.
-
-All payloads include ``session_id`` and, where a tool context is
-available, ``turn_id`` derived from ``ToolExecutionContext.env_vars``.
-
-Frontend composition:
-
-- Running execution progress is surfaced on the assistant lane as an
-  ``assistant_interim`` bubble. Chat-only runtime progress (trace
-  headline, execution-control state, plan preview, cancel/detach
-  affordances) no longer uses the generic chat status-card path.
-- Durable control-plane projections remain status messages except for
-  ``ask``. Ask questions render as assistant transcript bubbles because
-  they are agent utterances; their suggested answers appear as quick
-  replies above the composer. After a reply, the ask bubble is updated to
-  an answered state and the user reply remains in transcript/history
-  across session switches. Permission cards keep a one-shot allow/deny
-  path inline and open the full permission detail prompt only when the
-  user asks for more options. ``plan_state`` / ``todo_state`` remain
-  chat-backed status rows because they represent control state rather
-  than assistant utterances.
-
-- ``PermissionModalHost`` and ``AskDialog`` are mounted once at the
-  ``MainLayout`` root so pending interaction state can be mirrored into
-  the selected chat session. They fetch once on mount/session switch and
-  then rely on control-plane realtime events for wake-ups; continuous
-  polling is disabled by default. ``PermissionModalHost`` only opens the
-  full prompt after an explicit card action. These hosts treat
-  ``expires_at_ms`` as the last safe click time: expired prompts are
-  removed from the active UI and action buttons are disabled before any
-  stale response can be posted back to the broker.
-- When a session has a pending ask, the next non-empty user message sent
-  through ``dispatch_user_message`` resolves the ask broker response
-  before normal chat-turn persistence or runtime queueing. This makes the
-  desktop composer and external channel adapters share the same answer
-  routing semantics.
-- Every frontend entry that can create a chat turn, including normal,
-  reply, recall-correction, ask-answer, and inline-skill sends, shares one
-  admission gate per session. The gate is acquired before asynchronous
-  expansion, upload, or delivery begins, so rapid clicks and cross-entry
-  sends cannot create concurrent turns before React renders its disabled
-  state. When interjection is disabled, the same gate remains closed while
-  that session has an accepted non-terminal turn; this is enforced below
-  the individual buttons and keyboard handlers. A pending ask answer is the
-  sole explicit exception because it resumes the already-running turn
-  instead of creating a competing one. Interjection settings fail closed
-  until configuration has loaded, while an empty session with no active
-  turn can still submit its first message as soon as its first authoritative
-  empty-history read completes. Normal, reply, recall-correction, and
-  inline-skill submissions share that initial history-read promise; a read
-  failure preserves the intent and asks the user to retry instead of assuming
-  the session is empty. A realtime or cached pending ask remains answerable
-  because it is a control reply to the existing run, not a new turn.
-- When delivery acknowledgement is ambiguous, the frontend retains the
-  exact request and stable client turn ID in ``sessionStorage``. This is
-  limited to refresh recovery in the same WebView and is not durable
-  desktop-restart storage; backend chat history and stable-turn
-  idempotency remain authoritative. Before any later turn-producing
-  intent, every older ambiguous send in that session is checked first and,
-  when safe, retried with the same turn ID. A changed visible draft is
-  preserved, and after refresh its first send action only settles the old
-  operation; the user must explicitly send the still-visible new intent
-  afterwards.
-- ``SessionControlRail`` is mounted inside the chat page and hosts
-  ``PlanCard`` + ``TodoPanel``. The rail self-hides when there is no
-  active plan and no todos so the chat surface stays clean.
-- Chat realtime event policy is projected in ``domain/chat/realtime``.
-  ``useChatRealtimeEffects`` should subscribe to realtime messages and execute
-  the returned effect plan only; rhythm-segment completion, session-sync
-  decisions, and pending-turn unlock rules belong to the chat-domain projector,
-  not the React subscription hook. Pending-turn release requires an exact
-  ``session_id`` + ``turn_id`` match. Direct final/upsert events may release that
-  turn immediately; a terminal control event first refreshes durable history,
-  and the same history check runs after a bounded delay so missed rhythm or
-  terminal notifications cannot leave the composer locked indefinitely.
-- ``ControlSettingsPanel`` lives under the settings Control Plane tab
-  and surfaces permission rules plus background-task controls.
-
-### SUSPENDED_WAITING_USER
-
-``BackgroundTaskStatus.SUSPENDED_WAITING_USER`` is the fourth
-non-terminal status (alongside ``pending`` / ``running`` /
-``cancelling``). The manager exposes two transitions:
-
-- ``suspend_waiting_user(task_id, *, reason)`` — only fires on a
-  ``running`` task. Writes the durable state change and an event-log
-  entry; callers must still await their own broker signal (e.g. the
-  answer future inside ``ask_user_question``) before resuming real
-  work.
-- ``resume_from_wait(task_id)`` — inverse transition, only fires on a
-  ``suspended_waiting_user`` task.
-
-Cancellation from the suspended state goes through the existing
-``cancel`` path and reaches ``cancelling`` / ``cancelled``.
-
-The ``ask_user_question`` tool resolves the owning background task id
-by parsing ``ToolExecutionContext.agent_id`` (set to
-``f"background:{task_id}"`` by ``build_background_run_fn``). When the
-call arrives from a background run with ``allow_ask_in_background``
-enabled, the tool calls ``suspend_waiting_user`` before awaiting the
-answer broker and ``resume_from_wait`` once the answer or timeout
-resolves, so the durable status of the task reflects the real wait
-state.
-
-Foreground chat cancellation uses the same run-level cancellation
-contract. ``SessionRun`` remains the lifecycle source of truth, while
-``CancelToken`` is threaded into function-calling tools and worker
-runs through ``ToolExecutionContext``. The function-calling tool-batch
-executor races every in-flight invocation against that token; cancellation
-cancels the invocation task and awaits its cleanup before returning a standard
-``CANCELLED`` result. Blocking tools such as ``ask_user_question`` must still
-use the token to close any pending UI prompt as ``cancelled`` rather than
-relying only on coroutine cancellation. ``TaskOrchestrator.cancel_run`` also
-forwards the cancellation to live leaf workers before marking the
-persisted orchestration terminal, so a cancelled run cannot leave a
-worker task or prompt waiting only on timeout.
-
-## Typed Execution Framework
-
-The shared execution framework lives under `agent/task_agents/common/`.
-
-Important files:
-
-- `contracts.py`
-- `handlers.py`
-- `llm_service.py`
-
-### Execution modes
-
-Execution is routed by `ExecutionMode`:
-
-- `FACT_ONLY`
-- `DIRECT_LLM`
-- `FUNCTION_CALLING`
-- `ORCHESTRATION_LAUNCH`
-- `ORCHESTRATION_UPDATE`
-- `EXPLORE_TASK_RENDER`
-
-### Request and handler model
-
-The general pattern is:
-
-1. a coordinator chooses an `ExecutionMode`
-2. it creates an `ExecutionRequest`
-3. `TaskAgentExecutionEngine` either drives a graph-backed node sequence or falls back to the selected handler
-4. a handler specializes that request into a mode-specific DTO
-5. the handler returns an `ExecutionResult`
-
-This replaced older ad hoc dictionary passing with explicit typed contracts.
-
-## Internal Contracts
-
-The most important contract families are:
-
-- execution contracts in `agent/task_agents/common/contracts.py`
-- runtime context and intent contracts in `agent/task_agents/handlers/contracts.py` and `agent/task_agents/explore/contracts.py`
-- orchestration contracts in `agent/orchestration.py`
-- worker result contracts in `agent/orchestration.py`
-
-Transport boundaries still use dictionaries where practical, but internal runtime logic should prefer typed DTOs.
-
-## Service Boundaries
-
-The product-facing service boundary lives in `backend/src/magi/api/services/`.
-
-Current rules:
-
-- shared business-facing helpers belong in `api/services/`
-- transport handlers should call those services instead of reimplementing routing logic
-- runtime-domain code should not reach back into API services
-
-### Shared message dispatch
-
-`api/services/message_dispatch_service.py` is the shared write path for user messages arriving via the IPC channel from the Rust gateway.
-
-It owns:
-
-- runtime initialization checks
-- runtime command queue availability checks
-- explicit `session_id` validation for incoming messages
-- runtime command publication
-- queue-size reporting for callers
-
-This keeps `api/routers/messages.py` transport-thin.
-
-### Read services
-
-`ChatReadService` and `ChatTraceReadService` remain shared read-side services.
-
-They are intentionally separated from runtime orchestration, but they still use module-scoped shared instances today and are tracked in the backlog for further cleanup.
-
-`ChatReadService` now reads canonical session metadata from the `chat_sessions` table instead of aggregating sessions on demand from L1 fact rows. The frontend owns the currently selected session and reads history or trace data by passing an explicit `session_id`.
-
-## Runtime Binding Boundary
-
-`core/runtime_bindings.py` is the exported boundary for selected initialized services such as:
-
-- message bus
-- scheduler service
-- sensor scheduler contributor
-- plugin manager
-- other memory
-- user message sensor
-- skills bindings
-
-Current rule:
-
-- routers, transport handlers, and shared external-facing services may use runtime bindings for explicit read-side/runtime-owned services, but API bootstrap does not expose the runtime message bus
-- runtime-domain code should prefer explicit injection from lifecycle assembly or owning managers
-
-## Scheduler Targets
-
-The scheduler runtime currently supports these active target families:
-
-- `sensor_sync`
-- `memory_l1_maintenance`
-- `memory_l2_maintenance`
-- `memory_l2_consolidate`
-- `memory_l2_derive`
-- `memory_l3_summary`
-- `memory_l3_maintenance`
-- `memory_l4_maintenance`
-- `user_agent_task`
-
-The scheduler engine lives in `scheduler/service.py`. Layer-owned schedule registration is performed by:
-
-- `SensorScheduleRegistrationModule`
-- `L1MaintenanceScheduleRegistrationModule`
-- `L2MaintenanceScheduleRegistrationModule`
-- `L2ConsolidationScheduleRegistrationModule`
-- `L2DeriveScheduleRegistrationModule`
-- `L3SummaryScheduleRegistrationModule`
-- `L3MaintenanceScheduleRegistrationModule`
-- `L4MaintenanceScheduleRegistrationModule`
-
-This keeps scheduling policy with the owning layers instead of centralizing it in one runtime module.
-
-### Sensor sync execution model
-
-For `sensor_sync` targets, the scheduler does not execute any sensor plugin code. It enqueues a durable job and returns immediately:
-
-1. APScheduler fires a `sensor_sync` schedule.
-2. `SchedulerService.execute_schedule()` checks whether the target already has an outstanding (queued or running) job in `sensor_sync_jobs`.
-3. If one exists, the trigger is coalesced; no new job is created.
-4. If none exists, the scheduler acquires the target and writes one
-   `schedule_executions` row plus one `sensor_sync_jobs` row with status
-   `queued` in one transaction, then returns. A competing trigger creates
-   neither row.
-5. `SensorSyncExecutor` (awareness layer, dedicated thread with its own asyncio
-   event loop) claims queued jobs and runs
-   `collect_items → fetch_item → build_output → extract_metadata → ingest`.
-   Each successful or terminal attempt settles the job, target state, and
-   execution history together so a restart cannot expose a half-finished
-   scheduler record.
-6. When a successful batch reports more source data, the same success
-   transaction also inserts the next queued sensor job and its execution row.
-   The completed batch and its continuation therefore commit together or both
-   roll back; continuation does not depend on a later one-off scheduler call.
-
-The `sensor_sync_jobs` table enforces at most one outstanding job per `(target_type, target_key)` via a partial unique index. A slow sensor causes skipped ticks, not backlog growth.
-
-Manual sync requests first enter the persisted runtime-command queue, then
-reuse the scheduler model through `SensorSchedulerContributor.queue_manual_sync()`.
-Sensor runtime-state flushes use the same runtime-command admission and then run
-on the executor thread to avoid cross-thread access to shared sensor instances.
-The runtime processor holds one full-clear boundary from command claim through
-completion. Full clear blocks new claims and sensor-command enqueue, waits for
-active handlers, advances the shared clear generation, and deletes every
-pre-clear `USER_MESSAGE`, `SENSOR_SYNC`, and `SENSOR_STATE_FLUSH` command in all
-states. Configuration and channel refresh commands remain queued. This keeps an
-old manual backfill or state flush from creating scheduler or sensor state after
-the clear has completed.
-
-The executor has explicit `running`, `stopping`, and `stopped` lifecycle states.
-Shutdown waits for the active worker for a bounded interval. If that wait times
-out, shutdown reports failure and keeps ownership of the live worker; another
-worker cannot start until the original thread has actually exited. This avoids
-two executors claiming the same queue after a slow or stuck sensor call.
-
-Full clear also stops and joins this executor before invoking plugin- and
-sensor-owned content deletion hooks. Active plugin lifecycle work and settings
-actions are drained first, and new work remains blocked until the surrounding
-clear completes. The plugin clear checkpoint uses the runtime command queue's
-existing full-clear generation. It advances only after all hooks and the
-surrounding clear succeed and collection can be resumed safely. Failure or
-cancellation leaves collection stopped and the generation pending. During
-startup, `runtime_plugin_system` checks the shared generation immediately after
-plugin activation; a pending generation blocks later sensor, channel, scheduler,
-and ingress modules. The plugin module must not replay its own hooks and mark the
-generation complete because an interrupted clear may still have unfinished
-memory, chat, scheduler, attachment, or log deletion.
-
-When a running sensor executor must be restored, it first starts paused and is
-unable to recover or claim jobs. The durable completion checkpoint is written
-before the coordinator releases that pause. A start, checkpoint, or resume
-failure stops the executor again and keeps the generation pending. Diagnostic
-log erasure is inside the same success boundary, so uncleared log entries cannot
-produce a successful clear response or advance the plugin checkpoint.
-
-Post-sync memory maintenance is deliberately outside the serial sensor-sync queue. After a sync job commits success, L3 historical backfill and the L2 derive kick are queued as best-effort owner-loop maintenance so long LLM-backed summary work cannot stop later sensor-sync jobs from being claimed. This post-sync backfill is intentionally small-batch; full historical summary catch-up must run through explicit memory maintenance rather than the sensor recovery path. A continuation sync (`has_more` / `continue_sync`) is admitted durably in the parent success transaction and still defers these maintenance kicks until the final batch.
-
-Failed sensor jobs stay in the same durable execution record and are retried with
-bounded exponential backoff. The job remains `queued` with its next-attempt time,
-last error, and attempt count visible until it succeeds or exhausts its retry
-budget. A terminal failure is written only after that budget is exhausted. On
-startup, the executor immediately returns every interrupted `running` job to the
-queue because no executor from the previous process can still own it. Memory
-targets such as `memory_l2_maintenance` and `memory_l2_consolidate` keep the
-existing direct scheduler execution path and are unaffected.
-
-### Full-clear scheduler boundary
-
-An agent-created `user_agent_task` schedule is user content: its persisted
-payload may contain the user's prompt, message, goal, and originating chat
-identity. A destructive full clear therefore removes the schedule definition,
-its APScheduler job, and its target state. It also removes all scheduler
-execution history because result messages, errors, and statistics from system
-or user targets may contain user-derived content.
-
-The clear boundary enters the scheduler admission seal before the global
-background-task admission seal. This order is mandatory: a pre-clear scheduled
-agent handler may be between timing and background enqueue, so scheduler
-admission must retire or reject it before background admission begins waiting.
-While the boundary is active, new schedules and executions are rejected. Active
-`user_agent_task` handlers are cancelled and awaited, and the generation
-captured at execution admission is checked again around background enqueue and
-result settlement. A handler from an older generation therefore cannot enqueue
-work or restore scheduler content after the clear.
-
-System-owned recurring schedules and source configuration survive. The clear
-transaction preserves source cursors, watermarks, and scheduler job bindings,
-but discards pending/running sensor-sync jobs, all execution rows, and all
-target errors/statistics. This prevents a pre-clear queue item or diagnostic
-payload from surviving while allowing the next system tick to continue from
-the preserved source position. Deleted SQLite content is securely overwritten
-and the scheduler WAL is truncated before the clear reports success.
-
-## Memory Event Flow
-
-The current memory write path is:
-
-1. runtime or timeline code emits a raw event or fact
-2. `MemoryIntegrationModule` normalizes it into a memory event contract
-3. routing decides whether it is `runtime_only` or `l1_only`; L0 is not an
-   event-ingest target
-4. `UnifiedMemoryStore` writes it into the enabled lifecycle stages
-5. `L1`-backed cognition work is recorded as durable `l2_projection_jobs` in `memory.db`
-6. `L2Pipeline` claims those jobs inside `runtime_worker`, moves them through `queued -> running`, batches them locally, and writes derived cognition state
-7. retrieval surfaces read from event, cognition, reflection, and procedural memory as needed
-
-Two rules matter here:
-
-- high-frequency runtime telemetry should not automatically participate in long-term cognition
-- `L1` is the durable source of truth for long-term memory, while `L0` remains
-  a bounded, disposable projection of what still matters for the next
-  conversational turn
-- `ActionExecuted` stays execution-scoped and does not enter `L1`, even though its outcome may still update `L4` procedural memory
-- `L2` progress is tracked by durable projection jobs. Workers may batch already
-  leased projection jobs locally for execution; that local grouping is not an
-  event-ingest or staging path.
-
-Destructive memory clear adds a separate user-content admission boundary around this
-flow. User-message dispatch holds its shared side from attachment preparation
-through chat persistence, L1 projection, and durable runtime enqueue. Clear
-takes the exclusive side first, stops and removes active `CHAT` and `EXPLORE`
-work, advances the durable message generation, discards every older queued user
-message, then enters the exclusive memory boundary. The generation is carried
-through command dispatch, the message bus, `SensorHub`, task-agent routing,
-Explore orchestration state, worker execution, and the completed dossier. A
-missing required generation or any mismatch is rejected after clear. This makes
-a concurrent request either complete pre-clear work that is removed or complete
-post-clear work that is kept, never a partial turn or late Explore result that
-can recreate deleted chat or memory.
-
-Deleting one message uses a session-local admission boundary. An unconsumed
-pending target can be discarded without stopping the current root. If an active
-root has consumed the target or may contain the deleted message in its assembled
-context, that root is cancelled and durably terminalized. Other surviving
-non-terminal turns are prepared as higher delivery attempts and replayed in
-their original order. Work in other sessions continues.
-
-This admission boundary relies on the current runtime owning one
-`SQLiteRuntimeCommandQueue` instance in one Python worker process. A future
-API/runtime multi-process split must move generation admission and stale-command
-validation into database transactions before enabling a second queue instance;
-instance-local generation caches and barriers are not a cross-process contract.
-
-## Runtime Trace Flow
-
-Execution observability is owned by the dedicated runtime trace store rather than the memory event store.
-
-The current runtime trace path is:
-
-1. chat postprocess, direct LLM calls, function-calling orchestration, and worker execution publish `SpanCompleted` events that `RuntimeTraceSubscriber` projects through the runtime trace writer into canonical trace rows
-2. every executable chat turn creates a `trace_turns` root row at intent/runtime start, before final response emission
-3. `runtime_trace.db` stores turn summaries, spans, LLM call details, tool call details, intent-resolution records, and preview-only span input/output fields for UI inspection
-4. `ChatTraceReadService` reconstructs the UI trace tree from those canonical rows
-5. chat display history projects a lightweight `run_state` from `chat_turns` so reload/session-switch UI uses backend state rather than local button state
-6. the Rust gateway and IPC-dispatched message APIs expose trace summaries and snapshots without routing trace nodes through `L1`
-7. the builtin `trace_query` tool reads those persisted summaries and tool-call details when the user asks which tool ran, which parameters were used, how long it took, or why it failed
-
-Two rules matter here:
-
-- runtime trace data is execution observability, not durable memory
-- `L1` stores recall-worthy facts, while `runtime_trace.db` stores execution structure and metrics
-- `trace_turns` is the turn-level trace ledger used for availability, status, and duration; visible execution tree nodes live in `trace_spans`
-- `turn_record` is an internal projection event for `trace_turns` and must not be stored or displayed as a visible span
-- `DIRECT_LLM` turns carry explicit trace context into provider calls so the main model call is attached under the turn root and contributes token metrics
-- function-calling LLM usage labels distinguish chat-level tool decisions from worker tool decisions with separate request kinds, so usage dashboards can explain which loop consumed tokens
-- function-calling turns group each bounded loop as an `iteration` span; LLM decisions and semantic tool calls inside that loop must be children of the iteration, and low-level `tool_invocation` spans should sit under their semantic `tool_call`
-- chat execution summary step counts include semantic actions only (`tool_call`, `worker_attempt`, `skill_call`, plus legacy worker rows); transport, LLM, iteration, dispatch, response, and low-level `tool_invocation` spans remain visible in the trace tree but must not inflate the user-facing step totals
-- response rhythm segmentation emits a `rhythm_processing` span when the final answer is split into multiple natural-language segments
-- prompt-cache diagnostics flow with LLM usage events into `llm_usage.db`; they keep only provider cache counters, stable hashes, sizes, strategy labels, and bounded tool-name metadata so operators can compare cache stability without storing raw prompts or tool payloads
-- user-facing input/output details in trace UI must remain bounded previews, not raw full prompts, transcripts, or tool payloads
-- business runtime code should call the runtime trace writer facade for live span/detail updates instead of calling store `upsert_*` methods directly
-- derived tool execution statistics must read from `runtime_trace.trace_tools`, not from procedural memory counters
-- cross-turn chat continuity should prefer compact recent-tool state over replaying old raw tool transcripts; exact execution inspection should prefer `trace_query`
-
-## Timeline Pull-Sync Flow
-
-Pull-capable timeline sensors participate in the runtime like this:
-
-1. the scheduler fires a `sensor_sync` schedule and the scheduler enqueues a durable job (see Sensor sync execution model above)
-2. `SensorSyncExecutor` claims the job on its dedicated thread
-3. the executor resolves the sensor from `SensorRegistry`, runs `collect_items`, `fetch_item`, `build_output`, and `extract_metadata`
-4. `SensorIngestionGateway` waits for the memory-owned sensor commit boundary
-   to confirm the canonical L1 outcome; only confirmed items are eligible for
-   cursor progress
-5. the committed event is published to downstream consumers such as
-   `TimelineAdapter`, which build rebuildable timeline and graph projections
-
-This is how plugin-backed local sources participate in timeline ingestion without each source inventing its own background loop.
-
-## Transport Boundary
-
-HTTP and WebSocket transport is owned by the Rust gateway (`crates/magi-gateway/`). The Python sidecar runs no HTTP server. FastAPI is used only as an in-memory ASGI app, with requests arriving over an IPC channel (NDJSON over Unix Domain Socket on macOS/Linux, TCP loopback on Windows).
-
-The Rust gateway serves all HTTP and WebSocket traffic on a single port. It
-handles static database reads, config file I/O, task CRUD, and lightweight
-chat-session creation/title/workspace updates natively in Rust. Governed
-message, session, and history deletion is forwarded to Python because it also
-owns memory, trace, file, delivery, and runtime cleanup. Requests that require
-the Python runtime (message send, LLM calls, agent execution) are dispatched
-over the IPC channel.
-
-The gateway is also the desktop access-control boundary. It creates one
-high-entropy session credential per process and requires it on every business
-request, including unknown fallback paths. Only liveness and bundled avatars
-are public. The credential is returned to the WebView in memory, removed before
-IPC forwarding, and never exposed to Python, plugin processes, persistent
-configuration, URLs, or logs. Browser requests with an `Origin` header must
-match an exact Magi WebView origin.
-
-Private resources requested by DOM elements use a separate ticket flow. The
-WebView authenticates a typed ticket request for a chat attachment, timeline
-asset, or user-uploaded avatar. The gateway stores the grant only in memory,
-binds it to the exact resource identity and request target, and expires it
-quickly. Content handlers still enforce their own active-owner, deletion, and
-file-identity rules. Resource-ticket parameters and the desktop credential are
-removed before a request crosses IPC.
-
-The headless gateway uses the same policy and requires
-`MAGI_DESKTOP_SESSION_TOKEN` from its launcher. External desktop development
-mode targets one explicit `localhost` or IPv4-loopback gateway URL and uses the
-matching credential. External collectors are not given this credential; a
-future collector integration must introduce its own paired and narrowly scoped
-ingestion authority.
-
-On macOS and Linux the Python IPC channel is a Unix Domain Socket. On Windows it
-is loopback TCP. Every managed launch creates a second high-entropy credential
-for this inner connection; it is separate from the WebView session credential.
-The launcher passes it only to the Python worker, which removes it from the
-process environment before runtime and plugin startup. The first NDJSON frame
-must authenticate with the matching credential before any business request is
-parsed or dispatched. Missing or incorrect credentials are disconnected, and
-only one authenticated gateway connection may be active. The credential stays
-in process memory and is never written to disk, placed in a URL, or logged. A
-headless launcher must provide the same private IPC credential independently of
-its HTTP session credential.
-
-Transport-related Python code lives in `backend/src/magi/ipc/` and `backend/src/magi/transport/`:
-
-- `ipc/server.py` — IPC server accepting connections from the Rust gateway
-- `ipc/dispatcher.py` — method-to-handler routing for IPC commands
-- `ipc/handlers.py` — command handler implementations
-- `ipc/protocol.py` — message framing and parsing
-- `transport/http_app.py` — in-memory ASGI app for IPC request dispatch
-- `transport/http_middleware.py` — error handling, request logging, language context
-
-### IPC message types
-
-The IPC channel uses newline-delimited JSON (NDJSON). Message types:
-
-- **request** (Rust → Python): `{"id": "uuid", "method": "...", "params": {...}}` — expects response or stream + response
-- **notify** (Rust → Python): `{"method": "...", "params": {...}}` — fire-and-forget, no `id`
-- **response** (Python → Rust): `{"id": "uuid", "result": {...}}` — terminates request
-- **error** (Python → Rust): `{"id": "uuid", "error": {"code": -1, "message": "..."}}` — terminates request
-- **stream** (Python → Rust): `{"id": "uuid", "stream": {...}}` — intermediate data, 0..N before result/error
-- **event** (Python → Rust): `{"event": "...", "data": {...}}` — unsolicited runtime push
-
-Multiple requests can be in-flight concurrently on one connection, multiplexed by `id`.
-
-### Workspace structure
-
-The Rust side is organized as a Cargo workspace:
-
-- `crates/magi-gateway/` — lib crate: Axum routes, IPC client, DB reader, config I/O, notification bridge
-- `frontend/src-tauri/` — Tauri desktop binary, depends on magi-gateway
-- `gateway-cli/` — headless binary for non-desktop operation (benchmarks, CI)
-
-Current rule:
-
-- the Rust gateway owns connection lifecycle, protocol handling, and static data serving
-- the Python transport layer owns IPC app wiring and middleware
-- product behavior belongs in `api/services/` or lower runtime layers
-
-## Explore Request Path
-
-For a large codebase exploration request, the path is:
-
-1. `ChatTaskAgent` receives a user fact
-2. `ChatExecutionCoordinator` decides the request should decompose
-3. Chat routes the request to `ExploreTaskAgent`
-4. `ExploreTaskAgent` builds a `SubtaskPlan`
-5. `TaskOrchestrator` launches leaf `CodeExplore` workers
-6. Workers return typed `WorkerResult`
-7. `ExploreAggregationService` builds a Markdown dossier
-8. `ExploreTaskAgent` emits an `ExploreTaskCompletedPayload`
-9. `ChatTaskAgent` renders the final user-facing response
-
-The originating user-message generation accompanies every handoff in this
-path. Task-agent admission checks it before creating either the Explore or Chat
-instance, so clearing data fences the whole graph rather than only the first
-chat message.
+## Bootstrap And Readiness
+
+`bootstrap/` is the composition root. It wires layer-owned modules rather than
+placing business logic in one global service bag. Startup follows four broad
+phases:
+
+1. infrastructure and database migrations;
+2. stores, registries, model providers, tools, skills, and runtime bindings;
+3. recovery workers, task-agent runtime, scheduler, channels, and business
+   services;
+4. exported bindings, maintenance dependencies, and readiness publication.
+
+The product readiness states remain:
+
+- `ready` — normal agent execution is available;
+- `deferred` — configuration/onboarding may proceed, but full model execution is
+  not yet guaranteed;
+- `degraded` — startup completed with an explicitly reduced capability set;
+- `unresponsive` — the IPC worker did not answer the bounded readiness probe.
+
+Full-clear recovery is completed before ordinary runtime commands are admitted.
+This prevents pre-clear queue rows, projections, or plugin ingress from
+recreating deleted user content.
+
+## Ingress Envelope And Slash Commands
+
+The client sends structured fields for controls that must not be guessed from
+natural language:
+
+- reasoning preference (`auto`, `fast`, `deep`);
+- inline skill identity and expanded content hash;
+- reply target and managed attachments;
+- controlled interaction responses;
+- workspace and source-channel identity.
+
+Slash recognition is owned before the model-facing run:
+
+- `CommandRegistry` is the canonical catalog for client, control, tool, and
+  skill commands;
+- client/control commands such as `/cancel`, `/clear`, `/fast`, and `/deep` are
+  handled deterministically by their declared owner;
+- user-invocable tool commands execute through `CommandRunner`, including the
+  same permission boundary used by model-driven calls;
+- inline skills are expanded by the backend and become typed, trusted context in
+  `UserMessagePayload.skill_invocation`; their allowed tools are pinned into the
+  initial capability view;
+- a slash-like string not resolved by the command catalog remains ordinary user
+  text. The model may interpret its meaning, but cannot turn it into a privileged
+  command.
+
+Every command invocation/result written to chat uses the chat-owned surface
+writer. Commands do not assemble transcript rows directly.
+
+## Deterministic Turn Admission
+
+The generic `TaskAgent` pipeline still exposes hooks named `match_intent` and
+`match_tools`, but their current chat implementations are not semantic LLM
+routers:
+
+- `ChatFactClassifier` normalizes fact envelopes into `USER_MESSAGE` or
+  `OTHER_FACT` and extracts typed payloads;
+- `ChatTurnAdmissionService` routes non-user facts to `ExecutionMode.FACT_ONLY`;
+- every ordinary user message returns the `unified_agent_run` admission with no
+  route-derived execution mode;
+- `ExecutionMode` therefore describes only deterministic domain-event handling,
+  not chat/code/explore/orchestration model paths.
+
+This distinction is intentional. Removing the pre-router does not mean removing
+typed ingress or validation. It removes an extra semantic prediction whose
+output previously duplicated decisions the main model had to make again.
+
+## Initial Capability Resolution
+
+`CapabilityResolver` constructs a bounded, auditable initial tool surface before
+the first model call. Its inputs are deterministic or retrieval-based:
+
+- resident system tools;
+- tools explicitly granted by an inline skill;
+- attachment resolver tools required by current/replied-to assets;
+- a bounded continuity pin for a recent failed tool;
+- Top-K metadata search over the live tool/skill registry;
+- model support for tool calling, feature flags, registrations, and effect
+  metadata.
+
+L4 advisories may rerank optional candidates but cannot authorize a disabled
+tool or displace resident/pinned capabilities. A local-write or unknown-effect
+candidate also causes `verify` to be exposed when available.
+
+If the first surface is insufficient, the model may use the bounded discovery
+tool during the loop. The runtime appends only admitted capabilities and records
+`CAPABILITIES_EXPANDED`; it does not restart semantic routing.
+
+## `AgentRunRequest`
+
+`backend/src/magi/agent/execution/function_calling/run_input.py` defines the
+single model-facing request contract. It carries:
+
+- typed `UserTurnInput`, effective system prompt, history, summary, reply and
+  ephemeral context;
+- selected tools and a snapshot of capability resolution;
+- user/session/turn/run/parent-run identity;
+- execution preset, workspace, model capabilities, timeout, and task bounds;
+- `ReasoningPolicy` and current `ReasoningState`;
+- `CompletionPolicy` and a provider for the current versioned `RunPlan`;
+- `RunControl`, checkpoint, and context-source snapshots.
+
+`AgentRunRequest.headless(...)` is used by background and child execution. It
+cannot smuggle chat presentation services into the engine. Chat-specific prompt
+assembly and outcome projection stay in the chat driver.
+
+## Unified Agent Loop
+
+`AgentRunHandler` prepares the request. `FunctionCallingOrchestrator` and
+`FunctionCallingLoopRunner` execute it. One logical iteration is:
+
+```text
+safe-boundary control/input drain
+  -> resolve effective reasoning depth
+  -> model call with current capabilities
+  -> if tool calls: permission/effect admission -> execute -> record evidence
+  -> if child launch: execute bounded child run(s) -> return structured results
+  -> if proposed final: evaluate CompletionGate
+       complete  -> finish
+       continue  -> append repair observations and iterate
+       suspend   -> checkpoint and wait for explicit interaction
+       blocked   -> finish with a governed blocked outcome
+```
+
+The runtime owns maximum iterations, model/worker reservations, timeouts,
+permission waits, effect identities, repair bounds, context compaction, and
+cancellation checks. The model owns semantic decomposition and the choice of
+next action within the exposed capabilities.
+
+There is no `DirectLLMHandler`, `TaskOrchestrator`, `ExploreTaskAgent`, route
+graph, or route-derived handler registry for ordinary turns. A simple chat still
+costs one main model call because it naturally takes the shortest path through
+the same loop.
+
+## Tool Effects And Replay
+
+Every executable tool is normalized through canonical effect metadata:
+
+- effect class: `read_only`, `local_write`, `external_write`, or `unknown`;
+- replay policy and semantic effect identity;
+- permission/risk metadata;
+- whether uncertain outcomes must be reconciled.
+
+The invocation service records effect attempts before calling effectful tools.
+An ambiguous or uncertain attempt is not automatically replayed. Provider-level
+idempotency is still required for remote systems; a local ledger cannot make a
+remote transaction atomic.
+
+Tool results become `ToolExecutionEvidence`. The completion gate consumes this
+normalized evidence instead of trusting a model claim that work succeeded.
+
+## Completion Gate And Repair
+
+`CompletionGate` is deterministic. It evaluates a proposed final response using
+the run's policy, tool evidence, current plan, pending interaction state, and
+repair count.
+
+It enforces these current invariants:
+
+- a pending required interaction suspends the run;
+- an uncertain effect blocks completion until reconciled;
+- every required plan item must be terminal and completed items must cite
+  evidence from the current run;
+- failed validation must be followed by a successful validation after repair;
+- local-write and unknown-effect work must have current validation evidence;
+- repair cannot exceed the configured budget.
+
+Gate rejection is not a hidden fixed workflow such as “always plan, then act,
+then validate.” Simple conversation skips plans, tools, and validation. The
+runtime adds those constraints only when observed effects, an explicit plan, or
+evidence make them necessary.
+
+## Reasoning Depth Policy
+
+Reasoning depth has four layers of ownership:
+
+1. **Explicit preference.** `auto`, `fast`, or `deep` enters through the typed
+   message envelope or the corresponding slash control.
+2. **Preset baseline.** Chat/background/child presets select an initial depth,
+   maximum depth, and escalation budget.
+3. **Model/provider clamp.** `ModelCapabilityProfile` maps the requested depth to
+   what the active provider/model can actually support.
+4. **Evidence-driven escalation.** Validation failure or another completion
+   rejection marked `reasoning_helpful` may raise the next step monotonically.
+
+`ReasoningState` is checkpointed. Escalation cannot lower depth, exceed the run
+maximum, or reset its counter on retry. A validation-required rejection caused
+only by missing evidence does not automatically buy more reasoning.
+
+Operationally, ordinary `auto` chat starts at low depth without a router call;
+`fast` starts at none and is capped at low; `deep` starts at medium and may reach
+max where the provider supports it.
+
+## Versioned Run Plans
+
+The model uses `todo_write` when a user-visible plan materially helps execution.
+The runtime owns plan ID, version, transition validation, and optimistic
+concurrency. Plan items may be patched rather than replacing the whole plan.
+
+Important invariants:
+
+- at most one item is `in_progress`;
+- completed required items cite current-run evidence;
+- blocked items carry a reason;
+- cancellation marks the run-owned active plan cancelled;
+- the completion gate reads the current `RunPlan`, not model prose.
+
+A successful `todo_write` produces `PLAN_UPDATED` in the run journal. The trace
+projection exposes the latest plan to the frontend. The retired `todo_state`
+chat message and `/control/.../todos` duplicate read API no longer exist.
+
+## Child Runs
+
+The parent model decides whether decomposition is useful by calling the `agent`
+tool. `ChildRunCoordinator` owns the mechanics:
+
+- `launch`, `status`, `await`, and `cancel` actions;
+- single or batch children, optionally parallel;
+- parent/child identity and run-revision ownership;
+- shared task-level model/worker budgets;
+- bounded iteration/await timeouts;
+- cancellation propagation and structured result validation.
+
+Presets are capability policies, not semantic task classes:
+
+- `read_only` — read-only tools, low baseline reasoning;
+- `workspace_write` — read plus local-write tools, medium baseline reasoning;
+- `review` — read-only review surface, medium baseline reasoning;
+- `default` — conservative read-only fallback.
+
+Children execute the same unified loop through `AgentRunRequest.headless`. They
+cannot recursively launch `agent`, update the parent plan, ask the user, or
+detach themselves. Their allowed tools are derived from effect metadata, and
+their reasoning ceiling cannot exceed the parent's policy or remaining budget.
+
+## Active-Run Input, Cancellation, And Detach
+
+`SessionRunCoordinator` owns one active foreground run per chat session.
+
+Ordinary text received while that run is active is persisted as another user
+turn and attached to the run with the single disposition `message`.
+`RunInputQueue` drains it exactly once at the next safe model-step boundary and
+adds a typed `RunInputMessage` to context. The old AUGMENT/STEER/DEFER semantic
+classifier and its extra LLM call are retired.
+
+Structured interactions that must start a new root turn remain separate from
+in-flight text injection. They are not flattened into arbitrary user prose.
+
+Cancellation has two explicit paths:
+
+- structured `/cancel` or UI cancellation;
+- a narrow exact-phrase fallback checked by `cancel_protocol.py` against the
+  managed phrase list.
+
+The fallback accepts only an unambiguous whole-message cancel protocol; it does
+not semantically classify normal text. Durable turn cancellation and active-run
+cancellation share the same ownership boundary, so cancellation can win before
+admission or stop the exact already-created run. Tools, child launches, model
+steps, and final delivery recheck the cancel token at side-effect boundaries.
+
+Detach transfers eligible foreground work into the background runtime through a
+typed control/tool path. The background task receives the trigger, remaining
+budget, context snapshot, and cancellation ownership explicitly; detach is not
+inferred from arbitrary prose.
+
+## Persona Boundary
+
+Persona planning receives task/runtime signals but does not own execution
+routing. It classifies conversational register and applies hard safety/quiet
+clamps inside `PersonaTurnPlanner`. The persona plan influences prompt voice,
+not capability authorization, completion, or effect policy.
+
+There is no dependency on a `ContextDecider` hint. Persona behavior must remain
+correct for ordinary chat, technical analysis, tool work, emotional support,
+and safety cases using the typed turn/context signals available at prompt
+assembly.
+
+## Durable Run Journal And Trace Projection
+
+`runtime_trace.db` contains:
+
+- `agent_run_manifests` — the effective prompt/context/tool/policy manifest;
+- `agent_run_events` — ordered lifecycle facts;
+- `run_plans` — versioned plan snapshots;
+- normalized spans/tool/model rows for lower-level tracing;
+- runtime notifications and plugin ingress records.
+
+Important run events include model output, tool request/result/effect admission,
+capability expansion, plan update, child lifecycle, validation, completion
+decision, repair, reasoning-depth change, suspension, completion, failure, and
+cancellation.
+
+`ChatTraceReadService` prefers canonical run events when they exist and falls
+back to normalized trace rows only for non-unified producers. The run-event
+projection is the source for:
+
+- current plan summary;
+- child, validation, repair, and reasoning nodes;
+- run status and duration;
+- model/tool/validation/repair/child counts;
+- first-action and total runtime latency;
+- token totals and reasoning escalation count.
+
+Chat transcript truth remains in `chat.db`. Execution plans and intermediate
+runtime state are not duplicated as chat messages. Runtime notifications are
+best-effort wakeups; reload always reconstructs from durable stores.
+
+## Persistence Boundaries
+
+- `chat.db` — sessions, turns, visible messages, attachments, reply/label state,
+  accepted-turn delivery ledger, rolling summaries, and projection intents;
+- `runtime_trace.db` — run manifests/events/plans, normalized execution traces,
+  and live notification records;
+- `message_queue.db` — durable command admission and delivery attempts;
+- `background_tasks.db` — background specifications, attempts, effect ledger,
+  completion intents, and budgets;
+- memory databases — governed memory facts and lifecycle state, never the
+  source of truth for active execution recovery;
+- `scheduler.db` — schedules, target state, execution records, and sensor jobs.
+
+The retired `orchestration_id` column has been removed from chat, trace, and
+background current schemas. `run_id`, `parent_run_id`, turn identity, and task
+identity are the only execution ownership seams.
+
+## Prompt History And Context Capacity
+
+Chat prompt assembly combines:
+
+- the active rolling summary and complete unsummarized user-led tail;
+- the current typed turn and reply target;
+- managed attachment references;
+- bounded recent tool-state continuity;
+- memory retrieval and persona plan;
+- explicit inline skill context;
+- the current tool schemas only on calls that send tools.
+
+Display-history pagination never defines model context. Under pressure,
+compaction keeps complete protocol groups and preserves tool-call identifiers.
+The active model's input/output limits determine the capacity decision.
+Provider-facing prompt measurement is performed before every model call.
+
+Session summaries are continuation checkpoints in `chat.db`, not long-term
+memory facts. A summary or attachment metadata failure must not silently turn a
+known conversation into an empty prompt.
+
+## Background And Scheduled Execution
+
+Background tasks, scheduled agent tasks, and child runs all call the unified
+loop with explicit presets and durable budgets. Background completion is stored
+before delivery fan-out so startup can resume pending completion intents without
+rerunning the model task.
+
+Scheduler targets own timing and enqueueing. The background runtime owns model
+and tool execution. Successful user-facing results are projected back to the
+originating chat as ordinary assistant outcomes while background rows remain
+available for audit.
+
+## Delivery, Recovery, And Privacy Boundaries
+
+Chat acceptance is a single chat-domain transaction covering the session/turn,
+first user message, attachment ownership, and initial delivery record. Runtime
+queue admission is durable at-least-once; execution side effects are not
+globally atomic with that queue.
+
+The accepted final chat surface is idempotent by stable turn and delivery
+attempt. A stale attempt cannot close or overwrite a newer run. Assistant memory
+projection begins only after the visible outcome is durable.
+
+Explicit deletion and full clear establish barriers before active work,
+recovery workers, plugin ingress, projections, and memory writes may continue.
+L0 does not persist active runs or pending run input. A missed in-process
+post-turn analysis may be lost, but durable chat truth and run journals remain
+recoverable.
+
+External channel replies still occur after the durable chat commit without a
+per-target durable egress outbox. A crash in that gap may preserve the desktop
+answer while losing the external send; this path must not be described as
+exactly-once delivery.
+
+## Layer Ownership
+
+- `agent/execution/` owns the unified run request, loop, journal, capability
+  policy, reasoning state, effect evidence, completion gate, and checkpoints;
+- `agent/workers/` owns bounded child-run mechanics and presets;
+- `agent/task_agents/` owns generic task-agent hooks and handler contracts;
+- `chat/task_agent/` owns chat context, session/run admission, safe-boundary
+  input, presentation, post-processing, and transcript outcome policy;
+- `commands/` and `skills/` own typed slash resolution and expansion;
+- `control/` owns permissions, asks, plan state, run control, and user-content
+  clear coordination;
+- `runtime_trace/` owns durable execution observability and read projections;
+- `bootstrap/` only composes these owners.
+
+The agent layer must not import chat presentation or persistence implementations.
+Chat supplies narrow protocols and constructs `AgentRunRequest`; the loop returns
+a domain-neutral execution result.
+
+## Cost And Latency Consequences
+
+| Scenario | Current model calls | Runtime consequence |
+| --- | --- | --- |
+| Simple chat | one main call | no serial router latency |
+| Ordinary tool task | main loop calls only | bounded metadata capability resolution is local |
+| Inline skill | skill expansion plus main loop | no additional intent call |
+| Child decomposition | parent calls plus child calls | fan-out occurs only when the parent requests it |
+| Validation repair | additional main repair calls | paid only after observed evidence requires repair |
+| `fast` / `deep` | same call count | changes reasoning effort/budget, not route shape |
+
+The architecture removes one serial auxiliary LLM call from every ordinary
+turn. It may spend extra calls when capability recovery, child work, or repair
+is actually needed. Those costs are evidence-driven and visible in runtime
+metrics.
 
 ## Files To Read First
 
-If you are modifying this part of the system, read these first:
+- `backend/src/magi/chat/task_agent/turn_admission_service.py`
+- `backend/src/magi/chat/task_agent/coordinator.py`
+- `backend/src/magi/agent/execution/function_calling/run_input.py`
+- `backend/src/magi/agent/execution/function_calling/loop_runner.py`
+- `backend/src/magi/agent/execution/capability_resolver.py`
+- `backend/src/magi/agent/execution/completion_gate.py`
+- `backend/src/magi/agent/execution/reasoning.py`
+- `backend/src/magi/agent/execution/journal.py`
+- `backend/src/magi/agent/workers/worker_manager.py`
+- `backend/src/magi/chat/task_agent/run_input_queue.py`
+- `backend/src/magi/runtime_trace/chat_trace/run_event_projection.py`
 
-- [task_agent.py](../backend/src/magi/agent/runtime/task_agent.py)
-- [chat_task_agent.py](../backend/src/magi/chat/task_agent/chat_task_agent.py)
-- [explore_task_agent.py](../backend/src/magi/agent/task_agents/explore_task_agent.py)
-- [task_orchestrator.py](../backend/src/magi/agent/task_orchestrator.py)
-- [orchestration.py](../backend/src/magi/agent/orchestration.py)
-- [worker_manager.py](../backend/src/magi/agent/workers/worker_manager.py)
-- [memory/__init__.py](../backend/src/magi/memory/__init__.py)
-- [integration.py](../backend/src/magi/memory/integration.py)
-- [hybrid_retrieval/service.py](../backend/src/magi/memory/hybrid_retrieval/service.py)
+## Contributor Rules
 
-## Current Strengths
-
-- Chat and explore task agents now share the same execution skeleton
-- Workers are leaf-only and bounded
-- Internal contracts are much more explicit than before
-- The runtime can now be reasoned about in terms of stable DTOs instead of ad hoc payload dictionaries
-- Memory ingestion and retrieval now share one lifecycle model instead of multiple loosely coupled memory stacks
-
-## Current Risks
-
-- [common/contracts.py](../backend/src/magi/agent/task_agents/common/contracts.py) is growing and may need to be split by concern
-- `TaskOrchestrator` is still a dense class and may eventually need event-adapter separation
-- Event transport payloads are still dict-based externally, so contract drift is still possible if new event producers bypass the typed classifiers
-- Memory quality now depends more heavily on correct event routing and source taxonomy, so runtime producers must follow the memory event contract carefully
-- ordinary external chat replies and `ask_user` questions still lack a durable per-target egress intent, so restart recovery cannot safely resend them
-
-## Contributor Guidance
-
-When adding a new runtime feature:
-
-1. Decide whether it belongs to chat, explore, worker, or shared orchestration.
-2. Prefer adding a typed contract before adding a new raw payload field.
-3. If a new internal event is introduced, add a payload DTO and update the relevant classifier.
-4. Keep workers leaf-only unless the architecture deliberately changes.
-5. Keep user-facing rendering in task agents, not in workers.
-
-When in doubt, prefer:
-
-- typed DTO inside the runtime
-- serialized dict only at the process or storage edge
+- Do not add a semantic pre-router for ordinary turns.
+- Add a deterministic branch only for protocol, ownership, safety, permission,
+  effect, budget, or persistence invariants.
+- Do not create a second direct/chat/code/explore loop.
+- Add capabilities through registry metadata and runtime resolution, not phrase
+  dictionaries in the chat driver.
+- Keep plans and intermediate execution state in the run journal/read
+  projection, not the chat transcript.
+- A child execution feature must use `ChildRunCoordinator` and the unified loop.
+- Every new effectful tool must declare effect/replay metadata and have a
+  validation story.
+- Tests should prove the current contracts. Delete tests whose only purpose is
+  to preserve retired routes, fields, or compatibility behavior.

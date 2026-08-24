@@ -1,10 +1,18 @@
 # ADR-0005: ContextDecider Routing Layer — Derive Execution Shape, Layer Tool Injection
 
-**Status:** Accepted
+**Status:** Superseded by the unified agent runtime (2026-08-24)
 **Date:** 2026-06-04
 **Deciders:** maintainers (architecture owners)
 **Relates to:** [ADR-0004 Engine/Driver/Trigger Seam](./agent-runtime-seam-adr.md), [ADR-0002 Tool Taxonomy](./tool-taxonomy-adr.md)
 **Motivated by:** a real bug — a `memory_query` tool the router *correctly* selected was dropped before reaching the main LLM. Root-cause analysis showed the bug is a symptom of a structural flaw in how the chat driver makes its pre-turn decisions.
+
+> This record is retained as historical evidence for why the old routing layer
+> failed. `ContextDecider`, `RouteDecision`, semantic profiles, graph-shape
+> routing, and router-selected tool catalogs have since been removed. The
+> current normative design is
+> [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md):
+> deterministic admission constructs one `AgentRunRequest`, and the main model
+> answers or uses governed tools inside one unified loop.
 
 ## Context
 

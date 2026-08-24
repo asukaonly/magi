@@ -6,7 +6,7 @@ Magi is a local-first AI agent framework that runs as a desktop application with
 
 At a high level, Magi combines:
 
-- a backend runtime for bootstrap, orchestration, memory, tools, plugins, scheduling, and agent execution
+- a backend runtime for bootstrap, agent execution, memory, tools, plugins, and scheduling
 - a Rust gateway (Axum) that owns HTTP/WebSocket transport, static reads, config I/O, and IPC dispatch to Python
 - a React frontend for onboarding, settings, chat, inspection, and operational workflows
 - a Tauri desktop shell that hosts the frontend, starts the Rust gateway, and manages the Python sidecar process
@@ -126,7 +126,7 @@ The backend uses a thin composition root plus layer-owned runtime modules.
   Application infrastructure such as logging, dependency injection, runtime paths, database initialization, and maintenance dependencies.
 
 - `agent/`
-  The task-agent runtime, orchestration, worker execution, and task-specific flows.
+  The unified task-agent runtime, child-run execution, and task-specific flows.
 
 - `api/`
   Product-facing services and routers dispatched via IPC from the Rust gateway.
@@ -140,16 +140,18 @@ The backend is described in more detail in [Layered Agent Architecture](./layere
 The core runtime is centered on:
 
 - `ChatTaskAgent`
-  The main user-facing task agent
+  The chat-domain driver for typed ingress, prompt assembly, session-run state,
+  and durable outcome projection
 
-- `ExploreTaskAgent`
-  A specialized task agent for large exploration-style requests
+- `AgentRunHandler` and `FunctionCallingOrchestrator`
+  The single model-facing execution path for ordinary chat, background, skill,
+  and child runs
 
-- `TaskOrchestrator`
-  Shared parent-task orchestration for bounded worker plans
+- `CapabilityResolver`, `CompletionGate`, and `AgentRunJournal`
+  Runtime-owned capability, evidence, completion, and durable lifecycle policy
 
-- `WorkerAgentManager`
-  Leaf worker lifecycle and result publication
+- `ChildRunCoordinator`
+  Bounded child-run lifecycle, presets, budgets, cancellation, and results
 
 Background-task completion is recoverable across startup ordering: every
 terminal attempt leaves a pending completion snapshot before listeners run, and
@@ -296,7 +298,9 @@ The durable design is documented in [Persona Runtime Architecture](./persona-run
   receipts, notification cursors, and proactive-outreach outbox/delivery state
 
 - `~/.magi/runtime/runtime_trace.db`
-  Runtime execution observability only: turn summaries, spans, LLM metrics, tool calls, intent-resolution details, live notifications, and append-only plugin ingress events produced by the desktop shell
+  Runtime execution journal and observability: run manifests, ordered lifecycle
+  events, versioned plans, normalized spans, LLM/tool metrics, live
+  notifications, and append-only plugin ingress events
 
 - `~/.magi/runtime/llm_usage.db`
   LLM usage metrics and usage-event persistence, including provider-reported prompt-cache read/write token counts used by the statistics dashboard
@@ -348,11 +352,11 @@ not a substitute for durable-memory confirmation.
 |---|---|---|---|---|---|
 | `chat.db` | sessions, session-creation idempotency mappings, turns, messages, attachment metadata, asset/code-delegation ownership, private cleanup registries, delivery attempts, assistant-memory projection intents, clear intents, cleared-session scopes, cleared-message scopes | Chat transcript, server-owned session identity, presentation state, delivery convergence, and deletion barriers | Reads history/session/attachment views; atomically writes server-generated lightweight sessions and their client idempotency mappings; writes presentation fields such as title and workspace | Writes runtime turns and messages; owns stop, message/session/history deletion, permanent session and message tombstones, attachment/code-delegation cleanup, projection handoff, and recovery invariants. Governed deletion is forwarded to Python and is never a native Rust soft-delete | Python chat store schema; Rust route tests must track response/write expectations |
 | `data/resources/chat/` | attachment files and derived artifacts | Managed chat attachment content | Streams bounded upload request bodies into temporary staging outside managed storage and streams downloads only from an exact active message owner after file-identity validation | Streams staged uploads into the in-memory API; owns final upload writes, derived artifacts, tool/channel imports, message ownership validation, safe internal reads, and serialized garbage collection | Python chat attachment services own every managed mutation and internal safe-read rules; Rust gateway owns request staging and native validated downloads |
-| `runtime_trace.db` | trace turns, spans, tool calls, LLM calls, runtime notifications, plugin ingress events | Execution observability and best-effort live fan-out | Reads trace snapshots and readiness metrics; inserts `runtime_notifications` only for gateway-owned mutations that need frontend fan-out | Writes trace/notification/plugin ingress records produced by runtime services | Python runtime trace store schema; Rust notification bridge contract tests |
+| `runtime_trace.db` | run manifests, ordered run events, versioned plans, trace turns, spans, tool calls, LLM calls, runtime notifications, plugin ingress events | Durable agent-run facts, execution observability, and best-effort live fan-out | Reads trace snapshots and readiness metrics; inserts `runtime_notifications` only for gateway-owned mutations that need frontend fan-out | Writes run journals, trace projections, notifications, and plugin ingress records produced by runtime services | Python runtime trace store schema; Rust notification bridge contract tests |
 | `message_queue.db` | `runtime_commands`, user-message clear generation, cleared session/turn scopes | Durable runtime command queue and pre-admission privacy boundary | No direct writes except through IPC-facing command enqueue flows if explicitly implemented | Owns queue schema, attempt identity, claiming, retry, ack, recovery, generation advance, and scope blocking | Python runtime command queue |
-| `background_tasks.db` | background task rows, attempt events, terminal-completion intents | Background execution state and recoverable completion handoff | No direct native writes currently | Owns task transitions, cancellation, startup recovery, terminal snapshot handoff, and retention | Python background-task store/schema |
+| `background_tasks.db` | background task rows, attempt events, effect ledger, execution budgets, terminal-completion intents | Background execution state, effect replay governance, and recoverable completion handoff | No direct native writes currently | Owns task transitions, cancellation, budgets, effect attempts, startup recovery, terminal snapshot handoff, and retention | Python background-task store/schema |
 | `channels.db` | session mappings, binding settings, receipts, notification cursors, proactive-outreach outbox and delivery log | External conversation routing and proactive-delivery state | No direct native writes currently | Owns channel mapping/preferences, delivery receipts, clear-time conversation cleanup, proactive-outreach claiming, and delivery convergence | Python channels/outreach schema |
-| `tasks.db` | `tasks` | User-facing task records | Reads task views; writes product task CRUD fields through `crates/magi-gateway/src/api/tasks/write.rs` | May write runtime-linked task rows and orchestration linkage through task-domain services | Shared task-domain schema; native route mutations must stay field-scoped |
+| `tasks.db` | `tasks` | User-facing task records | Reads task views; writes product task CRUD fields through `crates/magi-gateway/src/api/tasks/write.rs` | May write runtime-linked task rows through task-domain services | Shared task-domain schema; native route mutations must stay field-scoped |
 | `scheduler.db` | `schedules`, `target_state`, execution history, durable sensor-sync attempts | Unified scheduler configuration and execution bookkeeping | Reads schedules/executions; writes product schedule CRUD, target-state reset fields, and cancellation markers through `crates/magi-gateway/src/api/schedules/write.rs` | Owns scheduler execution, job registration, run history, bounded sensor-sync retry, and immediate recovery of interrupted sensor jobs | Python scheduler repository schema; Rust route tests cover native mutation fields |
 | `sensor_state.db` | `sensor_cursors`, `sensor_fingerprints`, `sensor_stats` | Sensor sync bookkeeping and source-item dedupe state | No direct native writes currently; product commands request state flushes through IPC/runtime command queue | Owns cursor/stat updates and fingerprint dedupe writes; high-volume fingerprint writes must use the awareness-owned bounded batch writer | Python sensor_state schema |
 | `llm_usage.db` | `llm_usage`, `llm_usage_rollups` | LLM usage metrics | Reads usage dashboards, including cache read/write utilization | Writes provider/runtime usage records for Python LLM execution and preserves cache token counts in rollups | Python LLM usage store schema; Rust metrics tests cover read/write shape |
@@ -374,7 +378,7 @@ Important rules:
 magi/
 ├── backend/
 │   ├── src/magi/
-│   │   ├── agent/          # Task-agent runtime, orchestration, workers
+│   │   ├── agent/          # Unified agent runtime and child runs
 │   │   ├── api/            # Product-facing routers and services
 │   │   ├── awareness/      # Sensors and runtime event emission
 │   │   ├── bootstrap/      # Composition root and lifecycle assembly
@@ -389,7 +393,7 @@ magi/
 │   │   ├── memory/         # Lifecycle-based memory stores and retrieval
 │   │   ├── personality/    # Personality state and subjective modeling
 │   │   ├── plugins/        # Plugin discovery and registration
-│   │   ├── runtime_trace/  # Execution observability persistence
+│   │   ├── runtime_trace/  # Run journal and execution observability
 │   │   ├── scheduler/      # Persistent scheduler and target dispatch
 │   │   ├── skills/         # Shared skill loading and execution
 │   │   ├── tasks/          # User-facing task tracking
@@ -407,23 +411,24 @@ magi/
 └── scripts/               # Dev/build helper scripts
 ```
 
-## Explore Flow
+## Unified Agent Flow
 
-Large explore requests currently flow like this:
+Ordinary user messages do not pass through a chat/code/explore classifier. The
+chat driver deterministically admits the typed message, resolves a bounded
+initial capability surface, and builds one `AgentRunRequest`. The main model can
+answer directly, call tools, maintain a versioned plan, or launch one or more
+bounded child runs through the `agent` tool. Code-owned completion policy checks
+effects, evidence, plan state, and validation before the final answer is
+committed.
 
-1. `ChatTaskAgent` classifies a request as explore-style work.
-2. It forwards the request to `ExploreTaskAgent`.
-3. `ExploreTaskAgent` plans bounded subtasks.
-4. Leaf workers execute those subtasks in parallel.
-5. The results are aggregated into a Markdown dossier.
-6. The dossier flows back to `ChatTaskAgent` for user-facing rendering.
-
-This keeps workers leaf-only while preserving a conversational entry point.
+This keeps simple turns cheap while allowing source-heavy exploration and broad
+repository work to decompose only when the main model has concrete reason to do
+so.
 
 ## Technical Principles
 
-- workers stay leaf-only
-- parent orchestration is explicit and typed
+- child runs cannot recursively launch child agents
+- parent/child ownership, presets, and budgets are explicit and typed
 - internal runtime logic prefers typed contracts over anonymous dictionaries
 - transport payloads remain pragmatic at process boundaries
 - bootstrap assembly stays thin; business logic stays with the owning layer

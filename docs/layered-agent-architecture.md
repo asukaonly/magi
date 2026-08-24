@@ -76,7 +76,8 @@ Responsibilities:
 - maintenance dependencies
 - shared infrastructure exports
 - persistent scheduler engine (timing, target dispatch, durable execution bookkeeping)
-- runtime trace persistence (spans, LLM calls, tool calls, execution observability)
+- runtime run-journal persistence (manifests, lifecycle events, plans, spans,
+  LLM calls, tool calls, and execution observability)
 
 Primary packages:
 
@@ -104,7 +105,8 @@ Notes:
 
 - the scheduler engine is infrastructure, even if bootstrap starts it later in dependency order
 - bootstrap order and ownership layer are not the same thing
-- `runtime_trace/` stores execution observability data; it is not durable memory and does not participate in L7 recall
+- `runtime_trace/` stores durable execution facts and observability data; it is
+  not semantic memory and does not participate in L7 recall
 - workspace storage is an infrastructure facade: `core` owns workspace identity, path safety, generated directory creation, and state manifests; upper layers receive scoped paths instead of constructing `<workspace>/.magi` paths directly
 - code-delegation path validation and exact filesystem/git cleanup are shared
   infrastructure, but chat owns the durable artifact registry and decides when
@@ -303,38 +305,65 @@ Notes:
 Responsibilities:
 
 - task-agent lifecycle
-- router and dispatch
-- execution-mode coordination
-- task orchestration
-- worker execution management
+- typed run requests and triggers
+- unified model/tool execution
+- capability, reasoning, effect, completion, and checkpoint policy
+- bounded child-run execution management
+- durable run lifecycle events
 
 Primary packages:
 
 - `agent/runtime/`
 - `agent/task_agents/`
+- `agent/execution/`
 - `agent/workers/`
 - `agent/runtime_tools/`
-- `agent/task_orchestrator.py`
 
 Notes:
 
 - `agent/runtime/` is the correct L12 home for runtime control flow
 - it is not a replacement for infrastructure and should not be described as a second `core/`
-- `agent/runtime_tools/` holds host runtime-control tools that need the agent runtime itself (e.g. `agent_tool`, which spawns sub-agents via `WorkerAgentManager`). The L8 tool registry cannot import L12, so these are registered by the composition root (`bootstrap/`), not via the plugin/core-tools path (ADR-0002).
+- `agent/runtime_tools/` holds runtime-control tools that need L12 services. The
+  L8 registry cannot import L12, so the composition root registers them.
 
-#### Agent runtime — three rings (ADR-0004)
+#### Agent runtime — current rings
 
-The run-execution stack is three concentric rings, each separated by a dependency-inversion seam. Rings 1–2 are the domain-agnostic agent runtime (L12); ring 3 is the per-surface driver, which lives in *its own domain layer*, not in `agent/`:
+The execution stack has three ownership rings:
 
-1. **Run Engine** — `FunctionCallingOrchestrator` (`agent/execution/`) + `TaskAgentExecutionEngine`, `NodeSequenceRunner`, and the node framework (`agent/run/`): a bounded LLM↔tool run. Domain-agnostic and **chat-free** — already used headless by worker / subagent / background. The engine does not runtime-import handlers (they are injected; only TYPE_CHECKING refs exist).
-2. **Generic handler framework** — `TaskAgent` base, `BaseExecutionHandler`, execution contracts, and the handler *algorithms* (`DirectLLMHandler` / `FunctionCallingHandler`) in `agent/task_agents/handlers/`. Domain-agnostic; drives the engine through **injected service Protocols** (`agent/task_agents/common/service_protocols.py`). Generic across drivers (chat today; voice / batch / scheduled next).
-3. **Domain drivers** — the surface-specific composition, in `chat/task_agent/` (L14): `ChatTaskAgent` + factory + the `Chat{Prompt,Planning,History}Service` + postprocess / transcript / reply-context + the run/session state machine (`ChatExecutionCoordinator` / `session_run_*` / `run_store*`) + conversational services (fact-classifier / interruption / rhythm / streaming / turn UX planning / chat tool selection / foreground-background run placement). A driver lives in its **highest domain layer**, implements the ring-2 Protocols, and is dispatched by type via an injected factory the agent runtime never hard-imports (ADR-0003). The chat driver is constructed via `create_chat_agent_factory` injected from the composition root (`bootstrap/`), so `agent/lifecycle.py` does not import chat.
+1. **Unified run engine (L12).** `AgentRunRequest`,
+   `FunctionCallingOrchestrator`, `FunctionCallingLoopRunner`, run journal,
+   capability resolver, effect ledger, completion gate, reasoning policy, and
+   checkpoints. This ring is domain-agnostic and chat-free.
+2. **Generic task-agent framework (L12).** `TaskAgent`, common
+   fact/request/result contracts, and `AgentRunHandler`. Ordinary user work has
+   one model-facing handler; direct reply is the shortest successful path
+   through that handler.
+3. **Domain driver (its owning domain layer).** `chat/task_agent/` owns chat
+   ingress context, deterministic admission, session/run state, safe-boundary
+   input, prompt/history services, streaming, presentation, and durable
+   post-processing. It constructs the generic request through injected
+   protocols; L12 does not import chat.
 
-Seam status: **both seams are inverted & clean.** Ring 1 ↔ 2 — engine request/result contracts + `AttachmentResolverPort` (`agent/run/ports.py`, ADR-0004 P1). Ring 2 ↔ 3 — handler bundle typed against ring-2 Protocols; the **entire** chat driver (incl. `ChatExecutionCoordinator` + the run/session machine) relocated to `chat/task_agent/`; the generic ring-2 package renamed `agent/task_agents/chat/` → `agent/task_agents/handlers/`; factory wiring inverted to the composition root (ADR-0004 P2 / ADR-0003). The `agent → chat` task-agent debt is retired. *Remaining (separate concerns, not the descent):* `TimelineTaskAgent` → `timeline` (same rule, by-need); a few `agent.* → chat.workspace` consumers (a different subsystem — the agent working-context store).
+Both seams are inverted and enforced by package-boundary tests. The engine consumes
+generic request, tool, cancellation, attachment, journal, and checkpoint ports.
+The chat domain owns its transcript, session, streaming, admission, and
+post-processing services and injects them into the generic handler.
 
-Driver rule: domain drivers may choose intent, own surface state, and call the engine front door, but they must not assemble graph builders, node registries, node adapters, or sequence runners directly. Those details stay inside `agent/run/` behind `TaskAgentExecutionEngine`.
+Driver rule: a domain driver may shape domain context, apply deterministic
+admission rules, own surface state, and construct `AgentRunRequest`. It must not
+choose an ordinary semantic route or assemble an alternative model-facing
+executor. Tool use is the normal continuation of the same run.
 
-**Triggers & engine front door (ADR-0004 P3 / P4).** Every run carries a typed `RunTrigger` (`agent/run_triggers.py` — built per source: native chat → `user_message`, external channel → `external_inbound`, scheduler → `scheduled`, batch → `batch`), lifted out of chat's coordinator into a standalone, side-effect-free seam. A live chat run retains its trigger in process; detached and headless work persists the trigger on its background specification, while restarted foreground chat reconstructs it from the durable delivery envelope. L0 does not own execution recovery. The Run Engine exposes the typed `FunctionCallingOrchestrator.run(EngineRunInput)` entry, a parameter object mirroring `execute_with_tools` 1:1 (parity-locked by test). Background, worker, subagent, and non-checkpoint chat execution use it; session-bound chat function calling still applies its checkpoint boundary policy in the handler layer. That path shares the registered `RunControl`, task budget, and monotonic iteration count, but moving the policy behind the engine entry remains the unfinished part of P4. The three headless surfaces use `EngineRunInput.headless(...)`, which structurally cannot carry chat-only session/control fields. The full **driver registry** (a `RunDriver` protocol + dispatch-by-type, with batch / voice / scheduled as registered drivers, plus timeline-driver relocation) is **deferred (YAGNI)** until a *second real driver* needs polymorphic dispatch; the `RunRequest` projection (`BackgroundTaskSpec.as_run_request()`) exists but has no consumer yet.
+Every run carries a typed `RunTrigger` such as `user_message`,
+`external_inbound`, `scheduled`, or `batch`. Foreground chat keeps live control
+state in process; detached and headless work persists the request and delivery
+state required for recovery. `AgentRunRequest.headless(...)` structurally omits
+chat-only collaborators.
+
+Nested delegation uses `ChildRunCoordinator`, which creates bounded child runs
+through the same engine and records parent/child lifecycle in the run journal.
+It does not reintroduce a separate orchestration graph or a second top-level
+executor.
 
 ### L13. Timeline Domain
 

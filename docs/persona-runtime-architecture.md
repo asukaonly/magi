@@ -280,25 +280,27 @@ The plan should be traceable for debugging, but its internal reasons should not 
 
 ## Register And Trigger Classification
 
-The runtime should avoid scattered hardcoded condition checks.
+Persona classification is owned by `PersonaTurnPlanner`. It derives the current
+register, active triggers, relationship layer, and dynamic modulation from typed
+turn/runtime signals and persona configuration. It is not part of a shared
+semantic pre-router and must not emit execution profiles, tool selections,
+graph shapes, or reasoning depth.
 
-Use one central routing step. It can be implemented as either:
+This boundary avoids an extra ordinary-turn LLM call and prevents persona
+judgment from becoming an execution gate. The main model still receives the
+resulting behavior plan in its system context and decides how to answer or use
+tools inside the unified run.
 
-- an expanded `ContextDecider` / `TurnRouter` that returns both tool-routing and persona-routing fields, or
-- a lightweight `TurnProfileClassifier` called by `PersonaTurnPlanner`
+Hard clamps should be sparse, deterministic, and generic:
 
-The preferred product path is a unified router, because it avoids duplicate LLM calls and reduces disagreement between intent routing and persona routing.
-
-Hard rules should be sparse and generic:
-
-- orchestration aggregation and explore result rendering force `analysis`
-- tool execution and repository/code work prefer `task` or `analysis`
 - urgent safety or privacy risk forces `crisis`
 - explicit user instruction such as "be serious" activates a quiet-hour clamp
+- surface constraints may lower expressiveness without changing identity
 
 Everything persona-specific should come from config, not code.
 
-The classifier may inspect all configured trigger activation conditions. The final reply prompt only receives the active trigger subset selected by the planner.
+The planner may inspect all configured trigger activation conditions. The final
+reply prompt only receives the active trigger subset selected for this turn.
 
 ## Prompt Rendering Contract
 
@@ -501,9 +503,10 @@ chat. The onboarding client applies those delays locally because the desktop
 gateway buffers proxied HTTP responses. Subsequent preview turns still send the
 visible bubbles back to the model as one assistant turn.
 
-## Migration From Current Code
+## Retired Persona Surfaces
 
-The current code has these legacy surfaces that should be removed or rewritten during implementation:
+Earlier implementations used these surfaces. They are not part of the current
+persona contract and must not be reintroduced:
 
 - `state_transition_protocol` as a prompt-injected transition library
 - `scenario_prompts.db` as a separate source for scenario behavior
@@ -512,7 +515,7 @@ The current code has these legacy surfaces that should be removed or rewritten d
 - identity prompts that require false physical-human claims
 - personality generation that forces four dramatic transition protocols
 
-The replacement surfaces are:
+The current surfaces are:
 
 - `PersonaTurnPlanner` under `personality/`
 - `PersonaTurnPlan` as the L9-to-L11 contract
@@ -549,9 +552,12 @@ The replacement surfaces are:
 
 ### P4. Chat Runtime Integration
 
-- Have direct LLM, function-calling, explore rendering, and orchestration aggregation pass the right runtime signals into persona planning.
-- Force aggregation and explore rendering through `analysis` register.
-- Keep tool execution in `task` or `analysis` registers.
+- Have the unified agent run pass typed task/runtime signals into persona
+  planning without exposing execution routing fields.
+- Select `task` or `analysis` from current turn evidence and active work state,
+  not from a retired handler or graph identity.
+- Keep persona classification advisory to prompt behavior; it must not authorize
+  tools or alter completion policy.
 
 ### P5. Post-Processing Update
 

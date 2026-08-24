@@ -21,7 +21,9 @@ ownership, or module boundaries.
   This is the backend boundary and ownership source of truth.
 
 4. [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md)
-  Read this when working on bootstrap, runtime orchestration, task agents, worker execution, scheduler registration, sensor sync execution, or service and transport boundaries.
+  Read this when working on bootstrap, unified agent execution, task agents,
+  child runs, scheduler registration, sensor sync execution, or service and
+  transport boundaries.
 
 5. [Timeline Domain Architecture](./timeline-domain-architecture.md)
   Read this when working on timeline viewport assembly, clustering, state bands, insight extraction, or sensor-to-timeline data flow.
@@ -69,7 +71,9 @@ and rationale, but new temporary plans should still start in local-only
 `docs/dev/` and only graduate to the root when they become lasting reference.
 
 - [Agent Runtime Seam ADR](./agent-runtime-seam-adr.md)
-- [Context Decider Routing Redesign ADR](./contextdecider-routing-redesign-adr.md)
+- [Superseded Context Decider Routing ADR](./contextdecider-routing-redesign-adr.md)
+  Historical record of the failure mode that led to the unified runtime; it is
+  not current implementation guidance.
 - [Control Plane Extraction ADR](./control-plane-extraction-adr.md)
 - [Domain Task Agents ADR](./domain-task-agents-adr.md)
 - [Tool Taxonomy ADR](./tool-taxonomy-adr.md)
@@ -82,7 +86,7 @@ and rationale, but new temporary plans should still start in local-only
 - New contributors
   Read [Project Overview](./project-overview.md), then [Layered Agent Architecture](./layered-agent-architecture.md), then [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md).
 
-- Runtime and orchestration maintainers
+- Agent runtime maintainers
   Use [Layered Agent Architecture](./layered-agent-architecture.md) for ownership rules and [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md) for the current bootstrap and runtime wiring, including pull-sync execution and queue recovery.
 
 - Persona and prompt maintainers

@@ -74,7 +74,7 @@ the new files and finishes removing plaintext rollback artifacts.
 | `data/chat/chat.db` | chat | sessions, session-creation idempotency mappings, turns, durable root-turn execution budgets, messages, attachments, per-turn context-usage snapshots, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, context summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |
 | `data/memory/l1_events.db` | memory L1 + L1-projected chat sessions | normalized event log, embeddings, FTS, entity links |
 | `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | short-term attention checkpoints, grounded Claim/evidence/entity-reference ledgers, exact L2 projection attempts and outcomes, knowledge graph, ToM, correction history, stable context identities, summaries, procedural skills |
-| `runtime/runtime_trace.db` | runtime trace | trace turns / spans / llm calls / tools, plugin ingress events |
+| `runtime/runtime_trace.db` | runtime trace | canonical run manifests/events, versioned plans, normalized spans / llm calls / tools, plugin ingress events |
 | `runtime/llm_usage.db` | llm | per-request usage + cost telemetry, daily rollups |
 | `data/app/persona_registry.db` | personality | personas, active persona, source-linked reference dossiers for generated personas |
 | `data/memory/behavior_evolution.db` | personality | task interactions, category statistics, behavior profiles |
@@ -298,7 +298,7 @@ original visible-session count. Chat cleanup removes traces, assets, messages,
 turns, and sessions but deliberately retains the intent: the same clear also
 owns conversation mappings, delivery receipts, notification cursors, pending
 proactive outreach and its delivery log in `channels.db`, plus persisted
-orchestration payloads outside `chat.db`. The intent is deleted only after
+background execution state outside `chat.db`. The intent is deleted only after
 those stores have also been cleared.
 
 The full-memory clear boundary holds a global background admission seal,
@@ -312,7 +312,7 @@ audit history.
 Startup recovery is split across the stores. Chat recovery first finishes the
 local redaction and physical cleanup while retaining the intent. Before channel
 plugins start, the channels lifecycle sees that marker, clears channel
-conversation state and orchestration payloads, and then asks chat to complete
+conversation and outreach state, and then asks chat to complete
 the intent. External delivery remains blocked while the marker exists. This is
 an immediate crash-recovery path; it does not rely on the periodic orphan-file
 retention window.
@@ -340,13 +340,12 @@ created first. This deliberately avoids pretending that the queue and chat
 databases share one atomic transaction. Repeated stops are idempotent, while a
 completed outcome that committed first remains completed.
 
-A DEFER message remains non-terminal while it is attached to another active
-run. Exact completion of that run captures the deferred entry and clears the
-run before the message is prepared as a higher delivery attempt. Its durable
-runtime envelope and stable turn ID are reused. A transient completion
-release failure retains one in-process retry for the captured batch. A failure
-before scheduling leaves admitted or ready ledger work for startup or
-background recovery rather than relying on an L0 execution checkpoint.
+An ordinary text message received while a session run is active remains a
+durable chat turn and is attached to that exact run as pending input.
+`RunInputQueue` consumes it once at a safe model-step boundary and records the
+supersession link to the root turn. Structured interactions that require a new
+root run remain in the normal durable delivery flow. There is no persisted
+AUGMENT/STEER/DEFER semantic disposition and L0 does not own this recovery.
 
 L0 tables persist only disposable workbench projections: session metadata,
 attention items, L0-local source barriers, and temporal entity cutoffs. An
@@ -480,7 +479,7 @@ Current governed runtime cleanup:
 
 | Area | Default behavior |
 |------|------------------|
-| `runtime_trace.db` | delete raw traces, notifications, and terminal plugin ingress rows older than 7 days |
+| `runtime_trace.db` | delete run journals, run plans, normalized traces, notifications, and terminal plugin ingress rows older than 7 days |
 | `llm_usage.db` | roll up expired raw rows by day, then delete raw rows older than 7 days |
 | `message_queue.db` | roll up completed rows by hour, delete completed rows older than 24 hours, delete failed rows older than 7 days |
 | `scheduler.db` | delete success history after 30 days and failed history after 60 days |
