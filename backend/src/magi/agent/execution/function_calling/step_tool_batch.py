@@ -163,6 +163,11 @@ class FunctionCallingToolBatchExecutor:
                 iteration=iteration,
                 cancel_token=cancel_token,
             )
+            await self._apply_reasoning_depth_request(
+                state=state,
+                record=record,
+                iteration=iteration,
+            )
             records.append(record)
             terminal_outcome = await self._record_tool_execution(
                 state=state,
@@ -175,6 +180,68 @@ class FunctionCallingToolBatchExecutor:
             if terminal_outcome is not None:
                 return records, terminal_outcome
         return records, None
+
+    @staticmethod
+    async def _apply_reasoning_depth_request(
+        *,
+        state: FunctionCallingStepState,
+        record: ToolExecutionRecord,
+        iteration: int,
+    ) -> None:
+        result = record.result
+        if (
+            record.tool_call.name != "request_reasoning_depth"
+            or not result.success
+            or not isinstance(result.data, dict)
+        ):
+            return
+        reason = str(result.data.get("reason") or "task_complexity")
+        reasoning_state = state.reasoning_state
+        reasoning_policy = state.reasoning_policy
+        previous_depth = (
+            reasoning_state.effective_depth.value
+            if reasoning_state is not None
+            else None
+        )
+        approved = bool(
+            reasoning_state is not None
+            and reasoning_policy is not None
+            and reasoning_state.escalate(
+                reasoning_policy,
+                reason=f"model_request:{reason}",
+            )
+        )
+        result.data = {
+            **result.data,
+            "approved": approved,
+            "requested_depth": (
+                reasoning_state.requested_depth.value
+                if reasoning_state is not None
+                else None
+            ),
+            "maximum_depth": (
+                reasoning_policy.maximum_depth.value
+                if reasoning_policy is not None
+                else None
+            ),
+            "escalation_count": (
+                reasoning_state.escalation_count
+                if reasoning_state is not None
+                else 0
+            ),
+            "denial_reason": None if approved else "policy_or_budget_limit",
+        }
+        if approved and state.journal is not None:
+            await state.journal.append(
+                AgentRunEventType.REASONING_DEPTH_CHANGED,
+                step_index=iteration,
+                payload={
+                    "previous_depth": previous_depth,
+                    "request_source": "model",
+                    "request_reason": reason,
+                    **reasoning_state.to_dict(),
+                },
+            )
 
     async def _execute_one_tool_call(
         self,

@@ -1,7 +1,12 @@
 """Single source of truth for official core tool classes."""
 from __future__ import annotations
 
-from magi.control.tools import EnterPlanModeTool, ExitPlanModeTool, TodoWriteTool
+from magi.control.tools import (
+    EnterPlanModeTool,
+    ExitPlanModeTool,
+    RequestReasoningDepthTool,
+    TodoWriteTool,
+)
 
 from .builtin.ask_user_question_tool import AskUserQuestionTool
 from .builtin.bash_tool import BashTool
@@ -67,6 +72,7 @@ def core_tool_classes_for_os(os_name: str | None = None) -> tuple[type, ...]:
         EnterPlanModeTool,
         ExitPlanModeTool,
         TodoWriteTool,
+        RequestReasoningDepthTool,
         AskUserQuestionTool,
     )
 

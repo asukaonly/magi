@@ -11,6 +11,7 @@ def test_control_tools_importable() -> None:
     from magi.control.tools import (  # noqa: F401
         EnterPlanModeTool,
         ExitPlanModeTool,
+        RequestReasoningDepthTool,
         TodoWriteTool,
         CONTROL_TOOL_CLASSES,
     )
@@ -20,11 +21,17 @@ def test_control_tool_classes_tuple() -> None:
     from magi.control.tools import (
         EnterPlanModeTool,
         ExitPlanModeTool,
+        RequestReasoningDepthTool,
         TodoWriteTool,
         CONTROL_TOOL_CLASSES,
     )
 
-    assert CONTROL_TOOL_CLASSES == (EnterPlanModeTool, ExitPlanModeTool, TodoWriteTool)
+    assert CONTROL_TOOL_CLASSES == (
+        EnterPlanModeTool,
+        ExitPlanModeTool,
+        TodoWriteTool,
+        RequestReasoningDepthTool,
+    )
 
 
 def test_enter_plan_mode_schema_name() -> None:
