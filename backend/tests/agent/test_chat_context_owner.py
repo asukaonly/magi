@@ -118,3 +118,48 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("memory_query", request.selected_tools)
         self.assertIn("source of truth", request.system_prompt.lower())
+
+    async def test_chat_handlers_expose_unavailable_memory_without_implying_no_history(self):
+        agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+        agent._context_service.build_prompt_package = AsyncMock(  # type: ignore[attr-defined]
+            return_value=PromptPackage(
+                prompt_context=None,
+                system_prompt="owned-by-context-layer",
+                memory_availability="unavailable",
+                memory_retrieval_status="failed",
+            )
+        )
+
+        context = ChatRuntimeContext(
+            latest_fact=None,
+            recent_facts=[],
+            batch_facts=[],
+            agent_id="u-chat",
+            agent_type="chat",
+            runtime_key="chat:u-chat",
+            user_id="u-chat",
+            session_id="s-1",
+            history_key="u-chat::s-1",
+            history=[{"role": "user", "content": "你还记得昨天吗"}],
+            conversation_history=[{"role": "user", "content": "你还记得昨天吗"}],
+            recent_tool_errors=[],
+            latest_user_message="你还记得昨天吗",
+            incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+            latest_payload=GenericFactPayload(),
+        )
+        admission = TurnAdmissionDecision(
+            run_kind="unified_agent_run",
+            execution_mode=None,
+            tools=[],
+        )
+        capabilities = CapabilitySelection(tools=[], reasoning="no memory capability")
+
+        request = await agent.build_execution_request(context, admission, capabilities)
+
+        self.assertIn("Historical memory lookup is unavailable", request.system_prompt)
+        memory_source = next(
+            source for source in request.context_sources if source["provider"] == "memory"
+        )
+        self.assertEqual(memory_source["availability"], "unavailable")
+        self.assertEqual(memory_source["implicit_retrieval"], "failed")
+        self.assertEqual(memory_source["query_capability"], "unavailable")

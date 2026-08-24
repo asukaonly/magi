@@ -22,3 +22,5 @@ class PromptPackage:
     prompt_context: Any
     system_prompt: str
     recent_tool_errors_block: str = ""
+    memory_availability: str = "unknown"
+    memory_retrieval_status: str = "unknown"

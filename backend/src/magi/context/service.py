@@ -57,6 +57,7 @@ class ContextAssemblyService:
         prompt_context_assembler: PromptContextAssembler,
         prompt_context_renderer: PromptContextRenderer,
         retrieval_memory_provider,
+        retrieval_memory_availability_provider: Callable[[], bool] | None = None,
         memory=None,
         session_workspace_provider=None,
         persona_lookup: Callable[[str], Any] | None = None,
@@ -67,6 +68,9 @@ class ContextAssemblyService:
         self._prompt_context_assembler = prompt_context_assembler
         self._prompt_context_renderer = prompt_context_renderer
         self._retrieval_memory_provider = retrieval_memory_provider
+        self._retrieval_memory_availability_provider = (
+            retrieval_memory_availability_provider
+        )
         self._memory = memory
         self._session_workspace_provider = session_workspace_provider
         self._persona_lookup = persona_lookup
@@ -93,27 +97,48 @@ class ContextAssemblyService:
             user_message=user_message,
             task_category=task_category,
         )
+        memory_available = self._is_retrieval_memory_available()
+        memory_retrieval_status = "not_requested"
         resolved_workspace_path = await self._resolve_workspace_path(
             user_id=user_id,
             session_id=session_id,
             workspace_path=workspace_path,
         )
         retrieved_memory_payload = self._empty_retrieval_payload()
-        if (
+        should_retrieve = bool(
             allow_implicit_memory
             and policy.retrieve_implicit_memory
             and policy.retrieval_query
-            and self._retrieval_memory_provider is not None
-        ):
-            retrieved_memory_payload = await self._retrieval_memory_provider(
-                user_id=user_id,
-                session_id=session_id,
-                query=policy.retrieval_query,
-                task_category=task_category,
-                context_text=user_message,
-                workspace_path=resolved_workspace_path,
-                allowed_layers=policy.allowed_layers,
-            )
+        )
+        if not allow_implicit_memory:
+            memory_retrieval_status = "bypassed"
+        elif should_retrieve and not memory_available:
+            memory_retrieval_status = "unavailable"
+        elif should_retrieve:
+            try:
+                retrieved_memory_payload = await self._retrieval_memory_provider(
+                    user_id=user_id,
+                    session_id=session_id,
+                    query=policy.retrieval_query,
+                    task_category=task_category,
+                    context_text=user_message,
+                    workspace_path=resolved_workspace_path,
+                    allowed_layers=policy.allowed_layers,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Bounded prompt-memory retrieval failed",
+                    error=str(exc),
+                )
+                memory_available = False
+                memory_retrieval_status = "failed"
+                retrieved_memory_payload = self._empty_retrieval_payload()
+            else:
+                memory_retrieval_status = (
+                    "retrieved"
+                    if self._retrieval_payload_has_content(retrieved_memory_payload)
+                    else "empty"
+                )
         (
             prompt_memory,
             prompt_persona_name,
@@ -147,6 +172,8 @@ class ContextAssemblyService:
             prompt_context=prompt_context,
             system_prompt=system_prompt,
             recent_tool_errors_block=recent_tool_errors_block,
+            memory_availability="available" if memory_available else "unavailable",
+            memory_retrieval_status=memory_retrieval_status,
         )
 
     async def build_prompt_context(
@@ -354,3 +381,22 @@ class ContextAssemblyService:
             "l4_procedural_memory": [],
             "preference_memory": {},
         }
+
+    def _is_retrieval_memory_available(self) -> bool:
+        provider = self._retrieval_memory_availability_provider
+        if provider is None:
+            return self._retrieval_memory_provider is not None
+        try:
+            return bool(provider())
+        except Exception as exc:
+            logger.warning(
+                "Prompt-memory availability check failed",
+                error=str(exc),
+            )
+            return False
+
+    @staticmethod
+    def _retrieval_payload_has_content(payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        return any(bool(value) for value in payload.values())

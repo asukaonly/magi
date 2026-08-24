@@ -55,10 +55,59 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
         )
 
         retrieval_memory_provider.assert_not_awaited()
+        self.assertEqual(package.memory_availability, "available")
+        self.assertEqual(package.memory_retrieval_status, "bypassed")
         self.assertEqual(
             package.prompt_context.self_memory.retrieval_memory.l0_workbench,
             [],
         )
+
+    async def test_build_prompt_package_exposes_unavailable_memory_without_failing_turn(self):
+        service = ContextAssemblyService(
+            agent_id="chat-agent",
+            agent_type="chat",
+            prompt_context_assembler=PromptContextAssembler(),
+            prompt_context_renderer=PromptContextRenderer(),
+            memory=_FakeMemory(),
+            retrieval_memory_provider=None,
+        )
+
+        package = await service.build_prompt_package(
+            user_id="u1",
+            session_id="s1",
+            user_message="What did we discuss yesterday?",
+            task_category="chat",
+            tools=[],
+        )
+
+        self.assertEqual(package.memory_availability, "unavailable")
+        self.assertEqual(package.memory_retrieval_status, "unavailable")
+        self.assertEqual(
+            package.prompt_context.self_memory.retrieval_memory.l0_workbench,
+            [],
+        )
+
+    async def test_build_prompt_package_degrades_retrieval_failure_to_unavailable(self):
+        retrieval_memory_provider = AsyncMock(side_effect=RuntimeError("storage offline"))
+        service = ContextAssemblyService(
+            agent_id="chat-agent",
+            agent_type="chat",
+            prompt_context_assembler=PromptContextAssembler(),
+            prompt_context_renderer=PromptContextRenderer(),
+            memory=_FakeMemory(),
+            retrieval_memory_provider=retrieval_memory_provider,
+        )
+
+        package = await service.build_prompt_package(
+            user_id="u1",
+            session_id="s1",
+            user_message="What did we discuss yesterday?",
+            task_category="chat",
+            tools=[],
+        )
+
+        self.assertEqual(package.memory_availability, "unavailable")
+        self.assertEqual(package.memory_retrieval_status, "failed")
 
     async def test_build_prompt_package_uses_user_message_for_retrieval_query(self):
         retrieval_memory_provider = AsyncMock(

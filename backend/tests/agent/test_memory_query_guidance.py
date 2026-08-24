@@ -42,6 +42,7 @@ def test_memory_query_turn_guidance_stays_turn_level():
     assert "query_mode" not in block
     assert "cross_session" not in block
     assert "current_state" not in block
+    assert "not proof" in block
 
 
 # ---------------------------------------------------------------------------

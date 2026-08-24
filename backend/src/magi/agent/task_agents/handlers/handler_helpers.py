@@ -26,6 +26,17 @@ MEMORY_QUERY_GUIDANCE_BLOCK = "\n".join(
         "# Memory Query Guidance",
         "Use `memory_query` results as the source of truth for historical recall in this turn.",
         "Prefer `memory_query` before broader search tools when the user asks about prior conversations, personal facts, preferences, or historical activity.",
+        "The absence of an item from bounded prompt memory is not proof that no relevant history exists.",
+    ]
+)
+
+
+MEMORY_UNAVAILABLE_GUIDANCE_BLOCK = "\n".join(
+    [
+        "# Memory Availability",
+        "Historical memory lookup is unavailable for this turn.",
+        "Do not interpret an empty memory section as evidence that the user has no relevant history.",
+        "State the limitation instead of inventing or denying prior facts.",
     ]
 )
 

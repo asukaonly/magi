@@ -14,6 +14,12 @@ class ContextRetrievalService:
         self._unified_memory = unified_memory
         self._retrieval_service = retrieval_service
 
+    @property
+    def is_available(self) -> bool:
+        """Return whether the bounded prompt-memory source can be queried."""
+
+        return self._unified_memory is not None
+
     async def build_retrieved_memory_payload(
         self,
         *,

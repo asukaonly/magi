@@ -31,6 +31,7 @@ from ..common.service_protocols import (
 from .runtime_control import FunctionCallingRuntimeControlMixin
 from .handler_helpers import (
     MEMORY_QUERY_GUIDANCE_BLOCK,
+    MEMORY_UNAVAILABLE_GUIDANCE_BLOCK,
     build_attachment_preparation_guidance_block as _build_attachment_preparation_guidance_block,
     build_scope_guidance_block as _build_scope_guidance_block,
     resolve_execution_workspace as _resolve_execution_workspace,
@@ -83,20 +84,32 @@ def _inline_skill_preapproval_rules(
 def _build_context_sources(
     request: ExecutionRequest,
     prompt_context: Any,
+    *,
+    memory_availability: str = "unknown",
+    memory_retrieval_status: str = "unknown",
 ) -> tuple[dict[str, Any], ...]:
     """Snapshot bounded context owners represented in the effective prompt."""
 
     sources: list[dict[str, Any]] = []
     self_memory = getattr(prompt_context, "self_memory", None)
     retrieval = getattr(self_memory, "retrieval_memory", None)
-    if retrieval is not None:
-        sources.append(
-            {
-                "provider": "memory",
-                "snapshot": asdict(retrieval) if is_dataclass(retrieval) else {},
-                "availability": "available",
-            }
-        )
+    memory_query_available = "memory_query" in request.capabilities.tools
+    resolved_memory_availability = (
+        "available"
+        if memory_query_available or memory_availability == "available"
+        else memory_availability
+    )
+    sources.append(
+        {
+            "provider": "memory",
+            "snapshot": asdict(retrieval) if is_dataclass(retrieval) else {},
+            "availability": resolved_memory_availability,
+            "implicit_retrieval": memory_retrieval_status,
+            "query_capability": (
+                "available" if memory_query_available else "unavailable"
+            ),
+        }
+    )
     persona_plan = getattr(self_memory, "persona_turn_plan", None)
     if persona_plan is not None:
         sources.append(
@@ -210,6 +223,9 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             request=request,
             system_prompt=prompt_package.system_prompt,
             selected_tools=selected_tools,
+            memory_availability=str(
+                getattr(prompt_package, "memory_availability", "unknown")
+            ),
         )
         system_prompt = self._deps.prompt_service.augment_system_prompt_with_reply_context(
             system_prompt=system_prompt,
@@ -225,7 +241,16 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
         )
         if first_context_guidance:
             system_prompt = f"{system_prompt}\n\n{first_context_guidance}"
-        context_sources = _build_context_sources(request, prompt_package.prompt_context)
+        context_sources = _build_context_sources(
+            request,
+            prompt_package.prompt_context,
+            memory_availability=str(
+                getattr(prompt_package, "memory_availability", "unknown")
+            ),
+            memory_retrieval_status=str(
+                getattr(prompt_package, "memory_retrieval_status", "unknown")
+            ),
+        )
         return PreparedAgentRunRequest(
             mode=request.mode,
             context=request.context,
@@ -265,11 +290,14 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
         request: ExecutionRequest,
         system_prompt: str,
         selected_tools: list[str],
+        memory_availability: str = "unknown",
     ) -> tuple[str, list[str]]:
         if "memory_query" in selected_tools:
             # Keep retrieval observations verbatim whenever the resident
             # memory capability is exposed to the model.
             system_prompt = f"{system_prompt}\n\n{MEMORY_QUERY_GUIDANCE_BLOCK}"
+        elif memory_availability == "unavailable":
+            system_prompt = f"{system_prompt}\n\n{MEMORY_UNAVAILABLE_GUIDANCE_BLOCK}"
 
         scope_guidance_block = _build_scope_guidance_block(
             getattr(request.capabilities, "task_hint", None)

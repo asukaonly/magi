@@ -107,6 +107,7 @@ def _build_context_service(
         prompt_context_assembler=prompt_context_assembler,
         prompt_context_renderer=prompt_context_renderer,
         retrieval_memory_provider=context_retrieval_service.build_retrieved_memory_payload,
+        retrieval_memory_availability_provider=lambda: context_retrieval_service.is_available,
         memory=config.memory,
         session_workspace_provider=callbacks.session_workspace_provider,
     )
